@@ -422,3 +422,22 @@ def test_proposal_robust_pareto_save_reopen_reresolves_exact_authorities(
         match='robustness evaluation disappeared',
     ):
         reopened.get(result.evaluation_id)
+
+
+def test_proposal_robust_pareto_rejects_extra_robustness_candidate_map_entry() -> None:
+    topology, bundles, specs, evaluations, selection = _fixture()
+    extra = dict(evaluations)
+    extra['variant-ineligible'] = evaluations['variant-a']
+
+    with pytest.raises(
+        ValueError,
+        match='robustness evaluation map must equal O100D eligible candidate set',
+    ):
+        build_proposal_robust_pareto_evaluation(
+            topology_evaluation=topology,
+            bundles=bundles,
+            robustness_specs=specs,
+            robustness_evaluations=extra,
+            selection=selection,
+            created_at_utc=NOW,
+        )
