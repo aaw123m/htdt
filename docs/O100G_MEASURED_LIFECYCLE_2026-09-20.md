@@ -58,6 +58,8 @@ Each measurement evidence binding records exact:
 - dataset id and canonical dataset SHA-256;
 - raw asset SHA-256;
 - MeasurementQualityReport id/hash;
+- explicit AcquisitionContext id/hash;
+- the exact quality capability claims whose decision is ALLOWED;
 - measurement entity id;
 - channel role;
 - source speaker ids;
@@ -77,7 +79,14 @@ The existing repositories remain authoritative for:
 
 ## Quality semantics
 
-The existence of a measured lifecycle record does not imply that every quality capability is ALLOWED.
+Measured lifecycle promotion requires:
+
+- an explicit acquisition context on every bound quality report;
+- at least one quality capability with decision `ALLOWED`.
+
+The exact ALLOWED capability set is persisted in the measurement evidence ref.
+
+This still does not imply that every quality capability is ALLOWED.
 
 For example:
 
@@ -122,7 +131,9 @@ If a later selected measurement should represent the system, create a new measur
 5. save/reopen re-resolves exact measurement and quality authorities;
 6. measurement from a different SceneRevision is rejected;
 7. derived evidence cannot become measured lifecycle evidence;
-8. baseline-only measurement can bind configuration evidence without promoting proposed entities.
+8. explicit acquisition context is required;
+9. at least one ALLOWED quality capability is required and the exact allowed set is persisted;
+10. baseline-only measurement can bind configuration evidence without promoting proposed entities.
 
 ## Deferred
 
