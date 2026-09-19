@@ -210,20 +210,18 @@ class ProposalRobustnessSpec(BaseModel):
     objective_contract_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     axes: tuple[UncertaintyAxis, ...] = Field(min_length=1)
+    sampling_strategy: Literal[
+        'deterministic_local_stencil'
+    ] = 'deterministic_local_stencil'
+    algorithm_version: Literal[
+        'o90a-local-stencil-1'
+    ] = ROBUSTNESS_ALGORITHM_VERSION
     software_version: str = Field(min_length=1)
     created_at_utc: str = Field(min_length=1)
 
     @property
     def candidate_id(self) -> str:
         return self.candidate_variant_id
-
-    @property
-    def sampling_strategy(self) -> str:
-        return 'deterministic_local_stencil'
-
-    @property
-    def algorithm_version(self) -> str:
-        return ROBUSTNESS_ALGORITHM_VERSION
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'ProposalRobustnessSpec':
@@ -247,7 +245,11 @@ class ProposalRobustnessSpec(BaseModel):
     def semantic_payload(self) -> dict[str, Any]:
         return self.model_dump(
             mode='json',
-            exclude={'robustness_spec_id', 'robustness_spec_sha256'},
+            exclude={
+                'robustness_spec_id',
+                'robustness_spec_sha256',
+                'created_at_utc',
+            },
         )
 
 
@@ -502,8 +504,9 @@ def build_proposal_robustness_spec(
         'objective_ids': list(objectives),
         'objective_contract_sha256': contract_sha,
         'axes': [item.model_dump(mode='json') for item in ordered_axes],
+        'sampling_strategy': 'deterministic_local_stencil',
+        'algorithm_version': ROBUSTNESS_ALGORITHM_VERSION,
         'software_version': software_version,
-        'created_at_utc': created_at_utc,
     }
     digest = canonical_robustness_sha256(core)
     return ProposalRobustnessSpec(
@@ -529,6 +532,8 @@ def build_proposal_robustness_spec(
         objective_ids=objectives,
         objective_contract_sha256=contract_sha,
         axes=ordered_axes,
+        sampling_strategy='deterministic_local_stencil',
+        algorithm_version=ROBUSTNESS_ALGORITHM_VERSION,
         software_version=software_version,
         created_at_utc=created_at_utc,
     )
