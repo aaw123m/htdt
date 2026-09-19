@@ -15,7 +15,9 @@ from htdt.cad_proposal_robustness import (
     ProposalObjectiveEvidenceBinding,
     ProposalPerturbationObjectiveResult,
     build_proposal_robustness_spec,
+    derive_proposal_multidimensional_robustness_spec,
     evaluate_proposal_local_robustness,
+    evaluate_proposal_multidimensional_robustness,
 )
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
@@ -53,7 +55,10 @@ from htdt.optimization_objectives import (
     ObjectiveValidDomain,
     ObjectiveVector,
 )
-from htdt.optimization_robustness import UncertaintyAxis
+from htdt.optimization_robustness import (
+    LinkedPerturbationGroup,
+    UncertaintyAxis,
+)
 
 
 NOW = '2026-09-20T00:00:00+00:00'
@@ -535,3 +540,159 @@ def test_proposal_robustness_save_reopen_reresolves_exact_lineage(
         match='external authority does not exist',
     ):
         reopened.list_samples(fx['spec'].robustness_spec_id)
+
+
+def _execute_multidimensional(fx):
+    child = derive_proposal_multidimensional_robustness_spec(
+        fx['spec'],
+        sample_count=5,
+        seed=71656,
+        linked_groups=(
+            LinkedPerturbationGroup(
+                group_id='orientation-link',
+                axis_multipliers={
+                    'aim-yaw': 1.0,
+                    'body-yaw': 1.0,
+                },
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    refs: dict[str, ExactAuthorityRef] = {}
+
+    def evaluator(document: SceneDocument, sample_id: str):
+        speaker = document.entity(SPEAKER_ID)
+        value = (
+            2.0
+            + abs(float(speaker.position.x_m) - 1.0)
+            + abs(float(speaker.body_yaw_deg or 0.0)) / 100.0
+        )
+        ref = _source_ref(f'multidimensional:{sample_id}')
+        refs[ref.authority_id] = ref
+        return ProposalPerturbationObjectiveResult(
+            objective_vector=ObjectiveVector(
+                candidate_id=sample_id,
+                metrics=(
+                    ObjectiveMetric(
+                        objective_id=OBJECTIVE_ID,
+                        value=value,
+                        unit='dB',
+                        direction='minimize',
+                        definition=_definition(),
+                    ),
+                ),
+            ),
+            objective_evidence=(
+                ProposalObjectiveEvidenceBinding(
+                    objective_id=OBJECTIVE_ID,
+                    result_ref=ref,
+                ),
+            ),
+        )
+
+    samples, evaluations = evaluate_proposal_multidimensional_robustness(
+        baseline=fx['baseline'],
+        template_variant=fx['template'],
+        candidate_variant=fx['candidate_variant'],
+        topology_spec=fx['search'],
+        topology_candidate=fx['candidate'],
+        candidate_set_sha256=fx['candidate_page'].candidate_set_sha256,
+        spec=child,
+        parent_spec=fx['spec'],
+        constraint_set=fx['constraint_set'],
+        nominal_bundle=fx['bundle'],
+        evaluator=evaluator,
+        created_at_utc=NOW,
+    )
+    return child, refs, samples, evaluations
+
+
+def test_proposal_multidimensional_reuses_o90b_sampling_and_envelope(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    child, refs, samples, evaluations = _execute_multidimensional(fx)
+
+    assert child.parent_robustness_spec_id == fx['spec'].robustness_spec_id
+    assert child.sample_count == 5
+    assert len(samples) == 5
+    assert samples[0].step == 'nominal'
+    assert samples[1].step == 'multidimensional'
+    assert samples[2].step == 'multidimensional'
+    assert not samples[1].feasible
+    assert not samples[2].feasible
+    assert samples[1].objective_vector is None
+    assert samples[2].objective_vector is None
+
+    assert len(evaluations) == 1
+    evaluation = evaluations[0]
+    assert evaluation.objective_id == OBJECTIVE_ID
+    assert evaluation.sampled_envelope is not None
+    assert evaluation.feasible_fraction is not None
+    assert 0.0 < evaluation.feasible_fraction < 1.0
+    assert evaluation.percentile_semantics == 'not_available_bounded_interval'
+    assert evaluation.sampling_provenance_sha256 is not None
+    assert set(evaluation.infeasible_sample_ids).issuperset(
+        {samples[1].sample_id, samples[2].sample_id}
+    )
+    assert refs
+
+    latest = fx['scene_repository'].latest(DOCUMENT_ID)
+    assert latest is not None
+    assert latest.revision_id == fx['baseline'].revision_id
+    with pytest.raises(KeyError):
+        latest.document.entity(SPEAKER_ID)
+
+
+def test_proposal_multidimensional_save_reopen_requires_parent_and_exact_results(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    child, refs, samples, evaluations = _execute_multidimensional(fx)
+
+    def resolve(authority_id: str):
+        return refs.get(authority_id)
+
+    repository = CadProposalRobustnessRepository(
+        scene_repository=fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        topology_repository=fx['topology_repository'],
+        bundle_resolver=_BundleResolver(
+            fx['scene_repository'].path,
+            fx['bundle'],
+        ),
+        external_resolvers={'fixture_prediction': resolve},
+    )
+    with pytest.raises(
+        ValueError,
+        match='requires persisted local parent',
+    ):
+        repository.save_spec(child)
+
+    repository.save_spec(fx['spec'])
+    repository.save_spec(child)
+    repository.save_samples(samples)
+    repository.save_evaluations(evaluations)
+
+    reopened_scene = SceneRepository(fx['scene_repository'].path)
+    reopened_variants = CadSystemVariantRepository(reopened_scene)
+    reopened_topology = CadTopologySearchRepository(reopened_variants)
+    reopened = CadProposalRobustnessRepository(
+        scene_repository=reopened_scene,
+        variant_repository=reopened_variants,
+        topology_repository=reopened_topology,
+        bundle_resolver=_BundleResolver(reopened_scene.path, fx['bundle']),
+        external_resolvers={'fixture_prediction': resolve},
+    )
+
+    assert reopened.get_spec(child.robustness_spec_id) == child
+    assert reopened.list_samples(child.robustness_spec_id) == samples
+    assert reopened.list_evaluations(child.robustness_spec_id) == evaluations
+
+    stale_id = next(iter(refs))
+    refs.pop(stale_id)
+    with pytest.raises(
+        ValueError,
+        match='external authority does not exist',
+    ):
+        reopened.list_samples(child.robustness_spec_id)
