@@ -543,8 +543,27 @@ def test_proposal_robustness_save_reopen_reresolves_exact_lineage(
 
 
 def _execute_multidimensional(fx):
+    multidimensional_axes = tuple(
+        axis.model_copy(update={'plus_delta': 0.2})
+        if axis.axis_id == 'speaker-x'
+        else axis
+        for axis in fx['spec'].axes
+    )
+    parent = build_proposal_robustness_spec(
+        baseline=fx['baseline'],
+        template_variant=fx['template'],
+        candidate_variant=fx['candidate_variant'],
+        topology_spec=fx['search'],
+        topology_candidate=fx['candidate'],
+        candidate_set_sha256=fx['candidate_page'].candidate_set_sha256,
+        nominal_bundle=fx['bundle'],
+        objective_ids=(OBJECTIVE_ID,),
+        axes=multidimensional_axes,
+        software_version='fixture-multidimensional-1',
+        created_at_utc=NOW,
+    )
     child = derive_proposal_multidimensional_robustness_spec(
-        fx['spec'],
+        parent,
         sample_count=5,
         seed=71656,
         linked_groups=(
@@ -594,31 +613,31 @@ def _execute_multidimensional(fx):
         topology_candidate=fx['candidate'],
         candidate_set_sha256=fx['candidate_page'].candidate_set_sha256,
         spec=child,
-        parent_spec=fx['spec'],
+        parent_spec=parent,
         constraint_set=fx['constraint_set'],
         nominal_bundle=fx['bundle'],
         evaluator=evaluator,
         created_at_utc=NOW,
     )
-    return child, refs, samples, evaluations
+    return parent, child, refs, samples, evaluations
 
 
 def test_proposal_multidimensional_reuses_o90b_sampling_and_envelope(
     tmp_path: Path,
 ) -> None:
     fx = _fixture(tmp_path)
-    child, refs, samples, evaluations = _execute_multidimensional(fx)
+    parent, child, refs, samples, evaluations = _execute_multidimensional(fx)
 
-    assert child.parent_robustness_spec_id == fx['spec'].robustness_spec_id
+    assert child.parent_robustness_spec_id == parent.robustness_spec_id
     assert child.sample_count == 5
     assert len(samples) == 5
     assert samples[0].step == 'nominal'
     assert samples[1].step == 'multidimensional'
     assert samples[2].step == 'multidimensional'
     assert not samples[1].feasible
-    assert not samples[2].feasible
+    assert samples[2].feasible
     assert samples[1].objective_vector is None
-    assert samples[2].objective_vector is None
+    assert samples[2].objective_vector is not None
 
     assert len(evaluations) == 1
     evaluation = evaluations[0]
@@ -629,7 +648,7 @@ def test_proposal_multidimensional_reuses_o90b_sampling_and_envelope(
     assert evaluation.percentile_semantics == 'not_available_bounded_interval'
     assert evaluation.sampling_provenance_sha256 is not None
     assert set(evaluation.infeasible_sample_ids).issuperset(
-        {samples[1].sample_id, samples[2].sample_id}
+        {samples[1].sample_id}
     )
     assert refs
 
@@ -644,7 +663,7 @@ def test_proposal_multidimensional_save_reopen_requires_parent_and_exact_results
     tmp_path: Path,
 ) -> None:
     fx = _fixture(tmp_path)
-    child, refs, samples, evaluations = _execute_multidimensional(fx)
+    parent, child, refs, samples, evaluations = _execute_multidimensional(fx)
 
     def resolve(authority_id: str):
         return refs.get(authority_id)
@@ -665,7 +684,7 @@ def test_proposal_multidimensional_save_reopen_requires_parent_and_exact_results
     ):
         repository.save_spec(child)
 
-    repository.save_spec(fx['spec'])
+    repository.save_spec(parent)
     repository.save_spec(child)
     repository.save_samples(samples)
     repository.save_evaluations(evaluations)
