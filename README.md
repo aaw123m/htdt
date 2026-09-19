@@ -2,6 +2,14 @@
 
 HTDTは、Windows上で**部屋・ホームシアター配置・測定・予測・最適化を一つの3D空間モデルへ統合するnative desktop digital twin**です。
 
+## North Star Architecture Principle
+
+HTDTは、source-neutralなreal-room evidence、実機equipment/directivity/playback-chain authority、acoustic treatment、measurement evidenceを、immutable SceneRevision とexplicit provenanceによって**一つのrevisioned Digital Twin**へ統合します。
+
+raw visual evidence、semantic acoustic authority、compiled/solver representation、predicted result、measured evidence、derived result、hypothesisは別authorityとして扱い、unknown/unsupportedを暗黙補完しません。current / proposed / as-built / measured lifecycleを飛び越えず、SystemVariant比較は同一Digital Twin上のexact authority comparisonとして行います。
+
+最上位の設計原則とauthority flowは [docs/ARCHITECTURE_PRINCIPLES.md](docs/ARCHITECTURE_PRINCIPLES.md) を正本とします。実装済み/未実装の状態は同文書ではなく [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) と [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) を参照します。
+
 ## 現在の製品状態
 
 stable personal Windows releaseは **0.1.0** です。
@@ -168,6 +176,7 @@ native stable releaseのcorrectnessはfrontend buildへ依存しません。
 
 | 文書 | 内容 |
 |---|---|
+| [ARCHITECTURE_PRINCIPLES.md](docs/ARCHITECTURE_PRINCIPLES.md) | **North Star Architecture Principle / authority flowの正本** |
 | [IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | **実装順・milestone・受入条件の正本** |
 | [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) | main / branch / accepted gate / 未検証の実装事実 |
 | [N90_ACCEPTANCE_2026-09-18.md](docs/N90_ACCEPTANCE_2026-09-18.md) | stable 0.1.0 / A15 Windows受入 |
