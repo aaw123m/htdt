@@ -928,6 +928,36 @@ def evaluate_proposal_local_robustness(
     return tuple(samples), evaluations
 
 
+def _proposal_multidimensional_provenance(
+    spec: ProposalMultidimensionalRobustnessSpec,
+    samples: Sequence[ProposalPerturbationSample],
+) -> dict[str, Any]:
+    return {
+        'robustness_spec_id': spec.robustness_spec_id,
+        'robustness_spec_sha256': spec.robustness_spec_sha256,
+        'parent_robustness_spec_id': spec.parent_robustness_spec_id,
+        'parent_robustness_spec_sha256': spec.parent_robustness_spec_sha256,
+        'sampling_strategy': spec.sampling_strategy,
+        'algorithm_version': spec.algorithm_version,
+        'sampling_seed': spec.sampling_seed,
+        'sample_count': spec.sample_count,
+        'linked_groups': [
+            item.model_dump(mode='json') for item in spec.linked_groups
+        ],
+        'sample_ids': [item.sample_id for item in samples],
+        'candidate_variant_id': spec.candidate_variant_id,
+        'candidate_variant_sha256': spec.candidate_variant_sha256,
+        'topology_search_id': spec.topology_search_id,
+        'topology_search_sha256': spec.topology_search_sha256,
+        'topology_candidate_id': spec.topology_candidate_id,
+        'topology_candidate_sha256': spec.topology_candidate_sha256,
+        'candidate_set_sha256': spec.candidate_set_sha256,
+        'nominal_bundle_id': spec.nominal_bundle_id,
+        'nominal_bundle_sha256': spec.nominal_bundle_sha256,
+        'objective_contract_sha256': spec.objective_contract_sha256,
+    }
+
+
 def evaluate_proposal_multidimensional_robustness(
     *,
     baseline: SceneRevision,
@@ -1071,30 +1101,7 @@ def evaluate_proposal_multidimensional_robustness(
             )
         )
 
-    provenance = {
-        'robustness_spec_id': spec.robustness_spec_id,
-        'robustness_spec_sha256': spec.robustness_spec_sha256,
-        'parent_robustness_spec_id': spec.parent_robustness_spec_id,
-        'parent_robustness_spec_sha256': spec.parent_robustness_spec_sha256,
-        'sampling_strategy': spec.sampling_strategy,
-        'algorithm_version': spec.algorithm_version,
-        'sampling_seed': spec.sampling_seed,
-        'sample_count': spec.sample_count,
-        'linked_groups': [
-            item.model_dump(mode='json') for item in spec.linked_groups
-        ],
-        'sample_ids': [item.sample_id for item in samples],
-        'candidate_variant_id': spec.candidate_variant_id,
-        'candidate_variant_sha256': spec.candidate_variant_sha256,
-        'topology_search_id': spec.topology_search_id,
-        'topology_search_sha256': spec.topology_search_sha256,
-        'topology_candidate_id': spec.topology_candidate_id,
-        'topology_candidate_sha256': spec.topology_candidate_sha256,
-        'candidate_set_sha256': spec.candidate_set_sha256,
-        'nominal_bundle_id': spec.nominal_bundle_id,
-        'nominal_bundle_sha256': spec.nominal_bundle_sha256,
-        'objective_contract_sha256': spec.objective_contract_sha256,
-    }
+    provenance = _proposal_multidimensional_provenance(spec, samples)
     evaluations = build_multidimensional_evaluations_from_provenance(
         robustness_spec_id=spec.robustness_spec_id,
         robustness_spec_sha256=spec.robustness_spec_sha256,
@@ -1291,11 +1298,27 @@ class CadProposalRobustnessRepository:
             )
         return baseline, template, candidate_variant, topology_spec, candidate, bundle
 
+    @staticmethod
+    def _parse_spec_json(payload_json: str) -> ProposalRobustnessAuthority:
+        decoded = json.loads(payload_json)
+        strategy = decoded.get('sampling_strategy')
+        if strategy == MULTIDIMENSIONAL_SAMPLING_STRATEGY:
+            return ProposalMultidimensionalRobustnessSpec.model_validate(decoded)
+        return ProposalRobustnessSpec.model_validate(decoded)
+
     def _validate_spec(
         self,
-        spec: ProposalRobustnessSpec,
-    ) -> ProposalRobustnessSpec:
-        spec = ProposalRobustnessSpec.model_validate(spec.model_dump(mode='python'))
+        spec: ProposalRobustnessAuthority,
+    ) -> ProposalRobustnessAuthority:
+        if isinstance(spec, ProposalMultidimensionalRobustnessSpec):
+            spec = ProposalMultidimensionalRobustnessSpec.model_validate(
+                spec.model_dump(mode='python')
+            )
+        else:
+            spec = ProposalRobustnessSpec.model_validate(
+                spec.model_dump(mode='python')
+            )
+
         (
             baseline,
             template,
@@ -1304,19 +1327,39 @@ class CadProposalRobustnessRepository:
             candidate,
             bundle,
         ) = self._resolve_spec_authorities(spec)
-        rebuilt = build_proposal_robustness_spec(
-            baseline=baseline,
-            template_variant=template,
-            candidate_variant=candidate_variant,
-            topology_spec=topology_spec,
-            topology_candidate=candidate,
-            candidate_set_sha256=spec.candidate_set_sha256,
-            nominal_bundle=bundle,
-            objective_ids=spec.objective_ids,
-            axes=spec.axes,
-            software_version=spec.software_version,
-            created_at_utc=spec.created_at_utc,
-        )
+
+        if isinstance(spec, ProposalMultidimensionalRobustnessSpec):
+            parent = self.get_spec(spec.parent_robustness_spec_id)
+            if type(parent) is not ProposalRobustnessSpec:
+                raise ValueError(
+                    'proposal multidimensional spec requires persisted local parent'
+                )
+            assert parent is not None
+            if parent.robustness_spec_sha256 != spec.parent_robustness_spec_sha256:
+                raise ValueError(
+                    'proposal multidimensional parent robustness hash mismatch'
+                )
+            rebuilt = derive_proposal_multidimensional_robustness_spec(
+                parent,
+                sample_count=spec.sample_count,
+                seed=spec.sampling_seed,
+                linked_groups=spec.linked_groups,
+                created_at_utc=spec.created_at_utc,
+            )
+        else:
+            rebuilt = build_proposal_robustness_spec(
+                baseline=baseline,
+                template_variant=template,
+                candidate_variant=candidate_variant,
+                topology_spec=topology_spec,
+                topology_candidate=candidate,
+                candidate_set_sha256=spec.candidate_set_sha256,
+                nominal_bundle=bundle,
+                objective_ids=spec.objective_ids,
+                axes=spec.axes,
+                software_version=spec.software_version,
+                created_at_utc=spec.created_at_utc,
+            )
         if rebuilt != spec:
             raise ValueError(
                 'proposal robustness spec does not reproduce from persisted authorities'
@@ -1325,8 +1368,8 @@ class CadProposalRobustnessRepository:
 
     def save_spec(
         self,
-        spec: ProposalRobustnessSpec,
-    ) -> ProposalRobustnessSpec:
+        spec: ProposalRobustnessAuthority,
+    ) -> ProposalRobustnessAuthority:
         spec = self._validate_spec(spec)
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -1338,9 +1381,7 @@ class CadProposalRobustnessRepository:
                 (spec.robustness_spec_id,),
             ).fetchone()
             if row is not None:
-                persisted = ProposalRobustnessSpec.model_validate_json(
-                    row['payload_json']
-                )
+                persisted = self._parse_spec_json(row['payload_json'])
                 if persisted != spec:
                     raise ValueError(
                         'ProposalRobustnessSpec id exists with different semantics'
@@ -1377,7 +1418,7 @@ class CadProposalRobustnessRepository:
     def get_spec(
         self,
         robustness_spec_id: str,
-    ) -> ProposalRobustnessSpec | None:
+    ) -> ProposalRobustnessAuthority | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
@@ -1389,9 +1430,7 @@ class CadProposalRobustnessRepository:
             ).fetchone()
         if row is None:
             return None
-        return self._validate_spec(
-            ProposalRobustnessSpec.model_validate_json(row['payload_json'])
-        )
+        return self._validate_spec(self._parse_spec_json(row['payload_json']))
 
     def _validate_sample(
         self,
@@ -1410,15 +1449,25 @@ class CadProposalRobustnessRepository:
         ):
             raise ValueError('proposal sample robustness authority mismatch')
 
-        plans = build_local_stencil(spec)
-        if sample.sample_index >= len(plans) or plans[sample.sample_index] != LocalPerturbation(
-            sample_id=sample.sample_id,
-            sample_index=sample.sample_index,
-            axis_id=sample.axis_id,
-            step=sample.step,
-            parameter_deltas=sample.parameter_deltas,
+        plans = (
+            build_multidimensional_sampling_plan(spec)
+            if isinstance(spec, ProposalMultidimensionalRobustnessSpec)
+            else build_local_stencil(spec)
+        )
+        if (
+            sample.sample_index >= len(plans)
+            or plans[sample.sample_index]
+            != LocalPerturbation(
+                sample_id=sample.sample_id,
+                sample_index=sample.sample_index,
+                axis_id=sample.axis_id,
+                step=sample.step,
+                parameter_deltas=sample.parameter_deltas,
+            )
         ):
-            raise ValueError('proposal sample does not match deterministic local stencil')
+            raise ValueError(
+                'proposal sample does not match deterministic sampling plan'
+            )
 
         *_, bundle = self._resolve_spec_authorities(spec)
         if sample.objective_vector is not None:
@@ -1542,11 +1591,26 @@ class CadProposalRobustnessRepository:
                 'proposal robustness evaluation authority mismatch'
             )
         samples = self.list_samples(spec.robustness_spec_id)
-        regenerated = build_robustness_evaluations(
-            spec,
-            samples,
-            created_at_utc=evaluation.created_at_utc,
-        )
+        if isinstance(spec, ProposalMultidimensionalRobustnessSpec):
+            plans = build_multidimensional_sampling_plan(spec)
+            regenerated = build_multidimensional_evaluations_from_provenance(
+                robustness_spec_id=spec.robustness_spec_id,
+                robustness_spec_sha256=spec.robustness_spec_sha256,
+                candidate_id=spec.candidate_id,
+                expected_sample_ids=tuple(item.sample_id for item in plans),
+                samples=samples,
+                sampling_provenance=_proposal_multidimensional_provenance(
+                    spec,
+                    samples,
+                ),
+                created_at_utc=evaluation.created_at_utc,
+            )
+        else:
+            regenerated = build_robustness_evaluations(
+                spec,
+                samples,
+                created_at_utc=evaluation.created_at_utc,
+            )
         match = next(
             (
                 item
