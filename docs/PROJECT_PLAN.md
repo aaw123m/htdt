@@ -12,6 +12,14 @@ Room/Placementでは大きなviewportを中心に、mouseで壁を描き、ス�
 
 成功は「見た目が3D」だけではなく、**どこで何をできるかを初見で理解できること**、部屋と配置を迷わず作れ、誤操作を戻せ、保存した条件に対する測定・比較を再現できること。「概要」は次に行う作業とblockerを示し、「部屋 / 測定 / 最適化」の少数workspaceへdeep-linkする。UIはdark-firstで、contentをchromeより優先し、直接操作・即時feedback・一貫したsurface hierarchy・限定的なaccent・目的のある短いmotionを共通原則とする。Room 3Dもdark appearanceとし、neutral lighting、低contrast grid、明確なselection、整理されたoverlayで空間理解を優先する。最適配置は制約・複数目的・モデルの適用範囲を伴う候補として扱い、シミュレーションだけで音質を断定しない。O90では、nominal性能だけでなくspeaker/seat位置やaim等の現実的な設置誤差に対する感度・性能分布・feasible fractionを独立objectiveとして扱い、施工誤差に強い候補とのtrade-offをParetoで比較する。O100ではさらに、**現在存在しないSL/SR等を仮想speakerとして追加し、channel topology・機種/source model・配置可能範囲そのものを設計変数にする**。3.0.2 baselineを保持したまま5.0.2等のproposalを比較し、選択案はAs-built/Measuredへappend-onlyで移行する。
 
+## 1.1 North Star Architecture Principle
+
+製品・authority・solver・measurement workflow・system comparisonの最上位設計原則は [ARCHITECTURE_PRINCIPLES](ARCHITECTURE_PRINCIPLES.md) を正本とする。
+
+HTDTは、LiDAR等の単一sourceをtruth sourceへ固定せず、real-room evidenceをsource-neutralに扱う。raw evidence → semantic authority → compiled/solver representation → resultを分離し、equipment/directivity/playback chain、treatment、measurement evidenceをexact SceneRevision / SystemVariant lineageへ統合する。current / proposed / as-built / measuredを自動昇格せず、measured / predicted / derived / hypothesisを混同しない。
+
+同じ仕様を本計画へ重複定義せず、現在の実装事実は [IMPLEMENTATION_STATUS](IMPLEMENTATION_STATUS.md)、実装順・gateは [IMPLEMENTATION_ROADMAP](IMPLEMENTATION_ROADMAP.md) を参照する。
+
 ## 2. 利用条件
 
 | 条件 | 方針 |
