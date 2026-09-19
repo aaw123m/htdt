@@ -245,6 +245,11 @@ def build_proposal_robust_pareto_evaluation(
         raise ValueError(
             'proposal robust Pareto robustness specs must equal eligible set'
         )
+    if set(robustness_evaluations) != set(eligible_ids):
+        raise ValueError(
+            'proposal robust Pareto robustness evaluation map must equal '
+            'O100D eligible candidate set'
+        )
 
     candidate_refs: list[ProposalRobustCandidateRef] = []
     pareto_inputs: list[
