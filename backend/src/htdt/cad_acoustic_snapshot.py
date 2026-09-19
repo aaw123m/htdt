@@ -18,6 +18,7 @@ from .cad_scene import (
     acoustic_reference_position,
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
+from .cad_wave_excitation import WaveSourceExcitationBinding
 from .r120_geometry_compiler import (
     ExactExternalAuthorityRef,
     R120CompiledGeometry,
@@ -31,13 +32,16 @@ from .treatment_boundary_overlay import (
 )
 
 
-ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION = 2
-ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION = '2'
+ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION = 3
+ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION = '3'
 ACOUSTIC_SCENE_SNAPSHOT_COMPILER_ID = 'htdt.acoustic_scene_snapshot'
-ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION = '2'
+ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION = '3'
 ACOUSTIC_SCENE_SNAPSHOT_V1_SCHEMA_VERSION = 1
 ACOUSTIC_SCENE_SNAPSHOT_V1_AUTHORITY_VERSION = '1'
 ACOUSTIC_SCENE_SNAPSHOT_V1_COMPILER_VERSION = '1'
+ACOUSTIC_SCENE_SNAPSHOT_V2_SCHEMA_VERSION = 2
+ACOUSTIC_SCENE_SNAPSHOT_V2_AUTHORITY_VERSION = '2'
+ACOUSTIC_SCENE_SNAPSHOT_V2_COMPILER_VERSION = '2'
 ACOUSTIC_PREDICTION_REQUEST_SCHEMA_VERSION = 1
 
 KnownObservable = Literal[
@@ -312,12 +316,12 @@ class AcousticSceneReadiness(BaseModel):
 class AcousticSceneSnapshot(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_version: Literal[1, 2] = ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
-    authority_version: Literal['1', '2'] = ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION
+    schema_version: Literal[1, 2, 3] = ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
+    authority_version: Literal['1', '2', '3'] = ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION
     compiler_id: Literal[
         'htdt.acoustic_scene_snapshot'
     ] = ACOUSTIC_SCENE_SNAPSHOT_COMPILER_ID
-    compiler_version: Literal['1', '2'] = ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION
+    compiler_version: Literal['1', '2', '3'] = ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION
 
     snapshot_id: str = Field(pattern=r'^acoustic-scene-snapshot:[0-9a-f]{64}$')
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -355,6 +359,7 @@ class AcousticSceneSnapshot(BaseModel):
         pattern=r'^[0-9a-f]{64}$'
     )
     treatment_boundary_bindings: tuple[TreatmentBoundarySnapshotBinding, ...] = ()
+    wave_source_excitation_bindings: tuple[WaveSourceExcitationBinding, ...] = ()
 
     sources: tuple[AcousticSceneSourceBinding, ...]
     receivers: tuple[AcousticReceiverBinding, ...]
@@ -378,20 +383,58 @@ class AcousticSceneSnapshot(BaseModel):
                 raise ValueError('AcousticSceneSnapshot v1 version tuple mismatch')
             if self.treatment_boundary_bindings:
                 raise ValueError('AcousticSceneSnapshot v1 cannot contain treatment bindings')
+            if self.wave_source_excitation_bindings:
+                raise ValueError(
+                    'AcousticSceneSnapshot v1 cannot contain wave excitation bindings'
+                )
             if self.readiness.geometric_boundary_ready is not None:
                 raise ValueError(
                     'AcousticSceneSnapshot v1 cannot carry v2 geometric boundary readiness'
+                )
+        elif self.schema_version == 2:
+            if (
+                self.authority_version != ACOUSTIC_SCENE_SNAPSHOT_V2_AUTHORITY_VERSION
+                or self.compiler_version != ACOUSTIC_SCENE_SNAPSHOT_V2_COMPILER_VERSION
+            ):
+                raise ValueError('AcousticSceneSnapshot v2 version tuple mismatch')
+            if self.wave_source_excitation_bindings:
+                raise ValueError(
+                    'AcousticSceneSnapshot v2 cannot contain wave excitation bindings'
+                )
+            if self.readiness.geometric_boundary_ready is None:
+                raise ValueError(
+                    'AcousticSceneSnapshot v2 requires geometric boundary readiness'
                 )
         else:
             if (
                 self.authority_version != ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION
                 or self.compiler_version != ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION
             ):
-                raise ValueError('AcousticSceneSnapshot v2 version tuple mismatch')
+                raise ValueError('AcousticSceneSnapshot v3 version tuple mismatch')
             if self.readiness.geometric_boundary_ready is None:
                 raise ValueError(
-                    'AcousticSceneSnapshot v2 requires geometric boundary readiness'
+                    'AcousticSceneSnapshot v3 requires geometric boundary readiness'
                 )
+        wave_binding_sources = [
+            item.source_entity_id
+            for item in self.wave_source_excitation_bindings
+        ]
+        if len(wave_binding_sources) != len(set(wave_binding_sources)):
+            raise ValueError(
+                'wave source excitation bindings must be unique per source entity'
+            )
+        source_hashes = {
+            item.r110_compiled_source_sha256
+            for item in self.sources
+        }
+        if any(
+            item.r110_compiled_source_sha256 not in source_hashes
+            for item in self.wave_source_excitation_bindings
+        ):
+            raise ValueError(
+                'wave source excitation binding references unknown R110 source'
+            )
+
         treatment_keys = [
             (item.host_surface_id, item.target_domain)
             for item in self.treatment_boundary_bindings
@@ -443,6 +486,8 @@ class AcousticSceneSnapshot(BaseModel):
             mode='json',
             exclude={'snapshot_id', 'semantic_sha256'},
         )
+        if self.schema_version < 3:
+            payload.pop('wave_source_excitation_bindings', None)
         if self.schema_version == 1:
             payload.pop('treatment_boundary_bindings', None)
             readiness = payload.get('readiness')
@@ -689,6 +734,8 @@ def _derive_readiness(
     environment: SnapshotEnvironmentAuthorityRef | None,
     requested_observables: tuple[str, ...],
     treatment_bindings: tuple[TreatmentBoundarySnapshotBinding, ...],
+    wave_excitation_bindings: tuple[WaveSourceExcitationBinding, ...],
+    requested_frequency_domain: FrequencyDomain,
     schema_version: int,
 ) -> AcousticSceneReadiness:
     geometry_ready = compiled.readiness.geometry_compiled
@@ -697,11 +744,30 @@ def _derive_readiness(
         == 'SUPPORTED_FOR_GEOMETRIC_DIRECTIVITY'
         for item in sources
     )
+    excitation_by_source_hash = {
+        item.r110_compiled_source_sha256: item
+        for item in wave_excitation_bindings
+    }
     wave_source_ready = bool(sources) and all(
-        item.wave_excitation_state not in {
-            'BLOCKED_FOR_WAVE_EXCITATION',
-            'UNSUPPORTED',
-        }
+        (
+            item.wave_excitation_state not in {
+                'BLOCKED_FOR_WAVE_EXCITATION',
+                'UNSUPPORTED',
+            }
+            or (
+                item.r110_compiled_source_sha256 in excitation_by_source_hash
+                and excitation_by_source_hash[
+                    item.r110_compiled_source_sha256
+                ].valid_frequency_domain.contains(
+                    requested_frequency_domain.minimum_hz
+                )
+                and excitation_by_source_hash[
+                    item.r110_compiled_source_sha256
+                ].valid_frequency_domain.contains(
+                    requested_frequency_domain.maximum_hz
+                )
+            )
+        )
         for item in sources
     )
     treated_surfaces = {
@@ -963,6 +1029,7 @@ def build_acoustic_scene_snapshot(
     valid_frequency_domain: FrequencyDomain | None = None,
     valid_frequency_domain_authority_ref: ExactExternalAuthorityRef | None = None,
     treatment_boundary_results: tuple[TreatmentBoundaryCompilationResult, ...] = (),
+    wave_source_excitation_bindings: tuple[WaveSourceExcitationBinding, ...] = (),
 ) -> AcousticSceneSnapshot:
     compiled_geometry = R120CompiledGeometry.model_validate(
         compiled_geometry.model_dump(mode='python')
@@ -1003,6 +1070,42 @@ def build_acoustic_scene_snapshot(
         )
     )
     source_bindings = tuple(source_binding_from_r110(item) for item in source_models)
+    source_by_hash = {item.semantic_sha256: item for item in source_models}
+    wave_excitation_bindings = tuple(
+        sorted(
+            (
+                WaveSourceExcitationBinding.model_validate(
+                    item.model_dump(mode='python')
+                )
+                for item in wave_source_excitation_bindings
+            ),
+            key=lambda item: (item.source_entity_id, item.semantic_sha256),
+        )
+    )
+    wave_binding_source_ids = [
+        item.source_entity_id for item in wave_excitation_bindings
+    ]
+    if len(wave_binding_source_ids) != len(set(wave_binding_source_ids)):
+        raise ValueError(
+            'wave source excitation bindings must be unique per source entity'
+        )
+    for binding in wave_excitation_bindings:
+        source = source_by_hash.get(binding.r110_compiled_source_sha256)
+        if source is None:
+            raise ValueError(
+                'wave source excitation binding references unknown exact R110 source'
+            )
+        if (
+            binding.source_entity_id != source.source_entity_id
+            or binding.equipment_definition_id != source.equipment_definition_id
+            or binding.equipment_definition_version
+            != source.equipment_definition_version
+            or binding.equipment_definition_sha256
+            != source.equipment_definition_sha256
+        ):
+            raise ValueError(
+                'wave source excitation binding does not match exact R110 source'
+            )
 
     if source_models and system_variant is None:
         raise ValueError(
@@ -1063,11 +1166,12 @@ def build_acoustic_scene_snapshot(
         raise ValueError(
             'treatment boundary results must be unique per surface/domain'
         )
-    snapshot_schema_version = (
-        ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
-        if treatment_bindings
-        else ACOUSTIC_SCENE_SNAPSHOT_V1_SCHEMA_VERSION
-    )
+    if wave_excitation_bindings:
+        snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
+    elif treatment_bindings:
+        snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_V2_SCHEMA_VERSION
+    else:
+        snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_V1_SCHEMA_VERSION
     surface_configuration = _surface_configuration(compiled_geometry)
     boundary_hash = _digest(
         [item.model_dump(mode='json') for item in surface_configuration]
@@ -1079,17 +1183,39 @@ def build_acoustic_scene_snapshot(
         environment=environment,
         requested_observables=requested_observables,
         treatment_bindings=treatment_bindings,
+        wave_excitation_bindings=wave_excitation_bindings,
+        requested_frequency_domain=requested_frequency_domain,
         schema_version=snapshot_schema_version,
     )
 
     unresolved = list(compiled_geometry.unresolved_conditions)
     if not source_bindings:
         unresolved.append('source_authority_missing')
+    externally_resolved_wave_sources = {
+        item.r110_compiled_source_sha256
+        for item in wave_excitation_bindings
+    }
     if any(
         item.wave_excitation_state == 'BLOCKED_FOR_WAVE_EXCITATION'
+        and item.r110_compiled_source_sha256
+        not in externally_resolved_wave_sources
         for item in source_bindings
     ):
         unresolved.append('wave_source_excitation_blocked')
+    if any(
+        (
+            not binding.valid_frequency_domain.contains(
+                requested_frequency_domain.minimum_hz
+            )
+            or not binding.valid_frequency_domain.contains(
+                requested_frequency_domain.maximum_hz
+            )
+        )
+        for binding in wave_excitation_bindings
+    ):
+        unresolved.append(
+            'wave_source_excitation_frequency_domain_unsupported'
+        )
     if not receivers:
         unresolved.append('receiver_set_missing')
     if environment is None:
@@ -1121,16 +1247,15 @@ def build_acoustic_scene_snapshot(
             unresolved.append('treatment_geometric_boundary_capability_unknown')
     unresolved = list(dict.fromkeys(unresolved))
 
-    snapshot_authority_version = (
-        ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION
-        if snapshot_schema_version >= 2
-        else ACOUSTIC_SCENE_SNAPSHOT_V1_AUTHORITY_VERSION
-    )
-    snapshot_compiler_version = (
-        ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION
-        if snapshot_schema_version >= 2
-        else ACOUSTIC_SCENE_SNAPSHOT_V1_COMPILER_VERSION
-    )
+    if snapshot_schema_version == 1:
+        snapshot_authority_version = ACOUSTIC_SCENE_SNAPSHOT_V1_AUTHORITY_VERSION
+        snapshot_compiler_version = ACOUSTIC_SCENE_SNAPSHOT_V1_COMPILER_VERSION
+    elif snapshot_schema_version == 2:
+        snapshot_authority_version = ACOUSTIC_SCENE_SNAPSHOT_V2_AUTHORITY_VERSION
+        snapshot_compiler_version = ACOUSTIC_SCENE_SNAPSHOT_V2_COMPILER_VERSION
+    else:
+        snapshot_authority_version = ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION
+        snapshot_compiler_version = ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION
     core: dict[str, Any] = {
         'schema_version': snapshot_schema_version,
         'authority_version': snapshot_authority_version,
@@ -1179,6 +1304,8 @@ def build_acoustic_scene_snapshot(
     }
     if snapshot_schema_version >= 2:
         core['treatment_boundary_bindings'] = treatment_bindings
+    if snapshot_schema_version >= 3:
+        core['wave_source_excitation_bindings'] = wave_excitation_bindings
     semantic_payload = {
         key: (
             value.model_dump(mode='json')

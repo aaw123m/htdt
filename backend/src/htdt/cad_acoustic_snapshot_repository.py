@@ -18,6 +18,7 @@ from .cad_scene import acoustic_reference_position
 from .cad_schema import ensure_native_schema
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .cad_wave_excitation import CadWaveExcitationRepository
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from .treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
 
@@ -37,6 +38,7 @@ class CadAcousticSnapshotRepository:
         r110_repository: CadR110SourceRepository | None = None,
         r120_repository: R120GeometryCompilerRepository | None = None,
         treatment_boundary_repository: TreatmentBoundaryOverlayRepository | None = None,
+        wave_excitation_repository: CadWaveExcitationRepository | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.variant_repository = (
@@ -58,7 +60,20 @@ class CadAcousticSnapshotRepository:
             else R120GeometryCompilerRepository(scene_repository)
         )
         self.treatment_boundary_repository = treatment_boundary_repository
+        self.wave_excitation_repository = (
+            wave_excitation_repository
+            if wave_excitation_repository is not None
+            else CadWaveExcitationRepository(
+                scene_repository,
+                r110_repository=self.r110_repository,
+            )
+        )
         self.path = Path(scene_repository.path)
+        if Path(self.wave_excitation_repository.path) != self.path:
+            raise ValueError(
+                'AcousticSceneSnapshot and wave-excitation repositories '
+                'must share one native CAD database'
+            )
         ensure_native_schema(self.path)
         self._initialize()
 
@@ -428,6 +443,40 @@ class CadAcousticSnapshotRepository:
             ):
                 raise ValueError(
                     'AcousticSceneSnapshot R110 source SystemVariant mismatch'
+                )
+
+        source_by_hash = {
+            item.r110_compiled_source_sha256: item
+            for item in snapshot.sources
+        }
+        for wave_binding in snapshot.wave_source_excitation_bindings:
+            source_binding = source_by_hash.get(
+                wave_binding.r110_compiled_source_sha256
+            )
+            if source_binding is None:
+                raise ValueError(
+                    'AcousticSceneSnapshot wave excitation references '
+                    'missing R110 source'
+                )
+            resolved_binding = self.wave_excitation_repository.get_binding(
+                wave_binding.binding_id
+            )
+            if resolved_binding is None:
+                raise ValueError(
+                    'AcousticSceneSnapshot references missing wave '
+                    'excitation binding'
+                )
+            if resolved_binding != wave_binding:
+                raise ValueError(
+                    'AcousticSceneSnapshot wave excitation exact identity mismatch'
+                )
+            if (
+                wave_binding.source_entity_id != source_binding.source_entity_id
+                or wave_binding.equipment_definition_sha256
+                != source_binding.equipment_definition_sha256
+            ):
+                raise ValueError(
+                    'AcousticSceneSnapshot wave excitation source/equipment mismatch'
                 )
 
         effective_scene = (
