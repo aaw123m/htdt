@@ -128,6 +128,7 @@ class MultiFidelityExecutionTask(BaseModel):
 
     execution_backend_ref: MultiFidelityAuthorityRef
     execution_configuration_ref: MultiFidelityAuthorityRef
+    resource_estimate_ref: MultiFidelityAuthorityRef
     device_refs: tuple[MultiFidelityAuthorityRef, ...] = ()
     resource_request: ExecutionResourceVector
 
@@ -274,6 +275,7 @@ def build_multifidelity_execution_task(
     candidate: MultiFidelityAuthorityRef,
     execution_backend_ref: MultiFidelityAuthorityRef,
     execution_configuration_ref: MultiFidelityAuthorityRef,
+    resource_estimate_ref: MultiFidelityAuthorityRef,
     resource_request: ExecutionResourceVector,
     device_refs: Sequence[MultiFidelityAuthorityRef] = (),
 ) -> MultiFidelityExecutionTask:
@@ -303,6 +305,7 @@ def build_multifidelity_execution_task(
         'execution_configuration_ref': execution_configuration_ref.model_dump(
             mode='json'
         ),
+        'resource_estimate_ref': resource_estimate_ref.model_dump(mode='json'),
         'device_refs': [item.model_dump(mode='json') for item in devices],
         'resource_request': resource_request.model_dump(mode='json'),
     }
@@ -319,6 +322,7 @@ def build_multifidelity_execution_task(
         evaluator_authority=stage.evaluator_authority,
         execution_backend_ref=execution_backend_ref,
         execution_configuration_ref=execution_configuration_ref,
+        resource_estimate_ref=resource_estimate_ref,
         device_refs=devices,
         resource_request=resource_request,
     )
@@ -546,6 +550,7 @@ class CadMultiFidelityExecutionRepository:
             candidate=task.candidate,
             execution_backend_ref=task.execution_backend_ref,
             execution_configuration_ref=task.execution_configuration_ref,
+            resource_estimate_ref=task.resource_estimate_ref,
             device_refs=task.device_refs,
             resource_request=task.resource_request,
         )
@@ -553,8 +558,10 @@ class CadMultiFidelityExecutionRepository:
             raise ValueError('R140 task does not reproduce from exact authorities')
 
         for ref, label in (
+            (task.evaluator_authority, 'stage evaluator'),
             (task.execution_backend_ref, 'execution backend'),
             (task.execution_configuration_ref, 'execution configuration'),
+            (task.resource_estimate_ref, 'resource estimate'),
         ):
             self._resolve_external(ref, label=label)
         for ref in task.device_refs:
