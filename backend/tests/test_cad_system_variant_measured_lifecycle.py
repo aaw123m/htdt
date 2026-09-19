@@ -263,10 +263,27 @@ def test_measured_record_requires_exact_as_built_revision(
     tmp_path: Path,
 ) -> None:
     fx = _fixture(tmp_path)
+    descendant_document = fx['applied'].document.model_copy(
+        update={
+            'entities': tuple(
+                entity.model_copy(
+                    update={
+                        'position': entity.position.model_copy(
+                            update={'x_m': entity.position.x_m + 0.01}
+                        )
+                    }
+                )
+                if entity.entity_id == 'mlp'
+                else entity
+                for entity in fx['applied'].document.entities
+            )
+        }
+    )
     descendant = fx['scene_repository'].save(
-        fx['applied'].document,
+        descendant_document,
         parent_revision_id=fx['applied'].revision_id,
     ).revision
+    assert descendant.revision_id != fx['applied'].revision_id
     measurement, dataset, report = _save_measurement(
         fx,
         revision=descendant,
