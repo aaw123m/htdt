@@ -30,7 +30,7 @@ stable personal Windows releaseは **0.1.0** です。
 - O60 holdout trend / sensitivity / repeatability / applicability validation authority
 - stable Windows package / installer / update / backup / restore / uninstall data retention
 
-N05〜N90のnative release pathとO10〜O80のsoftware pathは実装済みです。O90 robust/tolerance-aware optimizationはO90Aとcanonical O90Bまで実装済みで、bounded / distribution / empirical / discrete uncertainty、probability-gated statistics、cancel/cache/resume/stale protectionを含みます。O90C以降は未実装です。O100 system expansion / virtual channel topology optimizationはO100A〜O100Fまで実装済みです。O100C EquipmentDefinition/source capability、O100D capability-gated system objectives、O100E auditable multi-fidelity authority、O100F proposal-aware O90 robustness / nominal-vs-robust Paretoまでmainへ反映済みで、O100G UX/as-built/measurement loopが未実装です。  
+N05〜N90のnative release pathとO10〜O80のsoftware pathは実装済みです。O90 robust/tolerance-aware optimizationはO90A〜O90Cまで実装済みです。bounded / distribution / empirical / discrete uncertainty、probability-gated statistics、cancel/cache/resume/stale protectionに加え、auditable multi-fidelity screening、R140 exact execution/cache、common-fidelity robust-Pareto finalizationまでmainへ反映済みです。O90D UXとO90E owned-room robust validationは未実装です。O100 system expansion / virtual channel topology optimizationはO100A〜O100Fまで実装済みです。O100C EquipmentDefinition/source capability、O100D capability-gated system objectives、O100E auditable multi-fidelity authority、O100F proposal-aware O90 robustness / nominal-vs-robust Paretoまでmainへ反映済みで、O100G UX/as-built/measurement loopが未実装です。  
 O70 Adaptive Plannerは `development_synthetic` で、O80 Extended SearchとAdaptive Extended acquisitionはsynthetic directional capabilityでsoftware pathを最後まで確認できます。一方、`production_owned_room` recommendationとowned-room directional capabilityは、**独立した実室O60 validation evidenceが成立するまでfail-closed**です。
 
 実装済み・未検証項目の事実は [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)、今後の実装順とgateは [`docs/IMPLEMENTATION_ROADMAP.md`](docs/IMPLEMENTATION_ROADMAP.md) を正本とします。Issue #101の任意形状音響solverはR100〜R180として計画化し、技術判断は [`docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md`](docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md) に記録しています。
@@ -145,6 +145,7 @@ HTDTの中心は、数値フォームを先に埋める方式ではなく、同�
 - O80: capability-gated Extended Search / acoustic aim yaw (`aim_yaw_deg`) / physical cabinet toe-in (`body_yaw_deg`) / orientation-aware hard constraints / preview+apply+Undo / Adaptive Extended acquisition over normalized O10+O80 features
 - O90A: immutable RobustnessSpec / bounded ± local sensitivity / speaker・listener XYZ / aim yaw・pitch / cabinet yaw / perturbationごとのG10・O80再評価 / infeasible evidence保持 / sampled_worst semantics / persistence
 - O90B: deterministic multidimensional bounded / explicit distribution・empirical・discrete uncertainty / linked axes / probability-gated mean・percentile・violation probability / sampled envelope / feasible fraction / cancel・cache・resume・stale protection / nominal vs sampled_worst Pareto
+- O90C: auditable multi-fidelity hard-gate / validated screening / budget defer / R140 exact execution+resource-bounded batching+cache/resume / common-fidelity exact robust-Pareto finalization
 - O100A: immutable SystemVariant / ProposedEntitySpec / ChannelRoleBinding / exact add-remove-replace diff / proposed lifecycle / explicit apply→new SceneRevision / proposal lineage
 - O100B: TopologySearchSpec / proposed XYZ・height・aim/toe-in / allowed・exclusion regions / linked SL/SR / O10+G10+O80 deterministic placement / candidate→SystemVariant
 - O100C: EquipmentDefinition / DirectivityDataset / exact equipment-source binding / R110 source capability
@@ -194,7 +195,7 @@ native stable releaseのcorrectnessはfrontend buildへ依存しません。
 | [ADR-0001](docs/adr/0001-native-cad-editor-stack.md) | native CAD editor技術決定 |
 | [DATA_AND_ANALYSIS.md](docs/DATA_AND_ANALYSIS.md) | 不変履歴、比較、座標、保存契約 |
 | [MEASUREMENT_WORKFLOW.md](docs/MEASUREMENT_WORKFLOW.md) | REW / Windows / AVRの測定境界 |
-| [PLACEMENT_OPTIMIZATION_ROADMAP.md](docs/PLACEMENT_OPTIMIZATION_ROADMAP.md) | 配置探索算法。O70/O80、O90A/B、O100A〜F実装済みauthorityとO90C+/O100G planned gateを含む |
+| [PLACEMENT_OPTIMIZATION_ROADMAP.md](docs/PLACEMENT_OPTIMIZATION_ROADMAP.md) | 配置探索算法。O70/O80、O90A〜C、O100A〜F実装済みauthorityとO90D+/O100G planned gateを含む |
 | [O90_ROBUST_OPTIMIZATION.md](docs/O90_ROBUST_OPTIMIZATION.md) | 設置誤差・入力不確かさに対するrobust/tolerance-aware最適化の正式仕様 |
 | [O100_SYSTEM_EXPANSION_OPTIMIZATION.md](docs/O100_SYSTEM_EXPANSION_OPTIMIZATION.md) | 仮想SL/SR等の追加、system topology/equipment/placement比較、As-built/Measured移行の正式仕様 |
 | [ROOM_GEOMETRY.md](docs/ROOM_GEOMETRY.md) | polygon room geometry contract |

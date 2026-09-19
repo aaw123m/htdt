@@ -1,6 +1,6 @@
 # O90 — Robust / Tolerance-aware Optimization
 
-> Status: **O90A + canonical O90B implemented / O90C–E planned** — tracking: [Issue #140](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/140) / O90B: [Issue #146](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/146)
+> Status: **O90A–O90C implemented / O90D–E planned** — tracking: [Issue #140](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/140) / O90B: [Issue #146](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/146)
 >
 > This document is the detailed authority for O90. Implementation order remains `docs/IMPLEMENTATION_ROADMAP.md`.
 >
@@ -502,15 +502,23 @@ A selected candidate can show position/aim tolerance evidence in 3D with clear d
 - O40 robust Pareto integration;
 - cancel/cache/resume.
 
-PR #149 provides the bounded multidimensional foundation. The Issue #146 completion adds explicit distribution/empirical/discrete uncertainty semantics, probability-gated mean/percentile/constraint-violation outputs, and exact cancel/cache/resume/stale safeguards. Probability is never inferred from bounded intervals or unweighted empirical/discrete states. O90B is complete at this authority boundary; O90C multi-fidelity/scheduler integration remains a separate later slice. The #183/#186/#187 repository hardening requires the exact frozen constraint workspace before any cache access, deterministic SQLite close on every transaction path, and the central native-schema gate before O90 repository DDL/DML; these are authority/persistence safeguards and do not change O90A/O90B sampling or probability semantics.
+PR #149 provides the bounded multidimensional foundation. The Issue #146 completion adds explicit distribution/empirical/discrete uncertainty semantics, probability-gated mean/percentile/constraint-violation outputs, and exact cancel/cache/resume/stale safeguards. Probability is never inferred from bounded intervals or unweighted empirical/discrete states. O90B is complete at this authority boundary. O90C is implemented through PR #228 (auditable staged-fidelity authority), PR #236 (R140 exact execution/cache and capacity-bounded scheduling), and PR #238 (typed common-fidelity O90 robust-Pareto finalization). O90D/O90E remain separate later slices. The #183/#186/#187 repository hardening requires the exact frozen constraint workspace before any cache access, deterministic SQLite close on every transaction path, and the central native-schema gate before O90 repository DDL/DML; these are authority/persistence safeguards and do not change O90A/O90B sampling or probability semantics.
 
 ### O90C — multi-fidelity / adaptive robustness
 
-- sensitivity-based shortlist;
-- coarse-to-fine sample refinement;
-- common-fidelity final comparison;
-- R140 scheduler integration;
-- optional O70 acquisition coordination while keeping uncertainty meanings separate.
+**Implemented via PR #228 / #236 / #238.**
+
+- exact staged-fidelity plan over candidate authorities;
+- hard-gate pruning separated from validated approximate screening;
+- budget defer remains PRELIMINARY instead of being mislabeled as pruning;
+- stage-to-stage exact survivor identity;
+- R140 execution task identity binds exact evaluator/backend/config/resource-estimate/device authority;
+- deterministic CPU/GPU/memory/scratch capacity-bounded batching;
+- exact cache/resume only for identical execution input; stale result/evaluator fails closed;
+- common-fidelity final comparison reuses existing O90 nominal/sampled-worst robust Pareto;
+- cross-candidate comparison requires compatible model/provider/fidelity/objective spec/sampling budget/relative tolerance domain/dependence model;
+- screening survivor id/hash set must exactly equal final robust-Pareto candidate set;
+- optional O70 acquisition coordination remains future scheduling policy and does not change uncertainty meanings.
 
 ### O90D — UX and 3D tolerance overlays
 
