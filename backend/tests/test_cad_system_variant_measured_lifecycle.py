@@ -7,6 +7,7 @@ import pytest
 
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
+    CadAcquisitionContextBinding,
     CadMeasurementQualityEvidence,
     build_measurement_quality_profile,
     build_measurement_quality_report,
@@ -143,6 +144,7 @@ def _save_measurement(
     measurement_id: str,
     source_speaker_ids: tuple[str, ...],
     evidence_type: str = 'measured',
+    with_acquisition_context: bool = True,
 ):
     measurement_repository = fx['measurement_repository']
     quality_repository = fx['quality_repository']
@@ -175,11 +177,23 @@ def _save_measurement(
         raw_filename=f'{measurement_id}.json',
         raw_bytes=raw,
     )
+    acquisition = (
+        CadAcquisitionContextBinding(
+            acquisition_context_id=f'acq:{measurement_id}',
+            acquisition_context_sha256=sha256(
+                f'acq:{measurement_id}'.encode('utf-8')
+            ).hexdigest(),
+            source_kind='native',
+        )
+        if with_acquisition_context
+        else None
+    )
     report = build_measurement_quality_report(
         measurement=record,
         dataset=dataset,
         evidence=CadMeasurementQualityEvidence(),
         profile=build_measurement_quality_profile(),
+        acquisition_context=acquisition,
         report_id=f'report:{measurement_id}',
         created_at_utc='2026-09-20T00:04:00+00:00',
     )
@@ -212,6 +226,10 @@ def test_measured_record_promotes_only_explicit_proposed_source_speaker(
     assert lifecycle['sr'].measurement_ids == ()
     assert report.capability('magnitude_response').decision == 'ALLOWED'
     assert report.retake_recommendation == 'UNKNOWN'
+    assert record.measurements[0].allowed_capability_claims == (
+        'magnitude_response',
+    )
+    assert record.measurements[0].acquisition_context_id == 'acq:measure-sl'
 
     repository = CadSystemVariantMeasuredLifecycleRepository(
         scene_repository=fx['scene_repository'],
@@ -312,3 +330,27 @@ def test_measured_record_can_bind_configuration_measurement_without_promoting_en
 
     assert {item.state for item in record.entity_lifecycle} == {'as_built'}
     assert {item.entity_id for item in record.entity_lifecycle} == {'sl', 'sr'}
+
+
+def test_measured_record_requires_explicit_acquisition_context(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    measurement, dataset, report = _save_measurement(
+        fx,
+        revision=fx['applied'],
+        measurement_id='measure-no-acq',
+        source_speaker_ids=('sl',),
+        with_acquisition_context=False,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='requires explicit acquisition context',
+    ):
+        build_system_variant_measured_record(
+            scene_repository=fx['scene_repository'],
+            as_built_record=fx['as_built'],
+            evidence=((measurement, dataset, report),),
+            bound_at_utc='2026-09-20T00:05:00+00:00',
+        )
