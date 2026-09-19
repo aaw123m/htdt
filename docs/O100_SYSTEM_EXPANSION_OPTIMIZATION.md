@@ -1,6 +1,6 @@
 # O100 — System Expansion / Virtual Channel Topology Optimization
 
-> Status: **O100A–O100F implemented / O100G planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228, #231/#232/#233
+> Status: **O100A–O100F implemented / O100G backend lifecycle partially implemented / O100G UX + SystemVariant-specific measurement plan/campaign planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228, #231/#232/#233, #235/#239
 >
 > O100 extends the existing N40 / G10 / O10–O90 / R-series authority. It does not replace them.
 >
@@ -736,14 +736,26 @@ Implemented in PR #228. The shared staged-fidelity authority distinguishes hard-
 
 ### O100G — UX / as-built / measurement loop
 
-- proposed-speaker Room workflow;
-- system-variant comparison;
-- Japanese-first copy;
-- proposal ghost visuals;
-- selected variant apply;
-- As-built transition;
-- MeasurementPlan;
-- measured/validated comparison.
+**Backend lifecycle partially implemented via PR #235 / #239.**
+
+Implemented:
+- descendant-aware proposal lineage after explicit SystemVariantApplication;
+- explicit immutable SystemVariantAsBuiltRecord; entity presence alone never implies installed/as-built;
+- exact applied→as-built SceneRevision lineage and proposal preservation;
+- exact SystemVariantMeasuredRecord over one exact as-built revision;
+- existing CadMeasurementRecord / CadFrequencyResponseDataset / CadMeasurementQualityReport reuse;
+- explicit AcquisitionContext required for measured lifecycle binding;
+- at least one exact quality capability with decision ALLOWED is required and the allowed capability set is preserved;
+- only explicitly measured proposed source speakers become entity-level measured; unmeasured proposed entities remain as_built;
+- append-only measured records; retakes do not rewrite earlier evidence.
+
+Remaining:
+- SystemVariant-specific MeasurementPlan / validation-campaign planning before capture;
+- proposed-speaker Room workflow and system-variant comparison UX;
+- Japanese-first copy and proposed/as-built/measured badges;
+- proposal ghost visuals and 3D tolerance overlays;
+- measured/validated comparison UX;
+- Windows visual acceptance under Issue #118.
 
 ## 23. Acceptance
 
