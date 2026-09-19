@@ -67,13 +67,10 @@ class ExecutionResourceVector(BaseModel):
 
     @model_validator(mode='after')
     def non_empty(self) -> 'ExecutionResourceVector':
-        if (
-            self.cpu_threads == 0
-            and self.gpu_slots == 0
-            and self.memory_bytes == 0
-            and self.scratch_bytes == 0
-        ):
-            raise ValueError('execution resource vector cannot be entirely zero')
+        if self.cpu_threads == 0 and self.gpu_slots == 0:
+            raise ValueError(
+                'execution resource vector requires CPU threads or GPU slots'
+            )
         return self
 
     def plus(self, other: 'ExecutionResourceVector') -> 'ExecutionResourceVector':
@@ -290,7 +287,12 @@ def build_multifidelity_execution_task(
             MultiFidelityAuthorityRef.model_validate(item.model_dump(mode='python'))
             for item in device_refs
         ),
-        key=lambda item: item.key(),
+        key=lambda item: (
+            item.authority_kind,
+            item.authority_id,
+            item.authority_version or '',
+            item.semantic_sha256,
+        ),
     ))
     core = {
         'schema_version': R140_EXECUTION_SCHEMA_VERSION,
