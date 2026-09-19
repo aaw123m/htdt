@@ -426,10 +426,51 @@ class CadSystemVariantRepository:
         self,
         revision_id: str,
     ) -> tuple[SystemVariantApplication, SystemVariant] | None:
-        application = self.application_for_revision(revision_id)
-        if application is None:
+        """Resolve the nearest applied SystemVariant ancestor for a revision.
+
+        The exact applied revision remains authoritative, but subsequent
+        immutable SceneRevision edits do not erase proposal origin. If a later
+        SystemVariant is explicitly applied on a descendant branch, the nearest
+        application in the ancestry wins.
+        """
+
+        revision = self.scene_repository.get(revision_id)
+        if revision is None:
             return None
-        variant = self.get_variant(application.variant_id)
-        if variant is None:
-            raise ValueError('SystemVariant application references missing variant')
-        return application, variant
+
+        seen: set[str] = set()
+        current = revision
+        while True:
+            if current.revision_id in seen:
+                raise ValueError('SceneRevision ancestry contains a cycle')
+            seen.add(current.revision_id)
+
+            application = self.application_for_revision(current.revision_id)
+            if application is not None:
+                variant = self.get_variant(application.variant_id)
+                if variant is None:
+                    raise ValueError(
+                        'SystemVariant application references missing variant'
+                    )
+                if (
+                    application.document_id != revision.document_id
+                    or variant.document_id != revision.document_id
+                ):
+                    raise ValueError(
+                        'SystemVariant application ancestry crosses document boundary'
+                    )
+                return application, variant
+
+            parent_id = current.parent_revision_id
+            if parent_id is None:
+                return None
+            parent = self.scene_repository.get(parent_id)
+            if parent is None:
+                raise ValueError(
+                    'SceneRevision ancestry references missing parent revision'
+                )
+            if parent.document_id != revision.document_id:
+                raise ValueError(
+                    'SceneRevision ancestry crosses document boundary'
+                )
+            current = parent

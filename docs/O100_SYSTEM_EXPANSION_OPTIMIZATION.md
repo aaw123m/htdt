@@ -1,6 +1,6 @@
 # O100 — System Expansion / Virtual Channel Topology Optimization
 
-> Status: **O100A–O100E implemented / O100F–O100G planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228
+> Status: **O100A–O100F implemented / O100G planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228, #231/#232/#233
 >
 > O100 extends the existing N40 / G10 / O10–O90 / R-series authority. It does not replace them.
 >
@@ -723,10 +723,16 @@ Implemented in PR #228. The shared staged-fidelity authority distinguishes hard-
 
 ### O100F — O90 robust system expansion
 
-- exact O100 candidate → O90 RobustnessSpec;
-- placement/aim tolerance;
-- nominal vs robust variant comparison;
-- 3D tolerance overlays for proposed entities.
+**Implemented via Issue #229 / PR #231, #232, #233.**
+
+- exact un-applied O100B/SystemVariant candidate → proposal-aware O90 authority without baseline mutation;
+- existing O90A speaker/listener XYZ, aim yaw/pitch and body-yaw perturbation semantics reused;
+- existing O90B deterministic bounded multidimensional sampling, linked axes, feasible/infeasible evidence and sampled-worst semantics reused;
+- nominal objective evidence bound to exact O100D VariantEvaluationBundle rather than forged CadObjectiveEvaluation;
+- exact cross-candidate nominal/robust Pareto over the complete O100D ELIGIBLE set;
+- existing O40/O90 direction-aware Pareto reused with separate `nominal::<objective>` and `robust.sampled_worst::<objective>` axes;
+- no proposal → as-built/measured auto-promotion and no production evidence-gate bypass;
+- 3D tolerance overlays remain O100G/UX scope.
 
 ### O100G — UX / as-built / measurement loop
 

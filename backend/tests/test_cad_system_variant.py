@@ -27,6 +27,10 @@ from htdt.cad_system_variant import (
     materialize_system_variant,
 )
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
+from htdt.cad_system_variant_lifecycle import (
+    CadSystemVariantLifecycleRepository,
+    build_system_variant_as_built_record,
+)
 
 
 DOCUMENT_ID = 'o100a-fixture'
@@ -398,3 +402,171 @@ def test_persisted_variant_rejects_apply_after_baseline_becomes_stale(tmp_path: 
     assert scene_repository.latest(DOCUMENT_ID).revision_id == newer.revision_id
     assert repository.application_for_variant(variant.variant_id) is None
 
+
+
+def _applied_502_fixture(tmp_path: Path):
+    scene_repository, baseline = _baseline(tmp_path)
+    variant_repository = CadSystemVariantRepository(scene_repository)
+    variant = build_system_variant(
+        baseline=baseline,
+        name='Proposed 5.0.2 lifecycle',
+        role_bindings=_roles('FL', 'C', 'FR', 'TFL', 'TFR', 'SL', 'SR'),
+        proposed_entities=(
+            _proposal('sl', 'SL', 0.6),
+            _proposal('sr', 'SR', 5.4),
+        ),
+        proposal_evidence=(
+            ProposalEvidenceRef(
+                evidence_kind='user_decision',
+                evidence_id='selected-proposal-fixture',
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    variant_repository.save_variant(variant)
+    application = variant_repository.apply_variant(
+        variant.variant_id,
+        selected_by='fixture-selection',
+        selected_at_utc='2026-09-20T00:00:00+00:00',
+    )
+    applied = scene_repository.get(application.applied_revision_id)
+    assert applied is not None
+    return scene_repository, variant_repository, variant, application, applied
+
+
+def test_proposal_lineage_survives_descendant_scene_edits(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    edited_entities = tuple(
+        entity.model_copy(
+            update={
+                'position': entity.position.model_copy(update={'x_m': 0.72})
+            }
+        )
+        if entity.entity_id == 'sl'
+        else entity
+        for entity in applied.document.entities
+    )
+    descendant = scene_repository.save(
+        applied.document.model_copy(update={'entities': edited_entities}),
+        parent_revision_id=applied.revision_id,
+    ).revision
+
+    assert descendant.revision_id != applied.revision_id
+    assert (
+        variant_repository.proposal_lineage_for_revision(descendant.revision_id)
+        == (application, variant)
+    )
+    assert variant.proposed_entities[0].entity.position.x_m == pytest.approx(0.6)
+    assert descendant.document.entity('sl').position.x_m == pytest.approx(0.72)
+
+
+def test_explicit_as_built_record_uses_descendant_without_rewriting_proposal(
+    tmp_path: Path,
+) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    edited_entities = tuple(
+        entity.model_copy(
+            update={
+                'position': entity.position.model_copy(update={'x_m': 0.72})
+            }
+        )
+        if entity.entity_id == 'sl'
+        else entity
+        for entity in applied.document.entities
+    )
+    as_built_revision = scene_repository.save(
+        applied.document.model_copy(update={'entities': edited_entities}),
+        parent_revision_id=applied.revision_id,
+    ).revision
+
+    record = build_system_variant_as_built_record(
+        scene_repository=scene_repository,
+        variant_repository=variant_repository,
+        application=application,
+        variant=variant,
+        as_built_revision=as_built_revision,
+        confirmed_by='installer-fixture',
+        confirmed_at_utc='2026-09-20T00:10:00+00:00',
+        notes=('SL moved 0.12 m during installation',),
+    )
+
+    assert [item.revision_id for item in record.revision_lineage] == [
+        applied.revision_id,
+        as_built_revision.revision_id,
+    ]
+    assert {item.entity_id for item in record.entity_lifecycle} == {'sl', 'sr'}
+    assert all(item.state == 'as_built' for item in record.entity_lifecycle)
+    assert variant.proposed_entities[0].entity.position.x_m == pytest.approx(0.6)
+    assert as_built_revision.document.entity('sl').position.x_m == pytest.approx(
+        0.72
+    )
+
+    lifecycle_repository = CadSystemVariantLifecycleRepository(
+        scene_repository=scene_repository,
+        variant_repository=variant_repository,
+    )
+    lifecycle_repository.save(record)
+
+    reopened_scene = SceneRepository(scene_repository.path)
+    reopened_variants = CadSystemVariantRepository(reopened_scene)
+    reopened_lifecycle = CadSystemVariantLifecycleRepository(
+        scene_repository=reopened_scene,
+        variant_repository=reopened_variants,
+    )
+    assert reopened_lifecycle.get(record.record_id) == record
+    assert (
+        reopened_lifecycle.for_application(application.application_id)
+        == record
+    )
+
+
+def test_as_built_promotion_rejects_missing_proposed_entity(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    without_sl = applied.document.model_copy(
+        update={
+            'entities': tuple(
+                item
+                for item in applied.document.entities
+                if item.entity_id != 'sl'
+            )
+        }
+    )
+    incomplete_revision = scene_repository.save(
+        without_sl,
+        parent_revision_id=applied.revision_id,
+    ).revision
+
+    with pytest.raises(
+        ValueError,
+        match='missing proposed entity: sl',
+    ):
+        build_system_variant_as_built_record(
+            scene_repository=scene_repository,
+            variant_repository=variant_repository,
+            application=application,
+            variant=variant,
+            as_built_revision=incomplete_revision,
+            confirmed_by='installer-fixture',
+            confirmed_at_utc='2026-09-20T00:10:00+00:00',
+        )
