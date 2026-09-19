@@ -105,7 +105,7 @@ Qt shell → editor service → domain/repository/adapterの境界を置く。na
 
 native GUIをWindowsのDPI/mouse/keyboardで確認する。headless CIを操作品質の証拠にしない。仕様上の目標、過去のPoC報告、今回の再検証を分ける。
 
-変更に適した検証だけを行い、可逆・低影響変更へ不要なtestを追加しない。Issue #170ではcriterion evaluator/profile data/persistenceをGUIやO100D objectiveから分離し、公開sourceに明示された境界だけをbuilt-in criteriaへ採用する。compliance FAILは明示hard-constraint opt-inなしにcandidateを削除しない。N05〜N90/O10〜O80 software pathは完了済み。O90はO90Aとcanonical O90Bまで実装済みで、O90C以降はplanned / 未実装。O100はO100A〜O100Fまで実装済みで、O100G UX/as-built/measurement loopのみplanned / 未実装。現在はIssue #101のR100B solver bakeoff、Issue #118のUX100〜UX160 UI/UX overhaul、O90、O100を独立trackとして管理する。R100BはUI非依存で並行可能だが、R110+の新しいuser-facing acoustic inputを現行dock shellへ増築しない。採用gateはR-series fixture/ADRとUX acceptance、進捗は[実装状況](IMPLEMENTATION_STATUS.md)へ残す。
+変更に適した検証だけを行い、可逆・低影響変更へ不要なtestを追加しない。Issue #170ではcriterion evaluator/profile data/persistenceをGUIやO100D objectiveから分離し、公開sourceに明示された境界だけをbuilt-in criteriaへ採用する。compliance FAILは明示hard-constraint opt-inなしにcandidateを削除しない。N05〜N90/O10〜O80 software pathは完了済み。O90はO90A〜O90Cまで実装済みで、O90D UXとO90E owned-room robust validationがplanned / 未実装。O100はO100A〜O100Fまで実装済みで、O100G UX/as-built/measurement loopのみplanned / 未実装。現在はIssue #101のR100B solver bakeoff、Issue #118のUX100〜UX160 UI/UX overhaul、O90、O100を独立trackとして管理する。R100BはUI非依存で並行可能だが、R110+の新しいuser-facing acoustic inputを現行dock shellへ増築しない。採用gateはR-series fixture/ADRとUX acceptance、進捗は[実装状況](IMPLEMENTATION_STATUS.md)へ残す。
 
 
 ## Competitive gap closure lifecycle — Issue #166
