@@ -375,3 +375,16 @@ def test_r140_task_reopen_requires_exact_evaluator_authority(
         match='stage evaluator exact external authority does not exist',
     ):
         repository.get_task(task.task_id)
+
+
+def test_r140_resource_vector_requires_compute_slot() -> None:
+    with pytest.raises(
+        ValueError,
+        match='requires CPU threads or GPU slots',
+    ):
+        ExecutionResourceVector(
+            cpu_threads=0,
+            gpu_slots=0,
+            memory_bytes=1_000_000,
+            scratch_bytes=1_000,
+        )
