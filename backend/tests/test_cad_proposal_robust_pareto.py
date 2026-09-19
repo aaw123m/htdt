@@ -264,7 +264,7 @@ def _robustness_evaluation(
     digest = canonical_robustness_sha256(identity)
     return RobustnessEvaluation(
         **identity,
-        evaluation_id=f're:{digest}',
+        evaluation_id=f're-{digest[:24]}',
         evaluation_sha256=digest,
         created_at_utc=NOW,
     )
