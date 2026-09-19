@@ -544,7 +544,7 @@ def test_proposal_robustness_save_reopen_reresolves_exact_lineage(
 
 def _execute_multidimensional(fx):
     multidimensional_axes = tuple(
-        axis.model_copy(update={'plus_delta': 0.2})
+        axis.model_copy(update={'plus_delta': 0.1})
         if axis.axis_id == 'speaker-x'
         else axis
         for axis in fx['spec'].axes
