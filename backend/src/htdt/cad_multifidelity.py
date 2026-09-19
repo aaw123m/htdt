@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema
 from .cad_topology_comparison import TopologyComparisonEvaluation
+from .cad_robust_pareto import O90RobustParetoEvaluation
 
 
 MULTIFIDELITY_SCHEMA_VERSION = 1
@@ -53,6 +54,16 @@ class TopologyComparisonEvaluationResolver(Protocol):
         self,
         evaluation_id: str,
     ) -> TopologyComparisonEvaluation | None:
+        ...
+
+
+class O90RobustParetoEvaluationResolver(Protocol):
+    path: Path
+
+    def get(
+        self,
+        evaluation_id: str,
+    ) -> O90RobustParetoEvaluation | None:
         ...
 
 
@@ -644,6 +655,101 @@ def finalize_o100_multifidelity(
     )
 
 
+def finalize_o90_multifidelity(
+    *,
+    plan: MultiFidelityPlan,
+    screening: MultiFidelityScreeningEvaluation,
+    final_robust_pareto: O90RobustParetoEvaluation,
+) -> MultiFidelityFinalization:
+    if plan.domain != 'o90_robustness':
+        raise ValueError('O90 finalization requires o90_robustness plan')
+    if (
+        screening.plan_id != plan.plan_id
+        or screening.plan_semantic_sha256 != plan.semantic_sha256
+    ):
+        raise ValueError('screening evaluation belongs to another plan')
+
+    final_stage = plan.stages[-1]
+    if final_stage.policy != 'final_common_fidelity':
+        raise ValueError('O90 final stage must require common fidelity')
+
+    candidate_by_id: dict[str, MultiFidelityAuthorityRef] = {}
+    for candidate in plan.candidates:
+        if candidate.authority_id in candidate_by_id:
+            raise ValueError(
+                'O90 multi-fidelity candidate authority IDs must be unique'
+            )
+        candidate_by_id[candidate.authority_id] = candidate
+
+    survivor_ids = {
+        item.authority_id for item in screening.surviving_candidates
+    }
+    robust_ids = {
+        item.candidate_id for item in final_robust_pareto.candidates
+    }
+    if survivor_ids != robust_ids:
+        raise ValueError(
+            'final O90 robust Pareto candidate set must equal exact '
+            'screening survivors'
+        )
+
+    for robust_candidate in final_robust_pareto.candidates:
+        candidate = candidate_by_id.get(robust_candidate.candidate_id)
+        if candidate is None:
+            raise ValueError(
+                'final O90 robust Pareto contains candidate outside '
+                'multi-fidelity plan'
+            )
+        if candidate.semantic_sha256 != robust_candidate.candidate_sha256:
+            raise ValueError(
+                'final O90 robust Pareto candidate hash differs from plan candidate'
+            )
+
+    if screening.state == 'READY_FOR_COMMON_FIDELITY':
+        claim_state: FinalClaimState = 'COMPLETE'
+    elif screening.state == 'PRELIMINARY_BUDGET':
+        claim_state = 'PRELIMINARY_BUDGET'
+    else:
+        claim_state = 'BLOCKED_EVIDENCE'
+
+    comparison_ref = MultiFidelityAuthorityRef(
+        authority_kind='o90_robust_pareto_evaluation',
+        authority_id=final_robust_pareto.evaluation_id,
+        authority_version=final_robust_pareto.authority_version,
+        semantic_sha256=final_robust_pareto.semantic_sha256,
+        evaluator_id='o90-robust-pareto',
+        evaluator_version=final_robust_pareto.authority_version,
+        fidelity='common-robust-pareto',
+    )
+    final_candidates = tuple(
+        item for item in plan.candidates
+        if item.authority_id in survivor_ids
+    )
+    core = {
+        'schema_version': MULTIFIDELITY_SCHEMA_VERSION,
+        'authority_version': MULTIFIDELITY_FINALIZATION_VERSION,
+        'screening_evaluation_id': screening.evaluation_id,
+        'screening_evaluation_sha256': screening.semantic_sha256,
+        'final_stage_id': final_stage.stage_id,
+        'final_comparison_ref': comparison_ref.model_dump(mode='json'),
+        'final_candidates': [
+            item.model_dump(mode='json') for item in final_candidates
+        ],
+        'claim_state': claim_state,
+    }
+    digest = _digest(core)
+    return MultiFidelityFinalization(
+        finalization_id=f'multifidelity-finalization:{digest}',
+        semantic_sha256=digest,
+        screening_evaluation_id=screening.evaluation_id,
+        screening_evaluation_sha256=screening.semantic_sha256,
+        final_stage_id=final_stage.stage_id,
+        final_comparison_ref=comparison_ref,
+        final_candidates=final_candidates,
+        claim_state=claim_state,
+    )
+
+
 class CadMultiFidelityRepository:
     """Append-only shared O90C/O100E audit persistence.
 
@@ -656,18 +762,21 @@ class CadMultiFidelityRepository:
         scene_repository: SceneRepository,
         *,
         topology_comparison_repository: TopologyComparisonEvaluationResolver | None = None,
+        o90_robust_pareto_repository: O90RobustParetoEvaluationResolver | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.topology_comparison_repository = topology_comparison_repository
+        self.o90_robust_pareto_repository = o90_robust_pareto_repository
         self.path = Path(scene_repository.path)
-        if (
-            topology_comparison_repository is not None
-            and Path(topology_comparison_repository.path) != self.path
+        for label, repository in (
+            ('topology comparison', topology_comparison_repository),
+            ('O90 robust Pareto', o90_robust_pareto_repository),
         ):
-            raise ValueError(
-                'multi-fidelity and topology comparison repositories must share '
-                'one native CAD database'
-            )
+            if repository is not None and Path(repository.path) != self.path:
+                raise ValueError(
+                    f'multi-fidelity and {label} repositories must share '
+                    'one native CAD database'
+                )
         ensure_native_schema(self.path)
         self._initialize()
 
@@ -988,35 +1097,59 @@ class CadMultiFidelityRepository:
         plan = self.get_plan(screening.plan_id)
         if plan is None:
             raise ValueError('multi-fidelity finalization plan disappeared')
-        if plan.domain != 'o100_topology':
-            raise ValueError(
-                'persisted final comparison adapter currently supports '
-                'o100_topology only'
+        if plan.domain == 'o100_topology':
+            if self.topology_comparison_repository is None:
+                raise ValueError(
+                    'O100 multi-fidelity finalization requires a typed '
+                    'topology comparison repository'
+                )
+            final_comparison = self.topology_comparison_repository.get_evaluation(
+                finalization.final_comparison_ref.authority_id
             )
-        if self.topology_comparison_repository is None:
-            raise ValueError(
-                'O100 multi-fidelity finalization requires a typed '
-                'topology comparison repository'
+            if final_comparison is None:
+                raise ValueError(
+                    'multi-fidelity finalization references missing final comparison'
+                )
+            if (
+                final_comparison.evaluation_sha256
+                != finalization.final_comparison_ref.semantic_sha256
+            ):
+                raise ValueError(
+                    'multi-fidelity final comparison exact hash mismatch'
+                )
+            regenerated = finalize_o100_multifidelity(
+                plan=plan,
+                screening=screening,
+                final_comparison=final_comparison,
             )
-        final_comparison = self.topology_comparison_repository.get_evaluation(
-            finalization.final_comparison_ref.authority_id
-        )
-        if final_comparison is None:
-            raise ValueError(
-                'multi-fidelity finalization references missing final comparison'
+        elif plan.domain == 'o90_robustness':
+            if self.o90_robust_pareto_repository is None:
+                raise ValueError(
+                    'O90 multi-fidelity finalization requires a typed '
+                    'robust Pareto repository'
+                )
+            final_robust_pareto = self.o90_robust_pareto_repository.get(
+                finalization.final_comparison_ref.authority_id
             )
-        if (
-            final_comparison.evaluation_sha256
-            != finalization.final_comparison_ref.semantic_sha256
-        ):
-            raise ValueError(
-                'multi-fidelity final comparison exact hash mismatch'
+            if final_robust_pareto is None:
+                raise ValueError(
+                    'multi-fidelity finalization references missing O90 '
+                    'robust Pareto evaluation'
+                )
+            if (
+                final_robust_pareto.semantic_sha256
+                != finalization.final_comparison_ref.semantic_sha256
+            ):
+                raise ValueError(
+                    'multi-fidelity O90 robust Pareto exact hash mismatch'
+                )
+            regenerated = finalize_o90_multifidelity(
+                plan=plan,
+                screening=screening,
+                final_robust_pareto=final_robust_pareto,
             )
-        regenerated = finalize_o100_multifidelity(
-            plan=plan,
-            screening=screening,
-            final_comparison=final_comparison,
-        )
+        else:  # pragma: no cover - Pydantic guards the closed domain enum.
+            raise ValueError(f'unsupported multi-fidelity domain: {plan.domain}')
         if regenerated != finalization:
             raise ValueError(
                 'multi-fidelity finalization does not reproduce from '
