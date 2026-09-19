@@ -176,6 +176,7 @@ native stable releaseのcorrectnessはfrontend buildへ依存しません。
 
 | 文書 | 内容 |
 |---|---|
+| [ARCHITECTURE_PRINCIPLES.md](docs/ARCHITECTURE_PRINCIPLES.md) | **North Star Architecture Principle / authority flowの正本** |
 | [IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | **実装順・milestone・受入条件の正本** |
 | [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) | main / branch / accepted gate / 未検証の実装事実 |
 | [N90_ACCEPTANCE_2026-09-18.md](docs/N90_ACCEPTANCE_2026-09-18.md) | stable 0.1.0 / A15 Windows受入 |
