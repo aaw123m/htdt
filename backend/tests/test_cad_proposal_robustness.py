@@ -562,11 +562,7 @@ def _execute_multidimensional(fx):
 
     def evaluator(document: SceneDocument, sample_id: str):
         speaker = document.entity(SPEAKER_ID)
-        value = (
-            2.0
-            + abs(float(speaker.position.x_m) - 1.0)
-            + abs(float(speaker.body_yaw_deg or 0.0)) / 100.0
-        )
+        value = 2.0 + abs(float(speaker.position.x_m) - 1.0)
         ref = _source_ref(f'multidimensional:{sample_id}')
         refs[ref.authority_id] = ref
         return ProposalPerturbationObjectiveResult(
