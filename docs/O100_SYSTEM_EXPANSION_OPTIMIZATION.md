@@ -1,6 +1,6 @@
 # O100 — System Expansion / Virtual Channel Topology Optimization
 
-> Status: **O100A–O100B implemented / O100C–O100G planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: [PR #144](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/pull/144), [PR #150](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/pull/150)
+> Status: **O100A–O100E implemented / O100F–O100G planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228
 >
 > O100 extends the existing N40 / G10 / O10–O90 / R-series authority. It does not replace them.
 >
@@ -696,7 +696,7 @@ O100B was implemented in PR #150. It reuses O100A variants, O10 deterministic gr
 - data provenance;
 - explicit unknown/inferred/measured states.
 
-This should align with R110 rather than creating a competing acoustic-source authority.
+Implemented through Issue #168 and its merged EquipmentDefinition / DirectivityDataset / R110 source-authority slices. O100 reuses those exact authorities rather than creating a competing acoustic-source model.
 
 ### O100D — capability-gated system objectives
 
@@ -708,6 +708,8 @@ This should align with R110 rather than creating a competing acoustic-source aut
 - independent install/complexity objectives;
 - O40 Pareto integration.
 
+Implemented through Issue #169 and the merged named topology-comparison / coverage / direct-level / amplifier-headroom slices. Objective definition/unit/direction/model/fidelity compatibility remains exact and missing/unsupported values are not replaced by numeric sentinels.
+
 ### O100E — multi-fidelity topology search
 
 - geometric/profile screening;
@@ -716,6 +718,8 @@ This should align with R110 rather than creating a competing acoustic-source aut
 - common-fidelity final comparison;
 - cache/scheduler reuse;
 - audit trail for approximate pruning.
+
+Implemented in PR #228. The shared staged-fidelity authority distinguishes hard-gate pruning, validated approximate screening, budget defer and blocked evidence; exact stage-to-stage survivor identity is preserved, and the final O100D eligible set must equal the screening survivor set before COMPLETE can be claimed. The generic stage contract is reusable by O90C, but O90C final robustness binding remains a separate slice.
 
 ### O100F — O90 robust system expansion
 
