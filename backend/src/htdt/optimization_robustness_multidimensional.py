@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -557,26 +557,33 @@ def evaluate_multidimensional_robustness(
     return result.samples, result.evaluations
 
 
-def build_multidimensional_robustness_evaluations(
-    spec: RobustnessSpec,
-    samples: Sequence[PerturbationSample],
+def build_multidimensional_evaluations_from_provenance(
     *,
+    robustness_spec_id: str,
+    robustness_spec_sha256: str,
+    candidate_id: str,
+    expected_sample_ids: Sequence[str],
+    samples: Sequence[Any],
+    sampling_provenance: Mapping[str, Any],
     created_at_utc: str | None = None,
 ) -> tuple[RobustnessEvaluation, ...]:
-    """Summarize finite sampled envelopes without fabricating probabilities."""
+    """Summarize a finite bounded design without redefining O90B semantics.
 
-    expected_ids = tuple(
-        item.sample_id for item in build_multidimensional_sampling_plan(spec)
-    )
+    The caller owns the exact sampling-plan and provenance authority. This
+    helper owns only the existing sampled envelope, feasible fraction and
+    direction-aware sampled-worst calculation.
+    """
+
+    expected_ids = tuple(expected_sample_ids)
     ordered = tuple(sorted(samples, key=lambda item: item.sample_index))
     if tuple(item.sample_id for item in ordered) != expected_ids:
         raise ValueError(
             'robustness samples do not match deterministic multidimensional design'
         )
     if any(
-        item.robustness_spec_id != spec.robustness_spec_id
-        or item.robustness_spec_sha256 != spec.robustness_spec_sha256
-        or item.candidate_id != spec.candidate_id
+        item.robustness_spec_id != robustness_spec_id
+        or item.robustness_spec_sha256 != robustness_spec_sha256
+        or item.candidate_id != candidate_id
         for item in ordered
     ):
         raise ValueError('robustness samples belong to another authority')
@@ -587,30 +594,13 @@ def build_multidimensional_robustness_evaluations(
 
     timestamp = created_at_utc or robustness_timestamp_utc()
     feasible_fraction = sum(1 for item in ordered if item.feasible) / len(ordered)
-    provenance = {
-        'robustness_spec_id': spec.robustness_spec_id,
-        'robustness_spec_sha256': spec.robustness_spec_sha256,
-        'parent_robustness_spec_id': spec.parent_robustness_spec_id,
-        'parent_robustness_spec_sha256': spec.parent_robustness_spec_sha256,
-        'sampling_strategy': spec.sampling_strategy,
-        'algorithm_version': spec.algorithm_version,
-        'sampling_seed': spec.sampling_seed,
-        'sample_count': spec.sample_count,
-        'linked_groups': [
-            item.model_dump(mode='json') for item in spec.linked_groups
-        ],
-        'sample_ids': [item.sample_id for item in ordered],
-        'model_id': spec.model_id,
-        'model_version': spec.model_version,
-        'prediction_provider_id': spec.prediction_provider_id,
-        'fidelity': spec.fidelity,
-        'objective_evaluation_spec_sha256': spec.objective_evaluation_spec_sha256,
-    }
-    sampling_provenance_sha256 = canonical_robustness_sha256(provenance)
+    sampling_provenance_sha256 = canonical_robustness_sha256(
+        dict(sampling_provenance)
+    )
 
     evaluations: list[RobustnessEvaluation] = []
     for nominal_metric in nominal.objective_vector.metrics:
-        scored: list[tuple[PerturbationSample, ObjectiveMetric]] = []
+        scored: list[tuple[Any, ObjectiveMetric]] = []
         for sample in ordered:
             if sample.objective_vector is None:
                 continue
@@ -646,9 +636,9 @@ def build_multidimensional_robustness_evaluations(
         )
         identity = {
             'schema_version': ROBUSTNESS_SCHEMA_VERSION,
-            'robustness_spec_id': spec.robustness_spec_id,
-            'robustness_spec_sha256': spec.robustness_spec_sha256,
-            'candidate_id': spec.candidate_id,
+            'robustness_spec_id': robustness_spec_id,
+            'robustness_spec_sha256': robustness_spec_sha256,
+            'candidate_id': candidate_id,
             'objective_id': nominal_metric.objective_id,
             'objective_unit': nominal_metric.unit,
             'direction': nominal_metric.direction,
@@ -686,6 +676,48 @@ def build_multidimensional_robustness_evaluations(
             )
         )
     return tuple(evaluations)
+
+
+def build_multidimensional_robustness_evaluations(
+    spec: RobustnessSpec,
+    samples: Sequence[PerturbationSample],
+    *,
+    created_at_utc: str | None = None,
+) -> tuple[RobustnessEvaluation, ...]:
+    """Summarize finite sampled envelopes without fabricating probabilities."""
+
+    expected_ids = tuple(
+        item.sample_id for item in build_multidimensional_sampling_plan(spec)
+    )
+    ordered = tuple(sorted(samples, key=lambda item: item.sample_index))
+    provenance = {
+        'robustness_spec_id': spec.robustness_spec_id,
+        'robustness_spec_sha256': spec.robustness_spec_sha256,
+        'parent_robustness_spec_id': spec.parent_robustness_spec_id,
+        'parent_robustness_spec_sha256': spec.parent_robustness_spec_sha256,
+        'sampling_strategy': spec.sampling_strategy,
+        'algorithm_version': spec.algorithm_version,
+        'sampling_seed': spec.sampling_seed,
+        'sample_count': spec.sample_count,
+        'linked_groups': [
+            item.model_dump(mode='json') for item in spec.linked_groups
+        ],
+        'sample_ids': [item.sample_id for item in ordered],
+        'model_id': spec.model_id,
+        'model_version': spec.model_version,
+        'prediction_provider_id': spec.prediction_provider_id,
+        'fidelity': spec.fidelity,
+        'objective_evaluation_spec_sha256': spec.objective_evaluation_spec_sha256,
+    }
+    return build_multidimensional_evaluations_from_provenance(
+        robustness_spec_id=spec.robustness_spec_id,
+        robustness_spec_sha256=spec.robustness_spec_sha256,
+        candidate_id=spec.candidate_id,
+        expected_sample_ids=expected_ids,
+        samples=ordered,
+        sampling_provenance=provenance,
+        created_at_utc=created_at_utc,
+    )
 
 
 def build_nominal_robust_pareto_vector(
