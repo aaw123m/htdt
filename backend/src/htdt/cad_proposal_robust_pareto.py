@@ -264,6 +264,14 @@ def build_proposal_robust_pareto_evaluation(
             raise ValueError(
                 f'proposal robust Pareto spec/bundle lineage mismatch: {variant_id}'
             )
+        missing_spec_objectives = (
+            set(selection.robustness_objective_ids) - set(spec.objective_ids)
+        )
+        if missing_spec_objectives:
+            raise ValueError(
+                f'proposal robustness spec does not declare selected objectives: '
+                f'{variant_id}/{sorted(missing_spec_objectives)}'
+            )
 
         evaluations = tuple(robustness_evaluations.get(variant_id, ()))
         by_objective = {item.objective_id: item for item in evaluations}
