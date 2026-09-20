@@ -1,0 +1,109 @@
+{
+  "schema_version": "htdt.r130d.spatial-representation-diagnostic-plan-1",
+  "diagnostic_id": "r130d-general3d-spatial-representation-stencil-neighborhood-2026-09-21",
+  "purpose": "Diagnose PFFDTD spatial representation, source/receiver interpolation stencil variation, and fixed frequency-neighborhood sensitivity without changing the canonical solver contract or scored 40/80 Hz acceptance.",
+  "task_start_main_sha": "9e6066259ec58c093e9a7587550ccf907f28402f",
+  "parent_general3d_plan": {
+    "plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+    "semantic_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec"
+  },
+  "parent_target_window_diagnostic": {
+    "diagnostic_id": "r130d-general3d-target-window-clipped-left-rectangle-2026-09-20",
+    "semantic_sha256": "ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db",
+    "authoritative_run_id": 35540693380,
+    "artifact_id": 10614827536,
+    "artifact_digest_sha256": "62a57fc08bb983ca4d5f5ead6ae86a8ab87819a255d75fe082c4a01570195b9f"
+  },
+  "frozen_solver_contract": {
+    "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+    "geometry_kind": "explicit_polyhedral",
+    "source_position_m": [1.5, 2.0, 2.0],
+    "receiver_position_m": [2.5, 2.0, 2.0],
+    "density_kg_m3": 1.2,
+    "sound_speed_m_s": 343.2,
+    "pffdtd_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "pffdtd_backend": "Python/Numba CPU",
+    "pffdtd_ppw": [8.0, 10.0, 12.0],
+    "requested_duration_s": 0.25,
+    "canonical_frequency_hz": [40.0, 80.0],
+    "canonical_window_function": "rectangular_no_taper",
+    "canonical_record_interval": "[0,T)",
+    "canonical_phasor_convention": "exp(-i*omega*t)",
+    "canonical_analysis_fourier_kernel": "exp(+i*omega*t)",
+    "magnitude_mask_relative_db": -50.0,
+    "pffdtd_self_convergence_thresholds": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15.0
+    }
+  },
+  "forbidden_changes": {
+    "additional_ppw": false,
+    "source_receiver_movement": false,
+    "geometry_fitting": false,
+    "time_window_replacement": false,
+    "amplitude_phase_fitting": false,
+    "post_result_frequency_selection": false,
+    "canonical_observable_change": false,
+    "threshold_change": false
+  },
+  "spatial_representation": {
+    "authority": "bsxfun/pffdtd@aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "representation_kind": "node-centered Cartesian grid with boundary-node indices bn_ixyz and per-boundary-node blocked-neighbor adjacency mask adj_bn; not voxel-cell-center occupancy",
+    "cartesian_neighbor_order": [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]],
+    "air_domain_definition": "connected component of grid nodes reachable from the actual source stencil nodes through Cartesian nearest-neighbor edges not blocked by adj_bn; source stencil nodes must belong to one component",
+    "discrete_volume_estimate": "reachable_air_node_count * h^3",
+    "active_node_count_definition": "all Cartesian grid nodes Nx*Ny*Nz",
+    "interior_node_count_definition": "reachable air-domain nodes excluding boundary nodes",
+    "boundary_node_count_definition": "reachable air-domain nodes whose linear index appears in bn_ixyz",
+    "exterior_or_disconnected_node_count_definition": "active_node_count - reachable_air_node_count",
+    "sloped_surface_key": "ceiling",
+    "sloped_staircase_sample_definition": "unique blocked Cartesian node-neighbor edges whose segment intersects an exact triangulation of the R120B ceiling polygon; sample position is the midpoint between the two grid nodes, representing the staircase control-volume face center implied by the blocked adjacency",
+    "plane_distance_definition": "signed orthogonal distance from each staircase face-center sample to the exact ceiling plane, using a deterministic unit normal from the first non-collinear ceiling vertices",
+    "metrics": ["grid_spacing_m","grid_dimensions","exact_polyhedron_volume_m3","discrete_air_domain_volume_estimate_m3","relative_volume_error","active_node_count","reachable_air_node_count","interior_node_count","boundary_node_count","exterior_or_disconnected_node_count","geometry_representation_hash","pffdtd_cart_grid_logical_sha256","pffdtd_boundary_mask_logical_sha256","sloped_boundary_sample_count","sloped_signed_normal_distance_m","sloped_rms_abs_normal_distance_m","sloped_max_abs_normal_distance_m","sloped_rms_abs_normal_distance_over_h","sloped_max_abs_normal_distance_over_h"],
+    "classification": {
+      "non_monotonic": "SPATIAL_REPRESENTATION_NON_MONOTONIC",
+      "monotonic": "SPATIAL_REPRESENTATION_MONOTONIC",
+      "rule": "If either physical discrete-volume relative error or physical sloped-plane RMS normal-distance error at 12 PPW is greater than its 10 PPW value, classify NON_MONOTONIC; otherwise classify MONOTONIC."
+    }
+  },
+  "interpolation_stencil": {
+    "authority": "bsxfun/pffdtd python/fdtd/sim_comms.py SimComms.get_linear_interp_weights at pinned commit",
+    "source_actual_authority": "comms_out.h5 in_ixyz plus source in_sigs[:,0] normalized to unit sum; this reconstructs the actual trilinear source weights after PFFDTD setup without changing execution",
+    "receiver_actual_authority": "comms_out.h5 out_ixyz and out_alpha",
+    "linear_index_rule": "ix*Ny*Nz + iy*Nz + iz",
+    "per_endpoint_metrics": ["surrounding_linear_indices","surrounding_grid_indices","node_positions_m","interpolation_weights","weight_sum","fractional_cell_coordinate","reconstructed_coordinate_m","reconstruction_error_m","stencil_sha256"],
+    "fractional_cell_coordinate_definition": "(position - lower_corner_node_position)/h for the unique lower/upper Cartesian bracket used by the eight-node stencil"
+  },
+  "frequency_neighborhood": {
+    "diagnostic_frequency_hz": [39.0, 40.0, 41.0, 79.0, 80.0, 81.0],
+    "diagnostic_only_frequency_hz": [39.0, 41.0, 79.0, 81.0],
+    "canonical_scored_frequency_hz": [40.0, 80.0],
+    "operator": "same native finite-record direct DTFT P_T/Q_T left-rectangle operator as canonical execution, evaluated from the same raw pressure/source record; no additional solver execution",
+    "normalized_complex_difference_formula": "|H_b-H_a| / max(|H_b|, |H_a|, fixed_floor)",
+    "fixed_floor": 1e-12,
+    "pairs": ["8_to_10", "10_to_12"],
+    "worsening_rule": "worsening at frequency f iff d_10_12(f) > d_8_10(f)",
+    "classification": {
+      "4_to_6_worsening": "NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD",
+      "0_to_2_worsening": "NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS",
+      "3_worsening": "MIXED_NEIGHBORHOOD_SENSITIVITY"
+    },
+    "canonical_acceptance_inclusion": false
+  },
+  "canonical_reproduction": {
+    "baseline_evidence": "benchmarks/acoustics/r130d_target_window_diagnostic_run62_summary.json",
+    "required_ppw": [8.0, 10.0, 12.0],
+    "required_frequency_hz": [40.0, 80.0],
+    "max_abs_complex_component_tolerance": 1e-09,
+    "instrumentation_change_blocks_on_mismatch": true
+  },
+  "decision_semantics": {
+    "diagnostic_only": true,
+    "canonical_solver_execution_unchanged": true,
+    "canonical_pr295_reproduction_required": true,
+    "canonical_self_convergence_unchanged": true,
+    "cross_solver_unblocked_by_diagnostic": false,
+    "general_3d_validation_promoted_by_diagnostic": false
+  }
+}
