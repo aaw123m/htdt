@@ -14,6 +14,9 @@ on:
       - 'backend/src/htdt/r120_geometry_compiler.py'
       - 'backend/tests/test_cad_candidate_wave_execution.py'
       - 'scripts/run_r130a_candidate_wave_execution.py'
+      - 'docs/R130A_CANDIDATE_WAVE_EXECUTION_2026-09-20.md'
+      - 'docs/IMPLEMENTATION_ROADMAP.md'
+      - 'docs/IMPLEMENTATION_STATUS.md'
       - '.github/workflows/r130a-candidate-wave-execution.yml'
   workflow_dispatch:
 
