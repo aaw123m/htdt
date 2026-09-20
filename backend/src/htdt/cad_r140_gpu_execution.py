@@ -927,13 +927,14 @@ class CpuGpuEquivalenceEvaluation(BaseModel):
                 raise ValueError(
                     'PASS/FAIL CPU/GPU equivalence requires real GPU hardware'
                 )
-            if not self.gpu_numerical_equivalence_validated:
-                raise ValueError('PASS/FAIL requires validated numerical evidence')
             if self.compared_value_count <= 0:
                 raise ValueError('PASS/FAIL requires compared numerical values')
+        if self.state == 'PASS':
+            if not self.gpu_numerical_equivalence_validated:
+                raise ValueError('PASS requires validated numerical equivalence')
         elif self.gpu_numerical_equivalence_validated:
             raise ValueError(
-                'blocked/unsupported/unvalidated state cannot claim validation'
+                'only PASS may claim GPU numerical equivalence validated'
             )
         if self.gpu_hardware_evidence in ('MOCK_GPU', 'SYNTHETIC_GPU'):
             if self.state in ('PASS', 'FAIL'):
@@ -986,7 +987,7 @@ def _evaluation(
     max_relative_error: float | None = None,
     max_phase_error_rad: float | None = None,
 ) -> CpuGpuEquivalenceEvaluation:
-    validated = state in ('PASS', 'FAIL')
+    validated = state == 'PASS'
     core = {
         'schema_version': R140_GPU_SCHEMA_VERSION,
         'authority_version': CPU_GPU_EQUIVALENCE_EVALUATION_VERSION,
