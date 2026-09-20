@@ -884,7 +884,7 @@ def test_frequency_grid_stitch_fixture_reconstructs_smooth_complex_response(
         assert sample.low_weight + sample.high_weight == pytest.approx(1.0)
         phases.append(sample.phase_rad)
 
-    for previous, current in zip(phases, phases[1:], strict=True):
+    for previous, current in zip(phases, phases[1:]):
         wrapped_delta = cmath.phase(cmath.exp(1j * (current - previous)))
         assert abs(wrapped_delta) < 0.1
 
@@ -993,11 +993,17 @@ def test_reconciliation_config_changes_spec_and_artifact_identity_only() -> None
     )
     assert alternate.artifact_id != baseline.artifact_id
     assert tuple(
-        (item.complex_real_pa_per_m3_s, item.complex_imag_pa_per_m3_s)
+        complex(
+            item.complex_real_pa_per_m3_s,
+            item.complex_imag_pa_per_m3_s,
+        )
         for item in alternate.samples
     ) == pytest.approx(
         tuple(
-            (item.complex_real_pa_per_m3_s, item.complex_imag_pa_per_m3_s)
+            complex(
+                item.complex_real_pa_per_m3_s,
+                item.complex_imag_pa_per_m3_s,
+            )
             for item in baseline.samples
         )
     )
