@@ -17,7 +17,7 @@ TARGET_WINDOW_DIAGNOSTIC_PLAN_SCHEMA = (
     'htdt.r130d.target-window-diagnostic-plan-1'
 )
 TARGET_WINDOW_DIAGNOSTIC_PLAN_SHA256 = (
-    '06a3fa89a00ceebbf528c80713be9cd06ac6b6a5dd37c81ea6287bf8a2959364'
+    '22b77577a404cf8c3d81818bf081594225bbe0319dc3ef7fd04dcedd8385a347'
 )
 
 
@@ -112,8 +112,8 @@ def target_window_sampling_metadata(
             'dt * sum_n y[n] * exp(+i*2*pi*f*n*dt)'
         ),
         'target_window_weighting_rule': (
-            'sum_n y[n] * integral_[n*dt,min((n+1)*dt,T)] '
-            'exp(+i*2*pi*f*t) dt'
+            'sum_n Delta_t[n] * y[n] * exp(+i*2*pi*f*n*dt), '
+            'Delta_t[n]=min(dt,T-n*dt)'
         ),
         'source_q_t_sampling': source_sampling,
         'pressure_p_t_sampling': pressure_sampling,
@@ -125,7 +125,7 @@ def target_window_sampling_metadata(
     }
 
 
-def target_window_zoh_spectrum(
+def target_window_clipped_left_rectangle_spectrum(
     samples: Sequence[complex] | np.ndarray,
     *,
     dt_s: float,
@@ -134,53 +134,51 @@ def target_window_zoh_spectrum(
 ) -> np.ndarray:
     values = np.asarray(samples)
     if values.ndim != 1 or values.size < 1:
-        raise ValueError('target-window ZOH spectrum requires a non-empty 1D trace')
+        raise ValueError('target-window clipped left-rectangle spectrum requires a non-empty 1D trace')
     if not (
         np.all(np.isfinite(values.real))
         and np.all(np.isfinite(values.imag))
     ):
-        raise ValueError('target-window ZOH trace must be finite')
+        raise ValueError('target-window clipped left-rectangle trace must be finite')
 
     dt = float(dt_s)
     duration = float(target_duration_s)
     frequencies = np.asarray(frequency_hz, dtype=np.float64)
     if not math.isfinite(dt) or dt <= 0.0:
-        raise ValueError('target-window ZOH dt must be finite and positive')
+        raise ValueError('target-window clipped left-rectangle dt must be finite and positive')
     if not math.isfinite(duration) or duration <= 0.0:
-        raise ValueError('target-window ZOH duration must be finite and positive')
+        raise ValueError('target-window clipped left-rectangle duration must be finite and positive')
     if (
         frequencies.ndim != 1
         or frequencies.size == 0
         or not np.all(np.isfinite(frequencies))
         or np.any(frequencies <= 0.0)
     ):
-        raise ValueError('target-window ZOH frequencies must be finite and positive')
+        raise ValueError('target-window clipped left-rectangle frequencies must be finite and positive')
 
     coverage_end = float(values.size * dt)
     tolerance = max(1.0e-15, abs(dt) * 1.0e-12)
     if coverage_end + tolerance < duration:
-        raise ValueError('target-window ZOH trace does not cover target duration')
+        raise ValueError('target-window clipped left-rectangle trace does not cover target duration')
 
     starts = np.arange(values.size, dtype=np.float64) * dt
     active = starts < duration
     starts = starts[active]
-    ends = np.minimum(starts + dt, duration)
+    widths = np.minimum(dt, duration - starts)
     active_values = values[active].astype(np.complex128, copy=False)
-    omega = 2.0 * np.pi * frequencies[:, None]
-    weights = (
-        np.exp(1j * omega * ends[None, :])
-        - np.exp(1j * omega * starts[None, :])
-    ) / (1j * omega)
-    spectrum = weights @ active_values
+    kernel = np.exp(
+        2j * np.pi * frequencies[:, None] * starts[None, :]
+    )
+    spectrum = (kernel * widths[None, :]) @ active_values
     if not (
         np.all(np.isfinite(spectrum.real))
         and np.all(np.isfinite(spectrum.imag))
     ):
-        raise ValueError('target-window ZOH spectrum is non-finite')
+        raise ValueError('target-window clipped left-rectangle spectrum is non-finite')
     return np.asarray(spectrum, dtype=np.complex128)
 
 
-def target_window_zoh_transfer(
+def target_window_clipped_left_rectangle_transfer(
     pressure_trace: Sequence[complex] | np.ndarray,
     source_volume_velocity_trace: Sequence[complex] | np.ndarray,
     *,
@@ -194,13 +192,13 @@ def target_window_zoh_transfer(
         raise ValueError(
             'target-window P/Q requires matching 1D pressure/source traces'
         )
-    p_spectrum = target_window_zoh_spectrum(
+    p_spectrum = target_window_clipped_left_rectangle_spectrum(
         pressure,
         dt_s=dt_s,
         target_duration_s=target_duration_s,
         frequency_hz=frequency_hz,
     )
-    q_spectrum = target_window_zoh_spectrum(
+    q_spectrum = target_window_clipped_left_rectangle_spectrum(
         source,
         dt_s=dt_s,
         target_duration_s=target_duration_s,
