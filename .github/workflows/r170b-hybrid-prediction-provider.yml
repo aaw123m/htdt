@@ -26,6 +26,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -59,5 +61,5 @@ jobs:
           grep -q 'production_adoption=false' docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md
           grep -q 'RDC usage: 0' docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md
           grep -q 'production solver adoption' docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md
-          git diff --exit-code origin/${{ github.base_ref }}...HEAD -- HTDT-Capture
-          git diff --exit-code origin/${{ github.base_ref }}...HEAD -- docs/IMPLEMENTATION_ROADMAP.md docs/IMPLEMENTATION_STATUS.md
+          git diff --exit-code origin/${{ github.base_ref || 'main' }}...HEAD -- HTDT-Capture
+          git diff --exit-code origin/${{ github.base_ref || 'main' }}...HEAD -- docs/IMPLEMENTATION_ROADMAP.md docs/IMPLEMENTATION_STATUS.md
