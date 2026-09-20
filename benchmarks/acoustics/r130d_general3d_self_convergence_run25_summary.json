@@ -138,7 +138,18 @@
           -24.049770677803888,
           -0.6011502054551858
         ]
-      ]
+      ],
+      "timings_s": {
+        "system_export": 0.023486900000079913,
+        "generalized_eigen": 0.3387645000000248,
+        "modal_reconstruction": 0.004839700000047742
+      },
+      "estimated_dense_modal_bytes": 750000,
+      "sample_rate_hz": 12000,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional located by Mesh::FindPoints",
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) continuous-H1 point functional"
     },
     {
       "refinement": 2,
@@ -158,7 +169,18 @@
           -10.452883021440876,
           -218.14222365145602
         ]
-      ]
+      ],
+      "timings_s": {
+        "system_export": 0.05546609999987595,
+        "generalized_eigen": 8.160381199999847,
+        "modal_reconstruction": 0.02551480000010997
+      },
+      "estimated_dense_modal_bytes": 25509168,
+      "sample_rate_hz": 12000,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional located by Mesh::FindPoints",
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) continuous-H1 point functional"
     },
     {
       "refinement": 3,
@@ -178,7 +200,18 @@
           -14.169471220600029,
           -217.3078904142101
         ]
-      ]
+      ],
+      "timings_s": {
+        "system_export": 0.3828587000000425,
+        "generalized_eigen": 26.524318699999867,
+        "modal_reconstruction": 0.1596950000000561
+      },
+      "estimated_dense_modal_bytes": 1158603312,
+      "sample_rate_hz": 12000,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional located by Mesh::FindPoints",
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) continuous-H1 point functional"
     }
   ],
   "pffdtd_levels": [
@@ -207,7 +240,19 @@
           -34.79457934155918,
           -94.57358931689443
         ]
-      ]
+      ],
+      "active_cell_count": 5832,
+      "active_cell_count_semantics": "allocated Cartesian update grid; boundary_node_count is reported separately",
+      "record_requested_duration_s": 0.25,
+      "record_last_sample_time_s": 0.24945428743308865,
+      "record_next_sample_time_s": 0.2501752535817392,
+      "timings_s": {
+        "compile": 1.765324999999848,
+        "solve": 13.293590199999926,
+        "postprocess": 0.004031499999882726
+      },
+      "source_representation": "PFFDTD SimComms eight-node trilinear interpolation at exact physical source xyz",
+      "receiver_representation": "PFFDTD SimComms eight-node trilinear interpolation/recombination at exact physical receiver xyz"
     },
     {
       "points_per_wavelength": 10,
@@ -234,7 +279,19 @@
           220.12588490165516,
           -463.1821162252182
         ]
-      ]
+      ],
+      "active_cell_count": 8000,
+      "active_cell_count_semantics": "allocated Cartesian update grid; boundary_node_count is reported separately",
+      "record_requested_duration_s": 0.25,
+      "record_last_sample_time_s": 0.24974267389254887,
+      "record_next_sample_time_s": 0.2503194468114693,
+      "timings_s": {
+        "compile": 0.25783149999983834,
+        "solve": 0.07391559999996389,
+        "postprocess": 0.0038085000001046865
+      },
+      "source_representation": "PFFDTD SimComms eight-node trilinear interpolation at exact physical source xyz",
+      "receiver_representation": "PFFDTD SimComms eight-node trilinear interpolation/recombination at exact physical receiver xyz"
     },
     {
       "points_per_wavelength": 12,
@@ -261,7 +318,19 @@
           -69.78140073908766,
           -121.8334884485062
         ]
-      ]
+      ],
+      "active_cell_count": 10648,
+      "active_cell_count_semantics": "allocated Cartesian update grid; boundary_node_count is reported separately",
+      "record_requested_duration_s": 0.25,
+      "record_last_sample_time_s": 0.24993493153218896,
+      "record_next_sample_time_s": 0.25041557563128936,
+      "timings_s": {
+        "compile": 0.12804340000002412,
+        "solve": 0.08841639999991457,
+        "postprocess": 0.0036677000000508997
+      },
+      "source_representation": "PFFDTD SimComms eight-node trilinear interpolation at exact physical source xyz",
+      "receiver_representation": "PFFDTD SimComms eight-node trilinear interpolation/recombination at exact physical receiver xyz"
     }
   ],
   "adjacent_comparisons": {
