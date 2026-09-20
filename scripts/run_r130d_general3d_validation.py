@@ -651,20 +651,39 @@ def _run_pffdtd_level(
             tuple(float(x) for x in artifact.get('frequency_axis_hz', ())),
             plan.physical_quantity.frequency_hz,
         ),
-        (
-            'pressure reference',
-            artifact.get('reference'),
-            (
-                'absolute complex acoustic pressure from finite-record P/Q '
-                'transfer multiplied by exact AcousticWaveExcitationAuthority Q(f)'
-            ),
-        ),
     )
     for label, actual, expected in contract_checks:
         if actual != expected:
             raise ObservableContractMismatch(
                 f'PFFDTD {label} mismatch: {actual!r} != {expected!r}'
             )
+    structured_configuration_checks = (
+        (
+            'source injection mapping',
+            configuration.source_injection_mapping,
+            'unit_discrete_volume_velocity_impulse_for_transfer_then_exact_Q_spectrum',
+        ),
+        (
+            'pressure conversion',
+            configuration.pressure_conversion,
+            'p=rho*d(phi)/dt_second_order',
+        ),
+        (
+            'transfer definition',
+            configuration.transfer_definition,
+            'finite_record_direct_dtft_P_over_Q_exp_plus_iwt',
+        ),
+    )
+    for label, actual, expected in structured_configuration_checks:
+        if actual != expected:
+            raise ObservableContractMismatch(
+                f'PFFDTD {label} mismatch: {actual!r} != {expected!r}'
+            )
+    source_authority = artifact.get('source_authority', {})
+    if source_authority.get('wave_excitation_sha256') != fixture['excitation'].semantic_sha256:
+        raise ObservableContractMismatch(
+            'PFFDTD artifact does not bind the exact wave excitation authority'
+        )
     if not math.isclose(
         float(time_sampling.get('requested_duration_s', math.nan)),
         plan.physical_quantity.duration_s,
@@ -756,6 +775,10 @@ def _run_pffdtd_level(
             'at exact physical receiver xyz'
         ),
         'raw_solver_asset_sha256': evidence['raw_solver_asset_sha256'],
+        'artifact_pressure_reference_note': artifact.get('reference'),
+        'source_injection_mapping': configuration.source_injection_mapping,
+        'pressure_conversion_mapping': configuration.pressure_conversion,
+        'transfer_definition': configuration.transfer_definition,
         'frequency_hz': list(plan.physical_quantity.frequency_hz),
         'absolute_pressure_pa': _complex_pairs(pressure),
         'exact_excitation_q_m3_s': _complex_pairs(q),
@@ -799,13 +822,10 @@ def _blocked_payload(
     failure_semantic: str = 'EXECUTION_FAILED',
     resource_state: str = 'NOT_RESOURCE_BLOCKED',
 ) -> dict[str, Any]:
+    contract_mismatch = failure_semantic == 'CONTRACT_MISMATCH'
     decision = validation_decision_v2(
-        execution_state='EXECUTION_FAILED',
-        contract_state=(
-            'CONTRACT_MISMATCH'
-            if failure_semantic == 'CONTRACT_MISMATCH'
-            else 'MATCH'
-        ),
+        execution_state='PASS' if contract_mismatch else 'EXECUTION_FAILED',
+        contract_state='CONTRACT_MISMATCH' if contract_mismatch else 'MATCH',
         reference_assessment=None,
         pffdtd_assessment=None,
         cross_solver_metrics=None,
