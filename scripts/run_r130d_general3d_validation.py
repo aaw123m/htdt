@@ -780,8 +780,14 @@ def main(argv: list[str] | None = None) -> int:
             semantic=semantic,
             compiled=compiled,
         )
-        if tuple(vertex.point() for vertex in compiled.vertices) != plan.fixture.vertices_m:
-            raise ValidationBlocked('compiled R120B vertices differ from validation fixture')
+        compiled_vertices = tuple(
+            sorted(tuple(float(value) for value in vertex.point()) for vertex in compiled.vertices)
+        )
+        planned_vertices = tuple(sorted(plan.fixture.vertices_m))
+        if compiled_vertices != planned_vertices:
+            raise ValidationBlocked(
+                'compiled R120B vertex set differs from validation fixture'
+            )
 
         pffdtd_executor = PffdtdPolyhedralCandidateWaveExecutor(
             base_executor=fixture['executor'],
