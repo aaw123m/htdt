@@ -17,7 +17,7 @@ This plan is committed before the authoritative numerical run. The refinement se
 - Rectangular/no taper
 - PR #282/#286 acceptance thresholds unchanged
 
-The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json`. Its semantic SHA-256 over canonical sorted JSON is `f8593e7b3f61f11a3c421d9c60b719c9c9e81733135a2b7984abebface510ff2`.
+The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json`. Its semantic SHA-256 over canonical sorted JSON is `06a3fa89a00ceebbf528c80713be9cd06ac6b6a5dd37c81ea6287bf8a2959364`.
 
 ## Frozen diagnostic observation operator
 
@@ -54,3 +54,15 @@ The final evidence must keep separate:
 Even if aligned-diagnostic self-convergence passes, canonical `CROSS_SOLVER_BLOCKED` and `NOT_VALIDATED` remain unchanged unless a later separately approved slice formally changes the canonical observation contract.
 
 RDC calls are expected to remain zero. HTDT-Capture is out of scope and must have zero diff.
+
+
+## Frozen PFFDTD non-monotonicity classification
+
+Using adjacent complex-RMS only:
+
+- if aligned 10→12 <= aligned 8→10: `ALIGNED_MONOTONIC`;
+- otherwise compute worsening excess `max(second/first - 1, 0)` for canonical and aligned;
+- if aligned worsening excess is at least 50% smaller than canonical: `ALIGNED_NON_MONOTONICITY_SUBSTANTIALLY_REDUCED`;
+- otherwise: `ALIGNED_NON_MONOTONICITY_REMAINS`.
+
+This classification is diagnostic only and cannot change canonical validation state.
