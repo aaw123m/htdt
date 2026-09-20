@@ -15,7 +15,6 @@ on:
       - 'docs/R130D_GENERAL3D_INDEPENDENT_VALIDATION_2026-09-20.md'
       - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_DIAGNOSIS_PLAN_2026-09-20.md'
       - 'docs/R130D_GENERAL3D_TARGET_WINDOW_DIAGNOSTIC_PLAN_2026-09-20.md'
-      - 'docs/R130D_GENERAL3D_TARGET_WINDOW_DIAGNOSTIC_EVIDENCE_2026-09-20.md'
       - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_RERUN_EVIDENCE_2026-09-20.md'
       - '.github/workflows/r130d-general3d-validation.yml'
   workflow_dispatch:
@@ -147,6 +146,26 @@ jobs:
           if ($doc.payload.rdc_calls -ne 0) { throw "RDC calls must remain zero" }
           if ($doc.payload.htdt_capture_changed -ne $false) { throw "HTDT-Capture change claim is forbidden" }
           if ($doc.payload.scope.production_solver_selected -ne $false) { throw "production solver adoption claim is forbidden" }
+
+      - name: Bundle frozen plans and provenance
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
+          Copy-Item $env:PLAN (Join-Path $env:EVIDENCE_DIR 'frozen_general3d_validation_plan.json')
+          Copy-Item $env:DIAGNOSTIC_PLAN (Join-Path $env:EVIDENCE_DIR 'frozen_target_window_diagnostic_plan.json')
+          Copy-Item $env:PR286_SUMMARY (Join-Path $env:EVIDENCE_DIR 'pr286_baseline_summary.json')
+          $manifest = [ordered]@{
+            schema_version = 'htdt.r130d.target-window-artifact-manifest-1'
+            repository_head = $env:HTDT_PR_HEAD_SHA
+            general3d_plan_sha256 = (Get-FileHash $env:PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
+            diagnostic_plan_sha256 = (Get-FileHash $env:DIAGNOSTIC_PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
+            pr286_baseline_summary_sha256 = (Get-FileHash $env:PR286_SUMMARY -Algorithm SHA256).Hash.ToLowerInvariant()
+            evidence_file_sha256 = (Get-FileHash $env:EVIDENCE_OUTPUT -Algorithm SHA256).Hash.ToLowerInvariant()
+            rdc_calls = 0
+            htdt_capture_changed = $false
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_DIR 'artifact_manifest.json')
 
       - name: Upload immutable independent validation evidence
         if: always()
