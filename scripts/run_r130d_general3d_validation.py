@@ -833,11 +833,22 @@ def _blocked_payload(
         'decision': decision,
         'scope': {
             'validated_fixture': None,
+            'general_3d_validation_state': 'NOT_VALIDATED',
             'concave_state': 'CONCAVE_NOT_VALIDATED',
             'multi_region_state': 'MULTI_REGION_NOT_VALIDATED',
             'portal_state': 'PORTAL_NOT_VALIDATED',
             'production_solver_selected': False,
+            'owned_room_evidence': False,
+            'gpu_validated': False,
         },
+        'runtime': {
+            'python': platform.python_version(),
+            'platform': platform.platform(),
+            'numpy': np.__version__,
+            'scipy': scipy.__version__,
+            'logical_cpus': os.cpu_count(),
+        },
+        'resource_ceiling': plan.resource_ceiling.model_dump(mode='json'),
         'rdc_calls': 0,
         'htdt_capture_changed': False,
     }
