@@ -276,7 +276,7 @@ class DeterministicPathSet(BaseModel):
     ] = 'relative_energy_transport_per_m2'
     direct_path_count: int = Field(ge=0)
     first_order_specular_path_count: int = Field(ge=0)
-    path_types_present: tuple[Literal['direct', 'first_order_specular'], ...]
+    path_types_present: tuple[Literal['direct', 'specular_reflection'], ...]
     validity: HybridObservableValidity
 
     @model_validator(mode='after')
@@ -936,7 +936,7 @@ def _path_component(
         item.path_type == 'direct' for item in path_artifact.paths
     )
     first_count = sum(
-        item.path_type == 'first_order_specular'
+        item.path_type == 'specular_reflection'
         for item in path_artifact.paths
     )
     path_types = tuple(
