@@ -48,6 +48,8 @@ from htdt.cad_geometric_acoustics_adapter import (
     DeterministicGaExecutionInput,
     DeterministicGaUnsupportedError,
     GeometricMaterialAuthority,
+    HtdtPlanarImageSourceEngine,
+    HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
@@ -713,7 +715,11 @@ def _fixture(
     implementation_ref = (
         PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
         if use_pyroomacoustics
-        else FixtureImageEngine.solver_implementation_ref
+        else (
+            HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+            if room_policy == 'general_planar_closed_polyhedral_v1'
+            else FixtureImageEngine.solver_implementation_ref
+        )
     )
     configuration_schema_ref = _ref(
         'htdt.r150.deterministic-ga-configuration.schema',
@@ -842,12 +848,19 @@ def _fixture(
 
 
 def _execute(fx, engine=None):
+    if engine is None:
+        engine = (
+            HtdtPlanarImageSourceEngine()
+            if fx['execution_input'].geometry_policy
+            == 'general_planar_closed_polyhedral_v1'
+            else FixtureImageEngine()
+        )
     return execute_deterministic_ga(
         execution_input=fx['execution_input'],
         compiled_geometry=fx['compiled'],
         directivity_datasets=(fx['dataset'],),
         material_resolver=fx['material_resolver'],
-        engine=FixtureImageEngine() if engine is None else engine,
+        engine=engine,
     )
 
 
