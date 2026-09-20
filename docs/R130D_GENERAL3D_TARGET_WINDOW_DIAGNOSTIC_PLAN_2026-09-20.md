@@ -17,7 +17,7 @@ This plan is committed before the authoritative numerical run. The refinement se
 - Rectangular/no taper
 - PR #282/#286 acceptance thresholds unchanged
 
-The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json`. Its semantic SHA-256 over canonical sorted JSON is `22b77577a404cf8c3d81818bf081594225bbe0319dc3ef7fd04dcedd8385a347`.
+The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json` with diagnostic id `r130d-general3d-target-window-clipped-left-rectangle-2026-09-20`. Its semantic SHA-256 over canonical sorted JSON is `ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db`.
 
 ## Frozen diagnostic observation operator
 
