@@ -57,16 +57,20 @@ The analytic monopole is **not** a default speaker model. It exists only through
 
 | Source evidence | Per-path result |
 | --- | --- |
-| exact complex `DirectivityDataset` with coherent phase reference + explicit point-source normalization | complex supported |
+| exact complex `DirectivityDataset`, `on_axis_per_frequency` normalization, aligned volume-velocity phase reference + explicit point-source normalization | complex supported |
 | explicit analytic `point_volume_velocity_monopole_omnidirectional_v1` with coherent phase reference + point-source normalization | complex supported |
-| exact magnitude-only directivity | magnitude-only; phase/real/imag absent |
+| exact magnitude-only directivity with `on_axis_per_frequency` normalization | magnitude-only; phase/real/imag absent |
 | polar summary / unknown directivity | unsupported |
 | declared imported directivity with missing dataset | unsupported |
 | dataset / EquipmentDefinition identity or tier mismatch | rejected |
+| imported directivity using `explicit_reference_level` | unsupported for this point-source ratio contract |
 | missing absolute point-source normalization | unsupported for `Pa/(m3/s)` |
 
 For imported complex directivity, the existing R110/O100C evaluator is reused with
-`request='complex'`. Its interpolation/provenance rules remain authoritative. Magnitude-only data is never
+`request='complex'`. Its interpolation/provenance rules remain authoritative. This response layer requires
+`on_axis_per_frequency` normalization before treating directivity magnitude as a dimensionless multiplicative
+point-source directional ratio; `explicit_reference_level` is not assumed compatible with unit volume velocity.
+Magnitude-only data is never
 promoted by setting phase to zero, and unknown directivity is never replaced by an omnidirectional response.
 
 ## Reflection transfer authority
@@ -210,19 +214,17 @@ Focused numerical/authority tests cover:
 11. **Persistence** — exact save/reopen succeeds; removal of a dependency causes stale rejection.
 12. **Identity mismatch** — source, receiver, and stale R120 surface binding fail closed.
 13. **Stale Portal authority** — transfer bound to a different Portal authority fails closed.
+14. **Coherent self-consistency** — complex phase must agree with real/imag and the response grid must remain inside the exact path-artifact band.
+15. **Source phase origin** — a coherent directivity phase reference not aligned to `source_volume_velocity_t0` fails closed.
+16. **Directivity normalization** — `explicit_reference_level` is not silently treated as a point-source directional ratio.
+17. **Complex directional transfer** — an exact on-axis-normalized complex DirectivityDataset contributes its explicit phase to the point-source transfer.
 
 The dedicated workflow also runs the complete existing
 `backend/tests/test_cad_geometric_acoustics_adapter.py` suite, covering existing direct, first-order,
 second-order, single-Portal, and arbitrary region-graph / multi-Portal geometry regressions.
 
-Observed focused workflow run #1 before the final stale-binding fixture additions:
-
-```text
-11 passed, 1 warning
-41 passed, 1 skipped, 1 warning
-```
-
-The final-head workflow result is recorded in Draft PR #276 after Actions completion.
+The focused response suite contains 17 numerical/authority tests. The exact final-head workflow result, together
+with the existing R150 geometry regression result, is recorded in Draft PR #276.
 
 ## Valid-band semantics
 
