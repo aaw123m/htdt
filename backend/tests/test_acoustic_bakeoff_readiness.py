@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 R100A_PATH = ROOT / 'benchmarks' / 'acoustics' / 'r100a_manifest.json'
 CANDIDATE_PATH = ROOT / 'benchmarks' / 'acoustics' / 'r100b_candidates.json'
 ADOPTION_PATH = ROOT / 'benchmarks' / 'acoustics' / 'r100b_wave_adoption_profile.json'
+READINESS_LEDGER_PATH = ROOT / 'benchmarks' / 'acoustics' / 'r100b_production_adoption_evidence.json'
 
 
 def _authorities():
@@ -518,3 +519,35 @@ def test_ledger_save_reopen_preserves_same_decision(
 
     assert second.decision == first.decision
     assert second.semantic_hash() == first.semantic_hash()
+
+
+def test_checked_in_readiness_is_no_go_with_current_mfem_fail() -> None:
+    benchmark, candidates, profile = _authorities()
+    ledger = load_readiness_evidence_ledger(READINESS_LEDGER_PATH)
+
+    report = build_production_adoption_readiness_report(
+        benchmark, candidates, profile, ledger
+    )
+    mfem = _candidate_report(report, 'mfem-v4.10-d964264')
+    pffdtd = _candidate_report(report, 'pffdtd-main-aa319f6')
+
+    assert report.decision == 'NO_GO'
+    assert report.ready_candidate_ids == ()
+    assert report.production_solver_selected is False
+
+    mfem_concave = _check(mfem.fixture_results, 'wave-concave-l-room-v1')
+    assert mfem_concave.status == 'FAIL'
+    assert mfem_concave.evidence_ids == (
+        'mfem-finite-record-concave-2026-09-19',
+    )
+    assert _check(
+        mfem.hard_gate_results,
+        'reproducible_authority',
+    ).status == 'PASS'
+    assert 'mfem-finite-record-concave-2026-09-19' in mfem.negative_evidence_ids
+
+    pffdtd_concave = _check(pffdtd.fixture_results, 'wave-concave-l-room-v1')
+    assert pffdtd_concave.status == 'BLOCKED'
+    excluded = {item.evidence_id: item.reason for item in pffdtd.excluded_evidence}
+    assert excluded['pffdtd-concave-known-negative'] == 'stale_r100a_authority'
+    assert 'pffdtd-concave-known-negative' in pffdtd.negative_evidence_ids
