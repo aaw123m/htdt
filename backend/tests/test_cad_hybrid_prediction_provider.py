@@ -716,16 +716,16 @@ def test_n70_exact_source_receiver_grid_and_candidate_only_enforcement(
             low_hz=20.0,
             high_hz=80.0,
         )
-    with pytest.raises(Exception):
-        HybridPredictionProvider.model_validate(
-            provider.model_dump(mode='python')
-            | {'evidence_state': 'validated'}
-        )
-    with pytest.raises(Exception):
-        HybridPredictionProvider.model_validate(
-            provider.model_dump(mode='python')
-            | {'production_adoption': True}
-        )
+    for update in (
+        {'evidence_state': 'validated'},
+        {'evidence_state': 'production'},
+        {'evidence_scope': 'owned_room'},
+        {'production_adoption': True},
+    ):
+        with pytest.raises(Exception):
+            HybridPredictionProvider.model_validate(
+                provider.model_dump(mode='python') | update
+            )
 
     assert provider.capability('frequency_response_magnitude').state == 'READY'
     assert provider.capability('frequency_response_phase').state == 'READY'
@@ -754,10 +754,23 @@ def test_save_reopen_and_exact_stale_rejection(
     assert repository.save(provider) == provider
     assert repository.get(provider.provider_id) == provider
 
+    original_r160_get = bundle['r160_repository'].get
+    monkeypatch.setattr(bundle['r160_repository'], 'get', lambda artifact_id: None)
+    with pytest.raises(ValueError, match='R160 numerical artifact'):
+        repository.get(provider.provider_id)
+    monkeypatch.setattr(bundle['r160_repository'], 'get', original_r160_get)
+    assert repository.get(provider.provider_id) == provider
+
     saved_spec = bundle['specs'].pop(bundle['spec'].composition_spec_id)
     with pytest.raises(ValueError, match='R160 numerical composition authority|composition spec'):
         repository.get(provider.provider_id)
     bundle['specs'][saved_spec.composition_spec_id] = saved_spec
+    assert repository.get(provider.provider_id) == provider
+
+    saved_response = bundle['responses'].pop(bundle['r150_response'].artifact_id)
+    with pytest.raises(ValueError, match='R150 response'):
+        repository.get(provider.provider_id)
+    bundle['responses'][saved_response.artifact_id] = saved_response
     assert repository.get(provider.provider_id) == provider
 
     saved_excitation = bundle['excitations'].pop(
