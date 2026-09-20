@@ -5,6 +5,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import traceback
 
 import numpy as np
@@ -249,6 +250,32 @@ def _tiny_resource_configuration(fixture):
     )
 
 
+def _restore_pinned_pffdtd_checkout(executor) -> None:
+    root = Path(executor.upstream_root)
+    subprocess.run(
+        ['git', '-C', str(root), 'reset', '--hard', PFFDTD_SHA],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ['git', '-C', str(root), 'clean', '-fd'],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    actual = subprocess.run(
+        ['git', '-C', str(root), 'rev-parse', 'HEAD'],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip().lower()
+    if actual != PFFDTD_SHA:
+        raise AssertionError(
+            f'PFFDTD restore did not reproduce pinned commit: {actual}'
+        )
+
+
 def _tamper_reopen_rejection(fixture, result) -> bool:
     store = fixture['store']
     artifact_ref = result.artifacts[0].artifact_authority
@@ -432,6 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         if not resource_ceiling_rejected:
             raise AssertionError('R130D grid resource ceiling did not fail closed')
 
+        _restore_pinned_pffdtd_checkout(fixture['executor'])
         legacy_result = fixture['executor'].execute(
             dispatch_binding_id=fixture['dispatch'].binding_id,
             configuration=fixture['configuration'],
@@ -439,6 +467,7 @@ def main(argv: list[str] | None = None) -> int:
         r130d_results = {}
         r130d_evidence = {}
         for name in ('rectangular', 'sloped', 'concave'):
+            _restore_pinned_pffdtd_checkout(fixture['executor'])
             result = executor.execute(
                 dispatch_binding_id=fixture['dispatch'].binding_id,
                 configuration=fixture['configuration'],
