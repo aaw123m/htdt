@@ -773,7 +773,10 @@ def validate_r120_polyhedral_topology(
         for right in geometry.air_volumes[left_index + 1:]:
             if right.region_id not in valid_region_ids:
                 continue
-            if _volumes_overlap_detectably(
+            same_closed_boundary = (
+                set(left.boundary_surface_keys) == set(right.boundary_surface_keys)
+            )
+            if same_closed_boundary or _volumes_overlap_detectably(
                 geometry.vertices,
                 volume_triangles[left.region_id],
                 volume_triangles[right.region_id],
