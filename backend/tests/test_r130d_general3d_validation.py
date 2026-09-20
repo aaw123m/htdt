@@ -18,8 +18,8 @@ from htdt.r130d_general3d_validation import (
     load_validation_plan,
     save_evidence,
     target_window_sampling_metadata,
-    target_window_zoh_spectrum,
-    target_window_zoh_transfer,
+    target_window_clipped_left_rectangle_spectrum,
+    target_window_clipped_left_rectangle_transfer,
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
@@ -439,7 +439,7 @@ def test_target_window_diagnostic_plan_is_frozen_and_hash_bound():
     assert diagnostic['series']['mfem_refinements'] == [1, 2, 3]
     assert diagnostic['series']['pffdtd_ppw'] == [8.0, 10.0, 12.0]
     assert diagnostic['operator']['operator_id'] == (
-        'htdt.r130d.target_window_zoh_exp_integral'
+        'htdt.r130d.target_window_clipped_left_rectangle'
     )
     assert diagnostic['decision_semantics']['diagnostic_only'] is True
     assert (
@@ -448,7 +448,7 @@ def test_target_window_diagnostic_plan_is_frozen_and_hash_bound():
     )
 
 
-def test_target_window_zoh_known_complex_harmonic_converges_for_noninteger_t_over_dt():
+def test_target_window_clipped_left_rectangle_known_complex_harmonic_converges_for_noninteger_t_over_dt():
     target_duration_s = 0.25
     frequencies = np.asarray([40.0, 80.0], dtype=np.float64)
     pressure_amplitude = 2.1 + 0.4j
@@ -488,13 +488,13 @@ def test_target_window_zoh_known_complex_harmonic_converges_for_noninteger_t_ove
             -2j * np.pi * source_harmonic_hz * times
         )
 
-        aligned_pressure = target_window_zoh_spectrum(
+        aligned_pressure = target_window_clipped_left_rectangle_spectrum(
             pressure,
             dt_s=dt_s,
             target_duration_s=target_duration_s,
             frequency_hz=frequencies,
         )
-        aligned = target_window_zoh_transfer(
+        aligned = target_window_clipped_left_rectangle_transfer(
             pressure,
             source,
             dt_s=dt_s,
