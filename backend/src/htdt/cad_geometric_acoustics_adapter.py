@@ -51,6 +51,7 @@ PYROOMACOUSTICS_ENGINE_VERSION = '0.10.1'
 PYROOMACOUSTICS_CANDIDATE_SOURCE_COMMIT = 'f02b01dd6609709e2089aefa5d1e59c91d3a0601'
 HTDT_PLANAR_ENGINE_ID = 'htdt.r150.general_planar_image_construction'
 HTDT_PLANAR_ENGINE_VERSION = '1'
+HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION = '2'
 
 PathType = Literal['direct', 'specular_reflection']
 PathCandidateDecision = Literal[
@@ -123,6 +124,22 @@ HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
             'version': HTDT_PLANAR_ENGINE_VERSION,
             'construction': 'exact_plane_mirror_and_triangle_domain_first_order',
             'maximum_reflection_order': 1,
+        }
+    ),
+)
+
+HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='adapter-kernel:htdt-r150-general-planar-second-order',
+    authority_version=HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'implementation': HTDT_PLANAR_ENGINE_ID,
+            'version': HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION,
+            'construction': (
+                'ordered_exact_plane_mirror_reverse_reconstruction_'
+                'and_triangle_domain_through_second_order'
+            ),
+            'maximum_reflection_order': 2,
         }
     ),
 )
@@ -247,7 +264,7 @@ class DeterministicGaConfiguration(BaseModel):
     configuration_id: str = Field(pattern=r'^r150-ga-configuration:[0-9a-f]{64}$')
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
-    maximum_reflection_order: Literal[1] = 1
+    maximum_reflection_order: Literal[1, 2] = 1
     frequency_centers_hz: tuple[float, ...] = Field(min_length=1)
     geometric_tolerance_m: float = Field(gt=0.0)
     engine_image_match_tolerance_m: float = Field(gt=0.0)
@@ -323,11 +340,20 @@ def build_deterministic_ga_configuration(
     engine_image_match_tolerance_m: float = 1.0e-8,
     identity_decimal_places: int = 12,
     room_policy: GeometryPolicy = 'exact_axis_aligned_closed_shoebox_v1',
+    maximum_reflection_order: Literal[1, 2] = 1,
 ) -> DeterministicGaConfiguration:
+    if (
+        maximum_reflection_order == 2
+        and room_policy != 'general_planar_closed_polyhedral_v1'
+    ):
+        raise ValueError(
+            'bounded second-order specular execution is supported only by the '
+            'general-planar geometry policy'
+        )
     core: dict[str, Any] = {
         'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
         'authority_version': DETERMINISTIC_GA_AUTHORITY_VERSION,
-        'maximum_reflection_order': 1,
+        'maximum_reflection_order': int(maximum_reflection_order),
         'frequency_centers_hz': sorted(set(float(value) for value in frequency_centers_hz)),
         'geometric_tolerance_m': float(geometric_tolerance_m),
         'engine_image_match_tolerance_m': float(engine_image_match_tolerance_m),
@@ -464,6 +490,7 @@ class DeterministicGaExecutionInput(BaseModel):
     geometric_tolerance_m: float = Field(gt=0.0)
     engine_image_match_tolerance_m: float = Field(gt=0.0)
     identity_decimal_places: int = Field(ge=6, le=15)
+    maximum_reflection_order: Literal[2] | None = None
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'DeterministicGaExecutionInput':
@@ -483,6 +510,8 @@ class DeterministicGaExecutionInput(BaseModel):
             payload.pop('geometry_policy', None)
         if self.unsupported_reflection_surface_ids is None:
             payload.pop('unsupported_reflection_surface_ids', None)
+        if self.maximum_reflection_order is None:
+            payload.pop('maximum_reflection_order', None)
         for plane in payload['boundary_planes']:
             for key in (
                 'axis',
@@ -538,6 +567,7 @@ class DeterministicPathBandQuantity(BaseModel):
     spreading_factor_per_m2: float = Field(gt=0.0)
     source_directivity: SourceDirectivityContribution
     boundary_material: BoundaryMaterialContribution | None = None
+    boundary_materials: tuple[BoundaryMaterialContribution, ...] | None = None
     relative_energy_transport_per_m2: float = Field(ge=0.0)
     coherent_phase: Literal['UNAVAILABLE_NOT_SYNTHESIZED'] = (
         'UNAVAILABLE_NOT_SYNTHESIZED'
@@ -571,14 +601,62 @@ class DeterministicAcousticPath(BaseModel):
 
     @model_validator(mode='after')
     def validate_path(self) -> 'DeterministicAcousticPath':
+        interaction_count = len(self.ordered_interaction_surface_ids)
+        if interaction_count != len(self.ordered_interaction_points):
+            raise ValueError('interaction surface/point sequence lengths must match')
         if self.path_type == 'direct':
-            if self.ordered_interaction_surface_ids or self.ordered_interaction_points:
+            if interaction_count:
                 raise ValueError('direct path cannot carry interaction surfaces')
-        elif (
-            len(self.ordered_interaction_surface_ids) != 1
-            or len(self.ordered_interaction_points) != 1
-        ):
-            raise ValueError('first-order reflection requires one ordered surface')
+        elif interaction_count not in (1, 2):
+            raise ValueError(
+                'bounded specular reflection requires one or two ordered surfaces'
+            )
+
+        for band in self.bands:
+            if interaction_count == 0:
+                if (
+                    band.boundary_material is not None
+                    or band.boundary_materials is not None
+                ):
+                    raise ValueError(
+                        'direct path cannot carry boundary material contribution'
+                    )
+            elif interaction_count == 1:
+                if (
+                    band.boundary_material is None
+                    or band.boundary_materials is not None
+                ):
+                    raise ValueError(
+                        'first-order reflection requires exactly one boundary '
+                        'material contribution'
+                    )
+                if (
+                    band.boundary_material.source_surface_id
+                    != self.ordered_interaction_surface_ids[0]
+                ):
+                    raise ValueError(
+                        'first-order boundary material must match ordered surface identity'
+                    )
+            else:
+                if (
+                    band.boundary_material is not None
+                    or band.boundary_materials is None
+                ):
+                    raise ValueError(
+                        'second-order reflection requires ordered boundary '
+                        'material contributions'
+                    )
+                if len(band.boundary_materials) != 2:
+                    raise ValueError(
+                        'second-order reflection requires exactly two material contributions'
+                    )
+                if tuple(
+                    item.source_surface_id for item in band.boundary_materials
+                ) != self.ordered_interaction_surface_ids:
+                    raise ValueError(
+                        'second-order material contributions must match ordered surfaces'
+                    )
+
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('DeterministicAcousticPath semantic hash mismatch')
@@ -587,10 +665,14 @@ class DeterministicAcousticPath(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'path_id', 'semantic_sha256'},
         )
+        for band in payload['bands']:
+            if band.get('boundary_materials') is None:
+                band.pop('boundary_materials', None)
+        return payload
 
 
 class RejectedPathCandidate(BaseModel):
@@ -605,7 +687,7 @@ class RejectedPathCandidate(BaseModel):
 
 
 class DeterministicPathArtifact(BaseModel):
-    """Immutable phase-free direct/first-specular path artifact."""
+    """Immutable phase-free direct/first-/second-order specular path artifact."""
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -641,9 +723,10 @@ class DeterministicPathArtifact(BaseModel):
     numeric_comparison_tolerance_m: float = Field(gt=0.0)
     identity_decimal_places: int = Field(ge=6, le=15)
     frequency_domain: FrequencyDomain
-    path_scope: Literal['direct_and_first_order_specular'] = (
-        'direct_and_first_order_specular'
-    )
+    path_scope: Literal[
+        'direct_and_first_order_specular',
+        'direct_through_second_order_specular',
+    ] = 'direct_and_first_order_specular'
     coherent_phase_authority: Literal['UNAVAILABLE_NOT_SYNTHESIZED'] = (
         'UNAVAILABLE_NOT_SYNTHESIZED'
     )
@@ -659,7 +742,9 @@ class DeterministicPathArtifact(BaseModel):
             (
                 item.source_entity_id,
                 item.receiver_id,
-                0 if item.path_type == 'direct' else 1,
+                0
+                if item.path_type == 'direct'
+                else len(item.ordered_interaction_surface_ids),
                 item.ordered_interaction_surface_ids,
                 item.path_id,
             )
@@ -671,7 +756,9 @@ class DeterministicPathArtifact(BaseModel):
             (
                 item.source_entity_id,
                 item.receiver_id,
-                0 if item.path_type == 'direct' else 1,
+                0
+                if item.path_type == 'direct'
+                else len(item.interaction_surface_ids),
                 item.interaction_surface_ids,
                 item.decision,
                 item.reason,
@@ -688,10 +775,15 @@ class DeterministicPathArtifact(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'artifact_id', 'semantic_sha256'},
         )
+        for path in payload['paths']:
+            for band in path['bands']:
+                if band.get('boundary_materials') is None:
+                    band.pop('boundary_materials', None)
+        return payload
 
     def as_external_ref(self) -> ExactExternalAuthorityRef:
         return ExactExternalAuthorityRef(
@@ -761,12 +853,21 @@ class DeterministicImageSourceEngine(Protocol):
 
 
 class HtdtPlanarImageSourceEngine:
-    """Deterministic HTDT analytic kernel for arbitrary planar first-order images."""
+    """Deterministic HTDT analytic kernel for bounded arbitrary-planar images."""
 
     engine_id = HTDT_PLANAR_ENGINE_ID
-    engine_version = HTDT_PLANAR_ENGINE_VERSION
     candidate_source_commit = None
-    solver_implementation_ref = HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+
+    def __init__(self, maximum_reflection_order: Literal[1, 2] = 1) -> None:
+        self.maximum_reflection_order = maximum_reflection_order
+        if maximum_reflection_order == 2:
+            self.engine_version = HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION
+            self.solver_implementation_ref = (
+                HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF
+            )
+        else:
+            self.engine_version = HTDT_PLANAR_ENGINE_VERSION
+            self.solver_implementation_ref = HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
 
     def execute_shoebox(
         self,
@@ -1125,6 +1226,10 @@ def compile_deterministic_ga_execution_input(
         )
 
     general_geometry = configuration.room_policy == 'general_planar_closed_polyhedral_v1'
+    if configuration.maximum_reflection_order == 2 and not general_geometry:
+        raise ValueError(
+            'second-order deterministic GA execution requires the general-planar lane'
+        )
     unsupported_reflection_surface_ids: tuple[str, ...] | None = None
     region_triangle_indices: tuple[int, ...] = ()
     region_bounds: tuple[
@@ -1427,6 +1532,8 @@ def compile_deterministic_ga_execution_input(
         core['unsupported_reflection_surface_ids'] = list(
             unsupported_reflection_surface_ids or ()
         )
+        if configuration.maximum_reflection_order == 2:
+            core['maximum_reflection_order'] = 2
     digest = _semantic_hash(core)
     return DeterministicGaExecutionInput(
         execution_input_id=f'r150-ga-execution-input:{digest}',
@@ -1659,12 +1766,33 @@ def _point_on_surface(
         if item.source_surface_id == surface_id
     )
     return any(
-        _point_in_triangle(
+        _point_on_triangle_surface(
             point,
             _triangle_vertices(compiled, index),
             tolerance=tolerance,
         )
         for index in mapping.compiled_triangle_indices
+    )
+
+
+def _point_has_other_surface_contact(
+    compiled: R120CompiledGeometry,
+    surface_id: str,
+    point: Sequence[float],
+    *,
+    tolerance: float,
+) -> bool:
+    return any(
+        mapping.source_surface_id != surface_id
+        and any(
+            _point_on_triangle_surface(
+                point,
+                _triangle_vertices(compiled, index),
+                tolerance=tolerance,
+            )
+            for index in mapping.compiled_triangle_indices
+        )
+        for mapping in compiled.surface_mapping
     )
 
 
@@ -1735,6 +1863,57 @@ def _mirror_source(
     return (values[0], values[1], values[2])
 
 
+def _plane_point_normal(
+    plane: GeometricSurfacePlane,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if plane.point_m is not None and plane.normal is not None:
+        return (
+            _position_tuple(plane.point_m),
+            _unit((plane.normal.x, plane.normal.y, plane.normal.z)),
+        )
+    if plane.axis is None or plane.coordinate_m is None:
+        raise ValueError('surface plane representation is incomplete')
+    axis_index = {'x': 0, 'y': 1, 'z': 2}[plane.axis]
+    point = [0.0, 0.0, 0.0]
+    normal = [0.0, 0.0, 0.0]
+    point[axis_index] = float(plane.coordinate_m)
+    normal[axis_index] = 1.0
+    return (
+        (point[0], point[1], point[2]),
+        (normal[0], normal[1], normal[2]),
+    )
+
+
+def _planes_coincident(
+    left: GeometricSurfacePlane,
+    right: GeometricSurfacePlane,
+    *,
+    tolerance: float,
+) -> bool:
+    left_point, left_normal = _plane_point_normal(left)
+    right_point, right_normal = _plane_point_normal(right)
+    alignment = abs(_dot(left_normal, right_normal))
+    if 1.0 - alignment > min(0.25, tolerance):
+        return False
+    return abs(_dot(_vector(left_point, right_point), left_normal)) <= tolerance
+
+
+def _segment_grazes_plane(
+    start: Sequence[float],
+    end: Sequence[float],
+    plane: GeometricSurfacePlane,
+    *,
+    tolerance: float,
+) -> bool:
+    segment = _vector(start, end)
+    length = _norm(segment)
+    if length <= tolerance:
+        return True
+    _, normal = _plane_point_normal(plane)
+    angular_tolerance = min(0.25, tolerance / length)
+    return abs(_dot(_unit(segment), normal)) <= angular_tolerance
+
+
 def _reflection_point(
     image_world: Sequence[float],
     receiver_world: Sequence[float],
@@ -1764,6 +1943,38 @@ def _reflection_point(
         + t * (float(receiver_world[index]) - float(image_world[index]))
         for index in range(3)
     )  # type: ignore[return-value]
+
+
+def _second_order_reflection_points(
+    source_world: Sequence[float],
+    receiver_world: Sequence[float],
+    first_plane: GeometricSurfacePlane,
+    second_plane: GeometricSurfacePlane,
+    *,
+    tolerance: float,
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+] | None:
+    first_image = _mirror_source(source_world, first_plane)
+    second_image = _mirror_source(first_image, second_plane)
+    second_point = _reflection_point(
+        second_image,
+        receiver_world,
+        second_plane,
+        tolerance=tolerance,
+    )
+    if second_point is None:
+        return None
+    first_point = _reflection_point(
+        first_image,
+        second_point,
+        first_plane,
+        tolerance=tolerance,
+    )
+    if first_point is None:
+        return None
+    return first_point, second_point
 
 
 def _directivity_angles(
@@ -1918,7 +2129,14 @@ def _make_path(
         'direction_semantics': (
             'world_propagation_direction_source_out_and_receiver_in'
         ),
-        'bands': [item.model_dump(mode='json') for item in bands],
+        'bands': [
+            {
+                key: value
+                for key, value in item.model_dump(mode='json').items()
+                if not (key == 'boundary_materials' and value is None)
+            }
+            for item in bands
+        ],
         'adapter_id': DETERMINISTIC_GA_ADAPTER_ID,
         'adapter_version': DETERMINISTIC_GA_ADAPTER_VERSION,
         'solver_implementation_ref': solver_implementation_ref.model_dump(
@@ -2306,11 +2524,380 @@ def execute_deterministic_ga(
                     )
                 )
 
+            if general_geometry and execution_input.maximum_reflection_order == 2:
+                ordered_planes = tuple(
+                    sorted(
+                        execution_input.boundary_planes,
+                        key=lambda item: item.source_surface_id,
+                    )
+                )
+                for first_plane in ordered_planes:
+                    for second_plane in ordered_planes:
+                        surface_ids = (
+                            first_plane.source_surface_id,
+                            second_plane.source_surface_id,
+                        )
+                        if first_plane.source_surface_id == second_plane.source_surface_id:
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'same-surface immediate repeat is a degenerate '
+                                        'second-order interaction and is not synthesized'
+                                    ),
+                                )
+                            )
+                            continue
+                        if _planes_coincident(
+                            first_plane,
+                            second_plane,
+                            tolerance=execution_input.geometric_tolerance_m,
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'ordered second-order planes are coincident within '
+                                        'the declared geometric tolerance'
+                                    ),
+                                )
+                            )
+                            continue
+
+                        reconstructed = _second_order_reflection_points(
+                            source_world,
+                            receiver_world,
+                            first_plane,
+                            second_plane,
+                            tolerance=execution_input.geometric_tolerance_m,
+                        )
+                        if reconstructed is None:
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'ordered second-order image reconstruction has no '
+                                        'unambiguous finite plane intersection'
+                                    ),
+                                )
+                            )
+                            continue
+                        first_point, second_point = reconstructed
+
+                        segment_lengths = (
+                            _distance(source_world, first_point),
+                            _distance(first_point, second_point),
+                            _distance(second_point, receiver_world),
+                        )
+                        if any(
+                            value <= execution_input.geometric_tolerance_m
+                            for value in segment_lengths
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'second-order reflection points collapse or create '
+                                        'a zero-length propagation segment'
+                                    ),
+                                )
+                            )
+                            continue
+
+                        if not _point_on_surface(
+                            compiled_geometry,
+                            first_plane.source_surface_id,
+                            first_point,
+                            tolerance=execution_input.geometric_tolerance_m,
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'first second-order reflection point lies outside '
+                                        'the exact semantic R120 surface triangle extent'
+                                    ),
+                                )
+                            )
+                            continue
+                        if not _point_on_surface(
+                            compiled_geometry,
+                            second_plane.source_surface_id,
+                            second_point,
+                            tolerance=execution_input.geometric_tolerance_m,
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'second second-order reflection point lies outside '
+                                        'the exact semantic R120 surface triangle extent'
+                                    ),
+                                )
+                            )
+                            continue
+
+                        if _point_has_other_surface_contact(
+                            compiled_geometry,
+                            first_plane.source_surface_id,
+                            first_point,
+                            tolerance=execution_input.geometric_tolerance_m,
+                        ) or _point_has_other_surface_contact(
+                            compiled_geometry,
+                            second_plane.source_surface_id,
+                            second_point,
+                            tolerance=execution_input.geometric_tolerance_m,
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'second-order reflection contact is shared-edge or '
+                                        'multi-surface ambiguous within declared tolerance'
+                                    ),
+                                )
+                            )
+                            continue
+
+                        if (
+                            _segment_grazes_plane(
+                                source_world,
+                                first_point,
+                                first_plane,
+                                tolerance=execution_input.geometric_tolerance_m,
+                            )
+                            or _segment_grazes_plane(
+                                first_point,
+                                second_point,
+                                first_plane,
+                                tolerance=execution_input.geometric_tolerance_m,
+                            )
+                            or _segment_grazes_plane(
+                                first_point,
+                                second_point,
+                                second_plane,
+                                tolerance=execution_input.geometric_tolerance_m,
+                            )
+                            or _segment_grazes_plane(
+                                second_point,
+                                receiver_world,
+                                second_plane,
+                                tolerance=execution_input.geometric_tolerance_m,
+                            )
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_GEOMETRY',
+                                    reason=(
+                                        'grazing or plane-parallel second-order contact is '
+                                        'ambiguous within declared tolerance'
+                                    ),
+                                )
+                            )
+                            continue
+
+                        if any(
+                            _segment_blocked(
+                                compiled_geometry,
+                                segment_start,
+                                segment_end,
+                                tolerance=execution_input.geometric_tolerance_m,
+                                distance_scaled_tolerance=True,
+                            )
+                            for segment_start, segment_end in (
+                                (source_world, first_point),
+                                (first_point, second_point),
+                                (second_point, receiver_world),
+                            )
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='BLOCKED_VISIBILITY',
+                                    reason=(
+                                        'exact R120 triangle surface blocks one of three '
+                                        'ordered second-order propagation segments'
+                                    ),
+                                )
+                            )
+                            continue
+
+                        resolved_materials: list[GeometricMaterialAuthority] = []
+                        material_failure = False
+                        for interaction_plane in (first_plane, second_plane):
+                            if interaction_plane.material_authority is None:
+                                material_failure = True
+                                break
+                            resolved = material_resolver(
+                                interaction_plane.material_authority
+                            )
+                            if (
+                                resolved is None
+                                or resolved.authority_ref
+                                != interaction_plane.material_authority
+                            ):
+                                material_failure = True
+                                break
+                            resolved_materials.append(resolved)
+                        if material_failure or len(resolved_materials) != 2:
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision='UNSUPPORTED_BOUNDARY_QUANTITY',
+                                    reason=(
+                                        'one or more ordered second-order surfaces lack '
+                                        'an exact resolvable geometric material authority'
+                                    ),
+                                )
+                            )
+                            continue
+
+                        departure = _vector(source_world, first_point)
+                        arrival = _vector(second_point, receiver_world)
+                        path_length = sum(segment_lengths)
+                        second_order_bands: list[
+                            DeterministicPathBandQuantity
+                        ] = []
+                        failure: PathCandidateDecision | None = None
+                        failure_reason = ''
+                        for frequency_hz in execution_input.frequency_centers_hz:
+                            directivity = _directivity_contribution(
+                                dataset,
+                                frequency_hz=frequency_hz,
+                                source_axis=source.source_axis,
+                                departure_direction=departure,
+                                tolerance=execution_input.geometric_tolerance_m,
+                            )
+                            if directivity is None:
+                                failure = 'UNSUPPORTED_DIRECTIVITY'
+                                failure_reason = (
+                                    'exact source directivity cannot evaluate second-order '
+                                    'departure angle/frequency'
+                                )
+                                break
+
+                            boundary_contributions: list[
+                                BoundaryMaterialContribution
+                            ] = []
+                            for interaction_plane, resolved in zip(
+                                (first_plane, second_plane),
+                                resolved_materials,
+                                strict=True,
+                            ):
+                                boundary = _material_contribution(
+                                    resolved,
+                                    interaction_plane,
+                                    frequency_hz=frequency_hz,
+                                    tolerance=execution_input.geometric_tolerance_m,
+                                )
+                                if boundary is None:
+                                    failure = 'UNSUPPORTED_BOUNDARY_QUANTITY'
+                                    failure_reason = (
+                                        'one or more second-order surfaces lack an exact '
+                                        'matching banded absorption/scattering quantity; '
+                                        'no reflection coefficient/phase is fabricated'
+                                    )
+                                    break
+                                boundary_contributions.append(boundary)
+                            if failure is not None:
+                                break
+
+                            spreading = 1.0 / (path_length * path_length)
+                            specular_product = 1.0
+                            for boundary in boundary_contributions:
+                                specular_product *= boundary.specular_energy_factor
+                            second_order_bands.append(
+                                DeterministicPathBandQuantity(
+                                    center_hz=frequency_hz,
+                                    spreading_factor_per_m2=spreading,
+                                    source_directivity=directivity,
+                                    boundary_materials=tuple(
+                                        boundary_contributions
+                                    ),
+                                    relative_energy_transport_per_m2=(
+                                        spreading
+                                        * directivity.energy_factor
+                                        * specular_product
+                                    ),
+                                )
+                            )
+                        if failure is not None:
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='specular_reflection',
+                                    interaction_surface_ids=surface_ids,
+                                    decision=failure,
+                                    reason=failure_reason,
+                                )
+                            )
+                            continue
+
+                        paths.append(
+                            _make_path(
+                                path_type='specular_reflection',
+                                source=source,
+                                receiver=receiver,
+                                points=(first_point, second_point),
+                                surface_ids=surface_ids,
+                                length_m=path_length,
+                                sound_speed_m_s=execution_input.sound_speed_m_s,
+                                departure=departure,
+                                arrival=arrival,
+                                bands=second_order_bands,
+                                decimals=execution_input.identity_decimal_places,
+                                solver_implementation_ref=(
+                                    execution_input.solver_implementation_ref
+                                ),
+                            )
+                        )
+
     paths.sort(
         key=lambda item: (
             item.source_entity_id,
             item.receiver_id,
-            0 if item.path_type == 'direct' else 1,
+            0
+            if item.path_type == 'direct'
+            else len(item.ordered_interaction_surface_ids),
             item.ordered_interaction_surface_ids,
             item.path_id,
         )
@@ -2319,7 +2906,9 @@ def execute_deterministic_ga(
         key=lambda item: (
             item.source_entity_id,
             item.receiver_id,
-            0 if item.path_type == 'direct' else 1,
+            0
+            if item.path_type == 'direct'
+            else len(item.interaction_surface_ids),
             item.interaction_surface_ids,
             item.decision,
             item.reason,
@@ -2366,9 +2955,26 @@ def execute_deterministic_ga(
         'numeric_comparison_tolerance_m': execution_input.geometric_tolerance_m,
         'identity_decimal_places': execution_input.identity_decimal_places,
         'frequency_domain': execution_input.frequency_domain.model_dump(mode='json'),
-        'path_scope': 'direct_and_first_order_specular',
+        'path_scope': (
+            'direct_through_second_order_specular'
+            if execution_input.maximum_reflection_order == 2
+            else 'direct_and_first_order_specular'
+        ),
         'coherent_phase_authority': 'UNAVAILABLE_NOT_SYNTHESIZED',
-        'paths': [item.model_dump(mode='json') for item in paths],
+        'paths': [
+            {
+                **item.model_dump(mode='json'),
+                'bands': [
+                    {
+                        key: value
+                        for key, value in band.model_dump(mode='json').items()
+                        if not (key == 'boundary_materials' and value is None)
+                    }
+                    for band in item.bands
+                ],
+            }
+            for item in paths
+        ],
         'rejected_candidates': [
             item.model_dump(mode='json') for item in rejected
         ],

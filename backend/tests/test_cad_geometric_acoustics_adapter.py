@@ -50,6 +50,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     GeometricMaterialAuthority,
     HtdtPlanarImageSourceEngine,
     HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
+    HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
@@ -513,6 +514,7 @@ def _fixture(
     semantic_geometry=None,
     room_surface_keys: tuple[str, ...] | None = None,
     room_policy: str = 'exact_axis_aligned_closed_shoebox_v1',
+    maximum_reflection_order: int = 1,
     multi_region: bool = False,
     explicit_portal: bool = False,
 ):
@@ -711,12 +713,17 @@ def _fixture(
         geometric_tolerance_m=1.0e-9,
         engine_image_match_tolerance_m=1.0e-8,
         room_policy=room_policy,
+        maximum_reflection_order=maximum_reflection_order,
     )
     implementation_ref = (
         PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
         if use_pyroomacoustics
         else (
-            HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+            (
+                HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF
+                if maximum_reflection_order == 2
+                else HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+            )
             if room_policy == 'general_planar_closed_polyhedral_v1'
             else FixtureImageEngine.solver_implementation_ref
         )
@@ -850,7 +857,11 @@ def _fixture(
 def _execute(fx, engine=None):
     if engine is None:
         engine = (
-            HtdtPlanarImageSourceEngine()
+            HtdtPlanarImageSourceEngine(
+                maximum_reflection_order=(
+                    fx['execution_input'].maximum_reflection_order or 1
+                )
+            )
             if fx['execution_input'].geometry_policy
             == 'general_planar_closed_polyhedral_v1'
             else FixtureImageEngine()
@@ -874,6 +885,186 @@ GENERAL_ROOM_KEYS = (
     'right-slanted',
 )
 GENERAL_POLICY = 'general_planar_closed_polyhedral_v1'
+
+
+def test_general_planar_second_order_parallel_walls_match_analytic_geometry_and_identity(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_semantic_geometry(occluder=False),
+        room_policy=GENERAL_POLICY,
+        maximum_reflection_order=2,
+    )
+    artifact = _execute(fx)
+
+    left_id = fx['surface_by_key']['left-x-min']
+    right_id = fx['surface_by_key']['right-x-max']
+    reflected = next(
+        item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (left_id, right_id)
+    )
+    first_point, second_point = reflected.ordered_interaction_points
+    assert isclose(first_point.x_m, 0.0, abs_tol=1.0e-9)
+    assert isclose(first_point.y_m, 7.0 / 6.0, abs_tol=1.0e-9)
+    assert isclose(first_point.z_m, 1.0, abs_tol=1.0e-9)
+    assert isclose(second_point.x_m, 4.0, abs_tol=1.0e-9)
+    assert isclose(second_point.y_m, 11.0 / 6.0, abs_tol=1.0e-9)
+    assert isclose(second_point.z_m, 1.0, abs_tol=1.0e-9)
+
+    expected_length = sqrt(37.0)
+    assert isclose(
+        reflected.geometric_path_length_m,
+        expected_length,
+        abs_tol=1.0e-9,
+    )
+    assert isclose(
+        reflected.propagation_delay_s,
+        expected_length / 343.0,
+        abs_tol=1.0e-12,
+    )
+    assert reflected.ordered_interaction_surface_ids == (left_id, right_id)
+    assert artifact.path_scope == 'direct_through_second_order_specular'
+
+    band_500 = next(item for item in reflected.bands if item.center_hz == 500.0)
+    assert band_500.boundary_material is None
+    assert band_500.boundary_materials is not None
+    assert tuple(
+        item.source_surface_id for item in band_500.boundary_materials
+    ) == (left_id, right_id)
+    assert all(
+        isclose(item.specular_energy_factor, 0.72, abs_tol=1.0e-12)
+        for item in band_500.boundary_materials
+    )
+    assert isclose(
+        band_500.relative_energy_transport_per_m2,
+        (1.0 / 37.0)
+        * band_500.source_directivity.energy_factor
+        * 0.72
+        * 0.72,
+        abs_tol=1.0e-12,
+    )
+    assert band_500.coherent_phase == 'UNAVAILABLE_NOT_SYNTHESIZED'
+    assert artifact.coherent_phase_authority == 'UNAVAILABLE_NOT_SYNTHESIZED'
+
+    reversed_path = next(
+        item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (right_id, left_id)
+    )
+    assert reversed_path.path_id != reflected.path_id
+    reversed_first, reversed_second = reversed_path.ordered_interaction_points
+    assert isclose(reversed_first.x_m, 4.0, abs_tol=1.0e-9)
+    assert isclose(reversed_first.y_m, 13.0 / 10.0, abs_tol=1.0e-9)
+    assert isclose(reversed_second.x_m, 0.0, abs_tol=1.0e-9)
+    assert isclose(reversed_second.y_m, 17.0 / 10.0, abs_tol=1.0e-9)
+    assert isclose(
+        reversed_path.geometric_path_length_m,
+        sqrt(101.0),
+        abs_tol=1.0e-9,
+    )
+
+    same_surface = next(
+        item
+        for item in artifact.rejected_candidates
+        if item.interaction_surface_ids == (left_id, left_id)
+    )
+    assert same_surface.decision == 'UNSUPPORTED_GEOMETRY'
+    assert 'same-surface immediate repeat' in same_surface.reason
+
+    rerun = _execute(fx)
+    assert rerun == artifact
+    order_keys = [
+        (
+            item.source_entity_id,
+            item.receiver_id,
+            0
+            if item.path_type == 'direct'
+            else len(item.ordered_interaction_surface_ids),
+            item.ordered_interaction_surface_ids,
+            item.path_id,
+        )
+        for item in artifact.paths
+    ]
+    assert order_keys == sorted(order_keys)
+
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+    assert repository.get_execution_input(fx['execution_input'].execution_input_id) == (
+        fx['execution_input']
+    )
+    assert repository.get(artifact.artifact_id) == artifact
+
+
+def test_general_planar_second_order_second_point_outside_finite_surface_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_general_semantic_geometry(
+            TRAPEZOID_WITH_SMALL_CUBE_OBJ,
+            object_mode='cube-faces',
+        ),
+        room_surface_keys=GENERAL_ROOM_KEYS,
+        room_policy=GENERAL_POLICY,
+        maximum_reflection_order=2,
+        receiver_position=Position3(x_m=3.0, y_m=2.0, z_m=1.0),
+    )
+    artifact = _execute(fx)
+
+    first_id = fx['surface_by_key']['right-slanted']
+    second_id = fx['surface_by_key']['cube-x-max']
+    assert not any(
+        item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (first_id, second_id)
+        for item in artifact.paths
+    )
+    rejected = next(
+        item
+        for item in artifact.rejected_candidates
+        if item.interaction_surface_ids == (first_id, second_id)
+        and 'second second-order reflection point lies outside' in item.reason
+    )
+    assert rejected.decision == 'UNSUPPORTED_GEOMETRY'
+    assert 'exact semantic R120 surface triangle extent' in rejected.reason
+
+
+def test_general_planar_second_order_intermediate_segment_occlusion_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_semantic_geometry(occluder=True),
+        room_policy=GENERAL_POLICY,
+        maximum_reflection_order=2,
+    )
+    artifact = _execute(fx)
+
+    left_id = fx['surface_by_key']['left-x-min']
+    right_id = fx['surface_by_key']['right-x-max']
+    assert not any(
+        item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (left_id, right_id)
+        for item in artifact.paths
+    )
+    rejected = [
+        item
+        for item in artifact.rejected_candidates
+        if item.interaction_surface_ids == (left_id, right_id)
+    ]
+    assert any(item.decision == 'BLOCKED_VISIBILITY' for item in rejected)
+    assert any('one of three' in item.reason for item in rejected)
 
 
 def test_general_planar_slanted_wall_reflection_matches_analytic_geometry(
@@ -1023,6 +1214,7 @@ def test_legacy_execution_input_payload_loads_without_general_planar_fields(
     payload = fx['execution_input'].model_dump(mode='json')
     payload.pop('geometry_policy')
     payload.pop('unsupported_reflection_surface_ids')
+    payload.pop('maximum_reflection_order')
     for plane in payload['boundary_planes']:
         plane.pop('point_m')
         plane.pop('normal')
