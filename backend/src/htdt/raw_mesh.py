@@ -16,7 +16,7 @@ RAW_MESH_IMPORTER_VERSION = '1'
 RAW_MESH_DIAGNOSTIC_ALGORITHM = 'htdt.raw_mesh_diagnostics'
 RAW_MESH_DIAGNOSTIC_VERSION = '1'
 
-RawMeshFormat = Literal['obj', 'glb']
+RawMeshFormat = Literal['obj', 'glb', 'htdt_meshbin_v1']
 DiagnosticState = Literal['pass', 'fail', 'unknown']
 AcousticVolumeReadiness = Literal[
     'not_ready',
@@ -81,7 +81,7 @@ class RawMeshImportProvenance(BaseModel):
     original_asset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     original_size_bytes: int = Field(ge=0)
     importer_id: Literal['htdt.raw_visual_mesh'] = RAW_MESH_IMPORTER_ID
-    importer_version: Literal['1'] = RAW_MESH_IMPORTER_VERSION
+    importer_version: Literal['1', '2'] = RAW_MESH_IMPORTER_VERSION
     coordinate_authority: Literal['source_asset_coordinates'] = 'source_asset_coordinates'
     acoustic_semantics: Literal['unassigned'] = 'unassigned'
     solver_readiness: Literal['raw_visual_only'] = 'raw_visual_only'
@@ -222,9 +222,14 @@ def import_raw_visual_mesh(
         vertices, triangles = _parse_obj(asset)
     elif asset_format == 'glb':
         vertices, triangles = _parse_glb(asset)
+    elif asset_format == 'htdt_meshbin_v1':
+        vertices, triangles = _parse_htdt_meshbin_v1(asset)
     else:  # pragma: no cover - Literal plus validation keeps this defensive
         raise RawMeshImportError(f'unsupported raw mesh format: {asset_format}')
     asset_hash = sha256(asset).hexdigest()
+    importer_version: Literal['1', '2'] = (
+        '2' if asset_format == 'htdt_meshbin_v1' else RAW_MESH_IMPORTER_VERSION
+    )
     return RawVisualMesh(
         mesh_id=f'raw-mesh:{asset_hash}',
         provenance=RawMeshImportProvenance(
@@ -232,6 +237,7 @@ def import_raw_visual_mesh(
             asset_format=asset_format,
             original_asset_sha256=asset_hash,
             original_size_bytes=len(asset),
+            importer_version=importer_version,
         ),
         original_asset_base64=b64encode(asset).decode('ascii'),
         vertices=tuple(vertices),
@@ -241,11 +247,112 @@ def import_raw_visual_mesh(
 
 def _detect_format(asset: bytes, source_name: str) -> RawMeshFormat:
     lower = source_name.lower()
+    if asset[:8] == b'HTDTMSH1' or lower.endswith('.meshbin'):
+        return 'htdt_meshbin_v1'
     if asset[:4] == b'glTF' or lower.endswith('.glb'):
         return 'glb'
     if lower.endswith('.obj'):
         return 'obj'
-    raise RawMeshImportError('raw mesh format must be OBJ or GLB')
+    raise RawMeshImportError(
+        'raw mesh format must be OBJ, GLB, or HTDTMSH1 meshbin'
+    )
+
+
+def _parse_htdt_meshbin_v1(
+    asset: bytes,
+) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]]:
+    if len(asset) < 32:
+        raise RawMeshImportError('HTDTMSH1 asset is shorter than its header')
+    if asset[:8] != b'HTDTMSH1':
+        raise RawMeshImportError('HTDTMSH1 magic is invalid')
+
+    major, minor = struct.unpack_from('<HH', asset, 8)
+    if (major, minor) != (1, 0):
+        raise RawMeshImportError(
+            f'unsupported HTDTMSH1 version: {major}.{minor}'
+        )
+    header_length = struct.unpack_from('<I', asset, 12)[0]
+    if header_length != 32:
+        raise RawMeshImportError('HTDTMSH1 header length must be 32')
+
+    vertex_count = struct.unpack_from('<I', asset, 16)[0]
+    face_count = struct.unpack_from('<I', asset, 20)[0]
+    index_width = asset[24]
+    flags = asset[25]
+    reserved16 = struct.unpack_from('<H', asset, 26)[0]
+    reserved32 = struct.unpack_from('<I', asset, 28)[0]
+
+    if vertex_count == 0:
+        raise RawMeshImportError('HTDTMSH1 contains no vertices')
+    if index_width != 4:
+        raise RawMeshImportError('HTDTMSH1 index width must be UInt32')
+    if flags & ~0x03:
+        raise RawMeshImportError('HTDTMSH1 contains unsupported flags')
+    if reserved16 != 0 or reserved32 != 0:
+        raise RawMeshImportError('HTDTMSH1 reserved header fields must be zero')
+
+    has_normals = bool(flags & 0x01)
+    has_classifications = bool(flags & 0x02)
+    vertex_bytes = vertex_count * 12
+    normal_bytes = vertex_count * 12 if has_normals else 0
+    index_bytes = face_count * 12
+    classification_bytes = face_count if has_classifications else 0
+    expected_length = (
+        32
+        + vertex_bytes
+        + normal_bytes
+        + index_bytes
+        + classification_bytes
+    )
+    if len(asset) != expected_length:
+        raise RawMeshImportError(
+            'HTDTMSH1 payload length does not match header counts'
+        )
+
+    cursor = 32
+    vertices: list[RawMeshVertex] = []
+    for _ in range(vertex_count):
+        x, y, z = struct.unpack_from('<fff', asset, cursor)
+        cursor += 12
+        if not all(isfinite(value) for value in (x, y, z)):
+            raise RawMeshImportError('HTDTMSH1 vertex must be finite')
+        vertices.append(RawMeshVertex(x=x, y=y, z=z))
+
+    if has_normals:
+        for _ in range(vertex_count):
+            normal = struct.unpack_from('<fff', asset, cursor)
+            cursor += 12
+            if not all(isfinite(value) for value in normal):
+                raise RawMeshImportError('HTDTMSH1 normal must be finite')
+
+    triangles: list[RawMeshTriangle] = []
+    for face_index in range(face_count):
+        a, b, c = struct.unpack_from('<III', asset, cursor)
+        cursor += 12
+        if max(a, b, c) >= vertex_count:
+            raise RawMeshImportError(
+                f'HTDTMSH1 face {face_index} index out of range'
+            )
+        try:
+            triangles.append(
+                RawMeshTriangle(
+                    a=a,
+                    b=b,
+                    c=c,
+                    source_primitive=f'htdt-meshbin-face:{face_index}',
+                )
+            )
+        except ValueError as exc:
+            raise RawMeshImportError(
+                f'HTDTMSH1 face {face_index} is degenerate'
+            ) from exc
+
+    if has_classifications:
+        cursor += face_count
+
+    if cursor != len(asset):  # pragma: no cover - length check above is exact
+        raise RawMeshImportError('HTDTMSH1 parser did not consume payload')
+    return vertices, triangles
 
 
 def _parse_obj(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]]:
