@@ -91,17 +91,10 @@ class PlanarPolygonSurface(BaseModel):
     material_authority: PolyhedralAuthorityRef
 
     @model_validator(mode='after')
-    def validate_surface_identity(self) -> 'PlanarPolygonSurface':
+    def validate_surface_membership(self) -> 'PlanarPolygonSurface':
         _validate_index_loop(self.outer_vertex_indices, 'outer polygon')
         for hole in self.hole_vertex_indices:
             _validate_index_loop(hole, 'polygon hole')
-        expected = _surface_id(
-            self.surface_key,
-            self.outer_vertex_indices,
-            self.hole_vertex_indices,
-        )
-        if self.surface_id != expected:
-            raise ValueError('polyhedral surface identity mismatch')
         return self
 
 
@@ -221,6 +214,14 @@ class R120PolyhedralSemanticGeometry(BaseModel):
             raise ValueError('portals must have unique canonical portal-id order')
 
         for surface in self.surfaces:
+            expected_surface_id = _surface_id(
+                surface.surface_key,
+                surface.outer_vertex_indices,
+                surface.hole_vertex_indices,
+                self.vertices,
+            )
+            if surface.surface_id != expected_surface_id:
+                raise ValueError('polyhedral surface identity mismatch')
             if surface.outer_vertex_indices != _canonical_directed_loop(
                 surface.outer_vertex_indices
             ):
@@ -436,7 +437,12 @@ def make_r120_polyhedral_semantic_geometry(
                 for hole in spec.hole_vertex_indices
             )
         )
-        surface_id = _surface_id(spec.surface_key, outer, holes)
+        surface_id = _surface_id(
+            spec.surface_key,
+            outer,
+            holes,
+            canonical_vertices,
+        )
         canonical_surfaces.append(
             PlanarPolygonSurface(
                 surface_id=surface_id,
@@ -1000,12 +1006,17 @@ def _surface_id(
     surface_key: str,
     outer: tuple[int, ...],
     holes: tuple[tuple[int, ...], ...],
+    vertices: tuple[PolyhedralVertex, ...],
 ) -> str:
+    referenced = tuple(sorted(set(outer).union(*(set(hole) for hole in holes))))
     digest = _semantic_hash(
         {
             'surface_key': surface_key,
             'outer_vertex_indices': outer,
             'hole_vertex_indices': holes,
+            'referenced_vertex_coordinates_m': [
+                vertices[index].model_dump(mode='json') for index in referenced
+            ],
         }
     )
     return f'r120-polyhedral-surface:{digest}'
