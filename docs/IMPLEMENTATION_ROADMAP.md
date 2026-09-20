@@ -333,3 +333,7 @@ SystemVariant → applied SceneRevision → explicit AsBuilt → SystemVariant-s
 ### O90D robustness workflow UI — 2026-09-20
 
 The workflow-first Optimize workspace now includes 「ばらつき耐性」 between comparison and measurement/validation. Existing O90A-O90C authority is rendered without duplicating backend algorithms. Bounded/probability semantics, sampled-worst wording, objective direction, exact comparison eligibility and stale reasons are preserved. Axis sensitivity and finite sample-distribution charts plus a read-only 3D position/aim/body-yaw tolerance overlay and infeasible-sample markers are included. UX160 owned-Windows visual acceptance remains a separate gate; RDC was not used.
+
+## R140 actual bounded executor slice — 2026-09-20
+
+Issue #101 now has an actual solver-neutral execution layer on top of PR #236: CPU-baseline resource estimate authority, bounded thread workers, cooperative cancellation, immutable runtime telemetry/failure evidence, deterministic task-result identity, and exact cache/resume execution. Solver physics remains behind an adapter callback. This is partial R140 completion: real solver-specific estimators and any required CPU/GPU numerical-equivalence evidence remain before final R140 acceptance. See [ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md](ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md).

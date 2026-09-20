@@ -498,3 +498,19 @@ Details: [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_
 - RDC: not used
 
 Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md).
+
+## Issue #101 / R140 actual executor — 2026-09-20
+
+- actual CPU-baseline bounded worker pool: implemented
+- outer worker / inner solver thread authority separation: implemented
+- UNKNOWN/UNAVAILABLE resource estimate semantics: implemented
+- queued + cooperative running cancellation: implemented
+- immutable success/failure/cancel telemetry: implemented
+- exact cache reuse + resume: implemented
+- deterministic synthetic CI lane: implemented, explicitly non-production evidence
+- portable peak-memory metric: unsupported rather than fabricated
+- real solver-specific resource estimator: pending
+- GPU executor / CPU-GPU numerical-equivalence evidence: pending
+- R140 overall status: partial completion
+
+Implementation record: [ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md](ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md). RDC was not used.
