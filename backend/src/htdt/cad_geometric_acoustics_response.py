@@ -20,6 +20,7 @@ from .cad_geometric_acoustics_adapter import (
     DeterministicPathArtifact,
 )
 from .cad_repository import SceneRepository
+from .cad_scene import Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -590,6 +591,7 @@ class ReceiverResponseAuthority(BaseModel):
     receiver_id: str = Field(min_length=1)
     receiver_entity_id: str = Field(min_length=1)
     receiver_authority_ref: ExactExternalAuthorityRef
+    world_position: Position3
     observable: Literal['ideal_point_acoustic_pressure'] = 'ideal_point_acoustic_pressure'
 
     @model_validator(mode='after')
@@ -617,12 +619,14 @@ def build_receiver_response_authority(
     receiver_id: str,
     receiver_entity_id: str,
     receiver_authority_ref: ExactExternalAuthorityRef,
+    world_position: Position3,
 ) -> ReceiverResponseAuthority:
     core = {
         'authority_version': '1',
         'receiver_id': receiver_id,
         'receiver_entity_id': receiver_entity_id,
         'receiver_authority_ref': receiver_authority_ref.model_dump(mode='json'),
+        'world_position': world_position.model_dump(mode='json'),
         'observable': 'ideal_point_acoustic_pressure',
     }
     digest = _semantic_hash(core)
@@ -1279,6 +1283,8 @@ def build_deterministic_path_frequency_response(
     ]
     if len(execution_receivers) != 1:
         reasons.append('RECEIVER_EXECUTION_BINDING_MISMATCH')
+    elif execution_receivers[0].world_position != receiver_authority.world_position:
+        reasons.append('RECEIVER_POSITION_MISMATCH')
 
     if (
         path_artifact.r120_compiled_geometry_id != r120_geometry_ref.authority_id
@@ -1399,6 +1405,8 @@ def build_deterministic_path_frequency_response(
             reasons.append('MISSING_PORTAL_GEOMETRY_AUTHORITY')
         else:
             refs.append(portal_geometry_authority_ref)
+            if execution_input.portal_authority_ref != portal_geometry_authority_ref:
+                reasons.append('EXECUTION_INPUT_PORTAL_AUTHORITY_MISMATCH')
         for interaction in portal_interactions:
             assert interaction.portal_id is not None
             assert interaction.from_region_id is not None
