@@ -4389,7 +4389,11 @@ def execute_deterministic_ga(
         'identity_decimal_places': execution_input.identity_decimal_places,
         'frequency_domain': execution_input.frequency_domain.model_dump(mode='json'),
         'path_scope': (
-            'direct_single_portal_propagation'
+            (
+                'direct_bounded_portal_graph_propagation'
+                if execution_input.portal_graph is not None
+                else 'direct_single_portal_propagation'
+            )
             if portal_geometry
             else (
                 'direct_through_second_order_specular'
