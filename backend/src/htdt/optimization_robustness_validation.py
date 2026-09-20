@@ -147,7 +147,8 @@ class O90EValidationCase(BaseModel):
     observable_id: str = Field(min_length=1)
     requested_band_hz: tuple[float, float]
     receiver_entity_id: str = Field(min_length=1)
-    receiver_position: Position3
+    nominal_receiver_position: Position3
+    target_receiver_position: Position3
     channel_role: str = Field(min_length=1)
     source_speaker_ids: tuple[str, ...] = Field(min_length=1)
     radiation_scope: str = Field(min_length=1)
@@ -516,8 +517,15 @@ def build_o90e_validation_case(
 
     receiver_nominal = nominal_revision.document.entity(receiver_entity_id)
     receiver_perturbed = perturbation_revision.document.entity(receiver_entity_id)
-    if receiver_nominal.position != receiver_perturbed.position:
-        raise ValueError('O90E receiver position must stay fixed for sensitivity reuse')
+    if axis.parameter.startswith('listener_'):
+        if axis.entity_id != receiver_entity_id:
+            raise ValueError(
+                'listener perturbation must target the exact preregistered receiver'
+            )
+    elif receiver_nominal.position != receiver_perturbed.position:
+        raise ValueError(
+            'non-listener perturbation must preserve the preregistered receiver position'
+        )
 
     source_ids = tuple(sorted(set(source_speaker_ids)))
     if not source_ids:
@@ -527,6 +535,10 @@ def build_o90e_validation_case(
     for source_id in source_ids:
         nominal_revision.document.entity(source_id)
         perturbation_revision.document.entity(source_id)
+    if axis.parameter.startswith('speaker_') and axis.entity_id not in source_ids:
+        raise ValueError(
+            'speaker perturbation must target one of the preregistered measured sources'
+        )
 
     requirement = matching_campaign_sensitivity(
         campaign,
@@ -570,7 +582,8 @@ def build_o90e_validation_case(
         'observable_id': observable_id,
         'requested_band_hz': requested_band_hz,
         'receiver_entity_id': receiver_entity_id,
-        'receiver_position': receiver_nominal.position,
+        'nominal_receiver_position': receiver_nominal.position,
+        'target_receiver_position': receiver_perturbed.position,
         'channel_role': channel_role,
         'source_speaker_ids': source_ids,
         'radiation_scope': radiation_scope,
