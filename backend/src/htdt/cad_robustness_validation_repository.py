@@ -21,6 +21,7 @@ from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_robustness_repository import CadRobustnessRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_schema import check_native_schema_compatibility
+from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .optimization_robustness import RobustnessSpec
 from .optimization_robustness_validation import (
@@ -30,6 +31,7 @@ from .optimization_robustness_validation import (
     O90EPredictionAuthorityRef,
     O90EReason,
     O90ESupportState,
+    O90ESystemVariantAuthorityRef,
     O90EValidationCase,
     O90EValidationDecision,
     build_o90e_decision,
@@ -62,6 +64,9 @@ class CadRobustnessValidationRepository:
         self.measurement_repository = measurement_repository
         self.quality_repository = quality_repository
         self.roomsim_repository = roomsim_repository
+        self.system_variant_repository = CadSystemVariantRepository(
+            measurement_repository.scene_repository
+        )
 
         self.path = Path(measurement_repository.path)
         paths = (
@@ -183,6 +188,28 @@ class CadRobustnessValidationRepository:
         )
         return history[-1] if history else None
 
+    def _system_variant_ref(
+        self,
+        revision_id: str,
+    ) -> O90ESystemVariantAuthorityRef | None:
+        lineage = self.system_variant_repository.proposal_lineage_for_revision(
+            revision_id
+        )
+        if lineage is None:
+            return None
+        application, variant = lineage
+        if (
+            application.variant_id != variant.variant_id
+            or application.variant_sha256 != variant.variant_sha256
+        ):
+            raise ValueError('SystemVariant application/variant authority mismatch')
+        return O90ESystemVariantAuthorityRef(
+            application_id=application.application_id,
+            application_sha256=application.application_sha256,
+            variant_id=variant.variant_id,
+            variant_sha256=variant.variant_sha256,
+        )
+
     def preregister_case(
         self,
         *,
@@ -224,6 +251,17 @@ class CadRobustnessValidationRepository:
         if nominal_revision is None or perturbation_revision is None:
             raise ValueError('O90E MeasurementPlan SceneRevision is missing')
 
+        nominal_variant = self._system_variant_ref(
+            nominal_plan.applied_scene_revision_id
+        )
+        perturbation_variant = self._system_variant_ref(
+            perturbation_plan.applied_scene_revision_id
+        )
+        if nominal_variant != perturbation_variant:
+            raise ValueError(
+                'O90E nominal/perturbation SystemVariant lineage mismatch'
+            )
+
         case = build_o90e_validation_case(
             spec=spec,
             axis_id=axis_id,
@@ -240,6 +278,7 @@ class CadRobustnessValidationRepository:
             source_speaker_ids=source_speaker_ids,
             radiation_scope=radiation_scope,
             preregistered_at_utc=datetime.now(timezone.utc).isoformat(),
+            system_variant=nominal_variant,
         )
         self.save_case(case)
         return case
@@ -292,6 +331,17 @@ class CadRobustnessValidationRepository:
         if nominal_revision is None or perturbation_revision is None:
             raise ValueError('O90E case MeasurementPlan SceneRevision is missing')
 
+        nominal_variant = self._system_variant_ref(
+            nominal_plan.applied_scene_revision_id
+        )
+        perturbation_variant = self._system_variant_ref(
+            perturbation_plan.applied_scene_revision_id
+        )
+        if nominal_variant != perturbation_variant:
+            raise ValueError('O90E case SystemVariant lineage is no longer exact')
+        if nominal_variant != case.system_variant:
+            raise ValueError('O90E case SystemVariant binding mismatch')
+
         rebuilt = build_o90e_validation_case(
             spec=spec,
             axis_id=case.axis_id,
@@ -308,6 +358,7 @@ class CadRobustnessValidationRepository:
             source_speaker_ids=case.source_speaker_ids,
             radiation_scope=case.radiation_scope,
             preregistered_at_utc=case.preregistered_at_utc,
+            system_variant=case.system_variant,
         )
         if rebuilt != case:
             raise ValueError('O90E case no longer matches exact preregistered authority')
@@ -512,6 +563,11 @@ class CadRobustnessValidationRepository:
             or measurement.scene_content_hash != plan.applied_scene_content_hash
         ):
             reasons.append('wrong_scene_revision')
+        measurement_variant = self._system_variant_ref(
+            measurement.scene_revision_id
+        )
+        if measurement_variant != case.system_variant:
+            reasons.append('wrong_system_variant')
         if (
             measurement.measurement_entity_id != case.receiver_entity_id
             or measurement.measurement_position != (
@@ -595,6 +651,7 @@ class CadRobustnessValidationRepository:
             scene_content_hash=measurement.scene_content_hash,
             measurement_entity_id=measurement.measurement_entity_id,
             captured_at=measurement.captured_at,
+            system_variant=measurement_variant,
         )
         return ref, list(dict.fromkeys(reasons))
 
@@ -1020,6 +1077,13 @@ class CadRobustnessValidationRepository:
                     ):
                         raise ValueError(
                             'O90E decision measurement/quality binding is stale or tampered'
+                        )
+                    current_variant = self._system_variant_ref(
+                        current.scene_revision_id
+                    )
+                    if current_variant != measurement.system_variant:
+                        raise ValueError(
+                            'O90E decision SystemVariant binding is stale or tampered'
                         )
                     acquisition = report.acquisition_context
                     if measurement.acquisition_context_id is None:
