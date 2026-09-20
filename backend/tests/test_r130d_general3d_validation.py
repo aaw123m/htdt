@@ -65,7 +65,7 @@ def test_exact_fixture_and_reference_mesh_identity_are_deterministic():
     assert plan.fixture.base_tetrahedralization_volume_m3 == 56.0
     assert len(plan.fixture.base_tetrahedra) == 6
     assert plan.reference_mesh_sha256(1) == plan.reference_mesh_sha256(1)
-    assert plan.reference_mesh_sha256(0) != plan.reference_mesh_sha256(1)
+    assert plan.reference_mesh_sha256(1) != plan.reference_mesh_sha256(2)
     assert len(plan.fixture_sha256()) == 64
 
 
