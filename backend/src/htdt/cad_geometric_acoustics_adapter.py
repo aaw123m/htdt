@@ -2665,8 +2665,12 @@ def execute_deterministic_ga(
 
     dataset_by_hash = {item.semantic_sha256: item for item in directivity_datasets}
     origin = _position_tuple(execution_input.room_origin_m)
-    general_geometry = (
-        execution_input.geometry_policy == 'general_planar_closed_polyhedral_v1'
+    portal_geometry = (
+        execution_input.geometry_policy == 'general_planar_multi_region_portal_v1'
+    )
+    general_geometry = execution_input.geometry_policy in (
+        'general_planar_closed_polyhedral_v1',
+        'general_planar_multi_region_portal_v1',
     )
     paths: list[DeterministicAcousticPath] = []
     rejected: list[RejectedPathCandidate] = []
@@ -2688,6 +2692,160 @@ def execute_deterministic_ga(
         for receiver in execution_input.receivers:
             receiver_world = _position_tuple(receiver.world_position)
             receiver_local = _local(receiver_world, origin)
+
+            if portal_geometry:
+                if (
+                    execution_input.maximum_portal_crossings != 1
+                    or execution_input.portal_apertures is None
+                    or len(execution_input.portal_apertures) != 1
+                    or source.acoustic_region_id is None
+                    or receiver.acoustic_region_id is None
+                ):
+                    raise ValueError(
+                        'multi-region Portal execution input is missing exact bounded topology'
+                    )
+                aperture = execution_input.portal_apertures[0]
+                if source.acoustic_region_id == receiver.acoustic_region_id:
+                    rejected.append(
+                        RejectedPathCandidate(
+                            source_entity_id=source.source_entity_id,
+                            receiver_id=receiver.receiver_id,
+                            path_type='direct',
+                            decision='INVALID_REGION_SEQUENCE',
+                            reason=(
+                                'current bounded multi-region lane requires endpoints on '
+                                'opposite sides of exactly one explicit Portal'
+                            ),
+                        )
+                    )
+                    continue
+
+                crossing = resolve_direct_portal_crossing(
+                    aperture,
+                    start=source_world,
+                    end=receiver_world,
+                    from_region_id=source.acoustic_region_id,
+                    to_region_id=receiver.acoustic_region_id,
+                    tolerance_m=execution_input.geometric_tolerance_m,
+                )
+                if crossing is None:
+                    rejected.append(
+                        RejectedPathCandidate(
+                            source_entity_id=source.source_entity_id,
+                            receiver_id=receiver.receiver_id,
+                            path_type='direct',
+                            decision='INVALID_PORTAL_CROSSING',
+                            reason=(
+                                'source-to-receiver segment does not cross the exact '
+                                'directed Portal aperture within declared tolerance'
+                            ),
+                        )
+                    )
+                    continue
+
+                if any(
+                    _segment_blocked(
+                        compiled_geometry,
+                        segment_start,
+                        segment_end,
+                        tolerance=execution_input.geometric_tolerance_m,
+                        distance_scaled_tolerance=True,
+                    )
+                    for segment_start, segment_end in (
+                        (source_world, crossing),
+                        (crossing, receiver_world),
+                    )
+                ):
+                    rejected.append(
+                        RejectedPathCandidate(
+                            source_entity_id=source.source_entity_id,
+                            receiver_id=receiver.receiver_id,
+                            path_type='direct',
+                            decision='BLOCKED_VISIBILITY',
+                            reason=(
+                                'exact R120 opaque triangle surface blocks a Portal '
+                                'propagation segment'
+                            ),
+                        )
+                    )
+                    continue
+
+                direct_departure = _vector(source_world, receiver_world)
+                direct_length = _distance(source_world, receiver_world)
+                direct_bands: list[DeterministicPathBandQuantity] = []
+                directivity_failed = False
+                for frequency_hz in execution_input.frequency_centers_hz:
+                    directivity = _directivity_contribution(
+                        dataset,
+                        frequency_hz=frequency_hz,
+                        source_axis=source.source_axis,
+                        departure_direction=direct_departure,
+                        tolerance=execution_input.geometric_tolerance_m,
+                    )
+                    if directivity is None:
+                        directivity_failed = True
+                        break
+                    spreading = 1.0 / (direct_length * direct_length)
+                    direct_bands.append(
+                        DeterministicPathBandQuantity(
+                            center_hz=frequency_hz,
+                            spreading_factor_per_m2=spreading,
+                            source_directivity=directivity,
+                            relative_energy_transport_per_m2=(
+                                spreading * directivity.energy_factor
+                            ),
+                        )
+                    )
+                if directivity_failed:
+                    rejected.append(
+                        RejectedPathCandidate(
+                            source_entity_id=source.source_entity_id,
+                            receiver_id=receiver.receiver_id,
+                            path_type='direct',
+                            decision='UNSUPPORTED_DIRECTIVITY',
+                            reason=(
+                                'exact source directivity cannot evaluate Portal-path '
+                                'departure angle/frequency'
+                            ),
+                        )
+                    )
+                    continue
+
+                interaction = DeterministicPathInteraction(
+                    kind='portal_crossing',
+                    point=_rounded_position(
+                        crossing,
+                        execution_input.identity_decimal_places,
+                    ),
+                    portal_id=aperture.portal_id,
+                    from_region_id=source.acoustic_region_id,
+                    to_region_id=receiver.acoustic_region_id,
+                )
+                paths.append(
+                    _make_path(
+                        path_type='direct',
+                        source=source,
+                        receiver=receiver,
+                        points=(),
+                        surface_ids=(),
+                        length_m=direct_length,
+                        sound_speed_m_s=execution_input.sound_speed_m_s,
+                        departure=direct_departure,
+                        arrival=direct_departure,
+                        bands=direct_bands,
+                        decimals=execution_input.identity_decimal_places,
+                        solver_implementation_ref=(
+                            execution_input.solver_implementation_ref
+                        ),
+                        typed_interactions=(interaction,),
+                        ordered_region_ids=(
+                            source.acoustic_region_id,
+                            receiver.acoustic_region_id,
+                        ),
+                    )
+                )
+                continue
+
             images: tuple[NativeImageSource, ...] = ()
             if not general_geometry:
                 images = engine.execute_shoebox(
@@ -3436,9 +3594,13 @@ def execute_deterministic_ga(
         'identity_decimal_places': execution_input.identity_decimal_places,
         'frequency_domain': execution_input.frequency_domain.model_dump(mode='json'),
         'path_scope': (
-            'direct_through_second_order_specular'
-            if execution_input.maximum_reflection_order == 2
-            else 'direct_and_first_order_specular'
+            'direct_single_portal_propagation'
+            if portal_geometry
+            else (
+                'direct_through_second_order_specular'
+                if execution_input.maximum_reflection_order == 2
+                else 'direct_and_first_order_specular'
+            )
         ),
         'coherent_phase_authority': 'UNAVAILABLE_NOT_SYNTHESIZED',
         'paths': [
