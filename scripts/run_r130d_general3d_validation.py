@@ -1054,8 +1054,16 @@ def _read_pffdtd_spatial_representation_diagnostic(
         'representation_kind': diagnostic['spatial_representation']['representation_kind'],
         'grid_spacing_m': h,
         'grid_dimensions': list(dims),
+        'grid_origin_m': [float(xv[0]), float(yv[0]), float(zv[0])],
+        'grid_axes_m': {
+            'x': [float(x) for x in xv],
+            'y': [float(x) for x in yv],
+            'z': [float(x) for x in zv],
+        },
         'boundary_linear_indices': [int(x) for x in bn_ixyz],
         'boundary_adjacency': adj_bn.astype(np.uint8).tolist(),
+        'cart_grid_file_sha256': _sha256_file(cart_path),
+        'voxel_mask_file_sha256': _sha256_file(voxel_path),
     }
     return {
         'representation_definition': diagnostic['spatial_representation']['representation_kind'],
@@ -1064,8 +1072,15 @@ def _read_pffdtd_spatial_representation_diagnostic(
         'exact_polyhedron_volume_m3': exact_volume,
         'discrete_air_domain_volume_estimate_m3': discrete_volume,
         'relative_volume_error': relative_volume_error,
+        'absolute_relative_volume_error': abs(relative_volume_error),
         **domain,
         'geometry_representation_hash': semantic_hash(geometry_core),
+        'pffdtd_cart_grid_asset_file_sha256': geometry_core[
+            'cart_grid_file_sha256'
+        ],
+        'pffdtd_geometry_mask_asset_file_sha256': geometry_core[
+            'voxel_mask_file_sha256'
+        ],
         'sloped_surface_key': sloped_key,
         'exact_plane_equation_unit_normal': {
             'a': float(plane_normal[0]),
@@ -1394,6 +1409,12 @@ def _run_pffdtd_level(
         spatial_diagnostic,
         sim_dir=run_dir,
     )
+    spatial_metrics['pffdtd_cart_grid_logical_sha256'] = evidence[
+        'cart_grid_logical_sha256'
+    ]
+    spatial_metrics['pffdtd_geometry_mask_logical_sha256'] = evidence[
+        'boundary_mask_logical_sha256'
+    ]
     if not math.isclose(
         float(spatial_metrics['grid_spacing_m']),
         float(evidence['grid_spacing_m']),
