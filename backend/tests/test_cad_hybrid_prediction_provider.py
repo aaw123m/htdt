@@ -62,8 +62,13 @@ from htdt.cad_prediction_provider import (
     build_r130_low_band_prediction_provider,
 )
 from htdt.cad_scene import Direction3, Position3
-from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
-from htdt.cad_search_models import CadSearchAxis
+from htdt.cad_search_models import (
+    CadSearchAxis,
+    CadSearchSpec,
+    canonical_search_json,
+    canonical_search_sha256,
+    constraint_workspace_snapshot,
+)
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_wave_excitation import (
     ComplexVolumeVelocitySample,
@@ -449,33 +454,56 @@ def _build_bundle(
 
 
 def _search_fixture(bundle):
+    """Minimal exact SearchSpec authority; O40 regression does not exercise placement."""
+
     fixture = bundle['fixture']
+    revision = fixture['revision']
     constraint_set = CadConstraintSet(
-        document_id=fixture['revision'].document_id,
+        document_id=revision.document_id,
         constraints=(),
     )
-    spec, _estimate = build_cad_search_spec(
-        fixture['revision'],
-        constraint_set,
-        (
-            CadSearchAxis(
-                entity_id='speaker-source',
-                axis='x',
-                min_m=1.0,
-                max_m=2.0,
-                step_m=1.0,
-            ),
-        ),
+    constraint_snapshot_json, constraint_workspace_hash = (
+        constraint_workspace_snapshot(constraint_set)
+    )
+    engine_spec = {}
+    engine_sha = canonical_search_sha256(engine_spec)
+    axis = CadSearchAxis(
+        entity_id='speaker-source',
+        axis='x',
+        min_m=1.0,
+        max_m=2.0,
+        step_m=1.0,
+    )
+    identity = {
+        'schema_version': 1,
+        'document_id': revision.document_id,
+        'scene_revision_id': revision.revision_id,
+        'scene_content_hash': revision.content_hash,
+        'constraint_workspace_hash': constraint_workspace_hash,
+        'algorithm': 'deterministic_grid',
+        'algorithm_version': 'search-space-grid-1',
+        'axes': [axis.model_dump(mode='json')],
+        'candidate_limit': 10,
+    }
+    spec = CadSearchSpec(
+        search_spec_id='r170b-objective-search-fixture',
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        constraint_workspace_hash=constraint_workspace_hash,
+        constraint_snapshot_json=constraint_snapshot_json,
+        constraint_engine_spec_json=canonical_search_json(engine_spec),
+        constraint_engine_spec_sha256=engine_sha,
+        axes=(axis,),
         candidate_limit=10,
-        name='r170b integration fixture',
+        o10_spec_json='{}',
+        search_spec_sha256=canonical_search_sha256(identity),
+        name='r170b objective-only integration fixture',
+        created_at_utc='2026-09-21T00:00:00+00:00',
     )
     search_repository = CadSearchRepository(fixture['scene_repository'])
     search_repository.save(spec)
-    candidates = generate_cad_candidates(
-        fixture['scene_repository'],
-        spec,
-    ).candidates
-    return spec, search_repository, candidates
+    return spec, search_repository, 'candidate:r170b-objective-fixture'
 
 
 def test_exact_identity_absolute_pressure_db_phase_and_phasor_conversion(
@@ -761,8 +789,7 @@ def test_o30_exact_binding_and_o40_regression_without_algorithm_change(
 ) -> None:
     bundle = _build_bundle(tmp_path / 'objective', monkeypatch)
     provider = bundle['hybrid_repository'].save(bundle['provider'])
-    spec, search_repository, candidates = _search_fixture(bundle)
-    candidate = candidates[0]
+    spec, search_repository, candidate_id = _search_fixture(bundle)
     target = FrequencyResponse(
         frequency_hz=(40.0, 60.0, 80.0),
         level_db=(80.0, 80.0, 80.0),
@@ -771,7 +798,7 @@ def test_o30_exact_binding_and_o40_regression_without_algorithm_change(
     evaluation = target_objective_evaluation_from_hybrid_provider(
         revision=bundle['fixture']['revision'],
         search_spec=spec,
-        candidate_id=candidate.candidate_id,
+        candidate_id=candidate_id,
         provider=provider,
         source_entity_id=provider.source_entity_id,
         receiver_id=provider.receiver_id,
