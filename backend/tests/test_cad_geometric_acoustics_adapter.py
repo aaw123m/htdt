@@ -1724,3 +1724,204 @@ def test_actual_pyroomacoustics_candidate_executes_same_direct_first_reflection_
         and item.ordered_interaction_surface_ids == (front_id,)
     )
     assert isclose(reflected.geometric_path_length_m, sqrt(13.0), abs_tol=1.0e-8)
+
+
+def _portal_fixture(
+    tmp_path: Path,
+    *,
+    portal_state: str = 'open',
+    reverse_portal_orientation: bool = False,
+    portal_region_ids: tuple[str, str] = ('region-a', 'region-b'),
+    source_region_id: str = 'region-a',
+    receiver_region_id: str = 'region-b',
+    receiver_position: Position3 | None = None,
+    occluder: bool = False,
+    nontrivial_boundary_termination: bool = False,
+):
+    geometry, portal_loop = _portal_semantic_geometry(occluder=occluder)
+    return _fixture(
+        tmp_path,
+        semantic_geometry=geometry,
+        receiver_position=receiver_position,
+        room_policy=PORTAL_POLICY,
+        region_surface_keys_by_id=PORTAL_REGION_SURFACES,
+        portal_loop_vertex_indices=portal_loop,
+        portal_surface_key='portal-interface',
+        portal_region_ids=portal_region_ids,
+        portal_state=portal_state,
+        reverse_portal_orientation=reverse_portal_orientation,
+        source_region_id=source_region_id,
+        receiver_region_id=receiver_region_id,
+        nontrivial_boundary_termination=nontrivial_boundary_termination,
+        maximum_portal_crossings=1,
+    )
+
+
+def test_multi_region_open_portal_direct_path_has_exact_ordered_region_sequence(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path)
+    artifact = _execute(fx)
+
+    assert artifact.path_scope == 'direct_single_portal_propagation'
+    assert len(artifact.paths) == 1
+    path = artifact.paths[0]
+    assert path.path_type == 'direct'
+    assert path.ordered_interaction_surface_ids == ()
+    assert path.ordered_interaction_points == ()
+    assert path.ordered_region_ids == ('region-a', 'region-b')
+    assert path.ordered_interactions is not None
+    assert len(path.ordered_interactions) == 1
+    interaction = path.ordered_interactions[0]
+    assert interaction.kind == 'portal_crossing'
+    assert interaction.portal_id == 'fixture-portal'
+    assert interaction.from_region_id == 'region-a'
+    assert interaction.to_region_id == 'region-b'
+    assert isclose(interaction.point.x_m, 2.0, abs_tol=1.0e-9)
+    assert 1.0 <= interaction.point.y_m <= 2.0
+    assert 0.5 <= interaction.point.z_m <= 1.5
+    for band in path.bands:
+        assert band.boundary_material is None
+        assert band.boundary_materials is None
+        assert band.coherent_phase == 'UNAVAILABLE_NOT_SYNTHESIZED'
+
+
+def test_same_multi_region_geometry_with_closed_portal_fails_closed(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, portal_state='closed')
+    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_STATE'
+
+
+def test_portal_plane_crossing_outside_exact_polygon_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(
+        tmp_path,
+        receiver_position=Position3(x_m=3.0, y_m=0.2, z_m=1.0),
+    )
+    artifact = _execute(fx)
+    assert artifact.paths == ()
+    assert any(
+        item.decision == 'INVALID_PORTAL_CROSSING'
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_portal_wrong_region_adjacency_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(
+            tmp_path,
+            portal_region_ids=('region-a', 'ghost-region'),
+        )
+    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_APERTURE'
+
+
+def test_portal_source_wrong_explicit_region_binding_fails_closed(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, source_region_id='region-b')
+    assert error.value.reason_code == 'UNSUPPORTED_REGION_MEMBERSHIP'
+
+
+def test_portal_receiver_wrong_explicit_region_binding_fails_closed(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, receiver_region_id='region-a')
+    assert error.value.reason_code == 'UNSUPPORTED_REGION_MEMBERSHIP'
+
+
+def test_portal_direct_path_is_blocked_by_opaque_surface(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path, occluder=True)
+    artifact = _execute(fx)
+    assert artifact.paths == ()
+    assert any(
+        item.decision == 'BLOCKED_VISIBILITY'
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_portal_reversed_directed_edge_loop_fails_orientation_semantics(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, reverse_portal_orientation=True)
+    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_ORIENTATION'
+
+
+def test_portal_path_identity_is_deterministic(tmp_path: Path) -> None:
+    fx = _portal_fixture(tmp_path)
+    first = _execute(fx)
+    second = _execute(fx)
+    assert second == first
+    assert second.artifact_id == first.artifact_id
+    assert second.paths[0].path_id == first.paths[0].path_id
+
+
+def test_multi_region_portal_execution_input_and_artifact_save_reopen_exact_identity(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path)
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    reopened = CadDeterministicPathArtifactRepository(
+        SceneRepository(fx['scene_repository'].path),
+        snapshot_repository=CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path)
+        ),
+        dispatch_repository=CadAcousticSolverDispatchRepository(
+            SceneRepository(fx['scene_repository'].path),
+            external_authority_resolver=fx['external_resolver'],
+        ),
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    assert reopened.get_execution_input(
+        fx['execution_input'].execution_input_id
+    ) == fx['execution_input']
+    assert reopened.get(artifact.artifact_id) == artifact
+
+
+def test_stale_portal_authority_does_not_reopen_as_current(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path)
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    fx['geometry_authorities'].pop(fx['portals'].authority_id)
+    with pytest.raises(ValueError, match='portal exact authority'):
+        repository.get(artifact.artifact_id)
+
+
+def test_nontrivial_boundary_termination_is_not_transmitted_as_portal(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, nontrivial_boundary_termination=True)
+    assert error.value.reason_code == 'UNSUPPORTED_BOUNDARY_TERMINATION'
