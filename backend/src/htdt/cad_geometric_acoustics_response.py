@@ -1055,7 +1055,9 @@ class DeterministicPathFrequencyResponseArtifact(BaseModel):
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     deterministic_path_artifact_id: str
-    deterministic_path_artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}
+    deterministic_path_artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    execution_input_ref: ExactExternalAuthorityRef
+    deterministic_path_id: str
     deterministic_path_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_entity_id: str
     receiver_id: str
