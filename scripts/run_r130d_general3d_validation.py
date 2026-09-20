@@ -1492,11 +1492,24 @@ def main(argv: list[str] | None = None) -> int:
                 'MFEM maximum modal frequency'
             ),
         }
+        canonical_reproduction = _validate_pr286_canonical_reproduction(
+            args.pr286_summary,
+            reference_levels=reference_levels,
+            pffdtd_levels=pffdtd_levels,
+        )
+
         reference_pair_metrics = []
+        reference_aligned_pair_metrics = []
         for coarse, fine in zip(reference_levels, reference_levels[1:]):
-            metrics = compare_complex_transfer(
+            canonical_metrics = compare_complex_transfer(
                 reference=fine['transfer_pa_per_m3_s'],
                 candidate=coarse['transfer_pa_per_m3_s'],
+                frequency_hz=frequencies,
+                magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+            )
+            aligned_metrics = compare_complex_transfer(
+                reference=fine['aligned_diagnostic_transfer_pa_per_m3_s'],
+                candidate=coarse['aligned_diagnostic_transfer_pa_per_m3_s'],
                 frequency_hz=frequencies,
                 magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
             )
@@ -1504,16 +1517,31 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     'coarse_refinement': coarse['refinement'],
                     'fine_refinement': fine['refinement'],
-                    'metrics': _metric_dict(metrics),
-                    'metrics_obj': metrics,
+                    'metrics': _metric_dict(canonical_metrics),
+                    'metrics_obj': canonical_metrics,
+                }
+            )
+            reference_aligned_pair_metrics.append(
+                {
+                    'coarse_refinement': coarse['refinement'],
+                    'fine_refinement': fine['refinement'],
+                    'metrics': _metric_dict(aligned_metrics),
+                    'metrics_obj': aligned_metrics,
                 }
             )
 
         pffdtd_pair_metrics = []
+        pffdtd_aligned_pair_metrics = []
         for coarse, fine in zip(pffdtd_levels, pffdtd_levels[1:]):
-            metrics = compare_complex_transfer(
+            canonical_metrics = compare_complex_transfer(
                 reference=fine['transfer_pa_per_m3_s'],
                 candidate=coarse['transfer_pa_per_m3_s'],
+                frequency_hz=frequencies,
+                magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+            )
+            aligned_metrics = compare_complex_transfer(
+                reference=fine['aligned_diagnostic_transfer_pa_per_m3_s'],
+                candidate=coarse['aligned_diagnostic_transfer_pa_per_m3_s'],
                 frequency_hz=frequencies,
                 magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
             )
@@ -1521,8 +1549,16 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     'coarse_points_per_wavelength': coarse['points_per_wavelength'],
                     'fine_points_per_wavelength': fine['points_per_wavelength'],
-                    'metrics': _metric_dict(metrics),
-                    'metrics_obj': metrics,
+                    'metrics': _metric_dict(canonical_metrics),
+                    'metrics_obj': canonical_metrics,
+                }
+            )
+            pffdtd_aligned_pair_metrics.append(
+                {
+                    'coarse_points_per_wavelength': coarse['points_per_wavelength'],
+                    'fine_points_per_wavelength': fine['points_per_wavelength'],
+                    'metrics': _metric_dict(aligned_metrics),
+                    'metrics_obj': aligned_metrics,
                 }
             )
 
@@ -1533,6 +1569,20 @@ def main(argv: list[str] | None = None) -> int:
         pffdtd_assessment = assess_refinement_series(
             tuple(item['metrics_obj'] for item in pffdtd_pair_metrics),
             plan.acceptance.pffdtd_self_convergence,
+        )
+        reference_aligned_assessment = assess_refinement_series(
+            tuple(item['metrics_obj'] for item in reference_aligned_pair_metrics),
+            plan.acceptance.reference_self_convergence,
+        )
+        pffdtd_aligned_assessment = assess_refinement_series(
+            tuple(item['metrics_obj'] for item in pffdtd_aligned_pair_metrics),
+            plan.acceptance.pffdtd_self_convergence,
+        )
+
+        pffdtd_sampling_diagnosis = _pffdtd_nonmonotonicity_diagnosis(
+            pffdtd_pair_metrics,
+            pffdtd_aligned_pair_metrics,
+            diagnostic,
         )
 
         cross_eligible = bool(
@@ -1559,15 +1609,31 @@ def main(argv: list[str] | None = None) -> int:
             plan=plan,
         )
 
-        for item in reference_pair_metrics:
-            item.pop('metrics_obj', None)
-        for item in pffdtd_pair_metrics:
-            item.pop('metrics_obj', None)
+        for collection in (
+            reference_pair_metrics,
+            pffdtd_pair_metrics,
+            reference_aligned_pair_metrics,
+            pffdtd_aligned_pair_metrics,
+        ):
+            for item in collection:
+                item.pop('metrics_obj', None)
 
         payload = {
             'schema_version': EVIDENCE_SCHEMA,
             'plan_id': plan.plan_id,
             'plan_sha256': plan.plan_sha256(),
+            'diagnostic_plan': {
+                'diagnostic_id': diagnostic['diagnostic_id'],
+                'schema_version': diagnostic['schema_version'],
+                'semantic_sha256': semantic_hash(diagnostic),
+                'target_duration_s': diagnostic['target_duration_s'],
+                'operator': diagnostic['operator'],
+                'decision_semantics': diagnostic['decision_semantics'],
+            },
+            'diagnostic_observation_operator_validation': (
+                observation_operator_fixture
+            ),
+            'canonical_pr286_reproduction': canonical_reproduction,
             'repository_head': repository_head,
             'fixture_id': plan.fixture.fixture_id,
             'fixture_sha256': plan.fixture_sha256(),
@@ -1609,8 +1675,21 @@ def main(argv: list[str] | None = None) -> int:
             'pffdtd_levels': pffdtd_levels,
             'reference_pair_metrics': reference_pair_metrics,
             'pffdtd_pair_metrics': pffdtd_pair_metrics,
+            'reference_aligned_diagnostic_pair_metrics': (
+                reference_aligned_pair_metrics
+            ),
+            'pffdtd_aligned_diagnostic_pair_metrics': (
+                pffdtd_aligned_pair_metrics
+            ),
             'reference_self_convergence': reference_assessment.model_dump(mode='json'),
             'pffdtd_self_convergence': pffdtd_assessment.model_dump(mode='json'),
+            'reference_aligned_diagnostic_self_convergence': (
+                reference_aligned_assessment.model_dump(mode='json')
+            ),
+            'pffdtd_aligned_diagnostic_self_convergence': (
+                pffdtd_aligned_assessment.model_dump(mode='json')
+            ),
+            'pffdtd_sampling_window_diagnosis': pffdtd_sampling_diagnosis,
             'contract_audit': {
                 'state': 'MATCH',
                 'expected': expected_contract,
@@ -1623,12 +1702,41 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             },
             'cross_solver_eligible': cross_eligible,
+            'aligned_diagnostic_cross_solver_eligible': False,
+            'aligned_diagnostic_cross_solver_nonclaim': (
+                'Diagnostic observation-operator results cannot unblock the '
+                'canonical cross-solver gate in this slice.'
+            ),
             'cross_solver_fine_fine_metrics': (
                 None if cross_metrics is None else _metric_dict(cross_metrics)
             ),
             'frequency_acceptance': accepted_frequencies,
             'valid_overlapping_numerical_band': valid_overlap_band,
             'decision': decision,
+            'decision_semantics': {
+                'solver_execution': decision['execution_state'],
+                'canonical_observable_contract': decision['contract_state'],
+                'diagnostic_observation_operator_validation': (
+                    observation_operator_fixture['state']
+                ),
+                'canonical_reference_self_convergence': (
+                    reference_assessment.state
+                ),
+                'canonical_pffdtd_self_convergence': pffdtd_assessment.state,
+                'aligned_reference_self_convergence': (
+                    reference_aligned_assessment.state
+                ),
+                'aligned_pffdtd_self_convergence': (
+                    pffdtd_aligned_assessment.state
+                ),
+                'cross_solver_eligibility': (
+                    'ELIGIBLE' if cross_eligible else 'CROSS_SOLVER_BLOCKED'
+                ),
+                'general_3d_validation_state': (
+                    decision['general_3d_validation_state']
+                ),
+                'diagnostic_does_not_promote_validation': True,
+            },
             'scope': {
                 'validated_fixture': (
                     plan.fixture.fixture_id
