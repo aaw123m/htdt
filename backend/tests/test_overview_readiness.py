@@ -280,3 +280,34 @@ def test_unsupported_current_prediction_does_not_unlock_optimization() -> None:
     assert view.next_action is not None
     assert view.next_action.target.workspace == 'room'
     assert view.next_action.target.subsection == 'geometry'
+
+
+
+def test_supported_current_prediction_wins_over_unsupported_sibling_result() -> None:
+    revision = _revision()
+    supported = SimpleNamespace(
+        status='completed',
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        geometry_compatibility='supported',
+    )
+    unsupported = SimpleNamespace(
+        status='completed',
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        geometry_compatibility='unsupported',
+    )
+
+    view = _service(
+        revision,
+        predictions=(unsupported, supported),
+    ).read('project-1')
+
+    assert not any(
+        item.code == 'prediction.unsupported_geometry'
+        for item in view.warnings
+    )
+    assert view.optimization_ready is True
+    assert view.summary == '最適化の準備ができています。'
+    assert view.next_action is not None
+    assert view.next_action.action_id == 'optimization.open_setup'
