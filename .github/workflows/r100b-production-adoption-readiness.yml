@@ -1,0 +1,63 @@
+name: R100B Production Adoption Readiness
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/htdt/acoustic_bakeoff.py'
+      - 'backend/src/htdt/acoustic_bakeoff_readiness.py'
+      - 'backend/src/htdt/acoustic_benchmark.py'
+      - 'backend/tests/test_acoustic_bakeoff.py'
+      - 'backend/tests/test_acoustic_bakeoff_readiness.py'
+      - 'benchmarks/acoustics/r100a_manifest.json'
+      - 'benchmarks/acoustics/r100b_candidates.json'
+      - 'benchmarks/acoustics/r100b_wave_adoption_profile.json'
+      - 'benchmarks/acoustics/r100b_production_adoption_evidence.json'
+      - '.github/workflows/r100b-production-adoption-readiness.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: r100b-production-readiness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  readiness:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '1'
+      PYTHONPATH: backend/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -e ".\backend[dev]"
+
+      - name: Run focused R100B readiness tests
+        run: python -m pytest backend\tests\test_acoustic_bakeoff_readiness.py
+
+      - name: Generate candidate-wide readiness report
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'r100b-production-adoption-readiness.json'
+          python -m htdt.acoustic_bakeoff_readiness audit `
+            --manifest benchmarks\acoustics\r100a_manifest.json `
+            --candidates benchmarks\acoustics\r100b_candidates.json `
+            --adoption-profile benchmarks\acoustics\r100b_wave_adoption_profile.json `
+            --evidence-ledger benchmarks\acoustics\r100b_production_adoption_evidence.json `
+            --expect-decision NO_GO `
+            --output $report
+          "R100B_READINESS_REPORT=$report" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload readiness report
+        uses: actions/upload-artifact@v4
+        with:
+          name: r100b-production-adoption-readiness
+          path: ${{ env.R100B_READINESS_REPORT }}
+          if-no-files-found: error
+          retention-days: 30
