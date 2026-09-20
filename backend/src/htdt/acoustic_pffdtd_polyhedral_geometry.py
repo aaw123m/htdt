@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import math
@@ -30,6 +31,7 @@ from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .r120_polyhedral_geometry import (
     R120PolyhedralCompiledGeometry,
     R120PolyhedralSemanticGeometry,
+    validate_r120_polyhedral_topology,
 )
 
 
@@ -541,7 +543,22 @@ def compile_r120b_polyhedral_to_pffdtd(
     sound_speed_m_s: float,
     configuration: PffdtdCandidateConfiguration,
     containment_tolerance_m: float = 1.0e-9,
+    topology_tolerance_m: float = 1.0e-9,
+    source_name: str = 'source',
 ) -> tuple[PffdtdPolyhedralGeometryRepresentation, dict[str, Any]]:
+    topology_report = validate_r120_polyhedral_topology(
+        semantic,
+        tolerance_m=topology_tolerance_m,
+    )
+    if (
+        topology_report.report_id != compiled.exact_topology_report_id
+        or topology_report.report_hash_sha256
+        != compiled.exact_topology_report_hash_sha256
+    ):
+        raise CandidateWaveExecutionError(
+            'R120B compiled topology report does not match the explicit R130D '
+            'topology tolerance'
+        )
     if semantic.source_geometry_kind != 'explicit_polyhedral':
         raise CandidateWaveExecutionError(
             'UNSUPPORTED R130D wave geometry: bounded/curved approximation is not '
@@ -669,7 +686,7 @@ def compile_r120b_polyhedral_to_pffdtd(
         'sources': [
             {
                 'xyz': list(source_position_m),
-                'name': 'r130d-exact-polyhedral-source',
+                'name': source_name,
             }
         ],
         'receivers': [
@@ -719,9 +736,7 @@ def compile_r120b_polyhedral_to_pffdtd(
             compiled.exact_topology_report_hash_sha256
         ),
         'topology_identity_sha256': compiled.topology_identity_sha256,
-        'topology_tolerance_m': float(
-            _topology_tolerance_from_semantic_and_compiled(semantic, compiled)
-        ),
+        'topology_tolerance_m': float(topology_tolerance_m),
         'region_id': volume.region_id,
         'point_count': len(points),
         'triangle_count': len(triangle_indices),
@@ -766,17 +781,6 @@ def compile_r120b_polyhedral_to_pffdtd(
     )
     return representation, model
 
-
-def _topology_tolerance_from_semantic_and_compiled(
-    semantic: R120PolyhedralSemanticGeometry,
-    compiled: R120PolyhedralCompiledGeometry,
-) -> float:
-    # R120B v1 deliberately stores the topology report hash/id rather than
-    # duplicating its tolerance in the compiled authority. Exact planar input
-    # carries no approximation tolerance, so R130D records the compiler's
-    # current explicit v1 default here and binds it into its own authority.
-    del semantic, compiled
-    return 1.0e-9
 
 
 def _logical_h5_hash(handle: Any, names: Sequence[str]) -> str:
@@ -986,6 +990,8 @@ class PffdtdPolyhedralCandidateWaveExecutor:
             sound_speed_m_s=float(snapshot.environment.sound_speed_m_s),
             configuration=configuration,
             containment_tolerance_m=self.containment_tolerance_m,
+            topology_tolerance_m=self.containment_tolerance_m,
+            source_name=base_authority.source_entity_id,
         )
         self.base_executor.authority_store.put_exact_json(
             representation.as_external_ref(),
@@ -1334,8 +1340,6 @@ class PffdtdPolyhedralCandidateWaveExecutor:
             execution_id=execution_id,
             execution_provenance_ref=provenance_ref,
             artifacts=(artifact,),
-            completed_at_utc=__import__('datetime').datetime.now(
-                __import__('datetime').timezone.utc
-            ).isoformat(),
+            completed_at_utc=datetime.now(timezone.utc).isoformat(),
         )
         return self.base_executor.result_repository.save(result)
