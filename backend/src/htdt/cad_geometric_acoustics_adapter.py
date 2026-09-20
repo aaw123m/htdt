@@ -1532,6 +1532,29 @@ def execute_deterministic_ga(
                         )
                     )
 
+            for mapping in sorted(
+                (
+                    item
+                    for item in compiled_geometry.surface_mapping
+                    if item.semantic_class != 'room_boundary'
+                ),
+                key=lambda item: item.source_surface_id,
+            ):
+                rejected.append(
+                    RejectedPathCandidate(
+                        source_entity_id=source.source_entity_id,
+                        receiver_id=receiver.receiver_id,
+                        path_type='specular_reflection',
+                        interaction_surface_ids=(mapping.source_surface_id,),
+                        decision='UNSUPPORTED_GEOMETRY',
+                        reason=(
+                            'candidate pyroomacoustics image-source foundation does not '
+                            'silently synthesize first-order images for non-shoebox '
+                            'semantic surfaces; the exact surface remains an occluder'
+                        ),
+                    )
+                )
+
             for plane in execution_input.boundary_planes:
                 mirrored_world = _mirror_source(source_world, plane)
                 target_local = _local(mirrored_world, origin)
