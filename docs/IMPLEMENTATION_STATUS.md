@@ -1,6 +1,6 @@
 # 実装ステータス
 
-> 更新: 2026-09-20 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90D software実装済み・O90E/UX160残件 / O100A〜O100F実装済み・O100G backend MeasurementPlan/Campaignまで実装済み・UX残件 / Issue #170 StandardsProfile実装 / Issue #101 R130A candidate execution + R140 executor + R150 bounded GA foundation反映、PR #253でgeneral-planar first-order拡張 / production solver・実室model gate未通過
+> 更新: 2026-09-20 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90D software実装済み・O90E/UX160残件 / O100A〜O100F実装済み・O100G backend MeasurementPlan/Campaignまで実装済み・UX残件 / Issue #170 StandardsProfile実装 / Issue #101 R130A candidate execution + R140 executor + R150 bounded GA foundation反映、PR #253でgeneral-planar first-order拡張 / R160 typed hybrid foundationはPR #254で提案中 / production solver・実室model gate未通過
 > 実装順は[ロードマップ](IMPLEMENTATION_ROADMAP.md)。旧browser/backendの詳細履歴は[2026-09-16 archive](IMPLEMENTATION_STATUS_ARCHIVE_2026-09-16.md)へ保存する。
 
 ## Native CAD — 現在地
@@ -42,7 +42,8 @@ N70はIssue #63 / PR #64、N80 workspaceはIssue #65 / PR #74、O60 software val
 | R130A execution | PR #243。exact snapshot/request/READY dispatch→pinned PFFDTD candidate numerical execution→immutable complex-pressure artifact→result envelope/save-reopenのbounded vertical sliceを実装。candidate-onlyでありR130A numerical acceptance/production adoptionは未完了 |
 | R140 execution | PR #236/#250。exact task/schedule/cache authorityにactual CPU-baseline bounded executor、resource estimate、cancel/failure telemetry、resumeを接続。real solver estimator、GPU/equivalence等は残件 |
 | R150 execution | PR #245でsingle-region exact shoebox subsetのdeterministic direct/first-specular typed path artifact→result envelope/save-reopenを実装。PR #253でexact planar semantic surfaceからのarbitrary-plane mirror/intersection、finite triangle-domain membership、両segment occlusion、general-planar save/reopenを追加。multi-region/Portal propagation、nontrivial termination、qualified general-concave coverage、high-order/late/scattering/diffraction/coherent phase/production validationは残件 |
-| 次工程 | **R100B production wave adoption gateは引き続き未通過。candidate negative evidenceをreference truthへ昇格せず、残るsolver-neutral decomposition/reference/obstacle/candidate-wide hard gateとADR readinessを進める。並行してR130/R150のnumerical acceptance、R160/R170 integration、R180 owned-room validationを個別gateで進める。O90はO90E、O100Gはworkflow UX/visual acceptanceが残件。Issue #83 owned-room gateも未完了** |
+| R160 hybrid foundation | PR #254。CoherentTransfer / DeterministicPathSet / LateEnergyDecayをsolver-neutral typed authorityとして分離し、observable別validity/phase/provenance、explicit non-blending stitching policy、exact compatibility gate、append-only SQLite persistenceを提案。v1のcandidate componentは`EXECUTED_UNVALIDATED`固定で、exact validation authorityなしの昇格を許さない。数値stitching・physical crossover・late solver・production validationは未実装 |
+| 次工程 | **R100B production wave adoption gateは引き続き未通過。candidate negative evidenceをreference truthへ昇格せず、残るsolver-neutral decomposition/reference/obstacle/candidate-wide hard gateとADR readinessを進める。並行してR130/R150のnumerical acceptance、R160 foundationのreview/merge後の数値continuity semantics、R170 integration、R180 owned-room validationを個別gateで進める。O90はO90E、O100Gはworkflow UX/visual acceptanceが残件。Issue #83 owned-room gateも未完了** |
 
 ## R100B — solver bakeoff authority / implementation in progress
 
