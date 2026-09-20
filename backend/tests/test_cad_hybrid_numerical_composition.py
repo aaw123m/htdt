@@ -48,6 +48,11 @@ from htdt.cad_geometric_acoustics_response import (
     build_receiver_response_authority,
     build_source_response_authority,
 )
+from htdt.cad_hybrid_grid_reconciliation import (
+    HybridNumericalCompositionError,
+    HybridNumericalFailureCode,
+    build_frequency_grid_reconciliation_authority,
+)
 from htdt.cad_hybrid_numerical_composition import (
     COMMON_PHASOR_CONVENTION,
     R130_ANALYSIS_FOURIER_KERNEL,
