@@ -250,16 +250,16 @@ def _binding_rejection_reason(
         return 'missing_candidate_implementation_binding'
     if record.candidate_source_commit_sha != candidate.source_commit_sha:
         return 'stale_candidate_implementation'
-    if record.candidate_semantic_hash is None:
-        return 'missing_candidate_authority_binding'
-    if record.candidate_semantic_hash != candidate_semantic_hash(candidate):
-        return 'stale_candidate_authority'
     if record.r100a_manifest_id is None or record.r100a_semantic_hash is None:
         return 'missing_r100a_authority_binding'
     if record.r100a_manifest_id != benchmark.manifest_id:
         return 'stale_r100a_manifest_id'
     if record.r100a_semantic_hash != benchmark.semantic_hash():
         return 'stale_r100a_authority'
+    if record.candidate_semantic_hash is None:
+        return 'missing_candidate_authority_binding'
+    if record.candidate_semantic_hash != candidate_semantic_hash(candidate):
+        return 'stale_candidate_authority'
     return None
 
 
