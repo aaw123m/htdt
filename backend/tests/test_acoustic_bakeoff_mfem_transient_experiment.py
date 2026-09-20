@@ -33,6 +33,22 @@ def _attempts(status: str = 'COMPLETED'):
             reason_code='completed' if status == 'COMPLETED' else 'synthetic_solve_failure',
             reason='completed' if status == 'COMPLETED' else 'solve failed',
             sample_rate_hz=spec.sample_rate_hz,
+            output_interval_s=(1.0 / spec.sample_rate_hz if status == 'COMPLETED' else None),
+            substeps_per_output_interval=(
+                plan.integrator.substeps_per_output_interval if status == 'COMPLETED' else None
+            ),
+            internal_step_s=(
+                1.0
+                / (spec.sample_rate_hz * plan.integrator.substeps_per_output_interval)
+                if status == 'COMPLETED'
+                else None
+            ),
+            internal_step_count=(
+                (2 * spec.sample_rate_hz - 1)
+                * plan.integrator.substeps_per_output_interval
+                if status == 'COMPLETED'
+                else None
+            ),
             numerical_identity_sha256=(f'{index + 1:064x}' if status == 'COMPLETED' else None),
             pressure_record_sha256=(f'{index + 11:064x}' if status == 'COMPLETED' else None),
             sample_count=(2 * spec.sample_rate_hz if status == 'COMPLETED' else None),
@@ -108,8 +124,8 @@ def _modal_metrics(*, relative: float = 0.01):
 
 def test_exact_frozen_plan_identity_and_integrator_contract() -> None:
     plan = _plan()
-    assert plan.schema_version == 'r100b-mfem-transient-experiment-plan-1'
-    assert plan.plan_id == 'r100b-mfem-low-dispersion-transient-current-authority-2026-09-20'
+    assert plan.schema_version == 'r100b-mfem-transient-experiment-plan-2'
+    assert plan.plan_id == 'r100b-mfem-gl2-exact-two-halfsteps-current-authority-2026-09-20'
     assert plan.spatial_system.model_dump(mode='json') == {
         'h1_order': 2,
         'uniform_refinements': 1,
@@ -126,6 +142,10 @@ def test_exact_frozen_plan_identity_and_integrator_contract() -> None:
     }
     assert plan.integrator.algorithm_id == 'gauss-legendre-2stage-pade22-linear'
     assert plan.integrator.order == 4
+    assert plan.integrator.substeps_per_output_interval == 2
+    assert plan.integrator.substep_policy == (
+        'fixed equal GL2 substeps per output interval; no adaptive stepping'
+    )
     assert plan.integrator.residual_relative_tolerance == 1e-10
     assert plan.integrator.candidate_matrix_policy == (
         'sparse CSR/CSC only; no dense inverse; no eigendecomposition'
@@ -274,3 +294,48 @@ def test_dense_or_nonreused_candidate_path_fails_production_suitability() -> Non
     assert decision.production_suitability_status == 'FAIL'
     assert decision.outcome == 'FAIL'
     assert 'production_transient_execution_contract_not_met' in decision.violations
+
+
+
+def test_exact_two_halfstep_and_output_sampling_authority_is_enforced() -> None:
+    plan = _plan()
+    attempts = _attempts()
+    for spec, result in zip(plan.attempts, attempts):
+        output_interval_s = 1.0 / spec.sample_rate_hz
+        assert result.sample_count == 2 * spec.sample_rate_hz
+        assert result.output_interval_s == output_interval_s
+        assert result.substeps_per_output_interval == 2
+        assert result.internal_step_s == output_interval_s / 2.0
+        assert result.internal_step_count == (result.sample_count - 1) * 2
+
+    tampered = list(attempts)
+    tampered[0] = tampered[0].model_copy(update={'substeps_per_output_interval': 1})
+    with pytest.raises(ValueError, match='substep count differs'):
+        evaluate_transient_experiment(
+            plan,
+            attempt_results=tuple(tampered),
+            pair_metrics=_pairs(),
+            modal_reference_metrics=_modal_metrics(),
+        )
+
+
+def test_invalid_substep_configuration_fails_closed() -> None:
+    payload = _plan().model_dump(mode='json')
+    payload['integrator']['substeps_per_output_interval'] = 3
+    with pytest.raises(ValidationError):
+        MfemTransientExperimentPlan.model_validate(payload)
+
+    payload = _plan().model_dump(mode='json')
+    payload['integrator']['substeps_per_output_interval'] = 1
+    with pytest.raises(ValidationError, match='requires exactly 2'):
+        MfemTransientExperimentPlan.model_validate(payload)
+
+
+def test_pr281_single_step_plan_contract_remains_parseable() -> None:
+    payload = _plan().model_dump(mode='json')
+    payload['schema_version'] = 'r100b-mfem-transient-experiment-plan-1'
+    payload['plan_id'] = 'r100b-mfem-low-dispersion-transient-current-authority-2026-09-20'
+    payload['integrator']['substeps_per_output_interval'] = 1
+    legacy = MfemTransientExperimentPlan.model_validate(payload)
+    assert legacy.integrator.substeps_per_output_interval == 1
+    assert legacy.schema_version == 'r100b-mfem-transient-experiment-plan-1'
