@@ -315,6 +315,24 @@ class CadRobustnessValidationRepository:
     def save_case(self, case: O90EValidationCase) -> None:
         case = O90EValidationCase.model_validate(case.model_dump(mode='python'))
         self._validate_case_bindings(case)
+        if case.preregistration_status == 'prospective':
+            nominal_latest = self._latest_plan(
+                search_spec_id=self._spec(case.robustness_spec_id).search_spec_id,
+                plan_id=case.nominal_measurement_plan_id,
+            )
+            perturbation_latest = self._latest_plan(
+                search_spec_id=self._spec(case.robustness_spec_id).search_spec_id,
+                plan_id=case.perturbation_measurement_plan_id,
+            )
+            if (
+                nominal_latest is None
+                or perturbation_latest is None
+                or nominal_latest.status != 'planned'
+                or perturbation_latest.status != 'planned'
+            ):
+                raise ValueError(
+                    'prospective O90E case must be persisted before measurement completion'
+                )
         with closing(self._connect()) as connection, connection:
             if connection.execute(
                 'SELECT 1 FROM cad_robustness_validation_cases WHERE case_id=?',
