@@ -2304,6 +2304,26 @@ def test_three_regions_two_portals_direct_path_preserves_exact_graph_order(
         ('region-1', 'region-2'),
     )
     assert tuple(item.point.x_m for item in portal_interactions) == (2.0, 4.0)
+    assert path.region_segment_evidence is not None
+    assert tuple(
+        (
+            item.segment_index,
+            item.region_id,
+            item.membership_result,
+            item.occlusion_result,
+        )
+        for item in path.region_segment_evidence
+    ) == (
+        (0, 'region-0', 'valid', 'clear'),
+        (1, 'region-1', 'valid', 'clear'),
+        (2, 'region-2', 'valid', 'clear'),
+    )
+    assert path.region_segment_evidence[0].start_point.x_m == 1.0
+    assert path.region_segment_evidence[0].end_point.x_m == 2.0
+    assert path.region_segment_evidence[1].start_point.x_m == 2.0
+    assert path.region_segment_evidence[1].end_point.x_m == 4.0
+    assert path.region_segment_evidence[2].start_point.x_m == 4.0
+    assert path.region_segment_evidence[2].end_point.x_m == 5.0
 
 
 def test_four_regions_three_portals_direct_path_is_bounded_and_deterministic(
