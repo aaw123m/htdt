@@ -295,7 +295,7 @@ class DeterministicGaConfiguration(BaseModel):
     configuration_id: str = Field(pattern=r'^r150-ga-configuration:[0-9a-f]{64}$')
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
-    maximum_reflection_order: Literal[1, 2] = 1
+    maximum_reflection_order: Literal[0, 1, 2] = 1
     maximum_portal_crossings: Literal[1] | None = None
     frequency_centers_hz: tuple[float, ...] = Field(min_length=1)
     geometric_tolerance_m: float = Field(gt=0.0)
@@ -375,7 +375,7 @@ def build_deterministic_ga_configuration(
     engine_image_match_tolerance_m: float = 1.0e-8,
     identity_decimal_places: int = 12,
     room_policy: GeometryPolicy = 'exact_axis_aligned_closed_shoebox_v1',
-    maximum_reflection_order: Literal[1, 2] = 1,
+    maximum_reflection_order: Literal[0, 1, 2] = 1,
     maximum_portal_crossings: Literal[1] | None = None,
 ) -> DeterministicGaConfiguration:
     if (
@@ -387,9 +387,10 @@ def build_deterministic_ga_configuration(
             'general-planar geometry policy'
         )
     if room_policy == 'general_planar_multi_region_portal_v1':
-        if maximum_reflection_order != 1:
+        if maximum_reflection_order != 0:
             raise ValueError(
-                'multi-region Portal lane is direct-only and does not enable reflected Portal paths'
+                'multi-region Portal lane is direct-only and requires '
+                'maximum_reflection_order=0'
             )
         if maximum_portal_crossings != 1:
             raise ValueError(
@@ -398,6 +399,10 @@ def build_deterministic_ga_configuration(
     elif maximum_portal_crossings is not None:
         raise ValueError(
             'maximum_portal_crossings is only valid for the explicit multi-region Portal lane'
+        )
+    elif maximum_reflection_order == 0:
+        raise ValueError(
+            'maximum_reflection_order=0 is reserved for the explicit multi-region Portal lane'
         )
     core: dict[str, Any] = {
         'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
@@ -548,7 +553,7 @@ class DeterministicGaExecutionInput(BaseModel):
     geometric_tolerance_m: float = Field(gt=0.0)
     engine_image_match_tolerance_m: float = Field(gt=0.0)
     identity_decimal_places: int = Field(ge=6, le=15)
-    maximum_reflection_order: Literal[2] | None = None
+    maximum_reflection_order: Literal[0, 2] | None = None
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'DeterministicGaExecutionInput':
@@ -1351,7 +1356,7 @@ def _compile_multi_region_portal_execution_input(
             'UNSUPPORTED_PORTAL_TOPOLOGY',
             'bounded multi-region GA requires maximum_portal_crossings=1',
         )
-    if configuration.maximum_reflection_order != 1:
+    if configuration.maximum_reflection_order != 0:
         raise DeterministicGaUnsupportedError(
             'UNSUPPORTED_PORTAL_TOPOLOGY',
             'Portal propagation lane is direct-only; reflected Portal paths are unsupported',
@@ -1593,6 +1598,7 @@ def _compile_multi_region_portal_execution_input(
         'unsupported_reflection_surface_ids': [],
         'portal_apertures': [aperture.model_dump(mode='json')],
         'maximum_portal_crossings': 1,
+        'maximum_reflection_order': 0,
         'occluder_triangle_indices': list(object_triangle_indices),
         'sources': [item.model_dump(mode='json', exclude_none=True) for item in source_inputs],
         'receivers': [item.model_dump(mode='json', exclude_none=True) for item in receiver_inputs],
