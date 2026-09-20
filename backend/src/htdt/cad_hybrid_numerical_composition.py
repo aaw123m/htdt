@@ -444,6 +444,7 @@ class AggregatedGaComplexResponse(BaseModel):
     time_origin: Literal['source_t0'] = COMMON_TIME_ORIGIN
 
     capability_state: HybridNumericalCapability
+    failure_codes: tuple[HybridNumericalFailureCode, ...] = ()
     unsupported_reasons: tuple[str, ...] = ()
     samples: tuple[AggregatedGaComplexSample, ...] = ()
 
@@ -551,6 +552,8 @@ class NumericalHybridResponseArtifact(BaseModel):
     )
     exact_aggregated_ga_identity: ExactExternalAuthorityRef
     aggregated_ga: AggregatedGaComplexResponse
+    grid_reconciliation: FrequencyGridReconciliationAuthority
+    crossover_configuration: HybridCrossoverConfigurationAuthority
 
     exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=2)
     quantity: Literal[
@@ -594,6 +597,10 @@ class NumericalHybridResponseArtifact(BaseModel):
             raise ValueError('R160 output GA aggregate identity mismatch')
         if self.exact_frequency_grid_hz != self.composition_spec.exact_frequency_grid_hz:
             raise ValueError('R160 output frequency grid mismatch')
+        if self.grid_reconciliation != self.composition_spec.grid_reconciliation:
+            raise ValueError('R160 output reconciliation authority mismatch')
+        if self.crossover_configuration != self.composition_spec.crossover_configuration:
+            raise ValueError('R160 output crossover configuration mismatch')
         if (
             self.transition_start_hz != self.composition_spec.transition_start_hz
             or self.transition_end_hz != self.composition_spec.transition_end_hz
@@ -601,13 +608,13 @@ class NumericalHybridResponseArtifact(BaseModel):
         ):
             raise ValueError('R160 output crossover authority mismatch')
         if self.capability_state == 'COMPLEX_SUPPORTED':
-            if self.unsupported_reasons:
-                raise ValueError('supported R160 output cannot carry unsupported reasons')
+            if self.failure_codes or self.unsupported_reasons:
+                raise ValueError('supported R160 output cannot carry failure metadata')
             if tuple(item.frequency_hz for item in self.samples) != self.exact_frequency_grid_hz:
                 raise ValueError('supported R160 output must cover exact grid')
         else:
-            if not self.unsupported_reasons or self.samples:
-                raise ValueError('unsupported R160 output requires reasons and no samples')
+            if not self.failure_codes or not self.unsupported_reasons or self.samples:
+                raise ValueError('unsupported R160 output requires failure codes/reasons and no samples')
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('R160 numerical hybrid semantic hash mismatch')
