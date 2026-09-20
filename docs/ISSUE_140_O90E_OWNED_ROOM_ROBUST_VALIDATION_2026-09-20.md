@@ -48,6 +48,9 @@ An immutable validation case freezes before capture:
 
 - exact RobustnessSpec ID/SHA;
 - exact candidate ID/SHA and SceneRevision/content hash;
+- exact existing SystemVariant application/variant lineage when the revision
+  descends from one; nominal, perturbation and measurement evidence must resolve
+  to the same application/variant identity;
 - one exact O90 uncertainty axis;
 - nominal axis state and one target perturbation state;
 - target perturbation candidate / Measurement Plan;
@@ -102,7 +105,8 @@ rather than borrowing positional evidence.
 O90E consumes the existing measurement-quality capability matrix. Missing
 AcquisitionContext, insufficient usable band, FR-only evidence used for a phase
 or timing claim, or any BLOCKED/UNKNOWN required capability keeps the production
-gate closed. Missing capability is never converted to a numeric zero or PASS.
+gate closed. Magnitude-only datasets therefore cannot satisfy phase robustness.
+Missing capability is never converted to a numeric zero or PASS.
 
 ## Persistence
 
