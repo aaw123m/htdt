@@ -149,6 +149,8 @@ O40 consumes the resulting existing `CadObjectiveEvaluation` with the unchanged 
 
 ## Persistence and stale rejection
 
+`CadHybridPredictionProviderRepository.build_current(...)` is the canonical provider-creation path. It first resolves the exact current R170A provider through `CadPredictionProviderRepository`, then resolves the R160 artifact through `CadNumericalHybridResponseRepository.get(...)`; that R160 read executes R160's existing exact resolver/stale checks before R170B construction. The exact composition spec and source excitation are then resolved and re-bound.
+
 `CadHybridPredictionProviderRepository` is append-only and rebuilds a provider from exact current authorities on save/reopen.
 
 Reopen fails closed when any dependency no longer reproduces, including:
