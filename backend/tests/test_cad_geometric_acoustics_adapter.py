@@ -363,6 +363,7 @@ def _fixture(
     narrow_directivity: bool = False,
     supported_material: bool = True,
     use_pyroomacoustics: bool = False,
+    receiver_position: Position3 | None = None,
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
@@ -384,7 +385,11 @@ def _fixture(
                 entity_id='receiver-mlp',
                 kind='measurement_point',
                 name='MLP',
-                position=Position3(x_m=3.0, y_m=2.0, z_m=1.0),
+                position=(
+                    Position3(x_m=3.0, y_m=2.0, z_m=1.0)
+                    if receiver_position is None
+                    else receiver_position
+                ),
             ),
         ),
     )
@@ -716,6 +721,17 @@ def test_blocked_direct_path_is_not_retained_and_object_reflection_is_not_invent
         and item.decision == 'UNSUPPORTED_GEOMETRY'
         for item in artifact.rejected_candidates
     )
+
+
+def test_receiver_outside_explicit_region_fails_closed(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match='receiver receiver-mlp position is not strictly inside',
+    ):
+        _fixture(
+            tmp_path,
+            receiver_position=Position3(x_m=4.5, y_m=2.0, z_m=1.0),
+        )
 
 
 def test_same_exact_input_has_same_path_identity_and_order(tmp_path: Path) -> None:

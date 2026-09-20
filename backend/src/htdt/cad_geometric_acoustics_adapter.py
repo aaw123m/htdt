@@ -144,6 +144,22 @@ def _distance(a: Sequence[float], b: Sequence[float]) -> float:
     return _norm(_vector(a, b))
 
 
+def _point_strictly_inside_box(
+    point: Sequence[float],
+    *,
+    bounds: tuple[
+        tuple[float, float],
+        tuple[float, float],
+        tuple[float, float],
+    ],
+    tolerance_m: float,
+) -> bool:
+    return all(
+        minimum + tolerance_m < float(value) < maximum - tolerance_m
+        for value, (minimum, maximum) in zip(point, bounds, strict=True)
+    )
+
+
 def _round_float(value: float, decimals: int) -> float:
     result = round(float(value), decimals)
     return 0.0 if result == 0.0 else result
@@ -989,10 +1005,25 @@ def compile_deterministic_ga_execution_input(
         raise ValueError(
             'explicit acoustic region boundary surfaces do not match exact shoebox shell'
         )
+    region_bounds = (
+        (float(bounds.min_x_m), float(bounds.max_x_m)),
+        (float(bounds.min_y_m), float(bounds.max_y_m)),
+        (float(bounds.min_z_m), float(bounds.max_z_m)),
+    )
 
     dataset_by_hash = {item.semantic_sha256: item for item in directivity_datasets}
     source_inputs: list[DeterministicGaSourceInput] = []
     for source in sorted(snapshot.sources, key=lambda item: item.source_entity_id):
+        if not _point_strictly_inside_box(
+            _position_tuple(source.source_reference_point),
+            bounds=region_bounds,
+            tolerance_m=configuration.geometric_tolerance_m,
+        ):
+            raise ValueError(
+                f'source {source.source_entity_id} acoustic reference point is not '
+                'strictly inside the sole explicit acoustic region; unmodeled '
+                'external space is not an implicit propagation region'
+            )
         if (
             source.geometric_directivity_state
             != 'SUPPORTED_FOR_GEOMETRIC_DIRECTIVITY'
@@ -1035,14 +1066,26 @@ def compile_deterministic_ga_execution_input(
             )
         )
 
-    receiver_inputs = tuple(
-        DeterministicGaReceiverInput(
-            receiver_id=item.receiver_id,
-            entity_id=item.entity_id,
-            world_position=item.world_position,
+    receiver_inputs_list: list[DeterministicGaReceiverInput] = []
+    for item in sorted(snapshot.receivers, key=lambda item: item.receiver_id):
+        if not _point_strictly_inside_box(
+            _position_tuple(item.world_position),
+            bounds=region_bounds,
+            tolerance_m=configuration.geometric_tolerance_m,
+        ):
+            raise ValueError(
+                f'receiver {item.receiver_id} position is not strictly inside the '
+                'sole explicit acoustic region; unmodeled external space is not '
+                'an implicit propagation region'
+            )
+        receiver_inputs_list.append(
+            DeterministicGaReceiverInput(
+                receiver_id=item.receiver_id,
+                entity_id=item.entity_id,
+                world_position=item.world_position,
+            )
         )
-        for item in sorted(snapshot.receivers, key=lambda item: item.receiver_id)
-    )
+    receiver_inputs = tuple(receiver_inputs_list)
     if not source_inputs or not receiver_inputs:
         raise ValueError('deterministic GA execution requires source and receiver authority')
 
