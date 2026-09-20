@@ -71,7 +71,7 @@ def validate_frequency_grid(
             HybridNumericalFailureCode.INVALID_GRID,
             f'{label} must contain at least two finite positive frequencies',
         )
-    for previous, current in zip(grid, grid[1:], strict=True):
+    for previous, current in zip(grid, grid[1:]):
         if current < previous:
             raise HybridNumericalCompositionError(
                 HybridNumericalFailureCode.NON_MONOTONIC_GRID,
