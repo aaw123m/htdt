@@ -404,5 +404,23 @@
     "gpu_validated": false,
     "rdc_calls": 0,
     "htdt_capture_changed": false
+  },
+  "diagnostic_notes": {
+    "requested_record_coherence": "40/80 Hz are integer-cycle frequencies for requested T=0.25 s.",
+    "discrete_record_sampling": {
+      "mfem_n_dt_s": 0.25,
+      "pffdtd_n_dt_s_by_ppw": {
+        "8": 0.2501752535817392,
+        "10": 0.2503194468114693,
+        "12": 0.25041557563128936
+      },
+      "interpretation": "PFFDTD finite_record_pressure_transfer consumes every native sample with timestamp in [0,T); because Nt*dt differs slightly by PPW, exact discrete-DTFT coherence is level-dependent even though requested T is fixed. This is retained as a sampling/observable diagnosis and is not used to retune the completed plan."
+    },
+    "outcome_interpretation": [
+      "The 250 ms requested window did not restore self-convergence, so the PR #282 60 ms record was not the sole cause.",
+      "MFEM complex-RMS and magnitude trends improve, but final thresholds fail and 40 Hz shows a near-180 degree fine-pair phase change.",
+      "PFFDTD 8/10/12 PPW is non-monotone in complex-RMS, magnitude-relative, and phase trend.",
+      "No cross-solver metric is eligible because both self-convergence gates failed."
+    ]
   }
 }
