@@ -594,7 +594,7 @@ def _pair_metrics(
             continue
         coarse = details[coarse_id]
         fine = details[fine_id]
-        raw = baseline._compare_convergence_pair(
+        raw = baseline._pair_metrics(
             fixture,
             {
                 'level_id': coarse_id,
