@@ -645,6 +645,57 @@ def test_magnitude_only_required_path_fails_closed_without_fabricated_complex_ou
     assert 'MAGNITUDE_ONLY' in output.unsupported_reasons[0]
 
 
+
+def test_r130_payload_must_match_exact_result_artifact_hash() -> None:
+    bundle = _bundle(
+        physical_transfer_plus=(
+            1.0 + 0.0j,
+            2.0 + 0.0j,
+            3.0 + 0.0j,
+        )
+    )
+    tampered = json.loads(json.dumps(bundle['payload']))
+    tampered['pressure_real_pa'][0][0] += 0.125
+    with pytest.raises(ValueError, match='payload hash mismatch'):
+        build_numerical_hybrid_composition_spec(
+            r130_result=bundle['result'],
+            r130_artifact_payload=tampered,
+            r130_candidate_input=bundle['candidate'],
+            wave_excitation=bundle['excitation'],
+            r150_responses=bundle['responses'],
+            receiver_id='receiver-1',
+            exact_frequency_grid_hz=bundle['frequencies'],
+            transition_start_hz=40.0,
+            transition_end_hz=80.0,
+            normalization_authority=bundle['normalization'],
+        )
+
+
+def test_duplicate_r150_deterministic_path_identity_is_rejected() -> None:
+    frequencies = (40.0, 60.0, 80.0)
+    values = (1.0 + 0.0j, 2.0 + 0.0j, 3.0 + 0.0j)
+    first = _r150_response(
+        frequencies=frequencies,
+        values=values,
+        path_label='direct',
+    )
+    duplicate = first.model_copy(
+        update={
+            'artifact_id': first.artifact_id,
+            'semantic_sha256': first.semantic_sha256,
+        }
+    )
+    bundle = _bundle(
+        physical_transfer_plus=values,
+        responses=(first, duplicate),
+    )
+    with pytest.raises(ValueError, match='duplicate deterministic path identity'):
+        aggregate_r150_complex_paths(
+            spec=bundle['spec'],
+            responses=(first, duplicate),
+        )
+
+
 def test_exact_frequency_grid_mismatch_rejects_nearest_neighbor_guessing() -> None:
     bundle = _bundle(
         physical_transfer_plus=(
