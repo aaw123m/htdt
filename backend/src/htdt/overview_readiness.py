@@ -274,7 +274,7 @@ class OverviewReadinessService:
             and result.scene_content_hash == revision.content_hash
             and getattr(result, 'geometry_compatibility', None) == 'unsupported'
         )
-        if unsupported_current_predictions:
+        if not current_predictions and unsupported_current_predictions:
             prediction_action = _action(
                 'prediction.review_geometry',
                 '部屋形状を確認',
