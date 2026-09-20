@@ -2074,7 +2074,7 @@ def test_portal_reflection_configuration_is_bounded_to_exact_one_crossing() -> N
             maximum_reflection_order=1,
             maximum_portal_crossings=2,
         )
-    with pytest.raises(ValueError, match='direct-only order 0.*first-order reflection order 1'):
+    with pytest.raises(ValueError, match='bounded second-order specular execution'):
         build_deterministic_ga_configuration(
             frequency_centers_hz=(500.0, 1000.0),
             room_policy=PORTAL_POLICY,
