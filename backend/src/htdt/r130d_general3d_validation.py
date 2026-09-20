@@ -205,6 +205,7 @@ class R130DGeneral3DValidationPlan(BaseModel):
                 'uniform_refinement': refinement,
                 'polynomial_order': self.independent_reference.polynomial_order,
                 'mesh_algorithm': 'MFEM uniform tetra refinement',
+                'mfem_source_commit_sha': self.independent_reference.source_commit_sha,
             }
         )
 
