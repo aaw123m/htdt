@@ -17,14 +17,18 @@
     "environment_source": "derive exactly from current R100A wave-rectangular-convergence-v1",
     "boundary_model": "natural-neumann-rigid",
     "h1_order": 2,
-    "uniform_refinements": [0, 1, 2]
+    "uniform_refinements": [
+      0,
+      1,
+      2
+    ]
   },
   "numerical_contract": {
     "quantity": "finite_record_complex_pressure_transfer",
     "unit": "Pa/(m3/s)",
     "source_normalization": "volume_velocity_m3_s",
     "record_interval": "half_open_0_T",
-    "observation_time_s": 2.0,
+    "observation_time_s": 2,
     "scored_frequency_grid_source": "derive mechanically from current R100A fixture comparison.frequency_grid",
     "finite_record_transfer_source": "derive exactly from current R100A fixture comparison.finite_record_transfer",
     "acceptance_source": "derive convergence observable acceptance relation and tolerance from current R100A fixture; do not duplicate thresholds",
@@ -42,7 +46,18 @@
     "residual_check_interval_steps": 256,
     "numerical_precision": "IEEE-754 float64",
     "scipy_version": "1.14.1",
-    "numpy_version": "2.1.3"
+    "numpy_version": "2.1.3",
+    "propagation_form": "Pade[2/2] of first-order Hamiltonian generator; algebraically equal to 2-stage Gauss-Legendre RK for linear autonomous systems",
+    "dissipation_model": "none; symmetric/symplectic rational propagator",
+    "candidate_matrix_policy": "sparse CSR/CSC only; no dense inverse; no eigendecomposition",
+    "step_factorization": "factor sparse 2N block denominator once per sample-rate attempt and reuse every homogeneous step",
+    "mass_factorization": "factor sparse M once and reuse for all source-kick solves",
+    "linear_solver": "SuperLU via scipy.sparse.linalg.splu",
+    "permutation": "COLAMD",
+    "diagonal_pivot_threshold": 1,
+    "equilibration": true,
+    "iterative_refinement": "DOUBLE",
+    "substep_policy": "fixed equal GL2 substeps per output interval; no adaptive stepping"
   },
   "resource_ceiling": {
     "source": "current R100A wave-rectangular-convergence-v1 resource_budget",
@@ -72,8 +87,14 @@
     "raw_transfer_sha256"
   ],
   "acceptance": {
-    "adjacent_pairs": ["h0->h1", "h1->h2"],
-    "metrics": ["complex_rms_absolute", "complex_rms_relative"],
+    "adjacent_pairs": [
+      "h0->h1",
+      "h1->h2"
+    ],
+    "metrics": [
+      "complex_rms_absolute",
+      "complex_rms_relative"
+    ],
     "require_error_reduction": true,
     "final_pair_uses_current_r100a_tolerance": true,
     "require_exact_frequency_coverage": true,

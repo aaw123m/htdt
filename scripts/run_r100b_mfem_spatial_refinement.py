@@ -97,10 +97,15 @@ def csr(payload: dict, ndofs: int, name: str):
         raise ValueError(f"{name} is not symmetric: {sym}")
     return out
 
-def factorize(matrix):
+def factorize(matrix, plan):
+    cfg = plan.temporal_integrator
+    if cfg["linear_solver"] != "SuperLU via scipy.sparse.linalg.splu":
+        raise RuntimeError("frozen linear solver identity changed")
     return sparse_linalg.splu(
-        matrix.tocsc(), permc_spec="COLAMD", diag_pivot_thresh=1.0,
-        options={"Equil": True, "IterRefine": "DOUBLE"},
+        matrix.tocsc(),
+        permc_spec=cfg["permutation"],
+        diag_pivot_thresh=float(cfg["diagonal_pivot_threshold"]),
+        options={"Equil": bool(cfg["equilibration"]), "IterRefine": cfg["iterative_refinement"]},
     )
 
 def sparse_hash(matrix) -> str:
@@ -171,7 +176,7 @@ def run_level(plan, fx, executable: Path, work_dir: Path, refinement: int):
         raise RuntimeError(f"frozen numerical runtime mismatch: scipy={scipy.__version__}, numpy={np.__version__}")
 
     process_monitor = PeakMonitor(); process_monitor.start()
-    mass_started = time.perf_counter(); mass_lu = factorize(mass); mass_factor_s = time.perf_counter() - mass_started
+    mass_started = time.perf_counter(); mass_lu = factorize(mass, plan); mass_factor_s = time.perf_counter() - mass_started
     output_rate = int(plan.temporal_integrator["output_sample_rate_hz"])
     substeps = int(plan.temporal_integrator["substeps_per_output_interval"])
     output_dt = 1.0 / output_rate; internal_dt = output_dt / substeps
@@ -187,7 +192,7 @@ def run_level(plan, fx, executable: Path, work_dir: Path, refinement: int):
         raise RuntimeError(f"mass solve residual {mass_residual} exceeds frozen tolerance")
 
     den, num = build_pade_blocks(mass, stiffness, internal_dt)
-    factor_started = time.perf_counter(); step_lu = factorize(den); pade_factor_s = time.perf_counter() - factor_started
+    factor_started = time.perf_counter(); step_lu = factorize(den, plan); pade_factor_s = time.perf_counter() - factor_started
     state = np.zeros(2 * ndofs, dtype=np.float64); state[ndofs:] = v0
     pressures = np.empty(count, dtype=np.float64)
     steps = 0; checked = 0; max_residual = 0.0

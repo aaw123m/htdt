@@ -95,6 +95,15 @@ def test_exact_four_gl2_substeps_is_frozen():
     plan, _, _ = authorities()
     assert plan.temporal_integrator["algorithm_id"] == "gauss-legendre-2stage-pade22-linear"
     assert plan.temporal_integrator["substeps_per_output_interval"] == 4
+    legacy = load_experiment_plan(LEGACY)
+    for key in (
+        "algorithm_id", "algorithm_version", "order", "propagation_form", "dissipation_model",
+        "candidate_matrix_policy", "step_factorization", "mass_factorization", "linear_solver",
+        "permutation", "diagonal_pivot_threshold", "equilibration", "iterative_refinement",
+        "numerical_precision", "scipy_version", "numpy_version", "residual_relative_tolerance",
+        "residual_check_interval_steps", "substeps_per_output_interval", "substep_policy",
+    ):
+        assert plan.temporal_integrator[key] == getattr(legacy.integrator, key)
     payload = plan.model_dump(mode="json")
     payload["temporal_integrator"]["substeps_per_output_interval"] = 2
     with pytest.raises(ValueError, match="GL2 substeps"):
