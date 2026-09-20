@@ -514,7 +514,11 @@ class CadRobustnessValidationRepository:
             reasons.append('wrong_scene_revision')
         if (
             measurement.measurement_entity_id != case.receiver_entity_id
-            or measurement.measurement_position != case.receiver_position
+            or measurement.measurement_position != (
+                case.nominal_receiver_position
+                if role == 'nominal'
+                else case.target_receiver_position
+            )
             or measurement.channel_role != case.channel_role
             or tuple(sorted(measurement.source_speaker_ids))
             != case.source_speaker_ids
