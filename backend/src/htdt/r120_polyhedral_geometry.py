@@ -474,9 +474,22 @@ def make_r120_polyhedral_semantic_geometry(
             key=lambda item: item.portal_id,
         )
     )
+    normalized_approximations = tuple(
+        GeometryApproximationAuthority(
+            source_geometry_identity=item.source_geometry_identity,
+            tolerance_m=item.tolerance_m,
+            maximum_deviation_m=item.maximum_deviation_m,
+            generated_surface_keys=tuple(sorted(item.generated_surface_keys)),
+            generated_surface_count=item.generated_surface_count,
+            algorithm_id=item.algorithm_id,
+            algorithm_version=item.algorithm_version,
+            approximation_status=item.approximation_status,
+        )
+        for item in approximation_authority
+    )
     canonical_approximations = tuple(
         sorted(
-            approximation_authority,
+            normalized_approximations,
             key=lambda item: (
                 item.source_geometry_identity,
                 item.algorithm_id,
