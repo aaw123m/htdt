@@ -1164,6 +1164,25 @@ class HtdtPortalDirectEngine:
         raise RuntimeError('explicit Portal direct engine does not execute a shoebox')
 
 
+class HtdtPortalGraphDirectEngine:
+    """Bounded exact engine marker for directed simple-path Portal graph propagation."""
+
+    engine_id = HTDT_PORTAL_DIRECT_ENGINE_ID
+    engine_version = HTDT_PORTAL_GRAPH_DIRECT_ENGINE_VERSION
+    candidate_source_commit = None
+    solver_implementation_ref = HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF
+
+    def execute_shoebox(
+        self,
+        *,
+        dimensions_m: tuple[float, float, float],
+        source_local_m: tuple[float, float, float],
+        receiver_local_m: tuple[float, float, float],
+    ) -> tuple[NativeImageSource, ...]:
+        del dimensions_m, source_local_m, receiver_local_m
+        raise RuntimeError('explicit Portal graph direct engine does not execute a shoebox')
+
+
 class PyroomacousticsImageSourceEngine:
     """Candidate engine bridge. pyroomacoustics objects never cross this adapter."""
 
