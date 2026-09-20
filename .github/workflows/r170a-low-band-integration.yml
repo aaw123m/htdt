@@ -1,0 +1,38 @@
+name: R170A Low-Band Prediction Provider
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/htdt/cad_prediction_provider.py'
+      - 'backend/src/htdt/cad_prediction_provider_integration.py'
+      - 'backend/src/htdt/cad_measurement_loop.py'
+      - 'backend/tests/test_cad_prediction_provider.py'
+      - 'backend/tests/test_cad_measurement_loop.py'
+      - 'backend/tests/test_cad_roomsim_results.py'
+      - 'docs/R170A_LOW_BAND_INTEGRATION_2026-09-20.md'
+      - '.github/workflows/r170a-low-band-integration.yml'
+  workflow_dispatch:
+
+jobs:
+  focused-authority:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        run: python -m pip install -e ".\backend[dev]"
+
+      - name: Compile R170A authority modules
+        run: python -m py_compile backend\src\htdt\cad_prediction_provider.py backend\src\htdt\cad_prediction_provider_integration.py backend\src\htdt\cad_measurement_loop.py backend\tests\test_cad_prediction_provider.py
+
+      - name: Run R170A focused invariants and legacy regressions
+        run: python -m pytest backend\tests\test_cad_prediction_provider.py backend\tests\test_cad_measurement_loop.py backend\tests\test_cad_roomsim_results.py
