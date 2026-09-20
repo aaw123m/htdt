@@ -103,7 +103,7 @@ def target_window_sampling_metadata(
         'n_dt_minus_requested_duration_s': native_end - duration,
         'target_effective_integration_interval_s': [first, duration],
         'target_endpoint_convention': (
-            'exact [0,T); final zero-order-hold cell is clipped at T and no '
+            'exact [0,T); final left-rectangle cell is clipped at T and no '
             'sample at T is included'
         ),
         'phasor_convention': 'exp(-i*omega*t)',
