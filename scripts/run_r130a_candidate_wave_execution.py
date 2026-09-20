@@ -10,6 +10,12 @@ import sqlite3
 import sys
 import traceback
 
+from htdt.acoustic_benchmark import AcousticMaterial, SpecificImpedancePoint
+from htdt.acoustic_pffdtd_impedance_adapter import (
+    PFFDTD_IMPEDANCE_MAPPING_ID,
+    PFFDTD_IMPEDANCE_MAPPING_VERSION,
+    pffdtd_impedance_mapping_authority_payload,
+)
 from htdt.cad_acoustic_snapshot import (
     SnapshotEnvironmentAuthorityRef,
     build_acoustic_prediction_request,
@@ -29,6 +35,7 @@ from htdt.cad_candidate_wave_execution import (
     COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
     PFFDTD_CANDIDATE_ADAPTER_ID,
     PFFDTD_CANDIDATE_ADAPTER_VERSION,
+    PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION,
     CandidateResourceConfiguration,
     CandidateWaveExecutionCancelled,
     CandidateWaveExecutionError,
@@ -137,34 +144,64 @@ def _exact_ref(model) -> ExactExternalAuthorityRef:
     )
 
 
-def _semantic_geometry():
+def _semantic_geometry(
+    boundary_mode: str = 'rigid',
+    *,
+    fixture_id: str = FIXTURE_ID,
+):
     mesh = import_raw_visual_mesh(
         CUBE_OBJ,
-        source_name=f'{FIXTURE_ID}.obj',
+        source_name=f'{fixture_id}.obj',
     )
+    triangle_ids = raw_triangle_ids(mesh)
+    if boundary_mode == 'rigid':
+        assignments = (
+            SurfaceSemanticAssignment(
+                surface_key='closed-room-shell',
+                triangle_ids=triangle_ids,
+                semantic_class='room_boundary',
+            ),
+        )
+    elif boundary_mode == 'impedance':
+        assignments = (
+            SurfaceSemanticAssignment(
+                surface_key='closed-room-shell-rigid',
+                triangle_ids=triangle_ids[:-2],
+                semantic_class='room_boundary',
+            ),
+            SurfaceSemanticAssignment(
+                surface_key='normal-incidence-impedance-wall',
+                triangle_ids=triangle_ids[-2:],
+                semantic_class='room_boundary',
+            ),
+        )
+    else:
+        raise ValueError(f'unsupported boundary mode: {boundary_mode}')
+
     request = make_semantic_geometry_conversion_request(
         mesh,
         source_scene_revision_id=None,
         source_to_scene_transform=explicit_identity_source_to_scene_transform(
             reason='candidate fixture OBJ is authored directly in exact HTDT metres',
         ),
-        surface_assignments=(
-            SurfaceSemanticAssignment(
-                surface_key='closed-room-shell',
-                triangle_ids=raw_triangle_ids(mesh),
-                semantic_class='room_boundary',
-            ),
-        ),
+        surface_assignments=assignments,
     )
     return convert_raw_visual_mesh_to_semantic_geometry(mesh, request)
 
 
-def _scene() -> SceneDocument:
+def _scene(
+    boundary_mode: str = 'rigid',
+    *,
+    fixture_id: str = FIXTURE_ID,
+) -> SceneDocument:
     return SceneDocument(
-        document_id=FIXTURE_ID,
+        document_id=fixture_id,
         schema_version=4,
         room=None,
-        r120_semantic_geometry=_semantic_geometry(),
+        r120_semantic_geometry=_semantic_geometry(
+            boundary_mode,
+            fixture_id=fixture_id,
+        ),
         entities=(
             SceneEntity(
                 entity_id='speaker-source',
@@ -199,6 +236,9 @@ def _register_r120_authority(store, model) -> ExactExternalAuthorityRef:
 def _fixture(
     root: Path,
     upstream_root: Path,
+    *,
+    boundary_mode: str = 'rigid',
+    fixture_id: str = FIXTURE_ID,
 ):
     db_path = root / 'candidate.sqlite3'
     authority_root = root / 'authorities'
@@ -206,8 +246,10 @@ def _fixture(
     store = ExactJsonAuthorityStore(authority_root)
 
     scene_repository = SceneRepository(db_path)
+    if boundary_mode not in {'rigid', 'impedance'}:
+        raise ValueError(f'unsupported boundary mode: {boundary_mode}')
     revision = scene_repository.save(
-        _scene(),
+        _scene(boundary_mode, fixture_id=fixture_id),
         parent_revision_id=None,
     ).revision
     variant_repository = CadSystemVariantRepository(scene_repository)
@@ -233,7 +275,7 @@ def _fixture(
         source_version='1',
         source_reference='synthetic candidate fixture; not measured evidence',
         source_sha256=_hash_json(
-            {'fixture_id': FIXTURE_ID, 'kind': 'equipment-identity'}
+            {'fixture_id': fixture_id, 'kind': 'equipment-identity'}
         ),
     )
     equipment = build_equipment_definition(
@@ -281,7 +323,7 @@ def _fixture(
 
     excitation_source_sha = _hash_json(
         {
-            'fixture_id': FIXTURE_ID,
+            'fixture_id': fixture_id,
             'quantity': 'complex_volume_velocity_m3_s',
             'samples': [
                 [40.0, 1.0e-4, 0.0],
@@ -337,38 +379,183 @@ def _fixture(
 
     geometry = revision.document.r120_semantic_geometry
     assert geometry is not None
-    assert len(geometry.surfaces) == 1
-    surface_id = geometry.surfaces[0].surface_id
 
-    material_ref = store.put_json(
-        'r130a-fixture-material',
-        '1',
-        {
-            'authority_kind': 'acoustic_material',
-            'fixture_id': FIXTURE_ID,
-            'name': 'candidate rigid shell host material',
-            'candidate_only': True,
-        },
-    )
-    boundary_ref = store.put_json(
-        'r130a-fixture-wave-boundary',
-        '1',
-        {
-            'authority_kind': 'wave_boundary_physics',
-            'model': 'rigid_zero_normal_velocity',
-            'normal_velocity_m_s': 0.0,
-            'fixture_id': FIXTURE_ID,
-            'candidate_only': True,
-        },
-    )
+    sound_speed_m_s = 343.2 if boundary_mode == 'rigid' else 343.0
+    if boundary_mode == 'impedance':
+        sound_speed_ref = store.put_json(
+            'r130b-fixture-sound-speed',
+            '1',
+            {
+                'quantity': 'sound_speed_m_s',
+                'value': sound_speed_m_s,
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+            },
+        )
+        density_ref = store.put_json(
+            'r130b-fixture-density',
+            '1',
+            {
+                'quantity': 'air_density_kg_m3',
+                'value': 1.2,
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+            },
+        )
+
+    if boundary_mode == 'rigid':
+        assert len(geometry.surfaces) == 1
+        surface_id = geometry.surfaces[0].surface_id
+        material_ref = store.put_json(
+            'r130a-fixture-material',
+            '1',
+            {
+                'authority_kind': 'acoustic_material',
+                'fixture_id': fixture_id,
+                'name': 'candidate rigid shell host material',
+                'candidate_only': True,
+            },
+        )
+        boundary_ref = store.put_json(
+            'r130a-fixture-wave-boundary',
+            '1',
+            {
+                'authority_kind': 'wave_boundary_physics',
+                'model': 'rigid_zero_normal_velocity',
+                'normal_velocity_m_s': 0.0,
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+            },
+        )
+        surface_boundary_bindings = (
+            SurfaceBoundaryAuthorityBinding(
+                source_surface_id=surface_id,
+                material_authority=material_ref,
+                boundary_physics_authority=boundary_ref,
+            ),
+        )
+        region_surface_ids = (surface_id,)
+        impedance_material_ref = None
+        impedance_boundary_ref = None
+        impedance_mapping_ref = None
+    else:
+        assert len(geometry.surfaces) == 2
+        surface_by_key = {
+            surface.surface_key: surface for surface in geometry.surfaces
+        }
+        rigid_surface = surface_by_key['closed-room-shell-rigid']
+        impedance_surface = surface_by_key['normal-incidence-impedance-wall']
+
+        rigid_material_ref = store.put_json(
+            'r130b-fixture-rigid-material',
+            '1',
+            {
+                'authority_kind': 'acoustic_material',
+                'fixture_id': fixture_id,
+                'name': 'candidate rigid companion material',
+                'candidate_only': True,
+            },
+        )
+        rigid_boundary_ref = store.put_json(
+            'r130b-fixture-rigid-wave-boundary',
+            '1',
+            {
+                'authority_kind': 'wave_boundary_physics',
+                'model': 'rigid_zero_normal_velocity',
+                'normal_velocity_m_s': 0.0,
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+            },
+        )
+        exact_impedance = 2.0 * 1.2 * sound_speed_m_s
+        impedance_material = AcousticMaterial(
+            material_id='z-2z0',
+            provenance=(
+                'R100B wave-normal-incidence-impedance-v1 explicit analytic '
+                'specific-impedance authority; no scalar absorption conversion'
+            ),
+            version='1',
+            wave_model='specific_impedance_table',
+            specific_impedance=(
+                SpecificImpedancePoint(
+                    frequency_hz=40.0,
+                    resistance_pa_s_m=exact_impedance,
+                    reactance_pa_s_m=0.0,
+                ),
+                SpecificImpedancePoint(
+                    frequency_hz=80.0,
+                    resistance_pa_s_m=exact_impedance,
+                    reactance_pa_s_m=0.0,
+                ),
+            ),
+        )
+        impedance_material_ref = store.put_json(
+            'r130b-fixture-impedance-material',
+            '1',
+            impedance_material.model_dump(mode='json'),
+        )
+        mapping_payload = pffdtd_impedance_mapping_authority_payload()
+        impedance_mapping_ref = store.put_json(
+            'r130b-pffdtd-impedance-mapping',
+            PFFDTD_IMPEDANCE_MAPPING_VERSION,
+            mapping_payload,
+        )
+        impedance_boundary_ref = store.put_json(
+            'r130b-fixture-wave-boundary',
+            '1',
+            {
+                'authority_kind': 'wave_boundary_physics',
+                'model': 'specific_impedance_table',
+                'physical_quantity_type': 'specific_acoustic_impedance',
+                'unit': 'Pa*s/m',
+                'complex_capability': 'explicit_resistance_reactance',
+                'valid_frequency_domain': {
+                    'minimum_hz': 40.0,
+                    'maximum_hz': 80.0,
+                },
+                'material_authority_ref': (
+                    impedance_material_ref.model_dump(mode='json')
+                ),
+                'density_authority_ref': density_ref.model_dump(mode='json'),
+                'sound_speed_authority_ref': (
+                    sound_speed_ref.model_dump(mode='json')
+                ),
+                'pffdtd_mapping_authority_ref': (
+                    impedance_mapping_ref.model_dump(mode='json')
+                ),
+                'provenance': {
+                    'basis': 'analytic_model',
+                    'source_fixture_id': 'wave-normal-incidence-impedance-v1',
+                    'source_gate': 'R100B PR #151',
+                },
+            },
+        )
+        surface_boundary_bindings = (
+            SurfaceBoundaryAuthorityBinding(
+                source_surface_id=rigid_surface.surface_id,
+                material_authority=rigid_material_ref,
+                boundary_physics_authority=rigid_boundary_ref,
+            ),
+            SurfaceBoundaryAuthorityBinding(
+                source_surface_id=impedance_surface.surface_id,
+                material_authority=impedance_material_ref,
+                boundary_physics_authority=impedance_boundary_ref,
+            ),
+        )
+        region_surface_ids = (
+            rigid_surface.surface_id,
+            impedance_surface.surface_id,
+        )
+
     region = make_acoustic_region_authority(
         (
             AcousticRegionDeclaration(
                 region_id='room-air',
-                boundary_surface_ids=(surface_id,),
+                boundary_surface_ids=region_surface_ids,
             ),
         )
     )
+
     portals = make_portal_authority(declaration_mode='explicit_none')
     terminations = make_boundary_termination_authority(
         declaration_mode='explicit_none'
@@ -383,13 +570,7 @@ def _fixture(
             revision,
             geometric_tolerance_m=1.0e-6,
         ),
-        surface_boundary_bindings=(
-            SurfaceBoundaryAuthorityBinding(
-                source_surface_id=surface_id,
-                material_authority=material_ref,
-                boundary_physics_authority=boundary_ref,
-            ),
-        ),
+        surface_boundary_bindings=surface_boundary_bindings,
         region_authority=region,
         portal_authority=portals,
         boundary_termination_authority=terminations,
@@ -397,23 +578,25 @@ def _fixture(
     r120_repository.save_compiled_geometry(compiled)
     assert compiled.readiness.wave_geometry_ready
 
-    sound_speed_ref = store.put_json(
-        'r130a-fixture-sound-speed',
-        '1',
-        {
-            'quantity': 'sound_speed_m_s',
-            'value': 343.2,
-            'fixture_id': FIXTURE_ID,
-            'candidate_only': True,
-        },
-    )
+    if boundary_mode == 'rigid':
+        sound_speed_ref = store.put_json(
+            'r130a-fixture-sound-speed',
+            '1',
+            {
+                'quantity': 'sound_speed_m_s',
+                'value': sound_speed_m_s,
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+            },
+        )
+
     temperature_ref = store.put_json(
         'r130a-fixture-temperature',
         '1',
         {
             'quantity': 'temperature_c',
             'value': 20.0,
-            'fixture_id': FIXTURE_ID,
+            'fixture_id': fixture_id,
             'candidate_only': True,
         },
     )
@@ -421,15 +604,15 @@ def _fixture(
         'r130a-fixture-environment',
         '1',
         {
-            'fixture_id': FIXTURE_ID,
-            'sound_speed_m_s': 343.2,
+            'fixture_id': fixture_id,
+            'sound_speed_m_s': sound_speed_m_s,
             'temperature_c': 20.0,
             'candidate_only': True,
         },
     )
     environment = SnapshotEnvironmentAuthorityRef(
         authority=environment_ref,
-        sound_speed_m_s=343.2,
+        sound_speed_m_s=sound_speed_m_s,
         sound_speed_source_authority=sound_speed_ref,
         temperature_c=20.0,
         temperature_source_authority=temperature_ref,
@@ -440,7 +623,7 @@ def _fixture(
         {
             'minimum_hz': 40.0,
             'maximum_hz': 80.0,
-            'fixture_id': FIXTURE_ID,
+            'fixture_id': fixture_id,
             'candidate_only': True,
         },
     )
@@ -479,11 +662,20 @@ def _fixture(
     )
     snapshot_repository.save_snapshot(snapshot)
 
+    role_id = (
+        'r130a-candidate-wave'
+        if boundary_mode == 'rigid'
+        else 'r130b-candidate-impedance'
+    )
     fidelity_ref = store.put_json(
-        'r130a-candidate-fidelity-policy',
+        (
+            'r130a-candidate-fidelity-policy'
+            if boundary_mode == 'rigid'
+            else 'r130b-candidate-fidelity-policy'
+        ),
         '1',
         {
-            'fixture_id': FIXTURE_ID,
+            'fixture_id': fixture_id,
             'purpose': 'bounded candidate execution only',
             'numerical_acceptance_claim': False,
             'production_adoption_claim': False,
@@ -491,7 +683,7 @@ def _fixture(
     )
     request = build_acoustic_prediction_request(
         snapshot=snapshot,
-        model_solver_role_id='r130a-candidate-wave',
+        model_solver_role_id=role_id,
         requested_frequency_domain=band,
         requested_observables=('complex_pressure',),
         numerical_fidelity_policy_ref=fidelity_ref,
@@ -526,23 +718,25 @@ def _fixture(
             'candidate_only': True,
         },
     )
-    density_ref = store.put_json(
-        'r130a-fixture-density',
-        '1',
-        {
-            'quantity': 'air_density_kg_m3',
-            'value': 1.2,
-            'fixture_id': FIXTURE_ID,
-            'candidate_only': True,
-        },
-    )
+    if boundary_mode == 'rigid':
+        density_ref = store.put_json(
+            'r130a-fixture-density',
+            '1',
+            {
+                'quantity': 'air_density_kg_m3',
+                'value': 1.2,
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+            },
+        )
+
     humidity_ref = store.put_json(
         'r130a-fixture-relative-humidity',
         '1',
         {
             'quantity': 'relative_humidity_percent',
             'value': 50.0,
-            'fixture_id': FIXTURE_ID,
+            'fixture_id': fixture_id,
             'candidate_only': True,
         },
     )
@@ -571,8 +765,12 @@ def _fixture(
     )
     descriptor = build_acoustic_solver_adapter_descriptor(
         adapter_id=PFFDTD_CANDIDATE_ADAPTER_ID,
-        adapter_version=PFFDTD_CANDIDATE_ADAPTER_VERSION,
-        model_solver_role_id='r130a-candidate-wave',
+        adapter_version=(
+            PFFDTD_CANDIDATE_ADAPTER_VERSION
+            if boundary_mode == 'rigid'
+            else PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION
+        ),
+        model_solver_role_id=role_id,
         acoustic_domain='wave',
         solver_implementation_ref=implementation_ref,
         solver_configuration_schema_ref=configuration_schema_ref,
@@ -658,6 +856,12 @@ def _fixture(
         'output_schema_ref': output_schema_ref,
         'environment': environment,
         'fidelity_ref': fidelity_ref,
+        'boundary_mode': boundary_mode,
+        'impedance_material_ref': impedance_material_ref,
+        'impedance_boundary_ref': impedance_boundary_ref,
+        'impedance_mapping_ref': impedance_mapping_ref,
+        'density_ref': density_ref,
+        'sound_speed_ref': sound_speed_ref,
     }
 
 

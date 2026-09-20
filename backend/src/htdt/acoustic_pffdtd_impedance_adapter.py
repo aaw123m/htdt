@@ -4,62 +4,69 @@ from math import isfinite
 
 import numpy as np
 
+from .acoustic_benchmark import AcousticMaterial
 from .acoustic_pffdtd_adapter import acoustic_position_array
 
 
-def compile_impedance_fixture_boundary(fixture) -> dict[str, object]:
-    """Map explicit R100A impedance authority to PFFDTD's direct DEF subset.
+PFFDTD_IMPEDANCE_MAPPING_ID = (
+    'htdt.pffdtd.exact_frequency_independent_resistive_specific_impedance_def'
+)
+PFFDTD_IMPEDANCE_MAPPING_VERSION = '1'
 
-    PFFDTD's material state is a normalized specific-admittance DEF network.
-    A frequency-independent, purely resistive specific impedance maps exactly to
-    one branch DEF=[0, Z/(rho*c), 0]. This adapter deliberately refuses
-    reactive or frequency-varying tables because representing them would require
-    a fitting policy that is not part of R100A authority.
+
+def pffdtd_impedance_mapping_authority_payload() -> dict[str, object]:
+    """Canonical exact mapping authority shared by R100B and R130B."""
+
+    return {
+        'authority_kind': 'pffdtd_impedance_mapping',
+        'mapping_id': PFFDTD_IMPEDANCE_MAPPING_ID,
+        'mapping_version': PFFDTD_IMPEDANCE_MAPPING_VERSION,
+        'physical_quantity_type': 'specific_acoustic_impedance',
+        'pffdtd_representation': 'normalized_DEF',
+        'mapping': 'exact_frequency_independent_resistive_Z_to_DEF',
+        'reactive_impedance_supported': False,
+        'frequency_dependent_impedance_supported': False,
+        'scalar_absorption_conversion': False,
+    }
+
+
+def compile_frequency_independent_resistive_impedance_boundary(
+    *,
+    material: AcousticMaterial,
+    frequencies_hz: tuple[float, ...],
+    density_kg_m3: float,
+    sound_speed_m_s: float,
+) -> dict[str, object]:
+    """Compile the exact R100B-authorized PFFDTD impedance subset.
+
+    This is the single reusable authority for the R100B/R130B mapping. It
+    deliberately accepts only an explicit specific-impedance table whose
+    samples exactly match the requested frequency grid and whose impedance is
+    finite, positive, frequency-independent and purely resistive. No scalar
+    absorption or table fitting participates.
     """
 
-    if fixture.comparison.frequency_grid.kind != 'explicit':
-        raise ValueError('PFFDTD impedance adapter requires an explicit R100A frequency grid')
-    frequencies_hz = tuple(
-        float(value) for value in fixture.comparison.frequency_grid.values_hz
-    )
-    if not frequencies_hz:
-        raise ValueError('PFFDTD impedance adapter requires non-empty fixture frequencies')
-
-    boundary_by_id = {item.boundary_id: item for item in fixture.boundaries}
-    material_by_id = {item.material_id: item for item in fixture.materials}
-    impedance_material_ids: set[str] = set()
-    has_rigid = False
-    for face in fixture.regions[0].faces:
-        boundary = boundary_by_id.get(face.boundary_id)
-        if boundary is None:
-            raise ValueError(f'unknown boundary on face {face.face_id}: {face.boundary_id}')
-        material = material_by_id.get(boundary.material_id)
-        if material is None:
-            raise ValueError(f'unknown material on boundary {boundary.boundary_id}')
-        if material.wave_model == 'rigid':
-            has_rigid = True
-        elif material.wave_model == 'specific_impedance_table':
-            impedance_material_ids.add(material.material_id)
-        else:
-            raise ValueError(
-                f'PFFDTD impedance adapter refuses unsupported wave material {material.material_id}'
-            )
-
-    if not has_rigid:
-        raise ValueError('PFFDTD impedance fixture requires explicit rigid companion boundaries')
-    if len(impedance_material_ids) != 1:
+    material = AcousticMaterial.model_validate(material)
+    frequencies_hz = tuple(float(value) for value in frequencies_hz)
+    if (
+        not frequencies_hz
+        or frequencies_hz != tuple(sorted(set(frequencies_hz)))
+        or any(not isfinite(value) or value <= 0.0 for value in frequencies_hz)
+    ):
         raise ValueError(
-            'PFFDTD impedance fixture requires exactly one explicit impedance material'
+            'PFFDTD direct impedance adapter requires finite positive unique sorted frequencies'
+        )
+    if material.wave_model != 'specific_impedance_table':
+        raise ValueError(
+            f'PFFDTD impedance adapter refuses unsupported wave material {material.material_id}'
         )
 
-    material_id = next(iter(impedance_material_ids))
-    material = material_by_id[material_id]
     table = material.specific_impedance
     table_frequencies = tuple(float(item.frequency_hz) for item in table)
     if table_frequencies != frequencies_hz:
         raise ValueError(
             'PFFDTD direct impedance adapter requires impedance samples on the exact '
-            'R100A comparison frequency grid'
+            'requested frequency grid'
         )
 
     reactances = tuple(float(item.reactance_pa_s_m) for item in table)
@@ -70,8 +77,12 @@ def compile_impedance_fixture_boundary(fixture) -> dict[str, object]:
         )
 
     resistances = tuple(float(item.resistance_pa_s_m) for item in table)
-    if not resistances or any(not isfinite(value) or value <= 0.0 for value in resistances):
-        raise ValueError('PFFDTD direct impedance adapter requires finite positive resistance')
+    if not resistances or any(
+        not isfinite(value) or value <= 0.0 for value in resistances
+    ):
+        raise ValueError(
+            'PFFDTD direct impedance adapter requires finite positive resistance'
+        )
     resistance = resistances[0]
     if any(value != resistance for value in resistances[1:]):
         raise ValueError(
@@ -79,20 +90,30 @@ def compile_impedance_fixture_boundary(fixture) -> dict[str, object]:
             'no table-to-DEF fitting policy is authorized'
         )
 
-    density = float(fixture.environment.density_kg_m3)
-    sound_speed = float(fixture.environment.sound_speed_m_s)
+    density = float(density_kg_m3)
+    sound_speed = float(sound_speed_m_s)
     characteristic_impedance = density * sound_speed
-    if not isfinite(characteristic_impedance) or characteristic_impedance <= 0.0:
-        raise ValueError('R100A density/sound-speed authority produces invalid rho*c')
+    if (
+        not isfinite(density)
+        or density <= 0.0
+        or not isfinite(sound_speed)
+        or sound_speed <= 0.0
+        or not isfinite(characteristic_impedance)
+        or characteristic_impedance <= 0.0
+    ):
+        raise ValueError('density/sound-speed authority produces invalid rho*c')
 
     normalized_impedance = resistance / characteristic_impedance
     if not isfinite(normalized_impedance) or normalized_impedance <= 0.0:
         raise ValueError('normalized PFFDTD impedance must be finite and positive')
     normalized_admittance = 1.0 / normalized_impedance
-    coefficients = np.asarray([[0.0, normalized_impedance, 0.0]], dtype=np.float64)
+    coefficients = np.asarray(
+        [[0.0, normalized_impedance, 0.0]],
+        dtype=np.float64,
+    )
 
     return {
-        'material_id': material_id,
+        'material_id': material.material_id,
         'material_version': material.version,
         'material_provenance': material.provenance,
         'frequencies_hz': frequencies_hz,
@@ -105,7 +126,66 @@ def compile_impedance_fixture_boundary(fixture) -> dict[str, object]:
         'normalized_admittance': normalized_admittance,
         'def_coefficients': coefficients,
         'mapping': 'exact_frequency_independent_resistive_Z_to_DEF',
+        'mapping_id': PFFDTD_IMPEDANCE_MAPPING_ID,
+        'mapping_version': PFFDTD_IMPEDANCE_MAPPING_VERSION,
     }
+
+
+def compile_impedance_fixture_boundary(fixture) -> dict[str, object]:
+    """Map the canonical R100B fixture through the reusable exact subset."""
+
+    if fixture.comparison.frequency_grid.kind != 'explicit':
+        raise ValueError(
+            'PFFDTD impedance adapter requires an explicit R100A frequency grid'
+        )
+    frequencies_hz = tuple(
+        float(value) for value in fixture.comparison.frequency_grid.values_hz
+    )
+    if not frequencies_hz:
+        raise ValueError(
+            'PFFDTD impedance adapter requires non-empty fixture frequencies'
+        )
+
+    boundary_by_id = {item.boundary_id: item for item in fixture.boundaries}
+    material_by_id = {item.material_id: item for item in fixture.materials}
+    impedance_material_ids: set[str] = set()
+    has_rigid = False
+    for face in fixture.regions[0].faces:
+        boundary = boundary_by_id.get(face.boundary_id)
+        if boundary is None:
+            raise ValueError(
+                f'unknown boundary on face {face.face_id}: {face.boundary_id}'
+            )
+        material = material_by_id.get(boundary.material_id)
+        if material is None:
+            raise ValueError(
+                f'unknown material on boundary {boundary.boundary_id}'
+            )
+        if material.wave_model == 'rigid':
+            has_rigid = True
+        elif material.wave_model == 'specific_impedance_table':
+            impedance_material_ids.add(material.material_id)
+        else:
+            raise ValueError(
+                f'PFFDTD impedance adapter refuses unsupported wave material {material.material_id}'
+            )
+
+    if not has_rigid:
+        raise ValueError(
+            'PFFDTD impedance fixture requires explicit rigid companion boundaries'
+        )
+    if len(impedance_material_ids) != 1:
+        raise ValueError(
+            'PFFDTD impedance fixture requires exactly one explicit impedance material'
+        )
+
+    material = material_by_id[next(iter(impedance_material_ids))]
+    return compile_frequency_independent_resistive_impedance_boundary(
+        material=material,
+        frequencies_hz=frequencies_hz,
+        density_kg_m3=float(fixture.environment.density_kg_m3),
+        sound_speed_m_s=float(fixture.environment.sound_speed_m_s),
+    )
 
 
 def compile_impedance_fixture_model(fixture) -> dict[str, object]:

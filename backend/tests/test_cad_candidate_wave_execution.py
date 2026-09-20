@@ -7,11 +7,15 @@ import pytest
 from pydantic import ValidationError
 
 from htdt.cad_candidate_wave_execution import (
+    CandidateBoundaryBinding,
+    CandidateImpedanceBoundaryMapping,
     CandidateNumericalOutput,
     CandidateResourceConfiguration,
     ExactJsonAuthorityStore,
     build_pffdtd_candidate_configuration,
 )
+from htdt.cad_equipment import FrequencyDomain
+from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 def _resource(*, threads: int = 2) -> CandidateResourceConfiguration:
@@ -150,3 +154,63 @@ def test_candidate_numerical_output_preserves_raw_complex_shape_and_rejects_bad_
             postprocess_seconds=0.1,
             compatibility_patch={},
         )
+
+
+
+def _external_ref(seed: str, version: str = '1') -> ExactExternalAuthorityRef:
+    return ExactExternalAuthorityRef(
+        authority_id=f'fixture:{seed}',
+        authority_version=version,
+        semantic_hash_sha256=seed * 64,
+    )
+
+
+def test_rigid_boundary_binding_keeps_pre_r130b_serialized_identity_shape() -> None:
+    binding = CandidateBoundaryBinding(
+        source_surface_id='surface-rigid',
+        material_authority=_external_ref('a'),
+        boundary_physics_authority=_external_ref('b'),
+    )
+
+    assert binding.model_dump(mode='json', exclude_none=True) == {
+        'source_surface_id': 'surface-rigid',
+        'material_authority': _external_ref('a').model_dump(mode='json'),
+        'boundary_physics_authority': _external_ref('b').model_dump(mode='json'),
+    }
+
+
+def test_impedance_mapping_requires_exact_resistive_def_and_version() -> None:
+    kwargs = {
+        'material_id': 'z-2z0',
+        'material_version': '1',
+        'material_provenance': 'explicit analytic fixture',
+        'boundary_provenance': {'basis': 'analytic_model'},
+        'valid_frequency_domain': FrequencyDomain(
+            minimum_hz=40.0,
+            maximum_hz=80.0,
+        ),
+        'frequency_samples_hz': (40.0, 80.0),
+        'physical_resistance_pa_s_m': 823.2,
+        'physical_reactance_pa_s_m': 0.0,
+        'density_kg_m3': 1.2,
+        'density_authority_ref': _external_ref('c'),
+        'sound_speed_m_s': 343.0,
+        'sound_speed_authority_ref': _external_ref('d'),
+        'characteristic_impedance_pa_s_m': 411.6,
+        'normalized_impedance': 2.0,
+        'normalized_admittance': 0.5,
+        'def_coefficients': ((0.0, 2.0, 0.0),),
+        'mapping_authority_ref': _external_ref('e'),
+    }
+    mapping = CandidateImpedanceBoundaryMapping(**kwargs)
+    assert mapping.def_coefficients == ((0.0, 2.0, 0.0),)
+
+    bad_def = dict(kwargs)
+    bad_def['def_coefficients'] = ((0.0, 3.0, 0.0),)
+    with pytest.raises(ValidationError, match='DEF'):
+        CandidateImpedanceBoundaryMapping(**bad_def)
+
+    bad_version = dict(kwargs)
+    bad_version['mapping_version'] = '2'
+    with pytest.raises(ValidationError):
+        CandidateImpedanceBoundaryMapping(**bad_version)

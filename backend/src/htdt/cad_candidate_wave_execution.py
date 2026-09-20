@@ -17,12 +17,19 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .acoustic_benchmark import AcousticMaterial
 from .acoustic_pffdtd_adapter import (
     apply_pffdtd_runtime_compatibility_patches,
     finite_record_pressure_transfer,
     pffdtd_git_head,
     pffdtd_velocity_potential_to_pressure_trace,
     recombine_pffdtd_receiver_traces,
+)
+from .acoustic_pffdtd_impedance_adapter import (
+    PFFDTD_IMPEDANCE_MAPPING_ID,
+    PFFDTD_IMPEDANCE_MAPPING_VERSION,
+    compile_frequency_independent_resistive_impedance_boundary,
+    pffdtd_impedance_mapping_authority_payload,
 )
 from .cad_acoustic_snapshot import (
     AcousticPredictionRequest,
@@ -56,7 +63,9 @@ from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 
 PFFDTD_CANDIDATE_ADAPTER_ID = 'htdt.r130a.pffdtd_candidate_wave'
 PFFDTD_CANDIDATE_ADAPTER_VERSION = '1'
+PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION = '2'
 PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION = 'r130a-candidate-wave-input-1'
+PFFDTD_CANDIDATE_IMPEDANCE_INPUT_AUTHORITY_VERSION = 'r130b-candidate-wave-input-1'
 PFFDTD_CANDIDATE_CONFIGURATION_VERSION = 'r130a-pffdtd-config-1'
 COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION = (
     'htdt.r130a.candidate-complex-pressure-artifact-1'
@@ -346,12 +355,117 @@ def capture_candidate_runtime() -> CandidateRuntimeIdentity:
     )
 
 
+class CandidateImpedanceBoundaryMapping(BaseModel):
+    """Execution-derived exact mapping; the material authority remains truth."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    physical_quantity_type: Literal[
+        'specific_acoustic_impedance'
+    ] = 'specific_acoustic_impedance'
+    unit: Literal['Pa*s/m'] = 'Pa*s/m'
+    complex_capability: Literal[
+        'explicit_resistance_reactance'
+    ] = 'explicit_resistance_reactance'
+    material_id: str = Field(min_length=1)
+    material_version: str = Field(min_length=1)
+    material_provenance: str = Field(min_length=1)
+    boundary_provenance: dict[str, Any]
+    valid_frequency_domain: FrequencyDomain
+    frequency_samples_hz: tuple[float, ...] = Field(min_length=1)
+    physical_resistance_pa_s_m: float = Field(gt=0.0)
+    physical_reactance_pa_s_m: Literal[0.0] = 0.0
+    density_kg_m3: float = Field(gt=0.0)
+    density_authority_ref: ExactExternalAuthorityRef
+    sound_speed_m_s: float = Field(gt=0.0)
+    sound_speed_authority_ref: ExactExternalAuthorityRef
+    characteristic_impedance_pa_s_m: float = Field(gt=0.0)
+    normalized_impedance: float = Field(gt=0.0)
+    normalized_admittance: float = Field(gt=0.0)
+    def_coefficients: tuple[tuple[float, float, float], ...] = Field(
+        min_length=1
+    )
+    mapping_authority_ref: ExactExternalAuthorityRef
+    mapping_id: Literal[
+        'htdt.pffdtd.exact_frequency_independent_resistive_specific_impedance_def'
+    ] = PFFDTD_IMPEDANCE_MAPPING_ID
+    mapping_version: Literal['1'] = PFFDTD_IMPEDANCE_MAPPING_VERSION
+
+    @model_validator(mode='after')
+    def validate_exact_subset(self) -> 'CandidateImpedanceBoundaryMapping':
+        if not self.boundary_provenance:
+            raise ValueError('impedance boundary requires explicit provenance')
+        frequencies = tuple(float(item) for item in self.frequency_samples_hz)
+        if frequencies != tuple(sorted(set(frequencies))):
+            raise ValueError('impedance boundary frequencies must be unique/sorted')
+        if (
+            not self.valid_frequency_domain.contains(frequencies[0])
+            or not self.valid_frequency_domain.contains(frequencies[-1])
+        ):
+            raise ValueError('impedance boundary frequency samples exceed valid domain')
+        physical_values = (
+            self.physical_resistance_pa_s_m,
+            self.density_kg_m3,
+            self.sound_speed_m_s,
+            self.characteristic_impedance_pa_s_m,
+            self.normalized_impedance,
+            self.normalized_admittance,
+        )
+        if any(not math.isfinite(float(value)) for value in physical_values):
+            raise ValueError('impedance boundary physical quantities must be finite')
+        expected_rho_c = float(self.density_kg_m3) * float(self.sound_speed_m_s)
+        if not math.isclose(
+            float(self.characteristic_impedance_pa_s_m),
+            expected_rho_c,
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-12,
+        ):
+            raise ValueError('impedance boundary characteristic impedance != rho*c')
+        expected_zn = (
+            float(self.physical_resistance_pa_s_m)
+            / float(self.characteristic_impedance_pa_s_m)
+        )
+        if not math.isclose(
+            float(self.normalized_impedance),
+            expected_zn,
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-12,
+        ):
+            raise ValueError('impedance boundary normalized impedance != Z/(rho*c)')
+        if not math.isclose(
+            float(self.normalized_admittance),
+            1.0 / float(self.normalized_impedance),
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-12,
+        ):
+            raise ValueError('impedance boundary normalized admittance != 1/Zn')
+        if self.mapping_authority_ref.authority_version != self.mapping_version:
+            raise ValueError('impedance boundary mapping authority version mismatch')
+        if self.def_coefficients != (
+            (0.0, float(self.normalized_impedance), 0.0),
+        ):
+            raise ValueError('impedance boundary DEF does not match exact resistive mapping')
+        return self
+
+
 class CandidateBoundaryBinding(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     source_surface_id: str = Field(min_length=1)
     material_authority: ExactExternalAuthorityRef
     boundary_physics_authority: ExactExternalAuthorityRef
+    impedance_mapping: CandidateImpedanceBoundaryMapping | None = None
+
+
+class CandidateBoundaryMaterialAsset(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    source_surface_id: str = Field(min_length=1)
+    pffdtd_material_group: str = Field(min_length=1)
+    material_file_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    def_coefficients: tuple[tuple[float, float, float], ...]
+    mapping_authority_ref: ExactExternalAuthorityRef
+    active_boundary_node_count: int = Field(ge=1)
 
 
 class CandidateReceiverBinding(BaseModel):
@@ -372,7 +486,8 @@ class CandidateWaveExecutionInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     authority_version: Literal[
-        'r130a-candidate-wave-input-1'
+        'r130a-candidate-wave-input-1',
+        'r130b-candidate-wave-input-1',
     ] = PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION
     execution_input_id: str = Field(
         pattern=r'^candidate-wave-input:[0-9a-f]{64}$'
@@ -421,9 +536,10 @@ class CandidateWaveExecutionInput(BaseModel):
     adapter_descriptor_id: str
     adapter_descriptor_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     adapter_compiler_id: Literal[
-        'htdt.r130a.pffdtd_candidate_input_compiler'
+        'htdt.r130a.pffdtd_candidate_input_compiler',
+        'htdt.r130b.pffdtd_candidate_impedance_input_compiler',
     ] = 'htdt.r130a.pffdtd_candidate_input_compiler'
-    adapter_compiler_version: Literal['1'] = '1'
+    adapter_compiler_version: Literal['1', '2'] = '1'
     solver_model_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     runtime_identity: CandidateRuntimeIdentity
     resource_configuration: CandidateResourceConfiguration
@@ -438,10 +554,17 @@ class CandidateWaveExecutionInput(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'execution_input_id', 'semantic_sha256'},
         )
+        # Preserve the exact pre-R130B rigid identity: the optional impedance
+        # field did not exist in R130A and therefore must not serialize as null.
+        payload['boundary_bindings'] = [
+            item.model_dump(mode='json', exclude_none=True)
+            for item in self.boundary_bindings
+        ]
+        return payload
 
 
 class CandidateNumericalOutput(BaseModel):
@@ -463,6 +586,7 @@ class CandidateNumericalOutput(BaseModel):
     solve_seconds: float = Field(ge=0.0)
     postprocess_seconds: float = Field(ge=0.0)
     compatibility_patch: dict[str, Any]
+    boundary_material_assets: tuple[CandidateBoundaryMaterialAsset, ...] = ()
 
     @model_validator(mode='after')
     def validate_shape(self) -> 'CandidateNumericalOutput':
@@ -620,6 +744,111 @@ def _compile_rigid_pffdtd_model(
     }
 
 
+def _impedance_material_group(binding: CandidateBoundaryBinding) -> str:
+    if binding.impedance_mapping is None:
+        raise CandidateWaveExecutionError(
+            'rigid boundary has no PFFDTD impedance material group'
+        )
+    digest = _digest(
+        {
+            'source_surface_id': binding.source_surface_id,
+            'material_authority': binding.material_authority.model_dump(mode='json'),
+            'boundary_physics_authority': (
+                binding.boundary_physics_authority.model_dump(mode='json')
+            ),
+            'mapping_authority_ref': (
+                binding.impedance_mapping.mapping_authority_ref.model_dump(
+                    mode='json'
+                )
+            ),
+            'normalized_impedance': binding.impedance_mapping.normalized_impedance,
+        }
+    )
+    return f'HTDT_Z_{digest[:20]}'
+
+
+def _compile_mixed_pffdtd_model(
+    *,
+    geometry: R120CompiledGeometry,
+    source: R110CompiledSourceModel,
+    receivers: tuple[CandidateReceiverBinding, ...],
+    boundary_bindings: tuple[CandidateBoundaryBinding, ...],
+) -> dict[str, Any]:
+    """Compile mixed rigid/impedance groups after the exact rigid geometry gate."""
+
+    base = _compile_rigid_pffdtd_model(
+        geometry=geometry,
+        source=source,
+        receivers=receivers,
+    )
+    oriented_triangles = base['mats_hash']['_RIGID']['tris']
+    points = base['mats_hash']['_RIGID']['pts']
+    if len(oriented_triangles) != len(geometry.triangles):
+        raise CandidateWaveExecutionError(
+            'candidate PFFDTD mixed-boundary triangle identity mismatch'
+        )
+
+    binding_by_surface = {
+        item.source_surface_id: item for item in boundary_bindings
+    }
+    if len(binding_by_surface) != len(boundary_bindings):
+        raise CandidateWaveExecutionError(
+            'candidate boundary bindings must be unique per semantic surface'
+        )
+    triangle_surfaces = {
+        item.source_surface_id for item in geometry.triangles
+    }
+    if set(binding_by_surface) != triangle_surfaces:
+        raise CandidateWaveExecutionError(
+            'candidate boundary bindings do not exactly cover compiled surfaces'
+        )
+
+    groups: dict[str, dict[str, Any]] = {}
+    for compiled_triangle, oriented in zip(
+        geometry.triangles,
+        oriented_triangles,
+        strict=True,
+    ):
+        binding = binding_by_surface[compiled_triangle.source_surface_id]
+        if binding.impedance_mapping is None:
+            group = '_RIGID'
+            side = 0
+            color = [220, 220, 220]
+        else:
+            group = _impedance_material_group(binding)
+            # _compile_rigid_pffdtd_model normalizes a closed shell to outward
+            # winding. PFFDTD side=1 activates the back/negative-normal side,
+            # which is the room-interior side for that outward winding.
+            side = 1
+            color = [180, 180, 180]
+        target = groups.setdefault(
+            group,
+            {
+                'tris': [],
+                'pts': points,
+                'color': color,
+                'sides': [],
+            },
+        )
+        target['tris'].append(list(oriented))
+        target['sides'].append(side)
+
+    if not any(
+        item.impedance_mapping is not None for item in boundary_bindings
+    ):
+        raise CandidateWaveExecutionError(
+            'mixed PFFDTD compiler requires at least one impedance boundary'
+        )
+
+    return {
+        **base,
+        'mats_hash': groups,
+        'export_datetime': (
+            'HTDT R130B candidate deterministic impedance compiler v1'
+        ),
+    }
+
+
 class PffdtdCandidateWaveExecutor:
     """Bounded PFFDTD candidate executor over existing exact HTDT authorities."""
 
@@ -723,7 +952,11 @@ class PffdtdCandidateWaveExecutor:
             )
         if (
             descriptor.adapter_id != PFFDTD_CANDIDATE_ADAPTER_ID
-            or descriptor.adapter_version != PFFDTD_CANDIDATE_ADAPTER_VERSION
+            or descriptor.adapter_version
+            not in {
+                PFFDTD_CANDIDATE_ADAPTER_VERSION,
+                PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION,
+            }
             or descriptor.acoustic_domain != 'wave'
         ):
             raise CandidateWaveExecutionError(
@@ -824,7 +1057,7 @@ class PffdtdCandidateWaveExecutor:
             ]
         )
 
-        boundary_bindings = []
+        boundary_bindings: list[CandidateBoundaryBinding] = []
         for item in snapshot.surface_boundary_configuration:
             if (
                 item.material_authority is None
@@ -833,7 +1066,7 @@ class PffdtdCandidateWaveExecutor:
                 raise CandidateWaveExecutionError(
                     'candidate PFFDTD compiler requires exact material and boundary authorities'
                 )
-            self._require_external(
+            material_payload = self._require_external(
                 item.material_authority,
                 label=f'material {item.source_surface_id}',
             )
@@ -844,20 +1077,218 @@ class PffdtdCandidateWaveExecutor:
             if not isinstance(boundary_payload, dict) or (
                 boundary_payload.get('authority_kind')
                 != 'wave_boundary_physics'
-                or boundary_payload.get('model')
-                != 'rigid_zero_normal_velocity'
             ):
                 raise CandidateWaveExecutionError(
-                    'bounded PFFDTD candidate supports only explicitly rigid '
-                    'zero-normal-velocity boundary authority'
+                    'candidate boundary authority kind is unsupported'
                 )
+
+            if boundary_payload.get('model') == 'rigid_zero_normal_velocity':
+                boundary_bindings.append(
+                    CandidateBoundaryBinding(
+                        source_surface_id=item.source_surface_id,
+                        material_authority=item.material_authority,
+                        boundary_physics_authority=item.boundary_physics_authority,
+                    )
+                )
+                continue
+
+            if boundary_payload.get('model') != 'specific_impedance_table':
+                raise CandidateWaveExecutionError(
+                    'bounded PFFDTD candidate boundary quantity/model is unsupported; '
+                    'no rigid fallback or implicit conversion is authorized'
+                )
+            if (
+                descriptor.adapter_version
+                != PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION
+            ):
+                raise CandidateWaveExecutionError(
+                    'explicit impedance execution requires the R130B adapter version'
+                )
+            if (
+                boundary_payload.get('physical_quantity_type')
+                != 'specific_acoustic_impedance'
+                or boundary_payload.get('unit') != 'Pa*s/m'
+                or boundary_payload.get('complex_capability')
+                != 'explicit_resistance_reactance'
+            ):
+                raise CandidateWaveExecutionError(
+                    'explicit impedance boundary quantity/unit/capability mismatch'
+                )
+            provenance = boundary_payload.get('provenance')
+            if not isinstance(provenance, dict) or not provenance:
+                raise CandidateWaveExecutionError(
+                    'explicit impedance boundary requires exact provenance metadata'
+                )
+            try:
+                material_ref = ExactExternalAuthorityRef.model_validate(
+                    boundary_payload.get('material_authority_ref')
+                )
+                density_ref = ExactExternalAuthorityRef.model_validate(
+                    boundary_payload.get('density_authority_ref')
+                )
+                sound_speed_ref = ExactExternalAuthorityRef.model_validate(
+                    boundary_payload.get('sound_speed_authority_ref')
+                )
+                mapping_ref = ExactExternalAuthorityRef.model_validate(
+                    boundary_payload.get('pffdtd_mapping_authority_ref')
+                )
+                valid_domain = FrequencyDomain.model_validate(
+                    boundary_payload.get('valid_frequency_domain')
+                )
+                material = AcousticMaterial.model_validate(material_payload)
+            except Exception as exc:
+                raise CandidateWaveExecutionError(
+                    'explicit impedance boundary exact authority payload is malformed'
+                ) from exc
+            if material_ref != item.material_authority:
+                raise CandidateWaveExecutionError(
+                    'impedance boundary material authority identity mismatch'
+                )
+            if density_ref != configuration.density_authority_ref:
+                raise CandidateWaveExecutionError(
+                    'impedance boundary density authority identity mismatch'
+                )
+            if (
+                snapshot.environment is None
+                or snapshot.environment.sound_speed_m_s is None
+                or snapshot.environment.sound_speed_source_authority is None
+            ):
+                raise CandidateWaveExecutionError(
+                    'impedance boundary requires exact sound-speed environment authority'
+                )
+            if sound_speed_ref != snapshot.environment.sound_speed_source_authority:
+                raise CandidateWaveExecutionError(
+                    'impedance boundary sound-speed authority identity mismatch'
+                )
+            if (
+                mapping_ref.authority_version
+                != PFFDTD_IMPEDANCE_MAPPING_VERSION
+            ):
+                raise CandidateWaveExecutionError(
+                    'impedance boundary PFFDTD mapping version mismatch'
+                )
+
+            mapping_payload = self._require_external(
+                mapping_ref,
+                label=f'PFFDTD impedance mapping {item.source_surface_id}',
+            )
+            expected_mapping_payload = (
+                pffdtd_impedance_mapping_authority_payload()
+            )
+            if mapping_payload != expected_mapping_payload:
+                raise CandidateWaveExecutionError(
+                    'impedance boundary PFFDTD mapping authority mismatch'
+                )
+
+            density_payload = self._require_external(
+                density_ref,
+                label='impedance density',
+            )
+            sound_speed_payload = self._require_external(
+                sound_speed_ref,
+                label='impedance sound speed',
+            )
+            if (
+                not isinstance(density_payload, dict)
+                or density_payload.get('quantity')
+                not in {'air_density_kg_m3', 'density_kg_m3'}
+                or not math.isclose(
+                    float(density_payload.get('value', math.nan)),
+                    float(configuration.density_kg_m3),
+                    rel_tol=0.0,
+                    abs_tol=1.0e-12,
+                )
+            ):
+                raise CandidateWaveExecutionError(
+                    'impedance density value does not match exact density authority'
+                )
+            if (
+                not isinstance(sound_speed_payload, dict)
+                or sound_speed_payload.get('quantity') != 'sound_speed_m_s'
+                or not math.isclose(
+                    float(sound_speed_payload.get('value', math.nan)),
+                    float(snapshot.environment.sound_speed_m_s),
+                    rel_tol=0.0,
+                    abs_tol=1.0e-12,
+                )
+            ):
+                raise CandidateWaveExecutionError(
+                    'impedance sound speed does not match exact environment authority'
+                )
+
+            try:
+                mapped = compile_frequency_independent_resistive_impedance_boundary(
+                    material=material,
+                    frequencies_hz=frequencies,
+                    density_kg_m3=float(configuration.density_kg_m3),
+                    sound_speed_m_s=float(snapshot.environment.sound_speed_m_s),
+                )
+            except ValueError as exc:
+                raise CandidateWaveExecutionError(
+                    f'UNSUPPORTED explicit impedance boundary: {exc}'
+                ) from exc
+
+            table_min = float(material.specific_impedance[0].frequency_hz)
+            table_max = float(material.specific_impedance[-1].frequency_hz)
+            if (
+                not math.isclose(
+                    float(valid_domain.minimum_hz),
+                    table_min,
+                    rel_tol=0.0,
+                    abs_tol=1.0e-12,
+                )
+                or not math.isclose(
+                    float(valid_domain.maximum_hz),
+                    table_max,
+                    rel_tol=0.0,
+                    abs_tol=1.0e-12,
+                )
+            ):
+                raise CandidateWaveExecutionError(
+                    'impedance boundary valid frequency domain does not match '
+                    'the exact material impedance table'
+                )
+
             boundary_bindings.append(
                 CandidateBoundaryBinding(
                     source_surface_id=item.source_surface_id,
                     material_authority=item.material_authority,
                     boundary_physics_authority=item.boundary_physics_authority,
+                    impedance_mapping=CandidateImpedanceBoundaryMapping(
+                        material_id=str(mapped['material_id']),
+                        material_version=str(mapped['material_version']),
+                        material_provenance=str(mapped['material_provenance']),
+                        boundary_provenance=provenance,
+                        valid_frequency_domain=valid_domain,
+                        frequency_samples_hz=tuple(mapped['frequencies_hz']),
+                        physical_resistance_pa_s_m=float(
+                            mapped['physical_resistance_pa_s_m']
+                        ),
+                        physical_reactance_pa_s_m=0.0,
+                        density_kg_m3=float(mapped['density_kg_m3']),
+                        density_authority_ref=density_ref,
+                        sound_speed_m_s=float(mapped['sound_speed_m_s']),
+                        sound_speed_authority_ref=sound_speed_ref,
+                        characteristic_impedance_pa_s_m=float(
+                            mapped['characteristic_impedance_pa_s_m']
+                        ),
+                        normalized_impedance=float(
+                            mapped['normalized_impedance']
+                        ),
+                        normalized_admittance=float(
+                            mapped['normalized_admittance']
+                        ),
+                        def_coefficients=tuple(
+                            tuple(float(value) for value in row)
+                            for row in mapped['def_coefficients']
+                        ),
+                        mapping_authority_ref=mapping_ref,
+                        mapping_id=str(mapped['mapping_id']),
+                        mapping_version=str(mapped['mapping_version']),
+                    ),
                 )
             )
+
 
         if snapshot.acoustic_region_authority_ref is None:
             raise CandidateWaveExecutionError(
@@ -985,15 +1416,36 @@ class PffdtdCandidateWaveExecutor:
             )
 
         runtime = capture_candidate_runtime()
-        model = _compile_rigid_pffdtd_model(
-            geometry=geometry,
-            source=source,
-            receivers=receivers,
+        has_impedance = any(
+            item.impedance_mapping is not None for item in boundary_bindings
         )
+        if has_impedance:
+            model = _compile_mixed_pffdtd_model(
+                geometry=geometry,
+                source=source,
+                receivers=receivers,
+                boundary_bindings=tuple(boundary_bindings),
+            )
+            input_authority_version = (
+                PFFDTD_CANDIDATE_IMPEDANCE_INPUT_AUTHORITY_VERSION
+            )
+            compiler_id = (
+                'htdt.r130b.pffdtd_candidate_impedance_input_compiler'
+            )
+            compiler_version = '2'
+        else:
+            model = _compile_rigid_pffdtd_model(
+                geometry=geometry,
+                source=source,
+                receivers=receivers,
+            )
+            input_authority_version = PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION
+            compiler_id = 'htdt.r130a.pffdtd_candidate_input_compiler'
+            compiler_version = '1'
         model_hash = _digest(model)
 
         core = {
-            'authority_version': PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION,
+            'authority_version': input_authority_version,
             'snapshot_id': snapshot.snapshot_id,
             'snapshot_sha256': snapshot.semantic_sha256,
             'prediction_request_id': request.request_id,
@@ -1011,7 +1463,8 @@ class PffdtdCandidateWaveExecutor:
                 snapshot.material_boundary_configuration_sha256
             ),
             'boundary_bindings': [
-                item.model_dump(mode='json') for item in boundary_bindings
+                item.model_dump(mode='json', exclude_none=True)
+                for item in boundary_bindings
             ],
             'treatment_boundary_composition_sha256': treatment_hash,
             'acoustic_region_authority_ref': (
@@ -1045,10 +1498,8 @@ class PffdtdCandidateWaveExecutor:
             ),
             'adapter_descriptor_id': descriptor.descriptor_id,
             'adapter_descriptor_sha256': descriptor.semantic_sha256,
-            'adapter_compiler_id': (
-                'htdt.r130a.pffdtd_candidate_input_compiler'
-            ),
-            'adapter_compiler_version': '1',
+            'adapter_compiler_id': compiler_id,
+            'adapter_compiler_version': compiler_version,
             'solver_model_sha256': model_hash,
             'runtime_identity': runtime.model_dump(mode='json'),
             'resource_configuration': configuration.resource.model_dump(
@@ -1111,6 +1562,7 @@ class PffdtdCandidateWaveExecutor:
             import numpy as np
             from sim_setup import sim_setup
             from fdtd.sim_fdtd import SimEngine
+            from materials.adm_funcs import write_freq_ind_mat_from_Zn
         except Exception as exc:
             raise CandidateWaveExecutionError(
                 f'PFFDTD runtime import failed: {type(exc).__name__}: {exc}'
@@ -1130,6 +1582,52 @@ class PffdtdCandidateWaveExecutor:
             encoding='utf-8',
         )
 
+        material_files: dict[str, str] = {}
+        material_asset_specs: list[dict[str, Any]] = []
+        boundary_material_assets: list[CandidateBoundaryMaterialAsset] = []
+        for binding in authority.boundary_bindings:
+            mapping = binding.impedance_mapping
+            if mapping is None:
+                continue
+            group = _impedance_material_group(binding)
+            material_path = material_dir / f'{group}.h5'
+            try:
+                write_freq_ind_mat_from_Zn(
+                    float(mapping.normalized_impedance),
+                    material_path,
+                )
+                with h5py.File(material_path, 'r') as handle:
+                    actual_def = np.asarray(
+                        handle['DEF'][...],
+                        dtype=np.float64,
+                    )
+            except Exception as exc:
+                raise CandidateWaveExecutionError(
+                    'PFFDTD exact impedance material generation failed: '
+                    f'{type(exc).__name__}: {exc}'
+                ) from exc
+            expected_def = np.asarray(
+                mapping.def_coefficients,
+                dtype=np.float64,
+            )
+            if (
+                actual_def.shape != expected_def.shape
+                or not np.array_equal(actual_def, expected_def)
+            ):
+                raise CandidateWaveExecutionError(
+                    'PFFDTD material writer changed exact impedance DEF authority'
+                )
+            material_files[group] = material_path.name
+            material_asset_specs.append(
+                {
+                    'source_surface_id': binding.source_surface_id,
+                    'pffdtd_material_group': group,
+                    'material_file_sha256': _file_sha256(material_path),
+                    'def_coefficients': mapping.def_coefficients,
+                    'mapping_authority_ref': mapping.mapping_authority_ref,
+                }
+            )
+
         tc_control = 20.0 * (float(sound_speed_m_s) / 343.2) ** 2
         compile_started = time.perf_counter()
         try:
@@ -1140,7 +1638,7 @@ class PffdtdCandidateWaveExecutor:
                 save_folder=sim_dir,
                 model_json_file=model_path,
                 mat_folder=material_dir,
-                mat_files_dict={},
+                mat_files_dict=material_files,
                 duration=float(configuration.duration_s),
                 Tc=tc_control,
                 rh=float(configuration.relative_humidity_percent),
@@ -1150,6 +1648,60 @@ class PffdtdCandidateWaveExecutor:
                 Nprocs=configuration.resource.setup_processes,
                 compress=0,
             )
+            if material_asset_specs:
+                ordered_groups = sorted(material_files)
+                specs_by_group = {
+                    item['pffdtd_material_group']: item
+                    for item in material_asset_specs
+                }
+                packaged_path = sim_dir / 'sim_mats.h5'
+                voxel_path = sim_dir / 'vox_out.h5'
+                if not packaged_path.is_file() or not voxel_path.is_file():
+                    raise CandidateWaveExecutionError(
+                        'PFFDTD impedance setup did not persist material/voxel authority'
+                    )
+                with h5py.File(packaged_path, 'r') as packaged:
+                    if int(packaged['Nmat'][()]) != len(ordered_groups):
+                        raise CandidateWaveExecutionError(
+                            'PFFDTD packaged material count mismatch'
+                        )
+                    packaged_defs = [
+                        np.asarray(
+                            packaged[f'mat_{index:02d}_DEF'][...],
+                            dtype=np.float64,
+                        )
+                        for index in range(len(ordered_groups))
+                    ]
+                with h5py.File(voxel_path, 'r') as voxels:
+                    material_nodes = np.asarray(
+                        voxels['mat_bn'][...],
+                        dtype=np.int64,
+                    )
+                for index, group in enumerate(ordered_groups):
+                    spec = specs_by_group[group]
+                    expected_def = np.asarray(
+                        spec['def_coefficients'],
+                        dtype=np.float64,
+                    )
+                    if (
+                        packaged_defs[index].shape != expected_def.shape
+                        or not np.array_equal(packaged_defs[index], expected_def)
+                    ):
+                        raise CandidateWaveExecutionError(
+                            'PFFDTD packaged DEF differs from exact impedance authority'
+                        )
+                    active_count = int(np.count_nonzero(material_nodes == index))
+                    if active_count < 1:
+                        raise CandidateWaveExecutionError(
+                            'PFFDTD impedance material has no active boundary nodes; '
+                            'rigid fallback/wrong-side mapping is refused'
+                        )
+                    boundary_material_assets.append(
+                        CandidateBoundaryMaterialAsset(
+                            **spec,
+                            active_boundary_node_count=active_count,
+                        )
+                    )
             cancelled()
             engine = SimEngine(
                 sim_dir,
@@ -1324,6 +1876,7 @@ class PffdtdCandidateWaveExecutor:
             solve_seconds=solve_seconds,
             postprocess_seconds=postprocess_seconds,
             compatibility_patch=compatibility,
+            boundary_material_assets=tuple(boundary_material_assets),
         )
 
     def execute(
@@ -1400,8 +1953,17 @@ class PffdtdCandidateWaveExecutor:
                 'complex-pressure artifact schema authority is incompatible'
             )
 
+        has_impedance = any(
+            item.impedance_mapping is not None
+            for item in authority.boundary_bindings
+        )
+        execution_prefix = (
+            'r130b-candidate-impedance'
+            if has_impedance
+            else 'r130a-candidate-wave'
+        )
         execution_id = (
-            f'r130a-candidate-wave:{authority.semantic_sha256[:20]}:{uuid4().hex}'
+            f'{execution_prefix}:{authority.semantic_sha256[:20]}:{uuid4().hex}'
         )
         artifact_payload = {
             'schema_version': COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
@@ -1457,13 +2019,33 @@ class PffdtdCandidateWaveExecutor:
                 list(row) for row in numerical.pressure_imag_pa
             ],
         }
+        if has_impedance:
+            artifact_payload['boundary_authority'] = {
+                'material_boundary_configuration_sha256': (
+                    authority.material_boundary_configuration_sha256
+                ),
+                'bindings': [
+                    item.model_dump(mode='json', exclude_none=True)
+                    for item in authority.boundary_bindings
+                ],
+                'pffdtd_material_assets': [
+                    item.model_dump(mode='json')
+                    for item in numerical.boundary_material_assets
+                ],
+            }
+
         artifact_ref = self.authority_store.put_json(
             'acoustic-solver-artifact',
             COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
             artifact_payload,
         )
+        provenance_schema_version = (
+            'htdt.r130b.candidate-impedance-execution-provenance-1'
+            if has_impedance
+            else 'htdt.r130a.candidate-execution-provenance-1'
+        )
         provenance_payload = {
-            'schema_version': 'htdt.r130a.candidate-execution-provenance-1',
+            'schema_version': provenance_schema_version,
             'execution_id': execution_id,
             'candidate_only': True,
             'production_solver_selected': False,
@@ -1477,7 +2059,11 @@ class PffdtdCandidateWaveExecutor:
                 dispatch.solver_configuration_ref.model_dump(mode='json')
             ),
             'adapter_id': PFFDTD_CANDIDATE_ADAPTER_ID,
-            'adapter_version': PFFDTD_CANDIDATE_ADAPTER_VERSION,
+            'adapter_version': (
+                PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION
+                if has_impedance
+                else PFFDTD_CANDIDATE_ADAPTER_VERSION
+            ),
             'runtime_identity': authority.runtime_identity.model_dump(mode='json'),
             'resource_configuration': (
                 authority.resource_configuration.model_dump(mode='json')
@@ -1495,9 +2081,26 @@ class PffdtdCandidateWaveExecutor:
             },
             'compatibility_patch': numerical.compatibility_patch,
         }
+        if has_impedance:
+            provenance_payload['r130b_numerical_acceptance_completed'] = False
+            provenance_payload['owned_room_evidence'] = False
+            provenance_payload['boundary_execution'] = {
+                'material_boundary_configuration_sha256': (
+                    authority.material_boundary_configuration_sha256
+                ),
+                'bindings': [
+                    item.model_dump(mode='json', exclude_none=True)
+                    for item in authority.boundary_bindings
+                ],
+                'pffdtd_material_assets': [
+                    item.model_dump(mode='json')
+                    for item in numerical.boundary_material_assets
+                ],
+            }
+
         provenance_ref = self.authority_store.put_json(
             'solver-execution-provenance',
-            'htdt.r130a.candidate-execution-provenance-1',
+            provenance_schema_version,
             provenance_payload,
         )
         artifact = AcousticSolverObservableArtifact(

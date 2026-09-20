@@ -1,0 +1,88 @@
+name: R130B Candidate Explicit Impedance Execution
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/htdt/cad_candidate_wave_execution.py'
+      - 'backend/src/htdt/acoustic_pffdtd_impedance_adapter.py'
+      - 'backend/tests/test_cad_candidate_wave_execution.py'
+      - 'backend/tests/test_acoustic_pffdtd_impedance_adapter.py'
+      - 'scripts/run_r130a_candidate_wave_execution.py'
+      - 'scripts/run_r130b_candidate_impedance_execution.py'
+      - 'docs/R130B_CANDIDATE_IMPEDANCE_EXECUTION_2026-09-20.md'
+      - 'docs/IMPLEMENTATION_STATUS.md'
+      - '.github/workflows/r130b-candidate-impedance-execution.yml'
+  workflow_dispatch:
+
+jobs:
+  bounded-pffdtd-impedance-candidate:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: '1'
+      PFFDTD_SHA: aa319f6c86517cb95aabfae8656277da62c3ead5
+      EVIDENCE_OUTPUT: artifacts/r130b/candidate_impedance_execution.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install HTDT and pinned PFFDTD candidate runtime
+        run: |
+          python -m pip install -e ".\\backend[dev]"
+          python -m pip install "numpy==1.26.4" "numba==0.60.0" "scipy==1.14.1" "h5py==3.12.1" "tqdm==4.67.1" "psutil==6.1.1" "memory_profiler==0.61.0"
+
+      - name: Run focused R100B and R130B contract tests
+        run: python -m pytest backend\\tests\\test_acoustic_pffdtd_impedance_adapter.py backend\\tests\\test_cad_candidate_wave_execution.py
+
+      - name: Checkout exact PFFDTD candidate implementation
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'pffdtd-r130b-candidate'
+          git clone --filter=blob:none https://github.com/bsxfun/pffdtd.git $root
+          git -C $root checkout --detach $env:PFFDTD_SHA
+          $actual = (git -C $root rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($actual -ne $env:PFFDTD_SHA) {
+            throw "PFFDTD checkout mismatch: $actual"
+          }
+          "PFFDTD_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Execute bounded explicit impedance fixture
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'r130b-candidate-impedance'
+          python scripts\\run_r130b_candidate_impedance_execution.py `
+            --upstream-root $env:PFFDTD_ROOT `
+            --work-root $work `
+            --output $env:EVIDENCE_OUTPUT
+
+      - name: Enforce R130B candidate-only evidence semantics
+        shell: pwsh
+        run: |
+          $evidence = Get-Content -Raw $env:EVIDENCE_OUTPUT | ConvertFrom-Json
+          if ($evidence.status -ne 'PASS') { throw "R130B execution status=$($evidence.status)" }
+          if ($evidence.dispatch_state -ne 'READY') { throw "dispatch was not READY" }
+          if ($evidence.actual_pffdtd_impedance_execution -ne $true) { throw "actual impedance execution evidence missing" }
+          if ($evidence.normal_incidence_reference.status -ne 'PASS') { throw "normal-incidence reference failed" }
+          if ($evidence.production_solver_selected -ne $false) { throw "production adoption claim is forbidden" }
+          if ($evidence.r130b_numerical_acceptance_completed -ne $false) { throw "R130B numerical acceptance remains conservative/false" }
+          if ($evidence.owned_room_evidence -ne $false) { throw "owned-room evidence claim is forbidden" }
+          if ($evidence.rdc_calls -ne 0) { throw "RDC must remain zero" }
+          if ($evidence.pffdtd_material_assets.Count -ne 1) { throw "expected exactly one impedance material asset" }
+          if ($evidence.pffdtd_material_assets[0].active_boundary_node_count -lt 1) { throw "impedance material has no active PFFDTD boundary nodes" }
+          Write-Host "R130B_CANDIDATE_INPUT=$($evidence.candidate_execution_input_sha256)"
+          Write-Host "R130B_RESULT=$($evidence.result_sha256)"
+          Write-Host "R130B_RAW_SOLVER_ASSET=$($evidence.raw_solver_asset_sha256)"
+          Write-Host "R130B_MAX_REFLECTION_PHASE_ERROR_DEG=$($evidence.normal_incidence_reference.max_phase_error_deg)"
+
+      - name: Upload exact R130B evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130b-candidate-impedance-execution
+          path: |
+            artifacts/r130b/candidate_impedance_execution.json
+          if-no-files-found: error

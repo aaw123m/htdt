@@ -5,8 +5,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from htdt.acoustic_benchmark import AcousticBenchmarkFixture, load_acoustic_benchmark_manifest
+from htdt.acoustic_benchmark import (
+    AcousticBenchmarkFixture,
+    AcousticMaterial,
+    SpecificImpedancePoint,
+    load_acoustic_benchmark_manifest,
+)
 from htdt.acoustic_pffdtd_impedance_adapter import (
+    PFFDTD_IMPEDANCE_MAPPING_ID,
+    PFFDTD_IMPEDANCE_MAPPING_VERSION,
+    compile_frequency_independent_resistive_impedance_boundary,
     compile_impedance_fixture_boundary,
     compile_impedance_fixture_model,
 )
@@ -73,3 +81,61 @@ def test_impedance_fixture_refuses_frequency_varying_table_without_fitting_autho
 
     with pytest.raises(ValueError, match='refuses frequency-varying resistance'):
         compile_impedance_fixture_boundary(varying)
+
+
+
+def test_reusable_r100b_mapping_preserves_exact_mapping_authority() -> None:
+    material = AcousticMaterial(
+        material_id='explicit-z',
+        provenance='focused R130B exact impedance fixture',
+        version='7',
+        wave_model='specific_impedance_table',
+        specific_impedance=(
+            SpecificImpedancePoint(
+                frequency_hz=40.0,
+                resistance_pa_s_m=823.2,
+                reactance_pa_s_m=0.0,
+            ),
+            SpecificImpedancePoint(
+                frequency_hz=80.0,
+                resistance_pa_s_m=823.2,
+                reactance_pa_s_m=0.0,
+            ),
+        ),
+    )
+
+    mapped = compile_frequency_independent_resistive_impedance_boundary(
+        material=material,
+        frequencies_hz=(40.0, 80.0),
+        density_kg_m3=1.2,
+        sound_speed_m_s=343.0,
+    )
+
+    assert mapped['mapping_id'] == PFFDTD_IMPEDANCE_MAPPING_ID
+    assert mapped['mapping_version'] == PFFDTD_IMPEDANCE_MAPPING_VERSION
+    assert mapped['physical_resistance_pa_s_m'] == pytest.approx(823.2)
+    assert mapped['characteristic_impedance_pa_s_m'] == pytest.approx(411.6)
+    assert mapped['normalized_impedance'] == pytest.approx(2.0)
+    assert np.allclose(
+        mapped['def_coefficients'],
+        np.asarray([[0.0, 2.0, 0.0]], dtype=np.float64),
+        rtol=0.0,
+        atol=1.0e-15,
+    )
+
+
+def test_reusable_r100b_mapping_never_converts_unsupported_material_to_impedance() -> None:
+    material = AcousticMaterial(
+        material_id='not-impedance',
+        provenance='negative scalar/statistical fixture',
+        version='1',
+        wave_model='unsupported',
+    )
+
+    with pytest.raises(ValueError, match='refuses unsupported wave material'):
+        compile_frequency_independent_resistive_impedance_boundary(
+            material=material,
+            frequencies_hz=(40.0, 80.0),
+            density_kg_m3=1.2,
+            sound_speed_m_s=343.0,
+        )
