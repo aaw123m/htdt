@@ -66,7 +66,7 @@ Instead, each explicit AcousticRegion is validated independently:
 
 This cap is a validation construction only. It is not added to the propagation geometry and is not treated as an acoustic wall.
 
-Any region-specific open/non-manifold/ambiguous topology is rejected. The only R120 global unresolved condition tolerated by this lane is `compiled_non_manifold_edges` when the region-specific manifold proof succeeds; all other unresolved R120 conditions remain fail-closed.
+Any region-specific open/non-manifold/ambiguous topology is rejected. For this bounded topology only, R120 may retain the global diagnostic markers `input_semantic_geometry_not_compiler_contract_ready` and `compiled_non_manifold_edges` while independently marking `geometric_acoustics_geometry_ready=true` after the exact per-region manifold proof succeeds. Those markers are **not** cleared or reinterpreted as wave readiness: `wave_geometry_ready` remains false. All other unresolved R120 conditions remain fail-closed. Because snapshot schema v1 cannot represent distinct wave/GA boundary readiness, snapshot construction selects v2 whenever those readiness values differ; existing single-region snapshots remain on their previous schema.
 
 ## Direct Portal path
 
