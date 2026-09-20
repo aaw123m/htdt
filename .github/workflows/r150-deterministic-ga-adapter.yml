@@ -10,6 +10,7 @@ on:
       - 'backend/tests/test_cad_geometric_acoustics_adapter.py'
       - 'docs/R150_DETERMINISTIC_GA_ADAPTER.md'
       - 'docs/R150_MULTI_REGION_PORTAL_PROPAGATION.md'
+      - 'docs/R150_ARBITRARY_REGION_GRAPH_PORTAL_PROPAGATION.md'
       - '.github/workflows/r150-deterministic-ga-adapter.yml'
   workflow_dispatch:
 
