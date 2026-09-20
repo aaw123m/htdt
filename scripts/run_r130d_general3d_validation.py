@@ -495,13 +495,6 @@ def _run_reference_level(
         )
 
     transfer_pairs = _complex_pairs(transfer)
-    time_step_s = float(provenance['time_step_s'])
-    time_step_count = int(provenance['time_step_count'])
-    grid_spacing_m = float(evidence['grid_spacing_m'])
-    courant_c_dt_over_h = (
-        plan.fixture.sound_speed_m_s * time_step_s / grid_spacing_m
-    )
-    grid_cell_count = math.prod(int(x) for x in evidence['grid_dimensions'])
     return {
         'refinement': refinement,
         'mesh_identity_sha256': plan.reference_mesh_sha256(refinement),
@@ -731,6 +724,13 @@ def _run_pffdtd_level(
     ):
         raise ValidationBlocked('PFFDTD normalized transfer is non-finite')
     transfer_pairs = _complex_pairs(transfer)
+    time_step_s = float(provenance['time_step_s'])
+    time_step_count = int(provenance['time_step_count'])
+    grid_spacing_m = float(evidence['grid_spacing_m'])
+    courant_c_dt_over_h = (
+        plan.fixture.sound_speed_m_s * time_step_s / grid_spacing_m
+    )
+    grid_cell_count = math.prod(int(x) for x in evidence['grid_dimensions'])
     return {
         'points_per_wavelength': float(ppw),
         'configuration_ref': configuration.as_external_ref().model_dump(mode='json'),
