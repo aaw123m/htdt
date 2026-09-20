@@ -48,6 +48,9 @@ An immutable validation case freezes before capture:
 
 - exact RobustnessSpec ID/SHA;
 - exact candidate ID/SHA and SceneRevision/content hash;
+- exact existing SystemVariant application/variant lineage when the candidate
+  revision descends from one; nominal, perturbation and measurement evidence
+  must resolve to the same application/variant identity;
 - exact existing SystemVariant application/variant lineage when the revision
   descends from one; nominal, perturbation and measurement evidence must resolve
   to the same application/variant identity;
@@ -115,8 +118,9 @@ O90E records are append-only:
 - preregistration cases are immutable;
 - validation decisions are immutable historical evidence;
 - revalidation creates a new decision;
-- save/reopen re-resolves exact O90, O60, measurement-plan, measurement,
-  dataset, quality, acquisition, and prediction bindings;
+- save/reopen re-resolves exact O90, O60, SystemVariant lineage,
+  measurement-plan, measurement, dataset, quality, acquisition, and prediction
+  bindings;
 - missing, stale, or tampered bindings fail closed.
 
 ## Decision reasons
