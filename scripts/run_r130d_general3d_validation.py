@@ -1110,6 +1110,122 @@ def _accepted_frequencies(plan, cross_metrics) -> list[dict[str, Any]]:
     return output
 
 
+def _validate_pr286_canonical_reproduction(
+    summary_path: Path,
+    *,
+    reference_levels: list[dict[str, Any]],
+    pffdtd_levels: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = json.loads(summary_path.read_text(encoding='utf-8'))
+    expected_mfem = {
+        int(item['refinement']): item
+        for item in summary.get('mfem_levels', ())
+    }
+    expected_pffdtd = {
+        float(item['points_per_wavelength']): item
+        for item in summary.get('pffdtd_levels', ())
+    }
+    if set(expected_mfem) != {1, 2, 3}:
+        raise ValidationBlocked('PR #286 MFEM baseline schedule is incomplete')
+    if set(expected_pffdtd) != {8.0, 10.0, 12.0}:
+        raise ValidationBlocked('PR #286 PFFDTD baseline schedule is incomplete')
+
+    details = {'mfem': [], 'pffdtd': []}
+    for level in reference_levels:
+        refinement = int(level['refinement'])
+        actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
+        expected = np.asarray(
+            expected_mfem[refinement]['transfer_pa_per_m3_s'],
+            dtype=np.float64,
+        )
+        max_abs = float(np.max(np.abs(actual - expected)))
+        if not np.allclose(actual, expected, rtol=1.0e-9, atol=1.0e-9):
+            raise ValidationBlocked(
+                f'MFEM refinement {refinement} did not reproduce PR #286 '
+                f'canonical transfer: max_abs={max_abs}'
+            )
+        details['mfem'].append(
+            {'refinement': refinement, 'max_abs_complex_component_error': max_abs}
+        )
+    for level in pffdtd_levels:
+        ppw = float(level['points_per_wavelength'])
+        actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
+        expected = np.asarray(
+            expected_pffdtd[ppw]['transfer_pa_per_m3_s'],
+            dtype=np.float64,
+        )
+        max_abs = float(np.max(np.abs(actual - expected)))
+        if not np.allclose(actual, expected, rtol=1.0e-9, atol=1.0e-9):
+            raise ValidationBlocked(
+                f'PFFDTD {ppw:g} PPW did not reproduce PR #286 canonical '
+                f'transfer: max_abs={max_abs}'
+            )
+        details['pffdtd'].append(
+            {'points_per_wavelength': ppw, 'max_abs_complex_component_error': max_abs}
+        )
+    return {
+        'state': 'PASS',
+        'baseline_schema_version': summary.get('schema_version'),
+        'baseline_workflow_run_id': summary.get('source', {}).get('workflow_run_id'),
+        'baseline_artifact_digest_sha256': summary.get('source', {}).get(
+            'artifact_digest_sha256'
+        ),
+        **details,
+    }
+
+
+def _pffdtd_nonmonotonicity_diagnosis(
+    canonical_pairs: list[dict[str, Any]],
+    aligned_pairs: list[dict[str, Any]],
+    diagnostic: dict[str, Any],
+) -> dict[str, Any]:
+    if len(canonical_pairs) != 2 or len(aligned_pairs) != 2:
+        raise ValidationBlocked(
+            'PFFDTD non-monotonicity diagnosis requires exactly two adjacent pairs'
+        )
+    canonical = [
+        float(item['metrics']['complex_rms_relative'])
+        for item in canonical_pairs
+    ]
+    aligned = [
+        float(item['metrics']['complex_rms_relative'])
+        for item in aligned_pairs
+    ]
+    canonical_ratio = canonical[1] / max(canonical[0], np.finfo(np.float64).tiny)
+    aligned_ratio = aligned[1] / max(aligned[0], np.finfo(np.float64).tiny)
+    canonical_excess = max(canonical_ratio - 1.0, 0.0)
+    aligned_excess = max(aligned_ratio - 1.0, 0.0)
+    threshold = float(
+        diagnostic['diagnosis_classification']['substantial_reduction_fraction']
+    )
+    if aligned[1] <= aligned[0]:
+        classification = 'ALIGNED_MONOTONIC'
+        reduction_fraction = 1.0
+    else:
+        reduction_fraction = (
+            (canonical_excess - aligned_excess) / canonical_excess
+            if canonical_excess > 0.0
+            else 0.0
+        )
+        if reduction_fraction >= threshold:
+            classification = (
+                'ALIGNED_NON_MONOTONICITY_SUBSTANTIALLY_REDUCED'
+            )
+        else:
+            classification = 'ALIGNED_NON_MONOTONICITY_REMAINS'
+    return {
+        'classification': classification,
+        'canonical_adjacent_complex_rms': canonical,
+        'aligned_adjacent_complex_rms': aligned,
+        'canonical_worsening_ratio': canonical_ratio,
+        'aligned_worsening_ratio': aligned_ratio,
+        'canonical_worsening_excess': canonical_excess,
+        'aligned_worsening_excess': aligned_excess,
+        'worsening_excess_reduction_fraction': reduction_fraction,
+        'substantial_reduction_threshold_fraction': threshold,
+    }
+
+
 def _blocked_payload(
     plan: R130DGeneral3DValidationPlan,
     *,
@@ -1176,6 +1292,8 @@ def _parser() -> argparse.ArgumentParser:
         description='Run R130D independent sloped-polyhedron validation'
     )
     parser.add_argument('--plan', required=True, type=Path)
+    parser.add_argument('--diagnostic-plan', required=True, type=Path)
+    parser.add_argument('--pr286-summary', required=True, type=Path)
     parser.add_argument('--mfem-root', type=Path)
     parser.add_argument('--mfem-executable', type=Path)
     parser.add_argument('--pffdtd-root', type=Path)
@@ -1189,6 +1307,9 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     plan = load_validation_plan(args.plan)
+    diagnostic = load_target_window_diagnostic_plan(args.diagnostic_plan)
+    _validate_target_window_diagnostic_binding(plan, diagnostic)
+    observation_operator_fixture = _run_observation_operator_fixture(diagnostic)
     repository_head = os.environ.get('HTDT_PR_HEAD_SHA', '').strip().lower()
     if not repository_head:
         repository_head = _git_head(Path(__file__).resolve().parents[1])
