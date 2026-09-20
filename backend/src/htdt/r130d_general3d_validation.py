@@ -19,6 +19,12 @@ TARGET_WINDOW_DIAGNOSTIC_PLAN_SCHEMA = (
 TARGET_WINDOW_DIAGNOSTIC_PLAN_SHA256 = (
     'ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db'
 )
+SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.spatial-representation-diagnostic-plan-1'
+)
+SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256 = (
+    '7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4'
+)
 
 
 def canonical_json(value: object) -> str:
@@ -48,6 +54,268 @@ def load_target_window_diagnostic_plan(path: str | Path) -> dict[str, Any]:
             f'authority: {digest}'
         )
     return payload
+
+
+def load_spatial_representation_diagnostic_plan(
+    path: str | Path,
+) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError('R130D spatial diagnostic plan must be a JSON object')
+    if payload.get('schema_version') != SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SCHEMA:
+        raise ValueError('R130D spatial diagnostic plan schema mismatch')
+    digest = semantic_hash(payload)
+    if digest != SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D spatial diagnostic plan differs from the frozen pre-run '
+            f'authority: {digest}'
+        )
+    return payload
+
+
+def validate_spatial_representation_diagnostic_binding(
+    plan: 'R130DGeneral3DValidationPlan',
+    diagnostic: dict[str, Any],
+) -> None:
+    parent = diagnostic.get('parent_general3d_plan', {})
+    frozen = diagnostic.get('frozen_solver_contract', {})
+    checks = (
+        ('parent plan id', parent.get('plan_id'), plan.plan_id),
+        ('parent plan sha256', parent.get('semantic_sha256'), plan.plan_sha256()),
+        ('fixture id', frozen.get('fixture_id'), plan.fixture.fixture_id),
+        ('geometry kind', frozen.get('geometry_kind'), plan.fixture.geometry_kind),
+        (
+            'source position',
+            tuple(float(x) for x in frozen.get('source_position_m', ())),
+            tuple(float(x) for x in plan.fixture.source_position_m),
+        ),
+        (
+            'receiver position',
+            tuple(float(x) for x in frozen.get('receiver_position_m', ())),
+            tuple(float(x) for x in plan.fixture.receiver_position_m),
+        ),
+        (
+            'PFFDTD source commit',
+            frozen.get('pffdtd_source_commit_sha'),
+            plan.pffdtd.source_commit_sha,
+        ),
+        (
+            'PFFDTD PPW',
+            tuple(float(x) for x in frozen.get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+        (
+            'duration',
+            float(frozen.get('requested_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'canonical frequencies',
+            tuple(float(x) for x in frozen.get('canonical_frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'magnitude mask',
+            float(frozen.get('magnitude_mask_relative_db', math.nan)),
+            float(plan.acceptance.magnitude_mask_relative_db),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValueError(
+                f'R130D spatial diagnostic binding mismatch for {label}: '
+                f'{actual!r} != {expected!r}'
+            )
+    expected_thresholds = plan.acceptance.pffdtd_self_convergence.model_dump(
+        mode='json', exclude_none=True
+    )
+    if frozen.get('pffdtd_self_convergence_thresholds') != expected_thresholds:
+        raise ValueError('R130D spatial diagnostic changes canonical PFFDTD thresholds')
+    frequency = diagnostic.get('frequency_neighborhood', {})
+    if tuple(float(x) for x in frequency.get('diagnostic_frequency_hz', ())) != (
+        39.0, 40.0, 41.0, 79.0, 80.0, 81.0
+    ):
+        raise ValueError('R130D diagnostic frequency neighborhood is not frozen')
+    if tuple(float(x) for x in frequency.get('canonical_scored_frequency_hz', ())) != (
+        40.0, 80.0
+    ):
+        raise ValueError('R130D diagnostic changed canonical scored frequencies')
+    if frequency.get('canonical_acceptance_inclusion') is not False:
+        raise ValueError('diagnostic-only frequencies cannot enter canonical acceptance')
+    forbidden = diagnostic.get('forbidden_changes', {})
+    if any(bool(value) for value in forbidden.values()):
+        raise ValueError('R130D spatial diagnostic forbidden-change flag is enabled')
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_solver_execution_unchanged') is True
+        and decision.get('canonical_pr295_reproduction_required') is True
+        and decision.get('canonical_self_convergence_unchanged') is True
+        and decision.get('cross_solver_unblocked_by_diagnostic') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic') is False
+    ):
+        raise ValueError('R130D spatial diagnostic decision semantics are not fail-closed')
+
+
+def normalized_complex_difference(
+    first: complex,
+    second: complex,
+    *,
+    fixed_floor: float,
+) -> float:
+    floor = float(fixed_floor)
+    if not math.isfinite(floor) or floor <= 0.0:
+        raise ValueError('normalized complex difference floor must be finite/positive')
+    a = complex(first)
+    b = complex(second)
+    if not all(math.isfinite(x) for x in (a.real, a.imag, b.real, b.imag)):
+        raise ValueError('normalized complex difference inputs must be finite')
+    return float(abs(b - a) / max(abs(a), abs(b), floor))
+
+
+def classify_frequency_neighborhood(
+    d_8_10: Sequence[float],
+    d_10_12: Sequence[float],
+) -> dict[str, Any]:
+    coarse = tuple(float(x) for x in d_8_10)
+    fine = tuple(float(x) for x in d_10_12)
+    if len(coarse) != 6 or len(fine) != 6:
+        raise ValueError('frequency-neighborhood classifier requires six frequencies')
+    if any(not math.isfinite(x) or x < 0.0 for x in (*coarse, *fine)):
+        raise ValueError('frequency-neighborhood differences must be finite/nonnegative')
+    worsening = tuple(b > a for a, b in zip(coarse, fine, strict=True))
+    count = sum(worsening)
+    if count >= 4:
+        classification = 'NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD'
+    elif count <= 2:
+        classification = 'NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'
+    else:
+        classification = 'MIXED_NEIGHBORHOOD_SENSITIVITY'
+    return {
+        'classification': classification,
+        'worsening_count': count,
+        'worsening_by_frequency': list(worsening),
+    }
+
+
+def classify_spatial_representation_trend(
+    levels: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    ordered = sorted(levels, key=lambda item: float(item['points_per_wavelength']))
+    if [float(item['points_per_wavelength']) for item in ordered] != [8.0, 10.0, 12.0]:
+        raise ValueError('spatial trend requires exact 8/10/12 PPW levels')
+    volume = [abs(float(item['relative_volume_error'])) for item in ordered]
+    plane = [
+        float(item['sloped_rms_abs_normal_distance_m']) for item in ordered
+    ]
+    if any(not math.isfinite(x) or x < 0.0 for x in (*volume, *plane)):
+        raise ValueError('spatial trend metrics must be finite/nonnegative')
+    worsened = bool(volume[2] > volume[1] or plane[2] > plane[1])
+    return {
+        'classification': (
+            'SPATIAL_REPRESENTATION_NON_MONOTONIC'
+            if worsened
+            else 'SPATIAL_REPRESENTATION_MONOTONIC'
+        ),
+        'volume_relative_error': volume,
+        'sloped_rms_abs_normal_distance_m': plane,
+        'ten_to_twelve_volume_worsened': volume[2] > volume[1],
+        'ten_to_twelve_plane_rms_worsened': plane[2] > plane[1],
+    }
+
+
+def interpolation_stencil_diagnostic(
+    *,
+    xv: Sequence[float],
+    yv: Sequence[float],
+    zv: Sequence[float],
+    linear_indices: Sequence[int],
+    weights: Sequence[float],
+    exact_position_m: Sequence[float],
+    grid_spacing_m: float,
+) -> dict[str, Any]:
+    axes = tuple(np.asarray(axis, dtype=np.float64) for axis in (xv, yv, zv))
+    dims = tuple(int(axis.size) for axis in axes)
+    if any(size < 2 for size in dims):
+        raise ValueError('stencil grid axes must contain at least two nodes')
+    indices = np.asarray(linear_indices, dtype=np.int64)
+    alpha = np.asarray(weights, dtype=np.float64)
+    target = np.asarray(exact_position_m, dtype=np.float64)
+    h = float(grid_spacing_m)
+    if indices.shape != (8,) or alpha.shape != (8,):
+        raise ValueError('trilinear stencil must contain exactly eight nodes/weights')
+    if target.shape != (3,) or not np.all(np.isfinite(target)):
+        raise ValueError('stencil exact position must be finite xyz')
+    if not math.isfinite(h) or h <= 0.0:
+        raise ValueError('stencil grid spacing must be finite/positive')
+    ngrid = math.prod(dims)
+    if np.any(indices < 0) or np.any(indices >= ngrid):
+        raise ValueError('stencil linear index outside grid')
+    if not np.all(np.isfinite(alpha)):
+        raise ValueError('stencil weights must be finite')
+
+    iyz = dims[1] * dims[2]
+    ix = indices // iyz
+    remainder = indices % iyz
+    iy = remainder // dims[2]
+    iz = remainder % dims[2]
+    grid_indices = np.column_stack((ix, iy, iz))
+    positions = np.column_stack(
+        (axes[0][ix], axes[1][iy], axes[2][iz])
+    )
+    reconstructed = np.sum(alpha[:, None] * positions, axis=0)
+    lower = np.min(positions, axis=0)
+    fractional = (target - lower) / h
+    reconstruction_error = float(np.linalg.norm(reconstructed - target))
+    core = {
+        'surrounding_linear_indices': [int(x) for x in indices],
+        'surrounding_grid_indices': [
+            [int(v) for v in row] for row in grid_indices
+        ],
+        'node_positions_m': [
+            [float(v) for v in row] for row in positions
+        ],
+        'interpolation_weights': [float(x) for x in alpha],
+        'weight_sum': float(np.sum(alpha)),
+        'fractional_cell_coordinate': [float(x) for x in fractional],
+        'reconstructed_coordinate_m': [float(x) for x in reconstructed],
+        'reconstruction_error_m': reconstruction_error,
+    }
+    return {**core, 'stencil_sha256': semantic_hash(core)}
+
+
+def plane_distance_metrics(
+    samples_m: Sequence[Sequence[float]],
+    *,
+    plane_point_m: Sequence[float],
+    plane_unit_normal: Sequence[float],
+    grid_spacing_m: float,
+) -> dict[str, Any]:
+    samples = np.asarray(samples_m, dtype=np.float64)
+    point = np.asarray(plane_point_m, dtype=np.float64)
+    normal = np.asarray(plane_unit_normal, dtype=np.float64)
+    h = float(grid_spacing_m)
+    if samples.ndim != 2 or samples.shape[1] != 3 or samples.shape[0] < 1:
+        raise ValueError('plane-distance metric requires one or more xyz samples')
+    if point.shape != (3,) or normal.shape != (3,):
+        raise ValueError('plane point/normal must be xyz')
+    norm = float(np.linalg.norm(normal))
+    if not math.isclose(norm, 1.0, rel_tol=0.0, abs_tol=1.0e-12):
+        raise ValueError('plane normal must be unit length')
+    if not math.isfinite(h) or h <= 0.0:
+        raise ValueError('plane-distance grid spacing must be finite/positive')
+    signed = (samples - point) @ normal
+    absolute = np.abs(signed)
+    rms = float(np.sqrt(np.mean(np.square(absolute))))
+    maximum = float(np.max(absolute))
+    return {
+        'sloped_boundary_sample_count': int(samples.shape[0]),
+        'sloped_signed_normal_distance_m': [float(x) for x in signed],
+        'sloped_rms_abs_normal_distance_m': rms,
+        'sloped_max_abs_normal_distance_m': maximum,
+        'sloped_rms_abs_normal_distance_over_h': rms / h,
+        'sloped_max_abs_normal_distance_over_h': maximum / h,
+    }
 
 
 def target_window_sampling_metadata(
