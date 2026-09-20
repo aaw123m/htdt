@@ -5,8 +5,10 @@ on:
     paths:
       - "backend/src/htdt/raw_mesh.py"
       - "backend/src/htdt/capture_mesh_ingestion.py"
+      - "backend/src/htdt/capture_ingestion_transaction.py"
       - "backend/tests/test_raw_mesh.py"
       - "backend/tests/test_capture_mesh_ingestion.py"
+      - "backend/tests/test_capture_ingestion_transaction.py"
       - ".github/workflows/capture-ingestion.yml"
   push:
     branches:
@@ -14,8 +16,10 @@ on:
     paths:
       - "backend/src/htdt/raw_mesh.py"
       - "backend/src/htdt/capture_mesh_ingestion.py"
+      - "backend/src/htdt/capture_ingestion_transaction.py"
       - "backend/tests/test_raw_mesh.py"
       - "backend/tests/test_capture_mesh_ingestion.py"
+      - "backend/tests/test_capture_ingestion_transaction.py"
       - ".github/workflows/capture-ingestion.yml"
 
 permissions:
@@ -31,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install focused test dependencies
-        run: python -m pip install "pydantic==2.13.4" "pytest==9.1.1"
+        run: python -m pip install "pydantic==2.13.4" "pytest==9.1.1" "shapely==2.1.2"
       - name: Run raw mesh and capture ingestion tests
         env:
           PYTHONPATH: backend/src
@@ -39,3 +43,4 @@ jobs:
           python -m pytest -q
           backend/tests/test_raw_mesh.py
           backend/tests/test_capture_mesh_ingestion.py
+          backend/tests/test_capture_ingestion_transaction.py
