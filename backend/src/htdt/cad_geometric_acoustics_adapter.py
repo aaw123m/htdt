@@ -1462,21 +1462,39 @@ def _segment_triangle_intersection_parameter(
     direction = _vector(start, end)
     edge1 = _vector(triangle[0], triangle[1])
     edge2 = _vector(triangle[0], triangle[2])
+    segment_length = _norm(direction)
+    edge1_length = _norm(edge1)
+    edge2_length = _norm(edge2)
+    if (
+        segment_length <= tolerance
+        or edge1_length <= tolerance
+        or edge2_length <= tolerance
+    ):
+        return None
+
+    geometry_scale = max(segment_length, edge1_length, edge2_length)
+    relative_tolerance = min(0.25, tolerance / geometry_scale)
+    endpoint_parameter_tolerance = min(0.25, tolerance / segment_length)
+
     pvec = _cross(direction, edge2)
     determinant = _dot(edge1, pvec)
-    if abs(determinant) <= tolerance:
+    determinant_scale = segment_length * edge1_length * edge2_length
+    if abs(determinant) <= determinant_scale * relative_tolerance:
         return None
     inv_det = 1.0 / determinant
     tvec = _vector(triangle[0], start)
     u = _dot(tvec, pvec) * inv_det
-    if u < -tolerance or u > 1.0 + tolerance:
+    if u < -relative_tolerance or u > 1.0 + relative_tolerance:
         return None
     qvec = _cross(tvec, edge1)
     v = _dot(direction, qvec) * inv_det
-    if v < -tolerance or u + v > 1.0 + tolerance:
+    if v < -relative_tolerance or u + v > 1.0 + relative_tolerance:
         return None
     t = _dot(edge2, qvec) * inv_det
-    if t <= tolerance or t >= 1.0 - tolerance:
+    if (
+        t <= endpoint_parameter_tolerance
+        or t >= 1.0 - endpoint_parameter_tolerance
+    ):
         return None
     return t
 
