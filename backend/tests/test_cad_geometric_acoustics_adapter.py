@@ -1174,6 +1174,7 @@ def _fixture(
     topology_preflight_ref = None
     if (
         room_policy == PORTAL_POLICY
+        and portal_specs is not None
         and maximum_portal_crossings is not None
         and not compiled.readiness.geometric_acoustics_geometry_ready
     ):
@@ -2105,7 +2106,7 @@ def test_multi_region_open_portal_direct_path_has_exact_ordered_region_sequence(
 
     assert fx['configuration'].maximum_reflection_order == 0
     assert fx['execution_input'].maximum_reflection_order == 0
-    assert artifact.path_scope == 'direct_single_portal_propagation'
+    assert artifact.path_scope == 'direct_bounded_portal_graph_propagation'
     assert len(artifact.paths) == 1
     path = artifact.paths[0]
     assert path.path_type == 'direct'
@@ -2267,3 +2268,201 @@ def test_nontrivial_boundary_termination_is_not_transmitted_as_portal(
     with pytest.raises(DeterministicGaUnsupportedError) as error:
         _portal_fixture(tmp_path, nontrivial_boundary_termination=True)
     assert error.value.reason_code == 'UNSUPPORTED_BOUNDARY_TERMINATION'
+
+
+def test_three_regions_two_portals_direct_path_preserves_exact_graph_order(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_chain_fixture(tmp_path, region_count=3)
+    artifact = _execute(fx)
+
+    graph = fx['execution_input'].portal_graph
+    assert graph is not None
+    assert graph.maximum_portal_crossings == 2
+    assert graph.traversal_policy == 'simple_region_path_v1'
+    assert graph.repeated_region_traversal is False
+    assert graph.repeated_portal_traversal is False
+    assert artifact.path_scope == 'direct_bounded_portal_graph_propagation'
+    assert len(artifact.paths) == 1
+
+    path = artifact.paths[0]
+    assert path.ordered_region_ids == ('region-0', 'region-1', 'region-2')
+    assert path.ordered_interactions is not None
+    portal_interactions = tuple(
+        item for item in path.ordered_interactions
+        if item.kind == 'portal_crossing'
+    )
+    assert tuple(item.portal_id for item in portal_interactions) == (
+        'fixture-portal-0-1',
+        'fixture-portal-1-2',
+    )
+    assert tuple(
+        (item.from_region_id, item.to_region_id)
+        for item in portal_interactions
+    ) == (
+        ('region-0', 'region-1'),
+        ('region-1', 'region-2'),
+    )
+    assert tuple(item.point.x_m for item in portal_interactions) == (2.0, 4.0)
+
+
+def test_four_regions_three_portals_direct_path_is_bounded_and_deterministic(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_chain_fixture(tmp_path, region_count=4)
+    first = _execute(fx)
+    second = _execute(fx)
+
+    assert second == first
+    assert second.artifact_id == first.artifact_id
+    assert len(first.paths) == 1
+    path = first.paths[0]
+    assert path.path_id == second.paths[0].path_id
+    assert path.ordered_region_ids == (
+        'region-0',
+        'region-1',
+        'region-2',
+        'region-3',
+    )
+    assert tuple(
+        item.portal_id
+        for item in path.ordered_interactions or ()
+        if item.kind == 'portal_crossing'
+    ) == (
+        'fixture-portal-0-1',
+        'fixture-portal-1-2',
+        'fixture-portal-2-3',
+    )
+
+
+def test_multi_portal_disconnected_directed_graph_fails_closed(
+    tmp_path: Path,
+) -> None:
+    def reverse_last(specs):
+        items = [dict(item) for item in specs]
+        last = items[-1]
+        last['region_ids'] = tuple(reversed(last['region_ids']))
+        last['reverse'] = True
+        return items
+
+    fx = _portal_chain_fixture(
+        tmp_path,
+        region_count=3,
+        portal_specs_transform=reverse_last,
+    )
+    artifact = _execute(fx)
+
+    assert artifact.paths == ()
+    assert any(
+        item.decision == 'DISCONNECTED_REGION_GRAPH'
+        and 'no directed simple Portal path' in item.reason
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_multi_portal_wrong_explicit_adjacency_fails_closed(
+    tmp_path: Path,
+) -> None:
+    def wrong_adjacency(specs):
+        items = [dict(item) for item in specs]
+        items[1]['region_ids'] = ('region-0', 'region-2')
+        return items
+
+    with pytest.raises(
+        ValueError,
+        match='Portal aperture surfaces|Portal adjacency',
+    ):
+        _portal_chain_fixture(
+            tmp_path,
+            region_count=3,
+            portal_specs_transform=wrong_adjacency,
+        )
+
+
+def test_multi_portal_aperture_miss_fails_closed(tmp_path: Path) -> None:
+    fx = _portal_chain_fixture(
+        tmp_path,
+        region_count=3,
+        receiver_position=Position3(x_m=5.0, y_m=0.2, z_m=1.0),
+    )
+    artifact = _execute(fx)
+
+    assert artifact.paths == ()
+    assert any(
+        item.decision == 'INVALID_PORTAL_CROSSING'
+        and 'fixture-portal-0-1' in item.reason
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_multi_portal_crossing_limit_fails_closed_with_explicit_reason(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_chain_fixture(
+        tmp_path,
+        region_count=4,
+        maximum_portal_crossings=2,
+    )
+    artifact = _execute(fx)
+
+    assert artifact.paths == ()
+    assert any(
+        item.decision == 'PORTAL_CROSSING_LIMIT_EXCEEDED'
+        and 'maximum_portal_crossings=2' in item.reason
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_multi_portal_execution_input_and_artifact_save_reopen_exact_identity(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_chain_fixture(tmp_path, region_count=3)
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    reopened_scene = SceneRepository(fx['scene_repository'].path)
+    reopened = CadDeterministicPathArtifactRepository(
+        reopened_scene,
+        snapshot_repository=CadAcousticSnapshotRepository(reopened_scene),
+        dispatch_repository=CadAcousticSolverDispatchRepository(
+            reopened_scene,
+            external_authority_resolver=fx['external_resolver'],
+        ),
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    assert reopened.get_execution_input(
+        fx['execution_input'].execution_input_id
+    ) == fx['execution_input']
+    assert reopened.get(artifact.artifact_id) == artifact
+
+
+def test_stale_multi_portal_authority_does_not_reopen_as_current(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_chain_fixture(tmp_path, region_count=3)
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    fx['geometry_authorities'].pop(fx['portals'].authority_id)
+    with pytest.raises(ValueError, match='portal exact authority'):
+        repository.get(artifact.artifact_id)
