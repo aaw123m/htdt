@@ -1,0 +1,262 @@
+{
+  "schema_version": "r100b-mfem-gl2-four-substeps-evidence-1",
+  "issue": 101,
+  "pull_request": 289,
+  "experiment": "exact 4 GL2 substeps per output interval",
+  "task_start_main_sha": "c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96",
+  "frozen_plan_commit_sha": "ba596ec0144b61874fbaaf1df9e1a5094778b44d",
+  "experiment_head_sha": "f97831f5008776f685bfa224446c2e81a2d463e6",
+  "actions_checkout_merge_sha": "84db5ccfaf9b6ebbd44f933afe2791c8703e9277",
+  "github_actions": {
+    "workflow_name": "R100B MFEM GL2 Exact Four Substeps",
+    "run_id": 35517017844,
+    "run_attempt": 1,
+    "conclusion": "success",
+    "artifact_id": 10607427093,
+    "artifact_digest": "sha256:462e74730a2ff079e9f619edd909f42c22223d388de522c6d3e701a56c057d76",
+    "artifact_size_bytes": 2131813,
+    "focused_tests": "14 passed",
+    "ordinary_ci_run_id": 35517017855,
+    "ordinary_ci": "1091 passed, 2 skipped",
+    "ordinary_ci_conclusion": "success",
+    "windows_release_run_id": 35517017872,
+    "windows_release": "success"
+  },
+  "changed_variable": {
+    "substeps_per_output_interval": 4,
+    "adaptive_stepping": false,
+    "rate_specific_hidden_heuristic": false
+  },
+  "frozen_authority": {
+    "plan_file_sha256": "7eb0e56ff92fb4a755ef4feac99570699a11a2336f91e71708158eebc37f25ce",
+    "spatial_system_configuration_sha256": "908005a1f9b7aa431d7b20e9ccdb84ae58cbc77e0ab6f0f36d20fc9d52f9de49",
+    "semidiscrete_system_numeric_identity_sha256": "f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d",
+    "integrator_configuration_sha256": "57fb31f41af617db111c649ef3ba25ced2b09e3af15f2922479760f2f922ace2",
+    "output_grid_configuration_sha256": "4437d61b18add95c918ac7a08bd1c02bb14770189023d664b4239a807064d8e4",
+    "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "h1_order": 2,
+    "uniform_refinements": 1,
+    "elements": 40,
+    "ndofs": 525,
+    "output_sample_rates_hz": [6000, 9000, 12000],
+    "observation_time_s": 2.0,
+    "scored_frequency_hz": {"start": 20.0, "stop": 300.0, "step": 1.0},
+    "null_masks_db": {"magnitude": -60.0, "phase": -40.0},
+    "tolerance": {
+      "magnitude_abs_db": 0.75,
+      "magnitude_relative": 0.05,
+      "phase_deg": 8.0
+    },
+    "modal_reference_identity": {
+      "reference_kind": "diagnostic_full_basis_modal_pr277",
+      "pull_request": 277,
+      "modal_plan_file_sha256": "15c1faf1e24ef99910912666d476ba784b7724edcb58517e3f62c40415e624de",
+      "expected_basis_size": 525,
+      "expected_system_numeric_identity_sha256": "f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d"
+    }
+  },
+  "mass_factorization": {
+    "factorization_identity_sha256": "7de6afb5a1ded6155a8912f80f1b28ec7ddead61ea9b97453ea85534da8b81f3",
+    "matrix_nnz": 23409,
+    "lu_nnz": 58309,
+    "factor_storage_mb": 0.6753120422363281,
+    "factorization_s": 0.0027305000000978907
+  },
+  "attempts": [
+    {
+      "attempt_id": "transient-6000",
+      "sample_rate_hz": 6000,
+      "output_interval_s": 0.00016666666666666666,
+      "internal_rate_hz": 24000,
+      "internal_step_s": 0.000041666666666666665,
+      "output_sample_count": 12000,
+      "internal_step_count": 47996,
+      "solve_s": 16.326872700000195,
+      "factorization_s": 0.012592799999993076,
+      "peak_ram_mb": 98.4296875,
+      "output_mb": 1.7752447128295898,
+      "denominator_nnz": 93636,
+      "lu_nnz": 318540,
+      "factor_storage_mb": 3.6614303588867188,
+      "mass_solve_relative_residual": 7.959244108169284e-16,
+      "max_checked_step_relative_residual": 5.051364627304269e-15,
+      "factorization_identity_sha256": "bf08622a870bc62f066769c836ffc640160952f0aa6600b8f2e4a64ead1e98a5",
+      "pressure_record_sha256": "39bb2a73937a13c630c3598a1eba39316477d59751c90751416c900072506606",
+      "raw_output_sha256": "d53e111e657fb9e1c682b642cb17b822b6276cffcd6c650d17038d32991fed91"
+    },
+    {
+      "attempt_id": "transient-9000",
+      "sample_rate_hz": 9000,
+      "output_interval_s": 0.00011111111111111112,
+      "internal_rate_hz": 36000,
+      "internal_step_s": 0.00002777777777777778,
+      "output_sample_count": 18000,
+      "internal_step_count": 71996,
+      "solve_s": 23.04269619999991,
+      "factorization_s": 0.01008189999993192,
+      "peak_ram_mb": 100.234375,
+      "output_mb": 2.7057056427001953,
+      "denominator_nnz": 93636,
+      "lu_nnz": 317308,
+      "factor_storage_mb": 3.6473312377929688,
+      "mass_solve_relative_residual": 7.743097034034262e-16,
+      "max_checked_step_relative_residual": 3.807959107712868e-15,
+      "factorization_identity_sha256": "c507b97d0775c7da4c132e9f4c855a139962886acdcaedded7214120a2bb84ae",
+      "pressure_record_sha256": "5f4e0a0d8ee1943ab52072df4f9aa4bb9ec2b55d4704052280ecdb23cc7be02a",
+      "raw_output_sha256": "2acd1a69e5efdd80cb89a9ad269e6d003d6434b7f01108ca9f7f29a0c44306a8"
+    },
+    {
+      "attempt_id": "transient-12000",
+      "sample_rate_hz": 12000,
+      "output_interval_s": 0.00008333333333333333,
+      "internal_rate_hz": 48000,
+      "internal_step_s": 0.000020833333333333333,
+      "output_sample_count": 24000,
+      "internal_step_count": 95996,
+      "solve_s": 31.916056900000058,
+      "factorization_s": 0.010645299999850977,
+      "peak_ram_mb": 100.15234375,
+      "output_mb": 3.565042495727539,
+      "denominator_nnz": 93636,
+      "lu_nnz": 318552,
+      "factor_storage_mb": 3.6615676879882812,
+      "mass_solve_relative_residual": 7.959244108169284e-16,
+      "max_checked_step_relative_residual": 3.0307745148551053e-15,
+      "factorization_identity_sha256": "463ce72019d6570eff9a50408946e84b224a1af5e2ccea625d4650be41af8e30",
+      "pressure_record_sha256": "bee2e8af3cf05fc478a77fb447de3cc37b0e1c9d3d1a9d1530ac8ddc681da1ef",
+      "raw_output_sha256": "217ac8044d4c5d518bece37b26584c1c3a14043b52ee6fcf40021dbb14ecd872"
+    }
+  ],
+  "adjacent_rate_metrics": [
+    {
+      "pair": "6000->9000",
+      "complex_rms_relative": 0.0036429502290525754,
+      "magnitude_max_abs_db": 0.927224931134063,
+      "magnitude_max_relative": 0.10125031030884701,
+      "phase_max_error_deg": 4.713124681601158
+    },
+    {
+      "pair": "9000->12000",
+      "complex_rms_relative": 0.0018655810185675176,
+      "magnitude_max_abs_db": 0.4441933257900743,
+      "magnitude_max_relative": 0.049854023310265214,
+      "phase_max_error_deg": 2.4155423751608396
+    }
+  ],
+  "modal_reference_metrics": [
+    {
+      "sample_rate_hz": 6000,
+      "complex_rms_relative": 0.0001364589841954921,
+      "magnitude_max_abs_db": 0.020930150271695425,
+      "magnitude_max_relative": 0.002406771670031038,
+      "phase_max_error_deg": 0.2096309359745021
+    },
+    {
+      "sample_rate_hz": 9000,
+      "complex_rms_relative": 0.000028682314025835826,
+      "magnitude_max_abs_db": 0.004512258499431709,
+      "magnitude_max_relative": 0.0005193580447236846,
+      "phase_max_error_deg": 0.03940598216723856
+    },
+    {
+      "sample_rate_hz": 12000,
+      "complex_rms_relative": 0.000009337470653150653,
+      "magnitude_max_abs_db": 0.0014683690560701734,
+      "magnitude_max_relative": 0.00016903794645278607,
+      "phase_max_error_deg": 0.01207702170162861
+    }
+  ],
+  "historical_comparison": [
+    {
+      "pull_request": 281,
+      "substeps_per_output_interval": 1,
+      "final_9000_to_12000": {
+        "complex_rms_relative": 0.006045915824738044,
+        "magnitude_max_abs_db": 0.972198239243518,
+        "magnitude_max_relative": 0.10589177908375282,
+        "phase_max_error_deg": 9.03055141893384
+      },
+      "total_transient_factorization_s": 0.030653600000050574,
+      "total_transient_stepping_s": 17.98989840000013,
+      "total_transient_solve_s": 18.02055200000018,
+      "max_attempt_peak_ram_mb": 103.125,
+      "experiment_work_disk_mb": 17.295719146728516,
+      "artifact_id": 10604223015,
+      "artifact_digest": "sha256:ca695b32aba6d752f29cb98ea6894513a9b8612ee4c5140525fbc1804418151d"
+    },
+    {
+      "pull_request": 285,
+      "substeps_per_output_interval": 2,
+      "final_9000_to_12000": {
+        "complex_rms_relative": 0.0021109373503622043,
+        "magnitude_max_abs_db": 0.489040528307882,
+        "magnitude_max_relative": 0.054747197619303606,
+        "phase_max_error_deg": 2.662964185569308
+      },
+      "total_transient_factorization_s": 0.029762399999981426,
+      "total_transient_stepping_s": 35.12919000000056,
+      "total_transient_solve_s": 35.158952400000544,
+      "max_attempt_peak_ram_mb": 103.44140625,
+      "experiment_work_disk_mb": 17.297069549560547,
+      "artifact_id": 10605416313,
+      "artifact_digest": "sha256:dd039ca4c547897659cb3a0d03dad629bdea80982f73ea91877c83536af89425"
+    },
+    {
+      "pull_request": 289,
+      "substeps_per_output_interval": 4,
+      "final_9000_to_12000": {
+        "complex_rms_relative": 0.0018655810185675176,
+        "magnitude_max_abs_db": 0.4441933257900743,
+        "magnitude_max_relative": 0.049854023310265214,
+        "phase_max_error_deg": 2.4155423751608396
+      },
+      "total_transient_factorization_s": 0.03331999999977597,
+      "total_transient_stepping_s": 71.28562580000016,
+      "total_transient_solve_s": 71.31894579999994,
+      "max_attempt_peak_ram_mb": 100.234375,
+      "experiment_work_disk_mb": 17.29702091217041,
+      "artifact_id": 10607427093,
+      "artifact_digest": "sha256:462e74730a2ff079e9f619edd909f42c22223d388de522c6d3e701a56c057d76"
+    }
+  ],
+  "resource_evidence": {
+    "native_mfem_build_s": 943.2363632,
+    "total_transient_factorization_s": 0.03331999999977597,
+    "total_transient_stepping_s": 71.28562580000016,
+    "total_transient_solve_s": 71.31894579999994,
+    "total_internal_steps": 215988,
+    "max_attempt_peak_ram_mb": 100.234375,
+    "observed_reporting_process_rss_mb": 94.95703125,
+    "experiment_work_disk_mb": 17.29702091217041,
+    "stepping_time_ratio_vs_pr281": 3.962536319827112,
+    "stepping_time_ratio_vs_pr285": 2.029241943807956
+  },
+  "decision": {
+    "workflow_execution": "PASS",
+    "numerical_convergence": "PASS",
+    "modal_reference_agreement": "PASS",
+    "current_r100a_tolerance": "PASS",
+    "execution_suitability": "PASS",
+    "overall_experiment": "PASS",
+    "production_adoption": "NO_GO",
+    "violations": [],
+    "deterministic_report_identity_sha256": "babd0923af9f54140e702734ab552f00770acc7c063c4581d2f50eb552a30369"
+  },
+  "hard_rules": {
+    "tolerance_changed": false,
+    "null_mask_changed": false,
+    "frequency_exclusion_after_result": false,
+    "mode_exclusion_after_result": false,
+    "normalization_changed": false,
+    "phasor_convention_changed": false,
+    "record_duration_changed": false,
+    "source_receiver_changed": false,
+    "spatial_refinement_changed": false,
+    "h2_retry_used": false,
+    "adaptive_stepping": false,
+    "hidden_rate_specific_tuning": false,
+    "production_claim_manually_promoted": false,
+    "htdt_capture_changed": false,
+    "rdc_usage_count": 0
+  }
+}
