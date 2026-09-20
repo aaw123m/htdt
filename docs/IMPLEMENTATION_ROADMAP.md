@@ -325,3 +325,7 @@ Issue #166の子Issue #167–#176は、独立できるgeometry/report/measuremen
 ### Issue #166 completion rule
 
 本節とPROJECT_PLANから#167–#176のscope、依存、状態、残gateへ到達できることをcanonical trackingとする。子Issueの実装完了は、それぞれのfocused fixture / persistence / exact reopen evidenceで判定し、Windows実機・solver numerical validation・owned-room evidenceを一括の「完成」へ混ぜない。
+
+### O100G MeasurementPlan / Campaign backend — 2026-09-20
+
+SystemVariant → applied SceneRevision → explicit AsBuilt → SystemVariant-specific MeasurementPlan → preregistered Campaign → exact Measurement/Dataset/AcquisitionContext/Quality evidence → existing measured lifecycle is implemented. Evidence mismatches and pre-campaign captures fail closed. O60 model-validation authority remains independent and cannot be bypassed. O100G overall remains partial because workflow UX/ghost-badge/measured-comparison/UX160 acceptance are still pending.

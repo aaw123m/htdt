@@ -868,3 +868,11 @@ Prediction-vs-measurement validation
 ```
 
 The key distinction is that a proposal is useful before hardware exists, but becomes a strong real-room recommendation only when the relevant model/evidence gates support the claim.
+
+## 25. O100G SystemVariant-specific MeasurementPlan / Campaign — 2026-09-20
+
+The backend workflow now preserves the exact chain from a proposed SystemVariant through application and explicit AsBuilt state into preregistered measurement plans/campaigns. Exact measurement point, source/channel role, AcquisitionContext, quality capability and capture-time matching are required before the existing measured lifecycle authority can be materialized. Generic N60 imports do not auto-promote a variant, and measured state does not imply O60 validation or recommendation eligibility.
+
+This is backend completion for the MeasurementPlan/Campaign slice only. O100G remains partial until Room/Optimize UX, proposal ghost/badge, measured comparison and UX160 owned-Windows visual acceptance are completed.
+
+See [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md).

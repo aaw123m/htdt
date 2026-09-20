@@ -459,3 +459,20 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - exact exported settingsを参照するVerificationMeasurementPlan foundationとbefore/after Measurement lineageを実装。
 - all-pass correction、coherent inter-channel phase correction、proprietary adapters、advanced PEQ generation、#174 joint optimization、owned-room production recommendation enablementはdeferred。
 - 詳細: [CalibrationPlan authority](CALIBRATION_PLAN.md)
+
+### Issue #142 / O100G MeasurementPlan / Campaign — 2026-09-20
+
+- exact SystemVariant/Application/applied-revision binding: implemented
+- exact AsBuilt record and actual revision binding: implemented
+- preregistered target/channel/source/measurement-point plan: implemented
+- campaign immutable exact plan-set binding: implemented
+- capture-time, AcquisitionContext and quality-capability matching: implemented
+- optional required-band gate via existing MeasurementQualityReport authority: implemented
+- plan/campaign append-only completion and save/reopen validation: implemented
+- measured lifecycle transition: reuses existing SystemVariantMeasuredRecord
+- generic N60 measurement auto-promotion: prohibited
+- O60 validation/recommendation implication: none
+- O100G overall status: partial; workflow UX/ghost-badge/measured comparison/UX160 remain
+- RDC: not used
+
+Details: [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md).
