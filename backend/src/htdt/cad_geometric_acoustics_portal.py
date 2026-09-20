@@ -264,9 +264,6 @@ def compile_single_portal_aperture(
         raise ValueError(
             'two-region topology is ambiguous: shared boundary surfaces must exactly equal Portal surfaces'
         )
-    if compiled_geometry.closed_shell_diagnostics.non_manifold_edge_count:
-        raise ValueError('compiled geometry contains non-manifold topology')
-
     vertices = tuple(_compiled_vertex(compiled_geometry, index) for index in ordered_indices)
     raw_normal = _newell_normal(vertices)
     if _norm(raw_normal) <= tolerance_m * tolerance_m:
@@ -305,11 +302,14 @@ def compile_single_portal_aperture(
         'normal_from_to': _direction(normal).model_dump(mode='json'),
     }
     digest = _semantic_hash(core)
-    return GeometricPortalAperture(
+    aperture = GeometricPortalAperture(
         aperture_id=f'r150-portal-aperture:{digest}',
         semantic_sha256=digest,
         **core,
     )
+    for region in region_authority.declarations:
+        _validate_region_shell_manifold(compiled_geometry, region, aperture)
+    return aperture
 
 
 def _triangle_points(
@@ -404,6 +404,43 @@ def _portal_cap_triangles(
         (vertices[0], vertices[index], vertices[index + 1])
         for index in range(1, len(vertices) - 1)
     )
+
+
+def _validate_region_shell_manifold(
+    compiled_geometry: R120CompiledGeometry,
+    region: AcousticRegionDeclaration,
+    aperture: GeometricPortalAperture,
+) -> None:
+    """Require each region shell, closed by the exact Portal cap, to be manifold."""
+
+    surface_ids = set(region.boundary_surface_ids)
+    edge_counts: dict[tuple[int, int], int] = {}
+    for triangle in compiled_geometry.triangles:
+        if triangle.source_surface_id not in surface_ids:
+            continue
+        for a, b in (
+            (int(triangle.a), int(triangle.b)),
+            (int(triangle.b), int(triangle.c)),
+            (int(triangle.c), int(triangle.a)),
+        ):
+            edge = _normalized_edge(a, b)
+            edge_counts[edge] = edge_counts.get(edge, 0) + 1
+
+    loop = aperture.ordered_vertex_indices
+    for index in range(1, len(loop) - 1):
+        for a, b in (
+            (loop[0], loop[index]),
+            (loop[index], loop[index + 1]),
+            (loop[index + 1], loop[0]),
+        ):
+            edge = _normalized_edge(int(a), int(b))
+            edge_counts[edge] = edge_counts.get(edge, 0) + 1
+
+    if not edge_counts or any(count != 2 for count in edge_counts.values()):
+        raise ValueError(
+            f'acoustic region {region.region_id} is not a closed manifold when '
+            'the exact Portal aperture is capped'
+        )
 
 
 def region_membership_with_portal_cap(
