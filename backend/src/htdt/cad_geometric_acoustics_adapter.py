@@ -484,7 +484,11 @@ class DeterministicGaSourceInput(BaseModel):
     source_axis: Direction3
     directivity_dataset_id: str = Field(min_length=1)
     directivity_dataset_version: str = Field(min_length=1)
-    directivity_dataset_sha256: str = Field(pattern=r'^[0-9a-f]{64}(BaseModel):
+    directivity_dataset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    acoustic_region_id: str | None = None
+
+
+class DeterministicGaReceiverInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     receiver_id: str = Field(min_length=1)
