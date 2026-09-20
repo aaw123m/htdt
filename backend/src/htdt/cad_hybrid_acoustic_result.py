@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from contextlib import closing
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -39,13 +39,7 @@ HybridPhaseCapability = Literal[
     'UNAVAILABLE_NOT_SYNTHESIZED',
     'NOT_APPLICABLE',
 ]
-HybridEvidenceState = Literal[
-    'EXECUTED_UNVALIDATED',
-    'VALIDATED',
-    'UNAVAILABLE',
-    'UNSUPPORTED',
-    'NOT_PROVIDED',
-]
+HybridEvidenceState = Literal['EXECUTED_UNVALIDATED']
 LateEnergyDecayState = Literal[
     'AVAILABLE',
     'UNAVAILABLE',
@@ -1039,10 +1033,6 @@ def build_hybrid_acoustic_result(
     stitching_policy: HybridStitchingPolicy,
     deterministic_path_artifacts: Sequence[DeterministicPathArtifact] = (),
     external_payload_resolver: ExternalPayloadResolver,
-    validation_evidence_by_result_id: Mapping[
-        str,
-        HybridEvidenceState,
-    ] | None = None,
     late_energy_decay_state: Literal[
         'UNAVAILABLE',
         'UNSUPPORTED',
@@ -1101,17 +1091,6 @@ def build_hybrid_acoustic_result(
         ):
             raise ValueError(
                 'R160 prediction requests must bind the same exact snapshot'
-            )
-
-    evidence = dict(validation_evidence_by_result_id or {})
-    for result_id, state in evidence.items():
-        if result_id not in {item.result_id for item in results}:
-            raise ValueError(
-                'validation evidence references a non-participating result'
-            )
-        if state in {'UNAVAILABLE', 'UNSUPPORTED', 'NOT_PROVIDED'}:
-            raise ValueError(
-                'participating solver result cannot use unavailable evidence state'
             )
 
     coherent_candidates: list[
@@ -1188,10 +1167,7 @@ def build_hybrid_acoustic_result(
             result=result,
             artifact=artifact,
             payload_resolver=external_payload_resolver,
-            evidence_state=evidence.get(
-                result.result_id,
-                'EXECUTED_UNVALIDATED',
-            ),
+            evidence_state='EXECUTED_UNVALIDATED',
         )
 
     path_by_ref = {
@@ -1215,10 +1191,7 @@ def build_hybrid_acoustic_result(
             result=result,
             artifact_manifest=artifact_manifest,
             path_artifact=path_artifact,
-            evidence_state=evidence.get(
-                result.result_id,
-                'EXECUTED_UNVALIDATED',
-            ),
+            evidence_state='EXECUTED_UNVALIDATED',
         )
 
     if late_candidates:
@@ -1226,10 +1199,7 @@ def build_hybrid_acoustic_result(
         late = _late_component(
             result=result,
             artifact=artifact,
-            evidence_state=evidence.get(
-                result.result_id,
-                'EXECUTED_UNVALIDATED',
-            ),
+            evidence_state='EXECUTED_UNVALIDATED',
         )
     else:
         late = LateEnergyDecay(
@@ -1479,10 +1449,6 @@ class CadHybridAcousticResultRepository:
                 )
             path_artifacts.append(path)
 
-        evidence: dict[str, HybridEvidenceState] = {}
-        for validity in hybrid._available_validities():
-            evidence[validity.solver_result_id] = validity.evidence_state
-
         regenerated = build_hybrid_acoustic_result(
             snapshot=snapshot,
             prediction_requests=requests,
@@ -1490,7 +1456,6 @@ class CadHybridAcousticResultRepository:
             stitching_policy=policy,
             deterministic_path_artifacts=path_artifacts,
             external_payload_resolver=self.external_payload_resolver,
-            validation_evidence_by_result_id=evidence,
             late_energy_decay_state=(
                 'NOT_PROVIDED'
                 if hybrid.late_energy_decay.state == 'AVAILABLE'
