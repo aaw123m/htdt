@@ -595,7 +595,6 @@ def _pair_metrics(
         coarse = details[coarse_id]
         fine = details[fine_id]
         raw = baseline._pair_metrics(
-            fixture,
             {
                 'level_id': coarse_id,
                 'order': plan.spatial_system.h1_order,
