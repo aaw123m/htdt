@@ -33,8 +33,8 @@ import run_r100b_mfem_finite_record_reference as baseline
 import run_r100b_mfem_modal_experiment as modal_runner
 
 
-ARTIFACT_SCHEMA = 'r100b-mfem-transient-experiment-artifact-1'
-RAW_SCHEMA = 'r100b-mfem-transient-finite-record-raw-1'
+ARTIFACT_SCHEMA = 'r100b-mfem-transient-experiment-artifact-2'
+RAW_SCHEMA = 'r100b-mfem-transient-finite-record-raw-2'
 
 
 class ExperimentBlocked(RuntimeError):
@@ -315,7 +315,10 @@ def _run_transient_attempt(
 ) -> tuple[ExperimentAttemptResult, dict[str, object]]:
     cfg = plan.integrator
     dt_s = 1.0 / float(spec.sample_rate_hz)
+    substeps_per_output_interval = cfg.substeps_per_output_interval
+    internal_step_s = dt_s / float(substeps_per_output_interval)
     sample_count = int(round(float(fixture.comparison.observation_time_s) * spec.sample_rate_hz))
+    expected_internal_step_count = (sample_count - 1) * substeps_per_output_interval
     sound_speed = float(fixture.environment.sound_speed_m_s)
     density = float(fixture.environment.density_kg_m3)
     source_amplitude = float(fixture.sources[0].amplitude)
@@ -337,7 +340,7 @@ def _run_transient_attempt(
             f'initial sparse mass solve residual {mass_residual} exceeds frozen tolerance'
         )
 
-    denominator, numerator = _build_pade_blocks(mass, stiffness, dt_s)
+    denominator, numerator = _build_pade_blocks(mass, stiffness, internal_step_s)
     denominator_hash = _sparse_numeric_hash(denominator)
     factor_started = time.perf_counter()
     try:
@@ -352,7 +355,10 @@ def _run_transient_attempt(
         'integrator_configuration_sha256': plan.integrator_configuration_hash(),
         'attempt_id': spec.attempt_id,
         'sample_rate_hz': spec.sample_rate_hz,
-        'dt_s': dt_s,
+        'output_interval_s': dt_s,
+        'substeps_per_output_interval': substeps_per_output_interval,
+        'internal_step_s': internal_step_s,
+        'internal_step_fraction_of_output_interval': f'1/{substeps_per_output_interval}',
         'denominator_sparse_numeric_sha256': denominator_hash,
         'denominator_shape': list(denominator.shape),
         'denominator_nnz': int(denominator.nnz),
@@ -372,40 +378,51 @@ def _run_transient_attempt(
     pressures = np.empty(sample_count, dtype=np.float64)
     max_residual = 0.0
     checked_residuals = 0
+    internal_step_count = 0
 
     solve_started = time.perf_counter()
     for index in range(sample_count):
         pressures[index] = density * float(receiver @ state[mass.shape[0] :])
         if index + 1 == sample_count:
             break
-        rhs = numerator @ state
-        try:
-            next_state = step_lu.solve(rhs)
-        except Exception as exc:
-            raise ExperimentBlocked(
-                f'Padé sparse step solve failed at {index}: {type(exc).__name__}: {exc}'
-            ) from exc
-        if not np.all(np.isfinite(next_state)):
-            raise ExperimentBlocked(f'Padé sparse step produced non-finite state at {index}')
-        step_number = index + 1
-        if (
-            step_number % cfg.residual_check_interval_steps == 0
-            or step_number == sample_count - 1
-        ):
-            residual = denominator @ next_state - rhs
-            relative = float(
-                np.linalg.norm(residual) / max(float(np.linalg.norm(rhs)), 1e-30)
-            )
-            if not math.isfinite(relative):
-                raise ExperimentBlocked('Padé sparse step residual is non-finite')
-            max_residual = max(max_residual, relative)
-            checked_residuals += 1
-            if relative > cfg.residual_relative_tolerance:
+        for substep_index in range(substeps_per_output_interval):
+            rhs = numerator @ state
+            try:
+                next_state = step_lu.solve(rhs)
+            except Exception as exc:
                 raise ExperimentBlocked(
-                    f'Padé sparse step residual {relative} exceeds frozen tolerance'
+                    'Padé sparse internal step solve failed at '
+                    f'output={index} substep={substep_index}: {type(exc).__name__}: {exc}'
+                ) from exc
+            if not np.all(np.isfinite(next_state)):
+                raise ExperimentBlocked(
+                    f'Padé sparse internal step produced non-finite state at '
+                    f'output={index} substep={substep_index}'
                 )
-        state = next_state
+            internal_step_count += 1
+            if (
+                internal_step_count % cfg.residual_check_interval_steps == 0
+                or internal_step_count == expected_internal_step_count
+            ):
+                residual = denominator @ next_state - rhs
+                relative = float(
+                    np.linalg.norm(residual) / max(float(np.linalg.norm(rhs)), 1e-30)
+                )
+                if not math.isfinite(relative):
+                    raise ExperimentBlocked('Padé sparse internal-step residual is non-finite')
+                max_residual = max(max_residual, relative)
+                checked_residuals += 1
+                if relative > cfg.residual_relative_tolerance:
+                    raise ExperimentBlocked(
+                        f'Padé sparse internal-step residual {relative} exceeds frozen tolerance'
+                    )
+            state = next_state
     solve_s = time.perf_counter() - solve_started
+    if internal_step_count != expected_internal_step_count:
+        raise ExperimentBlocked(
+            f'exact substep contract violated: {internal_step_count} != '
+            f'{expected_internal_step_count}'
+        )
 
     if not np.all(np.isfinite(pressures)):
         raise ExperimentBlocked('transient pressure record contains non-finite samples')
@@ -426,7 +443,10 @@ def _run_transient_attempt(
             'factorization_identity_sha256': factorization_identity,
             'attempt_id': spec.attempt_id,
             'sample_rate_hz': spec.sample_rate_hz,
-            'dt_s': dt_s,
+            'output_interval_s': dt_s,
+            'substeps_per_output_interval': substeps_per_output_interval,
+            'internal_step_s': internal_step_s,
+            'internal_step_count': internal_step_count,
             'pressure_record_sha256': pressure_record_sha256,
         }
     )
@@ -447,6 +467,12 @@ def _run_transient_attempt(
         'pressure_mapping': 'p(t)=rho*r.T*phi_t(t)',
         'sample_rate_hz': spec.sample_rate_hz,
         'dt_s': dt_s,
+        'output_interval_s': dt_s,
+        'substeps_per_output_interval': substeps_per_output_interval,
+        'substep_policy': cfg.substep_policy,
+        'internal_step_s': internal_step_s,
+        'internal_step_fraction_of_output_interval': f'1/{substeps_per_output_interval}',
+        'internal_step_count': internal_step_count,
         'record_interval': plan.numerical_contract.record_interval,
         'observation_time_s': float(fixture.comparison.observation_time_s),
         'sample_count': sample_count,
@@ -507,6 +533,10 @@ def _run_transient_attempt(
         reason_code=reason_code,
         reason=reason,
         sample_rate_hz=spec.sample_rate_hz,
+        output_interval_s=dt_s,
+        substeps_per_output_interval=substeps_per_output_interval,
+        internal_step_s=internal_step_s,
+        internal_step_count=internal_step_count,
         numerical_identity_sha256=numerical_identity if status == 'COMPLETED' else None,
         pressure_record_sha256=pressure_record_sha256 if status == 'COMPLETED' else None,
         sample_count=sample_count,
@@ -529,6 +559,10 @@ def _run_transient_attempt(
         'raw_output_path': raw_path.as_posix(),
         'raw_output_sha256': _sha256_file(raw_path),
         'dt_s': dt_s,
+        'output_interval_s': dt_s,
+        'substeps_per_output_interval': substeps_per_output_interval,
+        'internal_step_s': internal_step_s,
+        'internal_step_count': internal_step_count,
         'transfer_samples': transfer_samples,
         'pressure_record_sha256': pressure_record_sha256,
         'factorization': raw['factorization'],
@@ -916,6 +950,15 @@ def main(argv: list[str] | None = None) -> int:
                 item.factorization_s or 0.0 for item in attempt_results
             ),
             'total_transient_stepping_s': sum(item.solve_s or 0.0 for item in attempt_results),
+            'total_internal_steps': sum(item.internal_step_count or 0 for item in attempt_results),
+            'substeps_per_output_interval': plan.integrator.substeps_per_output_interval,
+            'nominal_internal_step_multiplier_vs_pr281': float(
+                plan.integrator.substeps_per_output_interval
+            ),
+            'factorization_reuse': (
+                'one sparse Padé denominator factorization per output rate, reused for '
+                'every internal half-step'
+            ),
             'resource_ceiling': plan.resource_ceiling.model_dump(mode='json'),
         },
         'production_readiness': {
@@ -939,6 +982,9 @@ def main(argv: list[str] | None = None) -> int:
             'r100a_authority_changed': False,
             'r100a_tolerance_changed': False,
             'spatial_p2_h1_system_changed': False,
+            'output_sampling_contract_changed': False,
+            'substeps_per_output_interval': plan.integrator.substeps_per_output_interval,
+            'adaptive_stepping_used': False,
             'dense_inverse_generated': False,
             'candidate_dense_eigendecomposition_used': False,
             'diagnostic_reference_dense_eigendecomposition_used': bool(modal_reference_evidence),
