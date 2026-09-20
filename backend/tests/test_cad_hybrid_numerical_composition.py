@@ -52,6 +52,7 @@ from htdt.cad_hybrid_grid_reconciliation import (
     HybridNumericalCompositionError,
     HybridNumericalFailureCode,
     build_frequency_grid_reconciliation_authority,
+    build_hybrid_crossover_configuration_authority,
 )
 from htdt.cad_hybrid_numerical_composition import (
     COMMON_PHASOR_CONVENTION,
