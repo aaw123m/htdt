@@ -329,3 +329,10 @@ Issue #166の子Issue #167–#176は、独立できるgeometry/report/measuremen
 ### O100G MeasurementPlan / Campaign backend — 2026-09-20
 
 SystemVariant → applied SceneRevision → explicit AsBuilt → SystemVariant-specific MeasurementPlan → preregistered Campaign → exact Measurement/Dataset/AcquisitionContext/Quality evidence → existing measured lifecycle is implemented. Evidence mismatches and pre-campaign captures fail closed. O60 model-validation authority remains independent and cannot be bypassed. O100G overall remains partial because workflow UX/ghost-badge/measured-comparison/UX160 acceptance are still pending.
+
+
+## R130A candidate wave execution slice — 2026-09-20
+
+Issue #101 の R130A では、solver-neutral authority から pinned PFFDTD Python/Numba CPU candidate への bounded numerical execution vertical sliceをPR #243で追加する。exact chainは `AcousticSceneSnapshot -> AcousticPredictionRequest -> READY SolverDispatchBinding -> deterministic CandidateWaveExecutionInput -> candidate numerical execution -> immutable complex-pressure artifact -> AcousticSolverResultEnvelope -> save/reopen`。fixtureはclosed rigid 2 m cube、explicit wave excitation、1 receiver、40/80 Hzに限定し、speaker sensitivityからsource strengthを推定しない。
+
+この成立はcandidate execution plumbingだけを意味する。PFFDTD production採用、R100B completion、R130A numerical acceptance、R130B/C、R180、owned-room validity、production recommendation eligibilityは未成立の独立gateとして維持する。詳細は [R130A candidate wave execution record](R130A_CANDIDATE_WAVE_EXECUTION_2026-09-20.md)。RDC 0。
