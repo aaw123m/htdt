@@ -44,6 +44,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     DETERMINISTIC_GA_ADAPTER_ID,
     DETERMINISTIC_GA_ADAPTER_VERSION,
     CadDeterministicPathArtifactRepository,
+    DeterministicAcousticPath,
     DeterministicGaConfiguration,
     DeterministicGaExecutionInput,
     DeterministicGaUnsupportedError,
@@ -51,10 +52,12 @@ from htdt.cad_geometric_acoustics_adapter import (
     HtdtPlanarImageSourceEngine,
     HtdtPortalDirectEngine,
     HtdtPortalGraphDirectEngine,
+    HtdtPortalFirstOrderReflectionEngine,
     HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF,
     HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF,
+    HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
@@ -1240,7 +1243,11 @@ def _fixture(
         PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
         if use_pyroomacoustics
         else (
-            HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF
+            (
+                HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF
+                if maximum_reflection_order == 1
+                else HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF
+            )
             if room_policy == 'general_planar_multi_region_portal_v1'
             else (
                 (
@@ -1408,9 +1415,13 @@ def _execute(fx, engine=None):
     if engine is None:
         engine = (
             (
-                HtdtPortalGraphDirectEngine()
-                if fx['execution_input'].portal_graph is not None
-                else HtdtPortalDirectEngine()
+                HtdtPortalFirstOrderReflectionEngine()
+                if fx['execution_input'].maximum_reflection_order == 1
+                else (
+                    HtdtPortalGraphDirectEngine()
+                    if fx['execution_input'].portal_graph is not None
+                    else HtdtPortalDirectEngine()
+                )
             )
             if fx['execution_input'].geometry_policy
             == 'general_planar_multi_region_portal_v1'
@@ -2022,6 +2033,7 @@ def _portal_fixture(
     receiver_position: Position3 | None = None,
     occluder: bool = False,
     nontrivial_boundary_termination: bool = False,
+    maximum_reflection_order: int = 0,
     expected_dispatch_state: str = 'READY',
 ):
     geometry, portal_loop = _portal_semantic_geometry(occluder=occluder)
@@ -2039,20 +2051,229 @@ def _portal_fixture(
         source_region_id=source_region_id,
         receiver_region_id=receiver_region_id,
         nontrivial_boundary_termination=nontrivial_boundary_termination,
-        maximum_reflection_order=0,
+        maximum_reflection_order=maximum_reflection_order,
         maximum_portal_crossings=1,
         expected_dispatch_state=expected_dispatch_state,
     )
 
 
-def test_portal_lane_requires_explicit_zero_reflection_order() -> None:
-    with pytest.raises(ValueError, match='maximum_reflection_order=0'):
+def test_portal_reflection_configuration_is_bounded_to_exact_one_crossing() -> None:
+    configuration = build_deterministic_ga_configuration(
+        frequency_centers_hz=(500.0, 1000.0),
+        room_policy=PORTAL_POLICY,
+        maximum_reflection_order=1,
+        maximum_portal_crossings=1,
+    )
+    assert configuration.maximum_reflection_order == 1
+    assert configuration.maximum_portal_crossings == 1
+
+    with pytest.raises(ValueError, match='exactly one Portal crossing'):
         build_deterministic_ga_configuration(
             frequency_centers_hz=(500.0, 1000.0),
             room_policy=PORTAL_POLICY,
             maximum_reflection_order=1,
+            maximum_portal_crossings=2,
+        )
+    with pytest.raises(ValueError, match='direct-only order 0.*first-order reflection order 1'):
+        build_deterministic_ga_configuration(
+            frequency_centers_hz=(500.0, 1000.0),
+            room_policy=PORTAL_POLICY,
+            maximum_reflection_order=2,
             maximum_portal_crossings=1,
         )
+
+
+def _portal_reflected_path(artifact, surface_id: str):
+    return next(
+        item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (surface_id,)
+    )
+
+
+def test_portal_reflection_source_and_receiver_side_paths_are_analytic_and_ordered(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path, maximum_reflection_order=1)
+    artifact = _execute(fx)
+
+    assert artifact.path_scope == 'single_portal_first_order_specular'
+    assert fx['execution_input'].maximum_reflection_order == 1
+    portal_surface_id = fx['surface_by_key']['portal-interface']
+    assert portal_surface_id not in {
+        plane.source_surface_id for plane in fx['execution_input'].boundary_planes
+    }
+
+    source_surface_id = fx['surface_by_key']['portal-left-a']
+    source_path = _portal_reflected_path(artifact, source_surface_id)
+    assert source_path.execution_input_semantic_sha256 == fx['execution_input'].semantic_sha256
+    assert source_path.ordered_interactions is not None
+    assert tuple(item.kind for item in source_path.ordered_interactions) == (
+        'reflection',
+        'portal_crossing',
+    )
+    reflection, crossing = source_path.ordered_interactions
+    assert reflection.point == Position3(x_m=0.0, y_m=1.25, z_m=1.0)
+    assert crossing.point == Position3(x_m=2.0, y_m=1.75, z_m=1.0)
+    assert source_path.ordered_region_ids == ('region-a', 'region-b')
+    assert tuple(item.region_id for item in source_path.region_segment_evidence or ()) == (
+        'region-a',
+        'region-a',
+        'region-b',
+    )
+    assert isclose(source_path.geometric_path_length_m, sqrt(17.0), abs_tol=1.0e-9)
+    band_500 = next(item for item in source_path.bands if item.center_hz == 500.0)
+    assert band_500.boundary_material is not None
+    assert band_500.boundary_material.specular_energy_factor == pytest.approx(0.72)
+    assert band_500.relative_energy_transport_per_m2 == pytest.approx(0.72 / 17.0)
+
+    receiver_surface_id = fx['surface_by_key']['portal-right-b']
+    receiver_path = _portal_reflected_path(artifact, receiver_surface_id)
+    assert receiver_path.ordered_interactions is not None
+    assert tuple(item.kind for item in receiver_path.ordered_interactions) == (
+        'portal_crossing',
+        'reflection',
+    )
+    crossing, reflection = receiver_path.ordered_interactions
+    assert crossing.point == Position3(x_m=2.0, y_m=1.25, z_m=1.0)
+    assert reflection.point == Position3(x_m=4.0, y_m=1.75, z_m=1.0)
+    assert tuple(item.region_id for item in receiver_path.region_segment_evidence or ()) == (
+        'region-a',
+        'region-b',
+        'region-b',
+    )
+    assert isclose(receiver_path.geometric_path_length_m, sqrt(17.0), abs_tol=1.0e-9)
+
+
+def test_portal_reflection_finite_surface_aperture_and_occlusion_fail_closed(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path, maximum_reflection_order=1)
+    artifact = _execute(fx)
+
+    rear_a = fx['surface_by_key']['portal-rear-a']
+    assert any(
+        item.interaction_surface_ids == (rear_a,)
+        and item.decision == 'UNSUPPORTED_GEOMETRY'
+        and 'outside the exact finite' in item.reason
+        for item in artifact.rejected_candidates
+    )
+
+    front_a = fx['surface_by_key']['portal-front-a']
+    assert any(
+        item.interaction_surface_ids == (front_a,)
+        and item.decision == 'INVALID_PORTAL_CROSSING'
+        for item in artifact.rejected_candidates
+    )
+
+    blocked = _portal_fixture(
+        tmp_path / 'blocked',
+        maximum_reflection_order=1,
+        occluder=True,
+    )
+    blocked_artifact = _execute(blocked)
+    for key in ('portal-left-a', 'portal-right-b'):
+        surface_id = blocked['surface_by_key'][key]
+        assert not any(
+            item.path_type == 'specular_reflection'
+            and item.ordered_interaction_surface_ids == (surface_id,)
+            for item in blocked_artifact.paths
+        )
+        assert any(
+            item.interaction_surface_ids == (surface_id,)
+            and item.decision == 'BLOCKED_VISIBILITY'
+            for item in blocked_artifact.rejected_candidates
+        )
+
+
+def test_portal_reflection_wrong_event_order_and_stale_surface_fail_closed(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path, maximum_reflection_order=1)
+    artifact = _execute(fx)
+    path = _portal_reflected_path(
+        artifact,
+        fx['surface_by_key']['portal-left-a'],
+    )
+    assert path.ordered_interactions is not None
+    tampered = path.model_dump(mode='python')
+    tampered['ordered_interactions'] = tuple(reversed(path.ordered_interactions))
+    with pytest.raises(ValueError, match='physical event order'):
+        DeterministicAcousticPath.model_validate(tampered)
+
+    stale = dict(fx)
+    stale['compiled'] = fx['compiled'].model_copy(
+        update={'compiled_hash_sha256': 'f' * 64}
+    )
+    with pytest.raises(ValueError, match='compiled geometry exact identity mismatch'):
+        _execute(stale)
+
+
+def test_portal_reflection_material_authority_is_identity_binding_and_stale_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path, maximum_reflection_order=1)
+    artifact = _execute(fx)
+    path = _portal_reflected_path(
+        artifact,
+        fx['surface_by_key']['portal-left-a'],
+    )
+    payload = path.semantic_payload()
+    payload['bands'][0]['boundary_material']['material_authority']['semantic_hash_sha256'] = (
+        'e' * 64
+    )
+    assert _digest(payload) != path.semantic_sha256
+
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+    fx['material_box']['value'] = None
+    with pytest.raises(ValueError, match='does not reproduce from exact current authorities'):
+        repository.get(artifact.artifact_id)
+
+
+def test_portal_reflection_save_reopen_identity_and_stale_portal_rejection(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path, maximum_reflection_order=1)
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    reopened = CadDeterministicPathArtifactRepository(
+        SceneRepository(fx['scene_repository'].path),
+        snapshot_repository=CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path)
+        ),
+        dispatch_repository=CadAcousticSolverDispatchRepository(
+            SceneRepository(fx['scene_repository'].path),
+            external_authority_resolver=fx['external_resolver'],
+        ),
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    assert reopened.get(artifact.artifact_id) == artifact
+
+    fx['geometry_authorities'].pop(fx['portals'].authority_id)
+    with pytest.raises(ValueError, match='portal exact authority'):
+        repository.get(artifact.artifact_id)
 
 
 def test_portal_endpoint_region_bindings_are_mandatory(tmp_path: Path) -> None:
