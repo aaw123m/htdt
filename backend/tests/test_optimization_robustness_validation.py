@@ -57,7 +57,10 @@ from htdt.cad_validation_metrics import (
 from htdt.comparison import FrequencyResponse
 from htdt.optimization_objectives import ObjectiveMetric, ObjectiveVector
 from htdt.optimization_robustness import UncertaintyAxis, build_robustness_spec
-from htdt.optimization_robustness_validation import build_o90e_validation_case
+from htdt.optimization_robustness_validation import (
+    build_o90e_decision,
+    build_o90e_validation_case,
+)
 
 
 class _ModelValidationRepository:
@@ -877,6 +880,28 @@ def test_o90e_missing_acquisition_or_capability_keeps_gate_closed(tmp_path) -> N
     assert decision.production_gate == 'closed'
     assert 'insufficient_measurement_capability' in decision.reasons
     assert decision.support_state == 'partially_supported'
+
+
+def test_o90e_forged_eligible_decision_without_signed_coverage_is_rejected(
+    tmp_path,
+) -> None:
+    env = _fixture(tmp_path)
+    forged = build_o90e_decision(
+        spec=env.spec,
+        validation_id=env.o60_record.validation_id,
+        validation_sha256=env.o60_record.validation_sha256,
+        campaign_id=env.campaign.campaign_id,
+        campaign_sha256=env.campaign.campaign_sha256,
+        assessments=(),
+        axis_coverage=(),
+        support_state='full',
+        reasons=(),
+        decided_at_utc='2030-01-01T03:15:00+00:00',
+    )
+    assert forged.production_gate == 'eligible'
+
+    with pytest.raises(ValueError, match='cover every RobustnessSpec axis'):
+        env.validation_repository.save_decision(forged)
 
 
 def test_o90e_partial_coverage_and_nominal_validation_do_not_validate_robust_domain(
