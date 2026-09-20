@@ -655,7 +655,10 @@ def _validate_wave_inputs(
     if not isinstance(payload, dict):
         raise ValueError('R130 complex-pressure artifact payload must be a mapping')
     if _semantic_hash(payload) != manifest.artifact_authority.semantic_hash_sha256:
-        raise ValueError('R130 complex-pressure artifact payload hash mismatch')
+        raise HybridNumericalCompositionError(
+            HybridNumericalFailureCode.ARTIFACT_HASH_MISMATCH,
+            'R130 complex-pressure artifact payload hash mismatch',
+        )
     if payload.get('schema_version') != COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION:
         raise ValueError('R130 complex-pressure artifact schema mismatch')
     if payload.get('quantity_type') != 'complex_pressure':
@@ -737,9 +740,10 @@ def _validate_wave_inputs(
     ):
         raise ValueError('R130 receiver identity/position is stale')
 
-    frequencies = tuple(float(item) for item in payload.get('frequency_axis_hz', ()))
-    if frequencies != tuple(sorted(set(frequencies))) or len(frequencies) < 2:
-        raise ValueError('R130 frequency axis must be exact sorted unique bins')
+    frequencies = validate_frequency_grid(
+        payload.get('frequency_axis_hz', ()),
+        label='R130 frequency axis',
+    )
     if frequencies != tuple(
         float(item) for item in candidate_input.frequency_samples_hz
     ):
