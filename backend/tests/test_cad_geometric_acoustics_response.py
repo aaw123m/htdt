@@ -29,6 +29,7 @@ from htdt.cad_geometric_acoustics_adapter import (
 from htdt.cad_geometric_acoustics_response import (
     ANALYTIC_OMNI_DIRECTIVITY_MODEL,
     CadPathFrequencyResponseRepository,
+    ComplexTransferSample,
     build_acoustic_environment_authority,
     build_deterministic_path_frequency_response,
     build_explicit_complex_surface_reflection_authority,
@@ -214,6 +215,7 @@ def _artifact(path: DeterministicAcousticPath) -> DeterministicPathArtifact:
         semantic_sha256=H5,
         r120_compiled_geometry_id='r120-compiled-geometry:' + H,
         r120_compiled_geometry_sha256=H,
+        frequency_domain=FrequencyDomain(minimum_hz=20.0, maximum_hz=20000.0),
         paths=(path,),
     )
 
@@ -904,3 +906,81 @@ def test_stale_portal_transfer_authority_fails_closed() -> None:
         item.startswith('STALE_PORTAL_TRANSFER_AUTHORITY:')
         for item in response.unsupported_reasons
     )
+
+
+def test_complex_sample_phase_and_path_artifact_band_are_fail_closed() -> None:
+    with pytest.raises(ValueError, match='phase does not match'):
+        ComplexTransferSample(
+            frequency_hz=1000.0,
+            magnitude=1.0,
+            phase_rad=0.0,
+            real=0.0,
+            imag=1.0,
+        )
+
+    frequency = 1000.0
+    common = _common((frequency,))
+    path = _path(
+        length_m=2.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='3',
+    )
+    path_artifact = DeterministicPathArtifact.model_construct(
+        artifact_id=f'deterministic-path-artifact:{H5}',
+        semantic_sha256=H5,
+        r120_compiled_geometry_id='r120-compiled-geometry:' + H,
+        r120_compiled_geometry_sha256=H,
+        frequency_domain=FrequencyDomain(minimum_hz=100.0, maximum_hz=800.0),
+        paths=(path,),
+    )
+    response = build_deterministic_path_frequency_response(
+        path_artifact=path_artifact,
+        path_id=path.path_id,
+        r120_geometry_ref=common['r120'],
+        source_authority=common['source'],
+        point_source_normalization=common['normalization'],
+        receiver_authority=common['receiver'],
+        environment=common['environment'],
+        frequency_grid=common['frequency_grid'],
+        configuration=common['configuration'],
+    )
+    assert response.capability == 'UNSUPPORTED'
+    assert response.samples == ()
+    assert 'PATH_ARTIFACT_VALID_BAND_MISMATCH' in response.unsupported_reasons
+
+
+def test_coherent_source_phase_reference_must_bind_volume_velocity_t0() -> None:
+    frequency = 1000.0
+    common = _common((frequency,))
+    capability = DirectivityCapability.model_construct(
+        tier='analytic',
+        data_format='analytic_model',
+        provenance=None,
+        data_asset_sha256=None,
+        valid_domain=_directivity_domain((frequency,)),
+        interpolation=None,
+        coherent_phase=True,
+        phase_reference='manufacturer_unaligned_phase_reference',
+        analytic_model=ANALYTIC_OMNI_DIRECTIVITY_MODEL,
+    )
+    equipment = EquipmentDefinition.model_construct(
+        definition_id='equipment:test-speaker',
+        version='1',
+        semantic_sha256=H2,
+        directivity=capability,
+    )
+    common['source'] = build_source_response_authority(
+        source_entity_id='source-1',
+        r110_source_ref=_ref('r110-source:source-1', H2),
+        equipment_definition=equipment,
+        point_source_normalization=common['normalization'],
+    )
+    path = _path(
+        length_m=2.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='4',
+    )
+    response = _response(path, common)
+    assert response.capability == 'UNSUPPORTED'
+    assert response.samples == ()
+    assert 'SOURCE_PHASE_REFERENCE_MISMATCH' in response.unsupported_reasons
