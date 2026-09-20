@@ -909,6 +909,11 @@ def _fixture(
         make_r120_geometry_compilation_request(
             revision,
             geometric_tolerance_m=1.0e-9,
+            input_policy=(
+                'diagnostic_compile_unresolved'
+                if room_policy == PORTAL_POLICY
+                else 'require_contract_ready'
+            ),
         ),
         surface_boundary_bindings=bindings,
         region_authority=region,
