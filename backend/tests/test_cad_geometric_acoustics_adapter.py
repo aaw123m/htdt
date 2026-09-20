@@ -1009,7 +1009,12 @@ def _fixture(
         adapter=descriptor,
         solver_configuration_ref=configuration.as_external_ref(),
     )
-    assert dispatch.state == expected_dispatch_state
+    assert dispatch.state == expected_dispatch_state, {
+        'dispatch_reasons': dispatch.reasons,
+        'compiled_unresolved': compiled.unresolved_conditions,
+        'compiled_readiness': compiled.readiness.model_dump(mode='json'),
+        'closed_shell': compiled.closed_shell_diagnostics.model_dump(mode='json'),
+    }
     if expected_dispatch_state != 'READY':
         return {
             'dispatch': dispatch,
