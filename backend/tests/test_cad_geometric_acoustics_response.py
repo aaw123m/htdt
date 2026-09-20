@@ -726,6 +726,80 @@ def _portal_path(
     )
 
 
+
+def test_one_portal_first_order_reflection_reuses_complex_response_authorities() -> None:
+    frequency = 700.0
+    common = _common((frequency,))
+    reflection_event = DeterministicPathInteraction(
+        kind='reflection',
+        point=Position3(x_m=0.0, y_m=1.25, z_m=1.0),
+        surface_id=SURFACE_A,
+    )
+    portal_event = DeterministicPathInteraction(
+        kind='portal_crossing',
+        point=Position3(x_m=2.0, y_m=1.75, z_m=1.0),
+        portal_id='portal-ab',
+        from_region_id='A',
+        to_region_id='B',
+    )
+    base = _path(
+        length_m=17.0 ** 0.5,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='b',
+        surfaces=(SURFACE_A,),
+        interactions=(reflection_event, portal_event),
+    )
+    path = DeterministicAcousticPath.model_construct(
+        **{
+            **base.__dict__,
+            'ordered_region_ids': ('A', 'B'),
+        }
+    )
+
+    portal_ref = _ref('r120-portals:' + H2, H2)
+    reflection_coefficient = 0.6 + 0.2j
+    portal_coefficient = 0.8 - 0.1j
+    reflection = build_explicit_complex_surface_reflection_authority(
+        source_surface_id=SURFACE_A,
+        r120_geometry_ref=common['r120'],
+        material_authority_ref=_ref('material:a', H3),
+        frequency_coefficients={frequency: reflection_coefficient},
+        provenance='one-Portal reflection fixture',
+    )
+    transfer = build_portal_acoustic_transfer_authority(
+        portal_id='portal-ab',
+        from_region_id='A',
+        to_region_id='B',
+        portal_geometry_authority_ref=portal_ref,
+        frequency_coefficients={frequency: portal_coefficient},
+        provenance='one-Portal transmission fixture',
+        provenance_state='measured',
+        uncertainty='fixture exact coefficient',
+    )
+
+    response = _response(
+        path,
+        common,
+        surface_reflections={SURFACE_A: reflection},
+        portal_geometry_authority_ref=portal_ref,
+        portal_transfers={('portal-ab', 'A', 'B'): transfer},
+    )
+    expected = _expected_monopole(
+        frequency_hz=frequency,
+        density_kg_m3=common['environment'].density_kg_m3,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        distance_m=path.geometric_path_length_m,
+    ) * reflection_coefficient * portal_coefficient
+
+    assert response.capability == 'COMPLEX_SUPPORTED'
+    assert response.ordered_surface_interactions == (SURFACE_A,)
+    assert response.ordered_portal_interactions == ('portal-ab',)
+    sample = response.samples[0]
+    assert sample.complex_real_pa_per_m3_s == pytest.approx(expected.real, rel=1e-12)
+    assert sample.complex_imag_pa_per_m3_s == pytest.approx(expected.imag, rel=1e-12)
+
+
+
 def test_missing_portal_transfer_is_unsupported_not_unity() -> None:
     frequency = 700.0
     common = _common((frequency,))

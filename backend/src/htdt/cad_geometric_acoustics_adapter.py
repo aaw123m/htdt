@@ -69,6 +69,8 @@ HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION = '2'
 HTDT_PORTAL_DIRECT_ENGINE_ID = 'htdt.r150.explicit_portal_direct'
 HTDT_PORTAL_DIRECT_ENGINE_VERSION = '1'
 HTDT_PORTAL_GRAPH_DIRECT_ENGINE_VERSION = '2'
+HTDT_PORTAL_FIRST_ORDER_ENGINE_ID = 'htdt.r150.explicit_portal_first_order'
+HTDT_PORTAL_FIRST_ORDER_ENGINE_VERSION = '1'
 
 PathType = Literal['direct', 'specular_reflection']
 PathCandidateDecision = Literal[
@@ -185,6 +187,27 @@ HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
             'maximum_search_states': 4096,
             'maximum_reflection_order': 0,
             'coherent_phase': 'unavailable_not_synthesized',
+        }
+    ),
+)
+
+
+HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='adapter-kernel:htdt-r150-explicit-portal-first-order',
+    authority_version=HTDT_PORTAL_FIRST_ORDER_ENGINE_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'implementation': HTDT_PORTAL_FIRST_ORDER_ENGINE_ID,
+            'version': HTDT_PORTAL_FIRST_ORDER_ENGINE_VERSION,
+            'construction': 'exact_two_region_one_portal_one_ordinary_surface_first_order_specular',
+            'maximum_portal_crossings': 1,
+            'maximum_reflection_order': 1,
+            'portal_reflection': False,
+            'event_topologies': [
+                'source_reflection_portal_receiver',
+                'source_portal_reflection_receiver',
+            ],
+            'coherent_phase': 'delegated_to_r150_path_response_authority',
         }
     ),
 )
@@ -431,10 +454,10 @@ def build_deterministic_ga_configuration(
             'general-planar geometry policy'
         )
     if room_policy == 'general_planar_multi_region_portal_v1':
-        if maximum_reflection_order != 0:
+        if maximum_reflection_order not in (0, 1):
             raise ValueError(
-                'multi-region Portal lane is direct-only and requires '
-                'maximum_reflection_order=0'
+                'multi-region Portal lane supports direct-only order 0 or the '
+                'bounded exact one-Portal first-order reflection order 1'
             )
         if (
             maximum_portal_crossings is None
@@ -444,6 +467,11 @@ def build_deterministic_ga_configuration(
             raise ValueError(
                 'multi-region Portal lane requires explicit '
                 'maximum_portal_crossings within 1..16'
+            )
+        if maximum_reflection_order == 1 and maximum_portal_crossings != 1:
+            raise ValueError(
+                'cross-region first-order reflection supports exactly one Portal '
+                'crossing; multi-Portal reflected paths are unsupported'
             )
     elif maximum_portal_crossings is not None:
         raise ValueError(
@@ -605,7 +633,7 @@ class DeterministicGaExecutionInput(BaseModel):
     geometric_tolerance_m: float = Field(gt=0.0)
     engine_image_match_tolerance_m: float = Field(gt=0.0)
     identity_decimal_places: int = Field(ge=6, le=15)
-    maximum_reflection_order: Literal[0, 2] | None = None
+    maximum_reflection_order: Literal[0, 1, 2] | None = None
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'DeterministicGaExecutionInput':
@@ -819,6 +847,7 @@ class DeterministicAcousticPath(BaseModel):
     ] = DETERMINISTIC_GA_ADAPTER_ID
     adapter_version: Literal['1'] = DETERMINISTIC_GA_ADAPTER_VERSION
     solver_implementation_ref: ExactExternalAuthorityRef
+    execution_input_semantic_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
     def validate_path(self) -> 'DeterministicAcousticPath':
@@ -845,31 +874,51 @@ class DeterministicAcousticPath(BaseModel):
                 item for item in self.ordered_interactions if item.kind == 'portal_crossing'
             )
             if portals:
-                if self.path_type != 'direct' or reflections:
-                    raise ValueError(
-                        'Portal graph propagation supports Portal crossings on direct paths only'
-                    )
-                if (
-                    self.ordered_region_ids is None
-                    or len(self.ordered_region_ids) != len(portals) + 1
-                ):
-                    raise ValueError(
-                        'Portal path ordered region count must equal crossing count plus one'
-                    )
-                if len(set(self.ordered_region_ids)) != len(self.ordered_region_ids):
-                    raise ValueError('Portal simple-path authority cannot repeat an AcousticRegion')
-                portal_ids = tuple(item.portal_id for item in portals)
-                if len(set(portal_ids)) != len(portal_ids):
-                    raise ValueError('Portal simple-path authority cannot repeat a Portal')
-                for index, portal in enumerate(portals):
+                if self.path_type == 'specular_reflection' and len(reflections) == 1 and len(portals) == 1:
                     if (
-                        portal.from_region_id,
-                        portal.to_region_id,
-                    ) != (
-                        self.ordered_region_ids[index],
-                        self.ordered_region_ids[index + 1],
+                        self.ordered_region_ids is None
+                        or len(self.ordered_region_ids) != 2
+                        or len(set(self.ordered_region_ids)) != 2
                     ):
+                        raise ValueError(
+                            'one-Portal first-order reflection requires exactly two ordered regions'
+                        )
+                    if len(self.ordered_interactions) != 2 or tuple(
+                        item.kind for item in self.ordered_interactions
+                    ) not in (
+                        ('reflection', 'portal_crossing'),
+                        ('portal_crossing', 'reflection'),
+                    ):
+                        raise ValueError(
+                            'one-Portal first-order reflection requires exact physical event order'
+                        )
+                    portal = portals[0]
+                    if (portal.from_region_id, portal.to_region_id) != self.ordered_region_ids:
                         raise ValueError('Portal interaction region order mismatch')
+                else:
+                    if self.path_type != 'direct' or reflections:
+                        raise ValueError(
+                            'Portal propagation supports either direct paths or the bounded '
+                            'exact one-Portal/one-reflection topology'
+                        )
+                    if (
+                        self.ordered_region_ids is None
+                        or len(self.ordered_region_ids) != len(portals) + 1
+                    ):
+                        raise ValueError(
+                            'Portal path ordered region count must equal crossing count plus one'
+                        )
+                    if len(set(self.ordered_region_ids)) != len(self.ordered_region_ids):
+                        raise ValueError('Portal simple-path authority cannot repeat an AcousticRegion')
+                    portal_ids = tuple(item.portal_id for item in portals)
+                    if len(set(portal_ids)) != len(portal_ids):
+                        raise ValueError('Portal simple-path authority cannot repeat a Portal')
+                    for index, portal in enumerate(portals):
+                        if (portal.from_region_id, portal.to_region_id) != (
+                            self.ordered_region_ids[index],
+                            self.ordered_region_ids[index + 1],
+                        ):
+                            raise ValueError('Portal interaction region order mismatch')
             elif self.ordered_region_ids is not None:
                 if (
                     self.path_type != 'direct'
@@ -883,22 +932,38 @@ class DeterministicAcousticPath(BaseModel):
             raise ValueError('ordered_region_ids require typed interactions')
 
         if self.region_segment_evidence is not None:
-            if self.path_type != 'direct' or self.ordered_region_ids is None:
-                raise ValueError(
-                    'region segment evidence requires a direct path with ordered regions'
+            if self.ordered_region_ids is None:
+                raise ValueError('region segment evidence requires ordered regions')
+            if self.path_type == 'direct':
+                expected_segment_regions = self.ordered_region_ids
+            else:
+                kinds = tuple(item.kind for item in (self.ordered_interactions or ()))
+                if len(self.ordered_region_ids) != 2 or kinds not in (
+                    ('reflection', 'portal_crossing'),
+                    ('portal_crossing', 'reflection'),
+                ):
+                    raise ValueError(
+                        'reflected Portal segment evidence requires exact one-reflection/one-Portal order'
+                    )
+                expected_segment_regions = (
+                    (self.ordered_region_ids[0], self.ordered_region_ids[0], self.ordered_region_ids[1])
+                    if kinds == ('reflection', 'portal_crossing')
+                    else (self.ordered_region_ids[0], self.ordered_region_ids[1], self.ordered_region_ids[1])
                 )
-            if len(self.region_segment_evidence) != len(self.ordered_region_ids):
+            if len(self.region_segment_evidence) != len(expected_segment_regions):
                 raise ValueError(
-                    'region segment evidence count must equal ordered region count'
+                    'region segment evidence count does not match ordered path topology'
                 )
-            for index, evidence in enumerate(self.region_segment_evidence):
+            for index, (evidence, expected_region_id) in enumerate(
+                zip(self.region_segment_evidence, expected_segment_regions, strict=True)
+            ):
                 if evidence.segment_index != index:
                     raise ValueError(
                         'region segment evidence indices must be contiguous and ordered'
                     )
-                if evidence.region_id != self.ordered_region_ids[index]:
+                if evidence.region_id != expected_region_id:
                     raise ValueError(
-                        'region segment evidence identity must match ordered region sequence'
+                        'region segment evidence identity does not match physical event order'
                     )
 
         for band in self.bands:
@@ -973,6 +1038,8 @@ class DeterministicAcousticPath(BaseModel):
             payload.pop('ordered_region_ids', None)
         if self.region_segment_evidence is None:
             payload.pop('region_segment_evidence', None)
+        if self.execution_input_semantic_sha256 is None:
+            payload.pop('execution_input_semantic_sha256', None)
         for band in payload['bands']:
             if band.get('boundary_materials') is None:
                 band.pop('boundary_materials', None)
@@ -1032,6 +1099,7 @@ class DeterministicPathArtifact(BaseModel):
         'direct_through_second_order_specular',
         'direct_single_portal_propagation',
         'direct_bounded_portal_graph_propagation',
+        'single_portal_first_order_specular',
     ] = 'direct_and_first_order_specular'
     coherent_phase_authority: Literal['UNAVAILABLE_NOT_SYNTHESIZED'] = (
         'UNAVAILABLE_NOT_SYNTHESIZED'
@@ -1224,6 +1292,25 @@ class HtdtPortalGraphDirectEngine:
     ) -> tuple[NativeImageSource, ...]:
         del dimensions_m, source_local_m, receiver_local_m
         raise RuntimeError('explicit Portal graph direct engine does not execute a shoebox')
+
+
+class HtdtPortalFirstOrderReflectionEngine:
+    """Exact engine marker for one ordinary reflection plus one Portal crossing."""
+
+    engine_id = HTDT_PORTAL_FIRST_ORDER_ENGINE_ID
+    engine_version = HTDT_PORTAL_FIRST_ORDER_ENGINE_VERSION
+    candidate_source_commit = None
+    solver_implementation_ref = HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF
+
+    def execute_shoebox(
+        self,
+        *,
+        dimensions_m: tuple[float, float, float],
+        source_local_m: tuple[float, float, float],
+        receiver_local_m: tuple[float, float, float],
+    ) -> tuple[NativeImageSource, ...]:
+        del dimensions_m, source_local_m, receiver_local_m
+        raise RuntimeError('explicit Portal reflection engine does not execute a shoebox')
 
 
 class PyroomacousticsImageSourceEngine:
@@ -1830,10 +1917,21 @@ def _compile_multi_region_portal_execution_input(
             'UNSUPPORTED_PORTAL_TOPOLOGY',
             'multi-Portal deterministic GA supports simple_region_path_v1 only',
         )
-    if configuration.maximum_reflection_order != 0:
+    if configuration.maximum_reflection_order not in (0, 1):
         raise DeterministicGaUnsupportedError(
             'UNSUPPORTED_PORTAL_TOPOLOGY',
-            'Portal graph propagation is direct-only; reflected Portal paths are unsupported',
+            'Portal graph propagation supports direct order 0 or bounded first-order reflection only',
+        )
+    if configuration.maximum_reflection_order == 1 and (
+        len(region_authority.declarations) != 2
+        or portal_authority.declaration_mode != 'explicit_list'
+        or len(portal_authority.declarations) != 1
+        or configuration.maximum_portal_crossings != 1
+    ):
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_TOPOLOGY',
+            'cross-region reflection is bounded to exact 2 AcousticRegions, exact 1 Portal, '
+            'exact 1 Portal crossing, and exact 1 ordinary-surface reflection',
         )
     if (
         configuration.maximum_portal_crossings is None
@@ -2078,6 +2176,50 @@ def _compile_multi_region_portal_execution_input(
             for index in mapping.compiled_triangle_indices
         )
     )
+    reflection_planes: tuple[GeometricSurfacePlane, ...] = ()
+    if configuration.maximum_reflection_order == 1:
+        portal_surface_ids = {
+            surface_id
+            for aperture in apertures
+            for surface_id in aperture.source_surface_ids
+        }
+        region_boundary_surface_ids = {
+            surface_id
+            for region in region_authority.declarations
+            for surface_id in region.boundary_surface_ids
+        }
+        ordinary_surface_ids = tuple(sorted(region_boundary_surface_ids - portal_surface_ids))
+        mapping_by_id = {
+            mapping.source_surface_id: mapping
+            for mapping in compiled_geometry.surface_mapping
+        }
+        missing = set(ordinary_surface_ids) - set(mapping_by_id)
+        if missing:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_GEOMETRY',
+                f'ordinary reflection surfaces are unresolved in exact R120 mapping: {sorted(missing)}',
+            )
+        plane_list: list[GeometricSurfacePlane] = []
+        for surface_id in ordinary_surface_ids:
+            try:
+                plane_list.append(
+                    _general_surface_plane(
+                        compiled_geometry,
+                        mapping_by_id[surface_id],
+                        tolerance_m=configuration.geometric_tolerance_m,
+                    )
+                )
+            except ValueError as exc:
+                raise DeterministicGaUnsupportedError(
+                    'UNSUPPORTED_GEOMETRY',
+                    f'cross-region reflection surface is not exact finite planar geometry: {exc}',
+                ) from exc
+        reflection_planes = tuple(plane_list)
+        if not reflection_planes:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_GEOMETRY',
+                'cross-region first-order reflection requires at least one exact ordinary surface',
+            )
     core: dict[str, Any] = {
         'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
         'authority_version': DETERMINISTIC_GA_AUTHORITY_VERSION,
@@ -2105,7 +2247,14 @@ def _compile_multi_region_portal_execution_input(
         ).model_dump(mode='json'),
         'room_origin_m': origin.model_dump(mode='json'),
         'room_dimensions_m': list(dimensions),
-        'boundary_planes': [],
+        'boundary_planes': [
+            {
+                key: value
+                for key, value in item.model_dump(mode='json').items()
+                if value is not None
+            }
+            for item in reflection_planes
+        ],
         'geometry_policy': 'general_planar_multi_region_portal_v1',
         'unsupported_reflection_surface_ids': [],
         'portal_apertures': [item.model_dump(mode='json') for item in apertures],
@@ -2118,7 +2267,7 @@ def _compile_multi_region_portal_execution_input(
             )
         ],
         'maximum_portal_crossings': configuration.maximum_portal_crossings,
-        'maximum_reflection_order': 0,
+        'maximum_reflection_order': configuration.maximum_reflection_order,
         'occluder_triangle_indices': list(object_triangle_indices),
         'sources': [item.model_dump(mode='json', exclude_none=True) for item in source_inputs],
         'receivers': [item.model_dump(mode='json', exclude_none=True) for item in receiver_inputs],
@@ -3116,6 +3265,7 @@ def _make_path(
     typed_interactions: Sequence[DeterministicPathInteraction] | None = None,
     ordered_region_ids: Sequence[str] | None = None,
     region_segment_evidence: Sequence[PortalRegionSegmentEvidence] | None = None,
+    execution_input_semantic_sha256: str | None = None,
 ) -> DeterministicAcousticPath:
     core: dict[str, Any] = {
         'source_entity_id': source.source_entity_id,
@@ -3173,6 +3323,8 @@ def _make_path(
             item.model_dump(mode='json')
             for item in region_segment_evidence
         ]
+    if execution_input_semantic_sha256 is not None:
+        core['execution_input_semantic_sha256'] = execution_input_semantic_sha256
     digest = _semantic_hash(core)
     return DeterministicAcousticPath(
         path_id=f'deterministic-acoustic-path:{digest}',
@@ -3185,6 +3337,397 @@ MaterialAuthorityResolver = Callable[
     [ExactExternalAuthorityRef],
     GeometricMaterialAuthority | None,
 ]
+
+
+def _append_single_portal_first_order_reflections(
+    *,
+    execution_input: DeterministicGaExecutionInput,
+    compiled_geometry: R120CompiledGeometry,
+    source: DeterministicGaSourceInput,
+    receiver: DeterministicGaReceiverInput,
+    dataset: DirectivityDataset,
+    material_resolver: MaterialAuthorityResolver,
+    paths: list[DeterministicAcousticPath],
+    rejected: list[RejectedPathCandidate],
+) -> None:
+    """Emit exact one-reflection/one-Portal paths for the bounded two-region lane."""
+
+    if execution_input.maximum_reflection_order != 1:
+        return
+    graph = execution_input.portal_graph
+    if (
+        graph is None
+        or len(graph.region_ids) != 2
+        or len(graph.directed_edges) != 1
+        or graph.maximum_portal_crossings != 1
+        or execution_input.portal_apertures is None
+        or len(execution_input.portal_apertures) != 1
+        or execution_input.region_declarations is None
+        or len(execution_input.region_declarations) != 2
+        or source.acoustic_region_id is None
+        or receiver.acoustic_region_id is None
+    ):
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_TOPOLOGY',
+            'reflected Portal execution requires exact 2 regions / 1 Portal / 1 crossing',
+        )
+    edge = graph.directed_edges[0]
+    aperture = execution_input.portal_apertures[0]
+    if (
+        edge.portal_id != aperture.portal_id
+        or edge.aperture_id != aperture.aperture_id
+        or edge.aperture_sha256 != aperture.semantic_sha256
+        or (edge.from_region_id, edge.to_region_id)
+        != (source.acoustic_region_id, receiver.acoustic_region_id)
+    ):
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_TOPOLOGY',
+            'source/receiver reflected Portal route does not match exact directed graph authority',
+        )
+
+    source_world = _position_tuple(source.source_reference_point)
+    receiver_world = _position_tuple(receiver.world_position)
+    region_by_id = {item.region_id: item for item in execution_input.region_declarations}
+    portal_surface_ids = set(aperture.source_surface_ids)
+
+    for plane in sorted(execution_input.boundary_planes, key=lambda item: item.source_surface_id):
+        surface_id = plane.source_surface_id
+        if surface_id in portal_surface_ids:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_PORTAL_TOPOLOGY',
+                f'Portal surface {surface_id} cannot be used as a reflection surface',
+            )
+        owning_regions = tuple(
+            item.region_id
+            for item in execution_input.region_declarations
+            if surface_id in item.boundary_surface_ids
+        )
+        if len(owning_regions) != 1:
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision='UNSUPPORTED_PORTAL_TOPOLOGY',
+                    reason=(
+                        'ordinary reflection surface does not bind uniquely to exactly one '
+                        'AcousticRegion in the bounded reflected Portal topology'
+                    ),
+                )
+            )
+            continue
+        reflection_region_id = owning_regions[0]
+        if reflection_region_id == source.acoustic_region_id:
+            image = _mirror_source(source_world, plane)
+            reflection = _reflection_point(
+                image, receiver_world, plane,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+            event_order = ('reflection', 'portal_crossing')
+        elif reflection_region_id == receiver.acoustic_region_id:
+            image = _mirror_source(receiver_world, plane)
+            reflection = _reflection_point(
+                image, source_world, plane,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+            event_order = ('portal_crossing', 'reflection')
+        else:
+            continue
+
+        if reflection is None or not _point_on_surface(
+            compiled_geometry, surface_id, reflection,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision='UNSUPPORTED_GEOMETRY',
+                    reason=(
+                        'cross-region reflection point lies outside the exact finite '
+                        'semantic R120 surface triangle extent'
+                    ),
+                )
+            )
+            continue
+        if _point_has_other_surface_contact(
+            compiled_geometry, surface_id, reflection,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision='UNSUPPORTED_GEOMETRY',
+                    reason=(
+                        'cross-region reflection contact is shared-edge or multi-surface '
+                        'ambiguous within declared tolerance'
+                    ),
+                )
+            )
+            continue
+
+        segment_points = None
+        segment_region_ids = None
+        if event_order == ('reflection', 'portal_crossing'):
+            crossing = resolve_direct_portal_crossing(
+                aperture,
+                start=reflection,
+                end=receiver_world,
+                from_region_id=source.acoustic_region_id,
+                to_region_id=receiver.acoustic_region_id,
+                tolerance_m=execution_input.geometric_tolerance_m,
+            )
+            if crossing is not None:
+                segment_points = (source_world, reflection, crossing, receiver_world)
+                segment_region_ids = (
+                    source.acoustic_region_id,
+                    source.acoustic_region_id,
+                    receiver.acoustic_region_id,
+                )
+        else:
+            crossing = resolve_direct_portal_crossing(
+                aperture,
+                start=source_world,
+                end=reflection,
+                from_region_id=source.acoustic_region_id,
+                to_region_id=receiver.acoustic_region_id,
+                tolerance_m=execution_input.geometric_tolerance_m,
+            )
+            if crossing is not None:
+                segment_points = (source_world, crossing, reflection, receiver_world)
+                segment_region_ids = (
+                    source.acoustic_region_id,
+                    receiver.acoustic_region_id,
+                    receiver.acoustic_region_id,
+                )
+        if crossing is None or segment_points is None or segment_region_ids is None:
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision='INVALID_PORTAL_CROSSING',
+                    reason=(
+                        'reflected propagation segment misses the exact directed Portal '
+                        'aperture or crosses it in the wrong physical event order'
+                    ),
+                )
+            )
+            continue
+
+        segment_lengths = tuple(
+            _distance(segment_points[index], segment_points[index + 1])
+            for index in range(3)
+        )
+        if any(value <= execution_input.geometric_tolerance_m for value in segment_lengths):
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision='INVALID_REGION_SEQUENCE',
+                    reason='reflection/Portal event ordering collapses a propagation segment',
+                )
+            )
+            continue
+
+        segment_evidence: list[PortalRegionSegmentEvidence] = []
+        failed = False
+        for index, region_id in enumerate(segment_region_ids):
+            region = region_by_id.get(region_id)
+            if region is None:
+                raise ValueError(f'reflected Portal path references unresolved AcousticRegion {region_id}')
+            membership = region_segment_membership_with_portal_caps(
+                compiled_geometry=compiled_geometry,
+                region=region,
+                apertures=execution_input.portal_apertures,
+                start=segment_points[index],
+                end=segment_points[index + 1],
+                tolerance_m=execution_input.geometric_tolerance_m,
+            )
+            if membership != 'valid':
+                rejected.append(
+                    RejectedPathCandidate(
+                        source_entity_id=source.source_entity_id,
+                        receiver_id=receiver.receiver_id,
+                        path_type='specular_reflection',
+                        interaction_surface_ids=(surface_id,),
+                        decision='INTERMEDIATE_REGION_MEMBERSHIP_FAILURE',
+                        reason=(
+                            f'reflected segment {index} leaves exact AcousticRegion '
+                            f'{region_id} (membership={membership})'
+                        ),
+                    )
+                )
+                failed = True
+                break
+            if _segment_blocked(
+                compiled_geometry,
+                segment_points[index],
+                segment_points[index + 1],
+                tolerance=execution_input.geometric_tolerance_m,
+                distance_scaled_tolerance=True,
+            ):
+                rejected.append(
+                    RejectedPathCandidate(
+                        source_entity_id=source.source_entity_id,
+                        receiver_id=receiver.receiver_id,
+                        path_type='specular_reflection',
+                        interaction_surface_ids=(surface_id,),
+                        decision='BLOCKED_VISIBILITY',
+                        reason=(
+                            f'exact R120 triangle occludes reflected Portal segment {index}; '
+                            'expected endpoint contact is handled by endpoint tolerance'
+                        ),
+                    )
+                )
+                failed = True
+                break
+            segment_evidence.append(
+                PortalRegionSegmentEvidence(
+                    segment_index=index,
+                    region_id=region_id,
+                    start_point=_rounded_position(
+                        segment_points[index], execution_input.identity_decimal_places
+                    ),
+                    end_point=_rounded_position(
+                        segment_points[index + 1], execution_input.identity_decimal_places
+                    ),
+                )
+            )
+        if failed:
+            continue
+
+        if plane.material_authority is None:
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision='UNSUPPORTED_BOUNDARY_QUANTITY',
+                    reason='cross-region reflection surface has no exact material authority',
+                )
+            )
+            continue
+        resolved_material = material_resolver(plane.material_authority)
+        if resolved_material is None or resolved_material.authority_ref != plane.material_authority:
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision='UNSUPPORTED_BOUNDARY_QUANTITY',
+                    reason='cross-region reflection material authority is stale or unresolved',
+                )
+            )
+            continue
+
+        departure = _vector(segment_points[0], segment_points[1])
+        arrival = _vector(segment_points[-2], segment_points[-1])
+        path_length = sum(segment_lengths)
+        reflection_bands: list[DeterministicPathBandQuantity] = []
+        failure: PathCandidateDecision | None = None
+        failure_reason = ''
+        for frequency_hz in execution_input.frequency_centers_hz:
+            directivity = _directivity_contribution(
+                dataset,
+                frequency_hz=frequency_hz,
+                source_axis=source.source_axis,
+                departure_direction=departure,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+            if directivity is None:
+                failure = 'UNSUPPORTED_DIRECTIVITY'
+                failure_reason = (
+                    'exact source directivity cannot evaluate cross-region reflected-path '
+                    'departure angle/frequency'
+                )
+                break
+            boundary = _material_contribution(
+                resolved_material,
+                plane,
+                frequency_hz=frequency_hz,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+            if boundary is None:
+                failure = 'UNSUPPORTED_BOUNDARY_QUANTITY'
+                failure_reason = (
+                    'cross-region reflection surface lacks exact matching banded '
+                    'absorption/scattering authority; no coefficient is fabricated'
+                )
+                break
+            spreading = 1.0 / (path_length * path_length)
+            reflection_bands.append(
+                DeterministicPathBandQuantity(
+                    center_hz=frequency_hz,
+                    spreading_factor_per_m2=spreading,
+                    source_directivity=directivity,
+                    boundary_material=boundary,
+                    relative_energy_transport_per_m2=(
+                        spreading * directivity.energy_factor * boundary.specular_energy_factor
+                    ),
+                )
+            )
+        if failure is not None:
+            rejected.append(
+                RejectedPathCandidate(
+                    source_entity_id=source.source_entity_id,
+                    receiver_id=receiver.receiver_id,
+                    path_type='specular_reflection',
+                    interaction_surface_ids=(surface_id,),
+                    decision=failure,
+                    reason=failure_reason,
+                )
+            )
+            continue
+
+        reflection_interaction = DeterministicPathInteraction(
+            kind='reflection',
+            point=_rounded_position(reflection, execution_input.identity_decimal_places),
+            surface_id=surface_id,
+        )
+        portal_interaction = DeterministicPathInteraction(
+            kind='portal_crossing',
+            point=_rounded_position(crossing, execution_input.identity_decimal_places),
+            portal_id=aperture.portal_id,
+            from_region_id=source.acoustic_region_id,
+            to_region_id=receiver.acoustic_region_id,
+        )
+        typed_interactions = (
+            (reflection_interaction, portal_interaction)
+            if event_order == ('reflection', 'portal_crossing')
+            else (portal_interaction, reflection_interaction)
+        )
+        paths.append(
+            _make_path(
+                path_type='specular_reflection',
+                source=source,
+                receiver=receiver,
+                points=(reflection,),
+                surface_ids=(surface_id,),
+                length_m=path_length,
+                sound_speed_m_s=execution_input.sound_speed_m_s,
+                departure=departure,
+                arrival=arrival,
+                bands=reflection_bands,
+                decimals=execution_input.identity_decimal_places,
+                solver_implementation_ref=execution_input.solver_implementation_ref,
+                typed_interactions=typed_interactions,
+                ordered_region_ids=(source.acoustic_region_id, receiver.acoustic_region_id),
+                region_segment_evidence=tuple(segment_evidence),
+                execution_input_semantic_sha256=execution_input.semantic_sha256,
+            )
+        )
 
 
 def execute_deterministic_ga(
@@ -3697,6 +4240,16 @@ def execute_deterministic_ga(
                             region_segment_evidence=tuple(segment_evidence),
                         )
                     )
+                _append_single_portal_first_order_reflections(
+                    execution_input=execution_input,
+                    compiled_geometry=compiled_geometry,
+                    source=source,
+                    receiver=receiver,
+                    dataset=dataset,
+                    material_resolver=material_resolver,
+                    paths=paths,
+                    rejected=rejected,
+                )
                 continue
 
             images: tuple[NativeImageSource, ...] = ()
@@ -4448,9 +5001,13 @@ def execute_deterministic_ga(
         'frequency_domain': execution_input.frequency_domain.model_dump(mode='json'),
         'path_scope': (
             (
-                'direct_bounded_portal_graph_propagation'
-                if execution_input.portal_graph is not None
-                else 'direct_single_portal_propagation'
+                'single_portal_first_order_specular'
+                if execution_input.maximum_reflection_order == 1
+                else (
+                    'direct_bounded_portal_graph_propagation'
+                    if execution_input.portal_graph is not None
+                    else 'direct_single_portal_propagation'
+                )
             )
             if portal_geometry
             else (
@@ -4914,6 +5471,29 @@ class CadDeterministicPathArtifactRepository:
             BoundaryTerminationAuthority,
             'boundary termination',
         )
+
+        if artifact.path_scope == 'single_portal_first_order_specular':
+            datasets: list[DirectivityDataset] = []
+            for source_input in execution_input.sources:
+                dataset = (
+                    self.snapshot_repository.r110_repository.directivity_repository
+                    .get_dataset_by_hash(source_input.directivity_dataset_sha256)
+                )
+                if dataset is None:
+                    raise ValueError('reflected Portal path exact DirectivityDataset is missing')
+                datasets.append(dataset)
+            regenerated_artifact = execute_deterministic_ga(
+                execution_input=execution_input,
+                compiled_geometry=compiled,
+                directivity_datasets=datasets,
+                material_resolver=self.material_resolver,
+                engine=HtdtPortalFirstOrderReflectionEngine(),
+            )
+            if regenerated_artifact != artifact:
+                raise ValueError(
+                    'reflected Portal path artifact does not reproduce from exact current authorities'
+                )
+            return artifact
 
         source_by_id = {item.source_entity_id: item for item in snapshot.sources}
         receiver_by_id = {item.receiver_id: item for item in snapshot.receivers}
