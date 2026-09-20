@@ -325,13 +325,40 @@ def build_hybrid_crossover_configuration_authority(
     wave_validity_band_hz: tuple[float, float],
     ga_validity_band_hz: tuple[float, float],
 ) -> HybridCrossoverConfigurationAuthority:
+    lower = float(overlap_lower_hz)
+    upper = float(overlap_upper_hz)
+    wave_band = tuple(float(item) for item in wave_validity_band_hz)
+    ga_band = tuple(float(item) for item in ga_validity_band_hz)
+    if (
+        not isfinite(lower)
+        or not isfinite(upper)
+        or lower <= 0.0
+        or upper <= 0.0
+        or lower >= upper
+    ):
+        raise HybridNumericalCompositionError(
+            HybridNumericalFailureCode.OVERLAP_INVALID,
+            'overlap bounds must be finite, positive, and lower < upper',
+        )
+    for label, band in (('wave', wave_band), ('GA', ga_band)):
+        if (
+            len(band) != 2
+            or any(not isfinite(item) or item <= 0.0 for item in band)
+            or band[0] >= band[1]
+            or lower < band[0]
+            or upper > band[1]
+        ):
+            raise HybridNumericalCompositionError(
+                HybridNumericalFailureCode.OVERLAP_INVALID,
+                f'overlap is outside {label} validity band',
+            )
     core = {
         'authority_version': R160_CROSSOVER_AUTHORITY_VERSION,
-        'overlap_lower_hz': float(overlap_lower_hz),
-        'overlap_upper_hz': float(overlap_upper_hz),
+        'overlap_lower_hz': lower,
+        'overlap_upper_hz': upper,
         'blend_law': 'linear_frequency_complementary_v1',
-        'wave_validity_band_hz': list(wave_validity_band_hz),
-        'ga_validity_band_hz': list(ga_validity_band_hz),
+        'wave_validity_band_hz': list(wave_band),
+        'ga_validity_band_hz': list(ga_band),
     }
     digest = _semantic_hash(core)
     return HybridCrossoverConfigurationAuthority(
