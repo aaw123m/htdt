@@ -1,0 +1,150 @@
+name: R130D Independent General-3D Validation
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/htdt/r130d_general3d_validation.py'
+      - 'backend/tests/test_r130d_general3d_validation.py'
+      - 'benchmarks/acoustics/r130d_general3d_validation_plan.json'
+      - 'benchmarks/acoustics/r130d_mfem_reference/**'
+      - 'scripts/run_r130d_general3d_validation.py'
+      - 'scripts/run_r130d_polyhedral_candidate_wave_execution.py'
+      - 'backend/src/htdt/acoustic_pffdtd_polyhedral_geometry.py'
+      - 'docs/R130D_GENERAL3D_INDEPENDENT_VALIDATION_2026-09-20.md'
+      - '.github/workflows/r130d-general3d-validation.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: r130d-general3d-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  independent-sloped-reference:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
+      PYTHONPATH: backend/src
+      MFEM_SHA: d964264cdb9a13e94a201b6c236c7721e0c8765f
+      PFFDTD_SHA: aa319f6c86517cb95aabfae8656277da62c3ead5
+      PLAN: benchmarks/acoustics/r130d_general3d_validation_plan.json
+      EVIDENCE_DIR: artifacts/r130d/general3d
+      EVIDENCE_OUTPUT: artifacts/r130d/general3d/evidence.json
+      HTDT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install focused validation runtime
+        shell: pwsh
+        run: |
+          python -m pip install -e ".\backend[dev]"
+          python -m pip install "numpy==1.26.4" "numba==0.60.0" "scipy==1.14.1" "h5py==3.12.1" "tqdm==4.67.1" "psutil==6.1.1" "memory_profiler==0.61.0"
+
+      - name: Run focused authority and R130D regression tests
+        run: >
+          python -m pytest
+          backend\tests\test_r130d_general3d_validation.py
+          backend\tests\test_acoustic_pffdtd_polyhedral_geometry.py
+
+      - name: Compile-check validation runner
+        run: python -m py_compile scripts\run_r130d_general3d_validation.py
+
+      - name: Checkout exact PFFDTD implementation
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'pffdtd-r130d-validation'
+          git clone --filter=blob:none https://github.com/bsxfun/pffdtd.git $root
+          git -C $root checkout --detach $env:PFFDTD_SHA
+          $actual = (git -C $root rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($actual -ne $env:PFFDTD_SHA) {
+            throw "PFFDTD checkout mismatch: $actual"
+          }
+          "PFFDTD_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Checkout exact MFEM reference implementation
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'mfem-r130d-validation'
+          git clone --filter=blob:none https://github.com/mfem/mfem.git $root
+          git -C $root checkout --detach $env:MFEM_SHA
+          $actual = (git -C $root rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($actual -ne $env:MFEM_SHA) {
+            throw "MFEM checkout mismatch: $actual"
+          }
+          "MFEM_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure and build independent MFEM tetrahedral reference
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'mfem-r130d-validation-build'
+          $timer = [System.Diagnostics.Stopwatch]::StartNew()
+          cmake -S benchmarks\acoustics\r130d_mfem_reference -B $build -A x64 -DHTDT_MFEM_SOURCE_DIR="$env:MFEM_ROOT"
+          if ($LASTEXITCODE -ne 0) {
+            $timer.Stop()
+            "MFEM_RUNTIME_AVAILABLE=0" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BLOCK_REASON=MFEM v4.10 configure failed for R130D independent reference." | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BUILD_S=$($timer.Elapsed.TotalSeconds.ToString('R',[Globalization.CultureInfo]::InvariantCulture))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+          cmake --build $build --config Release --target r130d_mfem_sloped_tet_system --parallel 4
+          $buildExit = $LASTEXITCODE
+          $timer.Stop()
+          "MFEM_BUILD_S=$($timer.Elapsed.TotalSeconds.ToString('R',[Globalization.CultureInfo]::InvariantCulture))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if ($buildExit -ne 0) {
+            "MFEM_RUNTIME_AVAILABLE=0" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BLOCK_REASON=MFEM R130D sloped tetrahedral reference build failed." | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+          $exe = Get-ChildItem -Path $build -Recurse -Filter 'r130d_mfem_sloped_tet_system.exe' | Select-Object -First 1
+          if ($null -eq $exe) {
+            "MFEM_RUNTIME_AVAILABLE=0" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BLOCK_REASON=MFEM R130D reference executable missing after build." | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+          "MFEM_RUNTIME_AVAILABLE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MFEM_REFERENCE_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run predeclared independent validation
+        if: env.MFEM_RUNTIME_AVAILABLE == '1'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
+          $work = Join-Path $env:RUNNER_TEMP 'r130d-general3d-validation'
+          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --mfem-root $env:MFEM_ROOT --mfem-executable $env:MFEM_REFERENCE_EXE --pffdtd-root $env:PFFDTD_ROOT --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S
+
+      - name: Record reference-build BLOCKED evidence
+        if: env.MFEM_RUNTIME_AVAILABLE != '1'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
+          $work = Join-Path $env:RUNNER_TEMP 'r130d-general3d-validation'
+          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
+
+      - name: Validate evidence integrity and report physics state
+        shell: pwsh
+        run: |
+          python -c "from htdt.r130d_general3d_validation import load_evidence; p=load_evidence(r'$env:EVIDENCE_OUTPUT'); d=p['decision']; print('R130D_REFERENCE_EXECUTION='+d['reference_build_execution_status']); print('R130D_REFERENCE_CONVERGENCE='+d['reference_self_convergence_status']); print('R130D_PFFDTD_CONVERGENCE='+d['pffdtd_self_convergence_status']); print('R130D_CROSS_SOLVER='+d['cross_solver_agreement_status']); print('R130D_FIXTURE_RESULT='+d['fixture_validation_result']); print('R130D_GENERAL3D_STATE='+d['general_3d_validation_state'])"
+          $doc = Get-Content -Raw $env:EVIDENCE_OUTPUT | ConvertFrom-Json
+          $decision = $doc.payload.decision
+          if (@('PASS','FAIL','BLOCKED') -notcontains $decision.fixture_validation_result) {
+            throw "invalid fixture validation result"
+          }
+          if ($doc.payload.rdc_calls -ne 0) { throw "RDC calls must remain zero" }
+          if ($doc.payload.htdt_capture_changed -ne $false) { throw "HTDT-Capture change claim is forbidden" }
+          if ($doc.payload.scope.production_solver_selected -ne $false) { throw "production solver adoption claim is forbidden" }
+
+      - name: Upload immutable independent validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-independent-general3d-validation
+          path: artifacts/r130d/general3d
+          if-no-files-found: error
+          retention-days: 90
