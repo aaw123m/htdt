@@ -4,12 +4,15 @@ on:
   pull_request:
     paths:
       - 'backend/src/htdt/cad_hybrid_numerical_composition.py'
+      - 'backend/src/htdt/cad_hybrid_grid_reconciliation.py'
       - 'backend/src/htdt/cad_hybrid_acoustic_result.py'
       - 'backend/src/htdt/cad_candidate_wave_execution.py'
       - 'backend/src/htdt/cad_wave_excitation.py'
       - 'backend/src/htdt/cad_geometric_acoustics_response.py'
       - 'backend/tests/test_cad_hybrid_numerical_composition.py'
+      - 'backend/tests/fixtures/r160_frequency_grid_stitch_fixture.json'
       - 'docs/R160_NUMERICAL_COMPLEX_COMPOSITION_2026-09-20.md'
+      - 'docs/R160_FREQUENCY_GRID_RECONCILIATION_2026-09-20.md'
       - '.github/workflows/r160-numerical-hybrid-composition.yml'
   workflow_dispatch:
 
@@ -43,3 +46,5 @@ jobs:
           test ! -e HTDT-Capture/.r160-touch
           grep -q "RDC usage: 0" docs/R160_NUMERICAL_COMPLEX_COMPOSITION_2026-09-20.md
           grep -q "not production solver adoption" docs/R160_NUMERICAL_COMPLEX_COMPOSITION_2026-09-20.md
+          grep -q "RDC usage: 0" docs/R160_FREQUENCY_GRID_RECONCILIATION_2026-09-20.md
+          grep -q "not production broadband validation" docs/R160_FREQUENCY_GRID_RECONCILIATION_2026-09-20.md

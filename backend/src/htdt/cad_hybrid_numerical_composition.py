@@ -22,6 +22,16 @@ from .cad_geometric_acoustics_response import (
     TRANSFER_QUANTITY,
     TRANSFER_UNIT,
 )
+from .cad_hybrid_grid_reconciliation import (
+    FrequencyGridReconciliationAuthority,
+    HybridCrossoverConfigurationAuthority,
+    HybridNumericalCompositionError,
+    HybridNumericalFailureCode,
+    build_frequency_grid_reconciliation_authority,
+    build_hybrid_crossover_configuration_authority,
+    reconcile_complex_series,
+    validate_frequency_grid,
+)
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema
 from .cad_wave_excitation import AcousticWaveExcitationAuthority
@@ -274,7 +284,7 @@ def build_hybrid_convention_normalization_authority(
 
 
 class NumericalHybridCompositionSpec(BaseModel):
-    """Exact numerical composition request over explicit shared frequency bins."""
+    """Numerical composition request over an explicit, authority-bound output grid."""
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -314,6 +324,8 @@ class NumericalHybridCompositionSpec(BaseModel):
     time_origin: Literal['source_t0'] = COMMON_TIME_ORIGIN
 
     normalization_authority_ref: ExactExternalAuthorityRef
+    grid_reconciliation: FrequencyGridReconciliationAuthority
+    crossover_configuration: HybridCrossoverConfigurationAuthority
     transition_start_hz: float = Field(gt=0.0)
     transition_end_hz: float = Field(gt=0.0)
     weight_law: HybridWeightLaw = 'linear_frequency_complementary_v1'
@@ -331,7 +343,23 @@ class NumericalHybridCompositionSpec(BaseModel):
             self.transition_start_hz < grid[0]
             or self.transition_end_hz > grid[-1]
         ):
-            raise ValueError('R160 transition endpoints must lie inside exact grid domain')
+            raise ValueError('R160 transition endpoints must lie inside output grid domain')
+        if grid != self.grid_reconciliation.requested_output_frequency_grid_hz:
+            raise ValueError('R160 output grid does not match reconciliation authority')
+        crossover = self.crossover_configuration
+        if (
+            self.transition_start_hz != crossover.overlap_lower_hz
+            or self.transition_end_hz != crossover.overlap_upper_hz
+            or self.weight_law != crossover.blend_law
+        ):
+            raise ValueError('R160 transition does not match crossover authority')
+        if (
+            self.grid_reconciliation.wave_valid_input_band_hz
+            != crossover.wave_validity_band_hz
+            or self.grid_reconciliation.ga_valid_input_band_hz
+            != crossover.ga_validity_band_hz
+        ):
+            raise ValueError('R160 crossover validity bands do not match reconciliation authority')
         ref_keys = tuple(_ref_key(item) for item in self.r150_response_refs)
         if ref_keys != tuple(sorted(set(ref_keys))):
             raise ValueError('R160 R150 response refs must be unique/canonically sorted')
@@ -402,6 +430,7 @@ class AggregatedGaComplexResponse(BaseModel):
     source_entity_id: str = Field(min_length=1)
     receiver_id: str = Field(min_length=1)
     exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=2)
+    grid_reconciliation_ref: ExactExternalAuthorityRef
 
     quantity: Literal[
         'complex_acoustic_pressure_per_volume_velocity'
@@ -523,6 +552,8 @@ class NumericalHybridResponseArtifact(BaseModel):
     )
     exact_aggregated_ga_identity: ExactExternalAuthorityRef
     aggregated_ga: AggregatedGaComplexResponse
+    grid_reconciliation: FrequencyGridReconciliationAuthority
+    crossover_configuration: HybridCrossoverConfigurationAuthority
 
     exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=2)
     quantity: Literal[
@@ -545,6 +576,7 @@ class NumericalHybridResponseArtifact(BaseModel):
     weight_law: HybridWeightLaw
 
     capability_state: HybridNumericalCapability
+    failure_codes: tuple[HybridNumericalFailureCode, ...] = ()
     unsupported_reasons: tuple[str, ...] = ()
     samples: tuple[NumericalHybridResponseSample, ...] = ()
 
@@ -564,8 +596,17 @@ class NumericalHybridResponseArtifact(BaseModel):
             raise ValueError('R160 output R150 response identity mismatch')
         if self.aggregated_ga.as_external_ref() != self.exact_aggregated_ga_identity:
             raise ValueError('R160 output GA aggregate identity mismatch')
+        if (
+            self.aggregated_ga.grid_reconciliation_ref
+            != self.grid_reconciliation.as_external_ref()
+        ):
+            raise ValueError('R160 output GA reconciliation identity mismatch')
         if self.exact_frequency_grid_hz != self.composition_spec.exact_frequency_grid_hz:
             raise ValueError('R160 output frequency grid mismatch')
+        if self.grid_reconciliation != self.composition_spec.grid_reconciliation:
+            raise ValueError('R160 output reconciliation authority mismatch')
+        if self.crossover_configuration != self.composition_spec.crossover_configuration:
+            raise ValueError('R160 output crossover configuration mismatch')
         if (
             self.transition_start_hz != self.composition_spec.transition_start_hz
             or self.transition_end_hz != self.composition_spec.transition_end_hz
@@ -573,13 +614,13 @@ class NumericalHybridResponseArtifact(BaseModel):
         ):
             raise ValueError('R160 output crossover authority mismatch')
         if self.capability_state == 'COMPLEX_SUPPORTED':
-            if self.unsupported_reasons:
-                raise ValueError('supported R160 output cannot carry unsupported reasons')
+            if self.failure_codes or self.unsupported_reasons:
+                raise ValueError('supported R160 output cannot carry failure metadata')
             if tuple(item.frequency_hz for item in self.samples) != self.exact_frequency_grid_hz:
                 raise ValueError('supported R160 output must cover exact grid')
         else:
-            if not self.unsupported_reasons or self.samples:
-                raise ValueError('unsupported R160 output requires reasons and no samples')
+            if not self.failure_codes or not self.unsupported_reasons or self.samples:
+                raise ValueError('unsupported R160 output requires failure codes/reasons and no samples')
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('R160 numerical hybrid semantic hash mismatch')
@@ -620,7 +661,10 @@ def _validate_wave_inputs(
     if not isinstance(payload, dict):
         raise ValueError('R130 complex-pressure artifact payload must be a mapping')
     if _semantic_hash(payload) != manifest.artifact_authority.semantic_hash_sha256:
-        raise ValueError('R130 complex-pressure artifact payload hash mismatch')
+        raise HybridNumericalCompositionError(
+            HybridNumericalFailureCode.ARTIFACT_HASH_MISMATCH,
+            'R130 complex-pressure artifact payload hash mismatch',
+        )
     if payload.get('schema_version') != COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION:
         raise ValueError('R130 complex-pressure artifact schema mismatch')
     if payload.get('quantity_type') != 'complex_pressure':
@@ -702,9 +746,10 @@ def _validate_wave_inputs(
     ):
         raise ValueError('R130 receiver identity/position is stale')
 
-    frequencies = tuple(float(item) for item in payload.get('frequency_axis_hz', ()))
-    if frequencies != tuple(sorted(set(frequencies))) or len(frequencies) < 2:
-        raise ValueError('R130 frequency axis must be exact sorted unique bins')
+    frequencies = validate_frequency_grid(
+        payload.get('frequency_axis_hz', ()),
+        label='R130 frequency axis',
+    )
     if frequencies != tuple(
         float(item) for item in candidate_input.frequency_samples_hz
     ):
@@ -752,6 +797,8 @@ def build_numerical_hybrid_composition_spec(
     transition_start_hz: float,
     transition_end_hz: float,
     normalization_authority: HybridConventionNormalizationAuthority | None = None,
+    reconciliation_method: str = 'exact_bin_identity_v1',
+    frequency_tolerance_hz: float = 0.0,
 ) -> NumericalHybridCompositionSpec:
     result = AcousticSolverResultEnvelope.model_validate(
         r130_result.model_dump(mode='python')
@@ -779,14 +826,21 @@ def build_numerical_hybrid_composition_spec(
         excitation=excitation,
         receiver_id=receiver_id,
     )
-    grid = tuple(float(item) for item in exact_frequency_grid_hz)
-    if grid != tuple(sorted(set(grid))) or len(grid) < 2:
-        raise ValueError('R160 exact shared grid must contain sorted unique bins')
-    if any(item not in wave_grid for item in grid):
-        raise ValueError('R160 refuses R130 frequency interpolation/resampling')
-    excitation_grid = {float(item.frequency_hz) for item in excitation.samples}
-    if any(item not in excitation_grid for item in grid):
-        raise ValueError('R160 requires exact Q(f) samples; interpolation is not authorized')
+    grid = validate_frequency_grid(
+        exact_frequency_grid_hz,
+        label='R160 requested output grid',
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    excitation_grid = validate_frequency_grid(
+        tuple(float(item.frequency_hz) for item in excitation.samples),
+        label='R160 wave excitation grid',
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    if excitation_grid != wave_grid:
+        raise HybridNumericalCompositionError(
+            HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+            'R130 Q(f) grid must exactly bind the original wave grid before reconciliation',
+        )
 
     source_ids = {item.source_entity_id for item in responses}
     receiver_ids = {item.receiver_id for item in responses}
@@ -833,9 +887,38 @@ def build_numerical_hybrid_composition_spec(
             or item.phasor_convention != COMMON_PHASOR_CONVENTION
             or item.time_origin != COMMON_TIME_ORIGIN
         ):
-            raise ValueError('R160 R150 physical convention mismatch')
-        if any(frequency not in item.exact_frequency_grid_hz for frequency in grid):
-            raise ValueError('R160 refuses R150 frequency interpolation/resampling')
+            raise HybridNumericalCompositionError(
+                HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                'R160 R150 physical convention mismatch',
+            )
+
+    ga_grids = {
+        tuple(float(frequency) for frequency in item.exact_frequency_grid_hz)
+        for item in responses
+    }
+    if len(ga_grids) != 1:
+        raise HybridNumericalCompositionError(
+            HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+            'R150 paths must share one original GA frequency grid before coherent summation',
+        )
+    ga_grid = validate_frequency_grid(
+        next(iter(ga_grids)),
+        label='R160 original GA grid',
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    reconciliation = build_frequency_grid_reconciliation_authority(
+        original_wave_frequency_grid_hz=wave_grid,
+        original_ga_frequency_grid_hz=ga_grid,
+        requested_output_frequency_grid_hz=grid,
+        reconciliation_method=reconciliation_method,
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    crossover = build_hybrid_crossover_configuration_authority(
+        overlap_lower_hz=float(transition_start_hz),
+        overlap_upper_hz=float(transition_end_hz),
+        wave_validity_band_hz=reconciliation.wave_valid_input_band_hz,
+        ga_validity_band_hz=reconciliation.ga_valid_input_band_hz,
+    )
 
     normalization = (
         build_hybrid_convention_normalization_authority()
@@ -877,6 +960,8 @@ def build_numerical_hybrid_composition_spec(
         'normalization_authority_ref': normalization.as_external_ref().model_dump(
             mode='json'
         ),
+        'grid_reconciliation': reconciliation.model_dump(mode='json'),
+        'crossover_configuration': crossover.model_dump(mode='json'),
         'transition_start_hz': float(transition_start_hz),
         'transition_end_hz': float(transition_end_hz),
         'weight_law': 'linear_frequency_complementary_v1',
@@ -923,6 +1008,9 @@ def aggregate_r150_complex_paths(
         'source_entity_id': spec.source_entity_id,
         'receiver_id': spec.receiver_id,
         'exact_frequency_grid_hz': list(spec.exact_frequency_grid_hz),
+        'grid_reconciliation_ref': spec.grid_reconciliation.as_external_ref().model_dump(
+            mode='json'
+        ),
         'quantity': TRANSFER_QUANTITY,
         'unit': TRANSFER_UNIT,
         'source_normalization': COMMON_SOURCE_NORMALIZATION,
@@ -937,28 +1025,39 @@ def aggregate_r150_complex_paths(
             'samples': [],
         }
     else:
-        sums = {frequency: 0.0 + 0.0j for frequency in spec.exact_frequency_grid_hz}
+        native_grid = spec.grid_reconciliation.original_ga_frequency_grid_hz
+        sums = {frequency: 0.0 + 0.0j for frequency in native_grid}
         for response in response_tuple:
-            samples = {item.frequency_hz: item for item in response.samples}
-            for frequency in spec.exact_frequency_grid_hz:
+            samples = {float(item.frequency_hz): item for item in response.samples}
+            for frequency in native_grid:
                 sample = samples.get(frequency)
                 if (
                     sample is None
                     or sample.complex_real_pa_per_m3_s is None
                     or sample.complex_imag_pa_per_m3_s is None
                 ):
-                    raise ValueError('R160 exact R150 complex sample is missing')
+                    raise HybridNumericalCompositionError(
+                        HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                        'R160 original GA complex sample is missing',
+                    )
                 sums[frequency] += complex(
                     sample.complex_real_pa_per_m3_s,
                     sample.complex_imag_pa_per_m3_s,
                 )
+        reconciled = reconcile_complex_series(
+            original_grid_hz=native_grid,
+            values=tuple(sums[frequency] for frequency in native_grid),
+            output_grid_hz=spec.exact_frequency_grid_hz,
+            authority=spec.grid_reconciliation,
+            label='R160 GA aggregate',
+        )
         aggregate_samples = [
             {
                 'frequency_hz': frequency,
-                'complex_real_pa_per_m3_s': sums[frequency].real,
-                'complex_imag_pa_per_m3_s': sums[frequency].imag,
-                'magnitude_pa_per_m3_s': abs(sums[frequency]),
-                'phase_rad': _phase(sums[frequency]),
+                'complex_real_pa_per_m3_s': reconciled[frequency].real,
+                'complex_imag_pa_per_m3_s': reconciled[frequency].imag,
+                'magnitude_pa_per_m3_s': abs(reconciled[frequency]),
+                'phase_rad': _phase(reconciled[frequency]),
             }
             for frequency in spec.exact_frequency_grid_hz
         ]
@@ -983,7 +1082,6 @@ def _normalized_wave_transfer(
     excitation: AcousticWaveExcitationAuthority,
 ) -> dict[float, complex]:
     frequencies = tuple(float(item) for item in payload['frequency_axis_hz'])
-    index_by_frequency = {item: index for index, item in enumerate(frequencies)}
     receiver_order = payload['receiver_identity_order']
     receiver_index = next(
         index
@@ -997,25 +1095,37 @@ def _normalized_wave_transfer(
         for item in excitation.samples
     }
 
-    normalized: dict[float, complex] = {}
-    for frequency in spec.exact_frequency_grid_hz:
-        pressure_index = index_by_frequency.get(frequency)
+    native: list[complex] = []
+    for pressure_index, frequency in enumerate(frequencies):
         q = q_by_frequency.get(frequency)
-        if pressure_index is None or q is None:
-            raise ValueError('R160 exact shared wave/Q frequency sample is missing')
+        if q is None:
+            raise HybridNumericalCompositionError(
+                HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                f'R160 exact Q(f) sample is missing at {frequency} Hz',
+            )
         if abs(q) <= 1e-18:
-            raise ValueError('R160 source-normalization conversion rejects zero Q(f)')
+            raise HybridNumericalCompositionError(
+                HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                'R160 source-normalization conversion rejects zero Q(f)',
+            )
         pressure = complex(
             pressure_real[pressure_index],
             pressure_imag[pressure_index],
         )
-        transfer_r130 = pressure / q
-        normalized[frequency] = convert_complex_phasor(
-            transfer_r130,
-            input_convention=R130_PHASOR_CONVENTION,
-            output_convention=COMMON_PHASOR_CONVENTION,
+        native.append(
+            convert_complex_phasor(
+                pressure / q,
+                input_convention=R130_PHASOR_CONVENTION,
+                output_convention=COMMON_PHASOR_CONVENTION,
+            )
         )
-    return normalized
+    return reconcile_complex_series(
+        original_grid_hz=frequencies,
+        values=native,
+        output_grid_hz=spec.exact_frequency_grid_hz,
+        authority=spec.grid_reconciliation,
+        label='R160 wave transfer',
+    )
 
 
 def compose_numerical_hybrid_response(
@@ -1052,6 +1162,8 @@ def compose_numerical_hybrid_response(
         transition_start_hz=spec.transition_start_hz,
         transition_end_hz=spec.transition_end_hz,
         normalization_authority=normalization,
+        reconciliation_method=spec.grid_reconciliation.reconciliation_method,
+        frequency_tolerance_hz=spec.grid_reconciliation.tolerance_hz,
     )
     if expected_spec != spec:
         raise ValueError('R160 numerical composition spec is stale for exact inputs')
@@ -1075,6 +1187,8 @@ def compose_numerical_hybrid_response(
             mode='json'
         ),
         'aggregated_ga': aggregate.model_dump(mode='json'),
+        'grid_reconciliation': spec.grid_reconciliation.model_dump(mode='json'),
+        'crossover_configuration': spec.crossover_configuration.model_dump(mode='json'),
         'exact_frequency_grid_hz': list(spec.exact_frequency_grid_hz),
         'quantity': TRANSFER_QUANTITY,
         'unit': TRANSFER_UNIT,
@@ -1091,6 +1205,7 @@ def compose_numerical_hybrid_response(
         core = {
             **base,
             'capability_state': 'UNSUPPORTED',
+            'failure_codes': [HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH],
             'unsupported_reasons': [
                 'R150 coherent path aggregation unavailable: '
                 + '; '.join(aggregate.unsupported_reasons)
@@ -1137,6 +1252,7 @@ def compose_numerical_hybrid_response(
         core = {
             **base,
             'capability_state': 'COMPLEX_SUPPORTED',
+            'failure_codes': [],
             'unsupported_reasons': [],
             'samples': samples,
         }
