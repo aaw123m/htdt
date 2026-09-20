@@ -3,17 +3,27 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+from htdt.acoustic_pffdtd_adapter import finite_record_pressure_transfer
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     PairMetrics,
     ObservableContractMismatch,
+    analytic_complex_harmonic_spectrum,
+    analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
     compare_complex_transfer,
     load_evidence,
+    load_target_window_diagnostic_plan,
     load_validation_plan,
+    native_window_left_rectangle_spectrum,
+    native_window_left_rectangle_transfer,
     save_evidence,
+    target_window_sampling_metadata,
+    target_window_clipped_left_rectangle_spectrum,
+    target_window_clipped_left_rectangle_transfer,
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
@@ -23,6 +33,12 @@ from htdt.r130d_general3d_validation import (
 
 
 PLAN = Path(__file__).parents[2] / 'benchmarks' / 'acoustics' / 'r130d_general3d_validation_plan.json'
+DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_target_window_diagnostic_plan.json'
+)
 
 
 def _plan():
@@ -417,3 +433,170 @@ def test_new_plan_is_record_coherent_and_refinement_ordered():
     assert plan.independent_reference.expected_dofs == (125, 729, 4913)
     assert plan.pffdtd.points_per_wavelength == (8.0, 10.0, 12.0)
 
+
+
+
+def test_target_window_diagnostic_plan_is_frozen_and_hash_bound():
+    diagnostic = load_target_window_diagnostic_plan(DIAGNOSTIC_PLAN)
+    assert diagnostic['target_duration_s'] == 0.25
+    assert diagnostic['frequency_hz'] == [40.0, 80.0]
+    assert diagnostic['series']['mfem_refinements'] == [1, 2, 3]
+    assert diagnostic['series']['pffdtd_ppw'] == [8.0, 10.0, 12.0]
+    assert diagnostic['operator']['operator_id'] == (
+        'htdt.r130d.target_window_clipped_left_rectangle'
+    )
+    assert diagnostic['decision_semantics']['diagnostic_only'] is True
+    assert (
+        diagnostic['decision_semantics']['canonical_observable_replaced']
+        is False
+    )
+
+
+def test_target_window_clipped_left_rectangle_known_complex_harmonic_converges_for_noninteger_t_over_dt():
+    target_duration_s = 0.25
+    frequencies = np.asarray([40.0, 80.0], dtype=np.float64)
+    pressure_amplitude = 2.1 + 0.4j
+    source_amplitude = 0.7 - 0.2j
+    pressure_harmonic_hz = 53.0
+    source_harmonic_hz = 17.0
+
+    exact_pressure = analytic_complex_harmonic_spectrum(
+        amplitude=pressure_amplitude,
+        harmonic_frequency_hz=pressure_harmonic_hz,
+        analysis_frequency_hz=frequencies,
+        duration_s=target_duration_s,
+    )
+    exact_source = analytic_complex_harmonic_spectrum(
+        amplitude=source_amplitude,
+        harmonic_frequency_hz=source_harmonic_hz,
+        analysis_frequency_hz=frequencies,
+        duration_s=target_duration_s,
+    )
+    exact_transfer = exact_pressure / exact_source
+
+    errors = []
+    spectrum_errors = []
+    for dt_s in (0.007, 0.0035, 0.00175, 0.000875):
+        sample_count = int(np.ceil(target_duration_s / dt_s))
+        assert not np.isclose(
+            target_duration_s / dt_s,
+            round(target_duration_s / dt_s),
+            rtol=0.0,
+            atol=1.0e-12,
+        )
+        times = np.arange(sample_count, dtype=np.float64) * dt_s
+        pressure = pressure_amplitude * np.exp(
+            -2j * np.pi * pressure_harmonic_hz * times
+        )
+        source = source_amplitude * np.exp(
+            -2j * np.pi * source_harmonic_hz * times
+        )
+
+        aligned_pressure = target_window_clipped_left_rectangle_spectrum(
+            pressure,
+            dt_s=dt_s,
+            target_duration_s=target_duration_s,
+            frequency_hz=frequencies,
+        )
+        aligned = target_window_clipped_left_rectangle_transfer(
+            pressure,
+            source,
+            dt_s=dt_s,
+            target_duration_s=target_duration_s,
+            frequency_hz=frequencies,
+        )
+        spectrum_errors.append(
+            float(
+                np.linalg.norm(aligned_pressure - exact_pressure)
+                / np.linalg.norm(exact_pressure)
+            )
+        )
+        errors.append(
+            float(
+                np.linalg.norm(aligned - exact_transfer)
+                / np.linalg.norm(exact_transfer)
+            )
+        )
+
+    assert all(
+        following < previous
+        for previous, following in zip(errors, errors[1:])
+    )
+    assert all(
+        following < previous
+        for previous, following in zip(
+            spectrum_errors, spectrum_errors[1:]
+        )
+    )
+    assert errors[-1] < 0.11
+    assert spectrum_errors[-1] < spectrum_errors[0]
+
+
+def test_target_window_sampling_metadata_exposes_native_overrun_exactly():
+    metadata = target_window_sampling_metadata(
+        solver='PFFDTD',
+        requested_duration_s=0.25,
+        dt_s=0.0007209661486505452,
+        sample_count=347,
+        frequency_hz=(40.0, 80.0),
+        source_sampling='unit discrete impulse q[0]=1',
+        pressure_sampling='native pressure trace',
+    )
+    assert metadata['actual_first_sample_time_s'] == 0.0
+    assert metadata['actual_last_sample_time_s'] == pytest.approx(
+        0.24945428743308865
+    )
+    assert metadata['actual_n_dt_s'] == pytest.approx(
+        0.2501752535817392
+    )
+    assert metadata['n_dt_minus_requested_duration_s'] == pytest.approx(
+        0.0001752535817392
+    )
+    assert metadata['target_effective_integration_interval_s'] == [0.0, 0.25]
+    assert metadata['analysis_fourier_kernel'] == 'exp(+i*omega*t)'
+
+
+def test_native_window_generalization_matches_existing_real_extractor():
+    dt_s = 0.0037
+    frequencies = np.asarray([40.0, 80.0], dtype=np.float64)
+    times = np.arange(71, dtype=np.float64) * dt_s
+    pressure = 1.3 * np.cos(2.0 * np.pi * 31.0 * times + 0.2)
+    source = np.zeros(times.size, dtype=np.float64)
+    source[0] = 1.0
+    existing = finite_record_pressure_transfer(
+        pressure,
+        source,
+        time_step_s=dt_s,
+        frequency_hz=frequencies,
+    )
+    generalized = native_window_left_rectangle_transfer(
+        pressure,
+        source,
+        dt_s=dt_s,
+        frequency_hz=frequencies,
+    )
+    assert np.allclose(existing, generalized, rtol=0.0, atol=1.0e-13)
+
+
+def test_native_window_complex_harmonic_matches_independent_geometric_series():
+    dt_s = 0.007
+    target_duration_s = 0.25
+    sample_count = int(np.ceil(target_duration_s / dt_s))
+    frequencies = np.asarray([40.0, 80.0], dtype=np.float64)
+    amplitude = 2.1 + 0.4j
+    harmonic_hz = 53.0
+    times = np.arange(sample_count, dtype=np.float64) * dt_s
+    samples = amplitude * np.exp(-2j * np.pi * harmonic_hz * times)
+    numerical = native_window_left_rectangle_spectrum(
+        samples,
+        dt_s=dt_s,
+        frequency_hz=frequencies,
+    )
+    analytic = analytic_sampled_complex_harmonic_left_rectangle_spectrum(
+        amplitude=amplitude,
+        harmonic_frequency_hz=harmonic_hz,
+        analysis_frequency_hz=frequencies,
+        dt_s=dt_s,
+        sample_count=sample_count,
+    )
+    assert np.allclose(numerical, analytic, rtol=2.0e-13, atol=2.0e-13)

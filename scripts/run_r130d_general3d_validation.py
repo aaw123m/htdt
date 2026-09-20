@@ -18,6 +18,11 @@ import psutil
 import scipy
 from scipy import linalg
 
+from htdt.acoustic_pffdtd_adapter import (
+    finite_record_pressure_transfer as pffdtd_finite_record_pressure_transfer,
+    pffdtd_velocity_potential_to_pressure_trace,
+    recombine_pffdtd_receiver_traces,
+)
 from htdt.acoustic_pffdtd_polyhedral_geometry import (
     PffdtdPolyhedralCandidateWaveExecutor,
     register_r120b_polyhedral_authorities,
@@ -32,11 +37,17 @@ from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     ObservableContractMismatch,
     R130DGeneral3DValidationPlan,
+    analytic_complex_harmonic_spectrum,
+    analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
     compare_complex_transfer,
+    load_target_window_diagnostic_plan,
     load_validation_plan,
+    native_window_left_rectangle_transfer,
     save_evidence,
     semantic_hash,
+    target_window_sampling_metadata,
+    target_window_clipped_left_rectangle_transfer,
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
@@ -131,6 +142,183 @@ def _git_head(root: Path) -> str:
 def _complex_pairs(values: np.ndarray) -> list[list[float]]:
     array = np.asarray(values, dtype=np.complex128)
     return [[float(item.real), float(item.imag)] for item in array]
+
+
+def _validate_target_window_diagnostic_binding(
+    plan: R130DGeneral3DValidationPlan,
+    diagnostic: dict[str, Any],
+) -> None:
+    checks = (
+        (
+            'parent_general3d_plan_sha256',
+            diagnostic.get('parent_general3d_plan_sha256'),
+            plan.plan_sha256(),
+        ),
+        (
+            'target_duration_s',
+            float(diagnostic.get('target_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'frequency_hz',
+            tuple(float(x) for x in diagnostic.get('frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'mfem_refinements',
+            tuple(int(x) for x in diagnostic.get('series', {}).get('mfem_refinements', ())),
+            tuple(int(x) for x in plan.independent_reference.uniform_refinements),
+        ),
+        (
+            'pffdtd_ppw',
+            tuple(float(x) for x in diagnostic.get('series', {}).get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValidationBlocked(
+                f'target-window diagnostic binding mismatch for {label}: '
+                f'{actual!r} != {expected!r}'
+            )
+
+    thresholds = diagnostic.get('acceptance_thresholds_unchanged', {})
+    if thresholds.get('mfem') != {
+        'complex_rms_relative_max': 0.05,
+        'magnitude_max_relative': 0.08,
+        'phase_max_deg': 5.0,
+    }:
+        raise ValidationBlocked('diagnostic MFEM thresholds changed from PR #286')
+    if thresholds.get('pffdtd') != {
+        'complex_rms_relative_max': 0.2,
+        'magnitude_max_relative': 0.25,
+        'phase_max_deg': 15.0,
+    }:
+        raise ValidationBlocked('diagnostic PFFDTD thresholds changed from PR #286')
+    if float(thresholds.get('magnitude_mask_relative_db', math.nan)) != -50.0:
+        raise ValidationBlocked('diagnostic magnitude mask changed from PR #286')
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_observable_replaced') is False
+        and decision.get('cross_solver_unblocked_by_diagnostic_only') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic_only') is False
+    ):
+        raise ValidationBlocked('diagnostic decision semantics are not fail-closed')
+
+
+def _run_observation_operator_fixture(
+    diagnostic: dict[str, Any],
+) -> dict[str, Any]:
+    spec = diagnostic['analytic_fixture']
+    frequencies = np.asarray(diagnostic['frequency_hz'], dtype=np.float64)
+    duration = float(diagnostic['target_duration_s'])
+    p_amp = complex(*[float(x) for x in spec['pressure_amplitude']])
+    q_amp = complex(*[float(x) for x in spec['source_amplitude']])
+    p_hz = float(spec['pressure_harmonic_hz'])
+    q_hz = float(spec['source_harmonic_hz'])
+    exact_p = analytic_complex_harmonic_spectrum(
+        amplitude=p_amp,
+        harmonic_frequency_hz=p_hz,
+        analysis_frequency_hz=frequencies,
+        duration_s=duration,
+    )
+    exact_q = analytic_complex_harmonic_spectrum(
+        amplitude=q_amp,
+        harmonic_frequency_hz=q_hz,
+        analysis_frequency_hz=frequencies,
+        duration_s=duration,
+    )
+    exact_transfer = exact_p / exact_q
+    cases = []
+    errors = []
+    for dt_s in (float(x) for x in spec['dt_s']):
+        sample_count = int(math.ceil(duration / dt_s))
+        ratio = duration / dt_s
+        if math.isclose(ratio, round(ratio), rel_tol=0.0, abs_tol=1.0e-12):
+            raise ValidationBlocked(
+                'analytic fixture requires non-integer target_duration/dt'
+            )
+        times = np.arange(sample_count, dtype=np.float64) * dt_s
+        pressure = p_amp * np.exp(-2j * np.pi * p_hz * times)
+        source = q_amp * np.exp(-2j * np.pi * q_hz * times)
+        native = native_window_left_rectangle_transfer(
+            pressure,
+            source,
+            dt_s=dt_s,
+            frequency_hz=frequencies,
+        )
+        native_exact_p = analytic_sampled_complex_harmonic_left_rectangle_spectrum(
+            amplitude=p_amp,
+            harmonic_frequency_hz=p_hz,
+            analysis_frequency_hz=frequencies,
+            dt_s=dt_s,
+            sample_count=sample_count,
+        )
+        native_exact_q = analytic_sampled_complex_harmonic_left_rectangle_spectrum(
+            amplitude=q_amp,
+            harmonic_frequency_hz=q_hz,
+            analysis_frequency_hz=frequencies,
+            dt_s=dt_s,
+            sample_count=sample_count,
+        )
+        native_exact = native_exact_p / native_exact_q
+        native_relative_error = float(
+            np.linalg.norm(native - native_exact)
+            / max(float(np.linalg.norm(native_exact)), np.finfo(np.float64).tiny)
+        )
+        if native_relative_error > 5.0e-13:
+            raise ValidationBlocked(
+                'native-window harmonic fixture differs from independent '
+                f'geometric-series authority: {native_relative_error}'
+            )
+
+        aligned = target_window_clipped_left_rectangle_transfer(
+            pressure,
+            source,
+            dt_s=dt_s,
+            target_duration_s=duration,
+            frequency_hz=frequencies,
+        )
+        relative_error = float(
+            np.linalg.norm(aligned - exact_transfer)
+            / max(float(np.linalg.norm(exact_transfer)), np.finfo(np.float64).tiny)
+        )
+        errors.append(relative_error)
+        cases.append(
+            {
+                'dt_s': dt_s,
+                'sample_count': sample_count,
+                'n_dt_s': sample_count * dt_s,
+                'n_dt_minus_target_s': sample_count * dt_s - duration,
+                'native_window_transfer': _complex_pairs(native),
+                'analytic_native_window_transfer': _complex_pairs(native_exact),
+                'native_window_relative_error': native_relative_error,
+                'aligned_transfer': _complex_pairs(aligned),
+                'analytic_target_window_transfer': _complex_pairs(exact_transfer),
+                'aligned_target_relative_error': relative_error,
+            }
+        )
+    monotone = all(
+        following < previous
+        for previous, following in zip(errors, errors[1:])
+    )
+    finest_limit = 0.11
+    passed = bool(monotone and errors[-1] < finest_limit)
+    if not passed:
+        raise ValidationBlocked(
+            'target-window analytic fixture did not satisfy frozen convergence gate'
+        )
+    return {
+        'state': 'PASS',
+        'fixture_id': spec['fixture_id'],
+        'analytic_target_transfer': _complex_pairs(exact_transfer),
+        'native_window_extractor_validation': 'PASS',
+        'cases': cases,
+        'relative_error_strictly_decreasing': monotone,
+        'finest_relative_error_max': finest_limit,
+        'finest_relative_error': errors[-1],
+    }
 
 
 def _finite_record_transfer(
@@ -487,6 +675,27 @@ def _run_reference_level(
         dt_s=dt_s,
         frequency_hz=frequencies,
     )
+    aligned_transfer = target_window_clipped_left_rectangle_transfer(
+        pressure,
+        source_trace,
+        dt_s=dt_s,
+        target_duration_s=plan.physical_quantity.duration_s,
+        frequency_hz=frequencies,
+    )
+    sampling_metadata = target_window_sampling_metadata(
+        solver='MFEM',
+        requested_duration_s=plan.physical_quantity.duration_s,
+        dt_s=dt_s,
+        sample_count=sample_count,
+        frequency_hz=frequencies,
+        source_sampling=(
+            'unit discrete volume-velocity impulse q[0]=1, q[n>0]=0 on '
+            'the MFEM modal sample grid'
+        ),
+        pressure_sampling=(
+            'full-basis modal pressure samples rho*r^T*phi_t at t_n=n*dt'
+        ),
+    )
     rss_final_mb = process.memory_info().rss / (1024.0 * 1024.0)
     checkpoint_rss_max_mb = max(rss_before_mb, rss_after_eigen_mb, rss_final_mb)
     if checkpoint_rss_max_mb > plan.resource_ceiling.max_reference_peak_ram_mb:
@@ -495,6 +704,13 @@ def _run_reference_level(
         )
 
     transfer_pairs = _complex_pairs(transfer)
+    aligned_transfer_pairs = _complex_pairs(aligned_transfer)
+    canonical_aligned_delta = compare_complex_transfer(
+        reference=transfer_pairs,
+        candidate=aligned_transfer_pairs,
+        frequency_hz=frequencies,
+        magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+    )
     return {
         'refinement': refinement,
         'mesh_identity_sha256': plan.reference_mesh_sha256(refinement),
@@ -528,6 +744,10 @@ def _run_reference_level(
         'frequency_hz': list(plan.physical_quantity.frequency_hz),
         'transfer_pa_per_m3_s': transfer_pairs,
         'transfer_sha256': semantic_hash(transfer_pairs),
+        'aligned_diagnostic_transfer_pa_per_m3_s': aligned_transfer_pairs,
+        'aligned_diagnostic_transfer_sha256': semantic_hash(aligned_transfer_pairs),
+        'canonical_aligned_delta': _metric_dict(canonical_aligned_delta),
+        'sampling_metadata': sampling_metadata,
         'source_mass_relative_residual': source_mass_residual,
         'mass_symmetry_max_abs': system['mass_symmetry_max_abs'],
         'stiffness_symmetry_max_abs': system['stiffness_symmetry_max_abs'],
@@ -607,6 +827,13 @@ def _run_pffdtd_level(
         ),
     )
     dispatch = _create_pffdtd_dispatch(fixture, configuration=configuration)
+    execution_authority, _, _ = executor.compile_input(
+        dispatch_binding_id=dispatch.binding_id,
+        configuration=configuration,
+        semantic_geometry_ref=semantic_ref,
+        compiled_geometry_ref=compiled_ref,
+        rigid_boundary_physics_ref=rigid_boundary_ref,
+    )
     _restore_pinned_pffdtd_checkout(fixture['executor'])
     result = executor.execute(
         dispatch_binding_id=dispatch.binding_id,
@@ -726,6 +953,97 @@ def _run_pffdtd_level(
     transfer_pairs = _complex_pairs(transfer)
     time_step_s = float(provenance['time_step_s'])
     time_step_count = int(provenance['time_step_count'])
+
+    run_dir = (
+        executor.base_executor.work_root
+        / execution_authority.semantic_sha256
+        / 'sim'
+    )
+    raw_output_path = run_dir / 'sim_outs.h5'
+    comms_path = run_dir / 'comms_out.h5'
+    if not raw_output_path.is_file() or not comms_path.is_file():
+        raise ValidationBlocked(
+            'PFFDTD raw output/comms assets are missing for target-window diagnosis'
+        )
+    try:
+        import h5py
+
+        with h5py.File(raw_output_path, 'r') as handle:
+            raw_grid = np.asarray(handle['u_out'][...], dtype=np.float64)
+        with h5py.File(comms_path, 'r') as handle:
+            out_alpha = np.asarray(handle['out_alpha'][...], dtype=np.float64)
+            raw_nt = int(handle['Nt'][()])
+    except Exception as exc:
+        raise ValidationBlocked(
+            f'PFFDTD raw diagnostic trace load failed: {type(exc).__name__}: {exc}'
+        ) from exc
+    if raw_nt != time_step_count:
+        raise ValidationBlocked(
+            'PFFDTD raw diagnostic Nt differs from execution provenance'
+        )
+    receiver_potential = recombine_pffdtd_receiver_traces(
+        raw_grid,
+        out_alpha,
+        receiver_count=1,
+        nt=time_step_count,
+    )[0]
+    pressure_trace = pffdtd_velocity_potential_to_pressure_trace(
+        receiver_potential,
+        time_step_s=time_step_s,
+        density_kg_m3=plan.fixture.density_kg_m3,
+    )
+    source_trace = np.zeros(time_step_count, dtype=np.float64)
+    source_trace[0] = 1.0
+    canonical_from_raw = pffdtd_finite_record_pressure_transfer(
+        pressure_trace,
+        source_trace,
+        time_step_s=time_step_s,
+        frequency_hz=np.asarray(
+            plan.physical_quantity.frequency_hz, dtype=np.float64
+        ),
+    )
+    canonical_raw_error = float(np.max(np.abs(canonical_from_raw - transfer)))
+    if not np.allclose(
+        canonical_from_raw,
+        transfer,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    ):
+        raise ValidationBlocked(
+            'PFFDTD canonical transfer does not reproduce from persisted raw trace: '
+            f'max_abs={canonical_raw_error}'
+        )
+    aligned_transfer = target_window_clipped_left_rectangle_transfer(
+        pressure_trace,
+        source_trace,
+        dt_s=time_step_s,
+        target_duration_s=plan.physical_quantity.duration_s,
+        frequency_hz=np.asarray(
+            plan.physical_quantity.frequency_hz, dtype=np.float64
+        ),
+    )
+    aligned_transfer_pairs = _complex_pairs(aligned_transfer)
+    canonical_aligned_delta = compare_complex_transfer(
+        reference=transfer_pairs,
+        candidate=aligned_transfer_pairs,
+        frequency_hz=plan.physical_quantity.frequency_hz,
+        magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+    )
+    sampling_metadata = target_window_sampling_metadata(
+        solver='PFFDTD',
+        requested_duration_s=plan.physical_quantity.duration_s,
+        dt_s=time_step_s,
+        sample_count=time_step_count,
+        frequency_hz=plan.physical_quantity.frequency_hz,
+        source_sampling=(
+            'unit discrete volume-velocity impulse q[0]=1, q[n>0]=0 from '
+            'the exact PFFDTD candidate source mapping'
+        ),
+        pressure_sampling=(
+            'native recombined PFFDTD receiver potential converted by the '
+            'existing second-order p=rho*d(phi)/dt pressure mapping'
+        ),
+    )
     grid_spacing_m = float(evidence['grid_spacing_m'])
     courant_c_dt_over_h = (
         plan.fixture.sound_speed_m_s * time_step_s / grid_spacing_m
@@ -784,6 +1102,23 @@ def _run_pffdtd_level(
         'exact_excitation_q_m3_s': _complex_pairs(q),
         'transfer_pa_per_m3_s': transfer_pairs,
         'transfer_sha256': semantic_hash(transfer_pairs),
+        'aligned_diagnostic_transfer_pa_per_m3_s': aligned_transfer_pairs,
+        'aligned_diagnostic_transfer_sha256': semantic_hash(
+            aligned_transfer_pairs
+        ),
+        'canonical_aligned_delta': _metric_dict(canonical_aligned_delta),
+        'canonical_recomputed_from_raw_max_abs_error': canonical_raw_error,
+        'sampling_metadata': sampling_metadata,
+        'diagnostic_raw_trace': {
+            'sim_outs_sha256': _sha256_file(raw_output_path),
+            'comms_out_sha256': _sha256_file(comms_path),
+            'pressure_trace_sha256': semantic_hash(
+                [float(x) for x in pressure_trace]
+            ),
+            'source_trace_sha256': semantic_hash(
+                [float(x) for x in source_trace]
+            ),
+        },
     }
 
 
@@ -811,6 +1146,122 @@ def _accepted_frequencies(plan, cross_metrics) -> list[dict[str, Any]]:
             }
         )
     return output
+
+
+def _validate_pr286_canonical_reproduction(
+    summary_path: Path,
+    *,
+    reference_levels: list[dict[str, Any]],
+    pffdtd_levels: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = json.loads(summary_path.read_text(encoding='utf-8'))
+    expected_mfem = {
+        int(item['refinement']): item
+        for item in summary.get('mfem_levels', ())
+    }
+    expected_pffdtd = {
+        float(item['points_per_wavelength']): item
+        for item in summary.get('pffdtd_levels', ())
+    }
+    if set(expected_mfem) != {1, 2, 3}:
+        raise ValidationBlocked('PR #286 MFEM baseline schedule is incomplete')
+    if set(expected_pffdtd) != {8.0, 10.0, 12.0}:
+        raise ValidationBlocked('PR #286 PFFDTD baseline schedule is incomplete')
+
+    details = {'mfem': [], 'pffdtd': []}
+    for level in reference_levels:
+        refinement = int(level['refinement'])
+        actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
+        expected = np.asarray(
+            expected_mfem[refinement]['transfer_pa_per_m3_s'],
+            dtype=np.float64,
+        )
+        max_abs = float(np.max(np.abs(actual - expected)))
+        if not np.allclose(actual, expected, rtol=1.0e-9, atol=1.0e-9):
+            raise ValidationBlocked(
+                f'MFEM refinement {refinement} did not reproduce PR #286 '
+                f'canonical transfer: max_abs={max_abs}'
+            )
+        details['mfem'].append(
+            {'refinement': refinement, 'max_abs_complex_component_error': max_abs}
+        )
+    for level in pffdtd_levels:
+        ppw = float(level['points_per_wavelength'])
+        actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
+        expected = np.asarray(
+            expected_pffdtd[ppw]['transfer_pa_per_m3_s'],
+            dtype=np.float64,
+        )
+        max_abs = float(np.max(np.abs(actual - expected)))
+        if not np.allclose(actual, expected, rtol=1.0e-9, atol=1.0e-9):
+            raise ValidationBlocked(
+                f'PFFDTD {ppw:g} PPW did not reproduce PR #286 canonical '
+                f'transfer: max_abs={max_abs}'
+            )
+        details['pffdtd'].append(
+            {'points_per_wavelength': ppw, 'max_abs_complex_component_error': max_abs}
+        )
+    return {
+        'state': 'PASS',
+        'baseline_schema_version': summary.get('schema_version'),
+        'baseline_workflow_run_id': summary.get('source', {}).get('workflow_run_id'),
+        'baseline_artifact_digest_sha256': summary.get('source', {}).get(
+            'artifact_digest_sha256'
+        ),
+        **details,
+    }
+
+
+def _pffdtd_nonmonotonicity_diagnosis(
+    canonical_pairs: list[dict[str, Any]],
+    aligned_pairs: list[dict[str, Any]],
+    diagnostic: dict[str, Any],
+) -> dict[str, Any]:
+    if len(canonical_pairs) != 2 or len(aligned_pairs) != 2:
+        raise ValidationBlocked(
+            'PFFDTD non-monotonicity diagnosis requires exactly two adjacent pairs'
+        )
+    canonical = [
+        float(item['metrics']['complex_rms_relative'])
+        for item in canonical_pairs
+    ]
+    aligned = [
+        float(item['metrics']['complex_rms_relative'])
+        for item in aligned_pairs
+    ]
+    canonical_ratio = canonical[1] / max(canonical[0], np.finfo(np.float64).tiny)
+    aligned_ratio = aligned[1] / max(aligned[0], np.finfo(np.float64).tiny)
+    canonical_excess = max(canonical_ratio - 1.0, 0.0)
+    aligned_excess = max(aligned_ratio - 1.0, 0.0)
+    threshold = float(
+        diagnostic['diagnosis_classification']['substantial_reduction_fraction']
+    )
+    if aligned[1] <= aligned[0]:
+        classification = 'ALIGNED_MONOTONIC'
+        reduction_fraction = 1.0
+    else:
+        reduction_fraction = (
+            (canonical_excess - aligned_excess) / canonical_excess
+            if canonical_excess > 0.0
+            else 0.0
+        )
+        if reduction_fraction >= threshold:
+            classification = (
+                'ALIGNED_NON_MONOTONICITY_SUBSTANTIALLY_REDUCED'
+            )
+        else:
+            classification = 'ALIGNED_NON_MONOTONICITY_REMAINS'
+    return {
+        'classification': classification,
+        'canonical_adjacent_complex_rms': canonical,
+        'aligned_adjacent_complex_rms': aligned,
+        'canonical_worsening_ratio': canonical_ratio,
+        'aligned_worsening_ratio': aligned_ratio,
+        'canonical_worsening_excess': canonical_excess,
+        'aligned_worsening_excess': aligned_excess,
+        'worsening_excess_reduction_fraction': reduction_fraction,
+        'substantial_reduction_threshold_fraction': threshold,
+    }
 
 
 def _blocked_payload(
@@ -879,6 +1330,8 @@ def _parser() -> argparse.ArgumentParser:
         description='Run R130D independent sloped-polyhedron validation'
     )
     parser.add_argument('--plan', required=True, type=Path)
+    parser.add_argument('--diagnostic-plan', required=True, type=Path)
+    parser.add_argument('--pr286-summary', required=True, type=Path)
     parser.add_argument('--mfem-root', type=Path)
     parser.add_argument('--mfem-executable', type=Path)
     parser.add_argument('--pffdtd-root', type=Path)
@@ -892,6 +1345,9 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     plan = load_validation_plan(args.plan)
+    diagnostic = load_target_window_diagnostic_plan(args.diagnostic_plan)
+    _validate_target_window_diagnostic_binding(plan, diagnostic)
+    observation_operator_fixture = _run_observation_operator_fixture(diagnostic)
     repository_head = os.environ.get('HTDT_PR_HEAD_SHA', '').strip().lower()
     if not repository_head:
         repository_head = _git_head(Path(__file__).resolve().parents[1])
@@ -1074,11 +1530,24 @@ def main(argv: list[str] | None = None) -> int:
                 'MFEM maximum modal frequency'
             ),
         }
+        canonical_reproduction = _validate_pr286_canonical_reproduction(
+            args.pr286_summary,
+            reference_levels=reference_levels,
+            pffdtd_levels=pffdtd_levels,
+        )
+
         reference_pair_metrics = []
+        reference_aligned_pair_metrics = []
         for coarse, fine in zip(reference_levels, reference_levels[1:]):
-            metrics = compare_complex_transfer(
+            canonical_metrics = compare_complex_transfer(
                 reference=fine['transfer_pa_per_m3_s'],
                 candidate=coarse['transfer_pa_per_m3_s'],
+                frequency_hz=frequencies,
+                magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+            )
+            aligned_metrics = compare_complex_transfer(
+                reference=fine['aligned_diagnostic_transfer_pa_per_m3_s'],
+                candidate=coarse['aligned_diagnostic_transfer_pa_per_m3_s'],
                 frequency_hz=frequencies,
                 magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
             )
@@ -1086,16 +1555,31 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     'coarse_refinement': coarse['refinement'],
                     'fine_refinement': fine['refinement'],
-                    'metrics': _metric_dict(metrics),
-                    'metrics_obj': metrics,
+                    'metrics': _metric_dict(canonical_metrics),
+                    'metrics_obj': canonical_metrics,
+                }
+            )
+            reference_aligned_pair_metrics.append(
+                {
+                    'coarse_refinement': coarse['refinement'],
+                    'fine_refinement': fine['refinement'],
+                    'metrics': _metric_dict(aligned_metrics),
+                    'metrics_obj': aligned_metrics,
                 }
             )
 
         pffdtd_pair_metrics = []
+        pffdtd_aligned_pair_metrics = []
         for coarse, fine in zip(pffdtd_levels, pffdtd_levels[1:]):
-            metrics = compare_complex_transfer(
+            canonical_metrics = compare_complex_transfer(
                 reference=fine['transfer_pa_per_m3_s'],
                 candidate=coarse['transfer_pa_per_m3_s'],
+                frequency_hz=frequencies,
+                magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+            )
+            aligned_metrics = compare_complex_transfer(
+                reference=fine['aligned_diagnostic_transfer_pa_per_m3_s'],
+                candidate=coarse['aligned_diagnostic_transfer_pa_per_m3_s'],
                 frequency_hz=frequencies,
                 magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
             )
@@ -1103,8 +1587,16 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     'coarse_points_per_wavelength': coarse['points_per_wavelength'],
                     'fine_points_per_wavelength': fine['points_per_wavelength'],
-                    'metrics': _metric_dict(metrics),
-                    'metrics_obj': metrics,
+                    'metrics': _metric_dict(canonical_metrics),
+                    'metrics_obj': canonical_metrics,
+                }
+            )
+            pffdtd_aligned_pair_metrics.append(
+                {
+                    'coarse_points_per_wavelength': coarse['points_per_wavelength'],
+                    'fine_points_per_wavelength': fine['points_per_wavelength'],
+                    'metrics': _metric_dict(aligned_metrics),
+                    'metrics_obj': aligned_metrics,
                 }
             )
 
@@ -1115,6 +1607,20 @@ def main(argv: list[str] | None = None) -> int:
         pffdtd_assessment = assess_refinement_series(
             tuple(item['metrics_obj'] for item in pffdtd_pair_metrics),
             plan.acceptance.pffdtd_self_convergence,
+        )
+        reference_aligned_assessment = assess_refinement_series(
+            tuple(item['metrics_obj'] for item in reference_aligned_pair_metrics),
+            plan.acceptance.reference_self_convergence,
+        )
+        pffdtd_aligned_assessment = assess_refinement_series(
+            tuple(item['metrics_obj'] for item in pffdtd_aligned_pair_metrics),
+            plan.acceptance.pffdtd_self_convergence,
+        )
+
+        pffdtd_sampling_diagnosis = _pffdtd_nonmonotonicity_diagnosis(
+            pffdtd_pair_metrics,
+            pffdtd_aligned_pair_metrics,
+            diagnostic,
         )
 
         cross_eligible = bool(
@@ -1141,15 +1647,31 @@ def main(argv: list[str] | None = None) -> int:
             plan=plan,
         )
 
-        for item in reference_pair_metrics:
-            item.pop('metrics_obj', None)
-        for item in pffdtd_pair_metrics:
-            item.pop('metrics_obj', None)
+        for collection in (
+            reference_pair_metrics,
+            pffdtd_pair_metrics,
+            reference_aligned_pair_metrics,
+            pffdtd_aligned_pair_metrics,
+        ):
+            for item in collection:
+                item.pop('metrics_obj', None)
 
         payload = {
             'schema_version': EVIDENCE_SCHEMA,
             'plan_id': plan.plan_id,
             'plan_sha256': plan.plan_sha256(),
+            'diagnostic_plan': {
+                'diagnostic_id': diagnostic['diagnostic_id'],
+                'schema_version': diagnostic['schema_version'],
+                'semantic_sha256': semantic_hash(diagnostic),
+                'target_duration_s': diagnostic['target_duration_s'],
+                'operator': diagnostic['operator'],
+                'decision_semantics': diagnostic['decision_semantics'],
+            },
+            'diagnostic_observation_operator_validation': (
+                observation_operator_fixture
+            ),
+            'canonical_pr286_reproduction': canonical_reproduction,
             'repository_head': repository_head,
             'fixture_id': plan.fixture.fixture_id,
             'fixture_sha256': plan.fixture_sha256(),
@@ -1191,8 +1713,21 @@ def main(argv: list[str] | None = None) -> int:
             'pffdtd_levels': pffdtd_levels,
             'reference_pair_metrics': reference_pair_metrics,
             'pffdtd_pair_metrics': pffdtd_pair_metrics,
+            'reference_aligned_diagnostic_pair_metrics': (
+                reference_aligned_pair_metrics
+            ),
+            'pffdtd_aligned_diagnostic_pair_metrics': (
+                pffdtd_aligned_pair_metrics
+            ),
             'reference_self_convergence': reference_assessment.model_dump(mode='json'),
             'pffdtd_self_convergence': pffdtd_assessment.model_dump(mode='json'),
+            'reference_aligned_diagnostic_self_convergence': (
+                reference_aligned_assessment.model_dump(mode='json')
+            ),
+            'pffdtd_aligned_diagnostic_self_convergence': (
+                pffdtd_aligned_assessment.model_dump(mode='json')
+            ),
+            'pffdtd_sampling_window_diagnosis': pffdtd_sampling_diagnosis,
             'contract_audit': {
                 'state': 'MATCH',
                 'expected': expected_contract,
@@ -1205,12 +1740,41 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             },
             'cross_solver_eligible': cross_eligible,
+            'aligned_diagnostic_cross_solver_eligible': False,
+            'aligned_diagnostic_cross_solver_nonclaim': (
+                'Diagnostic observation-operator results cannot unblock the '
+                'canonical cross-solver gate in this slice.'
+            ),
             'cross_solver_fine_fine_metrics': (
                 None if cross_metrics is None else _metric_dict(cross_metrics)
             ),
             'frequency_acceptance': accepted_frequencies,
             'valid_overlapping_numerical_band': valid_overlap_band,
             'decision': decision,
+            'decision_semantics': {
+                'solver_execution': decision['execution_state'],
+                'canonical_observable_contract': decision['contract_state'],
+                'diagnostic_observation_operator_validation': (
+                    observation_operator_fixture['state']
+                ),
+                'canonical_reference_self_convergence': (
+                    reference_assessment.state
+                ),
+                'canonical_pffdtd_self_convergence': pffdtd_assessment.state,
+                'aligned_reference_self_convergence': (
+                    reference_aligned_assessment.state
+                ),
+                'aligned_pffdtd_self_convergence': (
+                    pffdtd_aligned_assessment.state
+                ),
+                'cross_solver_eligibility': (
+                    'ELIGIBLE' if cross_eligible else 'CROSS_SOLVER_BLOCKED'
+                ),
+                'general_3d_validation_state': (
+                    decision['general_3d_validation_state']
+                ),
+                'diagnostic_does_not_promote_validation': True,
+            },
             'scope': {
                 'validated_fixture': (
                     plan.fixture.fixture_id

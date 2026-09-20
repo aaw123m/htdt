@@ -6,12 +6,15 @@ on:
       - 'backend/src/htdt/r130d_general3d_validation.py'
       - 'backend/tests/test_r130d_general3d_validation.py'
       - 'benchmarks/acoustics/r130d_general3d_validation_plan.json'
+      - 'benchmarks/acoustics/r130d_target_window_diagnostic_plan.json'
+      - 'benchmarks/acoustics/r130d_general3d_self_convergence_run25_summary.json'
       - 'benchmarks/acoustics/r130d_mfem_reference/**'
       - 'scripts/run_r130d_general3d_validation.py'
       - 'scripts/run_r130d_polyhedral_candidate_wave_execution.py'
       - 'backend/src/htdt/acoustic_pffdtd_polyhedral_geometry.py'
       - 'docs/R130D_GENERAL3D_INDEPENDENT_VALIDATION_2026-09-20.md'
       - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_DIAGNOSIS_PLAN_2026-09-20.md'
+      - 'docs/R130D_GENERAL3D_TARGET_WINDOW_DIAGNOSTIC_PLAN_2026-09-20.md'
       - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_RERUN_EVIDENCE_2026-09-20.md'
       - '.github/workflows/r130d-general3d-validation.yml'
   workflow_dispatch:
@@ -30,6 +33,8 @@ jobs:
       MFEM_SHA: d964264cdb9a13e94a201b6c236c7721e0c8765f
       PFFDTD_SHA: aa319f6c86517cb95aabfae8656277da62c3ead5
       PLAN: benchmarks/acoustics/r130d_general3d_validation_plan.json
+      DIAGNOSTIC_PLAN: benchmarks/acoustics/r130d_target_window_diagnostic_plan.json
+      PR286_SUMMARY: benchmarks/acoustics/r130d_general3d_self_convergence_run25_summary.json
       EVIDENCE_DIR: artifacts/r130d/general3d
       EVIDENCE_OUTPUT: artifacts/r130d/general3d/evidence.json
       HTDT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -119,7 +124,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
           $work = Join-Path $env:RUNNER_TEMP 'r130d-general3d-validation'
-          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --mfem-root $env:MFEM_ROOT --mfem-executable $env:MFEM_REFERENCE_EXE --pffdtd-root $env:PFFDTD_ROOT --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S
+          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --diagnostic-plan $env:DIAGNOSTIC_PLAN --pr286-summary $env:PR286_SUMMARY --mfem-root $env:MFEM_ROOT --mfem-executable $env:MFEM_REFERENCE_EXE --pffdtd-root $env:PFFDTD_ROOT --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S
 
       - name: Record reference-build BLOCKED evidence
         if: env.MFEM_RUNTIME_AVAILABLE != '1'
@@ -127,12 +132,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
           $work = Join-Path $env:RUNNER_TEMP 'r130d-general3d-validation'
-          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
+          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --diagnostic-plan $env:DIAGNOSTIC_PLAN --pr286-summary $env:PR286_SUMMARY --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
 
       - name: Validate evidence integrity and report physics state
         shell: pwsh
         run: |
-          python -c "from htdt.r130d_general3d_validation import load_evidence; p=load_evidence(r'$env:EVIDENCE_OUTPUT'); d=p['decision']; print('R130D_EXECUTION='+d.get('execution_state','legacy')); print('R130D_CONTRACT='+d.get('contract_state','legacy')); print('R130D_REFERENCE_CONVERGENCE='+d['reference_self_convergence_status']); print('R130D_PFFDTD_CONVERGENCE='+d['pffdtd_self_convergence_status']); print('R130D_CROSS_SOLVER='+d.get('cross_solver_state',d['cross_solver_agreement_status'])); print('R130D_FIXTURE_RESULT='+d['fixture_validation_result']); print('R130D_GENERAL3D_STATE='+d['general_3d_validation_state'])"
+          python -c "from htdt.r130d_general3d_validation import load_evidence; p=load_evidence(r'$env:EVIDENCE_OUTPUT'); d=p['decision']; s=p.get('decision_semantics',{}); print('R130D_EXECUTION='+d.get('execution_state','legacy')); print('R130D_CONTRACT='+d.get('contract_state','legacy')); print('R130D_REFERENCE_CONVERGENCE='+d['reference_self_convergence_status']); print('R130D_PFFDTD_CONVERGENCE='+d['pffdtd_self_convergence_status']); print('R130D_ALIGNED_REFERENCE='+s.get('aligned_reference_self_convergence','NOT_EVALUATED')); print('R130D_ALIGNED_PFFDTD='+s.get('aligned_pffdtd_self_convergence','NOT_EVALUATED')); print('R130D_WINDOW_DIAGNOSIS='+p.get('pffdtd_sampling_window_diagnosis',{}).get('classification','NOT_EVALUATED')); print('R130D_CROSS_SOLVER='+d.get('cross_solver_state',d['cross_solver_agreement_status'])); print('R130D_FIXTURE_RESULT='+d['fixture_validation_result']); print('R130D_GENERAL3D_STATE='+d['general_3d_validation_state'])"
           $doc = Get-Content -Raw $env:EVIDENCE_OUTPUT | ConvertFrom-Json
           $decision = $doc.payload.decision
           if (@('PASS','FAIL','BLOCKED') -notcontains $decision.fixture_validation_result) {
@@ -141,6 +146,28 @@ jobs:
           if ($doc.payload.rdc_calls -ne 0) { throw "RDC calls must remain zero" }
           if ($doc.payload.htdt_capture_changed -ne $false) { throw "HTDT-Capture change claim is forbidden" }
           if ($doc.payload.scope.production_solver_selected -ne $false) { throw "production solver adoption claim is forbidden" }
+
+      - name: Bundle frozen plans and provenance
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
+          Copy-Item $env:PLAN (Join-Path $env:EVIDENCE_DIR 'frozen_general3d_validation_plan.json')
+          Copy-Item $env:DIAGNOSTIC_PLAN (Join-Path $env:EVIDENCE_DIR 'frozen_target_window_diagnostic_plan.json')
+          Copy-Item $env:PR286_SUMMARY (Join-Path $env:EVIDENCE_DIR 'pr286_baseline_summary.json')
+          $manifest = [ordered]@{
+            schema_version = 'htdt.r130d.target-window-artifact-manifest-1'
+            repository_head = $env:HTDT_PR_HEAD_SHA
+            general3d_plan_file_sha256 = (Get-FileHash $env:PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
+            general3d_plan_semantic_sha256 = '5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec'
+            diagnostic_plan_file_sha256 = (Get-FileHash $env:DIAGNOSTIC_PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
+            diagnostic_plan_semantic_sha256 = 'ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db'
+            pr286_baseline_summary_file_sha256 = (Get-FileHash $env:PR286_SUMMARY -Algorithm SHA256).Hash.ToLowerInvariant()
+            evidence_file_sha256 = (Get-FileHash $env:EVIDENCE_OUTPUT -Algorithm SHA256).Hash.ToLowerInvariant()
+            rdc_calls = 0
+            htdt_capture_changed = $false
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $env:EVIDENCE_DIR 'artifact_manifest.json')
 
       - name: Upload immutable independent validation evidence
         if: always()

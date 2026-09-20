@@ -1,0 +1,86 @@
+{
+  "schema_version": "htdt.r130d.target-window-diagnostic-plan-1",
+  "diagnostic_id": "r130d-general3d-target-window-clipped-left-rectangle-2026-09-20",
+  "task_start_main": "c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96",
+  "parent_general3d_plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+  "parent_general3d_plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+  "purpose": "Diagnose finite-record native sampling/window-length contribution without replacing the canonical PR #286 observable.",
+  "target_duration_s": 0.25,
+  "target_interval": "[0,T)",
+  "frequency_hz": [
+    40,
+    80
+  ],
+  "phasor_convention": "exp(-i*omega*t)",
+  "analysis_fourier_kernel": "exp(+i*omega*t)",
+  "window_function": "rectangular_no_taper",
+  "operator": {
+    "operator_id": "htdt.r130d.target_window_clipped_left_rectangle",
+    "operator_version": "1",
+    "native_sample_interpretation": "native sample y[n] is evaluated at t_n=n*dt exactly as in the canonical direct DTFT",
+    "endpoint_convention": "target interval is exactly [0,T); include native sample timestamps t_n<T; final quadrature width is clipped to T-t_last; no sample at T is included",
+    "integration_rule": "sum_n Delta_t[n] * y[n] * exp(+i*2*pi*f*t_n), with Delta_t[n]=min(dt,T-t_n); canonical left-rectangle rule is unchanged except the final cell is clipped at T",
+    "pressure_sampling": "solver-native pressure samples after the pre-existing pressure conversion; no interpolation or resampling",
+    "source_sampling": "same native source trace and same left-rectangle rule; q[0]=1 retains full dt weight because the first cell is not clipped",
+    "frequency_grid": "exact frozen 40/80 Hz only",
+    "requires_sample_after_target": false,
+    "reason_linear_trapezoid_not_adopted": "The canonical source authority is a discrete unit impulse q[0]=1,q[n>0]=0. Piecewise-linear/trapezoidal endpoint weighting would redefine that impulse area. Clipped left-rectangle weighting preserves every canonical sample/kernel weight except the final record cell, isolating the N*dt-versus-T mismatch."
+  },
+  "series": {
+    "mfem_refinements": [
+      1,
+      2,
+      3
+    ],
+    "pffdtd_ppw": [
+      8,
+      10,
+      12
+    ]
+  },
+  "acceptance_thresholds_unchanged": {
+    "mfem": {
+      "complex_rms_relative_max": 0.05,
+      "magnitude_max_relative": 0.08,
+      "phase_max_deg": 5
+    },
+    "pffdtd": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "magnitude_mask_relative_db": -50
+  },
+  "decision_semantics": {
+    "diagnostic_only": true,
+    "canonical_observable_replaced": false,
+    "cross_solver_unblocked_by_diagnostic_only": false,
+    "general_3d_validation_promoted_by_diagnostic_only": false
+  },
+  "analytic_fixture": {
+    "fixture_id": "complex-harmonic-pressure-source-v1",
+    "pressure_amplitude": [
+      2.1,
+      0.4
+    ],
+    "pressure_harmonic_hz": 53,
+    "source_amplitude": [
+      0.7,
+      -0.2
+    ],
+    "source_harmonic_hz": 17,
+    "dt_s": [
+      0.007,
+      0.0035,
+      0.00175,
+      0.000875
+    ],
+    "acceptance": "relative P_T/Q_T error must strictly decrease at each refinement and finest error must be < 0.11"
+  },
+  "diagnosis_classification": {
+    "monotonic_if": "aligned second adjacent complex-RMS <= aligned first adjacent complex-RMS",
+    "substantially_reduced_if": "non-monotone remains but worsening excess ratio ((second/first)-1) is reduced by at least 50% versus canonical",
+    "substantial_reduction_fraction": 0.5,
+    "otherwise": "ALIGNED_NON_MONOTONICITY_REMAINS"
+  }
+}
