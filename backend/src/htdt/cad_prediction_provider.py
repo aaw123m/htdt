@@ -33,6 +33,7 @@ PREDICTION_PROVIDER_ADAPTER_VERSION = '1'
 PREDICTION_PROVIDER_BINDING_AUTHORITY_VERSION = 'r170a-provider-binding-1'
 
 ProviderEvidenceState = Literal['candidate', 'validated', 'production']
+ProviderEvidenceScope = Literal['unvalidated', 'synthetic_fixture', 'owned_room']
 ProviderCapabilityState = Literal['READY', 'UNSUPPORTED']
 ProviderStaleState = Literal['CURRENT', 'STALE']
 ProviderConsumerKind = Literal[
@@ -275,6 +276,7 @@ class LowBandPredictionProvider(BaseModel):
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     evidence_state: ProviderEvidenceState
+    evidence_scope: ProviderEvidenceScope
     validation_authority_ref: ExactExternalAuthorityRef | None = None
     production_adoption_authority_ref: ExactExternalAuthorityRef | None = None
     stale_state: Literal['CURRENT'] = 'CURRENT'
@@ -336,12 +338,18 @@ class LowBandPredictionProvider(BaseModel):
         if self.current_authority.solver_result_sha256 != self.result_envelope_sha256:
             raise ValueError('provider current authority result hash mismatch')
         if self.evidence_state == 'candidate':
+            if self.evidence_scope != 'unvalidated':
+                raise ValueError('candidate provider must remain unvalidated')
             if self.validation_authority_ref is not None:
                 raise ValueError('candidate provider must not claim validation authority')
             if self.production_adoption_authority_ref is not None:
                 raise ValueError('candidate provider must not claim production adoption')
         elif self.validation_authority_ref is None:
             raise ValueError('validated/production provider requires validation authority')
+        elif self.evidence_scope == 'unvalidated':
+            raise ValueError('validated/production provider requires explicit evidence scope')
+        if self.evidence_state == 'production' and self.evidence_scope != 'owned_room':
+            raise ValueError('production provider requires owned-room evidence scope')
         if (
             self.evidence_state == 'production'
             and self.production_adoption_authority_ref is None
@@ -584,6 +592,7 @@ def build_r130_low_band_prediction_provider(
     result: AcousticSolverResultEnvelope,
     external_payload_resolver: ExternalPayloadResolver,
     evidence_state: ProviderEvidenceState = 'candidate',
+    evidence_scope: ProviderEvidenceScope = 'unvalidated',
     validation_authority_ref: ExactExternalAuthorityRef | None = None,
     production_adoption_authority_ref: ExactExternalAuthorityRef | None = None,
 ) -> LowBandPredictionProvider:
@@ -791,9 +800,13 @@ def build_r130_low_band_prediction_provider(
     production_selected = provenance_payload.get('production_solver_selected')
     owned_room_evidence = provenance_payload.get('owned_room_evidence', False)
     if evidence_state == 'candidate':
+        if evidence_scope != 'unvalidated':
+            raise ValueError('candidate R170A provider must remain unvalidated')
         if validation_authority_ref is not None or production_adoption_authority_ref is not None:
             raise ValueError('candidate R170A provider cannot claim validation/production refs')
     elif evidence_state == 'validated':
+        if evidence_scope == 'unvalidated':
+            raise ValueError('validated R170A provider requires explicit evidence scope')
         if validation_authority_ref is None:
             raise ValueError('validated R170A provider requires exact validation authority')
         _external_payload(
@@ -804,6 +817,8 @@ def build_r130_low_band_prediction_provider(
         if production_adoption_authority_ref is not None:
             raise ValueError('validated non-production provider cannot claim adoption')
     else:
+        if evidence_scope != 'owned_room':
+            raise ValueError('production R170A provider requires owned-room evidence scope')
         if validation_authority_ref is None or production_adoption_authority_ref is None:
             raise ValueError(
                 'production R170A provider requires validation and adoption authorities'
@@ -913,6 +928,7 @@ def build_r130_low_band_prediction_provider(
         'adapter_id': PREDICTION_PROVIDER_ADAPTER_ID,
         'adapter_version': PREDICTION_PROVIDER_ADAPTER_VERSION,
         'evidence_state': evidence_state,
+        'evidence_scope': evidence_scope,
         'validation_authority_ref': (
             None
             if validation_authority_ref is None
@@ -952,6 +968,7 @@ def build_r130_low_band_prediction_provider(
         provider_id=f'r170a-provider:{digest}',
         semantic_sha256=digest,
         evidence_state=evidence_state,
+        evidence_scope=evidence_scope,
         validation_authority_ref=validation_authority_ref,
         production_adoption_authority_ref=production_adoption_authority_ref,
         current_authority=current,
@@ -1123,6 +1140,7 @@ class CadPredictionProviderRepository:
             result=result,
             external_payload_resolver=self.external_payload_resolver,
             evidence_state=provider.evidence_state,
+            evidence_scope=provider.evidence_scope,
             validation_authority_ref=provider.validation_authority_ref,
             production_adoption_authority_ref=provider.production_adoption_authority_ref,
         )
