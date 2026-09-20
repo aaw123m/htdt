@@ -17,7 +17,7 @@ This plan is committed before the authoritative numerical run. The refinement se
 - Rectangular/no taper
 - PR #282/#286 acceptance thresholds unchanged
 
-The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json`. Its semantic SHA-256 over canonical sorted JSON is `632d7d18b348e387496477bfdbcc457df0d0c7a7f3148f35d11ece457ef0dfb9`.
+The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json`. Its semantic SHA-256 over canonical sorted JSON is `f8593e7b3f61f11a3c421d9c60b719c9c9e81733135a2b7984abebface510ff2`.
 
 ## Frozen diagnostic observation operator
 
@@ -37,7 +37,7 @@ For every MFEM and PFFDTD level the evidence must persist requested duration, na
 
 ## Independent analytic fixture
 
-Before interpreting solver results, the observation operator must be checked against an analytic complex-harmonic finite-window fixture at multiple `dt`, including non-integer `T/dt`. The aligned operator must converge toward the analytic `P_T/Q_T` as `dt` decreases. This is an operator validation, not a solver validation.
+Before interpreting solver results, the observation operator must be checked against the frozen `complex-harmonic-pressure-source-v1` fixture: pressure amplitude `2.1+0.4i` at 53 Hz, source amplitude `0.7-0.2i` at 17 Hz, and `dt = 0.007 / 0.0035 / 0.00175 / 0.000875 s`. Every case has non-integer `T/dt`. Relative `P_T/Q_T` error must strictly decrease at each refinement and the finest error must be `< 0.11`. This is an operator validation, not a solver validation.
 
 ## Decision semantics
 
