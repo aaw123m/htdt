@@ -1,6 +1,6 @@
 # O100 — System Expansion / Virtual Channel Topology Optimization
 
-> Status: **O100A–O100F implemented / O100G backend lifecycle partially implemented / O100G UX + SystemVariant-specific measurement plan/campaign planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228, #231/#232/#233, #235/#239
+> Status: **O100A–O100F implemented / O100G backend lifecycle + SystemVariant-specific MeasurementPlan/Campaign implemented / O100G UX + owned-Windows visual acceptance planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228, #231/#232/#233, #235/#239/#244
 >
 > O100 extends the existing N40 / G10 / O10–O90 / R-series authority. It does not replace them.
 >
@@ -736,7 +736,7 @@ Implemented in PR #228. The shared staged-fidelity authority distinguishes hard-
 
 ### O100G — UX / as-built / measurement loop
 
-**Backend lifecycle partially implemented via PR #235 / #239.**
+**Backend lifecycle and SystemVariant-specific MeasurementPlan/Campaign backend implemented via PR #235 / #239 / #244.**
 
 Implemented:
 - descendant-aware proposal lineage after explicit SystemVariantApplication;
@@ -747,10 +747,12 @@ Implemented:
 - explicit AcquisitionContext required for measured lifecycle binding;
 - at least one exact quality capability with decision ALLOWED is required and the allowed capability set is preserved;
 - only explicitly measured proposed source speakers become entity-level measured; unmeasured proposed entities remain as_built;
-- append-only measured records; retakes do not rewrite earlier evidence.
+- append-only measured records; retakes do not rewrite earlier evidence;
+- immutable SystemVariant-specific MeasurementPlan / Campaign preregistration over exact variant/application/applied revision/AsBuilt authority;
+- exact measurement point/source/channel/capture-time/AcquisitionContext/quality-capability matching before campaign completion;
+- generic N60 measurements do not auto-promote a SystemVariant, and measured state does not imply O60 validation.
 
 Remaining:
-- SystemVariant-specific MeasurementPlan / validation-campaign planning before capture;
 - proposed-speaker Room workflow and system-variant comparison UX;
 - Japanese-first copy and proposed/as-built/measured badges;
 - proposal ghost visuals and 3D tolerance overlays;
