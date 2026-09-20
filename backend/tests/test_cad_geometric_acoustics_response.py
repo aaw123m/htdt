@@ -988,6 +988,24 @@ def test_source_receiver_and_stale_surface_identity_mismatches_fail_closed() -> 
     assert stale.capability == 'UNSUPPORTED'
     assert f'STALE_REFLECTION_SURFACE_AUTHORITY:{SURFACE_A}' in stale.unsupported_reasons
 
+    wrong_surface_reflection = build_explicit_complex_surface_reflection_authority(
+        source_surface_id=SURFACE_B,
+        r120_geometry_ref=common['r120'],
+        material_authority_ref=_ref('material:b', H3),
+        frequency_coefficients={frequency: 0.8 + 0.1j},
+        provenance='wrong exact surface fixture',
+    )
+    wrong_surface = _response(
+        reflected,
+        common,
+        surface_reflections={SURFACE_A: wrong_surface_reflection},
+    )
+    assert wrong_surface.capability == 'UNSUPPORTED'
+    assert (
+        f'REFLECTION_SURFACE_IDENTITY_MISMATCH:{SURFACE_A}'
+        in wrong_surface.unsupported_reasons
+    )
+
 
 def test_stale_portal_transfer_authority_fails_closed() -> None:
     frequency = 650.0
