@@ -619,6 +619,8 @@ def _validate_wave_inputs(
     manifest = _complex_pressure_manifest(result)
     if not isinstance(payload, dict):
         raise ValueError('R130 complex-pressure artifact payload must be a mapping')
+    if _semantic_hash(payload) != manifest.artifact_authority.semantic_hash_sha256:
+        raise ValueError('R130 complex-pressure artifact payload hash mismatch')
     if payload.get('schema_version') != COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION:
         raise ValueError('R130 complex-pressure artifact schema mismatch')
     if payload.get('quantity_type') != 'complex_pressure':
@@ -896,6 +898,10 @@ def aggregate_r150_complex_paths(
     refs = tuple(sorted((_response_ref(item) for item in response_tuple), key=_ref_key))
     if refs != spec.r150_response_refs:
         raise ValueError('R160 R150 response set is stale or incomplete')
+
+    path_ids = tuple(item.deterministic_path_id for item in response_tuple)
+    if len(set(path_ids)) != len(path_ids):
+        raise ValueError('R160 refuses duplicate deterministic path identity')
 
     reasons: list[str] = []
     for item in response_tuple:
