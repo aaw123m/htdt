@@ -78,7 +78,7 @@ def _observable_contract(
         'source_position_m': plan.fixture.source_position_m,
         'receiver_position_m': plan.fixture.receiver_position_m,
         'source_convention': plan.physical_quantity.source_contract,
-        'pressure_normalization': plan.physical_quantity.pressure_conversion,
+        'pressure_normalization': 'point acoustic pressure p=rho*d(phi)/dt',
         'excitation_normalization': plan.physical_quantity.source_normalization,
         'phasor_convention': plan.physical_quantity.phasor_convention,
         'analysis_fourier_kernel': plan.physical_quantity.analysis_fourier_kernel,
@@ -208,6 +208,11 @@ def _validate_system(
         ('source_functional_assembly', payload.get('source_functional_assembly'), plan.independent_reference.source_functional),
         ('receiver_functional_assembly', payload.get('receiver_functional_assembly'), plan.independent_reference.receiver_functional),
         ('source_normalization', payload.get('source_normalization'), 'volume_velocity_m3_s'),
+        (
+            'governing_equation',
+            payload.get('governing_equation'),
+            'M*phi_tt+Kc2*phi=c^2*b*q',
+        ),
     )
     for name, actual, expected in exact:
         if actual != expected:
@@ -646,6 +651,14 @@ def _run_pffdtd_level(
             tuple(float(x) for x in artifact.get('frequency_axis_hz', ())),
             plan.physical_quantity.frequency_hz,
         ),
+        (
+            'pressure reference',
+            artifact.get('reference'),
+            (
+                'absolute complex acoustic pressure from finite-record P/Q '
+                'transfer multiplied by exact AcousticWaveExcitationAuthority Q(f)'
+            ),
+        ),
     )
     for label, actual, expected in contract_checks:
         if actual != expected:
@@ -953,6 +966,23 @@ def main(argv: list[str] | None = None) -> int:
             raise ValidationBlocked(
                 'compiled R120B vertex set differs from validation fixture'
             )
+        rigid_boundary = fixture['store'].read_payload(rigid_boundary_ref)
+        if rigid_boundary.get('model') != 'rigid_zero_normal_velocity':
+            raise ObservableContractMismatch(
+                'PFFDTD boundary authority is not rigid zero-normal-velocity'
+            )
+
+        expected_contract = _observable_contract(
+            plan, geometry_sha256=plan.fixture_sha256()
+        )
+        mfem_contract = dict(expected_contract)
+        pffdtd_contract = dict(expected_contract)
+        validate_physical_observable_contract(
+            expected=expected_contract, actual=mfem_contract
+        )
+        validate_physical_observable_contract(
+            expected=expected_contract, actual=pffdtd_contract
+        )
 
         pffdtd_executor = PffdtdPolyhedralCandidateWaveExecutor(
             base_executor=fixture['executor'],
@@ -1044,17 +1074,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             accepted_frequencies = _accepted_frequencies(plan, cross_metrics)
 
-        expected_contract = _observable_contract(
-            plan, geometry_sha256=plan.fixture_sha256()
-        )
-        mfem_contract = dict(expected_contract)
-        pffdtd_contract = dict(expected_contract)
-        validate_physical_observable_contract(
-            expected=expected_contract, actual=mfem_contract
-        )
-        validate_physical_observable_contract(
-            expected=expected_contract, actual=pffdtd_contract
-        )
         decision = validation_decision_v2(
             execution_state='PASS',
             contract_state='MATCH',
