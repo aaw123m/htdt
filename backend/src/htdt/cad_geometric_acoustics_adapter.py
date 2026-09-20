@@ -1469,29 +1469,36 @@ def _segment_triangle_intersection_parameter(
     triangle: tuple[Sequence[float], Sequence[float], Sequence[float]],
     *,
     tolerance: float,
+    distance_scaled_tolerance: bool = False,
 ) -> float | None:
     direction = _vector(start, end)
     edge1 = _vector(triangle[0], triangle[1])
     edge2 = _vector(triangle[0], triangle[2])
-    segment_length = _norm(direction)
-    edge1_length = _norm(edge1)
-    edge2_length = _norm(edge2)
-    if (
-        segment_length <= tolerance
-        or edge1_length <= tolerance
-        or edge2_length <= tolerance
-    ):
-        return None
-
-    geometry_scale = max(segment_length, edge1_length, edge2_length)
-    relative_tolerance = min(0.25, tolerance / geometry_scale)
-    endpoint_parameter_tolerance = min(0.25, tolerance / segment_length)
-
     pvec = _cross(direction, edge2)
     determinant = _dot(edge1, pvec)
-    determinant_scale = segment_length * edge1_length * edge2_length
-    if abs(determinant) <= determinant_scale * relative_tolerance:
-        return None
+
+    if distance_scaled_tolerance:
+        segment_length = _norm(direction)
+        edge1_length = _norm(edge1)
+        edge2_length = _norm(edge2)
+        if (
+            segment_length <= tolerance
+            or edge1_length <= tolerance
+            or edge2_length <= tolerance
+        ):
+            return None
+        geometry_scale = max(segment_length, edge1_length, edge2_length)
+        relative_tolerance = min(0.25, tolerance / geometry_scale)
+        endpoint_parameter_tolerance = min(0.25, tolerance / segment_length)
+        determinant_scale = segment_length * edge1_length * edge2_length
+        if abs(determinant) <= determinant_scale * relative_tolerance:
+            return None
+    else:
+        relative_tolerance = tolerance
+        endpoint_parameter_tolerance = tolerance
+        if abs(determinant) <= tolerance:
+            return None
+
     inv_det = 1.0 / determinant
     tvec = _vector(triangle[0], start)
     u = _dot(tvec, pvec) * inv_det
@@ -1509,7 +1516,6 @@ def _segment_triangle_intersection_parameter(
         return None
     return t
 
-
 def _segment_blocked(
     compiled: R120CompiledGeometry,
     start: Sequence[float],
@@ -1517,6 +1523,7 @@ def _segment_blocked(
     *,
     tolerance: float,
     ignored_surface_ids: frozenset[str] = frozenset(),
+    distance_scaled_tolerance: bool = False,
 ) -> bool:
     for index, triangle in enumerate(compiled.triangles):
         if triangle.source_surface_id in ignored_surface_ids:
@@ -1526,6 +1533,7 @@ def _segment_blocked(
             end,
             _triangle_vertices(compiled, index),
             tolerance=tolerance,
+            distance_scaled_tolerance=distance_scaled_tolerance,
         )
         if hit is not None:
             return True
@@ -1600,6 +1608,7 @@ def _region_point_membership(
                     end,
                     triangle,
                     tolerance=tolerance,
+                    distance_scaled_tolerance=True,
                 )
             )
             is not None
@@ -2002,6 +2011,7 @@ def execute_deterministic_ga(
                 source_world,
                 receiver_world,
                 tolerance=execution_input.geometric_tolerance_m,
+                distance_scaled_tolerance=general_geometry,
             ):
                 rejected.append(
                     RejectedPathCandidate(
@@ -2150,16 +2160,25 @@ def execute_deterministic_ga(
                     )
                     continue
 
+                ignored = (
+                    frozenset()
+                    if general_geometry
+                    else frozenset((plane.source_surface_id,))
+                )
                 if _segment_blocked(
                     compiled_geometry,
                     source_world,
                     reflection,
                     tolerance=execution_input.geometric_tolerance_m,
+                    ignored_surface_ids=ignored,
+                    distance_scaled_tolerance=general_geometry,
                 ) or _segment_blocked(
                     compiled_geometry,
                     reflection,
                     receiver_world,
                     tolerance=execution_input.geometric_tolerance_m,
+                    ignored_surface_ids=ignored,
+                    distance_scaled_tolerance=general_geometry,
                 ):
                     rejected.append(
                         RejectedPathCandidate(
