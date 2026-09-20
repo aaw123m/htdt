@@ -255,6 +255,15 @@ class CadRobustnessValidationRepository:
             or spec.scene_content_hash != case.scene_content_hash
         ):
             raise ValueError('O90E case SceneRevision binding mismatch')
+        source_revision = self.measurement_repository.scene_repository.get(
+            spec.scene_revision_id
+        )
+        if (
+            source_revision is None
+            or source_revision.document_id != spec.document_id
+            or source_revision.content_hash != spec.scene_content_hash
+        ):
+            raise ValueError('O90E source SceneRevision authority is unavailable or stale')
         if (
             spec.candidate_id != case.candidate_id
             or spec.candidate_sha256 != case.candidate_sha256
@@ -957,6 +966,15 @@ class CadRobustnessValidationRepository:
             or spec.scene_content_hash != decision.scene_content_hash
         ):
             raise ValueError('O90E decision SceneRevision binding mismatch')
+        source_revision = self.measurement_repository.scene_repository.get(
+            spec.scene_revision_id
+        )
+        if (
+            source_revision is None
+            or source_revision.document_id != spec.document_id
+            or source_revision.content_hash != spec.scene_content_hash
+        ):
+            raise ValueError('O90E decision source SceneRevision is unavailable or stale')
         if (
             spec.model_id != decision.model_id
             or spec.model_version != decision.model_version
