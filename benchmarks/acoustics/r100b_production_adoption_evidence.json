@@ -1,0 +1,207 @@
+{
+  "schema_version": "r100b-readiness-evidence-1",
+  "ledger_id": "htdt-issue-101-r100b-production-adoption-evidence-2026-09-20",
+  "records": [
+    {
+      "evidence_id": "pffdtd-rigid-rectangular-modes-2026-09-18",
+      "candidate_id": "pffdtd-main-aa319f6",
+      "candidate_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": "58314d89ad7a0e462ff49fde67f53d4b235afd920fe5e4b4f651c3cd2684b764",
+      "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+      "r100a_semantic_hash": "f63135d67c588e23f3b47dba56fb3e39a140b7590d7596a538898a5383a1aa81",
+      "target_kind": "fixture",
+      "fixture_id": "wave-rigid-rectangular-modes-v1",
+      "hard_gate_category": null,
+      "reported_status": "pass",
+      "evidence_ref": "benchmarks/acoustics/evidence/r100b_pffdtd_rigid_modes_2026-09-18.json",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Historical accepted fixture PASS is retained exactly as a selection-history reference.",
+        "The summary binds an older R100A semantic hash and is not silently promoted to current evidence."
+      ]
+    },
+    {
+      "evidence_id": "mfem-finite-record-concave-2026-09-19",
+      "candidate_id": "mfem-v4.10-d964264",
+      "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+      "r100a_manifest_id": "r100a-canonical-v1",
+      "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+      "target_kind": "fixture",
+      "fixture_id": "wave-concave-l-room-v1",
+      "hard_gate_category": null,
+      "reported_status": "fail",
+      "evidence_ref": "benchmarks/acoustics/evidence/r100b_mfem_finite_record_2026-09-19.json",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Negative non-converged evidence is retained and the finest trace remains unqualified."
+      ]
+    },
+    {
+      "evidence_id": "pffdtd-rectangular-convergence-known-negative",
+      "candidate_id": "pffdtd-main-aa319f6",
+      "candidate_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-rectangular-convergence-v1",
+      "hard_gate_category": null,
+      "reported_status": "fail",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#complex-pressure-convergence-boundary",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Existing negative evidence is preserved but this summary reference lacks the exact current typed binding required by the production gate."
+      ]
+    },
+    {
+      "evidence_id": "pffdtd-impedance-known-pass",
+      "candidate_id": "pffdtd-main-aa319f6",
+      "candidate_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-normal-incidence-impedance-v1",
+      "hard_gate_category": null,
+      "reported_status": "pass",
+      "evidence_ref": "docs/R100B_IMPEDANCE_GATE.md",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Historical impedance-function PASS remains evidence history, not an automatically current production-selection input."
+      ]
+    },
+    {
+      "evidence_id": "pffdtd-concave-known-negative",
+      "candidate_id": "pffdtd-main-aa319f6",
+      "candidate_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-concave-l-room-v1",
+      "hard_gate_category": null,
+      "reported_status": "fail",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#next-r100b-implementation-slices",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Exact-concave candidate evidence is retained as FAIL/non-converged history."
+      ]
+    },
+    {
+      "evidence_id": "mfem-concave-known-negative",
+      "candidate_id": "mfem-v4.10-d964264",
+      "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-concave-l-room-v1",
+      "hard_gate_category": null,
+      "reported_status": "fail",
+      "evidence_ref": "docs/R100B_MFEM_CONCAVE_REFERENCE.md",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "MFEM non-converged concave evidence remains negative and is not promoted to reference truth."
+      ]
+    },
+    {
+      "evidence_id": "mfem-portal-known-pass",
+      "candidate_id": "mfem-v4.10-d964264",
+      "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-portal-split-room-v1",
+      "hard_gate_category": null,
+      "reported_status": "pass",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#mfem-portal-continuity-evidence",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Portal PASS remains historical evidence until an exact current typed record is resolved."
+      ]
+    },
+    {
+      "evidence_id": "mfem-radiation-known-negative",
+      "candidate_id": "mfem-v4.10-d964264",
+      "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-explicit-radiation-termination-v1",
+      "hard_gate_category": null,
+      "reported_status": "fail",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#next-r100b-implementation-slices",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Frozen-budget radiation candidate evidence remains FAIL history."
+      ]
+    },
+    {
+      "evidence_id": "pyroom-direct-first-reflection-known-pass",
+      "candidate_id": "pyroomacoustics-v0.10.1-f02b01d",
+      "candidate_source_commit_sha": "f02b01dd6609709e2089aefa5d1e59c91d3a0601",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "geometric-direct-first-reflection-v1",
+      "hard_gate_category": null,
+      "reported_status": "pass",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#pyroomacoustics-geometric-reference",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Reference-only geometric PASS is retained but is outside low-band wave adoption."
+      ]
+    },
+    {
+      "evidence_id": "pyroom-stochastic-known-negative",
+      "candidate_id": "pyroomacoustics-v0.10.1-f02b01d",
+      "candidate_source_commit_sha": "f02b01dd6609709e2089aefa5d1e59c91d3a0601",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "geometric-seed-repeatability-v1",
+      "hard_gate_category": null,
+      "reported_status": "fail",
+      "evidence_ref": "docs/R100B_PYROOM_STOCHASTIC_GATE.md",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Non-converged stochastic evidence is retained as FAIL; same-seed identity is not promoted to candidate PASS."
+      ]
+    }
+  ]
+}
