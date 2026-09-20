@@ -21,6 +21,7 @@ from htdt.cad_equipment import (
     build_equipment_definition,
     evaluate_equipment_capability,
 )
+from htdt.cad_equipment_catalog import EquipmentCatalogSnapshot
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
@@ -443,3 +444,42 @@ def test_variant_persistence_rejects_unpersisted_equipment_binding(
     with pytest.raises(ValueError, match='unpersisted definition'):
         variant_repository.save_variant(variant)
     assert variant_repository.get_variant(variant.variant_id) is None
+
+
+def test_equipment_catalog_snapshot_is_deterministic_exact_reference_surface(
+    tmp_path: Path,
+) -> None:
+    scene_repository, _baseline_revision = _baseline(tmp_path)
+    repository = CadEquipmentRepository(scene_repository)
+    first = _manufacturer_complex()
+    second = _user_defined_unknown()
+
+    repository.save_definition(second)
+    repository.save_definition(first)
+
+    snapshot = repository.catalog_snapshot()
+    reopened = EquipmentCatalogSnapshot.model_validate_json(
+        snapshot.canonical_bytes()
+    )
+
+    assert reopened == snapshot
+    assert {
+        (
+            item.definition_id,
+            item.version,
+            item.semantic_sha256,
+        )
+        for item in snapshot.definitions
+    } == {
+        (
+            first.definition_id,
+            first.version,
+            first.semantic_sha256,
+        ),
+        (
+            second.definition_id,
+            second.version,
+            second.semantic_sha256,
+        ),
+    }
+    assert snapshot.canonical_bytes() == repository.catalog_snapshot().canonical_bytes()

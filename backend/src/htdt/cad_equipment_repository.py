@@ -8,6 +8,10 @@ import sqlite3
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_equipment import EquipmentDefinition
+from .cad_equipment_catalog import (
+    EquipmentCatalogSnapshot,
+    build_equipment_catalog_snapshot,
+)
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema
 from .cad_system_variant import (
@@ -151,6 +155,11 @@ class CadEquipmentRepository:
             None
             if row is None
             else EquipmentDefinition.model_validate_json(row['payload_json'])
+        )
+
+    def catalog_snapshot(self) -> EquipmentCatalogSnapshot:
+        return build_equipment_catalog_snapshot(
+            self.list_definitions()
         )
 
     def list_definitions(self) -> tuple[EquipmentDefinition, ...]:
