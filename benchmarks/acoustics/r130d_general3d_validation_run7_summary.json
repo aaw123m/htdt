@@ -1,0 +1,150 @@
+{
+  "schema_version": "htdt.r130d.general3d-validation-run-summary-1",
+  "source_workflow_run_id": 35508831838,
+  "source_workflow_run_number": 7,
+  "source_workflow_name": "R130D Independent General-3D Validation",
+  "repository_head": "cdd4977e2a3c03af9cc802b5bef32982f01585ac",
+  "workflow_status": "SUCCESS",
+  "artifact_id": 10604704433,
+  "artifact_name": "r130d-independent-general3d-validation",
+  "artifact_zip_sha256": "0ed919823a82e6f042fba51e98b76c292e8c07bc3ef6b37081761020003c00af",
+  "evidence_envelope_semantic_sha256": "be36811c713365846bbd1af978cc5e66676da7e994622953ee015a42bd8fcc04",
+  "plan_sha256": "bf30e2c016b1992e6f90b3d773421e7822afe35488b3964573b6a8a26bbea5ec",
+  "fixture_sha256": "b846084627eb266d174e8412b5737b8691bbc279ff21e066c48dc61ded1d72c3",
+  "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+  "r120b_geometry_refs": {
+    "semantic": {
+      "authority_id": "r120-polyhedral-semantic-geometry:8d682f9fa1cb9264b8cbf4b51c63216a8f6ab07190061a8907ff2fd1655260a6",
+      "authority_version": "1",
+      "semantic_hash_sha256": "8d682f9fa1cb9264b8cbf4b51c63216a8f6ab07190061a8907ff2fd1655260a6"
+    },
+    "compiled": {
+      "authority_id": "r120-polyhedral-compiled:5b808ae5cb31641c5c26aecf53ce2a0ee2bd6ccdd704989ab76bdcef342e7896",
+      "authority_version": "1",
+      "semantic_hash_sha256": "5b808ae5cb31641c5c26aecf53ce2a0ee2bd6ccdd704989ab76bdcef342e7896"
+    }
+  },
+  "pffdtd_implementation_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "independent_solver": "MFEM",
+  "independent_solver_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "decision": {
+    "reference_build_execution_status": "PASS",
+    "reference_self_convergence_status": "FAIL",
+    "pffdtd_self_convergence_status": "FAIL",
+    "cross_solver_agreement_status": "BLOCKED",
+    "fixture_validation_result": "FAIL",
+    "general_3d_validation_state": "NOT_VALIDATED"
+  },
+  "reference_levels": [
+    {
+      "uniform_refinement": 0,
+      "elements": 6,
+      "dofs": 27,
+      "mesh_identity_sha256": "24dee00bb27b75d6547358119cb1b5bcd46e7404e8ba0dad1438a61e7fdc8037",
+      "system_numeric_identity_sha256": "32a5ef2d8b6f92af041bbe345cf729b9a0ac7b061a432f77ae140036f292403c",
+      "transfer_sha256": "e1c5319f15b0b62692395d4db58f1a690fa09eb8b77a0dfc8321f36a0c044190"
+    },
+    {
+      "uniform_refinement": 1,
+      "elements": 48,
+      "dofs": 125,
+      "mesh_identity_sha256": "6c7ce68a6e5bea482129b8aed7f148db6f655ee1b5d2bef9bad7a8bdbeba2c58",
+      "system_numeric_identity_sha256": "070a03d8b25678ff2916da72c22c5e1710ab0c1a4594ec9206ee0f5ae9c81fba",
+      "transfer_sha256": "c1eaf55a486c0ba9bceb6361e1a3f54022e841c5573001f64b04082e3e3147d3"
+    },
+    {
+      "uniform_refinement": 2,
+      "elements": 384,
+      "dofs": 729,
+      "mesh_identity_sha256": "fd49cf4612207c2a55b40e3181bd722db259a02503277a24ab47d353fa096880",
+      "system_numeric_identity_sha256": "4d41b95e43c4ead11cd141c58baa72b278146219b0bca9673608af1a0c19f08d",
+      "transfer_sha256": "f30396e10e9b3426acbc844031605beb5d64229555b56c6c53e2c8479a203bc7"
+    }
+  ],
+  "pffdtd_levels": [
+    {
+      "points_per_wavelength": 6,
+      "grid_spacing_m": 0.572,
+      "grid_dimensions": [
+        15,
+        15,
+        15
+      ],
+      "candidate_execution_input_sha256": "e71a167fb0a4842265cfc468765048a2e8b3f7b9736ce001df3b3d3db69a8cf5",
+      "executed_grid_sha256": "c194f82ee8ac379cf003b2b751b551a3c26068c962c2c7c8a034ddfdfa297b33",
+      "boundary_mask_sha256": "d5160d10f722651c964974141a7f007fd93406d417af00252cd579efa86aa941",
+      "transfer_sha256": "b0e3a9f0d1348634539b6b4b445b4b2b735cff5cac7290bf78f3876866efdb46"
+    },
+    {
+      "points_per_wavelength": 8,
+      "grid_spacing_m": 0.429,
+      "grid_dimensions": [
+        18,
+        18,
+        18
+      ],
+      "candidate_execution_input_sha256": "3ea4877b794672ace35c03b360db15c295392cca31835ff115b18388bad5529e",
+      "executed_grid_sha256": "f7cb3fb05469a507ccc7b207dc2a5fc7a393abcfa07f641fdf7e95c339b26a53",
+      "boundary_mask_sha256": "f64b971faede55905860b6bec414b2c46eebc12b3fabbbf99ee41bf22bcf1aee",
+      "transfer_sha256": "a7f6a7b0fb462b46864daf77cc229841762ae58fb957396f005fb950105197ed"
+    },
+    {
+      "points_per_wavelength": 10,
+      "grid_spacing_m": 0.3432,
+      "grid_dimensions": [
+        20,
+        20,
+        20
+      ],
+      "candidate_execution_input_sha256": "fce6cfdd18f925c714cc9371ff4f95abcaed21ce8404eaa1925f53818ae62118",
+      "executed_grid_sha256": "497178f35a9ed5b27100e9589532bfa8580019e5c3aefbcb0df0f8e5f93a2429",
+      "boundary_mask_sha256": "f5e7609debd00609668c6952ed408b69b66b9287b70f90b235e632edfed919ac",
+      "transfer_sha256": "d7669ca04e02bee0101d8512829759a56ae562bf2310c26902d9f5c8a85528fe"
+    }
+  ],
+  "convergence": {
+    "reference_medium_to_fine": {
+      "complex_rms_relative": 0.7958360401033702,
+      "magnitude_max_relative": 1.205274869586647,
+      "magnitude_max_db": 6.869254569092059,
+      "phase_max_deg": 51.9111731102351,
+      "status": "FAIL"
+    },
+    "pffdtd_medium_to_fine": {
+      "complex_rms_relative": 1.0100111028102499,
+      "magnitude_max_relative": 1.0634318020028137,
+      "magnitude_max_db": 38.48482909941208,
+      "phase_max_deg": 97.79037481710755,
+      "status": "FAIL"
+    }
+  },
+  "cross_solver_fine_fine_diagnostic_only": {
+    "eligibility": "BLOCKED_BY_SELF_CONVERGENCE",
+    "complex_rms_relative": 1.1716523113840118,
+    "magnitude_max_relative": 2.494314047650006,
+    "magnitude_max_db": 10.867238682842968,
+    "phase_max_deg": 128.6396601799308,
+    "frequency_hz": {
+      "40": {
+        "magnitude_db": 10.867238682842968,
+        "magnitude_relative": 2.494314047650006,
+        "phase_deg": 128.6396601799308,
+        "complex_relative": 4.192144168298942,
+        "status": "REJECTED_DIAGNOSTIC_ONLY"
+      },
+      "80": {
+        "magnitude_db": 1.4838831161441477,
+        "magnitude_relative": 0.15704217943493282,
+        "phase_deg": 74.26695891257958,
+        "complex_relative": 1.1195679899779094,
+        "status": "REJECTED_DIAGNOSTIC_ONLY"
+      }
+    }
+  },
+  "production_solver_selected": false,
+  "concave_state": "CONCAVE_NOT_VALIDATED",
+  "multi_region_state": "MULTI_REGION_NOT_VALIDATED",
+  "portal_state": "PORTAL_NOT_VALIDATED",
+  "rdc_calls": 0,
+  "htdt_capture_changed": false
+}
