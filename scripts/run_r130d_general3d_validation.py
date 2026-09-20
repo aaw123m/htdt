@@ -864,6 +864,8 @@ def main(argv: list[str] | None = None) -> int:
     repository_head = os.environ.get('HTDT_PR_HEAD_SHA', '').strip().lower()
     if not repository_head:
         repository_head = _git_head(Path(__file__).resolve().parents[1])
+    pffdtd_levels: list[dict[str, Any]] = []
+    reference_levels: list[dict[str, Any]] = []
 
     if args.blocked_reason:
         save_evidence(
@@ -988,32 +990,32 @@ def main(argv: list[str] | None = None) -> int:
             base_executor=fixture['executor'],
             containment_tolerance_m=1.0e-9,
         )
-        pffdtd_levels = [
-            _run_pffdtd_level(
-                plan,
-                fixture=fixture,
-                executor=pffdtd_executor,
-                semantic_ref=semantic_ref,
-                compiled_ref=compiled_ref,
-                rigid_boundary_ref=rigid_boundary_ref,
-                ppw=ppw,
+        for ppw in plan.pffdtd.points_per_wavelength:
+            pffdtd_levels.append(
+                _run_pffdtd_level(
+                    plan,
+                    fixture=fixture,
+                    executor=pffdtd_executor,
+                    semantic_ref=semantic_ref,
+                    compiled_ref=compiled_ref,
+                    rigid_boundary_ref=rigid_boundary_ref,
+                    ppw=ppw,
+                )
             )
-            for ppw in plan.pffdtd.points_per_wavelength
-        ]
 
-        reference_levels = [
-            _run_reference_level(
-                plan,
-                executable=args.mfem_executable,
-                work_root=args.work_root,
-                refinement=refinement,
-                expected_elements=expected_elements,
+        for refinement, expected_elements in zip(
+            plan.independent_reference.uniform_refinements,
+            plan.independent_reference.expected_element_counts,
+        ):
+            reference_levels.append(
+                _run_reference_level(
+                    plan,
+                    executable=args.mfem_executable,
+                    work_root=args.work_root,
+                    refinement=refinement,
+                    expected_elements=expected_elements,
+                )
             )
-            for refinement, expected_elements in zip(
-                plan.independent_reference.uniform_refinements,
-                plan.independent_reference.expected_element_counts,
-            )
-        ]
 
         frequencies = plan.physical_quantity.frequency_hz
         reference_pair_metrics = []
@@ -1187,6 +1189,8 @@ def main(argv: list[str] | None = None) -> int:
             mfem_build_s=args.mfem_build_s,
             failure_semantic='CONTRACT_MISMATCH',
         )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
         payload['traceback_tail'] = traceback.format_exc()[-6000:]
         save_evidence(args.output, payload)
         return 0
@@ -1199,12 +1203,53 @@ def main(argv: list[str] | None = None) -> int:
             failure_semantic='EXECUTION_FAILED',
             resource_state='RESOURCE_BLOCKED',
         )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
+        payload['traceback_tail'] = traceback.format_exc()[-6000:]
+        save_evidence(args.output, payload)
+        return 0
+    except CandidateWaveExecutionError as exc:
+        message = str(exc).lower()
+        is_resource = any(
+            marker in message
+            for marker in (
+                'bounded resource contract',
+                'bounded wall-time contract',
+                'exceeds bounded',
+                'time steps exceed',
+                'grid exceeds',
+                'raw output exceeds',
+            )
+        )
+        is_contract = any(
+            marker in message
+            for marker in (
+                'differs from exact htdt authority',
+                'mapping differs',
+                'authority is incompatible',
+            )
+        )
+        payload = _blocked_payload(
+            plan,
+            repository_head=repository_head,
+            reason=f'{type(exc).__name__}: {exc}',
+            mfem_build_s=args.mfem_build_s,
+            failure_semantic=(
+                'CONTRACT_MISMATCH'
+                if is_contract
+                else 'EXECUTION_FAILED'
+            ),
+            resource_state=(
+                'RESOURCE_BLOCKED' if is_resource else 'NOT_RESOURCE_BLOCKED'
+            ),
+        )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
         payload['traceback_tail'] = traceback.format_exc()[-6000:]
         save_evidence(args.output, payload)
         return 0
     except (
         ValidationBlocked,
-        CandidateWaveExecutionError,
         ValueError,
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
@@ -1216,6 +1261,8 @@ def main(argv: list[str] | None = None) -> int:
             mfem_build_s=args.mfem_build_s,
             failure_semantic='EXECUTION_FAILED',
         )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
         payload['traceback_tail'] = traceback.format_exc()[-6000:]
         save_evidence(args.output, payload)
         return 0
