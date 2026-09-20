@@ -347,7 +347,40 @@ class GeometricMaterialAuthority(BaseModel):
 class GeometricSurfacePlane(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
-    source_surface_id: str = Field(pattern=r'^semantic-surface:[0-9a-f]{64}
+    source_surface_id: str = Field(pattern=r'^semantic-surface:[0-9a-f]{64}$')
+    axis: AxisName | None = None
+    side: PlaneSide | None = None
+    coordinate_m: float | None = None
+    point_m: Position3 | None = None
+    normal: Direction3 | None = None
+    compiled_triangle_indices: tuple[int, ...] | None = None
+    material_authority: ExactExternalAuthorityRef | None = None
+    boundary_physics_authority: ExactExternalAuthorityRef | None = None
+
+    @model_validator(mode='after')
+    def validate_plane_representation(self) -> 'GeometricSurfacePlane':
+        legacy = (
+            self.axis is not None
+            and self.side is not None
+            and self.coordinate_m is not None
+            and self.point_m is None
+            and self.normal is None
+            and self.compiled_triangle_indices is None
+        )
+        general = (
+            self.axis is None
+            and self.side is None
+            and self.coordinate_m is None
+            and self.point_m is not None
+            and self.normal is not None
+            and bool(self.compiled_triangle_indices)
+        )
+        if legacy == general:
+            raise ValueError(
+                'surface plane must use exactly one legacy-axis or '
+                'general-planar representation'
+            )
+        return self
 
 class DeterministicGaSourceInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -998,13 +1031,6 @@ def compile_deterministic_ga_execution_input(
         != compiled_geometry.topology_identity_sha256
     ):
         raise ValueError('GA execution R120 geometry identity mismatch')
-    if not compiled_geometry.readiness.geometric_acoustics_geometry_ready:
-        raise ValueError('R120 geometry is not ready for geometric acoustics')
-    if compiled_geometry.approximation_operations or compiled_geometry.dropped_features:
-        raise ValueError('deterministic GA foundation rejects approximated/dropped R120 geometry')
-    if compiled_geometry.approximation_error_status != 'exact_preservation':
-        raise ValueError('deterministic GA foundation requires exact R120 preservation')
-
     for expected, actual, label in (
         (compiled_geometry.region_authority_ref, _authority_ref(region_authority), 'region'),
         (compiled_geometry.portal_authority_ref, _authority_ref(portal_authority), 'portal'),
@@ -1021,6 +1047,13 @@ def compile_deterministic_ga_execution_input(
         portal_authority=portal_authority,
         boundary_termination_authority=boundary_termination_authority,
     )
+    if not compiled_geometry.readiness.geometric_acoustics_geometry_ready:
+        raise ValueError('R120 geometry is not ready for geometric acoustics')
+    if compiled_geometry.approximation_operations or compiled_geometry.dropped_features:
+        raise ValueError('deterministic GA foundation rejects approximated/dropped R120 geometry')
+    if compiled_geometry.approximation_error_status != 'exact_preservation':
+        raise ValueError('deterministic GA foundation requires exact R120 preservation')
+
 
     if snapshot.environment is None or snapshot.environment.sound_speed_m_s is None:
         raise ValueError('deterministic GA path delay requires exact sound-speed authority')
@@ -1294,7 +1327,7 @@ def compile_deterministic_ga_execution_input(
         float(bounds.max_z_m - bounds.min_z_m),
     )
     if any(value <= 0.0 for value in dimensions):
-        raise ValueError('R120 shoebox bounding dimensions must be positive')
+        raise ValueError('R120 bounding dimensions must be positive')
 
     core: dict[str, Any] = {
         'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
