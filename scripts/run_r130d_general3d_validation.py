@@ -1085,6 +1085,7 @@ def _validate_pr295_canonical_reproduction(
     *,
     reference_levels: list[dict[str, Any]],
     pffdtd_levels: list[dict[str, Any]],
+    max_abs_tolerance: float,
 ) -> dict[str, Any]:
     summary = json.loads(summary_path.read_text(encoding='utf-8'))
     expected_mfem = {
@@ -1100,6 +1101,9 @@ def _validate_pr295_canonical_reproduction(
     if set(expected_mfem) != {1, 2, 3} or set(expected_pffdtd) != {8.0, 10.0, 12.0}:
         raise ValidationBlocked('PR #295 canonical baseline schedule is incomplete')
 
+    tolerance = float(max_abs_tolerance)
+    if not math.isfinite(tolerance) or tolerance < 0.0:
+        raise ValidationBlocked('PR #295 reproduction tolerance is invalid')
     details: dict[str, list[dict[str, Any]]] = {'mfem': [], 'pffdtd': []}
     maximum = 0.0
     for level in reference_levels:
@@ -1107,9 +1111,10 @@ def _validate_pr295_canonical_reproduction(
         actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
         error = float(np.max(np.abs(actual - expected_mfem[key])))
         maximum = max(maximum, error)
-        if not np.allclose(actual, expected_mfem[key], rtol=1.0e-9, atol=1.0e-9):
+        if error > tolerance:
             raise ValidationBlocked(
-                f'MFEM refinement {key} did not reproduce PR #295 canonical transfer'
+                f'MFEM refinement {key} did not reproduce PR #295 canonical transfer: '
+                f'max_abs_component_error={error} > {tolerance}'
             )
         details['mfem'].append(
             {'refinement': key, 'max_abs_complex_component_error': error}
@@ -1119,9 +1124,10 @@ def _validate_pr295_canonical_reproduction(
         actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
         error = float(np.max(np.abs(actual - expected_pffdtd[key])))
         maximum = max(maximum, error)
-        if not np.allclose(actual, expected_pffdtd[key], rtol=1.0e-9, atol=1.0e-9):
+        if error > tolerance:
             raise ValidationBlocked(
-                f'PFFDTD {key:g} PPW did not reproduce PR #295 canonical transfer'
+                f'PFFDTD {key:g} PPW did not reproduce PR #295 canonical transfer: '
+                f'max_abs_component_error={error} > {tolerance}'
             )
         details['pffdtd'].append(
             {'points_per_wavelength': key, 'max_abs_complex_component_error': error}
@@ -1134,6 +1140,7 @@ def _validate_pr295_canonical_reproduction(
             'artifact_digest_sha256'
         ),
         'max_abs_complex_component_error_all_six_levels': maximum,
+        'max_abs_complex_component_tolerance': tolerance,
         **details,
     }
 
@@ -1387,6 +1394,21 @@ def _run_pffdtd_level(
         spatial_diagnostic,
         sim_dir=run_dir,
     )
+    if not math.isclose(
+        float(spatial_metrics['grid_spacing_m']),
+        float(evidence['grid_spacing_m']),
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        raise ValidationBlocked(
+            'PFFDTD spatial diagnostic grid spacing differs from executed-grid evidence'
+        )
+    if tuple(int(x) for x in spatial_metrics['grid_dimensions']) != tuple(
+        int(x) for x in evidence['grid_dimensions']
+    ):
+        raise ValidationBlocked(
+            'PFFDTD spatial diagnostic dimensions differ from executed-grid evidence'
+        )
     sampling_metadata = target_window_sampling_metadata(
         solver='PFFDTD',
         requested_duration_s=plan.physical_quantity.duration_s,
@@ -1926,6 +1948,11 @@ def main(argv: list[str] | None = None) -> int:
             args.pr295_summary,
             reference_levels=reference_levels,
             pffdtd_levels=pffdtd_levels,
+            max_abs_tolerance=float(
+                spatial_diagnostic['canonical_reproduction'][
+                    'max_abs_complex_component_tolerance'
+                ]
+            ),
         )
 
         diagnostic_frequency_hz = tuple(
