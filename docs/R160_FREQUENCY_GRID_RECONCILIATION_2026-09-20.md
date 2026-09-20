@@ -206,8 +206,27 @@ This slice intentionally leaves the following unresolved:
 - owned-room validation;
 - general-3D wave validation.
 
+## Actual synthetic stitch evidence
+
+GitHub Actions `R160 Numerical Hybrid Composition` run #14 validated
+implementation head `4987b4fe3d0f2b9186d6c9b804847b50f5469f00`:
+
+- focused `backend/tests/test_cad_hybrid_numerical_composition.py`:
+  14/14 test nodes passed, including both unequal regular and unequal irregular
+  stitch fixture cases;
+- existing `backend/tests/test_cad_hybrid_acoustic_result.py`:
+  27/27 test nodes passed;
+- scope/non-claim gate: passed;
+- RDC usage: 0.
+
+Run:
+`https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/actions/runs/35511230763`
+
+This evidence demonstrates deterministic reconstruction for the synthetic
+affine complex fixture and the bounded authority contract only. It remains
+**not production broadband validation**.
+
 ## Verification
 
 Repository-native focused tests and the existing R160 GitHub Actions workflow
-are the validation authority. The final PR record includes the actual Actions
-run/result; no local Windows or RDC validation is used.
+are the validation authority. No local Windows or RDC validation is used.
