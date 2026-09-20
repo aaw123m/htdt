@@ -284,6 +284,87 @@ def interpolation_stencil_diagnostic(
     return {**core, 'stencil_sha256': semantic_hash(core)}
 
 
+def connected_air_domain_node_metrics(
+    *,
+    dimensions: Sequence[int],
+    boundary_linear_indices: Sequence[int],
+    boundary_adjacency: Sequence[Sequence[bool]] | np.ndarray,
+    source_linear_indices: Sequence[int],
+    neighbor_directions: Sequence[Sequence[int]],
+) -> dict[str, Any]:
+    dims = tuple(int(x) for x in dimensions)
+    if len(dims) != 3 or any(x < 1 for x in dims):
+        raise ValueError('air-domain dimensions must be three positive integers')
+    directions = tuple(tuple(int(v) for v in row) for row in neighbor_directions)
+    if directions != (
+        (1, 0, 0), (-1, 0, 0), (0, 1, 0),
+        (0, -1, 0), (0, 0, 1), (0, 0, -1),
+    ):
+        raise ValueError('air-domain neighbor directions differ from frozen Cartesian authority')
+    ngrid = math.prod(dims)
+    bn = np.asarray(boundary_linear_indices, dtype=np.int64)
+    adj = np.asarray(boundary_adjacency, dtype=bool)
+    sources = np.asarray(source_linear_indices, dtype=np.int64)
+    if bn.ndim != 1 or adj.shape != (bn.size, 6):
+        raise ValueError('air-domain boundary indices/adjacency shape mismatch')
+    if sources.ndim != 1 or sources.size < 1:
+        raise ValueError('air-domain source stencil must contain at least one node')
+    if np.any(bn < 0) or np.any(bn >= ngrid) or np.unique(bn).size != bn.size:
+        raise ValueError('air-domain boundary indices are invalid')
+    if np.any(sources < 0) or np.any(sources >= ngrid):
+        raise ValueError('air-domain source index is outside grid')
+    boundary_row = {int(index): row for row, index in enumerate(bn)}
+    reverse = (1, 0, 3, 2, 5, 4)
+    ny, nz = dims[1], dims[2]
+    yz = ny * nz
+
+    def coords(index: int) -> tuple[int, int, int]:
+        ix = index // yz
+        rem = index % yz
+        iy = rem // nz
+        iz = rem % nz
+        return ix, iy, iz
+
+    def linear(ix: int, iy: int, iz: int) -> int:
+        return ix * yz + iy * nz + iz
+
+    reached = np.zeros(ngrid, dtype=bool)
+    queue: list[int] = [int(sources[0])]
+    reached[queue[0]] = True
+    head = 0
+    while head < len(queue):
+        current = queue[head]
+        head += 1
+        ix, iy, iz = coords(current)
+        current_row = boundary_row.get(current)
+        for direction_index, (dx, dy, dz) in enumerate(directions):
+            nx, ny_, nz_ = ix + dx, iy + dy, iz + dz
+            if not (0 <= nx < dims[0] and 0 <= ny_ < dims[1] and 0 <= nz_ < dims[2]):
+                continue
+            neighbor = linear(nx, ny_, nz_)
+            if current_row is not None and not bool(adj[current_row, direction_index]):
+                continue
+            neighbor_row = boundary_row.get(neighbor)
+            if neighbor_row is not None and not bool(adj[neighbor_row, reverse[direction_index]]):
+                continue
+            if not reached[neighbor]:
+                reached[neighbor] = True
+                queue.append(neighbor)
+
+    if not np.all(reached[sources]):
+        raise ValueError('source trilinear stencil spans disconnected air components')
+    reachable_count = int(np.count_nonzero(reached))
+    boundary_reachable = int(np.count_nonzero(reached[bn]))
+    return {
+        'active_node_count': ngrid,
+        'reachable_air_node_count': reachable_count,
+        'interior_node_count': reachable_count - boundary_reachable,
+        'boundary_node_count': boundary_reachable,
+        'exterior_or_disconnected_node_count': ngrid - reachable_count,
+        'reachable_mask': reached,
+    }
+
+
 def plane_distance_metrics(
     samples_m: Sequence[Sequence[float]],
     *,
