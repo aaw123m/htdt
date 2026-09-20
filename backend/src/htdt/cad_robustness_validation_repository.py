@@ -538,18 +538,17 @@ class CadRobustnessValidationRepository:
         reasons: list[O90EReason] = []
         pair = self._pair_for_candidate(record, candidate_id)
         if pair is None:
-            return None, ['missing_measurement_evidence']
+            return None, ['wrong_candidate', 'missing_measurement_evidence']
 
         plan = self._latest_plan(
             search_spec_id=record.search_spec_id,
             plan_id=plan_id,
         )
-        if (
-            plan is None
-            or plan.status != 'measured'
-            or plan.candidate_id != candidate_id
-            or pair.measurement_id not in plan.measurement_ids
-        ):
+        if plan is None or plan.status != 'measured':
+            return None, ['missing_measurement_evidence']
+        if plan.candidate_id != candidate_id:
+            return None, ['wrong_candidate']
+        if pair.measurement_id not in plan.measurement_ids:
             return None, ['missing_measurement_evidence']
 
         measurement = self.measurement_repository.get_measurement(pair.measurement_id)
@@ -675,6 +674,14 @@ class CadRobustnessValidationRepository:
         if record is None:
             reasons.append('missing_underlying_model_validation')
         else:
+            record_candidate_ids = {
+                pair.candidate_id for pair in record.pairs
+            }
+            if (
+                case.candidate_id not in record_candidate_ids
+                or case.perturbation_candidate_id not in record_candidate_ids
+            ):
+                reasons.append('wrong_candidate')
             if (
                 record.document_id != spec.document_id
                 or record.search_spec_id != spec.search_spec_id
