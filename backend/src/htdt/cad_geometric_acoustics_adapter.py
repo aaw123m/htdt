@@ -4876,9 +4876,143 @@ class CadDeterministicPathArtifactRepository:
                 for item in (path.ordered_interactions or ())
                 if item.kind == 'portal_crossing'
             )
-            if portal_interactions:
-                execution_source = execution_source_by_id.get(path.source_entity_id)
-                execution_receiver = execution_receiver_by_id.get(path.receiver_id)
+            execution_source = execution_source_by_id.get(path.source_entity_id)
+            execution_receiver = execution_receiver_by_id.get(path.receiver_id)
+
+            if execution_input.portal_graph is not None and path.ordered_region_ids is not None:
+                graph = execution_input.portal_graph
+                if (
+                    execution_source is None
+                    or execution_receiver is None
+                    or execution_source.acoustic_region_id is None
+                    or execution_receiver.acoustic_region_id is None
+                    or execution_input.portal_apertures is None
+                    or execution_input.region_declarations is None
+                ):
+                    raise ValueError(
+                        'path Portal graph authority no longer resolves from exact execution input'
+                    )
+                expected_routes = enumerate_simple_directed_region_paths(
+                    graph,
+                    source_region_id=execution_source.acoustic_region_id,
+                    receiver_region_id=execution_receiver.acoustic_region_id,
+                )
+                portal_ids = tuple(
+                    item.portal_id
+                    for item in portal_interactions
+                )
+                if (path.ordered_region_ids, portal_ids) not in expected_routes:
+                    raise ValueError(
+                        'path ordered region/Portal route no longer resolves from exact graph authority'
+                    )
+
+                aperture_by_portal_id = {
+                    item.portal_id: item
+                    for item in execution_input.portal_apertures
+                }
+                region_by_id = {
+                    item.region_id: item
+                    for item in execution_input.region_declarations
+                }
+                source_point = _position_tuple(execution_source.source_reference_point)
+                receiver_point = _position_tuple(execution_receiver.world_position)
+                direct = _vector(source_point, receiver_point)
+                direct_norm_sq = _dot(direct, direct)
+                if direct_norm_sq <= execution_input.geometric_tolerance_m ** 2:
+                    raise ValueError('persisted Portal graph path has degenerate endpoints')
+
+                crossings: list[tuple[float, float, float]] = []
+                previous_parameter = -1.0
+                path_length = _distance(source_point, receiver_point)
+                parameter_tolerance = min(
+                    0.25,
+                    execution_input.geometric_tolerance_m
+                    / max(path_length, execution_input.geometric_tolerance_m),
+                )
+                for index, interaction in enumerate(portal_interactions):
+                    aperture = aperture_by_portal_id.get(interaction.portal_id or '')
+                    if aperture is None:
+                        raise ValueError(
+                            'path Portal interaction aperture no longer resolves exactly'
+                        )
+                    if (
+                        interaction.from_region_id != path.ordered_region_ids[index]
+                        or interaction.to_region_id != path.ordered_region_ids[index + 1]
+                    ):
+                        raise ValueError(
+                            'path Portal interaction directed adjacency no longer resolves exactly'
+                        )
+                    crossing = resolve_direct_portal_crossing(
+                        aperture,
+                        start=source_point,
+                        end=receiver_point,
+                        from_region_id=interaction.from_region_id,
+                        to_region_id=interaction.to_region_id,
+                        tolerance_m=execution_input.geometric_tolerance_m,
+                    )
+                    if (
+                        crossing is None
+                        or interaction.point
+                        != _rounded_position(
+                            crossing,
+                            execution_input.identity_decimal_places,
+                        )
+                    ):
+                        raise ValueError(
+                            'path Portal crossing point no longer reproduces exactly'
+                        )
+                    parameter = (
+                        _dot(_vector(source_point, crossing), direct)
+                        / direct_norm_sq
+                    )
+                    if parameter <= previous_parameter + parameter_tolerance:
+                        raise ValueError(
+                            'path Portal crossing order no longer matches directed region sequence'
+                        )
+                    previous_parameter = parameter
+                    crossings.append(crossing)
+
+                segment_points = (
+                    (source_point,)
+                    + tuple(crossings)
+                    + (receiver_point,)
+                )
+                for index, region_id in enumerate(path.ordered_region_ids):
+                    region = region_by_id.get(region_id)
+                    if region is None:
+                        raise ValueError(
+                            'path AcousticRegion declaration no longer resolves exactly'
+                        )
+                    membership = region_segment_membership_with_portal_caps(
+                        compiled_geometry=compiled,
+                        region=region,
+                        apertures=execution_input.portal_apertures,
+                        start=segment_points[index],
+                        end=segment_points[index + 1],
+                        tolerance_m=execution_input.geometric_tolerance_m,
+                    )
+                    if membership != 'valid':
+                        raise ValueError(
+                            'path region segment membership no longer reproduces exactly'
+                        )
+                    if _segment_blocked(
+                        compiled,
+                        segment_points[index],
+                        segment_points[index + 1],
+                        tolerance=execution_input.geometric_tolerance_m,
+                        distance_scaled_tolerance=True,
+                    ):
+                        raise ValueError(
+                            'path Portal graph segment is no longer unoccluded'
+                        )
+                if abs(path.geometric_path_length_m - path_length) > (
+                    execution_input.geometric_tolerance_m
+                ):
+                    raise ValueError(
+                        'path Portal graph geometric length no longer reproduces exactly'
+                    )
+
+            elif portal_interactions:
                 if (
                     execution_source is None
                     or execution_receiver is None
