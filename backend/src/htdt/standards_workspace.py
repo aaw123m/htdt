@@ -9,8 +9,10 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -315,6 +317,11 @@ class StandardsCriterionPanel(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
         self.model = StandardsWorkspaceModel(scene_repository, document_id)
         self._evaluation: StandardsEvaluation | None = None
         self._selected_constraints: set[str] = set()
@@ -362,10 +369,19 @@ class StandardsCriterionPanel(QFrame):
         layout.addWidget(constraint_note)
 
         self.tree = QTreeWidget()
+        self.tree.setMinimumWidth(0)
+        self.tree.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
         self.tree.setObjectName("standardsCriterionTree")
         self.tree.setHeaderLabels(
             ["配置制約 / 基準", "状態", "観測値", "必要条件", "証拠"]
         )
+        header = self.tree.header()
+        header.setMinimumSectionSize(0)
+        for index in range(self.tree.columnCount()):
+            header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
         self.tree.itemChanged.connect(self._constraint_changed)
         layout.addWidget(self.tree, 1)
 

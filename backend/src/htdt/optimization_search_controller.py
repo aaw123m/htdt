@@ -400,6 +400,17 @@ class SearchControllerMixin:
             )
         if self.search_generate_button is not None:
             self.search_generate_button.setEnabled(not busy and bool(current))
+        if self.search_generate_reason_label is not None:
+            if self.working is None or self.working.source_revision_id is None:
+                reason = "部屋を保存してから候補を生成できます。"
+            elif spec is None:
+                reason = "先に「探索設定」で探索設定を保存・選択してください。"
+            elif not current:
+                reason = "部屋または制約が変更されています。探索設定を更新してください。"
+            else:
+                reason = ""
+            self.search_generate_reason_label.setText(reason)
+            self.search_generate_reason_label.setVisible(bool(reason))
         if self.search_cancel_button is not None:
             self.search_cancel_button.setEnabled(search_busy)
         has_candidate = self._selected_search_candidate() is not None and bool(current)

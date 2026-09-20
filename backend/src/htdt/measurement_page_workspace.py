@@ -70,6 +70,16 @@ def _source_label(value: str) -> str:
     }.get(value, value)
 
 
+def _channel_role_label(value: str) -> str:
+    return {
+        "front_left": "フロント左 (FL)",
+        "center": "センター (C)",
+        "front_right": "フロント右 (FR)",
+        "subwoofer": "サブウーファー",
+        "unknown": "未指定",
+    }.get(value, value)
+
+
 def _phase_label(value: str | None) -> str:
     return {
         "valid": "位相・タイミング利用可",
@@ -375,7 +385,7 @@ class MeasurementPageWorkspace(QWidget):
     def _build_assignment_page(self) -> None:
         page, host, layout = _page(
             "測定を割り当てる",
-            "読み込んだ応答を、保存済みSceneRevisionの測定点・入力役割・音源へ割り当ててから保存します。",
+            "読み込んだ応答を、保存済みの部屋状態にある測定点・入力役割・音源へ割り当ててから保存します。",
         )
         page.setObjectName("measurementAssignmentPage")
 
@@ -599,7 +609,7 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_table.setRowCount(len(views))
         for row_index, row in enumerate(views):
             values = (
-                row.channel_role,
+                _channel_role_label(row.channel_role),
                 _evidence_label(row.evidence_type),
                 row.target_name,
                 _quality_label(row.quality_status),
@@ -658,7 +668,8 @@ class MeasurementPageWorkspace(QWidget):
             " / ".join(row.source_speaker_ids) if row.source_speaker_ids else "未指定"
         )
         self.quality_detail.setText(
-            f"{row.target_name} · {_evidence_label(row.evidence_type)} · {row.channel_role}\n"
+            f"{row.target_name} · {_evidence_label(row.evidence_type)} · "
+            f"{_channel_role_label(row.channel_role)}\n"
             f"品質: {_quality_label(row.quality_status)} · {reasons}\n"
             f"{_phase_label(row.phase_status)} · {scene}\n"
             f"音源: {source_speakers} · {captured}"
@@ -691,7 +702,7 @@ class MeasurementPageWorkspace(QWidget):
     def _build_comparison_page(self) -> None:
         page, host, layout = _page(
             "予測と実測を比較する",
-            "CadMeasurementRepositoryに保存された「実測」と「予測」の周波数応答だけを、既存comparison authorityで比較します。",
+            "保存済みの実測と予測の周波数応答を比較します。",
         )
         page.setObjectName("measurementComparisonPage")
 
@@ -777,7 +788,7 @@ class MeasurementPageWorkspace(QWidget):
         self.compare_button.setEnabled(ready)
         if ready:
             self.comparison_availability.setText(
-                "実測は実線、予測は破線で表示します。比較結果はdatasetとSceneRevisionへ固定して保存されます。"
+                "実測は実線、予測は破線で表示します。比較結果は部屋状態と測定データに紐付けて保存します。"
             )
             set_semantic_state(self.comparison_availability, None)
         elif not measured and not predicted:
@@ -787,7 +798,7 @@ class MeasurementPageWorkspace(QWidget):
             set_semantic_state(self.comparison_availability, SemanticState.UNSUPPORTED)
         elif not predicted:
             self.comparison_availability.setText(
-                "予測の周波数応答がありません。予測データを測定repositoryへ保存すると比較できます。"
+                "予測の周波数応答がありません。予測を保存すると比較できます。"
             )
             set_semantic_state(self.comparison_availability, SemanticState.UNSUPPORTED)
         else:
@@ -824,7 +835,7 @@ class MeasurementPageWorkspace(QWidget):
                 continue
             scene = "現在" if row.scene_matches_current else "測定時配置"
             combo.addItem(
-                f"{row.channel_role} · {row.target_name} · {scene}",
+                f"{_channel_role_label(row.channel_role)} · {row.target_name} · {scene}",
                 row.dataset_id,
             )
         if previous is not None:
@@ -883,7 +894,7 @@ class MeasurementPageWorkspace(QWidget):
         self._last_comparison = saved
         self._show_comparison(saved)
         self._set_notice(
-            "比較結果をdatasetとSceneRevisionへ固定して保存しました。",
+            "比較結果を保存しました。",
             SemanticState.SUCCESS,
         )
         self._refresh_comparison_choices()

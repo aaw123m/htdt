@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Protocol, cast
 from uuid import uuid4
 
-from PySide6.QtCore import QSignalBlocker, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -639,6 +639,25 @@ class OverlayControls(QFrame):
             toggle.toggled.connect(lambda checked=False: self.changed.emit())
             self._layout.addWidget(toggle)
 
+        self.navigation_hint = QLabel(
+            "操作: 中ボタン=画面移動 / Shift+中ボタン=回転 / "
+            "ホイール=拡大縮小 / 右クリック=メニュー"
+        )
+        self.navigation_hint.setObjectName("cadNavigationHint")
+        self.navigation_hint.setWordWrap(True)
+        self.navigation_hint.setToolTip(
+            "中ボタン: 画面移動\n"
+            "Shift + 中ボタン: 視点回転\n"
+            "ホイール: 拡大縮小\n"
+            "右クリック: 操作メニュー"
+        )
+        self.navigation_hint.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
+        set_typography_role(self.navigation_hint, TypographyRole.SECONDARY)
+        self._layout.addWidget(self.navigation_hint, 1)
+
         self.more_button = QPushButton("表示…")
         set_control_size(self.more_button, ControlSize.COMPACT)
         self.more_menu = QMenu(self.more_button)
@@ -799,6 +818,9 @@ class RoomWorkspace(QWidget):
         placement_layout.addStretch(1)
         self.placement_panel = QScrollArea()
         self.placement_panel.setWidgetResizable(True)
+        self.placement_panel.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.placement_panel.setFrameShape(QFrame.Shape.NoFrame)
         self.placement_panel.setWidget(placement_body)
         self.right_stack.addWidget(self.placement_panel)

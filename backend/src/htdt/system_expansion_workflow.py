@@ -562,7 +562,7 @@ class SystemExpansionWorkflowService:
         if not name:
             raise ValueError("提案名を入力してください。")
         if not role:
-            raise ValueError("speaker roleを入力してください。")
+            raise ValueError("スピーカーの役割を入力してください。")
         if not zone:
             raise ValueError("設置可能領域の名前を入力してください。")
         if max_x_m < min_x_m or max_y_m < min_y_m:
@@ -572,12 +572,12 @@ class SystemExpansionWorkflowService:
 
         baseline = self.scene_repository.latest(self.document_id)
         if baseline is None:
-            raise ValueError("現在のSceneRevisionがありません。")
+            raise ValueError("現在の部屋状態がありません。")
         definition = self.equipment_repository.get_definition_by_hash(
             equipment_sha256
         )
         if definition is None:
-            raise ValueError("選択したequipment authorityを再解決できません。")
+            raise ValueError("選択した機器定義を読み込めません。")
 
         existing_roles = tuple(
             entity.speaker_role
@@ -586,7 +586,7 @@ class SystemExpansionWorkflowService:
         )
         if role in existing_roles:
             raise ValueError(
-                f"role {role} は現在構成に存在します。追加speakerには未使用roleを指定してください。"
+                f"役割 {role} は現在の構成に存在します。追加スピーカーには未使用の役割を指定してください。"
             )
 
         entity_id = _short_semantic_id(
@@ -766,12 +766,12 @@ class SystemExpansionWorkflowService:
             None,
         )
         if binding is None:
-            return "未設定", "equipment/source modelが設定されていません。"
+            return "未設定", "機器 / 音源モデルが設定されていません。"
         definition = self.equipment_repository.get_definition_by_hash(
             binding.equipment_definition_sha256
         )
         if definition is None:
-            return "参照不可", "equipment authorityを再解決できません。"
+            return "参照不可", "機器定義を読み込めません。"
         if definition.manufacturer and definition.model:
             return f"{definition.manufacturer} {definition.model}", None
         return definition.user_label or definition.definition_id, None

@@ -264,9 +264,34 @@ class OverviewReadinessService:
             for result in completed_predictions
             if result.scene_revision_id == revision.revision_id
             and result.scene_content_hash == revision.content_hash
+            and getattr(result, 'geometry_compatibility', None) != 'unsupported'
         )
         prediction_action: OverviewAction | None = None
-        if not current_predictions:
+        unsupported_current_predictions = tuple(
+            result
+            for result in completed_predictions
+            if result.scene_revision_id == revision.revision_id
+            and result.scene_content_hash == revision.content_hash
+            and getattr(result, 'geometry_compatibility', None) == 'unsupported'
+        )
+        if unsupported_current_predictions:
+            prediction_action = _action(
+                'prediction.review_geometry',
+                '部屋形状を確認',
+                ROOM_GEOMETRY,
+            )
+            warnings.append(
+                OverviewNotice(
+                    code='prediction.unsupported_geometry',
+                    severity='warning',
+                    message=(
+                        '現在の部屋形状は予測モデルに対応していません。'
+                        '矩形の部屋に変更すると予測できます。'
+                    ),
+                    action=prediction_action,
+                )
+            )
+        elif not current_predictions:
             if completed_predictions:
                 code = 'prediction.stale'
                 message = '条件が変更されています。予測を再計算してください。'
@@ -399,6 +424,8 @@ class OverviewReadinessService:
             if summary is not None:
                 return summary
         if prediction_action is not None:
+            if prediction_action.action_id == 'prediction.review_geometry':
+                return '現在の部屋形状では予測できません。'
             return '次に予測を実行してください。'
         if validation_action is not None:
             return '自動推薦の前に検証状態を確認してください。'

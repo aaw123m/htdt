@@ -254,3 +254,29 @@ def test_ready_state_can_recommend_optimization_even_without_optional_measuremen
     assert view.next_action.label == '最適化を始める'
     assert view.next_action.target.workspace == 'optimization'
     assert view.next_action.target.subsection == 'setup'
+
+
+def test_unsupported_current_prediction_does_not_unlock_optimization() -> None:
+    revision = _revision()
+    unsupported = SimpleNamespace(
+        status='completed',
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        geometry_compatibility='unsupported',
+    )
+
+    view = _service(revision, predictions=(unsupported,)).read('project-1')
+
+    warning = next(
+        item for item in view.warnings if item.code == 'prediction.unsupported_geometry'
+    )
+    assert warning.message == (
+        '現在の部屋形状は予測モデルに対応していません。'
+        '矩形の部屋に変更すると予測できます。'
+    )
+    assert view.summary == '現在の部屋形状では予測できません。'
+    assert view.optimization_ready is False
+    assert view.next_action == warning.action
+    assert view.next_action is not None
+    assert view.next_action.target.workspace == 'room'
+    assert view.next_action.target.subsection == 'geometry'
