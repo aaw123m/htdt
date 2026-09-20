@@ -690,21 +690,6 @@ def _run_reference_level(
         target_duration_s=plan.physical_quantity.duration_s,
         frequency_hz=frequencies,
     )
-    diagnostic_frequencies = np.asarray(
-        spatial_diagnostic['frequency_neighborhood']['diagnostic_frequency_hz'],
-        dtype=np.float64,
-    )
-    neighborhood_transfer = pffdtd_finite_record_pressure_transfer(
-        pressure_trace,
-        source_trace,
-        time_step_s=time_step_s,
-        frequency_hz=diagnostic_frequencies,
-    )
-    spatial_metrics = _read_pffdtd_spatial_representation_diagnostic(
-        plan,
-        spatial_diagnostic,
-        sim_dir=run_dir,
-    )
     sampling_metadata = target_window_sampling_metadata(
         solver='MFEM',
         requested_duration_s=plan.physical_quantity.duration_s,
@@ -1386,6 +1371,21 @@ def _run_pffdtd_level(
         candidate=aligned_transfer_pairs,
         frequency_hz=plan.physical_quantity.frequency_hz,
         magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+    )
+    diagnostic_frequencies = np.asarray(
+        spatial_diagnostic['frequency_neighborhood']['diagnostic_frequency_hz'],
+        dtype=np.float64,
+    )
+    neighborhood_transfer = pffdtd_finite_record_pressure_transfer(
+        pressure_trace,
+        source_trace,
+        time_step_s=time_step_s,
+        frequency_hz=diagnostic_frequencies,
+    )
+    spatial_metrics = _read_pffdtd_spatial_representation_diagnostic(
+        plan,
+        spatial_diagnostic,
+        sim_dir=run_dir,
     )
     sampling_metadata = target_window_sampling_metadata(
         solver='PFFDTD',
