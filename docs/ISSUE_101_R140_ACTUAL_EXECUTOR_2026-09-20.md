@@ -44,9 +44,13 @@ Peak memory is currently marked `UNSUPPORTED` by the portable core instead of fa
 
 ## Adapter boundary
 
-The executor calls an `ExecutionWorkerPort` callback with an `ExecutionInvocationContext`. A future PFFDTD/MFEM/pyroomacoustics adapter can use this interface without embedding solver physics in R140 core.
+The executor calls an `ExecutionWorkerPort` callback with an `ExecutionInvocationContext`. Solver physics and allocation details remain outside the generic R140 core.
 
-`DeterministicSyntheticWorker` exists only for CI. Its authorities are explicitly named `synthetic_execution_result` / `synthetic_execution_provenance` and are not acoustic production evidence.
+The PFFDTD follow-up slice adds `cad_pffdtd_resource_estimator.py` with a source-bound `PffdtdCandidateResourceEstimator` and `PffdtdR140Worker`. It binds the exact R130A `CandidateWaveExecutionInput`, pinned PFFDTD commit/config/runtime identity, deterministic grid/time workload derivation, task-incremental RAM/scratch reservation, and CPU-only GPU-slot semantics to the existing generic `ExecutionResourceEstimate`.
+
+`DeterministicSyntheticWorker` remains CI-only and non-production evidence. The real PFFDTD integration path is separately exercised by `.github/workflows/r140-pffdtd-resource-executor.yml`.
+
+Detailed derivation: [R140 PFFDTD resource estimator](ISSUE_101_R140_PFFDTD_RESOURCE_ESTIMATOR_2026-09-20.md).
 
 ## Verification
 
@@ -56,4 +60,6 @@ RDC was not used.
 
 ## Completion status
 
-This is a **partial R140 completion**. The actual CPU worker/executor vertical slice exists, but R140 must not be declared fully complete until remaining canonical acceptance is audited, including real solver-specific resource estimators and any required CPU/GPU numerical-equivalence evidence.
+R140 remains a **partial completion** at the program level. The actual CPU worker/executor vertical slice exists and the pinned R130A PFFDTD Python/Numba CPU candidate now has a dedicated solver-specific resource-estimation/executor path. Remaining canonical gates include production solver adoption, any future GPU executor/resource estimator and CPU/GPU numerical-equivalence evidence, broader solver/runtime estimator qualification, and owned-room validation.
+
+RDC usage across the executor slice and this PFFDTD follow-up: **0**.

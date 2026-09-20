@@ -40,7 +40,7 @@ N70はIssue #63 / PR #64、N80 workspaceはIssue #65 / PR #74、O60 software val
 | R100A tracking | PR #110 merged `1714c078d4063f59da93f0d733171547f7eb486d`。CI #582 / Windows Release Artifact #109 PASS。solver-neutral authority + 10 canonical fixturesをmain反映済み |
 | R100B tracking | PR #111 authority / #112 pyroom direct+first-reflection / #113 PFFDTD platform / #114 MFEM rigid reference / #115 PFFDTD rigid modes / #116 R100A-2 complex-pressure convergence / #151 PFFDTD impedance / #154 MFEM concave independent reference / #155 pyroom stochastic evidence / #158 fail-closed low-band wave adoption profile / #160 MFEM Portal continuity / #162 R100A-3 radiation authority / #177 MFEM radiation candidate gate / #181 PFFDTD concave evidenceまでmain反映済み。Portal PASS、MFEM concave FAIL、PFFDTD concave FAIL/non-converged、radiation resource FAIL等のnegative evidenceを保持。production wave solverは未選定 |
 | R130A execution | PR #243。exact snapshot/request/READY dispatch→pinned PFFDTD candidate numerical execution→immutable complex-pressure artifact→result envelope/save-reopenのbounded vertical sliceを実装。candidate-onlyでありR130A numerical acceptance/production adoptionは未完了 |
-| R140 execution | PR #236/#250。exact task/schedule/cache authorityにactual CPU-baseline bounded executor、resource estimate、cancel/failure telemetry、resumeを接続。real solver estimator、GPU/equivalence等は残件 |
+| R140 execution | PR #236/#250のgeneric bounded executorに加え、PR #259でpinned R130A PFFDTD Python/Numba CPU candidateのsolver-specific estimator/workload authority/real executor adapterを追加。grid/Nt/source-derived RAM・scratch、thread demand、KNOWN/UNKNOWN、exact cache/resumeを接続。dedicated workflow run #2でreal PFFDTD task + second-run cache reuse PASS。GPU estimator/equivalence・production adoption・owned-room evidenceは残件 |
 | R150 execution | PR #245でsingle-region exact shoebox subsetのdeterministic direct/first-specular typed path artifact→result envelope/save-reopenを実装。PR #253でexact planar semantic surfaceからのarbitrary-plane mirror/intersection、finite triangle-domain membership、両segment occlusion、general-planar save/reopenを追加。multi-region/Portal propagation、nontrivial termination、qualified general-concave coverage、high-order/late/scattering/diffraction/coherent phase/production validationは残件 |
 | R160 hybrid foundation | PR #254。CoherentTransfer / DeterministicPathSet / LateEnergyDecayをsolver-neutral typed authorityとして分離し、observable別validity/phase/provenance、explicit non-blending stitching policy、exact compatibility gate、append-only SQLite persistenceを実装。v1のcandidate componentは`EXECUTED_UNVALIDATED`固定で、exact validation authorityなしの昇格を許さない。数値stitching・physical crossover・late solver・production validationは未実装 |
 | 次工程 | **R100B production wave adoption gateは引き続き未通過。candidate negative evidenceをreference truthへ昇格せず、残るsolver-neutral decomposition/reference/obstacle/candidate-wide hard gateとADR readinessを進める。並行してR130/R150のnumerical acceptance、R160 foundation後の数値continuity semantics、R170 integration、R180 owned-room validationを個別gateで進める。O90はO90E、O100GはUX160 visual acceptanceが残件。Issue #83 owned-room gateも未完了** |
@@ -530,9 +530,14 @@ Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_
 - immutable success/failure/cancel telemetry: implemented
 - exact cache reuse + resume: implemented
 - deterministic synthetic CI lane: implemented, explicitly non-production evidence
-- portable peak-memory metric: unsupported rather than fabricated
-- real solver-specific resource estimator: pending
-- GPU executor / CPU-GPU numerical-equivalence evidence: pending
+- portable observed peak-RSS metric: unsupported rather than fabricated
+- pinned R130A PFFDTD Python/Numba CPU solver-specific resource estimator: implemented in PR #259
+- source-bound grid / Nt / cell-time workload authority: implemented
+- task-incremental RAM/scratch derivation with explicit component semantics: implemented
+- multiprocess setup RAM without a portable bound: UNKNOWN -> fail-closed defer
+- real bounded PFFDTD task through R140 + exact second-run cache/resume integration lane: implemented; PR #259 dedicated workflow run #2 (`35489694817`) PASS
+- GPU executor / GPU resource estimator / CPU-GPU numerical-equivalence evidence: pending
+- production solver adoption / owned-room evidence: pending
 - R140 overall status: partial completion
 
-Implementation record: [ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md](ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md). RDC was not used.
+Implementation records: [ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md](ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md) and [ISSUE_101_R140_PFFDTD_RESOURCE_ESTIMATOR_2026-09-20.md](ISSUE_101_R140_PFFDTD_RESOURCE_ESTIMATOR_2026-09-20.md). RDC was not used.
