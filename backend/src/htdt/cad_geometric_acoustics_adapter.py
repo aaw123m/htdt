@@ -753,6 +753,41 @@ def _validate_dispatch_chain(
         raise ValueError('GA solver configuration exact authority mismatch')
 
 
+def _room_boundary_shell_metrics(
+    compiled: R120CompiledGeometry,
+    mappings: Sequence[CompiledSurfaceMapping],
+) -> tuple[int, int, float]:
+    triangle_indices = tuple(
+        sorted(
+            {
+                index
+                for mapping in mappings
+                for index in mapping.compiled_triangle_indices
+            }
+        )
+    )
+    edge_counts: dict[tuple[int, int], int] = {}
+    signed_volume_times_six = 0.0
+    for index in triangle_indices:
+        triangle = compiled.triangles[index]
+        for left, right in (
+            (triangle.a, triangle.b),
+            (triangle.b, triangle.c),
+            (triangle.c, triangle.a),
+        ):
+            key = (left, right) if left < right else (right, left)
+            edge_counts[key] = edge_counts.get(key, 0) + 1
+        a, b, c = _triangle_vertices(compiled, index)
+        signed_volume_times_six += _dot(a, _cross(b, c))
+    boundary_edge_count = sum(1 for count in edge_counts.values() if count == 1)
+    non_manifold_edge_count = sum(1 for count in edge_counts.values() if count > 2)
+    return (
+        boundary_edge_count,
+        non_manifold_edge_count,
+        abs(signed_volume_times_six) / 6.0,
+    )
+
+
 def _surface_plane(
     compiled: R120CompiledGeometry,
     mapping: CompiledSurfaceMapping,
@@ -914,6 +949,40 @@ def compile_deterministic_ga_execution_input(
     if len(plane_keys) != len(set(plane_keys)):
         raise ValueError('multiple semantic surfaces map to one shoebox boundary plane')
 
+    shell_boundary_edges, shell_non_manifold_edges, shell_volume_m3 = (
+        _room_boundary_shell_metrics(compiled_geometry, room_mappings)
+    )
+    if shell_boundary_edges or shell_non_manifold_edges:
+        raise ValueError(
+            'candidate pyroomacoustics adapter requires the exact semantic '
+            'room-boundary subset itself to be a closed manifold; holes/open '
+            'edges are not filled into a shoebox'
+        )
+    bounds = compiled_geometry.bounding_volume
+    expected_room_volume_m3 = (
+        float(bounds.max_x_m - bounds.min_x_m)
+        * float(bounds.max_y_m - bounds.min_y_m)
+        * float(bounds.max_z_m - bounds.min_z_m)
+    )
+    room_surface_area_m2 = 2.0 * (
+        float(bounds.max_x_m - bounds.min_x_m)
+        * float(bounds.max_y_m - bounds.min_y_m)
+        + float(bounds.max_x_m - bounds.min_x_m)
+        * float(bounds.max_z_m - bounds.min_z_m)
+        + float(bounds.max_y_m - bounds.min_y_m)
+        * float(bounds.max_z_m - bounds.min_z_m)
+    )
+    volume_tolerance_m3 = max(
+        configuration.geometric_tolerance_m ** 3,
+        room_surface_area_m2 * configuration.geometric_tolerance_m,
+    )
+    if abs(shell_volume_m3 - expected_room_volume_m3) > volume_tolerance_m3:
+        raise ValueError(
+            'semantic room-boundary shell volume does not exactly match its '
+            'shoebox bounds within the declared geometric tolerance; candidate '
+            'geometry must not fill or clip the R120 shell'
+        )
+
     region_surfaces = set(region_authority.declarations[0].boundary_surface_ids)
     room_surface_ids = {item.source_surface_id for item in planes}
     if region_surfaces != room_surface_ids:
@@ -985,7 +1054,6 @@ def compile_deterministic_ga_execution_input(
             for index in mapping.compiled_triangle_indices
         )
     )
-    bounds = compiled_geometry.bounding_volume
     origin = Position3(
         x_m=bounds.min_x_m,
         y_m=bounds.min_y_m,
