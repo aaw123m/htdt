@@ -89,7 +89,7 @@ Notably retained history includes:
 - PFFDTD rectangular convergence FAIL history;
 - PFFDTD impedance PASS history;
 - PFFDTD concave FAIL history;
-- MFEM concave / finite-record FAIL history;
+- MFEM concave / finite-record FAIL, including exact current R100A-4 artifact `10583118482`;
 - MFEM Portal PASS history;
 - MFEM radiation FAIL history;
 - pyroomacoustics direct/first-reflection PASS history;
@@ -108,7 +108,7 @@ Production solver selected: **no**.
 The decisive reasons are hard-gate/capability/evidence completeness, not comparative speed:
 
 - PFFDTD's current candidate declaration does not claim all low-band adoption capabilities, including Portal continuity and explicit radiation termination.
-- MFEM declares the required wave capabilities, but current production selection still requires exact current-authority typed fixture and hard-gate records; existing negative concave/radiation history is preserved rather than erased.
+- MFEM's immutable finite-record artifact `10583118482` exactly matches current R100A-4 hash `a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7`, current candidate-manifest hash `8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707`, and the pinned MFEM commit. Its concave result is therefore admitted as a current **FAIL / non-converged**, not BLOCKED; the unqualified finest trace is still not reference truth. Other mandatory MFEM fixtures/platform gates remain unresolved or stale.
 - pyroomacoustics remains reference-only and cannot satisfy the production-wave role.
 - missing/stale evidence is BLOCKED, not fabricated as FAIL or PASS.
 
@@ -119,7 +119,7 @@ A selection decision can change only after exact current-authority evidence is p
 The next bounded work is:
 
 1. for PFFDTD, qualify any missing required capability before attempting the corresponding frozen fixture;
-2. for MFEM, address the known concave/radiation negative evidence with a bounded experiment without relaxing R100A tolerances;
+2. for MFEM, address the current exact concave FAIL and the radiation negative evidence with bounded experiments without relaxing R100A tolerances;
 3. for any shipping candidate, persist exact current typed evidence for Windows packaging/execution, CPU baseline, reproducible authority, and every mandatory adoption fixture;
 4. rerun only the missing/changed gate. Existing successful unrelated workflows are not a reason to rerun accepted evidence.
 
