@@ -552,9 +552,20 @@ def test_opposite_phasor_is_explicitly_converted_and_implicit_mismatch_fails() -
     tampered['complex_representation']['phasor_convention'] = (
         COMMON_PHASOR_CONVENTION
     )
+    tampered_hash = _digest(tampered)
+    tampered_ref = ExactExternalAuthorityRef(
+        authority_id=f'acoustic-solver-artifact:{tampered_hash}',
+        authority_version=COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
+        semantic_hash_sha256=tampered_hash,
+    )
+    tampered_result = _solver_result(
+        candidate=bundle['candidate'],
+        artifact_ref=tampered_ref,
+        frequencies=bundle['frequencies'],
+    )
     with pytest.raises(ValueError, match='complex/Fourier convention'):
         build_numerical_hybrid_composition_spec(
-            r130_result=bundle['result'],
+            r130_result=tampered_result,
             r130_artifact_payload=tampered,
             r130_candidate_input=bundle['candidate'],
             wave_excitation=bundle['excitation'],
