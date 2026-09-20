@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHONUTF8: '1'
+      PYTHONPATH: backend/src
     steps:
       - uses: actions/checkout@v4
 
