@@ -125,6 +125,104 @@ def target_window_sampling_metadata(
     }
 
 
+def native_window_left_rectangle_spectrum(
+    samples: Sequence[complex] | np.ndarray,
+    *,
+    dt_s: float,
+    frequency_hz: Sequence[float] | np.ndarray,
+) -> np.ndarray:
+    values = np.asarray(samples)
+    if values.ndim != 1 or values.size < 1:
+        raise ValueError('native-window spectrum requires a non-empty 1D trace')
+    if not (
+        np.all(np.isfinite(values.real))
+        and np.all(np.isfinite(values.imag))
+    ):
+        raise ValueError('native-window trace must be finite')
+    dt = float(dt_s)
+    frequencies = np.asarray(frequency_hz, dtype=np.float64)
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError('native-window dt must be finite and positive')
+    if (
+        frequencies.ndim != 1
+        or frequencies.size == 0
+        or not np.all(np.isfinite(frequencies))
+        or np.any(frequencies <= 0.0)
+    ):
+        raise ValueError('native-window frequencies must be finite and positive')
+    times = np.arange(values.size, dtype=np.float64) * dt
+    kernel = np.exp(
+        2j * np.pi * frequencies[:, None] * times[None, :]
+    )
+    spectrum = dt * (kernel @ values.astype(np.complex128, copy=False))
+    if not (
+        np.all(np.isfinite(spectrum.real))
+        and np.all(np.isfinite(spectrum.imag))
+    ):
+        raise ValueError('native-window spectrum is non-finite')
+    return np.asarray(spectrum, dtype=np.complex128)
+
+
+def native_window_left_rectangle_transfer(
+    pressure_trace: Sequence[complex] | np.ndarray,
+    source_volume_velocity_trace: Sequence[complex] | np.ndarray,
+    *,
+    dt_s: float,
+    frequency_hz: Sequence[float] | np.ndarray,
+) -> np.ndarray:
+    pressure = np.asarray(pressure_trace)
+    source = np.asarray(source_volume_velocity_trace)
+    if pressure.ndim != 1 or source.ndim != 1 or pressure.shape != source.shape:
+        raise ValueError(
+            'native-window P/Q requires matching 1D pressure/source traces'
+        )
+    p_spectrum = native_window_left_rectangle_spectrum(
+        pressure, dt_s=dt_s, frequency_hz=frequency_hz
+    )
+    q_spectrum = native_window_left_rectangle_spectrum(
+        source, dt_s=dt_s, frequency_hz=frequency_hz
+    )
+    source_floor = np.finfo(np.float64).eps * max(
+        1.0, float(np.max(np.abs(q_spectrum)))
+    )
+    if np.any(np.abs(q_spectrum) <= source_floor):
+        raise ValueError('native-window physical source spectrum is zero')
+    transfer = p_spectrum / q_spectrum
+    if not (
+        np.all(np.isfinite(transfer.real))
+        and np.all(np.isfinite(transfer.imag))
+    ):
+        raise ValueError('native-window transfer is non-finite')
+    return np.asarray(transfer, dtype=np.complex128)
+
+
+def analytic_sampled_complex_harmonic_left_rectangle_spectrum(
+    *,
+    amplitude: complex,
+    harmonic_frequency_hz: float,
+    analysis_frequency_hz: Sequence[float] | np.ndarray,
+    dt_s: float,
+    sample_count: int,
+) -> np.ndarray:
+    frequencies = np.asarray(analysis_frequency_hz, dtype=np.float64)
+    dt = float(dt_s)
+    count = int(sample_count)
+    harmonic = float(harmonic_frequency_hz)
+    if not math.isfinite(dt) or dt <= 0.0 or count < 1:
+        raise ValueError('analytic sampled harmonic requires positive dt/count')
+    delta = frequencies - harmonic
+    phase_step = np.exp(2j * np.pi * delta * dt)
+    denominator = 1.0 - phase_step
+    near = np.abs(denominator) <= 1.0e-13
+    series = np.empty(frequencies.shape, dtype=np.complex128)
+    series[near] = float(count)
+    if np.any(~near):
+        series[~near] = (
+            1.0 - np.power(phase_step[~near], count)
+        ) / denominator[~near]
+    return complex(amplitude) * dt * series
+
+
 def target_window_clipped_left_rectangle_spectrum(
     samples: Sequence[complex] | np.ndarray,
     *,
