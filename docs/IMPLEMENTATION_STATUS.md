@@ -476,3 +476,16 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - RDC: not used
 
 Details: [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md).
+
+
+### Issue #101 R130A bounded candidate wave execution — 2026-09-20
+
+- PR #243で、既存solver-neutral snapshot/request/READY dispatchを pinned PFFDTD Python/Numba CPU candidate の実数値実行へ接続するbounded vertical sliceを追加。
+- exact deterministic input identityはsnapshot/request/dispatch、R120 geometry/boundary composition、R110 source、explicit AcousticWaveExcitationAuthority、receiver/frequency/time sampling、solver implementation/configuration、adapter/compiler、runtime/resource configurationを含む。
+- raw complex pressureはcontent-addressed immutable external artifactへ保存し、AcousticSolverResultEnvelopeはartifact/schema/provenance exact refのみ保持。missing/modified/schema mismatchはfail closed。
+- fixtureは2 m closed rigid cube、1 source、1 receiver、40/80 Hz。speaker sensitivityからvolume velocityを推定しない。
+- READYはadapterへdispatch可能というcontractだけであり、convergence/production suitabilityを意味しない。
+- PFFDTD production solver選定、R100B completion、R130A numerical acceptance、R130B/C、R180、owned-room evidence、production recommendation eligibilityは未成立。
+- dedicated bounded GitHub Actionsでfocused tests + exact PFFDTD executionを検証し、最終run evidenceはPR #243 / Issue #101へ記録する。
+- 詳細: [R130A candidate wave execution](R130A_CANDIDATE_WAVE_EXECUTION_2026-09-20.md)
+- RDC未使用。
