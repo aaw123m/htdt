@@ -1,0 +1,63 @@
+name: R170B Hybrid Prediction Provider
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/htdt/cad_hybrid_prediction_provider.py'
+      - 'backend/src/htdt/cad_hybrid_prediction_provider_integration.py'
+      - 'backend/src/htdt/cad_prediction_provider.py'
+      - 'backend/src/htdt/cad_prediction_provider_integration.py'
+      - 'backend/src/htdt/cad_hybrid_numerical_composition.py'
+      - 'backend/src/htdt/cad_hybrid_grid_reconciliation.py'
+      - 'backend/src/htdt/cad_wave_excitation.py'
+      - 'backend/tests/test_cad_hybrid_prediction_provider.py'
+      - 'backend/tests/test_cad_prediction_provider.py'
+      - 'backend/tests/test_cad_hybrid_numerical_composition.py'
+      - 'docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md'
+      - '.github/workflows/r170b-hybrid-prediction-provider.yml'
+  workflow_dispatch:
+
+jobs:
+  r170b:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: backend/src
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        run: python -m pip install -e "./backend[dev]"
+
+      - name: Compile R170B authority modules
+        run: >
+          python -m py_compile
+          backend/src/htdt/cad_hybrid_prediction_provider.py
+          backend/src/htdt/cad_hybrid_prediction_provider_integration.py
+          backend/tests/test_cad_hybrid_prediction_provider.py
+
+      - name: Run R170B focused provider and consumer tests
+        run: python -m pytest -q backend/tests/test_cad_hybrid_prediction_provider.py
+
+      - name: Run R160 numerical composition regressions
+        run: python -m pytest -q backend/tests/test_cad_hybrid_numerical_composition.py
+
+      - name: Run R170A provider regressions
+        run: python -m pytest -q backend/tests/test_cad_prediction_provider.py
+
+      - name: Enforce R170B non-claims and scope markers
+        shell: bash
+        run: |
+          grep -q 'evidence_state=candidate' docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md
+          grep -q 'production_adoption=false' docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md
+          grep -q 'RDC usage: 0' docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md
+          grep -q 'production solver adoption' docs/R170B_HYBRID_PREDICTION_PROVIDER_2026-09-21.md
+          git diff --exit-code origin/${{ github.base_ref }}...HEAD -- HTDT-Capture
+          git diff --exit-code origin/${{ github.base_ref }}...HEAD -- docs/IMPLEMENTATION_ROADMAP.md docs/IMPLEMENTATION_STATUS.md
