@@ -1,0 +1,223 @@
+{
+  "schema_version": "r100b-mfem-modal-experiment-evidence-1",
+  "issue": 101,
+  "pull_request": 277,
+  "recorded_date": "2026-09-20",
+  "fixture_id": "wave-concave-l-room-v1",
+  "experiment_outcome": "PASS",
+  "selected_conclusion": "full_basis_modal_time_track_converges_under_current_r100a",
+  "authority": {
+    "base_main_sha": "49901a6b46ad889bd06b34e4482a5b6121545d1d",
+    "evidence_head_sha": "2dea6beef81528497511266c2278be0e4124663f",
+    "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+    "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+    "fixture_semantic_hash": "3297647551cb0fbcdf25d5bc9ddf3d1e591432f4eb82e6141309a83496cc01ce",
+    "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+    "candidate_id": "mfem-v4.10-d964264",
+    "candidate_semantic_hash": "d7845fa151ccada42e741b5fc49b0576ade9ab9fd74ca18adeb3989f47c0ed13",
+    "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "plan_file_sha256": "15c1faf1e24ef99910912666d476ba784b7724edcb58517e3f62c40415e624de",
+    "spatial_system_configuration_sha256": "908005a1f9b7aa431d7b20e9ccdb84ae58cbc77e0ab6f0f36d20fc9d52f9de49",
+    "modal_configuration_sha256": "01e9246cc6500e4388134b0022608d1d9e02f588f0a4e51ff9da7cf9971f8dd4",
+    "output_grid_configuration_sha256": "b431156c7bef51a96a01951823e857b09f9655294139fa814ebcf83a0ffd4bf2",
+    "semidiscrete_system_numeric_identity_sha256": "f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d"
+  },
+  "spatial_system": {
+    "h1_order": 2,
+    "uniform_refinements": 1,
+    "elements": 40,
+    "ndofs": 525,
+    "geometry": "exact-five-hex-l-prism",
+    "boundary_model": "natural-neumann-rigid",
+    "primary_field": "velocity_potential_phi",
+    "governing_equation": "M*phi_tt+Kc2*phi=c^2*b*q",
+    "mass_assembly": "MFEM MassIntegrator",
+    "stiffness_assembly": "MFEM DiffusionIntegrator(c^2)",
+    "source_functional": "MFEM DomainLFIntegrator(DeltaCoefficient)",
+    "receiver_functional": "MFEM DomainLFIntegrator(DeltaCoefficient)",
+    "system_raw_sha256": "83ebc5d89d7a100f159333775db6533e646996c4e6d0a9d19ba473aa4aff1bd4",
+    "mass_symmetry_max_abs": 0.0,
+    "stiffness_symmetry_max_abs": 0.0
+  },
+  "modal_configuration": {
+    "generalized_eigenproblem": "Kc2*v=lambda*M*v",
+    "mass_normalization": "V.T*M*V=I",
+    "basis_size": 525,
+    "retained_basis_size": 525,
+    "truncation_rule": "none; retain all 525 generalized eigenpairs",
+    "source_projection": "g=V.T*M*phi_t0",
+    "receiver_projection": "r.T*V",
+    "initial_conditions": "phi(0)=0; phi_t(0+)=c^2*dt*M^-1*b*q0",
+    "reconstruction": "p(t)=rho*sum_j((r.T*v_j)*g_j*cos(sqrt(lambda_j)*t))",
+    "numerical_precision": "IEEE-754 float64",
+    "python_version": "3.12.10",
+    "numpy_version": "2.1.3",
+    "scipy_version": "1.14.1",
+    "generalized_eigh_driver": "gvd",
+    "eigen_solve_s": 0.03170060000002195,
+    "raw_min_eigenvalue": 2.477807044262485e-10,
+    "raw_max_eigenvalue": 18635601.59999998,
+    "min_frequency_hz": 2.5052661663084693e-06,
+    "max_frequency_hz": 687.0555312343831,
+    "clamped_negative_count": 0,
+    "mass_orthonormality_max_abs_error": 2.6645352591003757e-15,
+    "generalized_eigen_residual_relative": 1.9766731790476663e-15
+  },
+  "numerical_contract": {
+    "quantity": "finite_record_complex_pressure_transfer",
+    "unit": "Pa/(m3/s)",
+    "source_normalization": "volume_velocity_m3_s",
+    "source_mapping": "phi_t(0+)=c^2*dt*M^-1*b*q[0]",
+    "coordinate_system": "x_right_y_rear_z_up",
+    "interpolation": "linear_complex",
+    "fourier_sign": "exp(-i*omega*t)",
+    "finite_record_dtft_kernel": "exp(+i*2*pi*f*n*dt)",
+    "record_interval": "[0,2 s)",
+    "frequency_grid": "20..300 Hz / 1 Hz",
+    "magnitude_null_mask_below_db": -60.0,
+    "phase_null_mask_below_db": -40.0,
+    "current_r100a_tolerance": {
+      "magnitude_absolute_db": 0.75,
+      "magnitude_relative": 0.05,
+      "phase_deg": 8.0
+    },
+    "tolerance_relaxed": false
+  },
+  "attempts": [
+    {
+      "attempt_id": "modal-6000",
+      "sample_rate_hz": 6000,
+      "sample_count": 12000,
+      "status": "COMPLETED",
+      "solve_s": 0.06553989999997611,
+      "peak_ram_mb": 100.78515625,
+      "output_mb": 1.7733783721923828,
+      "source_mass_relative_residual": 4.1315160077295863e-16,
+      "numerical_identity_sha256": "de23d10d96c58bb767ec44a9bc472177309f600f77877613a093f3a3af3196e0",
+      "raw_sha256": "fe3142365babbda12ac2422549c64a509b91dfcdddbfaee4287b6979ddee1663"
+    },
+    {
+      "attempt_id": "modal-9000",
+      "sample_rate_hz": 9000,
+      "sample_count": 18000,
+      "status": "COMPLETED",
+      "solve_s": 0.10434779999991406,
+      "peak_ram_mb": 101.94140625,
+      "output_mb": 2.7039575576782227,
+      "source_mass_relative_residual": 3.7496045036216476e-16,
+      "numerical_identity_sha256": "f6835325ce27da94670cf81c7a8f63343181b9be99e9d6eece43bf0d064a4225",
+      "raw_sha256": "cc61af75023591f7233926d896b978ce042586055b8f298fd467903e7ec0d81f"
+    },
+    {
+      "attempt_id": "modal-12000",
+      "sample_rate_hz": 12000,
+      "sample_count": 24000,
+      "status": "COMPLETED",
+      "solve_s": 0.13009859999988294,
+      "peak_ram_mb": 105.1953125,
+      "output_mb": 3.56350040435791,
+      "source_mass_relative_residual": 4.1315160077295863e-16,
+      "numerical_identity_sha256": "ad535cb4a2a835a431b396d2cdbf5c138eeca5461091f0bbd371521210001b3f",
+      "raw_sha256": "345e9d54fd29de14c4b6b96b3e31c2232e3c7f45037444a0234b1f326824e920"
+    }
+  ],
+  "pair_metrics": [
+    {
+      "coarse_attempt_id": "modal-6000",
+      "fine_attempt_id": "modal-9000",
+      "magnitude_max_abs_db": 0.9108070393695016,
+      "magnitude_max_relative": 0.0995499054132496,
+      "phase_max_error_deg": 4.542899727851477,
+      "complex_rms_relative": 0.0035565489753706346,
+      "magnitude_sample_count": 281,
+      "phase_sample_count": 281
+    },
+    {
+      "coarse_attempt_id": "modal-9000",
+      "fine_attempt_id": "modal-12000",
+      "magnitude_max_abs_db": 0.44114943637837456,
+      "magnitude_max_relative": 0.04952099512093281,
+      "phase_max_error_deg": 2.398810541827885,
+      "complex_rms_relative": 0.0018495018125891524,
+      "magnitude_sample_count": 281,
+      "phase_sample_count": 281
+    }
+  ],
+  "decision": {
+    "complex_rms_relative_strictly_decreasing": true,
+    "final_pair_within_current_tolerance": true,
+    "violations": [],
+    "conclusion_codes": [
+      "modal_time_track_converged_current_r100a_tolerance",
+      "newmark_temporal_evolution_isolated_as_major_candidate_cause"
+    ],
+    "promoted_attempt_id": null,
+    "production_promotion_forbidden": true
+  },
+  "resources": {
+    "native_mfem_build_s": 598.7060038,
+    "modal_eigen_solve_s": 0.03170060000002195,
+    "total_modal_reconstruction_s": 0.2999862999997731,
+    "observed_process_rss_mb": 98.89453125,
+    "experiment_work_disk_mb": 9.250960350036621,
+    "resource_ceiling": {
+      "cpu_thread_budget": 4,
+      "ram_budget_mb": 8192.0,
+      "disk_budget_mb": 2048.0,
+      "max_solve_s_per_attempt": 300.0,
+      "max_output_mb_per_attempt": 512.0,
+      "subprocess_wall_timeout_s": 330.0
+    }
+  },
+  "provenance": {
+    "github_actions_run_id": 35505076672,
+    "github_actions_artifact_id": 10602989820,
+    "github_actions_artifact_name": "r100b-mfem-modal-experiment",
+    "github_actions_artifact_size_bytes": 1089889,
+    "github_actions_artifact_digest": "sha256:6670c8206bbcf73752fba07bd7f32857aa70f8f29c186ff167bdb45c64b15593",
+    "artifact_report_sha256": "754ae55a478b0306d0d059f72444b1f795971dcae908681c381b8ac4ec6f4432",
+    "deterministic_report_identity_sha256": "d282519330aef2ddc6991e4fefc4d090fccb397e3f7a251400f159cf9b9811bf",
+    "focused_contract_tests": "7 passed",
+    "workflow_conclusion": "success",
+    "ordinary_ci_run_id": 35505076628,
+    "ordinary_ci_result": "1018 passed, 2 skipped",
+    "windows_release_run_id": 35505076736,
+    "windows_release_result": "success"
+  },
+  "superseded_execution_notes": [
+    {
+      "run_id": 35503575607,
+      "conclusion": "failure",
+      "reason": "Numerical traces completed and were uploaded, but post-processing referenced a non-existent comparison helper name. This was an implementation failure, not a physics BLOCKED result."
+    },
+    {
+      "run_id": 35504382119,
+      "conclusion": "cancelled",
+      "reason": "Superseded by the exact helper-signature correction before numerical execution; no parameter substitution was made."
+    }
+  ],
+  "readiness_impact": {
+    "current_production_adoption_decision": "NO_GO",
+    "readiness_input_promoted": false,
+    "production_solver_selected": false,
+    "interpretation": "Replacing Newmark time stepping with exact full-basis modal evolution on the same p2/h1 semidiscrete system changes the current time-track result from gross non-convergence to a converged final pair inside the unchanged R100A tolerance. This is evidence that Newmark temporal dispersion is a major cause of the PR #274 time-track failure, but this single diagnostic experiment does not establish production suitability."
+  },
+  "next_selection_changing_experiment": {
+    "objective": "Test a production-suitable low-dispersion, non-dissipative transient integration method against the exact full-basis modal reference while preserving current R100A and the fixed p2/h1 semidiscrete system.",
+    "constraints": "Do not relax tolerance, change source/receiver authority, change p2/h1 spatial discretization, or retry h2 as the next step.",
+    "production_adoption_after_this_experiment": false
+  },
+  "hard_rule_attestation": {
+    "r100a_authority_changed": false,
+    "r100a_tolerance_relaxed": false,
+    "spatial_system_changed_between_output_grids": false,
+    "modal_count_selected_after_results": false,
+    "modal_truncation_used": false,
+    "best_trace_selected": false,
+    "nonconverged_result_promoted": false,
+    "historical_negative_evidence_overwritten": false,
+    "production_solver_selected": false,
+    "rdc_used": false,
+    "htdt_capture_changed": false
+  }
+}

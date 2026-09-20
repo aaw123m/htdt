@@ -20,6 +20,115 @@ struct TimeSample
    double source_volume_velocity_m3_s = 0.0;
 };
 
+
+void WriteSparseMatrixJson(std::ofstream &os, const char *name, mfem::SparseMatrix &matrix)
+{
+   const int rows = matrix.Height();
+   const int cols = matrix.Width();
+   const int nnz = matrix.NumNonZeroElems();
+   const int *row_offsets = matrix.GetI();
+   const int *column_indices = matrix.GetJ();
+   const double *values = matrix.GetData();
+
+   os << "  \"" << name << "\": {\n";
+   os << "    \"rows\": " << rows << ",\n";
+   os << "    \"cols\": " << cols << ",\n";
+   os << "    \"nnz\": " << nnz << ",\n";
+   os << "    \"row_offsets\": [";
+   for (int i = 0; i <= rows; ++i)
+   {
+      if (i) { os << ", "; }
+      os << row_offsets[i];
+   }
+   os << "],\n";
+   os << "    \"column_indices\": [";
+   for (int i = 0; i < nnz; ++i)
+   {
+      if (i) { os << ", "; }
+      os << column_indices[i];
+   }
+   os << "],\n";
+   os << "    \"values\": [";
+   for (int i = 0; i < nnz; ++i)
+   {
+      if (i) { os << ", "; }
+      os << values[i];
+   }
+   os << "]\n";
+   os << "  }";
+}
+
+void WriteVectorJson(std::ofstream &os, const char *name, const mfem::Vector &vector)
+{
+   os << "  \"" << name << "\": [";
+   for (int i = 0; i < vector.Size(); ++i)
+   {
+      if (i) { os << ", "; }
+      os << vector[i];
+   }
+   os << "]";
+}
+
+void WriteSystemJson(
+   const std::string &path,
+   int order,
+   int uniform_refinements,
+   int elements,
+   int ndofs,
+   double density_kg_m3,
+   double sound_speed_m_s,
+   double source_x,
+   double source_y,
+   double source_z,
+   double receiver_x,
+   double receiver_y,
+   double receiver_z,
+   mfem::SparseMatrix &mass,
+   mfem::SparseMatrix &stiffness_c2,
+   const mfem::Vector &source_functional,
+   const mfem::Vector &receiver_functional)
+{
+   std::ofstream os(path, std::ios::binary);
+   if (!os)
+   {
+      throw std::runtime_error("cannot open semidiscrete system output file: " + path);
+   }
+
+   os << std::setprecision(17);
+   os << "{\n";
+   os << "  \"schema_version\": \"r100b-mfem-concave-semidiscrete-system-1\",\n";
+   os << "  \"mfem_version\": \"" << MFEM_VERSION_STRING << "\",\n";
+   os << "  \"fixture_id\": \"wave-concave-l-room-v1\",\n";
+   os << "  \"geometry\": \"exact-five-hex-l-prism\",\n";
+   os << "  \"boundary_model\": \"natural-neumann-rigid\",\n";
+   os << "  \"primary_field\": \"velocity_potential_phi\",\n";
+   os << "  \"governing_equation\": \"M*phi_tt+Kc2*phi=c^2*b*q\",\n";
+   os << "  \"mass_assembly\": \"MFEM MassIntegrator\",\n";
+   os << "  \"stiffness_assembly\": \"MFEM DiffusionIntegrator(c^2)\",\n";
+   os << "  \"source_functional_assembly\": \"MFEM DomainLFIntegrator(DeltaCoefficient)\",\n";
+   os << "  \"receiver_functional_assembly\": \"MFEM DomainLFIntegrator(DeltaCoefficient)\",\n";
+   os << "  \"matrix_format\": \"csr_full\",\n";
+   os << "  \"order\": " << order << ",\n";
+   os << "  \"uniform_refinements\": " << uniform_refinements << ",\n";
+   os << "  \"elements\": " << elements << ",\n";
+   os << "  \"ndofs\": " << ndofs << ",\n";
+   os << "  \"density_kg_m3\": " << density_kg_m3 << ",\n";
+   os << "  \"sound_speed_m_s\": " << sound_speed_m_s << ",\n";
+   os << "  \"source_position_m\": ["
+      << source_x << ", " << source_y << ", " << source_z << "],\n";
+   os << "  \"receiver_position_m\": ["
+      << receiver_x << ", " << receiver_y << ", " << receiver_z << "],\n";
+   os << "  \"source_normalization\": \"volume_velocity_m3_s\",\n";
+   WriteSparseMatrixJson(os, "mass_matrix", mass);
+   os << ",\n";
+   WriteSparseMatrixJson(os, "stiffness_c2_matrix", stiffness_c2);
+   os << ",\n";
+   WriteVectorJson(os, "source_functional", source_functional);
+   os << ",\n";
+   WriteVectorJson(os, "receiver_functional", receiver_functional);
+   os << "\n}\n";
+}
+
 mfem::Mesh BuildFrozenConcaveLRoom()
 {
    // Exact wave-concave-l-room-v1 prism. Five conforming 2 m x 2 m x 2.5 m
@@ -316,6 +425,8 @@ int ProbeMain(int argc, char *argv[])
    int order = 2;
    int uniform_refinements = 0;
    std::string output;
+   std::string system_output;
+   bool assemble_only = false;
 
    for (int i = 1; i < argc; ++i)
    {
@@ -343,10 +454,19 @@ int ProbeMain(int argc, char *argv[])
       else if (arg == "--order") { order = std::stoi(value("--order")); }
       else if (arg == "--uniform-refinements") { uniform_refinements = std::stoi(value("--uniform-refinements")); }
       else if (arg == "--output") { output = value("--output"); }
+      else if (arg == "--system-output") { system_output = value("--system-output"); }
+      else if (arg == "--assemble-only") { assemble_only = true; }
       else { throw std::runtime_error("unknown argument: " + arg); }
    }
 
-   if (output.empty()) { throw std::runtime_error("--output is required"); }
+   if (assemble_only && system_output.empty())
+   {
+      throw std::runtime_error("--system-output is required with --assemble-only");
+   }
+   if (!assemble_only && output.empty())
+   {
+      throw std::runtime_error("--output is required unless --assemble-only is used");
+   }
    if (!(density_kg_m3 > 0.0 && sound_speed_m_s > 0.0
          && source_amplitude_m3_s > 0.0 && observation_time_s > 0.0))
    {
@@ -409,6 +529,32 @@ int ProbeMain(int argc, char *argv[])
 
    mfem::SparseMatrix &M = mass.SpMat();
    mfem::SparseMatrix &Kc2 = stiffness.SpMat();
+
+   if (!system_output.empty())
+   {
+      WriteSystemJson(
+         system_output,
+         order,
+         uniform_refinements,
+         mesh.GetNE(),
+         fes.GetTrueVSize(),
+         density_kg_m3,
+         sound_speed_m_s,
+         source_x,
+         source_y,
+         source_z,
+         receiver_x,
+         receiver_y,
+         receiver_z,
+         M,
+         Kc2,
+         source_functional,
+         receiver_functional);
+   }
+   if (assemble_only)
+   {
+      return 0;
+   }
 
    mfem::Vector potential(fes.GetTrueVSize());
    potential = 0.0;
