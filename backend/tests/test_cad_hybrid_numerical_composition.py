@@ -440,20 +440,22 @@ def _bundle(
         frequencies=frequencies,
         excitation=excitation,
     )
-    artifact_ref = _ref(
-        'r130-complex-pressure-artifact',
-        version=COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
-    )
-    result = _solver_result(
-        candidate=candidate,
-        artifact_ref=artifact_ref,
-        frequencies=frequencies,
-    )
     payload = _r130_payload(
         candidate=candidate,
         excitation=excitation,
         frequencies=frequencies,
         physical_transfer_plus=physical_transfer_plus,
+    )
+    payload_hash = _digest(payload)
+    artifact_ref = ExactExternalAuthorityRef(
+        authority_id=f'acoustic-solver-artifact:{payload_hash}',
+        authority_version=COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
+        semantic_hash_sha256=payload_hash,
+    )
+    result = _solver_result(
+        candidate=candidate,
+        artifact_ref=artifact_ref,
+        frequencies=frequencies,
     )
     if responses is None:
         responses = (
@@ -679,12 +681,13 @@ def test_duplicate_r150_deterministic_path_identity_is_rejected() -> None:
         values=values,
         path_label='direct',
     )
-    duplicate = first.model_copy(
-        update={
-            'artifact_id': first.artifact_id,
-            'semantic_sha256': first.semantic_sha256,
-        }
+    duplicate = _r150_response(
+        frequencies=frequencies,
+        values=(1.1 + 0.0j, 2.1 + 0.0j, 3.1 + 0.0j),
+        path_label='direct',
     )
+    assert duplicate.deterministic_path_id == first.deterministic_path_id
+    assert duplicate.artifact_id != first.artifact_id
     bundle = _bundle(
         physical_transfer_plus=values,
         responses=(first, duplicate),
