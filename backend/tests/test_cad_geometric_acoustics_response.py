@@ -11,7 +11,7 @@ from htdt.acoustic_benchmark import (
     GeometricAcousticBand,
     SpecificImpedancePoint,
 )
-from htdt.cad_directivity import DirectivityDataset
+from htdt.cad_directivity import DirectivityDataset, DirectivityNormalization
 from htdt.cad_equipment import (
     AngleDomain,
     DirectivityCapability,
@@ -133,7 +133,24 @@ def _equipment(
     )
 
 
-def _dataset(frequencies: tuple[float, ...], *, kind: str = 'magnitude_only') -> DirectivityDataset:
+def _dataset(
+    frequencies: tuple[float, ...],
+    *,
+    kind: str = 'magnitude_only',
+    normalization_reference: str = 'on_axis_per_frequency',
+) -> DirectivityDataset:
+    normalization = (
+        DirectivityNormalization(
+            source_magnitude_unit='db',
+            reference='on_axis_per_frequency',
+        )
+        if normalization_reference == 'on_axis_per_frequency'
+        else DirectivityNormalization(
+            source_magnitude_unit='db',
+            reference='explicit_reference_level',
+            reference_level_db=90.0,
+        )
+    )
     return DirectivityDataset.model_construct(
         dataset_id='directivity:test-speaker',
         version='1',
@@ -143,6 +160,7 @@ def _dataset(frequencies: tuple[float, ...], *, kind: str = 'magnitude_only') ->
         equipment_definition_sha256=H2,
         valid_domain=_directivity_domain(frequencies),
         kind=kind,
+        normalization=normalization,
     )
 
 
@@ -984,3 +1002,31 @@ def test_coherent_source_phase_reference_must_bind_volume_velocity_t0() -> None:
     assert response.capability == 'UNSUPPORTED'
     assert response.samples == ()
     assert 'SOURCE_PHASE_REFERENCE_MISMATCH' in response.unsupported_reasons
+
+
+def test_explicit_reference_directivity_is_not_assumed_to_be_point_source_ratio() -> None:
+    frequency = 1000.0
+    common = _common((frequency,), source_tier='magnitude_only')
+    dataset = _dataset(
+        (frequency,),
+        kind='magnitude_only',
+        normalization_reference='explicit_reference_level',
+    )
+    common['dataset'] = dataset
+    common['source'] = build_source_response_authority(
+        source_entity_id='source-1',
+        r110_source_ref=_ref('r110-source:source-1', H2),
+        equipment_definition=_equipment((frequency,), tier='magnitude_only'),
+        directivity_dataset=dataset,
+        point_source_normalization=common['normalization'],
+    )
+    path = _path(
+        length_m=2.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='5',
+        bands=(_band(frequency, magnitude_linear=1.0, dataset=dataset),),
+    )
+    response = _response(path, common)
+    assert response.capability == 'UNSUPPORTED'
+    assert response.samples == ()
+    assert 'DIRECTIVITY_NORMALIZATION_NOT_POINT_SOURCE_RATIO' in response.unsupported_reasons
