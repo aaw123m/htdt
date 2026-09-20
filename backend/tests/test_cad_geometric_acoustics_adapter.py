@@ -50,9 +50,11 @@ from htdt.cad_geometric_acoustics_adapter import (
     GeometricMaterialAuthority,
     HtdtPlanarImageSourceEngine,
     HtdtPortalDirectEngine,
+    HtdtPortalGraphDirectEngine,
     HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF,
+    HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
@@ -61,7 +63,10 @@ from htdt.cad_geometric_acoustics_adapter import (
     compile_deterministic_ga_execution_input,
     execute_deterministic_ga,
 )
-from htdt.cad_geometric_acoustics_portal import PORTAL_SIDE_SEMANTICS
+from htdt.cad_geometric_acoustics_portal import (
+    PORTAL_SIDE_SEMANTICS,
+    compile_portal_graph,
+)
 from htdt.cad_r110_source import compile_r110_source_model
 from htdt.cad_r110_source_repository import CadR110SourceRepository
 from htdt.cad_repository import SceneRepository
@@ -556,6 +561,220 @@ def _portal_semantic_geometry(*, occluder: bool = False):
         portal_loop,
     )
 
+
+def _portal_chain_semantic_geometry(region_count: int):
+    if region_count < 2:
+        raise ValueError('Portal chain fixture requires at least two regions')
+
+    vertices: list[tuple[float, float, float]] = []
+    vertex_index: dict[tuple[float, float, float], int] = {}
+    faces: list[tuple[int, int, int]] = []
+    face_indices: dict[str, list[int]] = {}
+
+    def vid(point: tuple[float, float, float]) -> int:
+        if point not in vertex_index:
+            vertex_index[point] = len(vertices)
+            vertices.append(point)
+        return vertex_index[point]
+
+    def add_quad(
+        key: str,
+        a: tuple[float, float, float],
+        b: tuple[float, float, float],
+        c_: tuple[float, float, float],
+        d: tuple[float, float, float],
+    ) -> None:
+        start = len(faces)
+        ia, ib, ic, id_ = (vid(point) for point in (a, b, c_, d))
+        faces.extend(((ia, ib, ic), (ia, ic, id_)))
+        face_indices.setdefault(key, []).extend((start, start + 1))
+
+    y_values = (0.0, 1.0, 2.0, 3.0)
+    z_values = (0.0, 0.5, 1.5, 2.0)
+
+    region_surface_keys: dict[str, tuple[str, ...]] = {}
+    for index in range(region_count):
+        x0 = 2.0 * index
+        x1 = 2.0 * (index + 1)
+        region_id = f'region-{index}'
+        keys = [
+            f'chain-floor-{index}',
+            f'chain-ceiling-{index}',
+            f'chain-front-{index}',
+            f'chain-rear-{index}',
+        ]
+        for y0, y1 in zip(y_values[:-1], y_values[1:], strict=True):
+            add_quad(
+                keys[0],
+                (x0, y0, 0.0),
+                (x1, y0, 0.0),
+                (x1, y1, 0.0),
+                (x0, y1, 0.0),
+            )
+            add_quad(
+                keys[1],
+                (x0, y0, 2.0),
+                (x0, y1, 2.0),
+                (x1, y1, 2.0),
+                (x1, y0, 2.0),
+            )
+        for z0, z1 in zip(z_values[:-1], z_values[1:], strict=True):
+            add_quad(
+                keys[2],
+                (x0, 0.0, z0),
+                (x0, 0.0, z1),
+                (x1, 0.0, z1),
+                (x1, 0.0, z0),
+            )
+            add_quad(
+                keys[3],
+                (x0, 3.0, z0),
+                (x1, 3.0, z0),
+                (x1, 3.0, z1),
+                (x0, 3.0, z1),
+            )
+
+        left_key = (
+            f'chain-left-{index}'
+            if index == 0
+            else f'chain-interface-{index - 1}-{index}'
+        )
+        right_key = (
+            f'chain-right-{index}'
+            if index == region_count - 1
+            else f'chain-interface-{index}-{index + 1}'
+        )
+        keys.extend((left_key, right_key))
+        region_surface_keys[region_id] = tuple(keys)
+
+    for boundary_index in range(region_count + 1):
+        x = 2.0 * boundary_index
+        if boundary_index == 0:
+            key = 'chain-left-0'
+        elif boundary_index == region_count:
+            key = f'chain-right-{region_count - 1}'
+        else:
+            key = f'chain-interface-{boundary_index - 1}-{boundary_index}'
+        for y0, y1 in zip(y_values[:-1], y_values[1:], strict=True):
+            for z0, z1 in zip(z_values[:-1], z_values[1:], strict=True):
+                if (
+                    0 < boundary_index < region_count
+                    and y0 == 1.0
+                    and y1 == 2.0
+                    and z0 == 0.5
+                    and z1 == 1.5
+                ):
+                    continue
+                if boundary_index == 0:
+                    add_quad(
+                        key,
+                        (x, y0, z0),
+                        (x, y1, z0),
+                        (x, y1, z1),
+                        (x, y0, z1),
+                    )
+                else:
+                    add_quad(
+                        key,
+                        (x, y0, z0),
+                        (x, y0, z1),
+                        (x, y1, z1),
+                        (x, y1, z0),
+                    )
+
+    portal_specs: list[dict[str, object]] = []
+    for index in range(region_count - 1):
+        x = 2.0 * (index + 1)
+        loop = tuple(
+            vid(point)
+            for point in (
+                (x, 1.0, 0.5),
+                (x, 2.0, 0.5),
+                (x, 2.0, 1.5),
+                (x, 1.0, 1.5),
+            )
+        )
+        portal_specs.append(
+            {
+                'portal_id': f'fixture-portal-{index}-{index + 1}',
+                'loop': loop,
+                'surface_key': f'chain-interface-{index}-{index + 1}',
+                'region_ids': (f'region-{index}', f'region-{index + 1}'),
+                'state': 'open',
+                'reverse': False,
+            }
+        )
+
+    obj_lines = [
+        *(f'v {x} {y} {z}' for x, y, z in vertices),
+        *(f'f {a + 1} {b + 1} {c_ + 1}' for a, b, c_ in faces),
+    ]
+    mesh = import_raw_visual_mesh(
+        ('\n'.join(obj_lines) + '\n').encode('utf-8'),
+        source_name=f'r150-ga-{region_count}-region-portal-chain.obj',
+    )
+    ids = raw_triangle_ids(mesh)
+    assignments = tuple(
+        SurfaceSemanticAssignment(
+            surface_key=key,
+            triangle_ids=tuple(ids[index] for index in indices),
+            semantic_class='room_boundary',
+        )
+        for key, indices in face_indices.items()
+    )
+    request = make_semantic_geometry_conversion_request(
+        mesh,
+        source_scene_revision_id=None,
+        source_to_scene_transform=explicit_identity_source_to_scene_transform(
+            reason='multi-Portal chain fixture uses explicit HTDT metre coordinates',
+        ),
+        surface_assignments=assignments,
+    )
+    return (
+        convert_raw_visual_mesh_to_semantic_geometry(mesh, request),
+        region_surface_keys,
+        tuple(portal_specs),
+    )
+
+
+def _portal_chain_fixture(
+    tmp_path: Path,
+    *,
+    region_count: int,
+    maximum_portal_crossings: int | None = None,
+    receiver_position: Position3 | None = None,
+    portal_specs_transform=None,
+):
+    geometry, region_surfaces, portal_specs = _portal_chain_semantic_geometry(
+        region_count
+    )
+    if portal_specs_transform is not None:
+        portal_specs = tuple(portal_specs_transform(portal_specs))
+    return _fixture(
+        tmp_path,
+        semantic_geometry=geometry,
+        receiver_position=(
+            receiver_position
+            if receiver_position is not None
+            else Position3(
+                x_m=2.0 * region_count - 1.0,
+                y_m=2.0,
+                z_m=1.0,
+            )
+        ),
+        room_policy=PORTAL_POLICY,
+        region_surface_keys_by_id=region_surfaces,
+        portal_specs=portal_specs,
+        source_region_id='region-0',
+        receiver_region_id=f'region-{region_count - 1}',
+        maximum_reflection_order=0,
+        maximum_portal_crossings=(
+            region_count - 1
+            if maximum_portal_crossings is None
+            else maximum_portal_crossings
+        ),
+    )
+
 def _directivity_definition(*, narrow: bool):
     source_hash = 'd' * 64
     provenance = EquipmentDataProvenance(
@@ -689,6 +908,7 @@ def _fixture(
     portal_loop_vertex_indices: tuple[int, ...] | None = None,
     portal_surface_key: str | None = None,
     portal_region_ids: tuple[str, str] | None = None,
+    portal_specs: tuple[dict[str, object], ...] | None = None,
     portal_state: str = 'open',
     reverse_portal_orientation: bool = False,
     source_region_id: str | None = None,
@@ -821,7 +1041,35 @@ def _fixture(
                 )
             )
     region = make_acoustic_region_authority(tuple(declarations))
-    if portal_loop_vertex_indices is not None:
+    if portal_specs is not None:
+        declarations = []
+        for spec in portal_specs:
+            loop_value = tuple(int(item) for item in spec['loop'])
+            if bool(spec.get('reverse', False)):
+                loop_value = tuple(reversed(loop_value))
+            surface_key = str(spec['surface_key'])
+            region_ids = tuple(str(item) for item in spec['region_ids'])
+            declarations.append(
+                PortalDeclaration(
+                    portal_id=str(spec['portal_id']),
+                    region_ids=region_ids,
+                    boundary_edges=tuple(
+                        PortalBoundaryEdge(
+                            source_surface_id=surface_by_key[surface_key],
+                            vertex_a=loop_value[index],
+                            vertex_b=loop_value[(index + 1) % len(loop_value)],
+                        )
+                        for index in range(len(loop_value))
+                    ),
+                    state=str(spec.get('state', 'open')),
+                    region_side_semantics=PORTAL_SIDE_SEMANTICS,
+                )
+            )
+        portals = make_portal_authority(
+            declaration_mode='explicit_list',
+            declarations=tuple(declarations),
+        )
+    elif portal_loop_vertex_indices is not None:
         if portal_surface_key is None or portal_region_ids is None:
             raise ValueError('Portal fixture requires surface key and region ids')
         loop = (
@@ -923,6 +1171,21 @@ def _fixture(
     )
     r120_repository.save_compiled_geometry(compiled)
 
+    topology_preflight_ref = None
+    if (
+        room_policy == PORTAL_POLICY
+        and maximum_portal_crossings is not None
+        and not compiled.readiness.geometric_acoustics_geometry_ready
+    ):
+        _, preflight_graph = compile_portal_graph(
+            compiled_geometry=compiled,
+            region_authority=region,
+            portal_authority=portals,
+            tolerance_m=1.0e-9,
+            maximum_portal_crossings=maximum_portal_crossings,
+        )
+        topology_preflight_ref = preflight_graph.as_external_ref()
+
     receiver = receiver_binding_from_scene(
         scene_revision=revision,
         system_variant=variant,
@@ -952,6 +1215,7 @@ def _fixture(
             'fixture-valid-domain',
             'valid-domain',
         ),
+        geometric_acoustics_topology_preflight_ref=topology_preflight_ref,
     )
     request = build_acoustic_prediction_request(
         snapshot=snapshot,
@@ -975,7 +1239,7 @@ def _fixture(
         PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
         if use_pyroomacoustics
         else (
-            HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF
+            HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF
             if room_policy == 'general_planar_multi_region_portal_v1'
             else (
                 (
@@ -1142,7 +1406,11 @@ def _fixture(
 def _execute(fx, engine=None):
     if engine is None:
         engine = (
-            HtdtPortalDirectEngine()
+            (
+                HtdtPortalGraphDirectEngine()
+                if fx['execution_input'].portal_graph is not None
+                else HtdtPortalDirectEngine()
+            )
             if fx['execution_input'].geometry_policy
             == 'general_planar_multi_region_portal_v1'
             else (
