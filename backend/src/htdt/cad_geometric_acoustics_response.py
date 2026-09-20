@@ -1382,6 +1382,10 @@ def build_deterministic_path_frequency_response(
             reasons.append(f'MISSING_REFLECTION_AUTHORITY:{surface_id}')
             continue
         reflection_authorities.append(authority)
+        if authority.source_surface_id != surface_id:
+            reasons.append(
+                f'REFLECTION_SURFACE_IDENTITY_MISMATCH:{surface_id}'
+            )
         refs.extend(
             [
                 authority.as_external_ref(),
