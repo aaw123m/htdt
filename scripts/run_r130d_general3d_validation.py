@@ -746,13 +746,17 @@ def main(argv: list[str] | None = None) -> int:
             boundary_mode='rigid',
             fixture_id='r130d-general3d-independent-validation-v1',
         )
-        source_position = tuple(
-            float(x)
-            for x in fixture['source'].source_acoustic_reference_world_position.model_dump(mode='json').values()
+        source_point = fixture['source'].source_acoustic_reference_world_position
+        source_position = (
+            float(source_point.x_m),
+            float(source_point.y_m),
+            float(source_point.z_m),
         )
-        receiver_position = tuple(
-            float(x)
-            for x in fixture['snapshot'].receivers[0].position_m
+        receiver_point = fixture['snapshot'].receivers[0].world_position
+        receiver_position = (
+            float(receiver_point.x_m),
+            float(receiver_point.y_m),
+            float(receiver_point.z_m),
         )
         if source_position != plan.fixture.source_position_m:
             raise ValidationBlocked('PFFDTD source position differs from validation plan')
