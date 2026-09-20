@@ -1770,6 +1770,7 @@ def _portal_fixture(
         source_region_id=source_region_id,
         receiver_region_id=receiver_region_id,
         nontrivial_boundary_termination=nontrivial_boundary_termination,
+        maximum_reflection_order=0,
         maximum_portal_crossings=1,
         expected_dispatch_state=expected_dispatch_state,
     )
@@ -1781,6 +1782,8 @@ def test_multi_region_open_portal_direct_path_has_exact_ordered_region_sequence(
     fx = _portal_fixture(tmp_path)
     artifact = _execute(fx)
 
+    assert fx['configuration'].maximum_reflection_order == 0
+    assert fx['execution_input'].maximum_reflection_order == 0
     assert artifact.path_scope == 'direct_single_portal_propagation'
     assert len(artifact.paths) == 1
     path = artifact.paths[0]
