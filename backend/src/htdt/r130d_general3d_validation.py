@@ -13,6 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 PLAN_SCHEMA = 'htdt.r130d.general3d-validation-plan-1'
 EVIDENCE_SCHEMA = 'htdt.r130d.general3d-validation-evidence-1'
 EVIDENCE_ENVELOPE_SCHEMA = 'htdt.r130d.general3d-validation-envelope-1'
+TARGET_WINDOW_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.target-window-diagnostic-plan-1'
+)
+TARGET_WINDOW_DIAGNOSTIC_PLAN_SHA256 = (
+    '632d7d18b348e387496477bfdbcc457df0d0c7a7f3148f35d11ece457ef0dfb9'
+)
 
 
 def canonical_json(value: object) -> str:
@@ -27,6 +33,217 @@ def canonical_json(value: object) -> str:
 
 def semantic_hash(value: object) -> str:
     return sha256(canonical_json(value).encode('utf-8')).hexdigest()
+
+
+def load_target_window_diagnostic_plan(path: str | Path) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError('R130D target-window diagnostic plan must be a JSON object')
+    if payload.get('schema_version') != TARGET_WINDOW_DIAGNOSTIC_PLAN_SCHEMA:
+        raise ValueError('R130D target-window diagnostic plan schema mismatch')
+    digest = semantic_hash(payload)
+    if digest != TARGET_WINDOW_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D target-window diagnostic plan differs from the frozen pre-run '
+            f'authority: {digest}'
+        )
+    return payload
+
+
+def target_window_sampling_metadata(
+    *,
+    solver: str,
+    requested_duration_s: float,
+    dt_s: float,
+    sample_count: int,
+    frequency_hz: Sequence[float],
+    source_sampling: str,
+    pressure_sampling: str,
+) -> dict[str, Any]:
+    duration = float(requested_duration_s)
+    dt = float(dt_s)
+    count = int(sample_count)
+    if not solver:
+        raise ValueError('sampling metadata solver must be non-empty')
+    if not math.isfinite(duration) or duration <= 0.0:
+        raise ValueError('requested duration must be finite and positive')
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError('native dt must be finite and positive')
+    if count < 1:
+        raise ValueError('sample count must be positive')
+    frequencies = [float(item) for item in frequency_hz]
+    if (
+        not frequencies
+        or any(not math.isfinite(item) or item <= 0.0 for item in frequencies)
+    ):
+        raise ValueError('frequency grid must be finite and positive')
+
+    first = 0.0
+    last = float((count - 1) * dt)
+    native_end = float(count * dt)
+    tolerance = max(1.0e-15, abs(dt) * 1.0e-12)
+    if last >= duration + tolerance:
+        raise ValueError('native record contains a sample at/after target duration')
+    if native_end + tolerance < duration:
+        raise ValueError('native record does not cover requested target duration')
+
+    return {
+        'solver': solver,
+        'requested_duration_s': duration,
+        'native_dt_s': dt,
+        'generated_sample_count': count,
+        'actual_first_sample_time_s': first,
+        'actual_last_sample_time_s': last,
+        'canonical_effective_integration_interval_s': [first, native_end],
+        'canonical_endpoint_convention': (
+            'sample timestamps are t_n=n*dt with t_n<T; every native sample '
+            'receives a full dt left-rectangle weight'
+        ),
+        'actual_n_dt_s': native_end,
+        'n_dt_minus_requested_duration_s': native_end - duration,
+        'target_effective_integration_interval_s': [first, duration],
+        'target_endpoint_convention': (
+            'exact [0,T); final zero-order-hold cell is clipped at T and no '
+            'sample at T is included'
+        ),
+        'phasor_convention': 'exp(-i*omega*t)',
+        'analysis_fourier_kernel': 'exp(+i*omega*t)',
+        'canonical_rectangular_weighting_rule': (
+            'dt * sum_n y[n] * exp(+i*2*pi*f*n*dt)'
+        ),
+        'target_window_weighting_rule': (
+            'sum_n y[n] * integral_[n*dt,min((n+1)*dt,T)] '
+            'exp(+i*2*pi*f*t) dt'
+        ),
+        'source_q_t_sampling': source_sampling,
+        'pressure_p_t_sampling': pressure_sampling,
+        'frequency_evaluation_rule': (
+            'direct evaluation at exact requested frequencies; no FFT-bin '
+            'rounding, masking change, shift, or fit'
+        ),
+        'frequency_hz': frequencies,
+    }
+
+
+def target_window_zoh_spectrum(
+    samples: Sequence[complex] | np.ndarray,
+    *,
+    dt_s: float,
+    target_duration_s: float,
+    frequency_hz: Sequence[float] | np.ndarray,
+) -> np.ndarray:
+    values = np.asarray(samples)
+    if values.ndim != 1 or values.size < 1:
+        raise ValueError('target-window ZOH spectrum requires a non-empty 1D trace')
+    if not (
+        np.all(np.isfinite(values.real))
+        and np.all(np.isfinite(values.imag))
+    ):
+        raise ValueError('target-window ZOH trace must be finite')
+
+    dt = float(dt_s)
+    duration = float(target_duration_s)
+    frequencies = np.asarray(frequency_hz, dtype=np.float64)
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError('target-window ZOH dt must be finite and positive')
+    if not math.isfinite(duration) or duration <= 0.0:
+        raise ValueError('target-window ZOH duration must be finite and positive')
+    if (
+        frequencies.ndim != 1
+        or frequencies.size == 0
+        or not np.all(np.isfinite(frequencies))
+        or np.any(frequencies <= 0.0)
+    ):
+        raise ValueError('target-window ZOH frequencies must be finite and positive')
+
+    coverage_end = float(values.size * dt)
+    tolerance = max(1.0e-15, abs(dt) * 1.0e-12)
+    if coverage_end + tolerance < duration:
+        raise ValueError('target-window ZOH trace does not cover target duration')
+
+    starts = np.arange(values.size, dtype=np.float64) * dt
+    active = starts < duration
+    starts = starts[active]
+    ends = np.minimum(starts + dt, duration)
+    active_values = values[active].astype(np.complex128, copy=False)
+    omega = 2.0 * np.pi * frequencies[:, None]
+    weights = (
+        np.exp(1j * omega * ends[None, :])
+        - np.exp(1j * omega * starts[None, :])
+    ) / (1j * omega)
+    spectrum = weights @ active_values
+    if not (
+        np.all(np.isfinite(spectrum.real))
+        and np.all(np.isfinite(spectrum.imag))
+    ):
+        raise ValueError('target-window ZOH spectrum is non-finite')
+    return np.asarray(spectrum, dtype=np.complex128)
+
+
+def target_window_zoh_transfer(
+    pressure_trace: Sequence[complex] | np.ndarray,
+    source_volume_velocity_trace: Sequence[complex] | np.ndarray,
+    *,
+    dt_s: float,
+    target_duration_s: float,
+    frequency_hz: Sequence[float] | np.ndarray,
+) -> np.ndarray:
+    pressure = np.asarray(pressure_trace)
+    source = np.asarray(source_volume_velocity_trace)
+    if pressure.ndim != 1 or source.ndim != 1 or pressure.shape != source.shape:
+        raise ValueError(
+            'target-window P/Q requires matching 1D pressure/source traces'
+        )
+    p_spectrum = target_window_zoh_spectrum(
+        pressure,
+        dt_s=dt_s,
+        target_duration_s=target_duration_s,
+        frequency_hz=frequency_hz,
+    )
+    q_spectrum = target_window_zoh_spectrum(
+        source,
+        dt_s=dt_s,
+        target_duration_s=target_duration_s,
+        frequency_hz=frequency_hz,
+    )
+    source_floor = np.finfo(np.float64).eps * max(
+        1.0, float(np.max(np.abs(q_spectrum)))
+    )
+    if np.any(np.abs(q_spectrum) <= source_floor):
+        raise ValueError('target-window physical source spectrum is zero')
+    transfer = p_spectrum / q_spectrum
+    if not (
+        np.all(np.isfinite(transfer.real))
+        and np.all(np.isfinite(transfer.imag))
+    ):
+        raise ValueError('target-window transfer is non-finite')
+    return np.asarray(transfer, dtype=np.complex128)
+
+
+def analytic_complex_harmonic_spectrum(
+    *,
+    amplitude: complex,
+    harmonic_frequency_hz: float,
+    analysis_frequency_hz: Sequence[float] | np.ndarray,
+    duration_s: float,
+) -> np.ndarray:
+    frequencies = np.asarray(analysis_frequency_hz, dtype=np.float64)
+    duration = float(duration_s)
+    harmonic = float(harmonic_frequency_hz)
+    if not math.isfinite(duration) or duration <= 0.0:
+        raise ValueError('analytic harmonic duration must be finite and positive')
+    if not math.isfinite(harmonic):
+        raise ValueError('analytic harmonic frequency must be finite')
+    delta = frequencies - harmonic
+    output = np.empty(frequencies.shape, dtype=np.complex128)
+    near = np.isclose(delta, 0.0, rtol=0.0, atol=1.0e-14)
+    output[near] = complex(amplitude) * duration
+    if np.any(~near):
+        d = delta[~near]
+        output[~near] = complex(amplitude) * (
+            np.exp(2j * np.pi * d * duration) - 1.0
+        ) / (2j * np.pi * d)
+    return output
 
 
 class FixtureContract(BaseModel):
@@ -428,6 +645,7 @@ def compare_complex_transfer(
         {
             'frequency_hz': float(freq[index]),
             'masked_in': bool(mask[index]),
+            'magnitude_absolute': float(abs(abs(cand[index]) - ref_mag[index])),
             'magnitude_relative': float(mag_rel[index]),
             'magnitude_db': float(mag_db[index]),
             'phase_deg': float(phase[index]),
