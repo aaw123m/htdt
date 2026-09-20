@@ -16,6 +16,7 @@ from .cad_directivity import DirectivityDataset, evaluate_directivity
 from .cad_equipment import EquipmentDefinition, FrequencyDomain
 from .cad_geometric_acoustics_adapter import (
     DeterministicAcousticPath,
+    DeterministicGaExecutionInput,
     DeterministicPathArtifact,
 )
 from .cad_repository import SceneRepository
@@ -85,6 +86,16 @@ def _identity_ref(
         authority_id=authority_id,
         authority_version=authority_version,
         semantic_hash_sha256=semantic_hash_sha256,
+    )
+
+
+def _execution_input_ref(
+    execution_input: DeterministicGaExecutionInput,
+) -> ExactExternalAuthorityRef:
+    return _identity_ref(
+        authority_id=execution_input.execution_input_id,
+        authority_version=execution_input.authority_version,
+        semantic_hash_sha256=execution_input.semantic_sha256,
     )
 
 
@@ -1040,7 +1051,844 @@ class DeterministicPathFrequencyResponseArtifact(BaseModel):
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     deterministic_path_artifact_id: str
-    deterministic_path_artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    deterministic_path_artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}
+    deterministic_path_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_entity_id: str
+    receiver_id: str
+    receiver_entity_id: str
+    ordered_surface_interactions: tuple[str, ...]
+    ordered_portal_interactions: tuple[str, ...]
+    path_length_m: float = Field(gt=0.0)
+    quantity: Literal['complex_acoustic_pressure_per_volume_velocity'] = TRANSFER_QUANTITY
+    unit: Literal['Pa/(m3/s)'] = TRANSFER_UNIT
+    source_normalization: Literal['unit_volume_velocity_m3_s'] = 'unit_volume_velocity_m3_s'
+    phasor_convention: Literal['exp(+i*omega*t)'] = PHASOR_CONVENTION
+    time_origin: Literal['source_t0'] = 'source_t0'
+    sound_speed_m_s: float = Field(gt=0.0)
+    density_kg_m3: float = Field(gt=0.0)
+    exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=1)
+    valid_frequency_domain: FrequencyDomain
+    capability: ResponseCapability
+    unsupported_reasons: tuple[str, ...] = ()
+    samples: tuple[PathFrequencyResponseSample, ...] = ()
+    dependency_refs: tuple[ExactExternalAuthorityRef, ...] = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def identity(self) -> 'DeterministicPathFrequencyResponseArtifact':
+        if self.capability == 'UNSUPPORTED':
+            if not self.unsupported_reasons or self.samples:
+                raise ValueError('unsupported response requires reasons and no fabricated samples')
+        else:
+            if self.unsupported_reasons:
+                raise ValueError('supported/magnitude response cannot carry unsupported reasons')
+            if len(self.samples) != len(self.exact_frequency_grid_hz):
+                raise ValueError('response sample count must match exact frequency grid')
+            if tuple(item.frequency_hz for item in self.samples) != self.exact_frequency_grid_hz:
+                raise ValueError('response samples must preserve exact frequency-grid ordering')
+            if self.capability == 'COMPLEX_SUPPORTED':
+                if any(item.phase_rad is None for item in self.samples):
+                    raise ValueError('complex-supported response requires phase for every sample')
+            elif any(item.phase_rad is not None for item in self.samples):
+                raise ValueError('magnitude-only response must not fabricate phase')
+        keys = tuple(_ref_payload(item) for item in self.dependency_refs)
+        if keys != tuple(sorted(set(keys))):
+            raise ValueError('response dependencies must be exact, unique, and canonically sorted')
+        if _ref_payload(self.execution_input_ref) not in keys:
+            raise ValueError('response dependency set must include exact execution input')
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_sha256 != expected:
+            raise ValueError('path frequency response semantic hash mismatch')
+        if self.artifact_id != f'r150-path-frequency-response:{expected}':
+            raise ValueError('path frequency response id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'artifact_id', 'semantic_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.artifact_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_sha256,
+        )
+
+
+def _sample_at(
+    samples: Sequence[ComplexTransferSample],
+    frequency_hz: float,
+) -> ComplexTransferSample | None:
+    return next((item for item in samples if item.frequency_hz == frequency_hz), None)
+
+
+def _path_band(path: DeterministicAcousticPath, frequency_hz: float):
+    return next((item for item in path.bands if item.center_hz == frequency_hz), None)
+
+
+def _sorted_unique_refs(refs: Sequence[ExactExternalAuthorityRef]) -> tuple[ExactExternalAuthorityRef, ...]:
+    by_key = {_ref_payload(item): item for item in refs}
+    return tuple(by_key[key] for key in sorted(by_key))
+
+
+def _response_artifact(
+    *,
+    path_artifact: DeterministicPathArtifact,
+    path: DeterministicAcousticPath,
+    environment: AcousticEnvironmentAuthority,
+    frequency_grid: FrequencyGridAuthority,
+    dependency_refs: Sequence[ExactExternalAuthorityRef],
+    ordered_portal_ids: Sequence[str],
+    capability: ResponseCapability,
+    unsupported_reasons: Sequence[str] = (),
+    samples: Sequence[PathFrequencyResponseSample] = (),
+) -> DeterministicPathFrequencyResponseArtifact:
+    core = {
+        'schema_version': R150_PATH_RESPONSE_SCHEMA_VERSION,
+        'authority_version': R150_PATH_RESPONSE_AUTHORITY_VERSION,
+        'deterministic_path_artifact_id': path_artifact.artifact_id,
+        'deterministic_path_artifact_sha256': path_artifact.semantic_sha256,
+        'execution_input_ref': {
+            'authority_id': path_artifact.execution_input_id,
+            'authority_version': path_artifact.authority_version,
+            'semantic_hash_sha256': path_artifact.execution_input_sha256,
+        },
+        'deterministic_path_id': path.path_id,
+        'deterministic_path_sha256': path.semantic_sha256,
+        'source_entity_id': path.source_entity_id,
+        'receiver_id': path.receiver_id,
+        'receiver_entity_id': path.receiver_entity_id,
+        'ordered_surface_interactions': list(path.ordered_interaction_surface_ids),
+        'ordered_portal_interactions': list(ordered_portal_ids),
+        'path_length_m': path.geometric_path_length_m,
+        'quantity': TRANSFER_QUANTITY,
+        'unit': TRANSFER_UNIT,
+        'source_normalization': 'unit_volume_velocity_m3_s',
+        'phasor_convention': PHASOR_CONVENTION,
+        'time_origin': 'source_t0',
+        'sound_speed_m_s': environment.sound_speed_m_s,
+        'density_kg_m3': environment.density_kg_m3,
+        'exact_frequency_grid_hz': list(frequency_grid.frequencies_hz),
+        'valid_frequency_domain': frequency_grid.valid_frequency_domain.model_dump(mode='json'),
+        'capability': capability,
+        'unsupported_reasons': sorted(set(unsupported_reasons)),
+        'samples': [item.model_dump(mode='json') for item in samples],
+        'dependency_refs': [
+            item.model_dump(mode='json') for item in _sorted_unique_refs(dependency_refs)
+        ],
+    }
+    digest = _semantic_hash(core)
+    return DeterministicPathFrequencyResponseArtifact(
+        artifact_id=f'r150-path-frequency-response:{digest}',
+        semantic_sha256=digest,
+        **core,
+    )
+
+
+def build_deterministic_path_frequency_response(
+    *,
+    path_artifact: DeterministicPathArtifact,
+    execution_input: DeterministicGaExecutionInput,
+    path_id: str,
+    r120_geometry_ref: ExactExternalAuthorityRef,
+    source_authority: SourceResponseAuthority,
+    point_source_normalization: PointSourceNormalizationAuthority | None,
+    receiver_authority: ReceiverResponseAuthority,
+    environment: AcousticEnvironmentAuthority,
+    frequency_grid: FrequencyGridAuthority,
+    configuration: PathResponseConfiguration,
+    surface_reflections: Mapping[str, SurfaceReflectionTransferAuthority] = {},
+    portal_geometry_authority_ref: ExactExternalAuthorityRef | None = None,
+    portal_transfers: Mapping[
+        tuple[str, str, str], PortalAcousticTransferAuthority
+    ] = {},
+    directivity_dataset: DirectivityDataset | None = None,
+) -> DeterministicPathFrequencyResponseArtifact:
+    path = next((item for item in path_artifact.paths if item.path_id == path_id), None)
+    if path is None:
+        raise ValueError('deterministic path id is not present in the supplied path artifact')
+
+    execution_ref = _execution_input_ref(execution_input)
+    refs: list[ExactExternalAuthorityRef] = [
+        execution_ref,
+        r120_geometry_ref,
+        source_authority.as_external_ref(),
+        source_authority.r110_source_ref,
+        source_authority.equipment_definition_ref,
+        receiver_authority.as_external_ref(),
+        receiver_authority.receiver_authority_ref,
+        environment.as_external_ref(),
+        frequency_grid.as_external_ref(),
+        configuration.as_external_ref(),
+    ]
+    if point_source_normalization is not None:
+        refs.append(point_source_normalization.as_external_ref())
+    if source_authority.directivity_dataset_ref is not None:
+        refs.append(source_authority.directivity_dataset_ref)
+
+    reasons: list[str] = []
+    if (
+        path_artifact.execution_input_id != execution_input.execution_input_id
+        or path_artifact.execution_input_sha256 != execution_input.semantic_sha256
+    ):
+        reasons.append('STALE_OR_MISMATCHED_EXECUTION_INPUT')
+    if (
+        execution_input.r120_compiled_geometry_id != r120_geometry_ref.authority_id
+        or execution_input.r120_compiled_geometry_sha256
+        != r120_geometry_ref.semantic_hash_sha256
+    ):
+        reasons.append('EXECUTION_INPUT_R120_GEOMETRY_MISMATCH')
+    if abs(execution_input.sound_speed_m_s - environment.sound_speed_m_s) > max(
+        1e-12, environment.sound_speed_m_s * 1e-12
+    ):
+        reasons.append('EXECUTION_INPUT_ENVIRONMENT_MISMATCH')
+
+    execution_sources = [
+        item
+        for item in execution_input.sources
+        if item.source_entity_id == path.source_entity_id
+    ]
+    execution_source = execution_sources[0] if len(execution_sources) == 1 else None
+    if execution_source is None:
+        reasons.append('SOURCE_EXECUTION_BINDING_MISMATCH')
+    else:
+        if (
+            execution_source.r110_compiled_source_sha256
+            != source_authority.r110_source_ref.semantic_hash_sha256
+        ):
+            reasons.append('SOURCE_R110_AUTHORITY_MISMATCH')
+        if source_authority.directivity_dataset_ref is not None and (
+            execution_source.directivity_dataset_id
+            != source_authority.directivity_dataset_ref.authority_id
+            or execution_source.directivity_dataset_version
+            != source_authority.directivity_dataset_ref.authority_version
+            or execution_source.directivity_dataset_sha256
+            != source_authority.directivity_dataset_ref.semantic_hash_sha256
+        ):
+            reasons.append('SOURCE_DIRECTIVITY_EXECUTION_BINDING_MISMATCH')
+
+    execution_receivers = [
+        item
+        for item in execution_input.receivers
+        if item.receiver_id == path.receiver_id
+        and item.entity_id == path.receiver_entity_id
+    ]
+    if len(execution_receivers) != 1:
+        reasons.append('RECEIVER_EXECUTION_BINDING_MISMATCH')
+
+    if (
+        path_artifact.r120_compiled_geometry_id != r120_geometry_ref.authority_id
+        or path_artifact.r120_compiled_geometry_sha256
+        != r120_geometry_ref.semantic_hash_sha256
+    ):
+        reasons.append('STALE_OR_MISMATCHED_R120_GEOMETRY')
+    if source_authority.source_entity_id != path.source_entity_id:
+        reasons.append('SOURCE_IDENTITY_MISMATCH')
+    if (
+        receiver_authority.receiver_id != path.receiver_id
+        or receiver_authority.receiver_entity_id != path.receiver_entity_id
+    ):
+        reasons.append('RECEIVER_IDENTITY_MISMATCH')
+    if (
+        not isfinite(path.geometric_path_length_m)
+        or path.geometric_path_length_m <= configuration.minimum_path_length_m
+    ):
+        reasons.append('ZERO_OR_NEAR_SINGULAR_PATH_LENGTH')
+    expected_delay = path.geometric_path_length_m / environment.sound_speed_m_s
+    if abs(path.propagation_delay_s - expected_delay) > max(1e-12, expected_delay * 1e-9):
+        reasons.append('ENVIRONMENT_PATH_DELAY_MISMATCH')
+
+    for frequency in frequency_grid.frequencies_hz:
+        if not path_artifact.frequency_domain.contains(frequency):
+            reasons.append('PATH_ARTIFACT_VALID_BAND_MISMATCH')
+            break
+        if not execution_input.frequency_domain.contains(frequency):
+            reasons.append('EXECUTION_INPUT_VALID_BAND_MISMATCH')
+            break
+        if not environment.valid_frequency_domain.contains(frequency):
+            reasons.append('ENVIRONMENT_VALID_BAND_MISMATCH')
+            break
+        if not configuration.minimum_path_length_m > 0.0:
+            reasons.append('INVALID_RESPONSE_CONFIGURATION')
+            break
+        if source_authority.valid_frequency_domain is not None and not source_authority.valid_frequency_domain.contains(frequency):
+            reasons.append('SOURCE_VALID_BAND_MISMATCH')
+            break
+        if (
+            point_source_normalization is not None
+            and not point_source_normalization.valid_frequency_domain.contains(frequency)
+        ):
+            reasons.append('SOURCE_NORMALIZATION_VALID_BAND_MISMATCH')
+            break
+
+    if source_authority.capability == 'UNSUPPORTED_UNKNOWN_DIRECTIVITY':
+        reasons.append(source_authority.unsupported_reason or 'SOURCE_DIRECTIVITY_UNSUPPORTED')
+    if source_authority.capability in {
+        'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE',
+        'ANALYTIC_OMNIDIRECTIONAL_MODEL',
+    } and source_authority.phase_reference != 'source_volume_velocity_t0':
+        reasons.append('SOURCE_PHASE_REFERENCE_MISMATCH')
+    if point_source_normalization is None:
+        reasons.append('SOURCE_ABSOLUTE_NORMALIZATION_UNSUPPORTED')
+    elif source_authority.point_source_normalization_ref != point_source_normalization.as_external_ref():
+        reasons.append('SOURCE_NORMALIZATION_AUTHORITY_MISMATCH')
+
+    source_mode: Literal['complex', 'magnitude', 'unsupported'] = 'complex'
+    if source_authority.capability == 'MAGNITUDE_ONLY_DIRECTIVITY':
+        if directivity_dataset is None:
+            reasons.append('DIRECTIVITY_DATASET_AUTHORITY_MISMATCH')
+            source_mode = 'unsupported'
+        elif directivity_dataset.normalization.reference != 'on_axis_per_frequency':
+            reasons.append('DIRECTIVITY_NORMALIZATION_NOT_POINT_SOURCE_RATIO')
+            source_mode = 'unsupported'
+        else:
+            source_mode = 'magnitude'
+    elif source_authority.capability == 'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE':
+        if (
+            directivity_dataset is None
+            or source_authority.directivity_dataset_ref is None
+            or source_authority.directivity_dataset_ref
+            != _identity_ref(
+                authority_id=directivity_dataset.dataset_id,
+                authority_version=directivity_dataset.version,
+                semantic_hash_sha256=directivity_dataset.semantic_sha256,
+            )
+        ):
+            reasons.append('DIRECTIVITY_DATASET_AUTHORITY_MISMATCH')
+            source_mode = 'unsupported'
+        elif directivity_dataset.normalization.reference != 'on_axis_per_frequency':
+            reasons.append('DIRECTIVITY_NORMALIZATION_NOT_POINT_SOURCE_RATIO')
+            source_mode = 'unsupported'
+    elif source_authority.capability == 'UNSUPPORTED_UNKNOWN_DIRECTIVITY':
+        source_mode = 'unsupported'
+
+    reflection_authorities: list[SurfaceReflectionTransferAuthority] = []
+    magnitude_only = source_mode == 'magnitude'
+    for surface_id in path.ordered_interaction_surface_ids:
+        authority = surface_reflections.get(surface_id)
+        if authority is None:
+            reasons.append(f'MISSING_REFLECTION_AUTHORITY:{surface_id}')
+            continue
+        reflection_authorities.append(authority)
+        refs.extend(
+            [
+                authority.as_external_ref(),
+                authority.material_authority_ref,
+                authority.r120_geometry_ref,
+            ]
+        )
+        if authority.boundary_physics_authority_ref is not None:
+            refs.append(authority.boundary_physics_authority_ref)
+        if authority.r120_geometry_ref != r120_geometry_ref:
+            reasons.append(f'STALE_REFLECTION_SURFACE_AUTHORITY:{surface_id}')
+        if authority.capability == 'MAGNITUDE_ONLY':
+            magnitude_only = True
+
+    portal_interactions = tuple(
+        item
+        for item in (path.ordered_interactions or ())
+        if item.kind == 'portal_crossing'
+    )
+    portal_authorities: list[PortalAcousticTransferAuthority] = []
+    if portal_interactions:
+        if portal_geometry_authority_ref is None:
+            reasons.append('MISSING_PORTAL_GEOMETRY_AUTHORITY')
+        else:
+            refs.append(portal_geometry_authority_ref)
+        for interaction in portal_interactions:
+            assert interaction.portal_id is not None
+            assert interaction.from_region_id is not None
+            assert interaction.to_region_id is not None
+            key = (
+                interaction.portal_id,
+                interaction.from_region_id,
+                interaction.to_region_id,
+            )
+            authority = portal_transfers.get(key)
+            if authority is None:
+                reasons.append(f'MISSING_PORTAL_TRANSFER_AUTHORITY:{interaction.portal_id}')
+                continue
+            portal_authorities.append(authority)
+            refs.extend(
+                [
+                    authority.as_external_ref(),
+                    authority.portal_geometry_authority_ref,
+                ]
+            )
+            if (
+                portal_geometry_authority_ref is None
+                or authority.portal_geometry_authority_ref
+                != portal_geometry_authority_ref
+            ):
+                reasons.append(f'STALE_PORTAL_TRANSFER_AUTHORITY:{interaction.portal_id}')
+
+    if reasons:
+        return _response_artifact(
+            path_artifact=path_artifact,
+            path=path,
+            environment=environment,
+            frequency_grid=frequency_grid,
+            dependency_refs=refs,
+            ordered_portal_ids=[
+                item.portal_id for item in portal_interactions if item.portal_id is not None
+            ],
+            capability='UNSUPPORTED',
+            unsupported_reasons=reasons,
+        )
+
+    assert point_source_normalization is not None
+    response_samples: list[PathFrequencyResponseSample] = []
+    distance = path.geometric_path_length_m
+    spread = 1.0 / (4.0 * pi * distance)
+
+    for frequency in frequency_grid.frequencies_hz:
+        omega = 2.0 * pi * frequency
+        k = omega / environment.sound_speed_m_s
+        propagation_phase = -k * distance
+        propagation = complex(cos(propagation_phase), sin(propagation_phase))
+        monopole = 1j * omega * environment.density_kg_m3 * spread * propagation
+
+        source_complex = 1.0 + 0.0j
+        source_magnitude = 1.0
+        if source_authority.capability in {
+            'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE',
+            'MAGNITUDE_ONLY_DIRECTIVITY',
+        }:
+            band = _path_band(path, frequency)
+            if band is None:
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=('PATH_DIRECTIVITY_FREQUENCY_GRID_MISMATCH',),
+                )
+            contribution = band.source_directivity
+            if source_authority.directivity_dataset_ref is None or (
+                contribution.dataset_id != source_authority.directivity_dataset_ref.authority_id
+                or contribution.dataset_version
+                != source_authority.directivity_dataset_ref.authority_version
+                or contribution.dataset_semantic_sha256
+                != source_authority.directivity_dataset_ref.semantic_hash_sha256
+            ):
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=('PATH_DIRECTIVITY_AUTHORITY_MISMATCH',),
+                )
+            if source_authority.capability == 'MAGNITUDE_ONLY_DIRECTIVITY':
+                source_magnitude = contribution.magnitude_linear
+            else:
+                assert directivity_dataset is not None
+                evaluated = evaluate_directivity(
+                    directivity_dataset,
+                    frequency_hz=frequency,
+                    horizontal_angle_deg=contribution.horizontal_angle_deg,
+                    vertical_angle_deg=contribution.vertical_angle_deg,
+                    request='complex',
+                )
+                if evaluated.decision != 'SUPPORTED':
+                    return _response_artifact(
+                        path_artifact=path_artifact,
+                        path=path,
+                        environment=environment,
+                        frequency_grid=frequency_grid,
+                        dependency_refs=refs,
+                        ordered_portal_ids=[
+                            item.portal_id for item in portal_interactions
+                            if item.portal_id is not None
+                        ],
+                        capability='UNSUPPORTED',
+                        unsupported_reasons=(
+                            'COMPLEX_SOURCE_DIRECTIVITY_EVALUATION_UNSUPPORTED',
+                        ),
+                    )
+                assert evaluated.complex_real is not None
+                assert evaluated.complex_imag is not None
+                source_complex = complex(evaluated.complex_real, evaluated.complex_imag)
+                source_magnitude = abs(source_complex)
+
+        reflection_complex = 1.0 + 0.0j
+        reflection_magnitude = 1.0
+        for authority in reflection_authorities:
+            if not authority.valid_frequency_domain.contains(frequency):
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'REFLECTION_VALID_BAND_MISMATCH:{authority.source_surface_id}',
+                    ),
+                )
+            sample = _sample_at(authority.samples, frequency)
+            if sample is None:
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'REFLECTION_FREQUENCY_GRID_MISMATCH:{authority.source_surface_id}',
+                    ),
+                )
+            reflection_magnitude *= sample.magnitude
+            if authority.capability == 'COMPLEX':
+                value = sample.complex_value()
+                assert value is not None
+                reflection_complex *= value
+
+        portal_complex = 1.0 + 0.0j
+        portal_magnitude = 1.0
+        for authority in portal_authorities:
+            if not authority.valid_frequency_domain.contains(frequency):
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'PORTAL_TRANSFER_VALID_BAND_MISMATCH:{authority.portal_id}',
+                    ),
+                )
+            sample = _sample_at(authority.samples, frequency)
+            if sample is None:
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'PORTAL_TRANSFER_FREQUENCY_GRID_MISMATCH:{authority.portal_id}',
+                    ),
+                )
+            value = sample.complex_value()
+            assert value is not None
+            portal_complex *= value
+            portal_magnitude *= sample.magnitude
+
+        if magnitude_only:
+            magnitude = abs(monopole) * source_magnitude * reflection_magnitude * portal_magnitude
+            response_samples.append(
+                PathFrequencyResponseSample(
+                    frequency_hz=frequency,
+                    propagation_phase_rad=propagation_phase,
+                    geometric_spreading_per_m=spread,
+                    magnitude_pa_per_m3_s=magnitude,
+                )
+            )
+        else:
+            value = monopole * source_complex * reflection_complex * portal_complex
+            response_samples.append(
+                PathFrequencyResponseSample(
+                    frequency_hz=frequency,
+                    propagation_phase_rad=propagation_phase,
+                    geometric_spreading_per_m=spread,
+                    magnitude_pa_per_m3_s=abs(value),
+                    phase_rad=_phase(value),
+                    complex_real_pa_per_m3_s=value.real,
+                    complex_imag_pa_per_m3_s=value.imag,
+                )
+            )
+
+    return _response_artifact(
+        path_artifact=path_artifact,
+        path=path,
+        environment=environment,
+        frequency_grid=frequency_grid,
+        dependency_refs=refs,
+        ordered_portal_ids=[
+            item.portal_id for item in portal_interactions if item.portal_id is not None
+        ],
+        capability='MAGNITUDE_ONLY' if magnitude_only else 'COMPLEX_SUPPORTED',
+        samples=response_samples,
+    )
+
+
+ResponseDependency = (
+    AcousticEnvironmentAuthority
+    | FrequencyGridAuthority
+    | PathResponseConfiguration
+    | PointSourceNormalizationAuthority
+    | SourceResponseAuthority
+    | ReceiverResponseAuthority
+    | SurfaceReflectionTransferAuthority
+    | PortalAcousticTransferAuthority
+    | DirectivityDataset
+    | DeterministicGaExecutionInput
+    | ExactExternalAuthorityRef
+)
+PathArtifactResolver = Callable[[str], DeterministicPathArtifact | None]
+ResponseDependencyResolver = Callable[[ExactExternalAuthorityRef], ResponseDependency | None]
+
+
+def _dependency_ref(value: ResponseDependency) -> ExactExternalAuthorityRef:
+    if isinstance(value, ExactExternalAuthorityRef):
+        return value
+    if isinstance(value, DirectivityDataset):
+        return _identity_ref(
+            authority_id=value.dataset_id,
+            authority_version=value.version,
+            semantic_hash_sha256=value.semantic_sha256,
+        )
+    if isinstance(value, DeterministicGaExecutionInput):
+        return _execution_input_ref(value)
+    return value.as_external_ref()
+
+
+class CadPathFrequencyResponseRepository:
+    """Append-only per-path response persistence with exact dependency re-resolution."""
+
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        *,
+        path_artifact_resolver: PathArtifactResolver,
+        dependency_resolver: ResponseDependencyResolver,
+    ) -> None:
+        self.scene_repository = scene_repository
+        self.path = Path(scene_repository.path)
+        self.path_artifact_resolver = path_artifact_resolver
+        self.dependency_resolver = dependency_resolver
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        connection.execute('PRAGMA foreign_keys=ON')
+        return connection
+
+    def _initialize(self) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS r150_path_frequency_response_artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    semantic_sha256 TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                )
+                """
+            )
+
+    def _resolve_dependency(
+        self,
+        ref: ExactExternalAuthorityRef,
+    ) -> ResponseDependency:
+        value = self.dependency_resolver(ref)
+        if value is None:
+            raise ValueError(
+                f'path response dependency is missing/stale: {ref.authority_id}'
+            )
+        if _dependency_ref(value) != ref:
+            raise ValueError(
+                f'path response dependency exact identity mismatch: {ref.authority_id}'
+            )
+        return value
+
+    def _rebuild(
+        self,
+        artifact: DeterministicPathFrequencyResponseArtifact,
+    ) -> DeterministicPathFrequencyResponseArtifact:
+        path_artifact = self.path_artifact_resolver(
+            artifact.deterministic_path_artifact_id
+        )
+        if path_artifact is None:
+            raise ValueError('deterministic path artifact is missing/stale')
+        if path_artifact.semantic_sha256 != artifact.deterministic_path_artifact_sha256:
+            raise ValueError('deterministic path artifact exact identity mismatch')
+        path = next(
+            (
+                item
+                for item in path_artifact.paths
+                if item.path_id == artifact.deterministic_path_id
+            ),
+            None,
+        )
+        if path is None or path.semantic_sha256 != artifact.deterministic_path_sha256:
+            raise ValueError('deterministic path exact identity mismatch')
+
+        resolved = {
+            _ref_payload(ref): self._resolve_dependency(ref)
+            for ref in artifact.dependency_refs
+        }
+
+        def typed(cls):
+            matches = [value for value in resolved.values() if isinstance(value, cls)]
+            if len(matches) != 1:
+                raise ValueError(
+                    f'path response requires exactly one resolved {cls.__name__} authority'
+                )
+            return matches[0]
+
+        execution_input = typed(DeterministicGaExecutionInput)
+        source = typed(SourceResponseAuthority)
+        receiver = typed(ReceiverResponseAuthority)
+        environment = typed(AcousticEnvironmentAuthority)
+        grid = typed(FrequencyGridAuthority)
+        configuration = typed(PathResponseConfiguration)
+
+        normalizations = [
+            value
+            for value in resolved.values()
+            if isinstance(value, PointSourceNormalizationAuthority)
+        ]
+        normalization = normalizations[0] if len(normalizations) == 1 else None
+        if len(normalizations) > 1:
+            raise ValueError('multiple point-source normalization authorities resolved')
+
+        datasets = [
+            value for value in resolved.values() if isinstance(value, DirectivityDataset)
+        ]
+        dataset = datasets[0] if len(datasets) == 1 else None
+        if len(datasets) > 1:
+            raise ValueError('multiple directivity datasets resolved for one source')
+
+        reflections = {
+            value.source_surface_id: value
+            for value in resolved.values()
+            if isinstance(value, SurfaceReflectionTransferAuthority)
+        }
+        portals = {
+            (value.portal_id, value.from_region_id, value.to_region_id): value
+            for value in resolved.values()
+            if isinstance(value, PortalAcousticTransferAuthority)
+        }
+
+        r120_ref = next(
+            (
+                ref
+                for ref in artifact.dependency_refs
+                if ref.authority_id == path_artifact.r120_compiled_geometry_id
+                and ref.semantic_hash_sha256
+                == path_artifact.r120_compiled_geometry_sha256
+            ),
+            None,
+        )
+        if r120_ref is None:
+            raise ValueError('R120 compiled geometry dependency is missing/stale')
+
+        portal_interactions = tuple(
+            item
+            for item in (path.ordered_interactions or ())
+            if item.kind == 'portal_crossing'
+        )
+        portal_ref: ExactExternalAuthorityRef | None = None
+        if portal_interactions:
+            portal_transfer_values = tuple(portals.values())
+            if portal_transfer_values:
+                candidate = portal_transfer_values[0].portal_geometry_authority_ref
+                if any(
+                    item.portal_geometry_authority_ref != candidate
+                    for item in portal_transfer_values
+                ):
+                    raise ValueError('Portal transfer authorities bind different Portal geometry')
+                portal_ref = candidate
+            else:
+                portal_refs = [
+                    ref
+                    for ref in artifact.dependency_refs
+                    if ref.authority_id.startswith('r120-portals:')
+                ]
+                portal_ref = portal_refs[0] if len(portal_refs) == 1 else None
+
+        rebuilt = build_deterministic_path_frequency_response(
+            path_artifact=path_artifact,
+            execution_input=execution_input,
+            path_id=artifact.deterministic_path_id,
+            r120_geometry_ref=r120_ref,
+            source_authority=source,
+            point_source_normalization=normalization,
+            receiver_authority=receiver,
+            environment=environment,
+            frequency_grid=grid,
+            configuration=configuration,
+            surface_reflections=reflections,
+            portal_geometry_authority_ref=portal_ref,
+            portal_transfers=portals,
+            directivity_dataset=dataset,
+        )
+        if rebuilt != artifact:
+            raise ValueError(
+                'persisted path response no longer reproduces from current exact authorities'
+            )
+        return rebuilt
+
+    def save(self, artifact: DeterministicPathFrequencyResponseArtifact) -> None:
+        self._rebuild(artifact)
+        payload = _canonical_json(artifact.model_dump(mode='json'))
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                'SELECT semantic_sha256, payload_json '
+                'FROM r150_path_frequency_response_artifacts WHERE artifact_id = ?',
+                (artifact.artifact_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing['semantic_sha256'] != artifact.semantic_sha256
+                    or existing['payload_json'] != payload
+                ):
+                    raise ValueError('immutable path response artifact identity collision')
+                return
+            connection.execute(
+                'INSERT INTO r150_path_frequency_response_artifacts '
+                '(artifact_id, semantic_sha256, payload_json) VALUES (?, ?, ?)',
+                (artifact.artifact_id, artifact.semantic_sha256, payload),
+            )
+
+    def get(
+        self,
+        artifact_id: str,
+    ) -> DeterministicPathFrequencyResponseArtifact | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT payload_json FROM r150_path_frequency_response_artifacts '
+                'WHERE artifact_id = ?',
+                (artifact_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        artifact = DeterministicPathFrequencyResponseArtifact.model_validate_json(
+            row['payload_json']
+        )
+        return self._rebuild(artifact)
+)
+    execution_input_ref: ExactExternalAuthorityRef
     deterministic_path_id: str
     deterministic_path_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_entity_id: str
