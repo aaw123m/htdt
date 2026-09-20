@@ -1013,6 +1013,7 @@ def _fixture(
         'dispatch_reasons': dispatch.reasons,
         'compiled_unresolved': compiled.unresolved_conditions,
         'compiled_readiness': compiled.readiness.model_dump(mode='json'),
+        'compiler_warnings': compiled.compiler_warnings,
         'closed_shell': compiled.closed_shell_diagnostics.model_dump(mode='json'),
     }
     if expected_dispatch_state != 'READY':
