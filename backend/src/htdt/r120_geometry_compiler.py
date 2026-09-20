@@ -1537,3 +1537,33 @@ def _jsonable(payload: object) -> object:
     if isinstance(payload, list):
         return [_jsonable(value) for value in payload]
     return payload
+
+
+# R120B explicit polyhedral acoustic geometry authority
+# Kept in a dedicated module so the established SceneRevision/SemanticAcousticGeometry
+# compiler contract and persisted v1 identities remain backward compatible.
+from .r120_polyhedral_geometry import (
+    GeometryApproximationAuthority,
+    PlanarPolygonSurface,
+    PlanarPolygonSurfaceSpec,
+    PolyhedralAirVolume,
+    PolyhedralAuthorityRef,
+    PolyhedralCompiledSurfaceMapping,
+    PolyhedralCompiledTriangle,
+    PolyhedralPortal,
+    PolyhedralVertex,
+    R120PolyhedralCompiledGeometry,
+    R120PolyhedralGeometryError,
+    R120PolyhedralRepresentationReadiness,
+    R120PolyhedralSemanticGeometry,
+    R120PolyhedralTopologyReport,
+    RegionVolumeEvidence,
+    TopologyFinding,
+    compile_r120_polyhedral_geometry,
+    deserialize_r120_polyhedral_compiled_geometry,
+    deserialize_r120_polyhedral_semantic_geometry,
+    make_r120_polyhedral_semantic_geometry,
+    serialize_r120_polyhedral_compiled_geometry,
+    serialize_r120_polyhedral_semantic_geometry,
+    validate_r120_polyhedral_topology,
+)
