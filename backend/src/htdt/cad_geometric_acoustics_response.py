@@ -1207,8 +1207,14 @@ def build_deterministic_path_frequency_response(
         raise ValueError('deterministic path id is not present in the supplied path artifact')
 
     execution_ref = _execution_input_ref(execution_input)
+    path_execution_ref = _identity_ref(
+        authority_id=path_artifact.execution_input_id,
+        authority_version=path_artifact.authority_version,
+        semantic_hash_sha256=path_artifact.execution_input_sha256,
+    )
     refs: list[ExactExternalAuthorityRef] = [
         execution_ref,
+        path_execution_ref,
         r120_geometry_ref,
         source_authority.as_external_ref(),
         source_authority.r110_source_ref,
