@@ -134,3 +134,140 @@ This task does not modify:
 - HTDT-Capture.
 
 It does not select a production solver and does not change an unrelated successful R100B fixture.
+
+
+## Executed result
+
+Dedicated workflow run `35500693297` completed successfully as an evidence-generation workflow.
+Artifact `10602433114` (`r100b-mfem-concave-bounded-experiment`) has digest
+`sha256:9682d648017bba28146a49a6b223c03ebee564067cfa602f947a84b9f29d056a`.
+
+The physics/numerical experiment outcome is **BLOCKED**, not PASS.
+
+Deterministic report identity:
+
+`8c8245f999684db0150825addf2b094d0e658a1e1006e119d173e97d6b878e65`
+
+Exact fixture semantic hash:
+
+`3297647551cb0fbcdf25d5bc9ddf3d1e591432f4eb82e6141309a83496cc01ce`
+
+Solver configuration hash:
+
+`540b7cbd8b7e055965d75769312f18ef9d98e95ab283495f5b9982ad957502a7`
+
+Mesh/refinement configuration hash:
+
+`6d6720d9a3ec37ddb7533f5340f48fb1c65afcf9fe185cf06ed1eefa06354e6b`
+
+### All attempts
+
+| Attempt | Result | Elements | DOFs | Solve | Peak RAM | Numerical identity |
+|---|---|---:|---:|---:|---:|---|
+| `time-p2-h1-sr6000` | COMPLETED | 40 | 525 | 18.564 s | 6.43 MiB | `bc9c38dee62c8059db295dd893a5c6f2b3b64348e1dd2ae195922eca20d71565` |
+| `time-p2-h1-sr9000` | COMPLETED | 40 | 525 | 28.529 s | 6.03 MiB | `16c117879f448a5e74bcb1a9aa151d82eec71369b96ad0b12610960d40c534b2` |
+| `pivot-p2-h1-sr12000` | COMPLETED | 40 | 525 | 39.006 s | 6.07 MiB | `25c78bfa450b5c5152687ae937b46447bc2ad2e76fb290b7e345e1d77d1ea911` |
+| `space-p2-h0-sr12000` | COMPLETED | 5 | 99 | 4.153 s | 5.28 MiB | `cd131e0fa99d0356c1551494505e7cae661b63947555589d2a1ae173e8d7fb48` |
+| `space-p2-h2-sr12000` | **BLOCKED** | — | — | — | 11.66 MiB observed | no completed numerical identity |
+
+The final h2 attempt exceeded the predeclared `330 s` subprocess wall ceiling. It was killed and
+retained as `resource_wall_timeout`; it was not silently retried at another resolution.
+
+All completed attempts retained linear residuals around `1e-12`, well below the fixed
+`1e-8` qualification ceiling. This rules out insufficient iterative linear solve accuracy as the
+cause of the observed time-track failure.
+
+### Time-track result: FAIL
+
+Fixed spatial configuration: H1 p=2, one uniform h-refinement, 40 elements, 525 DOFs.
+
+Adjacent complex-RMS relative error:
+
+- 6000 -> 9000 Hz sample rate: `1.3397652498`
+- 9000 -> 12000 Hz sample rate: `1.3596844444`
+
+The error is **not strictly decreasing**.
+
+The final 9000 -> 12000 pair has:
+
+- max magnitude absolute delta: `21.4094258604 dB`
+- max magnitude relative delta: `9.0797431125`
+- max phase delta: `176.710382952 deg`
+
+These are far outside the unchanged current R100A limits
+`0.75 dB / 0.05 relative / 8 deg`.
+
+Therefore the previous coupled p/dt failure can now be narrowed: the current
+Newmark + point-source/receiver finite-record configuration is already non-convergent when
+**spatial discretization and H1 order are held fixed**. The previous failure cannot be explained
+only by changing p-order together with dt.
+
+### Space-track result: BLOCKED
+
+At fixed H1 p=2 and 12000 Hz recorded sample rate, the available h0 -> h1 pair has:
+
+- complex-RMS relative error: `1.0200254593`
+- max magnitude absolute delta: `51.1621804224 dB`
+- max magnitude relative delta: `20.3211788496`
+- max phase delta: `179.606323563 deg`
+
+The required h1 -> h2 pair is unavailable because the predeclared h2 attempt hit the wall-time
+ceiling. The space track is therefore **BLOCKED**, not extrapolated and not scored from the first
+pair alone.
+
+### Resource evidence
+
+- MFEM native configure/build: `956.803 s`
+- completed-attempt solve total: `90.251 s`
+- peak observed attempt RAM: `11.66 MiB`
+- experiment work disk: `8.446 MiB`
+- h2 process wall ceiling: `330 s`
+- existing R100A per-attempt solve ceiling: `300 s`
+- R100A RAM/disk/output ceilings remained unchanged
+
+The limiting resource is runtime of the h2 transient attempt, not RAM or disk.
+
+## Production-readiness effect
+
+No bounded configuration qualified as a PASS, so no new fixture trace is eligible for promotion
+into production-selection truth. The existing exact-current MFEM concave FAIL evidence remains
+selection-relevant and the production-adoption decision remains **NO_GO**.
+
+The checked-in candidate-local evidence is:
+
+`benchmarks/acoustics/evidence/r100b_mfem_concave_bounded_2026-09-20.json`
+
+This new artifact is diagnostic exact evidence, but it is deliberately **not** converted into a
+passing readiness input. No unrelated previously successful fixture was replayed for selection.
+
+## Smallest next selection-changing experiment
+
+Do not spend the next experiment on a larger h-mesh first. The fixed-space time track already
+fails badly, so resolving temporal/source representation is the smaller prerequisite.
+
+The next bounded experiment should keep the exact p2/h1 MFEM mass/stiffness/source/receiver system
+fixed and replace Newmark stepping with a **non-dissipative exact or semi-exact modal evolution**
+of that same semidiscrete system, evaluated on the same 6000 / 9000 / 12000 Hz recorded grids.
+
+This experiment keeps the current R100A finite-record `P_T/Q_T`, source record, phase convention,
+frequency grid, masks and tolerances unchanged.
+
+Decision logic:
+
+- if the modal time track converges, Newmark temporal dispersion is isolated as the primary
+  numerical cause and a production-suitable nondissipative transient integration path becomes the
+  next candidate experiment;
+- if the modal time track still does not converge, source/receiver delta representation or the
+  finite-record semidiscrete spatial response is the next isolated cause;
+- do not retry h2 until the time track is numerically qualified.
+
+## Validation
+
+- focused experiment contract: **5 passed** in workflow `35500693297`
+- dedicated MFEM bounded workflow: **PASS** as evidence generation; numerical outcome **BLOCKED**
+- ordinary CI run `35500693343`: **PASS — 967 passed, 2 skipped**
+- Windows Release Artifact run `35500693245`: **PASS**
+- RDC usage: **0**
+
+Workflow success is not a physics PASS. No hidden score, tolerance relaxation, best-trace
+selection, non-converged promotion, or production solver selection occurred.
