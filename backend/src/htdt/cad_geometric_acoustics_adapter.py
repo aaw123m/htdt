@@ -1869,6 +1869,22 @@ class CadDeterministicPathArtifactRepository:
         with closing(self._connect()) as connection, connection:
             connection.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS cad_deterministic_ga_execution_inputs (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    execution_input_id TEXT NOT NULL UNIQUE,
+                    semantic_sha256 TEXT NOT NULL UNIQUE,
+                    snapshot_id TEXT NOT NULL,
+                    prediction_request_id TEXT NOT NULL,
+                    dispatch_binding_id TEXT NOT NULL,
+                    r120_compiled_geometry_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    recorded_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_deterministic_ga_input_request_seq
+                    ON cad_deterministic_ga_execution_inputs(
+                        prediction_request_id, seq ASC
+                    );
+
                 CREATE TABLE IF NOT EXISTS cad_deterministic_path_artifacts (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
                     artifact_id TEXT NOT NULL UNIQUE,
@@ -1903,6 +1919,193 @@ class CadDeterministicPathArtifactRepository:
             raise ValueError(f'{label} exact authority mismatch')
         return authority
 
+    def _validate_execution_input(
+        self,
+        execution_input: DeterministicGaExecutionInput,
+    ) -> DeterministicGaExecutionInput:
+        execution_input = DeterministicGaExecutionInput.model_validate(
+            execution_input.model_dump(mode='python')
+        )
+        snapshot = self.snapshot_repository.get_snapshot(execution_input.snapshot_id)
+        if (
+            snapshot is None
+            or snapshot.semantic_sha256 != execution_input.snapshot_sha256
+        ):
+            raise ValueError('GA execution input exact snapshot is missing or mismatched')
+        request = self.snapshot_repository.get_prediction_request(
+            execution_input.prediction_request_id
+        )
+        if (
+            request is None
+            or request.request_semantic_sha256
+            != execution_input.prediction_request_sha256
+        ):
+            raise ValueError(
+                'GA execution input exact prediction request is missing or mismatched'
+            )
+        dispatch = self.dispatch_repository.get_dispatch(
+            execution_input.dispatch_binding_id
+        )
+        if (
+            dispatch is None
+            or dispatch.semantic_sha256 != execution_input.dispatch_binding_sha256
+            or dispatch.state != 'READY'
+        ):
+            raise ValueError(
+                'GA execution input exact READY dispatch is missing or mismatched'
+            )
+        descriptor = self.dispatch_repository.get_descriptor(
+            execution_input.adapter_descriptor_id
+        )
+        if (
+            descriptor is None
+            or descriptor.semantic_sha256 != execution_input.adapter_descriptor_sha256
+        ):
+            raise ValueError(
+                'GA execution input exact adapter descriptor is missing or mismatched'
+            )
+        configuration = self.configuration_resolver(
+            execution_input.solver_configuration_ref
+        )
+        if (
+            configuration is None
+            or configuration.as_external_ref()
+            != execution_input.solver_configuration_ref
+        ):
+            raise ValueError(
+                'GA execution input exact configuration is missing or mismatched'
+            )
+        compiled = self.snapshot_repository.r120_repository.get_compiled_geometry(
+            execution_input.r120_compiled_geometry_id
+        )
+        if (
+            compiled is None
+            or compiled.compiled_hash_sha256
+            != execution_input.r120_compiled_geometry_sha256
+            or compiled.topology_identity_sha256
+            != execution_input.topology_identity_sha256
+        ):
+            raise ValueError('GA execution input exact R120 geometry is missing or mismatched')
+        if compiled.region_authority_ref is None:
+            raise ValueError('GA execution input R120 region authority is missing')
+        if compiled.portal_authority_ref is None:
+            raise ValueError('GA execution input R120 portal authority is missing')
+        if compiled.boundary_termination_authority_ref is None:
+            raise ValueError('GA execution input R120 termination authority is missing')
+        region = self._resolve_geometry_authority(
+            compiled.region_authority_ref,
+            AcousticRegionAuthority,
+            'region',
+        )
+        portals = self._resolve_geometry_authority(
+            compiled.portal_authority_ref,
+            PortalAuthority,
+            'portal',
+        )
+        terminations = self._resolve_geometry_authority(
+            compiled.boundary_termination_authority_ref,
+            BoundaryTerminationAuthority,
+            'boundary termination',
+        )
+        datasets: list[DirectivityDataset] = []
+        for source in execution_input.sources:
+            dataset = (
+                self.snapshot_repository.r110_repository.directivity_repository
+                .get_dataset_by_hash(source.directivity_dataset_sha256)
+            )
+            if dataset is None:
+                raise ValueError(
+                    'GA execution input exact DirectivityDataset is missing'
+                )
+            datasets.append(dataset)
+        regenerated = compile_deterministic_ga_execution_input(
+            snapshot=snapshot,
+            request=request,
+            dispatch=dispatch,
+            descriptor=descriptor,
+            compiled_geometry=compiled,
+            region_authority=region,
+            portal_authority=portals,
+            boundary_termination_authority=terminations,
+            directivity_datasets=datasets,
+            configuration=configuration,
+        )
+        if regenerated != execution_input:
+            raise ValueError(
+                'GA execution input does not reproduce from exact persisted authorities'
+            )
+        return execution_input
+
+    def save_execution_input(
+        self,
+        execution_input: DeterministicGaExecutionInput,
+    ) -> DeterministicGaExecutionInput:
+        execution_input = self._validate_execution_input(execution_input)
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_deterministic_ga_execution_inputs
+                WHERE execution_input_id=?
+                """,
+                (execution_input.execution_input_id,),
+            ).fetchone()
+            if existing is not None:
+                persisted = DeterministicGaExecutionInput.model_validate_json(
+                    existing['payload_json']
+                )
+                if persisted != execution_input:
+                    raise ValueError(
+                        'GA execution input id exists with different semantics'
+                    )
+                return self._validate_execution_input(persisted)
+            connection.execute(
+                """
+                INSERT INTO cad_deterministic_ga_execution_inputs(
+                    execution_input_id,
+                    semantic_sha256,
+                    snapshot_id,
+                    prediction_request_id,
+                    dispatch_binding_id,
+                    r120_compiled_geometry_id,
+                    payload_json,
+                    recorded_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    execution_input.execution_input_id,
+                    execution_input.semantic_sha256,
+                    execution_input.snapshot_id,
+                    execution_input.prediction_request_id,
+                    execution_input.dispatch_binding_id,
+                    execution_input.r120_compiled_geometry_id,
+                    execution_input.model_dump_json(),
+                    _utc_now(),
+                ),
+            )
+        return execution_input
+
+    def get_execution_input(
+        self,
+        execution_input_id: str,
+    ) -> DeterministicGaExecutionInput | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_deterministic_ga_execution_inputs
+                WHERE execution_input_id=?
+                """,
+                (execution_input_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._validate_execution_input(
+            DeterministicGaExecutionInput.model_validate_json(
+                row['payload_json']
+            )
+        )
+
     def _validate(
         self,
         artifact: DeterministicPathArtifact,
@@ -1910,6 +2113,19 @@ class CadDeterministicPathArtifactRepository:
         artifact = DeterministicPathArtifact.model_validate(
             artifact.model_dump(mode='python')
         )
+        execution_input = self.get_execution_input(artifact.execution_input_id)
+        if (
+            execution_input is None
+            or execution_input.semantic_sha256 != artifact.execution_input_sha256
+            or execution_input.snapshot_id != artifact.snapshot_id
+            or execution_input.prediction_request_id != artifact.prediction_request_id
+            or execution_input.dispatch_binding_id != artifact.dispatch_binding_id
+            or execution_input.r120_compiled_geometry_id
+            != artifact.r120_compiled_geometry_id
+        ):
+            raise ValueError(
+                'path artifact exact GA execution input is missing or mismatched'
+            )
         snapshot = self.snapshot_repository.get_snapshot(artifact.snapshot_id)
         if snapshot is None or snapshot.semantic_sha256 != artifact.snapshot_sha256:
             raise ValueError('path artifact exact snapshot is missing or mismatched')
