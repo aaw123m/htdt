@@ -769,6 +769,94 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
         )
 
 
+def test_o90e_wrong_system_variant_lineage_is_rejected(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    env = _fixture(tmp_path)
+    perturbation_revision_id = env.planned[
+        env.minus.candidate_id
+    ].applied_scene_revision_id
+
+    def fake_lineage(revision_id):
+        if revision_id != perturbation_revision_id:
+            return None
+        application = SimpleNamespace(
+            application_id='application:foreign',
+            application_sha256='1' * 64,
+            variant_id='variant:foreign',
+            variant_sha256='2' * 64,
+        )
+        variant = SimpleNamespace(
+            variant_id='variant:foreign',
+            variant_sha256='2' * 64,
+        )
+        return application, variant
+
+    monkeypatch.setattr(
+        env.validation_repository.system_variant_repository,
+        'proposal_lineage_for_revision',
+        fake_lineage,
+    )
+
+    with pytest.raises(ValueError, match='SystemVariant lineage mismatch'):
+        env.validation_repository.preregister_case(
+            robustness_spec_id=env.spec.robustness_spec_id,
+            axis_id='speaker-x',
+            direction='minus',
+            nominal_measurement_plan_id=env.planned[
+                env.nominal.candidate_id
+            ].plan_id,
+            perturbation_measurement_plan_id=env.planned[
+                env.minus.candidate_id
+            ].plan_id,
+            o60_campaign_id=env.campaign.campaign_id,
+            observable_id='response.shape_rms_db',
+            receiver_entity_id='listener-main',
+            required_capability='magnitude_response',
+            channel_role='front_left',
+            source_speaker_ids=('speaker-fl',),
+            radiation_scope='single',
+        )
+
+
+def test_o90e_phase_claim_is_blocked_by_magnitude_only_measurement(tmp_path) -> None:
+    env = _fixture(tmp_path)
+    phase_case = env.validation_repository.preregister_case(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        axis_id='speaker-x',
+        direction='plus',
+        nominal_measurement_plan_id=env.planned[
+            env.nominal.candidate_id
+        ].plan_id,
+        perturbation_measurement_plan_id=env.planned[
+            env.plus.candidate_id
+        ].plan_id,
+        o60_campaign_id=env.campaign.campaign_id,
+        observable_id='response.shape_rms_db',
+        receiver_entity_id='listener-main',
+        required_capability='phase_response',
+        channel_role='front_left',
+        source_speaker_ids=('speaker-fl',),
+        radiation_scope='single',
+    )
+
+    decision = env.validation_repository.evaluate_decision(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        o60_validation_id=env.o60_record.validation_id,
+        case_ids=(env.minus_case.case_id, phase_case.case_id),
+        decided_at_utc='2030-01-01T03:05:00+00:00',
+    )
+
+    assert decision.production_gate == 'closed'
+    assert 'insufficient_measurement_capability' in decision.reasons
+    plus_assessment = next(
+        item for item in decision.assessments if item.direction == 'plus'
+    )
+    assert plus_assessment.perturbation_measurement is not None
+    assert plus_assessment.perturbation_measurement.capability_decision == 'BLOCKED'
+
+
 def test_o90e_missing_acquisition_or_capability_keeps_gate_closed(tmp_path) -> None:
     env = _fixture(tmp_path)
     measurement_id = env.measurement_ids[env.plus.candidate_id]
