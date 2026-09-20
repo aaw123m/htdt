@@ -779,6 +779,19 @@ class DeterministicPathInteraction(BaseModel):
         return self
 
 
+class PortalRegionSegmentEvidence(BaseModel):
+    """Persisted proof result for one direct segment inside one AcousticRegion."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    segment_index: int = Field(ge=0)
+    region_id: str = Field(min_length=1)
+    start_point: Position3
+    end_point: Position3
+    membership_result: Literal['valid'] = 'valid'
+    occlusion_result: Literal['clear'] = 'clear'
+
+
 class DeterministicAcousticPath(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -792,6 +805,7 @@ class DeterministicAcousticPath(BaseModel):
     ordered_interaction_points: tuple[Position3, ...]
     ordered_interactions: tuple[DeterministicPathInteraction, ...] | None = None
     ordered_region_ids: tuple[str, ...] | None = None
+    region_segment_evidence: tuple[PortalRegionSegmentEvidence, ...] | None = None
     geometric_path_length_m: float = Field(gt=0.0)
     propagation_delay_s: float = Field(gt=0.0)
     departure_direction: Direction3
@@ -868,6 +882,25 @@ class DeterministicAcousticPath(BaseModel):
         elif self.ordered_region_ids is not None:
             raise ValueError('ordered_region_ids require typed interactions')
 
+        if self.region_segment_evidence is not None:
+            if self.path_type != 'direct' or self.ordered_region_ids is None:
+                raise ValueError(
+                    'region segment evidence requires a direct path with ordered regions'
+                )
+            if len(self.region_segment_evidence) != len(self.ordered_region_ids):
+                raise ValueError(
+                    'region segment evidence count must equal ordered region count'
+                )
+            for index, evidence in enumerate(self.region_segment_evidence):
+                if evidence.segment_index != index:
+                    raise ValueError(
+                        'region segment evidence indices must be contiguous and ordered'
+                    )
+                if evidence.region_id != self.ordered_region_ids[index]:
+                    raise ValueError(
+                        'region segment evidence identity must match ordered region sequence'
+                    )
+
         for band in self.bands:
             if interaction_count == 0:
                 if (
@@ -938,6 +971,8 @@ class DeterministicAcousticPath(BaseModel):
             ]
         if self.ordered_region_ids is None:
             payload.pop('ordered_region_ids', None)
+        if self.region_segment_evidence is None:
+            payload.pop('region_segment_evidence', None)
         for band in payload['bands']:
             if band.get('boundary_materials') is None:
                 band.pop('boundary_materials', None)
@@ -3080,6 +3115,7 @@ def _make_path(
     solver_implementation_ref: ExactExternalAuthorityRef,
     typed_interactions: Sequence[DeterministicPathInteraction] | None = None,
     ordered_region_ids: Sequence[str] | None = None,
+    region_segment_evidence: Sequence[PortalRegionSegmentEvidence] | None = None,
 ) -> DeterministicAcousticPath:
     core: dict[str, Any] = {
         'source_entity_id': source.source_entity_id,
@@ -3132,6 +3168,11 @@ def _make_path(
         ]
     if ordered_region_ids is not None:
         core['ordered_region_ids'] = list(ordered_region_ids)
+    if region_segment_evidence is not None:
+        core['region_segment_evidence'] = [
+            item.model_dump(mode='json')
+            for item in region_segment_evidence
+        ]
     digest = _semantic_hash(core)
     return DeterministicAcousticPath(
         path_id=f'deterministic-acoustic-path:{digest}',
@@ -3523,18 +3564,21 @@ def execute_deterministic_ga(
                         + tuple(crossings)
                         + (receiver_world,)
                     )
+                    segment_evidence: list[PortalRegionSegmentEvidence] = []
                     for segment_index, region_id in enumerate(ordered_region_ids):
                         region = region_by_id.get(region_id)
                         if region is None:
                             raise ValueError(
                                 f'Portal graph path references unresolved region {region_id}'
                             )
+                        segment_start = segment_points[segment_index]
+                        segment_end = segment_points[segment_index + 1]
                         membership = region_segment_membership_with_portal_caps(
                             compiled_geometry=compiled_geometry,
                             region=region,
                             apertures=execution_input.portal_apertures,
-                            start=segment_points[segment_index],
-                            end=segment_points[segment_index + 1],
+                            start=segment_start,
+                            end=segment_end,
                             tolerance_m=execution_input.geometric_tolerance_m,
                         )
                         if membership != 'valid':
@@ -3553,31 +3597,44 @@ def execute_deterministic_ga(
                             )
                             candidate_failed = True
                             break
-                    if candidate_failed:
-                        continue
-
-                    if any(
-                        _segment_blocked(
+                        if _segment_blocked(
                             compiled_geometry,
-                            segment_points[index],
-                            segment_points[index + 1],
+                            segment_start,
+                            segment_end,
                             tolerance=execution_input.geometric_tolerance_m,
                             distance_scaled_tolerance=True,
-                        )
-                        for index in range(len(segment_points) - 1)
-                    ):
-                        rejected.append(
-                            RejectedPathCandidate(
-                                source_entity_id=source.source_entity_id,
-                                receiver_id=receiver.receiver_id,
-                                path_type='direct',
-                                decision='BLOCKED_VISIBILITY',
-                                reason=(
-                                    f'exact R120 opaque triangle surface blocks a segment '
-                                    f'of Portal sequence {ordered_portal_ids}'
+                        ):
+                            rejected.append(
+                                RejectedPathCandidate(
+                                    source_entity_id=source.source_entity_id,
+                                    receiver_id=receiver.receiver_id,
+                                    path_type='direct',
+                                    decision='BLOCKED_VISIBILITY',
+                                    reason=(
+                                        f'exact R120 opaque triangle surface blocks segment '
+                                        f'{segment_index} of Portal sequence {ordered_portal_ids}'
+                                    ),
+                                )
+                            )
+                            candidate_failed = True
+                            break
+                        segment_evidence.append(
+                            PortalRegionSegmentEvidence(
+                                segment_index=segment_index,
+                                region_id=region_id,
+                                start_point=_rounded_position(
+                                    segment_start,
+                                    execution_input.identity_decimal_places,
                                 ),
+                                end_point=_rounded_position(
+                                    segment_end,
+                                    execution_input.identity_decimal_places,
+                                ),
+                                membership_result='valid',
+                                occlusion_result='clear',
                             )
                         )
+                    if candidate_failed:
                         continue
 
                     direct_bands: list[DeterministicPathBandQuantity] = []
@@ -3637,6 +3694,7 @@ def execute_deterministic_ga(
                             ),
                             typed_interactions=tuple(interactions),
                             ordered_region_ids=ordered_region_ids,
+                            region_segment_evidence=tuple(segment_evidence),
                         )
                     )
                 continue
