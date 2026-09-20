@@ -487,6 +487,11 @@ class HybridAcousticResult(BaseModel):
     deterministic_path_set: DeterministicPathSet | None = None
     late_energy_decay: LateEnergyDecay
 
+    frequency_domain_relationship: Literal[
+        'SINGLE_COMPONENT',
+        'DISJOINT_COMPONENT_VALIDITY',
+        'OVERLAPPING_COMPONENT_VALIDITY',
+    ]
     stitching_policy_ref: ExactExternalAuthorityRef
     algorithm_id: Literal[
         'htdt.r160.typed_hybrid_result'
@@ -514,6 +519,8 @@ class HybridAcousticResult(BaseModel):
                 raise ValueError(
                     'hybrid component references a non-participating solver result'
                 )
+        if self.frequency_domain_relationship != self._derived_frequency_relationship():
+            raise ValueError('hybrid frequency-domain relationship mismatch')
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('HybridAcousticResult semantic hash mismatch')
@@ -586,7 +593,7 @@ class HybridAcousticResult(BaseModel):
             return None
         return self.late_energy_decay.validity.frequency_domain
 
-    def frequency_relationship(self) -> Literal[
+    def _derived_frequency_relationship(self) -> Literal[
         'SINGLE_COMPONENT',
         'DISJOINT_COMPONENT_VALIDITY',
         'OVERLAPPING_COMPONENT_VALIDITY',
@@ -601,6 +608,13 @@ class HybridAcousticResult(BaseModel):
                 if _domains_overlap(first, second):
                     return 'OVERLAPPING_COMPONENT_VALIDITY'
         return 'DISJOINT_COMPONENT_VALIDITY'
+
+    def frequency_relationship(self) -> Literal[
+        'SINGLE_COMPONENT',
+        'DISJOINT_COMPONENT_VALIDITY',
+        'OVERLAPPING_COMPONENT_VALIDITY',
+    ]:
+        return self.frequency_domain_relationship
 
     def numerical_blend_permitted(self) -> bool:
         return False
@@ -1225,6 +1239,24 @@ def build_hybrid_acoustic_result(
         late=late,
     )
 
+    available_domains = []
+    if coherent is not None:
+        available_domains.append(coherent.validity.frequency_domain)
+    if paths is not None:
+        available_domains.append(paths.validity.frequency_domain)
+    if late.state == 'AVAILABLE' and late.validity is not None:
+        available_domains.append(late.validity.frequency_domain)
+    if len(available_domains) < 2:
+        frequency_relationship = 'SINGLE_COMPONENT'
+    elif any(
+        _domains_overlap(first, second)
+        for index, first in enumerate(available_domains)
+        for second in available_domains[index + 1 :]
+    ):
+        frequency_relationship = 'OVERLAPPING_COMPONENT_VALIDITY'
+    else:
+        frequency_relationship = 'DISJOINT_COMPONENT_VALIDITY'
+
     core = {
         'schema_version': HYBRID_RESULT_SCHEMA_VERSION,
         'authority_version': HYBRID_RESULT_AUTHORITY_VERSION,
@@ -1258,6 +1290,7 @@ def build_hybrid_acoustic_result(
             None if paths is None else paths.model_dump(mode='json')
         ),
         'late_energy_decay': late.model_dump(mode='json'),
+        'frequency_domain_relationship': frequency_relationship,
         'stitching_policy_ref': policy.as_external_ref().model_dump(mode='json'),
         'algorithm_id': HYBRID_ALGORITHM_ID,
         'algorithm_version': HYBRID_ALGORITHM_VERSION,
