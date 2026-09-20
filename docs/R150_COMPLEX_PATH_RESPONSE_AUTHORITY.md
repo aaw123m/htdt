@@ -15,9 +15,9 @@ The existing `DeterministicPathArtifact` remains the geometry-only R150 evidence
 `coherent_phase_authority=UNAVAILABLE_NOT_SYNTHESIZED`. This slice does **not** mutate that contract or infer
 phase from path length alone.
 
-A separate immutable `DeterministicPathFrequencyResponseArtifact` now binds one exact deterministic path to
-explicit source, receiver, environment, material/boundary, Portal-transfer, frequency-grid, and response
-configuration authorities. It is deliberately **per-path only**. No path summation or R160 wave+GA stitching is
+A separate immutable `DeterministicPathFrequencyResponseArtifact` now binds one exact deterministic path and its
+exact `DeterministicGaExecutionInput` to explicit source, receiver, environment, material/boundary,
+Portal-transfer, frequency-grid, and response configuration authorities. It is deliberately **per-path only**. No path summation or R160 wave+GA stitching is
 performed here.
 
 Primary implementation:
@@ -153,9 +153,11 @@ The builder rejects or downgrades without fabricating coherent phase for:
 - missing reflection authority;
 - missing Portal transfer authority;
 - response/material/source/environment valid-band mismatch;
-- source identity mismatch;
-- receiver identity mismatch;
-- environment/path-delay mismatch;
+- source identity or exact R110 compiled-source hash mismatch;
+- receiver identity or world-position mismatch;
+- stale/mismatched deterministic GA execution input;
+- execution-input R120/Portal authority mismatch;
+- execution-input environment/path-delay mismatch;
 - stale R120 geometry binding;
 - stale reflection/surface authority;
 - stale Portal-transfer geometry authority;
@@ -175,6 +177,7 @@ and regenerates the artifact before accepting it as current.
 The dependency set includes, as applicable:
 
 - deterministic path artifact and exact path;
+- exact `DeterministicGaExecutionInput` used to generate that path;
 - R120 compiled geometry;
 - R110 source authority;
 - EquipmentDefinition;
@@ -218,12 +221,13 @@ Focused numerical/authority tests cover:
 15. **Source phase origin** — a coherent directivity phase reference not aligned to `source_volume_velocity_t0` fails closed.
 16. **Directivity normalization** — `explicit_reference_level` is not silently treated as a point-source directional ratio.
 17. **Complex directional transfer** — an exact on-axis-normalized complex DirectivityDataset contributes its explicit phase to the point-source transfer.
+18. **Execution-input binding** — stale execution-input identity, R110 source hash mismatch, receiver position mismatch, execution-environment mismatch, and Portal-authority mismatch fail closed.
 
 The dedicated workflow also runs the complete existing
 `backend/tests/test_cad_geometric_acoustics_adapter.py` suite, covering existing direct, first-order,
 second-order, single-Portal, and arbitrary region-graph / multi-Portal geometry regressions.
 
-The focused response suite contains 17 numerical/authority tests. The exact final-head workflow result, together
+The focused response suite contains 18 numerical/authority tests. The exact final-head workflow result, together
 with the existing R150 geometry regression result, is recorded in Draft PR #276.
 
 ## Valid-band semantics
