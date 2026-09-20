@@ -788,10 +788,34 @@ def build_numerical_hybrid_composition_spec(
 
     source_ids = {item.source_entity_id for item in responses}
     receiver_ids = {item.receiver_id for item in responses}
+    receiver_entity_ids = {item.receiver_entity_id for item in responses}
+    candidate_receiver = next(
+        (item for item in candidate.receivers if item.receiver_id == receiver_id),
+        None,
+    )
     if source_ids != {candidate.source_entity_id}:
         raise ValueError('R160 R130/R150 source identity mismatch')
-    if receiver_ids != {receiver_id}:
+    if receiver_ids != {receiver_id} or candidate_receiver is None:
         raise ValueError('R160 R130/R150 receiver identity mismatch')
+    if receiver_entity_ids != {candidate_receiver.entity_id}:
+        raise ValueError('R160 R130/R150 receiver entity identity mismatch')
+
+    for item in responses:
+        if not any(
+            ref.authority_id == candidate.compiled_geometry_id
+            and ref.semantic_hash_sha256 == candidate.compiled_geometry_sha256
+            for ref in item.dependency_refs
+        ):
+            raise ValueError(
+                'R160 R150 response does not bind the exact R130 compiled geometry'
+            )
+        if not any(
+            ref.semantic_hash_sha256 == candidate.r110_compiled_source_sha256
+            for ref in item.dependency_refs
+        ):
+            raise ValueError(
+                'R160 R150 response does not bind the exact R130 R110 source'
+            )
 
     path_artifact_ids = {
         (item.deterministic_path_artifact_id, item.deterministic_path_artifact_sha256)
