@@ -888,6 +888,77 @@ def test_o90e_stale_model_and_missing_validation_do_not_convert_measured_to_vali
     assert 'missing_underlying_model_validation' in measured_only.reasons
 
 
+def test_o90e_missing_measurement_evidence_fails_closed(tmp_path) -> None:
+    env = _fixture(tmp_path)
+    missing_id = env.measurement_ids[env.plus.candidate_id]
+
+    # Direct tamper simulates an authority that cannot be re-resolved after reopen.
+    # SQLite foreign keys are intentionally not enabled on this raw audit connection.
+    with sqlite3.connect(env.scene_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_frequency_responses WHERE measurement_id=?',
+            (missing_id,),
+        )
+        connection.execute(
+            'DELETE FROM cad_measurements WHERE measurement_id=?',
+            (missing_id,),
+        )
+
+    decision = env.validation_repository.evaluate_decision(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        o60_validation_id=env.o60_record.validation_id,
+        case_ids=(env.minus_case.case_id, env.plus_case.case_id),
+        decided_at_utc='2030-01-01T03:45:00+00:00',
+    )
+
+    assert decision.production_gate == 'closed'
+    assert 'missing_measurement_evidence' in decision.reasons
+
+
+def test_o90e_explicit_quality_failure_is_not_interpolated_to_pass(tmp_path) -> None:
+    env = _fixture(tmp_path)
+    measurement_id = env.measurement_ids[env.plus.candidate_id]
+    measurement = env.measurement_repository.get_measurement(measurement_id)
+    dataset = env.measurement_repository.dataset_for_measurement(measurement_id)
+    report = build_measurement_quality_report(
+        measurement=measurement,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(
+            clipping_detected=True,
+            peak_dbfs=0.0,
+            noise_floor_db_spl=30.0,
+            signal_level_db_spl=70.0,
+            snr_db=40.0,
+            usable_frequency_band_hz=(20.0, 160.0),
+            evidence_source='rew_metadata',
+        ),
+        profile=build_measurement_quality_profile(
+            profile_version='o90e-quality-failure-1',
+            minimum_snr_db=20.0,
+            required_usable_band_hz=(20.0, 160.0),
+        ),
+        acquisition_context=CadAcquisitionContextBinding(
+            acquisition_context_id='acq:quality-failure',
+            acquisition_context_sha256=sha256(b'acq:quality-failure').hexdigest(),
+            source_kind='native',
+        ),
+        report_id='quality:plus:explicit-failure',
+        created_at_utc='2030-01-01T02:30:00+00:00',
+    )
+    assert report.clipping.status == 'FAIL'
+    env.quality_repository.save_report(report)
+
+    decision = env.validation_repository.evaluate_decision(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        o60_validation_id=env.o60_record.validation_id,
+        case_ids=(env.minus_case.case_id, env.plus_case.case_id),
+        decided_at_utc='2030-01-01T03:46:00+00:00',
+    )
+
+    assert decision.production_gate == 'closed'
+    assert 'quality_failure' in decision.reasons
+
+
 def test_o90e_retrospective_case_never_masquerades_as_preregistered(tmp_path) -> None:
     env = _fixture(tmp_path)
     retrospective = env.validation_repository.preregister_case(
