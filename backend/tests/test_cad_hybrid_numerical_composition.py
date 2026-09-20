@@ -337,6 +337,16 @@ def _r150_response(
     capability: str = 'COMPLEX_SUPPORTED',
 ) -> DeterministicPathFrequencyResponseArtifact:
     execution_ref = _ref(f'r150-execution-{path_label}')
+    geometry_ref = ExactExternalAuthorityRef(
+        authority_id='r120-compiled-geometry:r160-test',
+        authority_version='1',
+        semantic_hash_sha256=_hash('geometry'),
+    )
+    r110_ref = ExactExternalAuthorityRef(
+        authority_id='r110-source:r160-test',
+        authority_version='1',
+        semantic_hash_sha256=_hash('r110-source'),
+    )
     if capability == 'COMPLEX_SUPPORTED':
         samples = tuple(
             PathFrequencyResponseSample(
@@ -398,7 +408,17 @@ def _r150_response(
         'capability': capability,
         'unsupported_reasons': list(reasons),
         'samples': [item.model_dump(mode='json') for item in samples],
-        'dependency_refs': [execution_ref.model_dump(mode='json')],
+        'dependency_refs': [
+            item.model_dump(mode='json')
+            for item in sorted(
+                (execution_ref, geometry_ref, r110_ref),
+                key=lambda ref: (
+                    ref.authority_id,
+                    ref.authority_version,
+                    ref.semantic_hash_sha256,
+                ),
+            )
+        ],
     }
     digest = _digest(core)
     return DeterministicPathFrequencyResponseArtifact(
@@ -728,6 +748,8 @@ def _actual_r150_direct_response(
     receiver_position: tuple[float, float, float],
     frequencies: tuple[float, ...],
     sound_speed_m_s: float,
+    compiled_geometry_id: str,
+    compiled_geometry_sha256: str,
 ):
     domain = _domain(frequencies)
     grid = build_frequency_grid_authority(frequencies)
@@ -785,7 +807,11 @@ def _actual_r150_direct_response(
         receiver_authority_ref=_ref('integration-receiver'),
         world_position=world_position,
     )
-    r120_ref = _ref('integration-r120')
+    r120_ref = ExactExternalAuthorityRef(
+        authority_id=compiled_geometry_id,
+        authority_version='1',
+        semantic_hash_sha256=compiled_geometry_sha256,
+    )
     path = DeterministicAcousticPath.model_construct(
         path_id=f'deterministic-acoustic-path:{_hash("integration-path")}',
         semantic_sha256=_hash('integration-path'),
@@ -925,6 +951,8 @@ def test_repository_native_actual_r130_artifact_path_and_actual_r150_response_au
         receiver_position=receiver_binding.position_m,
         frequencies=frequencies,
         sound_speed_m_s=float(fixture['environment'].sound_speed_m_s),
+        compiled_geometry_id=candidate.compiled_geometry_id,
+        compiled_geometry_sha256=candidate.compiled_geometry_sha256,
     )
     normalization = build_hybrid_convention_normalization_authority()
     spec = build_numerical_hybrid_composition_spec(
