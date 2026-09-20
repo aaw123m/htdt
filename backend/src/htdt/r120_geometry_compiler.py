@@ -855,10 +855,32 @@ def compile_r120_geometry(
     unresolved = list(dict.fromkeys(unresolved))
     geometry_compiled = True
     authority_complete = not unresolved
+    portal_ga_topology_ready = _bounded_explicit_portal_ga_topology_ready(
+        triangles=triangles,
+        boundary_edges=boundary_edges,
+        region_authority=region_authority,
+        portal_authority=portal_authority,
+    )
+    portal_ga_allowed_unresolved = {
+        'input_semantic_geometry_not_compiler_contract_ready',
+        'compiled_non_manifold_edges',
+    }
+    geometric_acoustics_authority_complete = (
+        authority_complete
+        or (
+            portal_ga_topology_ready
+            and set(unresolved).issubset(portal_ga_allowed_unresolved)
+        )
+    )
+    if geometric_acoustics_authority_complete and not authority_complete:
+        warnings.append(
+            'bounded explicit two-region Portal topology is exact for geometric '
+            'acoustics only; global diagnostic topology remains not wave-ready'
+        )
     readiness = R120GeometryReadiness(
         geometry_compiled=geometry_compiled,
         wave_geometry_ready=authority_complete,
-        geometric_acoustics_geometry_ready=authority_complete,
+        geometric_acoustics_geometry_ready=geometric_acoustics_authority_complete,
         material_assignment_missing=material_missing,
         region_definition_missing=region_missing,
         portal_definition_missing=portal_missing,
@@ -1281,6 +1303,102 @@ def _compiled_boundary_edges(
             )
         )
     return tuple(result)
+
+
+def _bounded_explicit_portal_ga_topology_ready(
+    *,
+    triangles: tuple[CompiledTriangle, ...],
+    boundary_edges: tuple[CompiledBoundaryEdge, ...],
+    region_authority: AcousticRegionAuthority | None,
+    portal_authority: PortalAuthority | None,
+) -> bool:
+    """Prove the bounded two-region/one-Portal topology for GA readiness only.
+
+    The global triangle soup for two adjacent volumes is intentionally allowed
+    to contain non-manifold interface seams. Each declared region must become
+    a closed 2-manifold when the one exact Portal aperture is capped. This
+    does not make the geometry wave-ready and does not authorize propagation
+    through the Portal.
+    """
+
+    if (
+        region_authority is None
+        or len(region_authority.declarations) != 2
+        or portal_authority is None
+        or portal_authority.declaration_mode != 'explicit_list'
+        or len(portal_authority.declarations) != 1
+    ):
+        return False
+
+    portal = portal_authority.declarations[0]
+    region_ids = {item.region_id for item in region_authority.declarations}
+    if len(portal.region_ids) != 2 or set(portal.region_ids) != region_ids:
+        return False
+    if len(portal.boundary_edges) < 3:
+        return False
+
+    loop: list[int] = [int(portal.boundary_edges[0].vertex_a)]
+    expected = loop[0]
+    for edge in portal.boundary_edges:
+        if int(edge.vertex_a) != expected:
+            return False
+        loop.append(int(edge.vertex_b))
+        expected = int(edge.vertex_b)
+    if loop[-1] != loop[0]:
+        return False
+    loop = loop[:-1]
+    if len(loop) < 3 or len(set(loop)) != len(loop):
+        return False
+
+    actual_boundary_keys = {edge.canonical_key() for edge in boundary_edges}
+    declared_boundary_keys = {
+        edge.canonical_key() for edge in portal.boundary_edges
+    }
+    if actual_boundary_keys != declared_boundary_keys:
+        return False
+
+    portal_surface_ids = {
+        edge.source_surface_id for edge in portal.boundary_edges
+    }
+    if not portal_surface_ids:
+        return False
+    shared_region_surfaces = set(
+        region_authority.declarations[0].boundary_surface_ids
+    ).intersection(region_authority.declarations[1].boundary_surface_ids)
+    if shared_region_surfaces != portal_surface_ids:
+        return False
+
+    for region in region_authority.declarations:
+        if not portal_surface_ids.issubset(set(region.boundary_surface_ids)):
+            return False
+        region_surface_ids = set(region.boundary_surface_ids)
+        counts: dict[tuple[int, int], int] = defaultdict(int)
+        has_triangle = False
+        for triangle in triangles:
+            if triangle.source_surface_id not in region_surface_ids:
+                continue
+            has_triangle = True
+            for edge in (
+                _normalized_edge(triangle.a, triangle.b),
+                _normalized_edge(triangle.b, triangle.c),
+                _normalized_edge(triangle.c, triangle.a),
+            ):
+                counts[edge] += 1
+        if not has_triangle:
+            return False
+
+        for index in range(1, len(loop) - 1):
+            for edge in (
+                _normalized_edge(loop[0], loop[index]),
+                _normalized_edge(loop[index], loop[index + 1]),
+                _normalized_edge(loop[index + 1], loop[0]),
+            ):
+                counts[edge] += 1
+
+        if not counts or any(count != 2 for count in counts.values()):
+            return False
+
+    return True
 
 
 def _enclosed_volume_m3(
