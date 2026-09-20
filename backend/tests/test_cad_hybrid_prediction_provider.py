@@ -417,12 +417,6 @@ def _build_bundle(
     )
     r160_repository.save(artifact)
 
-    provider = build_hybrid_prediction_provider(
-        base_provider=base_provider,
-        r160_artifact=artifact,
-        composition_spec=spec,
-        wave_excitation=fixture['excitation'],
-    )
     hybrid_repository = CadHybridPredictionProviderRepository(
         fixture['scene_repository'],
         base_provider_repository=base_repository,
@@ -431,6 +425,10 @@ def _build_bundle(
         wave_excitation_resolver=lambda excitation_id: excitations.get(
             excitation_id
         ),
+    )
+    provider = hybrid_repository.build_current(
+        base_provider_id=base_provider.provider_id,
+        r160_artifact_id=artifact.artifact_id,
     )
     return {
         'fixture': fixture,
