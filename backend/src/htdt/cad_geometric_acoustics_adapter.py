@@ -47,6 +47,7 @@ from .cad_scene import Direction3, Position3
 from .cad_schema import ensure_native_schema
 from .r120_geometry_compiler import (
     AcousticRegionAuthority,
+    AcousticRegionDeclaration,
     BoundaryTerminationAuthority,
     CompiledSurfaceMapping,
     ExactExternalAuthorityRef,
@@ -593,6 +594,7 @@ class DeterministicGaExecutionInput(BaseModel):
     unsupported_reflection_surface_ids: tuple[str, ...] | None = None
     portal_apertures: tuple[GeometricPortalAperture, ...] | None = None
     portal_graph: GeometricPortalGraph | None = None
+    region_declarations: tuple[AcousticRegionDeclaration, ...] | None = None
     maximum_portal_crossings: int | None = None
     occluder_triangle_indices: tuple[int, ...]
     sources: tuple[DeterministicGaSourceInput, ...]
@@ -616,6 +618,10 @@ class DeterministicGaExecutionInput(BaseModel):
                 raise ValueError('Portal graph requires the explicit multi-region Portal policy')
             if self.portal_apertures is None:
                 raise ValueError('Portal graph requires exact Portal aperture authority')
+            if self.region_declarations is None:
+                raise ValueError('Portal graph requires exact AcousticRegion declarations')
+            if tuple(sorted(item.region_id for item in self.region_declarations)) != self.portal_graph.region_ids:
+                raise ValueError('Portal graph/AcousticRegion declaration identity mismatch')
             if self.maximum_portal_crossings != self.portal_graph.maximum_portal_crossings:
                 raise ValueError('Portal graph/configuration crossing limit mismatch')
             if (
@@ -663,6 +669,8 @@ class DeterministicGaExecutionInput(BaseModel):
             payload.pop('portal_apertures', None)
         if self.portal_graph is None:
             payload.pop('portal_graph', None)
+        if self.region_declarations is None:
+            payload.pop('region_declarations', None)
         if self.maximum_portal_crossings is None:
             payload.pop('maximum_portal_crossings', None)
         for source in payload['sources']:
@@ -2067,6 +2075,13 @@ def _compile_multi_region_portal_execution_input(
         'unsupported_reflection_surface_ids': [],
         'portal_apertures': [item.model_dump(mode='json') for item in apertures],
         'portal_graph': portal_graph.model_dump(mode='json'),
+        'region_declarations': [
+            item.model_dump(mode='json')
+            for item in sorted(
+                region_authority.declarations,
+                key=lambda item: item.region_id,
+            )
+        ],
         'maximum_portal_crossings': configuration.maximum_portal_crossings,
         'maximum_reflection_order': 0,
         'occluder_triangle_indices': list(object_triangle_indices),
