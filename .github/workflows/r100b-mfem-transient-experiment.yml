@@ -1,4 +1,4 @@
-name: R100B MFEM Low-Dispersion Transient
+name: R100B MFEM GL2 Exact Half-Steps
 
 on:
   pull_request:
@@ -29,8 +29,8 @@ jobs:
       EXPERIMENT_DIR: artifacts/r100b/mfem_transient
       EXPERIMENT_REPORT: artifacts/r100b/mfem_transient/report.json
       HTDT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      HTDT_TASK_START_MAIN_SHA: f7ba4d8b30605b60da914c5e497870b104dfc7fa
-      HTDT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || 'f7ba4d8b30605b60da914c5e497870b104dfc7fa' }}
+      HTDT_TASK_START_MAIN_SHA: 1fb07fa210aae55d91c7d86b3f4c5ee993be7c93
+      HTDT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '1fb07fa210aae55d91c7d86b3f4c5ee993be7c93' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +94,7 @@ jobs:
           "MFEM_RUNTIME_AVAILABLE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "MFEM_PROBE_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Run predeclared sparse transient experiment
+      - name: Run predeclared exact two-half-step transient experiment
         if: env.MFEM_RUNTIME_AVAILABLE == '1'
         shell: pwsh
         run: |
@@ -110,7 +110,7 @@ jobs:
           $work = Join-Path $env:EXPERIMENT_DIR 'raw'
           python scripts\\run_r100b_mfem_transient_experiment.py --manifest benchmarks\\acoustics\\r100a_manifest.json --candidates benchmarks\\acoustics\\r100b_candidates.json --plan benchmarks\\acoustics\\r100b_mfem_transient_experiment_plan.json --modal-plan benchmarks\\acoustics\\r100b_mfem_modal_experiment_plan.json --modal-evidence benchmarks\\acoustics\\evidence\\r100b_mfem_modal_2026-09-20.json --mfem-root $env:MFEM_ROOT --work-dir $work --output $env:EXPERIMENT_REPORT --native-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
 
-      - name: Show transient experiment outcome
+      - name: Show exact-half-step experiment outcome
         shell: pwsh
         run: |
           $report = Get-Content -Raw $env:EXPERIMENT_REPORT | ConvertFrom-Json
@@ -122,6 +122,10 @@ jobs:
           Write-Host "R100B_PRODUCTION_SUITABILITY=$($report.decision.production_suitability_status)"
           Write-Host "R100B_PRODUCTION_ADOPTION=$($report.decision.production_adoption_decision)"
           Write-Host "R100B_REPORT_IDENTITY=$($report.decision.deterministic_report_identity_sha256)"
+          Write-Host "R100B_SUBSTEPS_PER_OUTPUT=$($report.plan.integrator.substeps_per_output_interval)"
+          foreach ($attempt in $report.decision.attempt_results) {
+            Write-Host ("R100B_STEP_AUTHORITY=$($attempt.attempt_id) output_dt=$($attempt.output_interval_s) substeps=$($attempt.substeps_per_output_interval) internal_dt=$($attempt.internal_step_s) internal_steps=$($attempt.internal_step_count)")
+          }
           foreach ($pair in $report.decision.pair_metrics) {
             Write-Host ("R100B_PAIR=$($pair.coarse_attempt_id)->$($pair.fine_attempt_id) rms=$($pair.complex_rms_relative) mag_db=$($pair.magnitude_max_abs_db) mag_rel=$($pair.magnitude_max_relative) phase=$($pair.phase_max_error_deg)")
           }

@@ -1,0 +1,239 @@
+{
+  "schema_version": "r100b-mfem-gl2-halfstep-evidence-1",
+  "issue": 101,
+  "pull_request": 285,
+  "experiment": "exact 2 GL2 half-steps per output interval",
+  "task_start_main_sha": "1fb07fa210aae55d91c7d86b3f4c5ee993be7c93",
+  "experiment_head_sha": "4bbfd0554dbc399853cd72919c00895f364172fc",
+  "actions_checkout_merge_sha": "223a8318ab4db85161b6608854a1d2c3be2ecb33",
+  "github_actions": {
+    "workflow_name": "R100B MFEM GL2 Exact Half-Steps",
+    "run_id": 35510597729,
+    "conclusion": "success",
+    "artifact_id": 10605416313,
+    "artifact_digest": "sha256:dd039ca4c547897659cb3a0d03dad629bdea80982f73ea91877c83536af89425",
+    "focused_tests": "13 passed",
+    "ordinary_ci_run_id": 35510597722,
+    "ordinary_ci": "1079 passed, 2 skipped",
+    "windows_release_run_id": 35510597777,
+    "windows_release": "success"
+  },
+  "hypothesis": "Halving the internal GL2 step while retaining the exact PR #281 output grid and semidiscrete authority will reduce temporal dispersion enough to test the unchanged R100A acceptance gate.",
+  "changed_variable": {
+    "substeps_per_output_interval": 2,
+    "construction": "output interval dt -> GL2 dt/2 -> GL2 dt/2 -> output sample",
+    "adaptive_stepping": false,
+    "rate_specific_hidden_heuristic": false
+  },
+  "frozen_authority": {
+    "plan_file_sha256": "969eaedae041d1c523246e9013b5a34c9b57d934919bbe5f03d2daaa577c6632",
+    "spatial_system_configuration_sha256": "908005a1f9b7aa431d7b20e9ccdb84ae58cbc77e0ab6f0f36d20fc9d52f9de49",
+    "semidiscrete_system_numeric_identity_sha256": "f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d",
+    "integrator_configuration_sha256": "bf17c1faac30b4f8ccc37705f627bef640581f609df1bd6300601af65874d004",
+    "output_grid_configuration_sha256": "4437d61b18add95c918ac7a08bd1c02bb14770189023d664b4239a807064d8e4",
+    "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "h1_order": 2,
+    "uniform_refinements": 1,
+    "elements": 40,
+    "ndofs": 525,
+    "output_sample_rates_hz": [
+      6000,
+      9000,
+      12000
+    ],
+    "observation_time_s": 2,
+    "scored_frequency_hz": {
+      "start": 20,
+      "stop": 300,
+      "step": 1
+    },
+    "null_masks_db": {
+      "magnitude": -60,
+      "phase": -40
+    },
+    "tolerance": {
+      "magnitude_abs_db": 0.75,
+      "magnitude_relative": 0.05,
+      "phase_deg": 8
+    },
+    "observable": "finite-record complex pressure transfer P_T/Q_T",
+    "source_mapping": "phi_t(0+)=c^2*output_dt*M^-1*b*q[0]",
+    "pressure_mapping": "p(t)=rho*r.T*phi_t(t)",
+    "fourier_sign": "exp(-i*omega*t)",
+    "finite_record_dtft_kernel": "exp(+i*2*pi*f*n*dt)",
+    "source_identity": {
+      "source_id": "src",
+      "region_id": "lroom",
+      "position_m": [
+        1,
+        1,
+        1
+      ],
+      "normalization": "volume_velocity_m3_s",
+      "amplitude": 1,
+      "phase_deg": 0,
+      "directivity": "omnidirectional",
+      "semidiscrete_functional_float64_sha256": "fdcb36b71c931634ade8310f7cf5e049f5771e7c0fd4573ec3db867032c1a4bc"
+    },
+    "receiver_identity": {
+      "receiver_id": "rx",
+      "region_id": "lroom",
+      "position_m": [
+        5,
+        1,
+        1
+      ],
+      "calibration_state": "ideal_flat",
+      "timing_reference": "source_t0",
+      "semidiscrete_functional_float64_sha256": "2df89c8759d8c20c5fd60fe8efb7ad266708734a455799bbe9c712e631ec12f8"
+    }
+  },
+  "implementation": {
+    "family": "2-stage Gauss-Legendre implicit Runge-Kutta / [2/2] Pade linear propagator",
+    "order": 4,
+    "matrix_policy": "sparse CSR/CSC only; no dense inverse; no candidate-path eigendecomposition",
+    "step_factorization": "one sparse 2N denominator factorization per output rate, reused for every internal half-step",
+    "mass_factorization": "one sparse M factorization reused for all source-kick solves",
+    "solver": "SuperLU via scipy.sparse.linalg.splu",
+    "precision": "IEEE-754 float64",
+    "numpy_version": "2.1.3",
+    "scipy_version": "1.14.1"
+  },
+  "attempts": [
+    {
+      "attempt_id": "transient-6000",
+      "sample_rate_hz": 6000,
+      "output_interval_s": 0.00016666666666666666,
+      "substeps_per_output_interval": 2,
+      "internal_step_s": 0.00008333333333333333,
+      "sample_count": 12000,
+      "internal_step_count": 23998,
+      "solve_s": 7.804964100000234,
+      "factorization_s": 0.0097022999998444,
+      "peak_ram_mb": 96.6484375,
+      "denominator_nnz": 93636,
+      "lu_nnz": 318771,
+      "factor_storage_mb": 3.664073944091797,
+      "mass_solve_relative_residual": 7.959244108169284e-16,
+      "max_checked_step_relative_residual": 8.066805713520861e-15,
+      "pressure_record_sha256": "5919b43175ce7e9b8519fa9f5c472c8b76bbe906f0cd5173bc48d3594cb2e387",
+      "raw_output_sha256": "d03169c2bc06ea983d8b5e5d2808329160c1b405af9fe6a2bac749efe1366a3a",
+      "factorization_identity_sha256": "9f607dda26d7a18a6045eea73169d4421f11ffff06be4d40dda1d961fb1e5b79"
+    },
+    {
+      "attempt_id": "transient-9000",
+      "sample_rate_hz": 9000,
+      "output_interval_s": 0.00011111111111111112,
+      "substeps_per_output_interval": 2,
+      "internal_step_s": 0.00005555555555555556,
+      "sample_count": 18000,
+      "internal_step_count": 35998,
+      "solve_s": 11.768754900000204,
+      "factorization_s": 0.009974000000056549,
+      "peak_ram_mb": 101.6015625,
+      "denominator_nnz": 93636,
+      "lu_nnz": 318650,
+      "factor_storage_mb": 3.662689208984375,
+      "mass_solve_relative_residual": 7.743097034034262e-16,
+      "max_checked_step_relative_residual": 6.2439367370173935e-15,
+      "pressure_record_sha256": "115da4e681d8a25de7091ce42b4bcc7671bf44aa3e89cf63eb9940121b718f3d",
+      "raw_output_sha256": "33c85621f7e8336ddcf69d4b081268f7e2cc1cea79625b5c711490616537c9d7",
+      "factorization_identity_sha256": "bb8c9e830122cc898466d55013535bbf9e3bb3fbc20f93d48454bf8cf417572a"
+    },
+    {
+      "attempt_id": "transient-12000",
+      "sample_rate_hz": 12000,
+      "output_interval_s": 0.00008333333333333333,
+      "substeps_per_output_interval": 2,
+      "internal_step_s": 0.000041666666666666665,
+      "sample_count": 24000,
+      "internal_step_count": 47998,
+      "solve_s": 15.555471000000125,
+      "factorization_s": 0.010086100000080478,
+      "peak_ram_mb": 103.44140625,
+      "denominator_nnz": 93636,
+      "lu_nnz": 318540,
+      "factor_storage_mb": 3.6614303588867188,
+      "mass_solve_relative_residual": 7.959244108169284e-16,
+      "max_checked_step_relative_residual": 5.051364627304269e-15,
+      "pressure_record_sha256": "2d9b3d67eafa66fa5420e0aeda4f43ed37d5520f2f769f4022e3b99b53b10c7b",
+      "raw_output_sha256": "74f6d62524994b9655cb01d6b846718c336fe7b67373a98145da272bcccd6994",
+      "factorization_identity_sha256": "765bd608c9172411061c945d2fe24cf29507d6d9e0323782f2258e8663e4362d"
+    }
+  ],
+  "adjacent_rate_metrics": [
+    {
+      "pair": "6000->9000",
+      "complex_rms_relative": 0.004976029006827908,
+      "magnitude_max_abs_db": 1.1452643481114606,
+      "magnitude_max_relative": 0.12353055088662347,
+      "phase_max_error_deg": 7.242318279583003
+    },
+    {
+      "pair": "9000->12000",
+      "complex_rms_relative": 0.0021109373503622043,
+      "magnitude_max_abs_db": 0.489040528307882,
+      "magnitude_max_relative": 0.054747197619303606,
+      "phase_max_error_deg": 2.662964185569308
+    }
+  ],
+  "modal_reference_metrics": [
+    {
+      "sample_rate_hz": 6000,
+      "complex_rms_relative": 0.002132941103240402,
+      "magnitude_max_abs_db": 0.30575473419499843,
+      "magnitude_max_relative": 0.03458895469669588,
+      "phase_max_error_deg": 3.330318841537064
+    },
+    {
+      "sample_rate_hz": 9000,
+      "complex_rms_relative": 0.00045672344655122034,
+      "magnitude_max_abs_db": 0.07129742544533713,
+      "magnitude_max_relative": 0.008174822364201886,
+      "phase_max_error_deg": 0.6309002897479274
+    },
+    {
+      "sample_rate_hz": 12000,
+      "complex_rms_relative": 0.0001491379961609996,
+      "magnitude_max_abs_db": 0.023406333484167874,
+      "magnitude_max_relative": 0.002691126138506261,
+      "phase_max_error_deg": 0.19326552380314865
+    }
+  ],
+  "resource_evidence": {
+    "native_mfem_build_s": 965.9421981,
+    "total_transient_factorization_s": 0.029762399999981426,
+    "total_transient_stepping_s": 35.12919000000056,
+    "total_internal_steps": 107994,
+    "observed_process_rss_mb": 95.6796875,
+    "experiment_work_disk_mb": 17.297069549560547,
+    "pr281_total_transient_stepping_s": 17.9898984,
+    "stepping_time_ratio_vs_pr281": 1.9527175317455134,
+    "stepping_time_increase_s_vs_pr281": 17.13929160000056,
+    "nominal_internal_step_multiplier_vs_pr281": 2
+  },
+  "decision": {
+    "workflow_execution": "PASS",
+    "numerical_convergence": "PASS",
+    "modal_reference_agreement": "PASS",
+    "current_r100a_tolerance": "FAIL",
+    "execution_suitability": "PASS",
+    "overall_experiment": "FAIL",
+    "production_adoption": "NO_GO",
+    "violations": [
+      "magnitude_relative_tolerance_exceeded"
+    ],
+    "deterministic_report_identity_sha256": "858fb334f00f28f2ea21a7f71a1d36e0b471f5d49f0f8c13a18b869e204c7d89"
+  },
+  "actual_command": "python scripts/run_r100b_mfem_transient_experiment.py --manifest benchmarks/acoustics/r100a_manifest.json --candidates benchmarks/acoustics/r100b_candidates.json --plan benchmarks/acoustics/r100b_mfem_transient_experiment_plan.json --modal-plan benchmarks/acoustics/r100b_mfem_modal_experiment_plan.json --modal-evidence benchmarks/acoustics/evidence/r100b_mfem_modal_2026-09-20.json --mfem-root $MFEM_ROOT --executable $MFEM_PROBE_EXE --work-dir artifacts/r100b/mfem_transient/raw --output artifacts/r100b/mfem_transient/report.json --native-build-s $MFEM_BUILD_S",
+  "hard_rules": {
+    "tolerance_changed": false,
+    "record_shortened": false,
+    "bins_excluded_after_result": false,
+    "bad_modes_excluded": false,
+    "normalization_changed": false,
+    "adaptive_stepping": false,
+    "htdt_capture_changed": false,
+    "rdc_usage_count": 0
+  }
+}

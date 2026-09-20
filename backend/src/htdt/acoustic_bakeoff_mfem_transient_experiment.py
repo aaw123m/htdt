@@ -62,6 +62,10 @@ class IntegratorConfiguration(BaseModel):
     algorithm_id: Literal['gauss-legendre-2stage-pade22-linear']
     algorithm_version: Literal['1']
     order: Literal[4]
+    substeps_per_output_interval: Literal[1, 2] = 1
+    substep_policy: Literal[
+        'fixed equal GL2 substeps per output interval; no adaptive stepping'
+    ] = 'fixed equal GL2 substeps per output interval; no adaptive stepping'
     propagation_form: Literal[
         'Pade[2/2] of first-order Hamiltonian generator; algebraically equal to 2-stage Gauss-Legendre RK for linear autonomous systems'
     ]
@@ -161,7 +165,10 @@ class PromotionPolicy(BaseModel):
 class MfemTransientExperimentPlan(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal['r100b-mfem-transient-experiment-plan-1']
+    schema_version: Literal[
+        'r100b-mfem-transient-experiment-plan-1',
+        'r100b-mfem-transient-experiment-plan-2',
+    ]
     plan_id: str = Field(min_length=1)
     authority: AuthorityBinding
     spatial_system: SpatialSystemBinding
@@ -184,6 +191,16 @@ class MfemTransientExperimentPlan(BaseModel):
             raise ValueError(
                 'transient experiment attempts are frozen to transient-6000/9000/12000 in order'
             )
+        expected_substeps = (
+            1
+            if self.schema_version == 'r100b-mfem-transient-experiment-plan-1'
+            else 2
+        )
+        if self.integrator.substeps_per_output_interval != expected_substeps:
+            raise ValueError(
+                f'{self.schema_version} requires exactly {expected_substeps} '
+                'GL2 substep(s) per output interval'
+            )
         return self
 
     def spatial_system_configuration_hash(self) -> str:
@@ -204,6 +221,10 @@ class ExperimentAttemptResult(BaseModel):
     reason_code: str
     reason: str
     sample_rate_hz: int
+    output_interval_s: float | None = None
+    substeps_per_output_interval: int | None = None
+    internal_step_s: float | None = None
+    internal_step_count: int | None = None
     numerical_identity_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     pressure_record_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     sample_count: int | None = None
@@ -340,6 +361,19 @@ def evaluate_transient_experiment(
     for spec, result in zip(plan.attempts, ordered_attempts):
         if result.sample_rate_hz != spec.sample_rate_hz:
             raise ValueError('attempt sample rate differs from predeclared output grid')
+        if result.status == 'COMPLETED':
+            expected_output_interval_s = 1.0 / float(spec.sample_rate_hz)
+            expected_substeps = plan.integrator.substeps_per_output_interval
+            expected_internal_step_s = expected_output_interval_s / expected_substeps
+            expected_internal_steps = (int(result.sample_count or 0) - 1) * expected_substeps
+            if result.output_interval_s != expected_output_interval_s:
+                raise ValueError('attempt output interval differs from predeclared output grid')
+            if result.substeps_per_output_interval != expected_substeps:
+                raise ValueError('attempt substep count differs from predeclared integrator authority')
+            if result.internal_step_s != expected_internal_step_s:
+                raise ValueError('attempt internal step differs from exact output/substep construction')
+            if result.internal_step_count != expected_internal_steps:
+                raise ValueError('attempt internal step count differs from exact substep construction')
 
     violations: list[str] = []
     incomplete = [item for item in ordered_attempts if item.status != 'COMPLETED']
