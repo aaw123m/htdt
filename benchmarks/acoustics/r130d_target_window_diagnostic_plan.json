@@ -1,6 +1,6 @@
 {
   "schema_version": "htdt.r130d.target-window-diagnostic-plan-1",
-  "diagnostic_id": "r130d-general3d-target-window-zoh-2026-09-20",
+  "diagnostic_id": "r130d-general3d-target-window-clipped-left-rectangle-2026-09-20",
   "task_start_main": "c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96",
   "parent_general3d_plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
   "parent_general3d_plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
