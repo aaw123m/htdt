@@ -1005,6 +1005,32 @@ class CadRobustnessValidationRepository:
         ):
             raise ValueError('O90E decision model/config binding mismatch')
 
+        if decision.production_gate == 'eligible':
+            required_axes = {axis.axis_id for axis in spec.axes}
+            covered_axes = {
+                item.axis_id
+                for item in decision.axis_coverage
+                if item.state == 'full'
+            }
+            assessment_keys = {
+                (item.axis_id, item.direction)
+                for item in decision.assessments
+                if item.status == 'supported'
+            }
+            required_assessments = {
+                (axis.axis_id, direction)
+                for axis in spec.axes
+                for direction in ('minus', 'plus')
+            }
+            if covered_axes != required_axes:
+                raise ValueError(
+                    'O90E eligible decision does not cover every RobustnessSpec axis'
+                )
+            if assessment_keys != required_assessments:
+                raise ValueError(
+                    'O90E eligible decision does not contain every signed perturbation'
+                )
+
         if decision.o60_validation_sha256 is not None:
             record = self.model_validation_repository.get(decision.o60_validation_id)
             if (
