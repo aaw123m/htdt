@@ -1029,6 +1029,31 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         frequencies = plan.physical_quantity.frequency_hz
+        mfem_valid_max_hz = min(
+            float(level['max_frequency_hz']) for level in reference_levels
+        )
+        valid_overlap_max_hz = min(
+            float(plan.pffdtd.fmax_hz),
+            mfem_valid_max_hz,
+        )
+        if any(float(frequency) > valid_overlap_max_hz for frequency in frequencies):
+            raise ValidationBlocked(
+                'predeclared comparison bin lies outside the overlapping '
+                'MFEM/PFFDTD numerical band'
+            )
+        valid_overlap_band = {
+            'minimum_hz': 0.0,
+            'maximum_hz': valid_overlap_max_hz,
+            'compared_frequency_hz': [float(x) for x in frequencies],
+            'pffdtd_validity_basis': (
+                'all compared bins are <= configured PFFDTD fmax_hz; '
+                'PPW is specified at fmax'
+            ),
+            'mfem_validity_basis': (
+                'all compared bins are <= the smallest executed full-basis '
+                'MFEM maximum modal frequency'
+            ),
+        }
         reference_pair_metrics = []
         for coarse, fine in zip(reference_levels, reference_levels[1:]):
             metrics = compare_complex_transfer(
@@ -1164,6 +1189,7 @@ def main(argv: list[str] | None = None) -> int:
                 None if cross_metrics is None else _metric_dict(cross_metrics)
             ),
             'frequency_acceptance': accepted_frequencies,
+            'valid_overlapping_numerical_band': valid_overlap_band,
             'decision': decision,
             'scope': {
                 'validated_fixture': (
