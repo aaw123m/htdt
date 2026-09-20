@@ -227,8 +227,29 @@ No large solver fixture or owned-room fixture is introduced.
 
 ## Validation record
 
-GitHub Actions validation is recorded on the implementation PR. This document
-must be updated with the final run outcome before merge.
+Latest-main synchronized PR head before this record update:
+`05692946d875cf0b28376dd5410c5381a1dec697`, with `main` at
+`fc3dcf086f0cb9d349d85722799a94d143c8b851`.
+
+GitHub Actions on that synchronized head all passed:
+
+- CI run `35484314723` / run number 1288: **PASS**.
+  - backend suite: **855 passed, 2 skipped, 3 warnings** in 230.49 s;
+  - R100B authority preflight: PASS;
+  - R100A-3 radiation reference validation: PASS;
+  - backend/native CAD launcher checks: PASS;
+  - O60R inventory smoke: PASS;
+  - Windows CAD harness compile + PowerShell syntax: PASS;
+  - N60/N70/N80/N80-O20/N80c/N90/O60R hardware-gate preflights: PASS.
+- R130A Candidate Wave Execution run `35484314707` / run number 36:
+  **PASS**, including focused candidate-execution tests, pinned PFFDTD bounded
+  READY execution and candidate-only evidence semantics.
+- Windows Release Artifact run `35484314709` / run number 643: **PASS**,
+  including locked native package build, maintenance/migration smoke, installer
+  build, install/uninstall data-retention smoke and artifact uploads.
+
+No R160 change touched `cad_geometric_acoustics_adapter.py`; the diff remains
+limited to the new R160 authority/tests plus R160/status documentation.
 
 RDC usage: **0**.
 
