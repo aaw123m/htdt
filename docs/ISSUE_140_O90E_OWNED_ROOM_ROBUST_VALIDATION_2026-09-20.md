@@ -90,6 +90,13 @@ partial support; it is never promoted to full production robustness. A model
 that is nominally validated but lacks perturbation sensitivity coverage remains
 model-conditioned / unsupported for the robust domain.
 
+For positional validation, speaker perturbations must target a speaker present
+in the preregistered measured source set. Listener perturbations must target the
+exact preregistered receiver entity and preserve separate nominal/target receiver
+positions. Aim/body-yaw and other non-positional O90 axes remain outside this
+O60 sensitivity-reuse slice and therefore keep the full production gate closed
+rather than borrowing positional evidence.
+
 ## Capability contract
 
 O90E consumes the existing measurement-quality capability matrix. Missing
