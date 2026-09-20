@@ -22,6 +22,21 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Locked dependency install failed with exit code $LASTEXITCODE"
     }
+
+    $BrandingSource = Join-Path $RepoRoot "assets\branding\HTDT-AppIcon-source.jpg"
+    $BrandingOutput = Join-Path $WorkRoot "branding"
+    & $Python (Join-Path $RepoRoot "scripts\prepare_branding_assets.py") `
+        --source $BrandingSource `
+        --output-dir $BrandingOutput
+    if ($LASTEXITCODE -ne 0) {
+        throw "HTDT branding asset generation failed with exit code $LASTEXITCODE"
+    }
+    $RuntimeIcon = Join-Path $BrandingOutput "HTDT.png"
+    $ExecutableIcon = Join-Path $BrandingOutput "HTDT.ico"
+    if (-not (Test-Path $RuntimeIcon) -or -not (Test-Path $ExecutableIcon)) {
+        throw "HTDT branding asset generation did not produce the expected files"
+    }
+
     & $Python -m pip install --disable-pip-version-check --no-deps --no-build-isolation "$RepoRoot\backend"
     if ($LASTEXITCODE -ne 0) {
         throw "HTDT package install failed with exit code $LASTEXITCODE"
@@ -32,6 +47,8 @@ try {
         --onedir `
         --windowed `
         --name HTDT `
+        --icon $ExecutableIcon `
+        --add-data "$RuntimeIcon;htdt_branding" `
         --paths "$RepoRoot\backend\src" `
         --collect-all pyvista `
         --collect-all pyvistaqt `
@@ -42,7 +59,10 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed with exit code $LASTEXITCODE"
     }
-    Write-Host "Built native package: $(Join-Path $OutputDir 'HTDT\HTDT.exe')"
+
+    $PackageDir = Join-Path $OutputDir "HTDT"
+    Copy-Item -Force $ExecutableIcon (Join-Path $PackageDir "HTDT.ico")
+    Write-Host "Built native package: $(Join-Path $PackageDir 'HTDT.exe')"
 }
 finally {
     if (Test-Path $WorkRoot) {

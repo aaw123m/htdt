@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import sys
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from . import __version__
@@ -47,6 +48,20 @@ def build_workflow_shell(repository: SceneRepository, document_id: str) -> Workf
     """Build the integrated workflow application while preserving the public API."""
 
     return build_workflow_application(repository, document_id)
+
+
+def _packaged_application_icon() -> Path | None:
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root is not None:
+        runtime_icon = Path(bundle_root) / "htdt_branding" / "HTDT.png"
+        if runtime_icon.is_file():
+            return runtime_icon
+
+    executable_icon = Path(sys.executable).resolve().with_name("HTDT.ico")
+    if executable_icon.is_file():
+        return executable_icon
+
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -120,6 +135,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         app = QApplication([sys.argv[0]])
+        icon_path = _packaged_application_icon()
+        if icon_path is not None:
+            app.setWindowIcon(QIcon(str(icon_path)))
         if args.workflow_shell:
             apply_dark_theme(app)
         repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")

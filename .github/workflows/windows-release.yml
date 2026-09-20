@@ -3,10 +3,12 @@ name: Windows Release Artifact
 on:
   pull_request:
     paths:
+      - "assets/branding/**"
       - "backend/**"
       - "scripts/build-native.ps1"
       - "scripts/build-installer.ps1"
       - "scripts/native_entry.py"
+      - "scripts/prepare_branding_assets.py"
       - "scripts/validate_backup_pc_migration_windows.py"
       - "installer/**"
       - ".github/workflows/windows-release.yml"
@@ -37,7 +39,9 @@ jobs:
         shell: pwsh
         run: |
           $exe = Join-Path $env:RUNNER_TEMP "htdt-package\HTDT\HTDT.exe"
+          $icon = Join-Path $env:RUNNER_TEMP "htdt-package\HTDT\HTDT.ico"
           if (-not (Test-Path $exe)) { throw "Missing packaged executable: $exe" }
+          if (-not (Test-Path $icon)) { throw "Missing packaged HTDT icon: $icon" }
           $version = Start-Process -FilePath $exe -ArgumentList @("--version") -Wait -PassThru
           if ($version.ExitCode -ne 0) {
             throw "Packaged --version failed with exit code $($version.ExitCode)"

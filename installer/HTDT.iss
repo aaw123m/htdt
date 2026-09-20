@@ -21,6 +21,7 @@ OutputBaseFilename=HTDT-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile={#SourceDir}\\HTDT.ico
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayName=Home Theater Digital Twin
