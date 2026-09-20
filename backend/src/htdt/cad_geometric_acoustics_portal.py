@@ -182,6 +182,96 @@ def _newell_normal(
     return (nx, ny, nz)
 
 
+def _project_axis_for_normal(normal: Sequence[float]) -> int:
+    values = [abs(float(value)) for value in normal]
+    return values.index(max(values))
+
+
+def _project_for_axis(
+    point: Sequence[float],
+    drop_axis: int,
+) -> tuple[float, float]:
+    return tuple(
+        float(point[index]) for index in range(3) if index != drop_axis
+    )  # type: ignore[return-value]
+
+
+def _orient2d(
+    a: Sequence[float],
+    b: Sequence[float],
+    c: Sequence[float],
+) -> float:
+    return (
+        (float(b[0]) - float(a[0])) * (float(c[1]) - float(a[1]))
+        - (float(b[1]) - float(a[1])) * (float(c[0]) - float(a[0]))
+    )
+
+
+def _validate_simple_strictly_convex_aperture(
+    vertices: Sequence[Sequence[float]],
+    normal: Sequence[float],
+    *,
+    tolerance_m: float,
+) -> None:
+    """Bound temporary cap triangulation to an exact simple convex polygon."""
+
+    drop_axis = _project_axis_for_normal(normal)
+    polygon = tuple(_project_for_axis(point, drop_axis) for point in vertices)
+    edge_lengths = tuple(
+        sqrt(
+            (polygon[(index + 1) % len(polygon)][0] - point[0]) ** 2
+            + (polygon[(index + 1) % len(polygon)][1] - point[1]) ** 2
+        )
+        for index, point in enumerate(polygon)
+    )
+    if any(length <= tolerance_m for length in edge_lengths):
+        raise ValueError('Portal aperture contains a degenerate boundary edge')
+    geometry_scale = max(edge_lengths)
+    area_tolerance = max(tolerance_m * geometry_scale, tolerance_m * tolerance_m)
+
+    # Non-adjacent projected boundary edges may not cross or touch. Treat
+    # near-collinear/touching cases as ambiguous rather than guessing topology.
+    for left in range(len(polygon)):
+        left_a = polygon[left]
+        left_b = polygon[(left + 1) % len(polygon)]
+        for right in range(left + 1, len(polygon)):
+            if right == left + 1 or (left == 0 and right == len(polygon) - 1):
+                continue
+            right_a = polygon[right]
+            right_b = polygon[(right + 1) % len(polygon)]
+            o1 = _orient2d(left_a, left_b, right_a)
+            o2 = _orient2d(left_a, left_b, right_b)
+            o3 = _orient2d(right_a, right_b, left_a)
+            o4 = _orient2d(right_a, right_b, left_b)
+            if any(abs(value) <= area_tolerance for value in (o1, o2, o3, o4)):
+                raise ValueError(
+                    'Portal aperture boundary is self-touching/collinear or ambiguous '
+                    'within declared tolerance'
+                )
+            if (o1 > 0.0) != (o2 > 0.0) and (o3 > 0.0) != (o4 > 0.0):
+                raise ValueError('Portal aperture boundary is self-intersecting')
+
+    turn_sign: bool | None = None
+    for index in range(len(polygon)):
+        turn = _orient2d(
+            polygon[index - 1],
+            polygon[index],
+            polygon[(index + 1) % len(polygon)],
+        )
+        if abs(turn) <= area_tolerance:
+            raise ValueError(
+                'Portal aperture has a collinear/degenerate corner within declared tolerance'
+            )
+        sign = turn > 0.0
+        if turn_sign is None:
+            turn_sign = sign
+        elif sign != turn_sign:
+            raise ValueError(
+                'Portal aperture is concave; current exact temporary-cap lane '
+                'supports simple strictly-convex polygons only'
+            )
+
+
 def _region_vertex_centroid(
     compiled: R120CompiledGeometry,
     declaration: AcousticRegionDeclaration,
@@ -274,6 +364,12 @@ def compile_single_portal_aperture(
         signed = _dot(_vector(plane_point, vertex), normal)
         if abs(signed) > tolerance_m:
             raise ValueError('Portal aperture vertices are not coplanar within R120/R150 tolerance')
+
+    _validate_simple_strictly_convex_aperture(
+        vertices,
+        normal,
+        tolerance_m=tolerance_m,
+    )
 
     from_region_id, to_region_id = declaration.region_ids
     from_centroid = _region_vertex_centroid(compiled_geometry, region_by_id[from_region_id])
