@@ -45,6 +45,8 @@ from htdt.cad_geometric_acoustics_adapter import (
     DETERMINISTIC_GA_ADAPTER_VERSION,
     CadDeterministicPathArtifactRepository,
     DeterministicGaConfiguration,
+    DeterministicGaExecutionInput,
+    DeterministicGaUnsupportedError,
     GeometricMaterialAuthority,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
@@ -77,6 +79,8 @@ from htdt.r120_geometry_compiler import (
     BoundaryTerminationAuthority,
     ExactExternalAuthorityRef,
     PortalAuthority,
+    PortalBoundaryEdge,
+    PortalDeclaration,
     SurfaceBoundaryAuthorityBinding,
     compile_r120_geometry,
     make_acoustic_region_authority,
@@ -129,6 +133,64 @@ f 9 11 10
 f 9 10 12
 f 9 12 11
 f 10 11 12
+'''
+
+
+TRAPEZOID_OBJ = b'''\
+v 0 0 0
+v 4 0 0
+v 3 3 0
+v 0 3 0
+v 0 0 2
+v 4 0 2
+v 3 3 2
+v 0 3 2
+f 1 3 2
+f 1 4 3
+f 5 6 7
+f 5 7 8
+f 1 2 6
+f 1 6 5
+f 4 8 7
+f 4 7 3
+f 1 5 8
+f 1 8 4
+f 2 3 7
+f 2 7 6
+'''
+
+TRAPEZOID_WITH_REFLECTION_BLOCKER_OBJ = TRAPEZOID_OBJ + b'''\
+v 2.25 1.60 0.80
+v 2.50 1.60 0.80
+v 2.36 1.86 0.80
+v 2.36 1.72 1.20
+f 9 11 10
+f 9 10 12
+f 9 12 11
+f 10 11 12
+'''
+
+TRAPEZOID_WITH_SMALL_CUBE_OBJ = TRAPEZOID_OBJ + b'''\
+v 2.4 0.3 0.2
+v 2.6 0.3 0.2
+v 2.6 0.6 0.2
+v 2.4 0.6 0.2
+v 2.4 0.3 0.5
+v 2.6 0.3 0.5
+v 2.6 0.6 0.5
+v 2.4 0.6 0.5
+f 9 11 10
+f 9 12 11
+f 13 14 15
+f 13 15 16
+f 9 10 14
+f 9 14 13
+f 12 16 15
+f 12 15 11
+f 9 13 16
+f 9 16 12
+f 10 11 15
+f 10 15 14
 '''
 
 
@@ -230,6 +292,88 @@ def _semantic_geometry(*, occluder: bool):
                 semantic_class='object_surface',
             )
         )
+    request = make_semantic_geometry_conversion_request(
+        mesh,
+        source_scene_revision_id=None,
+        source_to_scene_transform=explicit_identity_source_to_scene_transform(
+            reason='fixture coordinates are explicit HTDT metres',
+        ),
+        surface_assignments=tuple(assignments),
+    )
+    return convert_raw_visual_mesh_to_semantic_geometry(mesh, request)
+
+
+
+def _general_semantic_geometry(
+    mesh_bytes: bytes,
+    *,
+    object_mode: str = 'none',
+):
+    mesh = import_raw_visual_mesh(
+        mesh_bytes,
+        source_name='r150-ga-general-fixture.obj',
+    )
+    ids = raw_triangle_ids(mesh)
+    assignments = [
+        SurfaceSemanticAssignment(
+            surface_key='floor-z-min',
+            triangle_ids=ids[0:2],
+            semantic_class='room_boundary',
+        ),
+        SurfaceSemanticAssignment(
+            surface_key='ceiling-z-max',
+            triangle_ids=ids[2:4],
+            semantic_class='room_boundary',
+        ),
+        SurfaceSemanticAssignment(
+            surface_key='front-y-min',
+            triangle_ids=ids[4:6],
+            semantic_class='room_boundary',
+        ),
+        SurfaceSemanticAssignment(
+            surface_key='rear-y-max',
+            triangle_ids=ids[6:8],
+            semantic_class='room_boundary',
+        ),
+        SurfaceSemanticAssignment(
+            surface_key='left-x-min',
+            triangle_ids=ids[8:10],
+            semantic_class='room_boundary',
+        ),
+        SurfaceSemanticAssignment(
+            surface_key='right-slanted',
+            triangle_ids=ids[10:12],
+            semantic_class='room_boundary',
+        ),
+    ]
+    if object_mode == 'grouped-tetra':
+        assignments.append(
+            SurfaceSemanticAssignment(
+                surface_key='internal-blocker',
+                triangle_ids=ids[12:16],
+                semantic_class='object_surface',
+            )
+        )
+    elif object_mode == 'cube-faces':
+        object_keys = (
+            'cube-z-min',
+            'cube-z-max',
+            'cube-y-min',
+            'cube-y-max',
+            'cube-x-min',
+            'cube-x-max',
+        )
+        for offset, key in enumerate(object_keys):
+            start = 12 + 2 * offset
+            assignments.append(
+                SurfaceSemanticAssignment(
+                    surface_key=key,
+                    triangle_ids=ids[start:start + 2],
+                    semantic_class='object_surface',
+                )
+            )
+    elif object_mode != 'none':
+        raise ValueError(f'unknown object_mode: {object_mode}')
     request = make_semantic_geometry_conversion_request(
         mesh,
         source_scene_revision_id=None,
@@ -364,13 +508,22 @@ def _fixture(
     supported_material: bool = True,
     use_pyroomacoustics: bool = False,
     receiver_position: Position3 | None = None,
+    semantic_geometry=None,
+    room_surface_keys: tuple[str, ...] | None = None,
+    room_policy: str = 'exact_axis_aligned_closed_shoebox_v1',
+    multi_region: bool = False,
+    explicit_portal: bool = False,
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
         document_id='r150-ga-fixture',
         schema_version=4,
         room=None,
-        r120_semantic_geometry=_semantic_geometry(occluder=occluder),
+        r120_semantic_geometry=(
+            _semantic_geometry(occluder=occluder)
+            if semantic_geometry is None
+            else semantic_geometry
+        ),
         entities=(
             SceneEntity(
                 entity_id='speaker-fl',
@@ -443,26 +596,48 @@ def _fixture(
     geometry = revision.document.r120_semantic_geometry
     assert geometry is not None
     surface_by_key = {item.surface_key: item.surface_id for item in geometry.surfaces}
-    room_surface_ids = tuple(
-        surface_by_key[key]
-        for key in (
-            'floor-z-min',
-            'ceiling-z-max',
-            'front-y-min',
-            'rear-y-max',
-            'left-x-min',
-            'right-x-max',
-        )
+    selected_room_keys = room_surface_keys or (
+        'floor-z-min',
+        'ceiling-z-max',
+        'front-y-min',
+        'rear-y-max',
+        'left-x-min',
+        'right-x-max',
     )
-    region = make_acoustic_region_authority(
-        (
+    room_surface_ids = tuple(surface_by_key[key] for key in selected_room_keys)
+    declarations = [
+        AcousticRegionDeclaration(
+            region_id='room-air',
+            boundary_surface_ids=room_surface_ids,
+        )
+    ]
+    if multi_region:
+        declarations.append(
             AcousticRegionDeclaration(
-                region_id='room-air',
-                boundary_surface_ids=room_surface_ids,
+                region_id='room-air-secondary',
+                boundary_surface_ids=(room_surface_ids[0],),
+            )
+        )
+    region = make_acoustic_region_authority(tuple(declarations))
+    if explicit_portal:
+        portals = make_portal_authority(
+            declaration_mode='explicit_list',
+            declarations=(
+                PortalDeclaration(
+                    portal_id='fixture-portal',
+                    region_ids=('room-air',),
+                    boundary_edges=(
+                        PortalBoundaryEdge(
+                            source_surface_id=room_surface_ids[2],
+                            vertex_a=0,
+                            vertex_b=1,
+                        ),
+                    ),
+                ),
             ),
         )
-    )
-    portals = make_portal_authority(declaration_mode='explicit_none')
+    else:
+        portals = make_portal_authority(declaration_mode='explicit_none')
     terminations = make_boundary_termination_authority(
         declaration_mode='explicit_none'
     )
@@ -533,6 +708,7 @@ def _fixture(
         frequency_centers_hz=(500.0, 1000.0),
         geometric_tolerance_m=1.0e-9,
         engine_image_match_tolerance_m=1.0e-8,
+        room_policy=room_policy,
     )
     implementation_ref = (
         PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
@@ -673,6 +849,200 @@ def _execute(fx, engine=None):
         material_resolver=fx['material_resolver'],
         engine=FixtureImageEngine() if engine is None else engine,
     )
+
+
+
+GENERAL_ROOM_KEYS = (
+    'floor-z-min',
+    'ceiling-z-max',
+    'front-y-min',
+    'rear-y-max',
+    'left-x-min',
+    'right-slanted',
+)
+GENERAL_POLICY = 'general_planar_closed_polyhedral_v1'
+
+
+def test_general_planar_slanted_wall_reflection_matches_analytic_geometry(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_general_semantic_geometry(TRAPEZOID_OBJ),
+        room_surface_keys=GENERAL_ROOM_KEYS,
+        room_policy=GENERAL_POLICY,
+        receiver_position=Position3(x_m=2.0, y_m=2.0, z_m=1.0),
+    )
+    artifact = _execute(fx)
+
+    surface_id = fx['surface_by_key']['right-slanted']
+    reflected = next(
+        item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (surface_id,)
+    )
+    point = reflected.ordered_interaction_points[0]
+    assert isclose(point.x_m, 49.0 / 15.0, abs_tol=1.0e-9)
+    assert isclose(point.y_m, 11.0 / 5.0, abs_tol=1.0e-9)
+    assert isclose(point.z_m, 1.0, abs_tol=1.0e-9)
+    expected_length = sqrt(74.0 / 5.0)
+    assert isclose(reflected.geometric_path_length_m, expected_length, abs_tol=1.0e-9)
+    assert isclose(
+        reflected.propagation_delay_s,
+        expected_length / 343.0,
+        abs_tol=1.0e-12,
+    )
+    assert reflected.ordered_interaction_surface_ids == (surface_id,)
+
+
+def test_general_planar_reflection_outside_exact_surface_polygon_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_general_semantic_geometry(
+            TRAPEZOID_WITH_SMALL_CUBE_OBJ,
+            object_mode='cube-faces',
+        ),
+        room_surface_keys=GENERAL_ROOM_KEYS,
+        room_policy=GENERAL_POLICY,
+        receiver_position=Position3(x_m=2.0, y_m=2.0, z_m=1.0),
+    )
+    artifact = _execute(fx)
+
+    surface_id = fx['surface_by_key']['cube-x-max']
+    assert not any(
+        item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (surface_id,)
+        for item in artifact.paths
+    )
+    rejected = next(
+        item
+        for item in artifact.rejected_candidates
+        if item.interaction_surface_ids == (surface_id,)
+    )
+    assert rejected.decision == 'UNSUPPORTED_GEOMETRY'
+    assert 'exact semantic R120 surface triangle extent' in rejected.reason
+
+
+def test_general_planar_reflection_blocked_by_exact_triangle_visibility_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_general_semantic_geometry(
+            TRAPEZOID_WITH_REFLECTION_BLOCKER_OBJ,
+            object_mode='grouped-tetra',
+        ),
+        room_surface_keys=GENERAL_ROOM_KEYS,
+        room_policy=GENERAL_POLICY,
+        receiver_position=Position3(x_m=2.0, y_m=2.0, z_m=1.0),
+    )
+    artifact = _execute(fx)
+
+    surface_id = fx['surface_by_key']['right-slanted']
+    rejected = [
+        item
+        for item in artifact.rejected_candidates
+        if item.interaction_surface_ids == (surface_id,)
+    ]
+    assert any(item.decision == 'BLOCKED_VISIBILITY' for item in rejected)
+    assert not any(
+        item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (surface_id,)
+        for item in artifact.paths
+    )
+
+
+def test_general_planar_nonplanar_semantic_surface_is_not_silently_planarized(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_general_semantic_geometry(
+            TRAPEZOID_WITH_REFLECTION_BLOCKER_OBJ,
+            object_mode='grouped-tetra',
+        ),
+        room_surface_keys=GENERAL_ROOM_KEYS,
+        room_policy=GENERAL_POLICY,
+        receiver_position=Position3(x_m=2.0, y_m=2.0, z_m=1.0),
+    )
+    artifact = _execute(fx)
+    blocker_id = fx['surface_by_key']['internal-blocker']
+    assert blocker_id in (fx['execution_input'].unsupported_reflection_surface_ids or ())
+    assert any(
+        item.interaction_surface_ids == (blocker_id,)
+        and item.decision == 'UNSUPPORTED_GEOMETRY'
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_general_planar_topology_gates_have_typed_unsupported_reasons(
+    tmp_path: Path,
+) -> None:
+    geometry = _general_semantic_geometry(TRAPEZOID_OBJ)
+    with pytest.raises(DeterministicGaUnsupportedError) as multi_region_error:
+        _fixture(
+            tmp_path / 'multi-region',
+            semantic_geometry=geometry,
+            room_surface_keys=GENERAL_ROOM_KEYS,
+            room_policy=GENERAL_POLICY,
+            multi_region=True,
+        )
+    assert multi_region_error.value.reason_code == 'UNSUPPORTED_REGION_TOPOLOGY'
+
+    with pytest.raises(DeterministicGaUnsupportedError) as portal_error:
+        _fixture(
+            tmp_path / 'portal',
+            semantic_geometry=geometry,
+            room_surface_keys=GENERAL_ROOM_KEYS,
+            room_policy=GENERAL_POLICY,
+            explicit_portal=True,
+        )
+    assert portal_error.value.reason_code == 'UNSUPPORTED_PORTAL_TOPOLOGY'
+
+
+def test_legacy_execution_input_payload_loads_without_general_planar_fields(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    payload = fx['execution_input'].model_dump(mode='json')
+    payload.pop('geometry_policy')
+    payload.pop('unsupported_reflection_surface_ids')
+    for plane in payload['boundary_planes']:
+        plane.pop('point_m')
+        plane.pop('normal')
+        plane.pop('compiled_triangle_indices')
+    reopened = DeterministicGaExecutionInput.model_validate(payload)
+    assert reopened == fx['execution_input']
+
+
+def test_general_planar_execution_input_and_artifact_save_reopen_exact_identity(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=_general_semantic_geometry(TRAPEZOID_OBJ),
+        room_surface_keys=GENERAL_ROOM_KEYS,
+        room_policy=GENERAL_POLICY,
+        receiver_position=Position3(x_m=2.0, y_m=2.0, z_m=1.0),
+    )
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+    assert repository.get_execution_input(fx['execution_input'].execution_input_id) == (
+        fx['execution_input']
+    )
+    assert repository.get(artifact.artifact_id) == artifact
 
 
 def test_direct_and_first_reflection_match_analytic_geometry(tmp_path: Path) -> None:
