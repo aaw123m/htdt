@@ -30,6 +30,10 @@ add_executable(r100b_mfem_concave_finite_record concave_finite_record.cpp)
 target_compile_features(r100b_mfem_concave_finite_record PRIVATE cxx_std_17)
 target_link_libraries(r100b_mfem_concave_finite_record PRIVATE mfem)
 
+add_executable(r100b_mfem_rectangular_semidiscrete rectangular_semidiscrete.cpp)
+target_compile_features(r100b_mfem_rectangular_semidiscrete PRIVATE cxx_std_17)
+target_link_libraries(r100b_mfem_rectangular_semidiscrete PRIVATE mfem)
+
 add_executable(r100b_mfem_portal_transfer portal_transfer.cpp)
 target_compile_features(r100b_mfem_portal_transfer PRIVATE cxx_std_17)
 target_link_libraries(r100b_mfem_portal_transfer PRIVATE mfem)
@@ -37,4 +41,3 @@ target_link_libraries(r100b_mfem_portal_transfer PRIVATE mfem)
 add_executable(r100b_mfem_radiation_transfer radiation_transfer.cpp)
 target_compile_features(r100b_mfem_radiation_transfer PRIVATE cxx_std_17)
 target_link_libraries(r100b_mfem_radiation_transfer PRIVATE mfem)
-
