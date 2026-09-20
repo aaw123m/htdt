@@ -75,6 +75,7 @@ PFFDTD_CANDIDATE_CAUSAL_ADAPTER_VERSION = '3'
 PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION = 'r130a-candidate-wave-input-1'
 PFFDTD_CANDIDATE_IMPEDANCE_INPUT_AUTHORITY_VERSION = 'r130b-candidate-wave-input-1'
 PFFDTD_CANDIDATE_CAUSAL_INPUT_AUTHORITY_VERSION = 'r130c-candidate-wave-input-1'
+PFFDTD_CANDIDATE_POLYHEDRAL_INPUT_AUTHORITY_VERSION = 'r130d-candidate-wave-input-1'
 PFFDTD_CANDIDATE_CONFIGURATION_VERSION = 'r130a-pffdtd-config-1'
 COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION = (
     'htdt.r130a.candidate-complex-pressure-artifact-1'
@@ -492,6 +493,34 @@ class CandidateReceiverBinding(BaseModel):
     position_m: tuple[float, float, float]
 
 
+class CandidatePolyhedralGeometryBinding(BaseModel):
+    """Exact R120B -> solver-representation binding for the R130D lane."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    scene_revision_id: str = Field(min_length=1)
+    scene_revision_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    snapshot_id: str = Field(min_length=1)
+    snapshot_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    semantic_geometry_ref: ExactExternalAuthorityRef
+    compiled_geometry_ref: ExactExternalAuthorityRef
+    solver_geometry_ref: ExactExternalAuthorityRef
+    exact_topology_report_id: str = Field(min_length=1)
+    exact_topology_report_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    topology_identity_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    topology_tolerance_m: float = Field(gt=0.0)
+    region_id: str = Field(min_length=1)
+    containment_algorithm_id: str = Field(min_length=1)
+    containment_algorithm_version: str = Field(min_length=1)
+    containment_tolerance_m: float = Field(gt=0.0)
+    grid_algorithm_id: str = Field(min_length=1)
+    grid_algorithm_version: str = Field(min_length=1)
+    grid_origin_m: tuple[float, float, float]
+    grid_spacing_m: float = Field(gt=0.0)
+    grid_dimensions: tuple[int, int, int]
+    grid_geometry_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class CandidateWaveExecutionInput(BaseModel):
     """Deterministic, execution-specific identity above READY dispatch.
 
@@ -505,6 +534,7 @@ class CandidateWaveExecutionInput(BaseModel):
         'r130a-candidate-wave-input-1',
         'r130b-candidate-wave-input-1',
         'r130c-candidate-wave-input-1',
+        'r130d-candidate-wave-input-1',
     ] = PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION
     execution_input_id: str = Field(
         pattern=r'^candidate-wave-input:[0-9a-f]{64}$'
@@ -556,11 +586,13 @@ class CandidateWaveExecutionInput(BaseModel):
         'htdt.r130a.pffdtd_candidate_input_compiler',
         'htdt.r130b.pffdtd_candidate_impedance_input_compiler',
         'htdt.r130c.pffdtd_candidate_causal_boundary_input_compiler',
+        'htdt.r130d.pffdtd_polyhedral_input_compiler',
     ] = 'htdt.r130a.pffdtd_candidate_input_compiler'
-    adapter_compiler_version: Literal['1', '2', '3'] = '1'
+    adapter_compiler_version: Literal['1', '2', '3', '4'] = '1'
     solver_model_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     runtime_identity: CandidateRuntimeIdentity
     resource_configuration: CandidateResourceConfiguration
+    polyhedral_geometry_binding: CandidatePolyhedralGeometryBinding | None = None
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'CandidateWaveExecutionInput':
@@ -582,6 +614,10 @@ class CandidateWaveExecutionInput(BaseModel):
             item.model_dump(mode='json', exclude_none=True)
             for item in self.boundary_bindings
         ]
+        # R130D adds this optional binding without changing the byte/semantic
+        # shape of existing R130A/B/C input identities.
+        if self.polyhedral_geometry_binding is None:
+            payload.pop('polyhedral_geometry_binding', None)
         return payload
 
 
