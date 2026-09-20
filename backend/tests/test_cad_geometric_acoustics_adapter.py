@@ -698,6 +698,7 @@ def _fixture(
     source_region_id: str | None = None,
     receiver_region_id: str | None = None,
     boundary_termination_authority: BoundaryTerminationAuthority | None = None,
+    nontrivial_boundary_termination: bool = False,
     maximum_portal_crossings: int | None = None,
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
@@ -869,11 +870,34 @@ def _fixture(
         )
     else:
         portals = make_portal_authority(declaration_mode='explicit_none')
-    terminations = (
-        boundary_termination_authority
-        if boundary_termination_authority is not None
-        else make_boundary_termination_authority(declaration_mode='explicit_none')
-    )
+    if boundary_termination_authority is not None:
+        terminations = boundary_termination_authority
+    elif nontrivial_boundary_termination:
+        if portal_loop_vertex_indices is None or portal_surface_key is None:
+            raise ValueError('nontrivial termination fixture requires Portal geometry')
+        terminations = make_boundary_termination_authority(
+            declaration_mode='explicit_list',
+            declarations=(
+                BoundaryTerminationDeclaration(
+                    termination_id='fixture-termination',
+                    boundary_edges=(
+                        PortalBoundaryEdge(
+                            source_surface_id=surface_by_key[portal_surface_key],
+                            vertex_a=portal_loop_vertex_indices[0],
+                            vertex_b=portal_loop_vertex_indices[1],
+                        ),
+                    ),
+                    external_authority=_ref(
+                        'fixture-boundary-termination',
+                        'boundary-termination',
+                    ),
+                ),
+            ),
+        )
+    else:
+        terminations = make_boundary_termination_authority(
+            declaration_mode='explicit_none'
+        )
     material = _material(supported=supported_material)
     boundary_ref = _ref('fixture-boundary-physics', 'boundary')
     bindings = tuple(
