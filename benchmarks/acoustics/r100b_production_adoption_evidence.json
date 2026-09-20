@@ -202,6 +202,68 @@
       "notes": [
         "Non-converged stochastic evidence is retained as FAIL; same-seed identity is not promoted to candidate PASS."
       ]
+    },
+    {
+      "evidence_id": "pffdtd-windows-source-checkout-feasibility-2026-09-18",
+      "candidate_id": "pffdtd-main-aa319f6",
+      "candidate_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "hard_gate",
+      "fixture_id": null,
+      "hard_gate_category": "windows_packaging",
+      "reported_status": "blocked",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#pffdtd-windows-source-checkout-feasibility",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Pinned PFFDTD Python/Numba CPU source checkout executed on GitHub-hosted Windows.",
+        "This is Windows execution/reuse feasibility only; product packaging remains unresolved and the production Windows hard gate therefore remains BLOCKED."
+      ]
+    },
+    {
+      "evidence_id": "mfem-rigid-independent-reference-known-pass",
+      "candidate_id": "mfem-v4.10-d964264",
+      "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-rigid-rectangular-modes-v1",
+      "hard_gate_category": null,
+      "reported_status": "pass",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#mfem-independent-rigid-mode-reference",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Independent MFEM rigid-mode PASS is preserved as historical reference evidence.",
+        "The existing record predates current R100A authority binding and is not silently promoted to current selection input."
+      ]
+    },
+    {
+      "evidence_id": "mfem-impedance-independent-extraction-known-blocked",
+      "candidate_id": "mfem-v4.10-d964264",
+      "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "candidate_semantic_hash": null,
+      "candidate_manifest_hash": null,
+      "r100a_manifest_id": null,
+      "r100a_semantic_hash": null,
+      "target_kind": "fixture",
+      "fixture_id": "wave-normal-incidence-impedance-v1",
+      "hard_gate_category": null,
+      "reported_status": "blocked",
+      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#mfem-portal-continuity-evidence",
+      "fixture_evidence": null,
+      "hard_gate_evidence": null,
+      "platform": null,
+      "notes": [
+        "Independent MFEM complex reflection extraction remains BLOCKED; no PASS is fabricated."
+      ]
     }
   ]
 }
