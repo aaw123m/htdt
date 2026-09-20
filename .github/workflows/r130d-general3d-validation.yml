@@ -158,9 +158,11 @@ jobs:
           $manifest = [ordered]@{
             schema_version = 'htdt.r130d.target-window-artifact-manifest-1'
             repository_head = $env:HTDT_PR_HEAD_SHA
-            general3d_plan_sha256 = (Get-FileHash $env:PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
-            diagnostic_plan_sha256 = (Get-FileHash $env:DIAGNOSTIC_PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
-            pr286_baseline_summary_sha256 = (Get-FileHash $env:PR286_SUMMARY -Algorithm SHA256).Hash.ToLowerInvariant()
+            general3d_plan_file_sha256 = (Get-FileHash $env:PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
+            general3d_plan_semantic_sha256 = '5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec'
+            diagnostic_plan_file_sha256 = (Get-FileHash $env:DIAGNOSTIC_PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
+            diagnostic_plan_semantic_sha256 = 'ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db'
+            pr286_baseline_summary_file_sha256 = (Get-FileHash $env:PR286_SUMMARY -Algorithm SHA256).Hash.ToLowerInvariant()
             evidence_file_sha256 = (Get-FileHash $env:EVIDENCE_OUTPUT -Algorithm SHA256).Hash.ToLowerInvariant()
             rdc_calls = 0
             htdt_capture_changed = $false
