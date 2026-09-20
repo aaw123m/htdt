@@ -29,6 +29,8 @@ jobs:
       EXPERIMENT_DIR: artifacts/r100b/mfem_transient
       EXPERIMENT_REPORT: artifacts/r100b/mfem_transient/report.json
       HTDT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      HTDT_TASK_START_MAIN_SHA: f7ba4d8b30605b60da914c5e497870b104dfc7fa
+      HTDT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || 'f7ba4d8b30605b60da914c5e497870b104dfc7fa' }}
 
     steps:
       - uses: actions/checkout@v4
