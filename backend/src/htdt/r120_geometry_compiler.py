@@ -858,6 +858,7 @@ def compile_r120_geometry(
     portal_ga_topology_ready = _bounded_explicit_portal_ga_topology_ready(
         triangles=triangles,
         boundary_edges=boundary_edges,
+        surface_mapping=surface_mapping,
         region_authority=region_authority,
         portal_authority=portal_authority,
     )
@@ -1309,6 +1310,7 @@ def _bounded_explicit_portal_ga_topology_ready(
     *,
     triangles: tuple[CompiledTriangle, ...],
     boundary_edges: tuple[CompiledBoundaryEdge, ...],
+    surface_mapping: tuple[CompiledSurfaceMapping, ...],
     region_authority: AcousticRegionAuthority | None,
     portal_authority: PortalAuthority | None,
 ) -> bool:
@@ -1350,11 +1352,21 @@ def _bounded_explicit_portal_ga_topology_ready(
     if len(loop) < 3 or len(set(loop)) != len(loop):
         return False
 
-    actual_boundary_keys = {edge.canonical_key() for edge in boundary_edges}
-    declared_boundary_keys = {
-        edge.canonical_key() for edge in portal.boundary_edges
+    room_boundary_surface_ids = {
+        item.source_surface_id
+        for item in surface_mapping
+        if item.semantic_class == 'room_boundary'
     }
-    if actual_boundary_keys != declared_boundary_keys:
+    actual_boundary_geometry = {
+        _normalized_edge(edge.vertex_a, edge.vertex_b)
+        for edge in boundary_edges
+        if edge.source_surface_id in room_boundary_surface_ids
+    }
+    declared_boundary_geometry = {
+        _normalized_edge(edge.vertex_a, edge.vertex_b)
+        for edge in portal.boundary_edges
+    }
+    if actual_boundary_geometry != declared_boundary_geometry:
         return False
 
     portal_surface_ids = {
