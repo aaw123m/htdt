@@ -506,6 +506,102 @@ def _compose(bundle):
     )
 
 
+def _stitch_fixture() -> dict[str, object]:
+    path = (
+        Path(__file__).parent
+        / 'fixtures'
+        / 'r160_frequency_grid_stitch_fixture.json'
+    )
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
+def _fixture_transfer(
+    frequency_hz: float,
+    transfer: dict[str, float],
+) -> complex:
+    return complex(
+        transfer['real_intercept']
+        + transfer['real_slope_per_hz'] * frequency_hz,
+        transfer['imag_intercept']
+        + transfer['imag_slope_per_hz'] * frequency_hz,
+    )
+
+
+def _unequal_grid_bundle(case: dict[str, object]):
+    fixture = _stitch_fixture()
+    transfer = fixture['transfer']
+    assert isinstance(transfer, dict)
+    wave_grid = tuple(float(item) for item in case['wave_grid_hz'])
+    ga_grid = tuple(float(item) for item in case['ga_grid_hz'])
+    output_grid = tuple(float(item) for item in case['output_grid_hz'])
+    wave_values = tuple(
+        _fixture_transfer(frequency, transfer) for frequency in wave_grid
+    )
+    ga_values = tuple(
+        _fixture_transfer(frequency, transfer) for frequency in ga_grid
+    )
+    q_values = tuple(
+        complex(1.0e-4 + index * 1.0e-6, index * 5.0e-7)
+        for index, _ in enumerate(wave_grid)
+    )
+    excitation = _excitation(wave_grid, q_values)
+    candidate = _candidate_input(
+        frequencies=wave_grid,
+        excitation=excitation,
+    )
+    payload = _r130_payload(
+        candidate=candidate,
+        excitation=excitation,
+        frequencies=wave_grid,
+        physical_transfer_plus=wave_values,
+    )
+    payload_hash = _digest(payload)
+    artifact_ref = ExactExternalAuthorityRef(
+        authority_id=f'acoustic-solver-artifact:{payload_hash}',
+        authority_version=COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
+        semantic_hash_sha256=payload_hash,
+    )
+    result = _solver_result(
+        candidate=candidate,
+        artifact_ref=artifact_ref,
+        frequencies=wave_grid,
+    )
+    responses = (
+        _r150_response(
+            frequencies=ga_grid,
+            values=ga_values,
+        ),
+    )
+    normalization = build_hybrid_convention_normalization_authority()
+    spec = build_numerical_hybrid_composition_spec(
+        r130_result=result,
+        r130_artifact_payload=payload,
+        r130_candidate_input=candidate,
+        wave_excitation=excitation,
+        r150_responses=responses,
+        receiver_id='receiver-1',
+        exact_frequency_grid_hz=output_grid,
+        transition_start_hz=float(case['overlap_lower_hz']),
+        transition_end_hz=float(case['overlap_upper_hz']),
+        normalization_authority=normalization,
+        reconciliation_method='cartesian_linear_v1',
+    )
+    return {
+        'fixture': fixture,
+        'transfer': transfer,
+        'wave_grid': wave_grid,
+        'ga_grid': ga_grid,
+        'output_grid': output_grid,
+        'excitation': excitation,
+        'candidate': candidate,
+        'payload': payload,
+        'result': result,
+        'responses': responses,
+        'normalization': normalization,
+        'spec': spec,
+    }
+
+
 def test_identity_fixture_is_invariant_under_complementary_crossover_weights() -> None:
     expected = (
         2.0 + 3.0j,
