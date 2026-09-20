@@ -7,10 +7,12 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -94,6 +96,11 @@ class SystemExpansionRoomPanel(QFrame):
     ) -> None:
         super().__init__(parent)
         self.service = service
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
         set_surface_role(self, SurfaceRole.RAISED)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -103,7 +110,8 @@ class SystemExpansionRoomPanel(QFrame):
         set_typography_role(title, TypographyRole.SECTION_TITLE)
         layout.addWidget(title)
         intro = QLabel(
-            "現在構成と提案を分けて確認します。提案ghostは未設置で、現在のScene truthを変更しません。"
+            "現在の構成と提案を分けて確認します。提案は未設置として表示し、"
+            "現在の部屋には反映しません。"
         )
         intro.setWordWrap(True)
         set_typography_role(intro, TypographyRole.SECONDARY)
@@ -118,22 +126,22 @@ class SystemExpansionRoomPanel(QFrame):
         author_layout = QVBoxLayout(author)
         author_layout.setContentsMargins(0, 6, 0, 8)
         author_layout.setSpacing(8)
-        author_title = QLabel("追加speaker/channel と設置可能領域")
+        author_title = QLabel("追加スピーカー / チャンネルと設置可能領域")
         set_typography_role(author_title, TypographyRole.SECTION_TITLE)
         author_layout.addWidget(author_title)
         author_note = QLabel(
-            "内部IDを入力せず、既存O100A/B/C authorityで提案とplacement candidateを作成します。"
+            "内部IDを入力せず、既存の提案ルールに沿って配置候補を作成します。"
         )
         author_note.setWordWrap(True)
         set_typography_role(author_note, TypographyRole.SECONDARY)
         author_layout.addWidget(author_note)
 
         self.proposal_name = QLineEdit()
-        self.proposal_name.setPlaceholderText("例: proposed 5.0.2 A")
+        self.proposal_name.setPlaceholderText("例: 5.0.2 A")
         self.role_field = QLineEdit()
         self.role_field.setPlaceholderText("例: SL")
         self.equipment_combo = QComboBox()
-        self.zone_name = QLineEdit("install-zone")
+        self.zone_name = QLineEdit("設置エリア")
         self.zone_min_x = self._coordinate_field()
         self.zone_max_x = self._coordinate_field()
         self.zone_min_y = self._coordinate_field()
@@ -143,9 +151,13 @@ class SystemExpansionRoomPanel(QFrame):
         self.zone_step.setValue(0.25)
 
         proposal_form = QFormLayout()
+        proposal_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        proposal_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         proposal_form.addRow("提案名", self.proposal_name)
-        proposal_form.addRow("speaker role", self.role_field)
-        proposal_form.addRow("equipment/source", self.equipment_combo)
+        proposal_form.addRow("スピーカーの役割", self.role_field)
+        proposal_form.addRow("機器 / 音源", self.equipment_combo)
         proposal_form.addRow("設置可能領域", self.zone_name)
         proposal_form.addRow("X 最小 m", self.zone_min_x)
         proposal_form.addRow("X 最大 m", self.zone_max_x)
@@ -154,7 +166,8 @@ class SystemExpansionRoomPanel(QFrame):
         proposal_form.addRow("高さ m", self.zone_z)
         proposal_form.addRow("探索刻み m", self.zone_step)
         author_layout.addLayout(proposal_form)
-        self.create_proposal_button = QPushButton("提案とplacement candidateを作成")
+        self.create_proposal_button = QPushButton("提案を作成")
+        self.create_proposal_button.setToolTip("提案と配置候補を作成")
         set_primary_action(self.create_proposal_button)
         self.create_proposal_button.clicked.connect(self._create_proposal)
         author_layout.addWidget(self.create_proposal_button)
@@ -177,9 +190,18 @@ class SystemExpansionRoomPanel(QFrame):
         layout.addWidget(self.lifecycle_label)
 
         self.entity_tree = QTreeWidget()
-        self.entity_tree.setHeaderLabels(
-            ["追加speaker/channel", "役割", "状態", "equipment", "設置可能領域", "理由"]
+        self.entity_tree.setMinimumWidth(0)
+        self.entity_tree.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
         )
+        self.entity_tree.setHeaderLabels(
+            ["追加スピーカー / チャンネル", "役割", "状態", "機器", "設置可能領域", "理由"]
+        )
+        header = self.entity_tree.header()
+        header.setMinimumSectionSize(0)
+        for index in range(self.entity_tree.columnCount()):
+            header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
         self.entity_tree.itemSelectionChanged.connect(self._entity_selected)
         layout.addWidget(self.entity_tree, 1)
 
@@ -214,7 +236,7 @@ class SystemExpansionRoomPanel(QFrame):
         self.create_proposal_button.setEnabled(self.equipment_combo.count() > 0)
         if self.equipment_combo.count() == 0:
             self.authoring_status.setText(
-                "equipment/source modelがありません。先にEquipmentDefinitionを登録してください。"
+                "機器 / 音源モデルがありません。先に機器定義を登録してください。"
             )
 
     def _initialize_zone_from_room(self) -> None:
@@ -238,7 +260,7 @@ class SystemExpansionRoomPanel(QFrame):
         equipment_sha = self.equipment_combo.currentData()
         if equipment_sha is None:
             self.authoring_status.setText(
-                "equipment/source modelを選択してください。"
+                "機器 / 音源を選択してください。"
             )
             return
         try:

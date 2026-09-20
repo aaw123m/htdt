@@ -553,6 +553,31 @@ def test_room_workspace_compact_layout_prioritizes_viewport_and_toggles_palette(
     app.processEvents()
 
 
+def test_room_workspace_exposes_cad_navigation_hint_in_all_layouts(tmp_path) -> None:
+    app = _app()
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    workspace = RoomWorkspace(
+        repository,
+        F1_DOCUMENT_ID,
+        viewport_factory=lambda parent: FakeRoomViewport(parent),
+    )
+    workspace.resize(820, 600)
+    workspace.show()
+    app.processEvents()
+
+    hint = workspace.overlay_controls.navigation_hint
+    assert hint.isVisible()
+    assert "中ボタン" in hint.text()
+    assert "Shift+中ボタン" in hint.text()
+    assert "ホイール" in hint.text()
+    assert "右クリック" in hint.text()
+    assert "視点回転" in hint.toolTip()
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
 
 def test_room_viewport_visual_foundation_has_floor_and_major_minor_grid() -> None:
     document = make_f1_scene()

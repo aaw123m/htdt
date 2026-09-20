@@ -486,6 +486,12 @@ class OptimizationWorkflowWorkspace(QWidget):
         summary = _required(self.search_summary_label, "search_summary_label")
         summary.setWordWrap(True)
         base.addWidget(summary)
+        reason = _required(
+            self.search_generate_reason_label,
+            "search_generate_reason_label",
+        )
+        reason.setWordWrap(True)
+        base.addWidget(reason)
         base.addWidget(_required(self.search_candidate_tree, "search_candidate_tree"), 1)
 
         paging = QHBoxLayout()
