@@ -445,7 +445,6 @@ class AggregatedGaComplexResponse(BaseModel):
     time_origin: Literal['source_t0'] = COMMON_TIME_ORIGIN
 
     capability_state: HybridNumericalCapability
-    failure_codes: tuple[HybridNumericalFailureCode, ...] = ()
     unsupported_reasons: tuple[str, ...] = ()
     samples: tuple[AggregatedGaComplexSample, ...] = ()
 
@@ -577,6 +576,7 @@ class NumericalHybridResponseArtifact(BaseModel):
     weight_law: HybridWeightLaw
 
     capability_state: HybridNumericalCapability
+    failure_codes: tuple[HybridNumericalFailureCode, ...] = ()
     unsupported_reasons: tuple[str, ...] = ()
     samples: tuple[NumericalHybridResponseSample, ...] = ()
 
