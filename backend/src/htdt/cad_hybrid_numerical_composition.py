@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from contextlib import closing
 from hashlib import sha256
 import json
-from math import atan2, isclose, isfinite
+from math import atan2, cos, isclose, isfinite, sin
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal
@@ -39,6 +39,11 @@ R130_ANALYSIS_FOURIER_KERNEL = 'exp(+i*omega*t)'
 COMMON_PHASOR_CONVENTION = R150_PHASOR_CONVENTION
 COMMON_ANALYSIS_FOURIER_KERNEL = 'exp(-i*omega*t)'
 COMMON_TIME_ORIGIN = 'source_t0'
+R130_TIME_ORIGIN = 'finite_record_sample_0_unit_source_impulse'
+R130_TRANSFER_DEFINITION = 'finite_record_direct_dtft_P_over_Q_exp_plus_iwt'
+R130_SOURCE_INJECTION_MAPPING = (
+    'unit_discrete_volume_velocity_impulse_for_transfer_then_exact_Q_spectrum'
+)
 COMMON_SOURCE_NORMALIZATION = 'unit_volume_velocity_m3_s'
 R130_PRESSURE_REFERENCE = (
     'absolute complex acoustic pressure from finite-record P/Q '
@@ -162,6 +167,15 @@ class HybridConventionNormalizationAuthority(BaseModel):
     wave_source_phasor_convention: Literal[
         'exp(-i*omega*t)'
     ] = R130_PHASOR_CONVENTION
+    wave_time_origin: Literal[
+        'finite_record_sample_0_unit_source_impulse'
+    ] = R130_TIME_ORIGIN
+    wave_transfer_definition: Literal[
+        'finite_record_direct_dtft_P_over_Q_exp_plus_iwt'
+    ] = R130_TRANSFER_DEFINITION
+    wave_source_injection_mapping: Literal[
+        'unit_discrete_volume_velocity_impulse_for_transfer_then_exact_Q_spectrum'
+    ] = R130_SOURCE_INJECTION_MAPPING
 
     ga_input_quantity: Literal[
         'complex_acoustic_pressure_per_volume_velocity'
@@ -178,6 +192,9 @@ class HybridConventionNormalizationAuthority(BaseModel):
     conversion_operation: Literal[
         'divide_pressure_by_exact_Q_then_complex_conjugate'
     ] = 'divide_pressure_by_exact_Q_then_complex_conjugate'
+    time_origin_conversion: Literal[
+        'finite_record_sample_0_source_impulse_equals_source_t0_no_shift'
+    ] = 'finite_record_sample_0_source_impulse_equals_source_t0_no_shift'
     common_quantity: Literal[
         'complex_acoustic_pressure_per_volume_velocity'
     ] = TRANSFER_QUANTITY
@@ -227,6 +244,9 @@ def build_hybrid_convention_normalization_authority(
         'wave_analysis_fourier_kernel': R130_ANALYSIS_FOURIER_KERNEL,
         'wave_source_quantity': 'complex_volume_velocity_m3_s',
         'wave_source_phasor_convention': R130_PHASOR_CONVENTION,
+        'wave_time_origin': R130_TIME_ORIGIN,
+        'wave_transfer_definition': R130_TRANSFER_DEFINITION,
+        'wave_source_injection_mapping': R130_SOURCE_INJECTION_MAPPING,
         'ga_input_quantity': TRANSFER_QUANTITY,
         'ga_input_unit': TRANSFER_UNIT,
         'ga_input_source_normalization': COMMON_SOURCE_NORMALIZATION,
@@ -234,6 +254,9 @@ def build_hybrid_convention_normalization_authority(
         'ga_input_time_origin': COMMON_TIME_ORIGIN,
         'conversion_operation': (
             'divide_pressure_by_exact_Q_then_complex_conjugate'
+        ),
+        'time_origin_conversion': (
+            'finite_record_sample_0_source_impulse_equals_source_t0_no_shift'
         ),
         'common_quantity': TRANSFER_QUANTITY,
         'common_unit': TRANSFER_UNIT,
@@ -359,7 +382,7 @@ class AggregatedGaComplexSample(BaseModel):
         ):
             raise ValueError('R160 GA aggregate magnitude mismatch')
         delta = _phase(value) - float(self.phase_rad)
-        if abs(atan2(__import__('math').sin(delta), __import__('math').cos(delta))) > 1e-10:
+        if abs(atan2(sin(delta), cos(delta))) > 1e-10:
             raise ValueError('R160 GA aggregate phase mismatch')
         return self
 
@@ -475,7 +498,7 @@ class NumericalHybridResponseSample(BaseModel):
         ):
             raise ValueError('R160 hybrid magnitude mismatch')
         delta = _phase(actual) - float(self.phase_rad)
-        if abs(atan2(__import__('math').sin(delta), __import__('math').cos(delta))) > 1e-10:
+        if abs(atan2(sin(delta), cos(delta))) > 1e-10:
             raise ValueError('R160 hybrid phase mismatch')
         return self
 
@@ -612,6 +635,18 @@ def _validate_wave_inputs(
         != R130_ANALYSIS_FOURIER_KERNEL
     ):
         raise ValueError('R130 complex/Fourier convention is not explicitly supported')
+    time_sampling = payload.get('time_sampling')
+    if (
+        not isinstance(time_sampling, dict)
+        or time_sampling.get('finite_record_interval') != '[0,T)'
+        or not isinstance(time_sampling.get('time_step_s'), (int, float))
+        or float(time_sampling['time_step_s']) <= 0.0
+        or not isinstance(time_sampling.get('sample_count'), int)
+        or int(time_sampling['sample_count']) < 1
+    ):
+        raise ValueError(
+            'R130 time-origin authority requires exact finite-record [0,T) metadata'
+        )
     if (
         payload.get('candidate_execution_input_id')
         != candidate_input.execution_input_id
@@ -668,6 +703,12 @@ def _validate_wave_inputs(
     frequencies = tuple(float(item) for item in payload.get('frequency_axis_hz', ()))
     if frequencies != tuple(sorted(set(frequencies))) or len(frequencies) < 2:
         raise ValueError('R130 frequency axis must be exact sorted unique bins')
+    if frequencies != tuple(
+        float(item) for item in candidate_input.frequency_samples_hz
+    ):
+        raise ValueError(
+            'R130 artifact frequency axis is stale for exact candidate input'
+        )
     real_rows = payload.get('pressure_real_pa')
     imag_rows = payload.get('pressure_imag_pa')
     if (
