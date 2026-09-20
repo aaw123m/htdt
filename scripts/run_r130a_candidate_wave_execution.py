@@ -11,6 +11,12 @@ import sys
 import traceback
 
 from htdt.acoustic_benchmark import AcousticMaterial, SpecificImpedancePoint
+from htdt.acoustic_pffdtd_causal_boundary import (
+    PFFDTD_CAUSAL_BOUNDARY_MAPPING_VERSION,
+    CausalAdmittanceBranch,
+    build_causal_frequency_dependent_boundary_authority,
+    pffdtd_causal_boundary_mapping_authority_payload,
+)
 from htdt.acoustic_pffdtd_impedance_adapter import (
     PFFDTD_IMPEDANCE_MAPPING_ID,
     PFFDTD_IMPEDANCE_MAPPING_VERSION,
@@ -36,6 +42,7 @@ from htdt.cad_candidate_wave_execution import (
     PFFDTD_CANDIDATE_ADAPTER_ID,
     PFFDTD_CANDIDATE_ADAPTER_VERSION,
     PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION,
+    PFFDTD_CANDIDATE_CAUSAL_ADAPTER_VERSION,
     CandidateResourceConfiguration,
     CandidateWaveExecutionCancelled,
     CandidateWaveExecutionError,
@@ -162,7 +169,7 @@ def _semantic_geometry(
                 semantic_class='room_boundary',
             ),
         )
-    elif boundary_mode == 'impedance':
+    elif boundary_mode in {'impedance', 'causal'}:
         assignments = (
             SurfaceSemanticAssignment(
                 surface_key='closed-room-shell-rigid',
@@ -170,7 +177,11 @@ def _semantic_geometry(
                 semantic_class='room_boundary',
             ),
             SurfaceSemanticAssignment(
-                surface_key='normal-incidence-impedance-wall',
+                surface_key=(
+                    'normal-incidence-impedance-wall'
+                    if boundary_mode == 'impedance'
+                    else 'normal-incidence-causal-wall'
+                ),
                 triangle_ids=triangle_ids[-2:],
                 semantic_class='room_boundary',
             ),
@@ -246,7 +257,7 @@ def _fixture(
     store = ExactJsonAuthorityStore(authority_root)
 
     scene_repository = SceneRepository(db_path)
-    if boundary_mode not in {'rigid', 'impedance'}:
+    if boundary_mode not in {'rigid', 'impedance', 'causal'}:
         raise ValueError(f'unsupported boundary mode: {boundary_mode}')
     revision = scene_repository.save(
         _scene(boundary_mode, fixture_id=fixture_id),
@@ -381,9 +392,10 @@ def _fixture(
     assert geometry is not None
 
     sound_speed_m_s = 343.2 if boundary_mode == 'rigid' else 343.0
-    if boundary_mode == 'impedance':
+    if boundary_mode in {'impedance', 'causal'}:
+        boundary_prefix = 'r130b' if boundary_mode == 'impedance' else 'r130c'
         sound_speed_ref = store.put_json(
-            'r130b-fixture-sound-speed',
+            f'{boundary_prefix}-fixture-sound-speed',
             '1',
             {
                 'quantity': 'sound_speed_m_s',
@@ -393,7 +405,7 @@ def _fixture(
             },
         )
         density_ref = store.put_json(
-            'r130b-fixture-density',
+            f'{boundary_prefix}-fixture-density',
             '1',
             {
                 'quantity': 'air_density_kg_m3',
@@ -438,7 +450,11 @@ def _fixture(
         impedance_material_ref = None
         impedance_boundary_ref = None
         impedance_mapping_ref = None
-    else:
+        causal_material_ref = None
+        causal_boundary_ref = None
+        causal_mapping_ref = None
+        causal_authority = None
+    elif boundary_mode == 'impedance':
         assert len(geometry.surfaces) == 2
         surface_by_key = {
             surface.surface_key: surface for surface in geometry.surfaces
@@ -546,6 +562,128 @@ def _fixture(
             rigid_surface.surface_id,
             impedance_surface.surface_id,
         )
+        causal_material_ref = None
+        causal_boundary_ref = None
+        causal_mapping_ref = None
+        causal_authority = None
+    else:
+        assert boundary_mode == 'causal'
+        assert len(geometry.surfaces) == 2
+        surface_by_key = {
+            surface.surface_key: surface for surface in geometry.surfaces
+        }
+        rigid_surface = surface_by_key['closed-room-shell-rigid']
+        causal_surface = surface_by_key['normal-incidence-causal-wall']
+
+        rigid_material_ref = store.put_json(
+            'r130c-fixture-rigid-material',
+            '1',
+            {
+                'authority_kind': 'acoustic_material',
+                'fixture_id': fixture_id,
+                'name': 'candidate rigid companion material',
+                'candidate_only': True,
+            },
+        )
+        rigid_boundary_ref = store.put_json(
+            'r130c-fixture-rigid-wave-boundary',
+            '1',
+            {
+                'authority_kind': 'wave_boundary_physics',
+                'model': 'rigid_zero_normal_velocity',
+                'normal_velocity_m_s': 0.0,
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+            },
+        )
+        causal_authority = build_causal_frequency_dependent_boundary_authority(
+            source_scene_revision_id=revision.revision_id,
+            source_scene_content_hash=revision.content_hash,
+            source_surface_id=causal_surface.surface_id,
+            material_id='r130c-analytic-series-rlc',
+            material_version='1',
+            valid_frequency_domain=FrequencyDomain(
+                minimum_hz=40.0,
+                maximum_hz=80.0,
+            ),
+            branches=(
+                CausalAdmittanceBranch(
+                    d_seconds=8.0e-4,
+                    e_dimensionless=1.5,
+                    f_per_second=120.0,
+                ),
+            ),
+            evidence_state='analytic',
+            provenance={
+                'basis': 'closed_form_positive_real_series_RLC',
+                'fixture_id': fixture_id,
+                'candidate_only': True,
+                'scalar_absorption_conversion': False,
+            },
+            uncertainty=None,
+        )
+        causal_material_ref = store.put_exact_json(
+            causal_authority.as_external_ref(),
+            causal_authority.semantic_payload(),
+        )
+        causal_mapping_ref = store.put_json(
+            'r130c-pffdtd-causal-boundary-mapping',
+            PFFDTD_CAUSAL_BOUNDARY_MAPPING_VERSION,
+            pffdtd_causal_boundary_mapping_authority_payload(),
+        )
+        causal_boundary_ref = store.put_json(
+            'r130c-fixture-wave-boundary',
+            '1',
+            {
+                'authority_kind': 'wave_boundary_physics',
+                'model': 'causal_specific_admittance_def',
+                'physical_quantity_type': 'specific_acoustic_admittance',
+                'unit': 'm/(Pa*s)',
+                'normalization': 'Yn=rho*c*Y_specific',
+                'representation': 'parallel_series_RLC_normalized_DEF',
+                'interpolation_semantics': (
+                    'analytic_rational_evaluation_no_interpolation'
+                ),
+                'extrapolation_rule': 'forbidden',
+                'valid_frequency_domain': {
+                    'minimum_hz': 40.0,
+                    'maximum_hz': 80.0,
+                },
+                'causal_boundary_authority_ref': (
+                    causal_material_ref.model_dump(mode='json')
+                ),
+                'density_authority_ref': density_ref.model_dump(mode='json'),
+                'sound_speed_authority_ref': (
+                    sound_speed_ref.model_dump(mode='json')
+                ),
+                'pffdtd_mapping_authority_ref': (
+                    causal_mapping_ref.model_dump(mode='json')
+                ),
+                'provenance': {
+                    'basis': 'analytic_positive_real_DEF',
+                    'candidate_only': True,
+                },
+            },
+        )
+        surface_boundary_bindings = (
+            SurfaceBoundaryAuthorityBinding(
+                source_surface_id=rigid_surface.surface_id,
+                material_authority=rigid_material_ref,
+                boundary_physics_authority=rigid_boundary_ref,
+            ),
+            SurfaceBoundaryAuthorityBinding(
+                source_surface_id=causal_surface.surface_id,
+                material_authority=causal_material_ref,
+                boundary_physics_authority=causal_boundary_ref,
+            ),
+        )
+        region_surface_ids = (
+            rigid_surface.surface_id,
+            causal_surface.surface_id,
+        )
+        impedance_material_ref = None
+        impedance_boundary_ref = None
+        impedance_mapping_ref = None
 
     region = make_acoustic_region_authority(
         (
@@ -662,17 +800,17 @@ def _fixture(
     )
     snapshot_repository.save_snapshot(snapshot)
 
-    role_id = (
-        'r130a-candidate-wave'
-        if boundary_mode == 'rigid'
-        else 'r130b-candidate-impedance'
-    )
+    role_id = {
+        'rigid': 'r130a-candidate-wave',
+        'impedance': 'r130b-candidate-impedance',
+        'causal': 'r130c-candidate-causal-boundary',
+    }[boundary_mode]
     fidelity_ref = store.put_json(
-        (
-            'r130a-candidate-fidelity-policy'
-            if boundary_mode == 'rigid'
-            else 'r130b-candidate-fidelity-policy'
-        ),
+        {
+            'rigid': 'r130a-candidate-fidelity-policy',
+            'impedance': 'r130b-candidate-fidelity-policy',
+            'causal': 'r130c-candidate-fidelity-policy',
+        }[boundary_mode],
         '1',
         {
             'fixture_id': fixture_id,
@@ -765,11 +903,11 @@ def _fixture(
     )
     descriptor = build_acoustic_solver_adapter_descriptor(
         adapter_id=PFFDTD_CANDIDATE_ADAPTER_ID,
-        adapter_version=(
-            PFFDTD_CANDIDATE_ADAPTER_VERSION
-            if boundary_mode == 'rigid'
-            else PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION
-        ),
+        adapter_version={
+            'rigid': PFFDTD_CANDIDATE_ADAPTER_VERSION,
+            'impedance': PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION,
+            'causal': PFFDTD_CANDIDATE_CAUSAL_ADAPTER_VERSION,
+        }[boundary_mode],
         model_solver_role_id=role_id,
         acoustic_domain='wave',
         solver_implementation_ref=implementation_ref,
@@ -860,6 +998,10 @@ def _fixture(
         'impedance_material_ref': impedance_material_ref,
         'impedance_boundary_ref': impedance_boundary_ref,
         'impedance_mapping_ref': impedance_mapping_ref,
+        'causal_material_ref': causal_material_ref,
+        'causal_boundary_ref': causal_boundary_ref,
+        'causal_mapping_ref': causal_mapping_ref,
+        'causal_authority': causal_authority,
         'density_ref': density_ref,
         'sound_speed_ref': sound_speed_ref,
     }

@@ -200,24 +200,39 @@ def pffdtd_candidate_input_ref(
 
 def _model_geometry(
     model: dict[str, Any],
-) -> tuple[tuple[float, float, float], int, int]:
+) -> tuple[tuple[float, float, float], int, int, int]:
     mats = model.get('mats_hash')
-    if not isinstance(mats, dict) or set(mats) != {'_RIGID'}:
-        raise ValueError(
-            'R140 PFFDTD estimator v1 supports the exact R130A rigid model only'
-        )
-    rigid = mats['_RIGID']
-    if not isinstance(rigid, dict):
-        raise ValueError('PFFDTD rigid model payload is invalid')
-    points = rigid.get('pts')
-    triangles = rigid.get('tris')
-    if not isinstance(points, list) or not points:
-        raise ValueError('PFFDTD model has no geometry points')
-    if not isinstance(triangles, list) or len(triangles) < 4:
+    if not isinstance(mats, dict) or not mats:
+        raise ValueError('PFFDTD model has no material geometry groups')
+
+    first_points: list[Any] | None = None
+    triangle_count = 0
+    nonrigid_material_count = 0
+    for group_name, group in mats.items():
+        if not isinstance(group, dict):
+            raise ValueError('PFFDTD material geometry group payload is invalid')
+        points = group.get('pts')
+        triangles = group.get('tris')
+        if not isinstance(points, list) or not points:
+            raise ValueError('PFFDTD model has no geometry points')
+        if not isinstance(triangles, list):
+            raise ValueError('PFFDTD model material group triangles are invalid')
+        if first_points is None:
+            first_points = points
+        elif points != first_points:
+            raise ValueError(
+                'PFFDTD mixed material groups must share the exact point authority'
+            )
+        triangle_count += len(triangles)
+        if group_name != '_RIGID':
+            nonrigid_material_count += 1
+
+    assert first_points is not None
+    if triangle_count < 4:
         raise ValueError('PFFDTD model has insufficient triangles')
 
     normalized: list[tuple[float, float, float]] = []
-    for point in points:
+    for point in first_points:
         if not isinstance(point, (list, tuple)) or len(point) != 3:
             raise ValueError('PFFDTD model point is not 3D')
         xyz = tuple(float(value) for value in point)
@@ -230,7 +245,12 @@ def _model_geometry(
     extents = tuple(maxs[axis] - mins[axis] for axis in range(3))
     if any(value <= 0.0 for value in extents):
         raise ValueError('PFFDTD model geometry bbox must have positive extent')
-    return extents, len(normalized), len(triangles)
+    return (
+        extents,
+        len(normalized),
+        triangle_count,
+        nonrigid_material_count,
+    )
 
 
 def _grid_shape(
@@ -300,6 +320,7 @@ def _ram_components(
     triangle_count: int,
     point_count: int,
     setup_processes: int,
+    nonrigid_material_count: int,
 ) -> tuple[tuple[PffdtdResourceComponent, ...], ResourceQuantity]:
     nx, ny, nz = grid_shape
     n_axis = nx + ny + nz
@@ -359,11 +380,28 @@ def _ram_components(
             derivation='u_out float64[Nr,Nt], Nr=8*receiver_count',
         ),
         PffdtdResourceComponent(
-            component='rigid_material_coefficients',
-            bytes=696,
+            component=(
+                'rigid_material_coefficients'
+                if nonrigid_material_count == 0
+                else 'material_coefficients_and_lossy_boundary_state_upper_bound'
+            ),
+            bytes=(
+                696
+                if nonrigid_material_count == 0
+                else (
+                    (nonrigid_material_count + 1) * 680
+                    + 16
+                    + (8 + 3 * 12 * 8) * grid_cells
+                )
+            ),
             derivation=(
                 'one structured coefficient row for Nm=0 plus av[2]; '
                 'pinned set_coeffs dtype'
+                if nonrigid_material_count == 0
+                else (
+                    'pinned SimEngine MMb=12: (Nm+1) coefficient rows plus av[2], '
+                    'and conservative Nbl<=Ngrid reserve for u2b + vh0/vh1/gh1'
+                )
             ),
         ),
     )
@@ -480,6 +518,7 @@ def _scratch_components(
     voxel_count: int,
     raw_output_cap_bytes: int,
     frequency_count: int,
+    nonrigid_material_count: int,
 ) -> tuple[tuple[PffdtdResourceComponent, ...], ResourceQuantity]:
     nr = _INTERPOLATION_POINTS * receiver_count
     nx, ny, nz = grid_shape
@@ -547,6 +586,21 @@ def _scratch_components(
             ),
         ),
     )
+    if nonrigid_material_count:
+        components = components + (
+            PffdtdResourceComponent(
+                component='frequency_dependent_material_hdf5_upper_bound',
+                bytes=(
+                    2
+                    * nonrigid_material_count
+                    * (_HDF5_METADATA_RESERVE_PER_FILE + 12 * 3 * _FLOAT64_BYTES)
+                ),
+                derivation=(
+                    'individual DEF HDF5 plus packaged sim_mats.h5 reserve, '
+                    'bounded by pinned MMb=12 per non-rigid material'
+                ),
+            ),
+        )
     total = sum(item.bytes for item in components)
     return components, ResourceQuantity.known(total, 'bytes')
 
@@ -591,7 +645,12 @@ class PffdtdCandidateResourceEstimator:
         if configuration.fcc_flag is not False:
             raise ValueError('PFFDTD estimator v1 is Cartesian-only')
 
-        extents, point_count, triangle_count = _model_geometry(model)
+        (
+            extents,
+            point_count,
+            triangle_count,
+            nonrigid_material_count,
+        ) = _model_geometry(model)
         h = float(sound_speed_m_s) / (
             float(configuration.fmax_hz)
             * float(configuration.points_per_wavelength)
@@ -639,6 +698,7 @@ class PffdtdCandidateResourceEstimator:
             triangle_count=triangle_count,
             point_count=point_count,
             setup_processes=configuration.resource.setup_processes,
+            nonrigid_material_count=nonrigid_material_count,
         )
         scratch_components, scratch = _scratch_components(
             model=model,
@@ -650,6 +710,7 @@ class PffdtdCandidateResourceEstimator:
             voxel_count=voxel_count,
             raw_output_cap_bytes=configuration.resource.max_output_bytes,
             frequency_count=frequency_count,
+            nonrigid_material_count=nonrigid_material_count,
         )
 
         logical_cpu = max(
@@ -670,6 +731,12 @@ class PffdtdCandidateResourceEstimator:
             'GPU slots are KNOWN zero for this CPU-only candidate; VRAM is UNAVAILABLE',
             'no production solver adoption or CPU/GPU numerical-equivalence claim',
         )
+        if nonrigid_material_count:
+            semantics = semantics + (
+                'mixed rigid/non-rigid PFFDTD geometry is accepted only when every '
+                'material group shares the exact point authority; triangle counts '
+                'are summed and lossy boundary state is conservatively bounded by Ngrid',
+            )
 
         core = {
             'authority_version': PFFDTD_RESOURCE_WORKLOAD_AUTHORITY_VERSION,

@@ -18,6 +18,13 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .acoustic_benchmark import AcousticMaterial
+from .acoustic_pffdtd_causal_boundary import (
+    PFFDTD_CAUSAL_BOUNDARY_MAPPING_VERSION,
+    PffdtdCausalBoundaryCompilation,
+    CausalFrequencyDependentBoundaryAuthority,
+    compile_causal_boundary_to_pffdtd,
+    pffdtd_causal_boundary_mapping_authority_payload,
+)
 from .acoustic_pffdtd_adapter import (
     apply_pffdtd_runtime_compatibility_patches,
     finite_record_pressure_transfer,
@@ -64,8 +71,10 @@ from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 PFFDTD_CANDIDATE_ADAPTER_ID = 'htdt.r130a.pffdtd_candidate_wave'
 PFFDTD_CANDIDATE_ADAPTER_VERSION = '1'
 PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION = '2'
+PFFDTD_CANDIDATE_CAUSAL_ADAPTER_VERSION = '3'
 PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION = 'r130a-candidate-wave-input-1'
 PFFDTD_CANDIDATE_IMPEDANCE_INPUT_AUTHORITY_VERSION = 'r130b-candidate-wave-input-1'
+PFFDTD_CANDIDATE_CAUSAL_INPUT_AUTHORITY_VERSION = 'r130c-candidate-wave-input-1'
 PFFDTD_CANDIDATE_CONFIGURATION_VERSION = 'r130a-pffdtd-config-1'
 COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION = (
     'htdt.r130a.candidate-complex-pressure-artifact-1'
@@ -455,6 +464,13 @@ class CandidateBoundaryBinding(BaseModel):
     material_authority: ExactExternalAuthorityRef
     boundary_physics_authority: ExactExternalAuthorityRef
     impedance_mapping: CandidateImpedanceBoundaryMapping | None = None
+    causal_mapping: PffdtdCausalBoundaryCompilation | None = None
+
+    @model_validator(mode='after')
+    def one_nonrigid_mapping(self) -> 'CandidateBoundaryBinding':
+        if self.impedance_mapping is not None and self.causal_mapping is not None:
+            raise ValueError('boundary binding cannot contain two non-rigid mappings')
+        return self
 
 
 class CandidateBoundaryMaterialAsset(BaseModel):
@@ -488,6 +504,7 @@ class CandidateWaveExecutionInput(BaseModel):
     authority_version: Literal[
         'r130a-candidate-wave-input-1',
         'r130b-candidate-wave-input-1',
+        'r130c-candidate-wave-input-1',
     ] = PFFDTD_CANDIDATE_INPUT_AUTHORITY_VERSION
     execution_input_id: str = Field(
         pattern=r'^candidate-wave-input:[0-9a-f]{64}$'
@@ -538,8 +555,9 @@ class CandidateWaveExecutionInput(BaseModel):
     adapter_compiler_id: Literal[
         'htdt.r130a.pffdtd_candidate_input_compiler',
         'htdt.r130b.pffdtd_candidate_impedance_input_compiler',
+        'htdt.r130c.pffdtd_candidate_causal_boundary_input_compiler',
     ] = 'htdt.r130a.pffdtd_candidate_input_compiler'
-    adapter_compiler_version: Literal['1', '2'] = '1'
+    adapter_compiler_version: Literal['1', '2', '3'] = '1'
     solver_model_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     runtime_identity: CandidateRuntimeIdentity
     resource_configuration: CandidateResourceConfiguration
@@ -767,6 +785,28 @@ def _impedance_material_group(binding: CandidateBoundaryBinding) -> str:
     return f'HTDT_Z_{digest[:20]}'
 
 
+def _causal_material_group(binding: CandidateBoundaryBinding) -> str:
+    mapping = binding.causal_mapping
+    if mapping is None:
+        raise CandidateWaveExecutionError(
+            'boundary has no PFFDTD causal material group'
+        )
+    digest = _digest(
+        {
+            'source_surface_id': binding.source_surface_id,
+            'material_authority': binding.material_authority.model_dump(mode='json'),
+            'boundary_physics_authority': (
+                binding.boundary_physics_authority.model_dump(mode='json')
+            ),
+            'mapping_authority_ref': mapping.mapping_authority_ref.model_dump(
+                mode='json'
+            ),
+            'compiled_boundary_sha256': mapping.semantic_sha256,
+        }
+    )
+    return f'HTDT_YFD_{digest[:20]}'
+
+
 def _compile_mixed_pffdtd_model(
     *,
     geometry: R120CompiledGeometry,
@@ -810,12 +850,19 @@ def _compile_mixed_pffdtd_model(
         strict=True,
     ):
         binding = binding_by_surface[compiled_triangle.source_surface_id]
-        if binding.impedance_mapping is None:
+        if (
+            binding.impedance_mapping is None
+            and binding.causal_mapping is None
+        ):
             group = '_RIGID'
             side = 0
             color = [220, 220, 220]
         else:
-            group = _impedance_material_group(binding)
+            group = (
+                _causal_material_group(binding)
+                if binding.causal_mapping is not None
+                else _impedance_material_group(binding)
+            )
             # _compile_rigid_pffdtd_model normalizes a closed shell to outward
             # winding. PFFDTD side=1 activates the back/negative-normal side,
             # which is the room-interior side for that outward winding.
@@ -834,17 +881,23 @@ def _compile_mixed_pffdtd_model(
         target['sides'].append(side)
 
     if not any(
-        item.impedance_mapping is not None for item in boundary_bindings
+        item.impedance_mapping is not None or item.causal_mapping is not None
+        for item in boundary_bindings
     ):
         raise CandidateWaveExecutionError(
-            'mixed PFFDTD compiler requires at least one impedance boundary'
+            'mixed PFFDTD compiler requires at least one non-rigid boundary'
         )
 
+    has_causal = any(
+        item.causal_mapping is not None for item in boundary_bindings
+    )
     return {
         **base,
         'mats_hash': groups,
         'export_datetime': (
-            'HTDT R130B candidate deterministic impedance compiler v1'
+            'HTDT R130C candidate deterministic causal boundary compiler v1'
+            if has_causal
+            else 'HTDT R130B candidate deterministic impedance compiler v1'
         ),
     }
 
@@ -956,6 +1009,7 @@ class PffdtdCandidateWaveExecutor:
             not in {
                 PFFDTD_CANDIDATE_ADAPTER_VERSION,
                 PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION,
+                PFFDTD_CANDIDATE_CAUSAL_ADAPTER_VERSION,
             }
             or descriptor.acoustic_domain != 'wave'
         ):
@@ -1088,6 +1142,162 @@ class PffdtdCandidateWaveExecutor:
                         source_surface_id=item.source_surface_id,
                         material_authority=item.material_authority,
                         boundary_physics_authority=item.boundary_physics_authority,
+                    )
+                )
+                continue
+
+            if boundary_payload.get('model') == 'causal_specific_admittance_def':
+                if (
+                    descriptor.adapter_version
+                    != PFFDTD_CANDIDATE_CAUSAL_ADAPTER_VERSION
+                ):
+                    raise CandidateWaveExecutionError(
+                        'causal frequency-dependent execution requires the R130C adapter version'
+                    )
+                if (
+                    boundary_payload.get('physical_quantity_type')
+                    != 'specific_acoustic_admittance'
+                    or boundary_payload.get('unit') != 'm/(Pa*s)'
+                    or boundary_payload.get('normalization')
+                    != 'Yn=rho*c*Y_specific'
+                    or boundary_payload.get('representation')
+                    != 'parallel_series_RLC_normalized_DEF'
+                    or boundary_payload.get('interpolation_semantics')
+                    != 'analytic_rational_evaluation_no_interpolation'
+                    or boundary_payload.get('extrapolation_rule') != 'forbidden'
+                ):
+                    raise CandidateWaveExecutionError(
+                        'causal boundary quantity/unit/normalization/representation mismatch'
+                    )
+                try:
+                    causal_ref = ExactExternalAuthorityRef.model_validate(
+                        boundary_payload.get('causal_boundary_authority_ref')
+                    )
+                    density_ref = ExactExternalAuthorityRef.model_validate(
+                        boundary_payload.get('density_authority_ref')
+                    )
+                    sound_speed_ref = ExactExternalAuthorityRef.model_validate(
+                        boundary_payload.get('sound_speed_authority_ref')
+                    )
+                    mapping_ref = ExactExternalAuthorityRef.model_validate(
+                        boundary_payload.get('pffdtd_mapping_authority_ref')
+                    )
+                    valid_domain = FrequencyDomain.model_validate(
+                        boundary_payload.get('valid_frequency_domain')
+                    )
+                    causal_authority = (
+                        CausalFrequencyDependentBoundaryAuthority.model_validate(
+                            {
+                                **material_payload,
+                                'authority_id': causal_ref.authority_id,
+                                'authority_version': causal_ref.authority_version,
+                                'semantic_sha256': causal_ref.semantic_hash_sha256,
+                            }
+                        )
+                    )
+                except Exception as exc:
+                    raise CandidateWaveExecutionError(
+                        'causal boundary exact authority payload is malformed'
+                    ) from exc
+                if causal_ref != item.material_authority:
+                    raise CandidateWaveExecutionError(
+                        'causal boundary material authority identity mismatch'
+                    )
+                if causal_authority.as_external_ref() != causal_ref:
+                    raise CandidateWaveExecutionError(
+                        'causal boundary semantic authority identity mismatch'
+                    )
+                if valid_domain != causal_authority.valid_frequency_domain:
+                    raise CandidateWaveExecutionError(
+                        'causal boundary valid frequency domain mismatch'
+                    )
+                if density_ref != configuration.density_authority_ref:
+                    raise CandidateWaveExecutionError(
+                        'causal boundary density authority identity mismatch'
+                    )
+                if (
+                    snapshot.environment is None
+                    or snapshot.environment.sound_speed_m_s is None
+                    or snapshot.environment.sound_speed_source_authority is None
+                ):
+                    raise CandidateWaveExecutionError(
+                        'causal boundary requires exact sound-speed environment authority'
+                    )
+                if sound_speed_ref != snapshot.environment.sound_speed_source_authority:
+                    raise CandidateWaveExecutionError(
+                        'causal boundary sound-speed authority identity mismatch'
+                    )
+                if mapping_ref.authority_version != PFFDTD_CAUSAL_BOUNDARY_MAPPING_VERSION:
+                    raise CandidateWaveExecutionError(
+                        'causal boundary PFFDTD mapping version mismatch'
+                    )
+                mapping_payload = self._require_external(
+                    mapping_ref,
+                    label=f'PFFDTD causal boundary mapping {item.source_surface_id}',
+                )
+                if mapping_payload != pffdtd_causal_boundary_mapping_authority_payload():
+                    raise CandidateWaveExecutionError(
+                        'causal boundary PFFDTD mapping authority mismatch'
+                    )
+                density_payload = self._require_external(
+                    density_ref,
+                    label='causal boundary density',
+                )
+                sound_speed_payload = self._require_external(
+                    sound_speed_ref,
+                    label='causal boundary sound speed',
+                )
+                if (
+                    not isinstance(density_payload, dict)
+                    or density_payload.get('quantity')
+                    not in {'air_density_kg_m3', 'density_kg_m3'}
+                    or not math.isclose(
+                        float(density_payload.get('value', math.nan)),
+                        float(configuration.density_kg_m3),
+                        rel_tol=0.0,
+                        abs_tol=1.0e-12,
+                    )
+                ):
+                    raise CandidateWaveExecutionError(
+                        'causal boundary density does not match exact authority'
+                    )
+                if (
+                    not isinstance(sound_speed_payload, dict)
+                    or sound_speed_payload.get('quantity') != 'sound_speed_m_s'
+                    or not math.isclose(
+                        float(sound_speed_payload.get('value', math.nan)),
+                        float(snapshot.environment.sound_speed_m_s),
+                        rel_tol=0.0,
+                        abs_tol=1.0e-12,
+                    )
+                ):
+                    raise CandidateWaveExecutionError(
+                        'causal boundary sound speed does not match exact authority'
+                    )
+                try:
+                    causal_mapping = compile_causal_boundary_to_pffdtd(
+                        authority=causal_authority,
+                        source_boundary_authority_ref=causal_ref,
+                        mapping_authority_ref=mapping_ref,
+                        requested_frequency_hz=frequencies,
+                        density_kg_m3=float(configuration.density_kg_m3),
+                        density_authority_ref=density_ref,
+                        sound_speed_m_s=float(snapshot.environment.sound_speed_m_s),
+                        sound_speed_authority_ref=sound_speed_ref,
+                        expected_scene_revision_id=snapshot.scene_revision_id,
+                        expected_scene_content_hash=snapshot.scene_content_hash,
+                        expected_surface_id=item.source_surface_id,
+                    )
+                except ValueError as exc:
+                    raise CandidateWaveExecutionError(
+                        f'UNSUPPORTED causal frequency-dependent boundary: {exc}'
+                    ) from exc
+                boundary_bindings.append(
+                    CandidateBoundaryBinding(
+                        source_surface_id=item.source_surface_id,
+                        material_authority=item.material_authority,
+                        boundary_physics_authority=item.boundary_physics_authority,
+                        causal_mapping=causal_mapping,
                     )
                 )
                 continue
@@ -1416,10 +1626,23 @@ class PffdtdCandidateWaveExecutor:
             )
 
         runtime = capture_candidate_runtime()
+        has_causal = any(
+            item.causal_mapping is not None for item in boundary_bindings
+        )
         has_impedance = any(
             item.impedance_mapping is not None for item in boundary_bindings
         )
-        if has_impedance:
+        if has_causal:
+            model = _compile_mixed_pffdtd_model(
+                geometry=geometry,
+                source=source,
+                receivers=receivers,
+                boundary_bindings=tuple(boundary_bindings),
+            )
+            input_authority_version = PFFDTD_CANDIDATE_CAUSAL_INPUT_AUTHORITY_VERSION
+            compiler_id = 'htdt.r130c.pffdtd_candidate_causal_boundary_input_compiler'
+            compiler_version = '3'
+        elif has_impedance:
             model = _compile_mixed_pffdtd_model(
                 geometry=geometry,
                 source=source,
@@ -1562,7 +1785,10 @@ class PffdtdCandidateWaveExecutor:
             import numpy as np
             from sim_setup import sim_setup
             from fdtd.sim_fdtd import SimEngine
-            from materials.adm_funcs import write_freq_ind_mat_from_Zn
+            from materials.adm_funcs import (
+                write_freq_dep_mat,
+                write_freq_ind_mat_from_Zn,
+            )
         except Exception as exc:
             raise CandidateWaveExecutionError(
                 f'PFFDTD runtime import failed: {type(exc).__name__}: {exc}'
@@ -1586,16 +1812,35 @@ class PffdtdCandidateWaveExecutor:
         material_asset_specs: list[dict[str, Any]] = []
         boundary_material_assets: list[CandidateBoundaryMaterialAsset] = []
         for binding in authority.boundary_bindings:
-            mapping = binding.impedance_mapping
-            if mapping is None:
+            impedance_mapping = binding.impedance_mapping
+            causal_mapping = binding.causal_mapping
+            if impedance_mapping is None and causal_mapping is None:
                 continue
-            group = _impedance_material_group(binding)
+            if causal_mapping is not None:
+                group = _causal_material_group(binding)
+                expected_def = np.asarray(
+                    causal_mapping.def_coefficients,
+                    dtype=np.float64,
+                )
+                mapping_ref = causal_mapping.mapping_authority_ref
+            else:
+                assert impedance_mapping is not None
+                group = _impedance_material_group(binding)
+                expected_def = np.asarray(
+                    impedance_mapping.def_coefficients,
+                    dtype=np.float64,
+                )
+                mapping_ref = impedance_mapping.mapping_authority_ref
             material_path = material_dir / f'{group}.h5'
             try:
-                write_freq_ind_mat_from_Zn(
-                    float(mapping.normalized_impedance),
-                    material_path,
-                )
+                if causal_mapping is not None:
+                    write_freq_dep_mat(expected_def, material_path)
+                else:
+                    assert impedance_mapping is not None
+                    write_freq_ind_mat_from_Zn(
+                        float(impedance_mapping.normalized_impedance),
+                        material_path,
+                    )
                 with h5py.File(material_path, 'r') as handle:
                     actual_def = np.asarray(
                         handle['DEF'][...],
@@ -1603,19 +1848,15 @@ class PffdtdCandidateWaveExecutor:
                     )
             except Exception as exc:
                 raise CandidateWaveExecutionError(
-                    'PFFDTD exact impedance material generation failed: '
+                    'PFFDTD exact boundary material generation failed: '
                     f'{type(exc).__name__}: {exc}'
                 ) from exc
-            expected_def = np.asarray(
-                mapping.def_coefficients,
-                dtype=np.float64,
-            )
             if (
                 actual_def.shape != expected_def.shape
                 or not np.array_equal(actual_def, expected_def)
             ):
                 raise CandidateWaveExecutionError(
-                    'PFFDTD material writer changed exact impedance DEF authority'
+                    'PFFDTD material writer changed exact boundary DEF authority'
                 )
             material_files[group] = material_path.name
             material_asset_specs.append(
@@ -1623,8 +1864,11 @@ class PffdtdCandidateWaveExecutor:
                     'source_surface_id': binding.source_surface_id,
                     'pffdtd_material_group': group,
                     'material_file_sha256': _file_sha256(material_path),
-                    'def_coefficients': mapping.def_coefficients,
-                    'mapping_authority_ref': mapping.mapping_authority_ref,
+                    'def_coefficients': tuple(
+                        tuple(float(value) for value in row)
+                        for row in expected_def
+                    ),
+                    'mapping_authority_ref': mapping_ref,
                 }
             )
 
@@ -1884,6 +2128,7 @@ class PffdtdCandidateWaveExecutor:
         *,
         dispatch_binding_id: str,
         configuration: PffdtdCandidateConfiguration,
+        resource_estimate_ref: ExactExternalAuthorityRef | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> AcousticSolverResultEnvelope:
         check = cancel_check or (lambda: False)
@@ -1891,6 +2136,30 @@ class PffdtdCandidateWaveExecutor:
             dispatch_binding_id=dispatch_binding_id,
             configuration=configuration,
         )
+        resource_estimate_payload: dict[str, Any] | None = None
+        if resource_estimate_ref is not None:
+            resolved_resource_estimate = self._require_external(
+                resource_estimate_ref,
+                label='PFFDTD resource estimate',
+            )
+            if not isinstance(resolved_resource_estimate, dict):
+                raise CandidateWaveExecutionError(
+                    'PFFDTD resource estimate payload is malformed'
+                )
+            if (
+                resolved_resource_estimate.get('candidate_execution_input_id')
+                != authority.execution_input_id
+                or resolved_resource_estimate.get(
+                    'candidate_execution_input_sha256'
+                )
+                != authority.semantic_sha256
+                or resolved_resource_estimate.get('solver_model_sha256')
+                != authority.solver_model_sha256
+            ):
+                raise CandidateWaveExecutionError(
+                    'PFFDTD resource estimate is stale for candidate execution input'
+                )
+            resource_estimate_payload = resolved_resource_estimate
         if check():
             raise CandidateWaveExecutionCancelled(
                 'candidate wave execution was cancelled before backend start; '
@@ -1953,14 +2222,23 @@ class PffdtdCandidateWaveExecutor:
                 'complex-pressure artifact schema authority is incompatible'
             )
 
+        has_causal = any(
+            item.causal_mapping is not None
+            for item in authority.boundary_bindings
+        )
         has_impedance = any(
             item.impedance_mapping is not None
             for item in authority.boundary_bindings
         )
+        has_nonrigid = has_causal or has_impedance
         execution_prefix = (
-            'r130b-candidate-impedance'
-            if has_impedance
-            else 'r130a-candidate-wave'
+            'r130c-candidate-causal-boundary'
+            if has_causal
+            else (
+                'r130b-candidate-impedance'
+                if has_impedance
+                else 'r130a-candidate-wave'
+            )
         )
         execution_id = (
             f'{execution_prefix}:{authority.semantic_sha256[:20]}:{uuid4().hex}'
@@ -2019,7 +2297,7 @@ class PffdtdCandidateWaveExecutor:
                 list(row) for row in numerical.pressure_imag_pa
             ],
         }
-        if has_impedance:
+        if has_nonrigid:
             artifact_payload['boundary_authority'] = {
                 'material_boundary_configuration_sha256': (
                     authority.material_boundary_configuration_sha256
@@ -2040,9 +2318,13 @@ class PffdtdCandidateWaveExecutor:
             artifact_payload,
         )
         provenance_schema_version = (
-            'htdt.r130b.candidate-impedance-execution-provenance-1'
-            if has_impedance
-            else 'htdt.r130a.candidate-execution-provenance-1'
+            'htdt.r130c.candidate-causal-boundary-execution-provenance-1'
+            if has_causal
+            else (
+                'htdt.r130b.candidate-impedance-execution-provenance-1'
+                if has_impedance
+                else 'htdt.r130a.candidate-execution-provenance-1'
+            )
         )
         provenance_payload = {
             'schema_version': provenance_schema_version,
@@ -2060,9 +2342,13 @@ class PffdtdCandidateWaveExecutor:
             ),
             'adapter_id': PFFDTD_CANDIDATE_ADAPTER_ID,
             'adapter_version': (
-                PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION
-                if has_impedance
-                else PFFDTD_CANDIDATE_ADAPTER_VERSION
+                PFFDTD_CANDIDATE_CAUSAL_ADAPTER_VERSION
+                if has_causal
+                else (
+                    PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION
+                    if has_impedance
+                    else PFFDTD_CANDIDATE_ADAPTER_VERSION
+                )
             ),
             'runtime_identity': authority.runtime_identity.model_dump(mode='json'),
             'resource_configuration': (
@@ -2081,8 +2367,25 @@ class PffdtdCandidateWaveExecutor:
             },
             'compatibility_patch': numerical.compatibility_patch,
         }
-        if has_impedance:
-            provenance_payload['r130b_numerical_acceptance_completed'] = False
+        if resource_estimate_payload is not None:
+            assert resource_estimate_ref is not None
+            provenance_payload['resource_estimate_ref'] = (
+                resource_estimate_ref.model_dump(mode='json')
+            )
+            provenance_payload['resource_estimate_identity'] = {
+                'workload_estimate_id': resource_estimate_ref.authority_id,
+                'workload_estimate_sha256': resource_estimate_ref.semantic_hash_sha256,
+                'grid_shape': resource_estimate_payload.get('grid_shape'),
+                'time_step_count': resource_estimate_payload.get('time_step_count'),
+                'peak_memory_bytes': resource_estimate_payload.get('peak_memory_bytes'),
+                'scratch_bytes': resource_estimate_payload.get('scratch_bytes'),
+            }
+        if has_nonrigid:
+            if has_causal:
+                provenance_payload['r130c_candidate_execution_completed'] = True
+                provenance_payload['r130c_physics_acceptance_completed'] = False
+            else:
+                provenance_payload['r130b_numerical_acceptance_completed'] = False
             provenance_payload['owned_room_evidence'] = False
             provenance_payload['boundary_execution'] = {
                 'material_boundary_configuration_sha256': (

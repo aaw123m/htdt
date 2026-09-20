@@ -322,3 +322,40 @@ def test_cpu_only_gpu_semantics_are_explicit(compiled_candidate) -> None:
     assert estimation.workload.vram_bytes.state == 'UNAVAILABLE'
     assert estimation.execution_resource_estimate.gpu_slots.value == 0
     assert estimation.execution_resource_estimate.vram_bytes.state == 'UNAVAILABLE'
+
+
+def test_frequency_dependent_mixed_boundary_has_conservative_resource_estimate(
+    tmp_path,
+) -> None:
+    fixture = _fixture(
+        tmp_path / 'r130c-estimator',
+        tmp_path / 'unused-upstream',
+        boundary_mode='causal',
+        fixture_id='r130c-estimator-unit-v1',
+    )
+    authority, model = fixture['executor'].compile_input(
+        dispatch_binding_id=fixture['dispatch'].binding_id,
+        configuration=fixture['configuration'],
+    )
+    estimation = PffdtdCandidateResourceEstimator().estimate(
+        authority=authority,
+        model=model,
+        configuration=fixture['configuration'],
+        sound_speed_m_s=fixture['snapshot'].environment.sound_speed_m_s,
+    )
+
+    assert authority.authority_version == 'r130c-candidate-wave-input-1'
+    assert any(
+        item.causal_mapping is not None for item in authority.boundary_bindings
+    )
+    assert estimation.workload.grid_cells > 0
+    assert estimation.workload.peak_memory_bytes.state == 'KNOWN'
+    assert any(
+        item.component
+        == 'material_coefficients_and_lossy_boundary_state_upper_bound'
+        for item in estimation.workload.ram_components
+    )
+    assert any(
+        item.component == 'frequency_dependent_material_hdf5_upper_bound'
+        for item in estimation.workload.scratch_components
+    )
