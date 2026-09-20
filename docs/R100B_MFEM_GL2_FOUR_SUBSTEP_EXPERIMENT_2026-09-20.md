@@ -56,7 +56,9 @@ Internal step counts are derived as `4 * (N - 1)` from the unchanged half-open s
 - artifact id: **10607427093**
 - artifact digest: `sha256:462e74730a2ff079e9f619edd909f42c22223d388de522c6d3e701a56c057d76`
 - deterministic report identity: `babd0923af9f54140e702734ab552f00770acc7c063c4581d2f50eb552a30369`
-- persistent evidence: `benchmarks/acoustics/evidence/r100b_mfem_gl2_four_substeps_2026-09-20.json`
+- report SHA-256: `b973c389800e3d3ee7c9ce0e8c9ddb35564fa4f37075298a1b9c576fa9dda771`
+- artifact ZIP digest independently verified: `462e74730a2ff079e9f619edd909f42c22223d388de522c6d3e701a56c057d76`
+- persistent evidence: `benchmarks/acoustics/evidence/r100b_mfem_gl2_four_substep_2026-09-20.json`
 
 Command:
 
@@ -123,13 +125,15 @@ Final 9000→12000 numerical accuracy:
 
 Cost:
 
-| experiment | factorization | stepping | transient solve total | max attempt RSS | work disk |
-|---|---:|---:|---:|---:|---:|
-| PR #281, 1 substep | 0.03065 s | 17.98990 s | 18.02055 s | 103.125 MiB | 17.29572 MiB |
-| PR #285, 2 substeps | 0.02976 s | 35.12919 s | 35.15895 s | 103.441 MiB | 17.29707 MiB |
-| PR #289, 4 substeps | 0.03332 s | 71.28563 s | 71.31895 s | 100.234 MiB | 17.29702 MiB |
+| experiment | mass factorization | Padé factorization | stepping | candidate solve total* | max attempt RSS | work disk |
+|---|---:|---:|---:|---:|---:|---:|
+| PR #281, 1 substep | 0.00254 s | 0.03065 s | 17.98990 s | 18.02309 s | 103.125 MiB | 17.29572 MiB |
+| PR #285, 2 substeps | 0.00237 s | 0.02976 s | 35.12919 s | 35.16133 s | 103.441 MiB | 17.29707 MiB |
+| PR #289, 4 substeps | 0.00273 s | 0.03332 s | 71.28563 s | 71.32168 s | 100.234 MiB | 17.29702 MiB |
 
-Four-substep stepping is **2.029x** PR #285 and **3.963x** PR #281. Disk use is effectively unchanged and observed RSS did not increase. Factorization cost remains negligible compared with stepping.
+\* `candidate solve total = mass factorization + all per-rate Padé factorizations + all transient stepping`; native MFEM build time is reported separately and is not included.
+
+Four-substep stepping is **2.029x** PR #285 and **3.963x** PR #281; candidate solve total is **2.028x** PR #285 and **3.957x** PR #281. Disk use is effectively unchanged and observed RSS did not increase. Factorization cost remains negligible compared with stepping. Native MFEM build time for this hosted run was `943.236 s` (PR #285: `965.942 s`; PR #281: `977.378 s`) and is runner/build noise rather than the changed numerical variable.
 
 Relative to PR #285, the final-pair complex RMS improves by about 11.6%, max magnitude by 9.17%, relative magnitude by 8.94%, and phase by 9.29%. This is sufficient to cross the frozen relative-magnitude threshold, but the runtime cost roughly doubles again.
 
