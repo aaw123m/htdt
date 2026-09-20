@@ -195,7 +195,14 @@ def _save_quality(
     return report
 
 
-def _build_o60_record(env, *, model_version=None, sensitivity_checks=None, band=None):
+def _build_o60_record(
+    env,
+    *,
+    model_version=None,
+    sensitivity_checks=None,
+    band=None,
+    evidence_scope='owned_room',
+):
     model_version = model_version or env.spec.model_version
     band = band or (20.0, 160.0)
     predicted_values = {
@@ -330,9 +337,13 @@ def _build_o60_record(env, *, model_version=None, sensitivity_checks=None, band=
         low_hz=band[0],
         high_hz=band[1],
         max_holdout_rms_db=1.0,
-        evidence_scope='owned_room',
-        campaign_id=env.campaign.campaign_id,
-        campaign_sha256=env.campaign.campaign_sha256,
+        evidence_scope=evidence_scope,
+        campaign_id=(
+            env.campaign.campaign_id if evidence_scope == 'owned_room' else None
+        ),
+        campaign_sha256=(
+            env.campaign.campaign_sha256 if evidence_scope == 'owned_room' else None
+        ),
     )
     return record
 
@@ -908,22 +919,9 @@ def test_o90e_retrospective_case_never_masquerades_as_preregistered(tmp_path) ->
 
 def test_o90e_synthetic_o60_evidence_never_opens_production_gate(tmp_path) -> None:
     env = _fixture(tmp_path)
-    owned = env.o60_record
-    payload = owned.identity_payload()
-    payload.update(
-        {
-            'campaign_id': None,
-            'campaign_sha256': None,
-            'evidence_scope': 'synthetic_fixture',
-        }
-    )
-    from htdt.cad_model_validation import CadModelValidationRecord, _hash
-
-    synthetic = CadModelValidationRecord(
-        validation_id='synthetic-o90e',
-        created_at_utc=owned.created_at_utc,
-        validation_sha256=_hash(payload),
-        **payload,
+    synthetic = _build_o60_record(
+        env,
+        evidence_scope='synthetic_fixture',
     )
     env.model_validation_repository.record = synthetic
 
