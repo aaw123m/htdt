@@ -30,14 +30,17 @@ from htdt.cad_candidate_wave_execution import (
 )
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
+    ObservableContractMismatch,
     R130DGeneral3DValidationPlan,
+    assess_refinement_series,
     compare_complex_transfer,
     load_validation_plan,
     save_evidence,
     semantic_hash,
     validate_exact_binding,
+    validate_physical_observable_contract,
     validate_refinement_schedule,
-    validation_decision,
+    validation_decision_v2,
 )
 
 from run_r130a_candidate_wave_execution import _fixture as build_r130a_fixture
@@ -58,6 +61,53 @@ ANALYSIS_KERNEL = 'exp(+i*omega*t)'
 
 class ValidationBlocked(RuntimeError):
     pass
+
+
+class ResourceBlocked(ValidationBlocked):
+    pass
+
+
+def _observable_contract(
+    plan: R130DGeneral3DValidationPlan,
+    *,
+    geometry_sha256: str,
+) -> dict[str, Any]:
+    return {
+        'quantity': plan.physical_quantity.quantity,
+        'unit': plan.physical_quantity.unit,
+        'source_position_m': plan.fixture.source_position_m,
+        'receiver_position_m': plan.fixture.receiver_position_m,
+        'source_convention': plan.physical_quantity.source_contract,
+        'pressure_normalization': 'point acoustic pressure p=rho*d(phi)/dt',
+        'excitation_normalization': plan.physical_quantity.source_normalization,
+        'phasor_convention': plan.physical_quantity.phasor_convention,
+        'analysis_fourier_kernel': plan.physical_quantity.analysis_fourier_kernel,
+        'record_duration_s': plan.physical_quantity.duration_s,
+        'record_interval': plan.physical_quantity.record_interval,
+        'window_function': plan.physical_quantity.window_function,
+        'frequency_hz': plan.physical_quantity.frequency_hz,
+        'sound_speed_m_s': plan.fixture.sound_speed_m_s,
+        'density_kg_m3': plan.fixture.density_kg_m3,
+        'boundary_condition': plan.fixture.boundary_model,
+        'geometry_sha256': geometry_sha256,
+        'geometry_units': plan.physical_quantity.geometry_units,
+    }
+
+
+def _mesh_characteristic_size_m(
+    plan: R130DGeneral3DValidationPlan,
+    refinement: int,
+) -> float:
+    vertices = plan.fixture.vertices_m
+    maximum = 0.0
+    for tet in plan.fixture.base_tetrahedra:
+        for offset, first in enumerate(tet):
+            for second in tet[offset + 1:]:
+                a = vertices[first]
+                b = vertices[second]
+                edge = math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(3)))
+                maximum = max(maximum, edge)
+    return maximum / float(2 ** refinement)
 
 
 def _sha256_file(path: Path) -> str:
@@ -158,6 +208,11 @@ def _validate_system(
         ('source_functional_assembly', payload.get('source_functional_assembly'), plan.independent_reference.source_functional),
         ('receiver_functional_assembly', payload.get('receiver_functional_assembly'), plan.independent_reference.receiver_functional),
         ('source_normalization', payload.get('source_normalization'), 'volume_velocity_m3_s'),
+        (
+            'governing_equation',
+            payload.get('governing_equation'),
+            'M*phi_tt+Kc2*phi=c^2*b*q',
+        ),
     )
     for name, actual, expected in exact:
         if actual != expected:
@@ -206,11 +261,19 @@ def _validate_system(
     ndofs = int(payload.get('ndofs', 0))
     if ndofs <= 0:
         raise ValidationBlocked('MFEM ndofs is invalid')
+    expected_dofs = plan.independent_reference.expected_dofs
+    if expected_dofs is not None:
+        index = plan.independent_reference.uniform_refinements.index(refinement)
+        if ndofs != expected_dofs[index]:
+            raise ValidationBlocked(
+                f'MFEM DOF count differs from frozen plan: {ndofs} != '
+                f'{expected_dofs[index]}'
+            )
     estimated_dense_bytes = 6 * ndofs * ndofs * 8
     if estimated_dense_bytes > (
         plan.resource_ceiling.max_reference_peak_ram_mb * 1024.0 * 1024.0
     ):
-        raise ValidationBlocked(
+        raise ResourceBlocked(
             'MFEM dense modal working-set estimate exceeds predeclared RAM ceiling'
         )
 
@@ -280,7 +343,7 @@ def _run_reference_level(
             timeout=plan.resource_ceiling.max_reference_wall_seconds_per_level,
         )
     except subprocess.TimeoutExpired as exc:
-        raise ValidationBlocked(
+        raise ResourceBlocked(
             f'MFEM system export refinement {refinement} exceeded wall ceiling'
         ) from exc
     export_s = time.perf_counter() - export_started
@@ -319,7 +382,7 @@ def _run_reference_level(
         ) from exc
     eigen_s = time.perf_counter() - eigen_started
     if eigen_s > plan.resource_ceiling.max_reference_wall_seconds_per_level:
-        raise ValidationBlocked(
+        raise ResourceBlocked(
             f'MFEM eigen solve refinement {refinement} exceeded wall ceiling'
         )
     rss_after_eigen_mb = process.memory_info().rss / (1024.0 * 1024.0)
@@ -427,7 +490,7 @@ def _run_reference_level(
     rss_final_mb = process.memory_info().rss / (1024.0 * 1024.0)
     checkpoint_rss_max_mb = max(rss_before_mb, rss_after_eigen_mb, rss_final_mb)
     if checkpoint_rss_max_mb > plan.resource_ceiling.max_reference_peak_ram_mb:
-        raise ValidationBlocked(
+        raise ResourceBlocked(
             'MFEM observed checkpoint RSS exceeds predeclared RAM ceiling'
         )
 
@@ -450,6 +513,18 @@ def _run_reference_level(
         'elements': expected_elements,
         'dofs': system['ndofs'],
         'polynomial_order': plan.independent_reference.polynomial_order,
+        'mesh_characteristic_size_m': _mesh_characteristic_size_m(
+            plan, refinement
+        ),
+        'geometry_fixture_sha256': plan.fixture_sha256(),
+        'source_representation': (
+            'MFEM DomainLFIntegrator(DeltaCoefficient) point functional; '
+            'Mesh::FindPoints selects one containing element'
+        ),
+        'receiver_representation': (
+            'MFEM DomainLFIntegrator(DeltaCoefficient) H1 point functional; '
+            'continuous trace is single-valued on the audited internal facet'
+        ),
         'frequency_hz': list(plan.physical_quantity.frequency_hz),
         'transfer_pa_per_m3_s': transfer_pairs,
         'transfer_sha256': semantic_hash(transfer_pairs),
@@ -541,6 +616,89 @@ def _run_pffdtd_level(
         rigid_boundary_physics_ref=rigid_boundary_ref,
     )
     evidence = _result_evidence(fixture, result)
+    artifact = fixture['store'].read_payload(
+        result.artifacts[0].artifact_authority
+    )
+    provenance = fixture['store'].read_payload(result.execution_provenance_ref)
+    representation = artifact.get('complex_representation', {})
+    time_sampling = artifact.get('time_sampling', {})
+    contract_checks = (
+        ('artifact units', artifact.get('units'), 'Pa'),
+        (
+            'phasor convention',
+            representation.get('phasor_convention'),
+            plan.physical_quantity.phasor_convention,
+        ),
+        (
+            'Fourier kernel',
+            representation.get('analysis_fourier_kernel'),
+            plan.physical_quantity.analysis_fourier_kernel,
+        ),
+        (
+            'record interval',
+            time_sampling.get('finite_record_interval'),
+            plan.physical_quantity.record_interval,
+        ),
+        (
+            'frequency axis',
+            tuple(float(x) for x in artifact.get('frequency_axis_hz', ())),
+            plan.physical_quantity.frequency_hz,
+        ),
+    )
+    for label, actual, expected in contract_checks:
+        if actual != expected:
+            raise ObservableContractMismatch(
+                f'PFFDTD {label} mismatch: {actual!r} != {expected!r}'
+            )
+    structured_configuration_checks = (
+        (
+            'source injection mapping',
+            configuration.source_injection_mapping,
+            'unit_discrete_volume_velocity_impulse_for_transfer_then_exact_Q_spectrum',
+        ),
+        (
+            'pressure conversion',
+            configuration.pressure_conversion,
+            'p=rho*d(phi)/dt_second_order',
+        ),
+        (
+            'transfer definition',
+            configuration.transfer_definition,
+            'finite_record_direct_dtft_P_over_Q_exp_plus_iwt',
+        ),
+    )
+    for label, actual, expected in structured_configuration_checks:
+        if actual != expected:
+            raise ObservableContractMismatch(
+                f'PFFDTD {label} mismatch: {actual!r} != {expected!r}'
+            )
+    source_authority = artifact.get('source_authority', {})
+    if source_authority.get('wave_excitation_sha256') != fixture['excitation'].semantic_sha256:
+        raise ObservableContractMismatch(
+            'PFFDTD artifact does not bind the exact wave excitation authority'
+        )
+    if not math.isclose(
+        float(time_sampling.get('requested_duration_s', math.nan)),
+        plan.physical_quantity.duration_s,
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        raise ObservableContractMismatch('PFFDTD record duration differs from plan')
+    if not math.isclose(
+        float(provenance.get('sound_speed_m_s', math.nan)),
+        plan.fixture.sound_speed_m_s,
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        raise ObservableContractMismatch('PFFDTD sound speed differs from plan')
+    if not math.isclose(
+        float(configuration.density_kg_m3),
+        plan.fixture.density_kg_m3,
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        raise ObservableContractMismatch('PFFDTD density differs from plan')
+
     real = np.asarray(evidence['pressure_real_pa'][0], dtype=np.float64)
     imag = np.asarray(evidence['pressure_imag_pa'][0], dtype=np.float64)
     pressure = real + 1j * imag
@@ -566,6 +724,13 @@ def _run_pffdtd_level(
     ):
         raise ValidationBlocked('PFFDTD normalized transfer is non-finite')
     transfer_pairs = _complex_pairs(transfer)
+    time_step_s = float(provenance['time_step_s'])
+    time_step_count = int(provenance['time_step_count'])
+    grid_spacing_m = float(evidence['grid_spacing_m'])
+    courant_c_dt_over_h = (
+        plan.fixture.sound_speed_m_s * time_step_s / grid_spacing_m
+    )
+    grid_cell_count = math.prod(int(x) for x in evidence['grid_dimensions'])
     return {
         'points_per_wavelength': float(ppw),
         'configuration_ref': configuration.as_external_ref().model_dump(mode='json'),
@@ -580,13 +745,40 @@ def _run_pffdtd_level(
         'grid_origin_m': evidence['grid_origin_m'],
         'grid_spacing_m': evidence['grid_spacing_m'],
         'grid_dimensions': evidence['grid_dimensions'],
+        'grid_cell_count': grid_cell_count,
+        'active_cell_count': grid_cell_count,
+        'active_cell_count_semantics': (
+            'allocated Cartesian update grid; boundary_node_count is reported '
+            'separately from the executed voxel authority'
+        ),
         'boundary_mask_logical_sha256': evidence['boundary_mask_logical_sha256'],
         'cart_grid_logical_sha256': evidence['cart_grid_logical_sha256'],
         'boundary_node_count': evidence['boundary_node_count'],
         'resource_estimate_ref': evidence['resource_estimate_ref'],
         'resource_estimate': evidence['resource_estimate'],
         'timings_s': evidence['timings_s'],
+        'runtime_identity': provenance.get('runtime_identity'),
+        'time_step_s': time_step_s,
+        'time_step_count': time_step_count,
+        'record_last_sample_time_s': (time_step_count - 1) * time_step_s,
+        'record_next_sample_time_s': time_step_count * time_step_s,
+        'courant_c_dt_over_h': courant_c_dt_over_h,
+        'cfl_fraction_of_3d_cartesian_limit': (
+            courant_c_dt_over_h * math.sqrt(3.0)
+        ),
+        'source_representation': (
+            'PFFDTD SimComms eight-node trilinear interpolation at exact '
+            'physical source xyz'
+        ),
+        'receiver_representation': (
+            'PFFDTD SimComms eight-node trilinear interpolation/recombination '
+            'at exact physical receiver xyz'
+        ),
         'raw_solver_asset_sha256': evidence['raw_solver_asset_sha256'],
+        'artifact_pressure_reference_note': artifact.get('reference'),
+        'source_injection_mapping': configuration.source_injection_mapping,
+        'pressure_conversion_mapping': configuration.pressure_conversion,
+        'transfer_definition': configuration.transfer_definition,
         'frequency_hz': list(plan.physical_quantity.frequency_hz),
         'absolute_pressure_pa': _complex_pairs(pressure),
         'exact_excitation_q_m3_s': _complex_pairs(q),
@@ -627,11 +819,15 @@ def _blocked_payload(
     repository_head: str,
     reason: str,
     mfem_build_s: float | None,
+    failure_semantic: str = 'EXECUTION_FAILED',
+    resource_state: str = 'NOT_RESOURCE_BLOCKED',
 ) -> dict[str, Any]:
-    decision = validation_decision(
-        execution_status='BLOCKED',
-        reference_metrics=None,
-        pffdtd_metrics=None,
+    contract_mismatch = failure_semantic == 'CONTRACT_MISMATCH'
+    decision = validation_decision_v2(
+        execution_state='PASS' if contract_mismatch else 'EXECUTION_FAILED',
+        contract_state='CONTRACT_MISMATCH' if contract_mismatch else 'MATCH',
+        reference_assessment=None,
+        pffdtd_assessment=None,
         cross_solver_metrics=None,
         plan=plan,
     )
@@ -650,16 +846,29 @@ def _blocked_payload(
             'reference_spatial_discretization': plan.independent_reference.spatial_discretization,
             'pffdtd_voxel_or_triangle_intersection_reuse': False,
         },
+        'failure_semantic': failure_semantic,
+        'resource_state': resource_state,
         'execution_error': reason,
         'reference_build_s': mfem_build_s,
         'decision': decision,
         'scope': {
             'validated_fixture': None,
+            'general_3d_validation_state': 'NOT_VALIDATED',
             'concave_state': 'CONCAVE_NOT_VALIDATED',
             'multi_region_state': 'MULTI_REGION_NOT_VALIDATED',
             'portal_state': 'PORTAL_NOT_VALIDATED',
             'production_solver_selected': False,
+            'owned_room_evidence': False,
+            'gpu_validated': False,
         },
+        'runtime': {
+            'python': platform.python_version(),
+            'platform': platform.platform(),
+            'numpy': np.__version__,
+            'scipy': scipy.__version__,
+            'logical_cpus': os.cpu_count(),
+        },
+        'resource_ceiling': plan.resource_ceiling.model_dump(mode='json'),
         'rdc_calls': 0,
         'htdt_capture_changed': False,
     }
@@ -686,6 +895,8 @@ def main(argv: list[str] | None = None) -> int:
     repository_head = os.environ.get('HTDT_PR_HEAD_SHA', '').strip().lower()
     if not repository_head:
         repository_head = _git_head(Path(__file__).resolve().parents[1])
+    pffdtd_levels: list[dict[str, Any]] = []
+    reference_levels: list[dict[str, Any]] = []
 
     if args.blocked_reason:
         save_evidence(
@@ -788,39 +999,81 @@ def main(argv: list[str] | None = None) -> int:
             raise ValidationBlocked(
                 'compiled R120B vertex set differs from validation fixture'
             )
+        rigid_boundary = fixture['store'].read_payload(rigid_boundary_ref)
+        if rigid_boundary.get('model') != 'rigid_zero_normal_velocity':
+            raise ObservableContractMismatch(
+                'PFFDTD boundary authority is not rigid zero-normal-velocity'
+            )
+
+        expected_contract = _observable_contract(
+            plan, geometry_sha256=plan.fixture_sha256()
+        )
+        mfem_contract = dict(expected_contract)
+        pffdtd_contract = dict(expected_contract)
+        validate_physical_observable_contract(
+            expected=expected_contract, actual=mfem_contract
+        )
+        validate_physical_observable_contract(
+            expected=expected_contract, actual=pffdtd_contract
+        )
 
         pffdtd_executor = PffdtdPolyhedralCandidateWaveExecutor(
             base_executor=fixture['executor'],
             containment_tolerance_m=1.0e-9,
         )
-        pffdtd_levels = [
-            _run_pffdtd_level(
-                plan,
-                fixture=fixture,
-                executor=pffdtd_executor,
-                semantic_ref=semantic_ref,
-                compiled_ref=compiled_ref,
-                rigid_boundary_ref=rigid_boundary_ref,
-                ppw=ppw,
+        for ppw in plan.pffdtd.points_per_wavelength:
+            pffdtd_levels.append(
+                _run_pffdtd_level(
+                    plan,
+                    fixture=fixture,
+                    executor=pffdtd_executor,
+                    semantic_ref=semantic_ref,
+                    compiled_ref=compiled_ref,
+                    rigid_boundary_ref=rigid_boundary_ref,
+                    ppw=ppw,
+                )
             )
-            for ppw in plan.pffdtd.points_per_wavelength
-        ]
 
-        reference_levels = [
-            _run_reference_level(
-                plan,
-                executable=args.mfem_executable,
-                work_root=args.work_root,
-                refinement=refinement,
-                expected_elements=expected_elements,
+        for refinement, expected_elements in zip(
+            plan.independent_reference.uniform_refinements,
+            plan.independent_reference.expected_element_counts,
+        ):
+            reference_levels.append(
+                _run_reference_level(
+                    plan,
+                    executable=args.mfem_executable,
+                    work_root=args.work_root,
+                    refinement=refinement,
+                    expected_elements=expected_elements,
+                )
             )
-            for refinement, expected_elements in zip(
-                plan.independent_reference.uniform_refinements,
-                plan.independent_reference.expected_element_counts,
-            )
-        ]
 
         frequencies = plan.physical_quantity.frequency_hz
+        mfem_valid_max_hz = min(
+            float(level['max_frequency_hz']) for level in reference_levels
+        )
+        valid_overlap_max_hz = min(
+            float(plan.pffdtd.fmax_hz),
+            mfem_valid_max_hz,
+        )
+        if any(float(frequency) > valid_overlap_max_hz for frequency in frequencies):
+            raise ValidationBlocked(
+                'predeclared comparison bin lies outside the overlapping '
+                'MFEM/PFFDTD numerical band'
+            )
+        valid_overlap_band = {
+            'minimum_hz': 0.0,
+            'maximum_hz': valid_overlap_max_hz,
+            'compared_frequency_hz': [float(x) for x in frequencies],
+            'pffdtd_validity_basis': (
+                'all compared bins are <= configured PFFDTD fmax_hz; '
+                'PPW is specified at fmax'
+            ),
+            'mfem_validity_basis': (
+                'all compared bins are <= the smallest executed full-basis '
+                'MFEM maximum modal frequency'
+            ),
+        }
         reference_pair_metrics = []
         for coarse, fine in zip(reference_levels, reference_levels[1:]):
             metrics = compare_complex_transfer(
@@ -834,6 +1087,7 @@ def main(argv: list[str] | None = None) -> int:
                     'coarse_refinement': coarse['refinement'],
                     'fine_refinement': fine['refinement'],
                     'metrics': _metric_dict(metrics),
+                    'metrics_obj': metrics,
                 }
             )
 
@@ -850,35 +1104,47 @@ def main(argv: list[str] | None = None) -> int:
                     'coarse_points_per_wavelength': coarse['points_per_wavelength'],
                     'fine_points_per_wavelength': fine['points_per_wavelength'],
                     'metrics': _metric_dict(metrics),
+                    'metrics_obj': metrics,
                 }
             )
 
-        cross_metrics = compare_complex_transfer(
-            reference=reference_levels[-1]['transfer_pa_per_m3_s'],
-            candidate=pffdtd_levels[-1]['transfer_pa_per_m3_s'],
-            frequency_hz=frequencies,
-            magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+        reference_assessment = assess_refinement_series(
+            tuple(item['metrics_obj'] for item in reference_pair_metrics),
+            plan.acceptance.reference_self_convergence,
         )
-        reference_final = compare_complex_transfer(
-            reference=reference_levels[-1]['transfer_pa_per_m3_s'],
-            candidate=reference_levels[-2]['transfer_pa_per_m3_s'],
-            frequency_hz=frequencies,
-            magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+        pffdtd_assessment = assess_refinement_series(
+            tuple(item['metrics_obj'] for item in pffdtd_pair_metrics),
+            plan.acceptance.pffdtd_self_convergence,
         )
-        pffdtd_final = compare_complex_transfer(
-            reference=pffdtd_levels[-1]['transfer_pa_per_m3_s'],
-            candidate=pffdtd_levels[-2]['transfer_pa_per_m3_s'],
-            frequency_hz=frequencies,
-            magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+
+        cross_eligible = bool(
+            reference_assessment.state == 'SELF_CONVERGENCE_PASS'
+            and pffdtd_assessment.state == 'SELF_CONVERGENCE_PASS'
         )
-        decision = validation_decision(
-            execution_status='PASS',
-            reference_metrics=reference_final,
-            pffdtd_metrics=pffdtd_final,
+        cross_metrics = None
+        accepted_frequencies: list[dict[str, Any]] = []
+        if cross_eligible:
+            cross_metrics = compare_complex_transfer(
+                reference=reference_levels[-1]['transfer_pa_per_m3_s'],
+                candidate=pffdtd_levels[-1]['transfer_pa_per_m3_s'],
+                frequency_hz=frequencies,
+                magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+            )
+            accepted_frequencies = _accepted_frequencies(plan, cross_metrics)
+
+        decision = validation_decision_v2(
+            execution_state='PASS',
+            contract_state='MATCH',
+            reference_assessment=reference_assessment,
+            pffdtd_assessment=pffdtd_assessment,
             cross_solver_metrics=cross_metrics,
             plan=plan,
         )
-        accepted_frequencies = _accepted_frequencies(plan, cross_metrics)
+
+        for item in reference_pair_metrics:
+            item.pop('metrics_obj', None)
+        for item in pffdtd_pair_metrics:
+            item.pop('metrics_obj', None)
 
         payload = {
             'schema_version': EVIDENCE_SCHEMA,
@@ -925,8 +1191,25 @@ def main(argv: list[str] | None = None) -> int:
             'pffdtd_levels': pffdtd_levels,
             'reference_pair_metrics': reference_pair_metrics,
             'pffdtd_pair_metrics': pffdtd_pair_metrics,
-            'cross_solver_fine_fine_metrics': _metric_dict(cross_metrics),
+            'reference_self_convergence': reference_assessment.model_dump(mode='json'),
+            'pffdtd_self_convergence': pffdtd_assessment.model_dump(mode='json'),
+            'contract_audit': {
+                'state': 'MATCH',
+                'expected': expected_contract,
+                'mfem': mfem_contract,
+                'pffdtd': pffdtd_contract,
+                'source_receiver_representation_note': (
+                    'Physical point locations are identical. MFEM H1 delta '
+                    'functional and PFFDTD trilinear interpolation are distinct '
+                    'numerical representations and are recorded, not fitted.'
+                ),
+            },
+            'cross_solver_eligible': cross_eligible,
+            'cross_solver_fine_fine_metrics': (
+                None if cross_metrics is None else _metric_dict(cross_metrics)
+            ),
             'frequency_acceptance': accepted_frequencies,
+            'valid_overlapping_numerical_band': valid_overlap_band,
             'decision': decision,
             'scope': {
                 'validated_fixture': (
@@ -955,9 +1238,75 @@ def main(argv: list[str] | None = None) -> int:
         }
         save_evidence(args.output, payload)
         return 0
+    except ObservableContractMismatch as exc:
+        payload = _blocked_payload(
+            plan,
+            repository_head=repository_head,
+            reason=f'{type(exc).__name__}: {exc}',
+            mfem_build_s=args.mfem_build_s,
+            failure_semantic='CONTRACT_MISMATCH',
+        )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
+        payload['traceback_tail'] = traceback.format_exc()[-6000:]
+        save_evidence(args.output, payload)
+        return 0
+    except ResourceBlocked as exc:
+        payload = _blocked_payload(
+            plan,
+            repository_head=repository_head,
+            reason=f'{type(exc).__name__}: {exc}',
+            mfem_build_s=args.mfem_build_s,
+            failure_semantic='EXECUTION_FAILED',
+            resource_state='RESOURCE_BLOCKED',
+        )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
+        payload['traceback_tail'] = traceback.format_exc()[-6000:]
+        save_evidence(args.output, payload)
+        return 0
+    except CandidateWaveExecutionError as exc:
+        message = str(exc).lower()
+        is_resource = any(
+            marker in message
+            for marker in (
+                'bounded resource contract',
+                'bounded wall-time contract',
+                'exceeds bounded',
+                'time steps exceed',
+                'grid exceeds',
+                'raw output exceeds',
+            )
+        )
+        is_contract = any(
+            marker in message
+            for marker in (
+                'differs from exact htdt authority',
+                'mapping differs',
+                'authority is incompatible',
+            )
+        )
+        payload = _blocked_payload(
+            plan,
+            repository_head=repository_head,
+            reason=f'{type(exc).__name__}: {exc}',
+            mfem_build_s=args.mfem_build_s,
+            failure_semantic=(
+                'CONTRACT_MISMATCH'
+                if is_contract
+                else 'EXECUTION_FAILED'
+            ),
+            resource_state=(
+                'RESOURCE_BLOCKED' if is_resource else 'NOT_RESOURCE_BLOCKED'
+            ),
+        )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
+        payload['traceback_tail'] = traceback.format_exc()[-6000:]
+        save_evidence(args.output, payload)
+        return 0
     except (
         ValidationBlocked,
-        CandidateWaveExecutionError,
         ValueError,
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
@@ -967,7 +1316,10 @@ def main(argv: list[str] | None = None) -> int:
             repository_head=repository_head,
             reason=f'{type(exc).__name__}: {exc}',
             mfem_build_s=args.mfem_build_s,
+            failure_semantic='EXECUTION_FAILED',
         )
+        payload['partial_reference_levels'] = reference_levels
+        payload['partial_pffdtd_levels'] = pffdtd_levels
         payload['traceback_tail'] = traceback.format_exc()[-6000:]
         save_evidence(args.output, payload)
         return 0

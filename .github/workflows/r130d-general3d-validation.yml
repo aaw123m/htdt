@@ -11,6 +11,8 @@ on:
       - 'scripts/run_r130d_polyhedral_candidate_wave_execution.py'
       - 'backend/src/htdt/acoustic_pffdtd_polyhedral_geometry.py'
       - 'docs/R130D_GENERAL3D_INDEPENDENT_VALIDATION_2026-09-20.md'
+      - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_DIAGNOSIS_PLAN_2026-09-20.md'
+      - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_RERUN_EVIDENCE_2026-09-20.md'
       - '.github/workflows/r130d-general3d-validation.yml'
   workflow_dispatch:
 
@@ -21,7 +23,7 @@ concurrency:
 jobs:
   independent-sloped-reference:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       PYTHONUTF8: '1'
       PYTHONPATH: backend/src
@@ -130,7 +132,7 @@ jobs:
       - name: Validate evidence integrity and report physics state
         shell: pwsh
         run: |
-          python -c "from htdt.r130d_general3d_validation import load_evidence; p=load_evidence(r'$env:EVIDENCE_OUTPUT'); d=p['decision']; print('R130D_REFERENCE_EXECUTION='+d['reference_build_execution_status']); print('R130D_REFERENCE_CONVERGENCE='+d['reference_self_convergence_status']); print('R130D_PFFDTD_CONVERGENCE='+d['pffdtd_self_convergence_status']); print('R130D_CROSS_SOLVER='+d['cross_solver_agreement_status']); print('R130D_FIXTURE_RESULT='+d['fixture_validation_result']); print('R130D_GENERAL3D_STATE='+d['general_3d_validation_state'])"
+          python -c "from htdt.r130d_general3d_validation import load_evidence; p=load_evidence(r'$env:EVIDENCE_OUTPUT'); d=p['decision']; print('R130D_EXECUTION='+d.get('execution_state','legacy')); print('R130D_CONTRACT='+d.get('contract_state','legacy')); print('R130D_REFERENCE_CONVERGENCE='+d['reference_self_convergence_status']); print('R130D_PFFDTD_CONVERGENCE='+d['pffdtd_self_convergence_status']); print('R130D_CROSS_SOLVER='+d.get('cross_solver_state',d['cross_solver_agreement_status'])); print('R130D_FIXTURE_RESULT='+d['fixture_validation_result']); print('R130D_GENERAL3D_STATE='+d['general_3d_validation_state'])"
           $doc = Get-Content -Raw $env:EVIDENCE_OUTPUT | ConvertFrom-Json
           $decision = $doc.payload.decision
           if (@('PASS','FAIL','BLOCKED') -notcontains $decision.fixture_validation_result) {

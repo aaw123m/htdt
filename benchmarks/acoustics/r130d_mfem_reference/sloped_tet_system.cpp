@@ -190,7 +190,7 @@ int Main(int argc, char *argv[])
    }
 
    if (output.empty()) { throw std::runtime_error("--output is required"); }
-   if (!(density > 0.0 && sound_speed > 0.0) || order < 1 || refinements < 0 || refinements > 2)
+   if (!(density > 0.0 && sound_speed > 0.0) || order < 1 || refinements < 0 || refinements > 3)
    {
       throw std::runtime_error("invalid physical/discretization input");
    }

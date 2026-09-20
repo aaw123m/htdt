@@ -8,13 +8,17 @@ import pytest
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     PairMetrics,
+    ObservableContractMismatch,
+    assess_refinement_series,
     compare_complex_transfer,
     load_evidence,
     load_validation_plan,
     save_evidence,
     validate_exact_binding,
+    validate_physical_observable_contract,
     validate_refinement_schedule,
     validation_decision,
+    validation_decision_v2,
 )
 
 
@@ -60,8 +64,8 @@ def test_exact_fixture_and_reference_mesh_identity_are_deterministic():
     assert plan.fixture.vertices_m[6] == (4.0, 4.0, 3.0)
     assert plan.fixture.base_tetrahedralization_volume_m3 == 56.0
     assert len(plan.fixture.base_tetrahedra) == 6
-    assert plan.reference_mesh_sha256(0) == plan.reference_mesh_sha256(0)
-    assert plan.reference_mesh_sha256(0) != plan.reference_mesh_sha256(1)
+    assert plan.reference_mesh_sha256(1) == plan.reference_mesh_sha256(1)
+    assert plan.reference_mesh_sha256(1) != plan.reference_mesh_sha256(2)
     assert len(plan.fixture_sha256()) == 64
 
 
@@ -129,20 +133,20 @@ def test_predeclared_refinement_schedule_is_exact():
     plan = _plan()
     validate_refinement_schedule(
         plan,
-        reference_refinements=(0, 1, 2),
-        pffdtd_points_per_wavelength=(6.0, 8.0, 10.0),
+        reference_refinements=(1, 2, 3),
+        pffdtd_points_per_wavelength=(8.0, 10.0, 12.0),
     )
     with pytest.raises(ValueError, match='reference refinement schedule'):
         validate_refinement_schedule(
             plan,
-            reference_refinements=(0, 2),
-            pffdtd_points_per_wavelength=(6.0, 8.0, 10.0),
+            reference_refinements=(1, 3),
+            pffdtd_points_per_wavelength=(8.0, 10.0, 12.0),
         )
     with pytest.raises(ValueError, match='PFFDTD refinement schedule'):
         validate_refinement_schedule(
             plan,
-            reference_refinements=(0, 1, 2),
-            pffdtd_points_per_wavelength=(6.0, 8.0, 12.0),
+            reference_refinements=(1, 2, 3),
+            pffdtd_points_per_wavelength=(8.0, 10.0, 14.0),
         )
 
 
@@ -215,3 +219,201 @@ def test_evidence_persistence_reopen_and_tamper_detection(tmp_path: Path):
     path.write_text(json.dumps(document), encoding='utf-8')
     with pytest.raises(ValueError, match='modified'):
         load_evidence(path)
+
+def _physical_contract(plan):
+    return {
+        'quantity': plan.physical_quantity.quantity,
+        'unit': plan.physical_quantity.unit,
+        'source_position_m': plan.fixture.source_position_m,
+        'receiver_position_m': plan.fixture.receiver_position_m,
+        'source_convention': plan.physical_quantity.source_contract,
+        'pressure_normalization': plan.physical_quantity.pressure_conversion,
+        'excitation_normalization': plan.physical_quantity.source_normalization,
+        'phasor_convention': plan.physical_quantity.phasor_convention,
+        'analysis_fourier_kernel': plan.physical_quantity.analysis_fourier_kernel,
+        'record_duration_s': plan.physical_quantity.duration_s,
+        'record_interval': plan.physical_quantity.record_interval,
+        'window_function': plan.physical_quantity.window_function,
+        'frequency_hz': plan.physical_quantity.frequency_hz,
+        'sound_speed_m_s': plan.fixture.sound_speed_m_s,
+        'density_kg_m3': plan.fixture.density_kg_m3,
+        'boundary_condition': plan.fixture.boundary_model,
+        'geometry_sha256': plan.fixture_sha256(),
+        'geometry_units': plan.physical_quantity.geometry_units,
+    }
+
+
+def test_physical_observable_contract_rejects_normalization_and_geometry_mismatch():
+    plan = _plan()
+    expected = _physical_contract(plan)
+    validate_physical_observable_contract(expected=expected, actual=dict(expected))
+
+    bad_normalization = dict(expected)
+    bad_normalization['excitation_normalization'] = 'arbitrary fitted scale'
+    with pytest.raises(ObservableContractMismatch, match='excitation_normalization'):
+        validate_physical_observable_contract(
+            expected=expected,
+            actual=bad_normalization,
+        )
+
+    bad_geometry = dict(expected)
+    bad_geometry['geometry_sha256'] = '0' * 64
+    with pytest.raises(ObservableContractMismatch, match='geometry_sha256'):
+        validate_physical_observable_contract(expected=expected, actual=bad_geometry)
+
+
+def test_self_convergence_requires_ordered_three_level_trend_and_blocks_cross_solver():
+    plan = _plan()
+    coarse = _pass_metrics().model_copy(
+        update={
+            'complex_rms_relative': 0.04,
+            'magnitude_max_relative': 0.06,
+            'phase_max_deg': 4.0,
+        }
+    )
+    fine = _pass_metrics().model_copy(
+        update={
+            'complex_rms_relative': 0.02,
+            'magnitude_max_relative': 0.03,
+            'phase_max_deg': 2.0,
+        }
+    )
+    reference = assess_refinement_series(
+        (coarse, fine),
+        plan.acceptance.reference_self_convergence,
+    )
+    assert reference.state == 'SELF_CONVERGENCE_PASS'
+
+    non_decreasing = _pass_metrics().model_copy(
+        update={
+            'complex_rms_relative': 0.03,
+            'magnitude_max_relative': 0.04,
+            'phase_max_deg': 3.0,
+        }
+    )
+    pffdtd = assess_refinement_series(
+        (fine, non_decreasing),
+        plan.acceptance.pffdtd_self_convergence,
+    )
+    assert pffdtd.state == 'SELF_CONVERGENCE_FAILED'
+    decision = validation_decision_v2(
+        execution_state='PASS',
+        contract_state='MATCH',
+        reference_assessment=reference,
+        pffdtd_assessment=pffdtd,
+        cross_solver_metrics=None,
+        plan=plan,
+    )
+    assert decision['cross_solver_state'] == 'CROSS_SOLVER_BLOCKED'
+    assert decision['validation_state'] == 'NOT_VALIDATED'
+
+
+def test_missing_adjacent_level_fails_closed():
+    plan = _plan()
+    with pytest.raises(ValueError, match='at least two adjacent comparisons'):
+        assess_refinement_series(
+            (_pass_metrics(),),
+            plan.acceptance.reference_self_convergence,
+        )
+
+
+def test_cross_solver_is_evaluated_only_after_both_self_convergence_pass():
+    plan = _plan()
+    first = _pass_metrics().model_copy(
+        update={
+            'complex_rms_relative': 0.04,
+            'magnitude_max_relative': 0.06,
+            'phase_max_deg': 4.0,
+        }
+    )
+    second = _pass_metrics().model_copy(
+        update={
+            'complex_rms_relative': 0.01,
+            'magnitude_max_relative': 0.02,
+            'phase_max_deg': 1.0,
+        }
+    )
+    reference = assess_refinement_series(
+        (first, second), plan.acceptance.reference_self_convergence
+    )
+    pffdtd = assess_refinement_series(
+        (first, second), plan.acceptance.pffdtd_self_convergence
+    )
+    with pytest.raises(ValueError, match='cross-solver metrics are required'):
+        validation_decision_v2(
+            execution_state='PASS',
+            contract_state='MATCH',
+            reference_assessment=reference,
+            pffdtd_assessment=pffdtd,
+            cross_solver_metrics=None,
+            plan=plan,
+        )
+
+
+def test_contract_mismatch_blocks_cross_solver_even_with_converged_series():
+    plan = _plan()
+    first = _pass_metrics().model_copy(
+        update={
+            'complex_rms_relative': 0.04,
+            'magnitude_max_relative': 0.06,
+            'phase_max_deg': 4.0,
+        }
+    )
+    second = _pass_metrics().model_copy(
+        update={
+            'complex_rms_relative': 0.01,
+            'magnitude_max_relative': 0.02,
+            'phase_max_deg': 1.0,
+        }
+    )
+    reference = assess_refinement_series(
+        (first, second), plan.acceptance.reference_self_convergence
+    )
+    pffdtd = assess_refinement_series(
+        (first, second), plan.acceptance.pffdtd_self_convergence
+    )
+    decision = validation_decision_v2(
+        execution_state='PASS',
+        contract_state='CONTRACT_MISMATCH',
+        reference_assessment=reference,
+        pffdtd_assessment=pffdtd,
+        cross_solver_metrics=_pass_metrics(),
+        plan=plan,
+    )
+    assert decision['execution_state'] == 'PASS'
+    assert decision['contract_state'] == 'CONTRACT_MISMATCH'
+    assert decision['cross_solver_state'] == 'CROSS_SOLVER_BLOCKED'
+    assert decision['validation_state'] == 'NOT_VALIDATED'
+
+
+def test_pr282_summary_fixture_and_solver_identity_remain_compatible():
+    plan = _plan()
+    path = (
+        Path(__file__).parents[2]
+        / 'benchmarks'
+        / 'acoustics'
+        / 'r130d_general3d_validation_run7_summary.json'
+    )
+    previous = json.loads(path.read_text(encoding='utf-8'))
+    assert previous['fixture_id'] == plan.fixture.fixture_id
+    assert previous['fixture_sha256'] == plan.fixture_sha256()
+    assert previous['pffdtd_implementation_sha'] == plan.pffdtd.source_commit_sha
+    assert previous['independent_solver_sha'] == (
+        plan.independent_reference.source_commit_sha
+    )
+    assert previous['decision']['general_3d_validation_state'] == 'NOT_VALIDATED'
+
+
+def test_new_plan_is_record_coherent_and_refinement_ordered():
+    plan = _plan()
+    assert plan.physical_quantity.duration_s == 0.25
+    assert all(
+        float(frequency) * plan.physical_quantity.duration_s
+        == round(float(frequency) * plan.physical_quantity.duration_s)
+        for frequency in plan.physical_quantity.frequency_hz
+    )
+    assert plan.independent_reference.uniform_refinements == (1, 2, 3)
+    assert plan.independent_reference.expected_element_counts == (48, 384, 3072)
+    assert plan.independent_reference.expected_dofs == (125, 729, 4913)
+    assert plan.pffdtd.points_per_wavelength == (8.0, 10.0, 12.0)
+
