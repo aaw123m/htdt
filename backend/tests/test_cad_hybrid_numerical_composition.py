@@ -841,6 +841,168 @@ def test_exact_frequency_grid_mismatch_rejects_nearest_neighbor_guessing() -> No
     assert error.value.code == HybridNumericalFailureCode.INVALID_GRID
 
 
+@pytest.mark.parametrize(
+    'case_name',
+    ('unequal_regular', 'unequal_irregular'),
+)
+def test_frequency_grid_stitch_fixture_reconstructs_smooth_complex_response(
+    case_name: str,
+) -> None:
+    fixture = _stitch_fixture()
+    cases = {
+        item['name']: item
+        for item in fixture['cases']
+    }
+    bundle = _unequal_grid_bundle(cases[case_name])
+    output = _compose(bundle)
+    transfer = bundle['transfer']
+
+    assert output.capability_state == 'COMPLEX_SUPPORTED'
+    assert output.grid_reconciliation.reconciliation_method == 'cartesian_linear_v1'
+    assert output.grid_reconciliation.extrapolation_policy == 'forbidden'
+    assert output.time_origin == 'source_t0'
+    assert output.common_phasor_convention == COMMON_PHASOR_CONVENTION
+
+    phases = []
+    for sample in output.samples:
+        expected = _fixture_transfer(sample.frequency_hz, transfer)
+        wave = complex(
+            sample.wave_complex_real_pa_per_m3_s,
+            sample.wave_complex_imag_pa_per_m3_s,
+        )
+        ga = complex(
+            sample.ga_complex_real_pa_per_m3_s,
+            sample.ga_complex_imag_pa_per_m3_s,
+        )
+        hybrid = complex(
+            sample.complex_real_pa_per_m3_s,
+            sample.complex_imag_pa_per_m3_s,
+        )
+        assert wave == pytest.approx(expected)
+        assert ga == pytest.approx(expected)
+        assert hybrid == pytest.approx(expected)
+        assert sample.low_weight + sample.high_weight == pytest.approx(1.0)
+        phases.append(sample.phase_rad)
+
+    for previous, current in zip(phases, phases[1:], strict=True):
+        wrapped_delta = cmath.phase(cmath.exp(1j * (current - previous)))
+        assert abs(wrapped_delta) < 0.1
+
+    lower = output.crossover_configuration.overlap_lower_hz
+    upper = output.crossover_configuration.overlap_upper_hz
+    by_frequency = {sample.frequency_hz: sample for sample in output.samples}
+    if lower in by_frequency:
+        assert by_frequency[lower].low_weight == 1.0
+        assert by_frequency[lower].high_weight == 0.0
+    if upper in by_frequency:
+        assert by_frequency[upper].low_weight == 0.0
+        assert by_frequency[upper].high_weight == 1.0
+
+
+def test_grid_reconciliation_failures_are_typed_and_fail_closed() -> None:
+    common = {
+        'original_wave_frequency_grid_hz': (40.0, 60.0, 80.0),
+        'original_ga_frequency_grid_hz': (40.0, 60.0, 80.0),
+        'requested_output_frequency_grid_hz': (40.0, 60.0, 80.0),
+    }
+
+    with pytest.raises(HybridNumericalCompositionError) as unsorted:
+        build_frequency_grid_reconciliation_authority(
+            **{
+                **common,
+                'original_wave_frequency_grid_hz': (40.0, 80.0, 60.0),
+            }
+        )
+    assert unsorted.value.code == HybridNumericalFailureCode.NON_MONOTONIC_GRID
+
+    with pytest.raises(HybridNumericalCompositionError) as duplicate:
+        build_frequency_grid_reconciliation_authority(
+            **{
+                **common,
+                'original_ga_frequency_grid_hz': (40.0, 40.0, 80.0),
+            }
+        )
+    assert duplicate.value.code == HybridNumericalFailureCode.DUPLICATE_FREQUENCY
+
+    with pytest.raises(HybridNumericalCompositionError) as outside:
+        build_frequency_grid_reconciliation_authority(
+            **{
+                **common,
+                'requested_output_frequency_grid_hz': (30.0, 40.0, 60.0),
+            },
+            reconciliation_method='cartesian_linear_v1',
+        )
+    assert outside.value.code == HybridNumericalFailureCode.OUT_OF_VALID_BAND
+
+    with pytest.raises(HybridNumericalCompositionError) as phase_method:
+        build_frequency_grid_reconciliation_authority(
+            **common,
+            reconciliation_method='magnitude_unwrapped_phase_linear_v1',
+        )
+    assert (
+        phase_method.value.code
+        == HybridNumericalFailureCode.PHASE_INTERPOLATION_UNSUPPORTED
+    )
+
+    with pytest.raises(HybridNumericalCompositionError) as overlap:
+        build_hybrid_crossover_configuration_authority(
+            overlap_lower_hz=30.0,
+            overlap_upper_hz=70.0,
+            wave_validity_band_hz=(40.0, 80.0),
+            ga_validity_band_hz=(40.0, 80.0),
+        )
+    assert overlap.value.code == HybridNumericalFailureCode.OVERLAP_INVALID
+
+
+def test_reconciliation_config_changes_spec_and_artifact_identity_only() -> None:
+    bundle = _bundle(
+        physical_transfer_plus=(
+            1.0 + 0.5j,
+            2.0 + 0.75j,
+            3.0 + 1.0j,
+        )
+    )
+    baseline = _compose(bundle)
+    alternate_spec = build_numerical_hybrid_composition_spec(
+        r130_result=bundle['result'],
+        r130_artifact_payload=bundle['payload'],
+        r130_candidate_input=bundle['candidate'],
+        wave_excitation=bundle['excitation'],
+        r150_responses=bundle['responses'],
+        receiver_id='receiver-1',
+        exact_frequency_grid_hz=bundle['frequencies'],
+        transition_start_hz=40.0,
+        transition_end_hz=80.0,
+        normalization_authority=bundle['normalization'],
+        frequency_tolerance_hz=1.0e-9,
+    )
+    alternate = compose_numerical_hybrid_response(
+        spec=alternate_spec,
+        r130_result=bundle['result'],
+        r130_artifact_payload=bundle['payload'],
+        r130_candidate_input=bundle['candidate'],
+        wave_excitation=bundle['excitation'],
+        r150_responses=bundle['responses'],
+        normalization_authority=bundle['normalization'],
+    )
+
+    assert alternate_spec.composition_spec_id != bundle['spec'].composition_spec_id
+    assert (
+        alternate_spec.grid_reconciliation.semantic_sha256
+        != bundle['spec'].grid_reconciliation.semantic_sha256
+    )
+    assert alternate.artifact_id != baseline.artifact_id
+    assert tuple(
+        (item.complex_real_pa_per_m3_s, item.complex_imag_pa_per_m3_s)
+        for item in alternate.samples
+    ) == pytest.approx(
+        tuple(
+            (item.complex_real_pa_per_m3_s, item.complex_imag_pa_per_m3_s)
+            for item in baseline.samples
+        )
+    )
+
+
 def test_save_reopen_exact_and_r130_r150_composition_stale_rejection(
     tmp_path: Path,
 ) -> None:
