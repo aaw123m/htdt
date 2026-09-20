@@ -163,7 +163,160 @@ No R120/R130/R140/R150/R160/R170, GUI/UX, canonical status/roadmap, or HTDT-Capt
 
 ## Executed result
 
-Pending dedicated GitHub Actions run.
+Dedicated GitHub Actions run `35505076672` completed successfully as an evidence-generation
+workflow. The numerical/physics outcome is **PASS**.
 
-Workflow success will mean evidence generation succeeded; it will not be reported as physics PASS
-unless the numerical decision itself is PASS.
+Immutable artifact:
+
+- artifact id: `10602989820`
+- name: `r100b-mfem-modal-experiment`
+- size: `1089889` bytes
+- artifact digest:
+  `sha256:6670c8206bbcf73752fba07bd7f32857aa70f8f29c186ff167bdb45c64b15593`
+- artifact `report.json` SHA-256:
+  `754ae55a478b0306d0d059f72444b1f795971dcae908681c381b8ac4ec6f4432`
+- deterministic report identity:
+  `d282519330aef2ddc6991e4fefc4d090fccb397e3f7a251400f159cf9b9811bf`
+
+Execution head:
+
+`2dea6beef81528497511266c2278be0e4124663f`
+
+Exact semidiscrete-system numerical identity:
+
+`f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d`
+
+The system remained the exact frozen p2/h1 discretization: 40 elements / 525 DOFs. The exported
+mass and stiffness matrices were exactly symmetric at the recorded float64 representation.
+
+### Modal numerical qualification
+
+The predeclared full 525-vector generalized eigenbasis was retained. No modal truncation or cutoff
+was used.
+
+- retained basis: `525 / 525`
+- generalized eigen residual: `1.9766731790476663e-15`
+- mass-orthonormality maximum absolute error: `2.6645352591003757e-15`
+- retained modal frequency range: approximately
+  `2.5052661663e-06 Hz .. 687.0555312344 Hz`
+- negative eigenvalues clamped: `0`
+- eigensolve: `0.0317006 s`
+
+These diagnostics are far inside the predeclared `1e-10` numerical controls.
+
+### Attempts
+
+| attempt | status | samples | modal reconstruction | source mass residual |
+|---|---|---:|---:|---:|
+| `modal-6000` | COMPLETED | 12000 | `0.0655399 s` | `4.1315160e-16` |
+| `modal-9000` | COMPLETED | 18000 | `0.1043478 s` | `3.7496045e-16` |
+| `modal-12000` | COMPLETED | 24000 | `0.1300986 s` | `4.1315160e-16` |
+
+### Adjacent-pair result
+
+Complex-RMS relative error:
+
+- 6000 -> 9000: `0.0035565489753706346`
+- 9000 -> 12000: `0.0018495018125891524`
+
+The sequence is strictly decreasing.
+
+6000 -> 9000:
+
+- magnitude absolute delta: `0.9108070393695016 dB`
+- magnitude relative delta: `0.0995499054132496`
+- phase delta: `4.542899727851477 deg`
+
+9000 -> 12000:
+
+- magnitude absolute delta: `0.44114943637837456 dB`
+- magnitude relative delta: `0.04952099512093281`
+- phase delta: `2.398810541827885 deg`
+
+The first adjacent pair is not required to satisfy the final tolerance. The predeclared decision
+requires decreasing adjacent complex-RMS error and the **final** pair to satisfy the unchanged
+current R100A limits. The final pair satisfies all three:
+
+- `0.4411494 < 0.75 dB`
+- `0.049520995 < 0.05`
+- `2.398811 < 8 deg`
+
+Therefore the modal time track is **PASS**.
+
+### Interpretation
+
+PR #274 showed gross non-convergence with Newmark on the same p2/h1 spatial configuration. This
+experiment replaced only that homogeneous time evolution with exact full-basis modal evolution
+while preserving the same assembled M/K/source/receiver system, current `dt`-dependent source
+kick, sampled output grids, finite-record observable, masks, and tolerances.
+
+The changed factor is therefore strong evidence that **Newmark temporal dispersion is a major
+cause of the current PR #274 time-track failure**. The experiment does not establish that every
+remaining source/receiver/finite-record modeling choice is production-valid, and it does not make
+MFEM production-ready by itself.
+
+No attempt is promoted. The production-adoption decision remains **NO_GO** and no production
+solver is selected.
+
+The checked-in candidate-local evidence is:
+
+`benchmarks/acoustics/evidence/r100b_mfem_modal_2026-09-20.json`
+
+Historical negative evidence from PR #274 remains unchanged.
+
+### Resource evidence
+
+- MFEM configure/build: `598.7060038 s`
+- eigensolve: `0.0317006 s`
+- total three modal reconstructions: `0.2999863 s`
+- observed Python process RSS: `98.89453125 MiB`
+- experiment work disk: `9.25096035 MiB`
+
+The modal solve itself is small relative to the native MFEM build. No experiment resource ceiling
+was approached.
+
+### Execution-history note
+
+The first dedicated run, `35503575607`, successfully generated all three numerical traces but
+failed in post-processing because the runner referenced a non-existent comparison helper name.
+That was an implementation failure, not a physics BLOCKED result. Run `35504382119` was
+cancelled after the exact helper-signature correction superseded it, before numerical execution.
+No modal count, cutoff, mesh, output grid, source mapping, or tolerance was changed in response to
+those failures.
+
+### Validation
+
+- focused modal contract: **7 passed**
+- dedicated modal workflow `35505076672`: **PASS as evidence generation**
+- physics outcome: **PASS**
+- ordinary CI `35505076628`: **PASS — 1018 passed, 2 skipped**
+- Windows Release Artifact `35505076736`: **PASS**
+- RDC usage: **0**
+- HTDT-Capture changes: **0**
+
+Workflow PASS and physics PASS remain separate fields even though both are PASS for the final run.
+
+## Production-readiness effect
+
+The production-adoption decision remains **NO_GO**. This experiment is diagnostic evidence, not a
+production-selection gate. It establishes a selection-relevant reason to continue with a
+production-suitable time integrator rather than spending the next experiment on the blocked h2
+mesh.
+
+## Smallest next selection-changing experiment
+
+Keep the exact current R100A fixture and the same p2/h1 semidiscrete M/K/source/receiver system.
+Test a production-suitable **low-dispersion, non-dissipative transient integration** method against
+the full-basis modal result.
+
+The next experiment must not:
+
+- relax the `0.75 dB / 0.05 / 8 deg` tolerance;
+- change source/receiver authority;
+- change the p2/h1 spatial discretization;
+- substitute a favorable output grid after seeing results;
+- retry h2 as the next step.
+
+A qualifying transient method should reproduce the same 6000/9000/12000 convergence behavior and
+final current-R100A tolerance without relying on full dense modal decomposition as the production
+execution path.
