@@ -32,8 +32,14 @@ from .cad_equipment import FrequencyDomain
 from .cad_geometric_acoustics_portal import (
     PORTAL_SIDE_SEMANTICS,
     GeometricPortalAperture,
+    GeometricPortalGraph,
+    compile_portal_graph,
     compile_single_portal_aperture,
+    directed_region_reachable,
+    enumerate_simple_directed_region_paths,
     region_membership_with_portal_cap,
+    region_membership_with_portal_caps,
+    region_segment_membership_with_portal_caps,
     resolve_direct_portal_crossing,
 )
 from .cad_repository import SceneRepository
@@ -61,6 +67,7 @@ HTDT_PLANAR_ENGINE_VERSION = '1'
 HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION = '2'
 HTDT_PORTAL_DIRECT_ENGINE_ID = 'htdt.r150.explicit_portal_direct'
 HTDT_PORTAL_DIRECT_ENGINE_VERSION = '1'
+HTDT_PORTAL_GRAPH_DIRECT_ENGINE_VERSION = '2'
 
 PathType = Literal['direct', 'specular_reflection']
 PathCandidateDecision = Literal[
@@ -70,6 +77,10 @@ PathCandidateDecision = Literal[
     'UNSUPPORTED_GEOMETRY',
     'INVALID_PORTAL_CROSSING',
     'INVALID_REGION_SEQUENCE',
+    'DISCONNECTED_REGION_GRAPH',
+    'PORTAL_CROSSING_LIMIT_EXCEEDED',
+    'INTERMEDIATE_REGION_MEMBERSHIP_FAILURE',
+    'UNSUPPORTED_PORTAL_TOPOLOGY',
 ]
 AxisName = Literal['x', 'y', 'z']
 PlaneSide = Literal['min', 'max']
@@ -152,6 +163,25 @@ HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
             'version': HTDT_PORTAL_DIRECT_ENGINE_VERSION,
             'construction': 'exact_single_directed_portal_aperture_crossing',
             'maximum_portal_crossings': 1,
+            'maximum_reflection_order': 0,
+            'coherent_phase': 'unavailable_not_synthesized',
+        }
+    ),
+)
+
+HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='adapter-kernel:htdt-r150-explicit-portal-direct',
+    authority_version=HTDT_PORTAL_GRAPH_DIRECT_ENGINE_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'implementation': HTDT_PORTAL_DIRECT_ENGINE_ID,
+            'version': HTDT_PORTAL_GRAPH_DIRECT_ENGINE_VERSION,
+            'construction': 'exact_bounded_directed_portal_graph_direct_propagation',
+            'traversal_policy': 'simple_region_path_v1',
+            'repeated_region_traversal': False,
+            'repeated_portal_traversal': False,
+            'maximum_portal_crossings_range': [1, 16],
+            'maximum_search_states': 4096,
             'maximum_reflection_order': 0,
             'coherent_phase': 'unavailable_not_synthesized',
         }
@@ -296,7 +326,8 @@ class DeterministicGaConfiguration(BaseModel):
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     maximum_reflection_order: Literal[0, 1, 2] = 1
-    maximum_portal_crossings: Literal[1] | None = None
+    maximum_portal_crossings: int | None = None
+    portal_traversal_policy: Literal['simple_region_path_v1'] | None = None
     frequency_centers_hz: tuple[float, ...] = Field(min_length=1)
     geometric_tolerance_m: float = Field(gt=0.0)
     engine_image_match_tolerance_m: float = Field(gt=0.0)
@@ -342,6 +373,16 @@ class DeterministicGaConfiguration(BaseModel):
             raise ValueError('GA numeric tolerances must be finite and positive')
         return value
 
+    @field_validator('maximum_portal_crossings')
+    @classmethod
+    def bounded_portal_crossings(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        value = int(value)
+        if value < 1 or value > 16:
+            raise ValueError('maximum_portal_crossings must be within 1..16')
+        return value
+
     @model_validator(mode='after')
     def validate_identity(self) -> 'DeterministicGaConfiguration':
         expected = _semantic_hash(self.semantic_payload())
@@ -358,6 +399,8 @@ class DeterministicGaConfiguration(BaseModel):
         )
         if self.maximum_portal_crossings is None:
             payload.pop('maximum_portal_crossings', None)
+        if self.portal_traversal_policy is None:
+            payload.pop('portal_traversal_policy', None)
         return payload
 
     def as_external_ref(self) -> ExactExternalAuthorityRef:
@@ -376,7 +419,7 @@ def build_deterministic_ga_configuration(
     identity_decimal_places: int = 12,
     room_policy: GeometryPolicy = 'exact_axis_aligned_closed_shoebox_v1',
     maximum_reflection_order: Literal[0, 1, 2] = 1,
-    maximum_portal_crossings: Literal[1] | None = None,
+    maximum_portal_crossings: int | None = None,
 ) -> DeterministicGaConfiguration:
     if (
         maximum_reflection_order == 2
@@ -392,9 +435,14 @@ def build_deterministic_ga_configuration(
                 'multi-region Portal lane is direct-only and requires '
                 'maximum_reflection_order=0'
             )
-        if maximum_portal_crossings != 1:
+        if (
+            maximum_portal_crossings is None
+            or maximum_portal_crossings < 1
+            or maximum_portal_crossings > 16
+        ):
             raise ValueError(
-                'multi-region Portal lane requires explicit maximum_portal_crossings=1'
+                'multi-region Portal lane requires explicit '
+                'maximum_portal_crossings within 1..16'
             )
     elif maximum_portal_crossings is not None:
         raise ValueError(
@@ -425,6 +473,7 @@ def build_deterministic_ga_configuration(
     }
     if maximum_portal_crossings is not None:
         core['maximum_portal_crossings'] = int(maximum_portal_crossings)
+        core['portal_traversal_policy'] = 'simple_region_path_v1'
     digest = _semantic_hash(core)
     return DeterministicGaConfiguration(
         configuration_id=f'r150-ga-configuration:{digest}',
@@ -543,7 +592,8 @@ class DeterministicGaExecutionInput(BaseModel):
     ] | None = None
     unsupported_reflection_surface_ids: tuple[str, ...] | None = None
     portal_apertures: tuple[GeometricPortalAperture, ...] | None = None
-    maximum_portal_crossings: Literal[1] | None = None
+    portal_graph: GeometricPortalGraph | None = None
+    maximum_portal_crossings: int | None = None
     occluder_triangle_indices: tuple[int, ...]
     sources: tuple[DeterministicGaSourceInput, ...]
     receivers: tuple[DeterministicGaReceiverInput, ...]
@@ -557,6 +607,40 @@ class DeterministicGaExecutionInput(BaseModel):
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'DeterministicGaExecutionInput':
+        if self.maximum_portal_crossings is not None and not (
+            1 <= self.maximum_portal_crossings <= 16
+        ):
+            raise ValueError('execution input maximum_portal_crossings must be within 1..16')
+        if self.portal_graph is not None:
+            if self.geometry_policy != 'general_planar_multi_region_portal_v1':
+                raise ValueError('Portal graph requires the explicit multi-region Portal policy')
+            if self.portal_apertures is None:
+                raise ValueError('Portal graph requires exact Portal aperture authority')
+            if self.maximum_portal_crossings != self.portal_graph.maximum_portal_crossings:
+                raise ValueError('Portal graph/configuration crossing limit mismatch')
+            if (
+                self.r120_compiled_geometry_id
+                != self.portal_graph.r120_compiled_geometry_id
+                or self.r120_compiled_geometry_sha256
+                != self.portal_graph.r120_compiled_geometry_sha256
+            ):
+                raise ValueError('Portal graph R120 geometry identity mismatch')
+            aperture_by_id = {item.aperture_id: item for item in self.portal_apertures}
+            if len(aperture_by_id) != len(self.portal_apertures):
+                raise ValueError('execution input contains duplicate Portal aperture identity')
+            if tuple(sorted(aperture_by_id)) != tuple(
+                sorted(item.aperture_id for item in self.portal_graph.directed_edges)
+            ):
+                raise ValueError('Portal graph/aperture identity set mismatch')
+            for edge in self.portal_graph.directed_edges:
+                aperture = aperture_by_id[edge.aperture_id]
+                if (
+                    aperture.portal_id != edge.portal_id
+                    or aperture.semantic_sha256 != edge.aperture_sha256
+                    or aperture.from_region_id != edge.from_region_id
+                    or aperture.to_region_id != edge.to_region_id
+                ):
+                    raise ValueError('Portal graph edge does not reproduce exact aperture authority')
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('DeterministicGaExecutionInput semantic hash mismatch')
@@ -577,6 +661,8 @@ class DeterministicGaExecutionInput(BaseModel):
             payload.pop('maximum_reflection_order', None)
         if self.portal_apertures is None:
             payload.pop('portal_apertures', None)
+        if self.portal_graph is None:
+            payload.pop('portal_graph', None)
         if self.maximum_portal_crossings is None:
             payload.pop('maximum_portal_crossings', None)
         for source in payload['sources']:
@@ -737,20 +823,40 @@ class DeterministicAcousticPath(BaseModel):
                 item for item in self.ordered_interactions if item.kind == 'portal_crossing'
             )
             if portals:
-                if self.path_type != 'direct' or len(portals) != 1 or reflections:
+                if self.path_type != 'direct' or reflections:
                     raise ValueError(
-                        'current bounded Portal lane supports one Portal crossing on direct paths only'
+                        'Portal graph propagation supports Portal crossings on direct paths only'
                     )
-                if self.ordered_region_ids is None or len(self.ordered_region_ids) != 2:
-                    raise ValueError('Portal path requires exactly two ordered regions')
-                portal = portals[0]
                 if (
-                    portal.from_region_id,
-                    portal.to_region_id,
-                ) != self.ordered_region_ids:
-                    raise ValueError('Portal interaction region order mismatch')
+                    self.ordered_region_ids is None
+                    or len(self.ordered_region_ids) != len(portals) + 1
+                ):
+                    raise ValueError(
+                        'Portal path ordered region count must equal crossing count plus one'
+                    )
+                if len(set(self.ordered_region_ids)) != len(self.ordered_region_ids):
+                    raise ValueError('Portal simple-path authority cannot repeat an AcousticRegion')
+                portal_ids = tuple(item.portal_id for item in portals)
+                if len(set(portal_ids)) != len(portal_ids):
+                    raise ValueError('Portal simple-path authority cannot repeat a Portal')
+                for index, portal in enumerate(portals):
+                    if (
+                        portal.from_region_id,
+                        portal.to_region_id,
+                    ) != (
+                        self.ordered_region_ids[index],
+                        self.ordered_region_ids[index + 1],
+                    ):
+                        raise ValueError('Portal interaction region order mismatch')
             elif self.ordered_region_ids is not None:
-                raise ValueError('region sequence without Portal crossing is not emitted by this schema')
+                if (
+                    self.path_type != 'direct'
+                    or reflections
+                    or len(self.ordered_region_ids) != 1
+                ):
+                    raise ValueError(
+                        'region-only direct path authority requires exactly one ordered region'
+                    )
         elif self.ordered_region_ids is not None:
             raise ValueError('ordered_region_ids require typed interactions')
 
@@ -882,6 +988,7 @@ class DeterministicPathArtifact(BaseModel):
         'direct_and_first_order_specular',
         'direct_through_second_order_specular',
         'direct_single_portal_propagation',
+        'direct_bounded_portal_graph_propagation',
     ] = 'direct_and_first_order_specular'
     coherent_phase_authority: Literal['UNAVAILABLE_NOT_SYNTHESIZED'] = (
         'UNAVAILABLE_NOT_SYNTHESIZED'
