@@ -49,6 +49,8 @@ DETERMINISTIC_GA_ADAPTER_VERSION = '1'
 PYROOMACOUSTICS_ENGINE_ID = 'pyroomacoustics.image_source_model'
 PYROOMACOUSTICS_ENGINE_VERSION = '0.10.1'
 PYROOMACOUSTICS_CANDIDATE_SOURCE_COMMIT = 'f02b01dd6609709e2089aefa5d1e59c91d3a0601'
+HTDT_PLANAR_ENGINE_ID = 'htdt.r150.general_planar_image_construction'
+HTDT_PLANAR_ENGINE_VERSION = '1'
 
 PathType = Literal['direct', 'specular_reflection']
 PathCandidateDecision = Literal[
@@ -59,6 +61,30 @@ PathCandidateDecision = Literal[
 ]
 AxisName = Literal['x', 'y', 'z']
 PlaneSide = Literal['min', 'max']
+GeometryPolicy = Literal[
+    'exact_axis_aligned_closed_shoebox_v1',
+    'general_planar_closed_polyhedral_v1',
+]
+UnsupportedCapabilityReason = Literal[
+    'UNSUPPORTED_PORTAL_TOPOLOGY',
+    'UNSUPPORTED_BOUNDARY_TERMINATION',
+    'UNSUPPORTED_REGION_TOPOLOGY',
+    'UNSUPPORTED_REGION_MEMBERSHIP',
+    'UNSUPPORTED_GEOMETRY',
+]
+
+
+class DeterministicGaUnsupportedError(ValueError):
+    """Typed fail-closed capability error for unsupported GA geometry/topology."""
+
+    def __init__(
+        self,
+        reason_code: UnsupportedCapabilityReason,
+        message: str,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+
 
 
 def _canonical_json(payload: object) -> str:
@@ -83,6 +109,20 @@ PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
             'package': 'pyroomacoustics',
             'version': PYROOMACOUSTICS_ENGINE_VERSION,
             'source_commit': PYROOMACOUSTICS_CANDIDATE_SOURCE_COMMIT,
+        }
+    ),
+)
+
+
+HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='adapter-kernel:htdt-r150-general-planar-first-order',
+    authority_version=HTDT_PLANAR_ENGINE_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'implementation': HTDT_PLANAR_ENGINE_ID,
+            'version': HTDT_PLANAR_ENGINE_VERSION,
+            'construction': 'exact_plane_mirror_and_triangle_domain_first_order',
+            'maximum_reflection_order': 1,
         }
     ),
 )
@@ -213,9 +253,7 @@ class DeterministicGaConfiguration(BaseModel):
     engine_image_match_tolerance_m: float = Field(gt=0.0)
     identity_decimal_places: int = Field(default=12, ge=6, le=15)
 
-    room_policy: Literal['exact_axis_aligned_closed_shoebox_v1'] = (
-        'exact_axis_aligned_closed_shoebox_v1'
-    )
+    room_policy: GeometryPolicy = 'exact_axis_aligned_closed_shoebox_v1'
     source_directivity_policy: Literal[
         'exact_bound_dataset_magnitude_only_or_complex_magnitude'
     ] = 'exact_bound_dataset_magnitude_only_or_complex_magnitude'
@@ -284,6 +322,7 @@ def build_deterministic_ga_configuration(
     geometric_tolerance_m: float = 1.0e-9,
     engine_image_match_tolerance_m: float = 1.0e-8,
     identity_decimal_places: int = 12,
+    room_policy: GeometryPolicy = 'exact_axis_aligned_closed_shoebox_v1',
 ) -> DeterministicGaConfiguration:
     core: dict[str, Any] = {
         'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
@@ -293,7 +332,7 @@ def build_deterministic_ga_configuration(
         'geometric_tolerance_m': float(geometric_tolerance_m),
         'engine_image_match_tolerance_m': float(engine_image_match_tolerance_m),
         'identity_decimal_places': int(identity_decimal_places),
-        'room_policy': 'exact_axis_aligned_closed_shoebox_v1',
+        'room_policy': room_policy,
         'source_directivity_policy': (
             'exact_bound_dataset_magnitude_only_or_complex_magnitude'
         ),
@@ -325,12 +364,39 @@ class GeometricSurfacePlane(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     source_surface_id: str = Field(pattern=r'^semantic-surface:[0-9a-f]{64}$')
-    axis: AxisName
-    side: PlaneSide
-    coordinate_m: float
+    axis: AxisName | None = None
+    side: PlaneSide | None = None
+    coordinate_m: float | None = None
+    point_m: Position3 | None = None
+    normal: Direction3 | None = None
+    compiled_triangle_indices: tuple[int, ...] | None = None
     material_authority: ExactExternalAuthorityRef | None = None
     boundary_physics_authority: ExactExternalAuthorityRef | None = None
 
+    @model_validator(mode='after')
+    def validate_plane_representation(self) -> 'GeometricSurfacePlane':
+        legacy = (
+            self.axis is not None
+            and self.side is not None
+            and self.coordinate_m is not None
+            and self.point_m is None
+            and self.normal is None
+            and self.compiled_triangle_indices is None
+        )
+        general = (
+            self.axis is None
+            and self.side is None
+            and self.coordinate_m is None
+            and self.point_m is not None
+            and self.normal is not None
+            and bool(self.compiled_triangle_indices)
+        )
+        if legacy == general:
+            raise ValueError(
+                'surface plane must use exactly one legacy-axis or '
+                'general-planar representation'
+            )
+        return self
 
 class DeterministicGaSourceInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -387,6 +453,8 @@ class DeterministicGaExecutionInput(BaseModel):
     room_origin_m: Position3
     room_dimensions_m: tuple[float, float, float]
     boundary_planes: tuple[GeometricSurfacePlane, ...]
+    geometry_policy: Literal['general_planar_closed_polyhedral_v1'] | None = None
+    unsupported_reflection_surface_ids: tuple[str, ...] | None = None
     occluder_triangle_indices: tuple[int, ...]
     sources: tuple[DeterministicGaSourceInput, ...]
     receivers: tuple[DeterministicGaReceiverInput, ...]
@@ -407,10 +475,26 @@ class DeterministicGaExecutionInput(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'execution_input_id', 'semantic_sha256'},
         )
+        if self.geometry_policy is None:
+            payload.pop('geometry_policy', None)
+        if self.unsupported_reflection_surface_ids is None:
+            payload.pop('unsupported_reflection_surface_ids', None)
+        for plane in payload['boundary_planes']:
+            for key in (
+                'axis',
+                'side',
+                'coordinate_m',
+                'point_m',
+                'normal',
+                'compiled_triangle_indices',
+            ):
+                if plane.get(key) is None:
+                    plane.pop(key, None)
+        return payload
 
 
 class SourceDirectivityContribution(BaseModel):
@@ -676,6 +760,27 @@ class DeterministicImageSourceEngine(Protocol):
         ...
 
 
+class HtdtPlanarImageSourceEngine:
+    """Deterministic HTDT analytic kernel for arbitrary planar first-order images."""
+
+    engine_id = HTDT_PLANAR_ENGINE_ID
+    engine_version = HTDT_PLANAR_ENGINE_VERSION
+    candidate_source_commit = None
+    solver_implementation_ref = HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+
+    def execute_shoebox(
+        self,
+        *,
+        dimensions_m: tuple[float, float, float],
+        source_local_m: tuple[float, float, float],
+        receiver_local_m: tuple[float, float, float],
+    ) -> tuple[NativeImageSource, ...]:
+        del dimensions_m, source_local_m, receiver_local_m
+        raise RuntimeError(
+            'HTDT general-planar kernel does not construct or approximate a shoebox'
+        )
+
+
 class PyroomacousticsImageSourceEngine:
     """Candidate engine bridge. pyroomacoustics objects never cross this adapter."""
 
@@ -860,6 +965,82 @@ def _surface_plane(
     )
 
 
+
+def _general_surface_plane(
+    compiled: R120CompiledGeometry,
+    mapping: CompiledSurfaceMapping,
+    *,
+    tolerance_m: float,
+) -> GeometricSurfacePlane:
+    indices = tuple(sorted(mapping.compiled_triangle_indices))
+    if not indices:
+        raise ValueError(
+            f'semantic surface has no compiled triangles: {mapping.source_surface_id}'
+        )
+
+    all_vertices: list[tuple[float, float, float]] = []
+    reference_normal: tuple[float, float, float] | None = None
+    for triangle_index in indices:
+        triangle = _triangle_vertices(compiled, triangle_index)
+        edge1 = _vector(triangle[0], triangle[1])
+        edge2 = _vector(triangle[0], triangle[2])
+        raw_normal = _cross(edge1, edge2)
+        if _norm(raw_normal) <= tolerance_m * tolerance_m:
+            raise ValueError(
+                f'degenerate triangle in semantic surface {mapping.source_surface_id}'
+            )
+        normal = _unit(raw_normal)
+        if reference_normal is None:
+            for component in normal:
+                if abs(component) > tolerance_m:
+                    if component < 0.0:
+                        normal = tuple(-value for value in normal)
+                    break
+            reference_normal = normal
+        all_vertices.extend(triangle)
+
+    assert reference_normal is not None
+    point = min(set(all_vertices))
+    for vertex in all_vertices:
+        signed_distance = _dot(_vector(point, vertex), reference_normal)
+        if abs(signed_distance) > tolerance_m:
+            raise ValueError(
+                f'nonplanar semantic surface {mapping.source_surface_id} exceeds '
+                f'declared tolerance {tolerance_m}'
+            )
+
+    return GeometricSurfacePlane(
+        source_surface_id=mapping.source_surface_id,
+        point_m=_point(point),
+        normal=_direction(reference_normal),
+        compiled_triangle_indices=indices,
+        material_authority=mapping.material_authority,
+        boundary_physics_authority=mapping.boundary_physics_authority,
+    )
+
+
+def _validate_supported_topology(
+    *,
+    region_authority: AcousticRegionAuthority,
+    portal_authority: PortalAuthority,
+    boundary_termination_authority: BoundaryTerminationAuthority,
+) -> None:
+    if portal_authority.declaration_mode != 'explicit_none':
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_TOPOLOGY',
+            'deterministic GA foundation does not simplify or traverse explicit/unknown portals',
+        )
+    if boundary_termination_authority.declaration_mode != 'explicit_none':
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_BOUNDARY_TERMINATION',
+            'deterministic GA foundation does not simplify explicit/unknown terminations',
+        )
+    if len(region_authority.declarations) != 1:
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_REGION_TOPOLOGY',
+            'deterministic GA foundation supports exactly one explicit acoustic region',
+        )
+
 def compile_deterministic_ga_execution_input(
     *,
     snapshot: AcousticSceneSnapshot,
@@ -894,13 +1075,6 @@ def compile_deterministic_ga_execution_input(
         != compiled_geometry.topology_identity_sha256
     ):
         raise ValueError('GA execution R120 geometry identity mismatch')
-    if not compiled_geometry.readiness.geometric_acoustics_geometry_ready:
-        raise ValueError('R120 geometry is not ready for geometric acoustics')
-    if compiled_geometry.approximation_operations or compiled_geometry.dropped_features:
-        raise ValueError('deterministic GA foundation rejects approximated/dropped R120 geometry')
-    if compiled_geometry.approximation_error_status != 'exact_preservation':
-        raise ValueError('deterministic GA foundation requires exact R120 preservation')
-
     for expected, actual, label in (
         (compiled_geometry.region_authority_ref, _authority_ref(region_authority), 'region'),
         (compiled_geometry.portal_authority_ref, _authority_ref(portal_authority), 'portal'),
@@ -912,18 +1086,18 @@ def compile_deterministic_ga_execution_input(
     ):
         if expected is None or expected != actual:
             raise ValueError(f'GA exact {label} authority mismatch')
-    if portal_authority.declaration_mode != 'explicit_none':
-        raise ValueError(
-            'deterministic GA foundation does not simplify or traverse explicit/unknown portals'
-        )
-    if boundary_termination_authority.declaration_mode != 'explicit_none':
-        raise ValueError(
-            'deterministic GA foundation does not simplify explicit/unknown terminations'
-        )
-    if len(region_authority.declarations) != 1:
-        raise ValueError(
-            'deterministic GA foundation supports exactly one explicit acoustic region'
-        )
+    _validate_supported_topology(
+        region_authority=region_authority,
+        portal_authority=portal_authority,
+        boundary_termination_authority=boundary_termination_authority,
+    )
+    if not compiled_geometry.readiness.geometric_acoustics_geometry_ready:
+        raise ValueError('R120 geometry is not ready for geometric acoustics')
+    if compiled_geometry.approximation_operations or compiled_geometry.dropped_features:
+        raise ValueError('deterministic GA foundation rejects approximated/dropped R120 geometry')
+    if compiled_geometry.approximation_error_status != 'exact_preservation':
+        raise ValueError('deterministic GA foundation requires exact R120 preservation')
+
 
     if snapshot.environment is None or snapshot.environment.sound_speed_m_s is None:
         raise ValueError('deterministic GA path delay requires exact sound-speed authority')
@@ -940,90 +1114,180 @@ def compile_deterministic_ga_execution_input(
         for item in compiled_geometry.surface_mapping
         if item.semantic_class == 'room_boundary'
     )
-    planes = tuple(
-        _surface_plane(
-            compiled_geometry,
-            item,
-            tolerance_m=configuration.geometric_tolerance_m,
-        )
-        for item in room_mappings
-    )
-    plane_keys = [(item.axis, item.side) for item in planes]
-    required_plane_keys = {
-        ('x', 'min'),
-        ('x', 'max'),
-        ('y', 'min'),
-        ('y', 'max'),
-        ('z', 'min'),
-        ('z', 'max'),
-    }
-    if len(planes) != 6 or set(plane_keys) != required_plane_keys:
-        raise ValueError(
-            'candidate pyroomacoustics adapter requires six exact semantic '
-            'room-boundary surfaces, one per shoebox plane'
-        )
-    if len(plane_keys) != len(set(plane_keys)):
-        raise ValueError('multiple semantic surfaces map to one shoebox boundary plane')
-
-    shell_boundary_edges, shell_non_manifold_edges, shell_volume_m3 = (
-        _room_boundary_shell_metrics(compiled_geometry, room_mappings)
-    )
-    if shell_boundary_edges or shell_non_manifold_edges:
-        raise ValueError(
-            'candidate pyroomacoustics adapter requires the exact semantic '
-            'room-boundary subset itself to be a closed manifold; holes/open '
-            'edges are not filled into a shoebox'
-        )
     bounds = compiled_geometry.bounding_volume
-    expected_room_volume_m3 = (
-        float(bounds.max_x_m - bounds.min_x_m)
-        * float(bounds.max_y_m - bounds.min_y_m)
-        * float(bounds.max_z_m - bounds.min_z_m)
-    )
-    room_surface_area_m2 = 2.0 * (
-        float(bounds.max_x_m - bounds.min_x_m)
-        * float(bounds.max_y_m - bounds.min_y_m)
-        + float(bounds.max_x_m - bounds.min_x_m)
-        * float(bounds.max_z_m - bounds.min_z_m)
-        + float(bounds.max_y_m - bounds.min_y_m)
-        * float(bounds.max_z_m - bounds.min_z_m)
-    )
-    volume_tolerance_m3 = max(
-        configuration.geometric_tolerance_m ** 3,
-        room_surface_area_m2 * configuration.geometric_tolerance_m,
-    )
-    if abs(shell_volume_m3 - expected_room_volume_m3) > volume_tolerance_m3:
-        raise ValueError(
-            'semantic room-boundary shell volume does not exactly match its '
-            'shoebox bounds within the declared geometric tolerance; candidate '
-            'geometry must not fill or clip the R120 shell'
+    region_surfaces = set(region_authority.declarations[0].boundary_surface_ids)
+    room_mapping_by_id = {item.source_surface_id: item for item in room_mappings}
+    room_surface_ids = set(room_mapping_by_id)
+    if region_surfaces != room_surface_ids:
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_REGION_TOPOLOGY',
+            'explicit acoustic region boundary surfaces do not match exact room-boundary shell',
         )
 
-    region_surfaces = set(region_authority.declarations[0].boundary_surface_ids)
-    room_surface_ids = {item.source_surface_id for item in planes}
-    if region_surfaces != room_surface_ids:
-        raise ValueError(
-            'explicit acoustic region boundary surfaces do not match exact shoebox shell'
+    general_geometry = configuration.room_policy == 'general_planar_closed_polyhedral_v1'
+    unsupported_reflection_surface_ids: tuple[str, ...] | None = None
+    region_triangle_indices: tuple[int, ...] = ()
+    region_bounds: tuple[
+        tuple[float, float],
+        tuple[float, float],
+        tuple[float, float],
+    ] | None = None
+
+    if general_geometry:
+        shell_boundary_edges, shell_non_manifold_edges, shell_volume_m3 = (
+            _room_boundary_shell_metrics(
+                compiled_geometry,
+                tuple(room_mapping_by_id[surface_id] for surface_id in sorted(region_surfaces)),
+            )
         )
-    region_bounds = (
-        (float(bounds.min_x_m), float(bounds.max_x_m)),
-        (float(bounds.min_y_m), float(bounds.max_y_m)),
-        (float(bounds.min_z_m), float(bounds.max_z_m)),
-    )
+        if shell_boundary_edges or shell_non_manifold_edges:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_GEOMETRY',
+                'general planar GA requires the exact region room-boundary subset '
+                'to be a closed manifold; holes/open edges are not filled',
+            )
+        if shell_volume_m3 <= configuration.geometric_tolerance_m ** 3:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_GEOMETRY',
+                'general planar GA region shell is degenerate within declared tolerance',
+            )
+
+        plane_list: list[GeometricSurfacePlane] = []
+        unsupported_surface_ids: list[str] = []
+        for mapping in sorted(
+            compiled_geometry.surface_mapping,
+            key=lambda item: item.source_surface_id,
+        ):
+            try:
+                plane_list.append(
+                    _general_surface_plane(
+                        compiled_geometry,
+                        mapping,
+                        tolerance_m=configuration.geometric_tolerance_m,
+                    )
+                )
+            except ValueError as exc:
+                if mapping.source_surface_id in region_surfaces:
+                    raise DeterministicGaUnsupportedError(
+                        'UNSUPPORTED_GEOMETRY',
+                        f'region boundary surface is not exact planar geometry: {exc}',
+                    ) from exc
+                unsupported_surface_ids.append(mapping.source_surface_id)
+        planes = tuple(plane_list)
+        unsupported_reflection_surface_ids = tuple(sorted(unsupported_surface_ids))
+        region_triangle_indices = tuple(
+            sorted(
+                {
+                    index
+                    for surface_id in region_surfaces
+                    for index in room_mapping_by_id[surface_id].compiled_triangle_indices
+                }
+            )
+        )
+    else:
+        planes = tuple(
+            _surface_plane(
+                compiled_geometry,
+                item,
+                tolerance_m=configuration.geometric_tolerance_m,
+            )
+            for item in room_mappings
+        )
+        plane_keys = [(item.axis, item.side) for item in planes]
+        required_plane_keys = {
+            ('x', 'min'),
+            ('x', 'max'),
+            ('y', 'min'),
+            ('y', 'max'),
+            ('z', 'min'),
+            ('z', 'max'),
+        }
+        if len(planes) != 6 or set(plane_keys) != required_plane_keys:
+            raise ValueError(
+                'candidate pyroomacoustics adapter requires six exact semantic '
+                'room-boundary surfaces, one per shoebox plane'
+            )
+        if len(plane_keys) != len(set(plane_keys)):
+            raise ValueError('multiple semantic surfaces map to one shoebox boundary plane')
+
+        shell_boundary_edges, shell_non_manifold_edges, shell_volume_m3 = (
+            _room_boundary_shell_metrics(compiled_geometry, room_mappings)
+        )
+        if shell_boundary_edges or shell_non_manifold_edges:
+            raise ValueError(
+                'candidate pyroomacoustics adapter requires the exact semantic '
+                'room-boundary subset itself to be a closed manifold; holes/open '
+                'edges are not filled into a shoebox'
+            )
+        expected_room_volume_m3 = (
+            float(bounds.max_x_m - bounds.min_x_m)
+            * float(bounds.max_y_m - bounds.min_y_m)
+            * float(bounds.max_z_m - bounds.min_z_m)
+        )
+        room_surface_area_m2 = 2.0 * (
+            float(bounds.max_x_m - bounds.min_x_m)
+            * float(bounds.max_y_m - bounds.min_y_m)
+            + float(bounds.max_x_m - bounds.min_x_m)
+            * float(bounds.max_z_m - bounds.min_z_m)
+            + float(bounds.max_y_m - bounds.min_y_m)
+            * float(bounds.max_z_m - bounds.min_z_m)
+        )
+        volume_tolerance_m3 = max(
+            configuration.geometric_tolerance_m ** 3,
+            room_surface_area_m2 * configuration.geometric_tolerance_m,
+        )
+        if abs(shell_volume_m3 - expected_room_volume_m3) > volume_tolerance_m3:
+            raise ValueError(
+                'semantic room-boundary shell volume does not exactly match its '
+                'shoebox bounds within the declared geometric tolerance; candidate '
+                'geometry must not fill or clip the R120 shell'
+            )
+        region_bounds = (
+            (float(bounds.min_x_m), float(bounds.max_x_m)),
+            (float(bounds.min_y_m), float(bounds.max_y_m)),
+            (float(bounds.min_z_m), float(bounds.max_z_m)),
+        )
+
+    def require_inside_region(
+        point: tuple[float, float, float],
+        *,
+        label: str,
+        legacy_message: str,
+    ) -> None:
+        if general_geometry:
+            membership = _region_point_membership(
+                compiled_geometry,
+                region_triangle_indices,
+                point,
+                tolerance=configuration.geometric_tolerance_m,
+            )
+            if membership != 'inside':
+                raise DeterministicGaUnsupportedError(
+                    'UNSUPPORTED_REGION_MEMBERSHIP',
+                    f'{label} is not unambiguously inside the sole explicit acoustic '
+                    f'region (membership={membership})',
+                )
+        else:
+            assert region_bounds is not None
+            if not _point_strictly_inside_box(
+                point,
+                bounds=region_bounds,
+                tolerance_m=configuration.geometric_tolerance_m,
+            ):
+                raise ValueError(legacy_message)
 
     dataset_by_hash = {item.semantic_sha256: item for item in directivity_datasets}
     source_inputs: list[DeterministicGaSourceInput] = []
     for source in sorted(snapshot.sources, key=lambda item: item.source_entity_id):
-        if not _point_strictly_inside_box(
+        require_inside_region(
             _position_tuple(source.source_reference_point),
-            bounds=region_bounds,
-            tolerance_m=configuration.geometric_tolerance_m,
-        ):
-            raise ValueError(
+            label=f'source {source.source_entity_id} acoustic reference point',
+            legacy_message=(
                 f'source {source.source_entity_id} acoustic reference point is not '
                 'strictly inside the sole explicit acoustic region; unmodeled '
                 'external space is not an implicit propagation region'
-            )
+            ),
+        )
         if (
             source.geometric_directivity_state
             != 'SUPPORTED_FOR_GEOMETRIC_DIRECTIVITY'
@@ -1068,16 +1332,15 @@ def compile_deterministic_ga_execution_input(
 
     receiver_inputs_list: list[DeterministicGaReceiverInput] = []
     for item in sorted(snapshot.receivers, key=lambda item: item.receiver_id):
-        if not _point_strictly_inside_box(
+        require_inside_region(
             _position_tuple(item.world_position),
-            bounds=region_bounds,
-            tolerance_m=configuration.geometric_tolerance_m,
-        ):
-            raise ValueError(
+            label=f'receiver {item.receiver_id} position',
+            legacy_message=(
                 f'receiver {item.receiver_id} position is not strictly inside the '
                 'sole explicit acoustic region; unmodeled external space is not '
                 'an implicit propagation region'
-            )
+            ),
+        )
         receiver_inputs_list.append(
             DeterministicGaReceiverInput(
                 receiver_id=item.receiver_id,
@@ -1108,7 +1371,7 @@ def compile_deterministic_ga_execution_input(
         float(bounds.max_z_m - bounds.min_z_m),
     )
     if any(value <= 0.0 for value in dimensions):
-        raise ValueError('R120 shoebox bounding dimensions must be positive')
+        raise ValueError('R120 bounding dimensions must be positive')
 
     core: dict[str, Any] = {
         'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
@@ -1138,8 +1401,16 @@ def compile_deterministic_ga_execution_input(
         'room_origin_m': origin.model_dump(mode='json'),
         'room_dimensions_m': list(dimensions),
         'boundary_planes': [
-            item.model_dump(mode='json')
-            for item in sorted(planes, key=lambda item: (item.axis, item.side))
+            {
+                key: value
+                for key, value in item.model_dump(mode='json').items()
+                if value is not None
+            }
+            for item in (
+                sorted(planes, key=lambda item: item.source_surface_id)
+                if general_geometry
+                else sorted(planes, key=lambda item: (item.axis, item.side))
+            )
         ],
         'occluder_triangle_indices': list(object_triangle_indices),
         'sources': [item.model_dump(mode='json') for item in source_inputs],
@@ -1151,6 +1422,11 @@ def compile_deterministic_ga_execution_input(
         'engine_image_match_tolerance_m': configuration.engine_image_match_tolerance_m,
         'identity_decimal_places': configuration.identity_decimal_places,
     }
+    if general_geometry:
+        core['geometry_policy'] = 'general_planar_closed_polyhedral_v1'
+        core['unsupported_reflection_surface_ids'] = list(
+            unsupported_reflection_surface_ids or ()
+        )
     digest = _semantic_hash(core)
     return DeterministicGaExecutionInput(
         execution_input_id=f'r150-ga-execution-input:{digest}',
@@ -1193,28 +1469,52 @@ def _segment_triangle_intersection_parameter(
     triangle: tuple[Sequence[float], Sequence[float], Sequence[float]],
     *,
     tolerance: float,
+    distance_scaled_tolerance: bool = False,
 ) -> float | None:
     direction = _vector(start, end)
     edge1 = _vector(triangle[0], triangle[1])
     edge2 = _vector(triangle[0], triangle[2])
     pvec = _cross(direction, edge2)
     determinant = _dot(edge1, pvec)
-    if abs(determinant) <= tolerance:
-        return None
+
+    if distance_scaled_tolerance:
+        segment_length = _norm(direction)
+        edge1_length = _norm(edge1)
+        edge2_length = _norm(edge2)
+        if (
+            segment_length <= tolerance
+            or edge1_length <= tolerance
+            or edge2_length <= tolerance
+        ):
+            return None
+        geometry_scale = max(segment_length, edge1_length, edge2_length)
+        relative_tolerance = min(0.25, tolerance / geometry_scale)
+        endpoint_parameter_tolerance = min(0.25, tolerance / segment_length)
+        determinant_scale = segment_length * edge1_length * edge2_length
+        if abs(determinant) <= determinant_scale * relative_tolerance:
+            return None
+    else:
+        relative_tolerance = tolerance
+        endpoint_parameter_tolerance = tolerance
+        if abs(determinant) <= tolerance:
+            return None
+
     inv_det = 1.0 / determinant
     tvec = _vector(triangle[0], start)
     u = _dot(tvec, pvec) * inv_det
-    if u < -tolerance or u > 1.0 + tolerance:
+    if u < -relative_tolerance or u > 1.0 + relative_tolerance:
         return None
     qvec = _cross(tvec, edge1)
     v = _dot(direction, qvec) * inv_det
-    if v < -tolerance or u + v > 1.0 + tolerance:
+    if v < -relative_tolerance or u + v > 1.0 + relative_tolerance:
         return None
     t = _dot(edge2, qvec) * inv_det
-    if t <= tolerance or t >= 1.0 - tolerance:
+    if (
+        t <= endpoint_parameter_tolerance
+        or t >= 1.0 - endpoint_parameter_tolerance
+    ):
         return None
     return t
-
 
 def _segment_blocked(
     compiled: R120CompiledGeometry,
@@ -1223,6 +1523,7 @@ def _segment_blocked(
     *,
     tolerance: float,
     ignored_surface_ids: frozenset[str] = frozenset(),
+    distance_scaled_tolerance: bool = False,
 ) -> bool:
     for index, triangle in enumerate(compiled.triangles):
         if triangle.source_surface_id in ignored_surface_ids:
@@ -1232,10 +1533,94 @@ def _segment_blocked(
             end,
             _triangle_vertices(compiled, index),
             tolerance=tolerance,
+            distance_scaled_tolerance=distance_scaled_tolerance,
         )
         if hit is not None:
             return True
     return False
+
+
+
+def _point_on_triangle_surface(
+    point: Sequence[float],
+    triangle: tuple[Sequence[float], Sequence[float], Sequence[float]],
+    *,
+    tolerance: float,
+) -> bool:
+    edge1 = _vector(triangle[0], triangle[1])
+    edge2 = _vector(triangle[0], triangle[2])
+    normal = _cross(edge1, edge2)
+    normal_length = _norm(normal)
+    if normal_length <= tolerance * tolerance:
+        return False
+    plane_distance = abs(_dot(_vector(triangle[0], point), normal)) / normal_length
+    return plane_distance <= tolerance and _point_in_triangle(
+        point,
+        triangle,
+        tolerance=tolerance,
+    )
+
+
+def _region_point_membership(
+    compiled: R120CompiledGeometry,
+    triangle_indices: Sequence[int],
+    point: Sequence[float],
+    *,
+    tolerance: float,
+) -> Literal['inside', 'outside', 'boundary', 'ambiguous']:
+    if not triangle_indices:
+        return 'ambiguous'
+    triangles = tuple(
+        _triangle_vertices(compiled, index)
+        for index in triangle_indices
+    )
+    if any(
+        _point_on_triangle_surface(point, triangle, tolerance=tolerance)
+        for triangle in triangles
+    ):
+        return 'boundary'
+
+    bounds = compiled.bounding_volume
+    diagonal = sqrt(
+        (bounds.max_x_m - bounds.min_x_m) ** 2
+        + (bounds.max_y_m - bounds.min_y_m) ** 2
+        + (bounds.max_z_m - bounds.min_z_m) ** 2
+    )
+    ray_length = max(1.0, diagonal * 4.0)
+    directions = (
+        _unit((1.0, 0.3713906763541037, 0.217031)),
+        _unit((-0.419, 1.0, 0.163)),
+        _unit((0.271, -0.337, 1.0)),
+    )
+    decisions: list[bool] = []
+    t_tolerance = max(1.0e-12, tolerance / ray_length * 4.0)
+    for direction in directions:
+        end = tuple(
+            float(point[index]) + ray_length * direction[index]
+            for index in range(3)
+        )
+        hits = sorted(
+            hit
+            for triangle in triangles
+            if (
+                hit := _segment_triangle_intersection_parameter(
+                    point,
+                    end,
+                    triangle,
+                    tolerance=tolerance,
+                    distance_scaled_tolerance=True,
+                )
+            )
+            is not None
+        )
+        distinct_hits: list[float] = []
+        for hit in hits:
+            if not distinct_hits or abs(hit - distinct_hits[-1]) > t_tolerance:
+                distinct_hits.append(hit)
+        decisions.append(len(distinct_hits) % 2 == 1)
+    if len(set(decisions)) != 1:
+        return 'ambiguous'
+    return 'inside' if decisions[0] else 'outside'
 
 
 def _point_in_triangle(
@@ -1334,6 +1719,16 @@ def _mirror_source(
     source_world: Sequence[float],
     plane: GeometricSurfacePlane,
 ) -> tuple[float, float, float]:
+    if plane.point_m is not None and plane.normal is not None:
+        point = _position_tuple(plane.point_m)
+        normal = _unit((plane.normal.x, plane.normal.y, plane.normal.z))
+        signed_distance = _dot(_vector(point, source_world), normal)
+        return tuple(
+            float(source_world[index]) - 2.0 * signed_distance * normal[index]
+            for index in range(3)
+        )  # type: ignore[return-value]
+    if plane.axis is None or plane.coordinate_m is None:
+        raise ValueError('surface plane representation is incomplete')
     values = [float(item) for item in source_world]
     axis_index = {'x': 0, 'y': 1, 'z': 2}[plane.axis]
     values[axis_index] = 2.0 * float(plane.coordinate_m) - values[axis_index]
@@ -1347,11 +1742,21 @@ def _reflection_point(
     *,
     tolerance: float,
 ) -> tuple[float, float, float] | None:
-    axis_index = {'x': 0, 'y': 1, 'z': 2}[plane.axis]
-    denominator = float(receiver_world[axis_index]) - float(image_world[axis_index])
-    if abs(denominator) <= tolerance:
-        return None
-    t = (float(plane.coordinate_m) - float(image_world[axis_index])) / denominator
+    if plane.point_m is not None and plane.normal is not None:
+        point = _position_tuple(plane.point_m)
+        normal = _unit((plane.normal.x, plane.normal.y, plane.normal.z))
+        denominator = _dot(_vector(image_world, receiver_world), normal)
+        if abs(denominator) <= tolerance:
+            return None
+        t = _dot(_vector(image_world, point), normal) / denominator
+    else:
+        if plane.axis is None or plane.coordinate_m is None:
+            raise ValueError('surface plane representation is incomplete')
+        axis_index = {'x': 0, 'y': 1, 'z': 2}[plane.axis]
+        denominator = float(receiver_world[axis_index]) - float(image_world[axis_index])
+        if abs(denominator) <= tolerance:
+            return None
+        t = (float(plane.coordinate_m) - float(image_world[axis_index])) / denominator
     if t < -tolerance or t > 1.0 + tolerance:
         return None
     return tuple(
@@ -1562,6 +1967,9 @@ def execute_deterministic_ga(
 
     dataset_by_hash = {item.semantic_sha256: item for item in directivity_datasets}
     origin = _position_tuple(execution_input.room_origin_m)
+    general_geometry = (
+        execution_input.geometry_policy == 'general_planar_closed_polyhedral_v1'
+    )
     paths: list[DeterministicAcousticPath] = []
     rejected: list[RejectedPathCandidate] = []
 
@@ -1582,18 +1990,20 @@ def execute_deterministic_ga(
         for receiver in execution_input.receivers:
             receiver_world = _position_tuple(receiver.world_position)
             receiver_local = _local(receiver_world, origin)
-            images = engine.execute_shoebox(
-                dimensions_m=execution_input.room_dimensions_m,
-                source_local_m=source_local,
-                receiver_local_m=receiver_local,
-            )
+            images: tuple[NativeImageSource, ...] = ()
+            if not general_geometry:
+                images = engine.execute_shoebox(
+                    dimensions_m=execution_input.room_dimensions_m,
+                    source_local_m=source_local,
+                    receiver_local_m=receiver_local,
+                )
 
-            _nearest_engine_image(
-                images,
-                source_local,
-                tolerance_m=execution_input.engine_image_match_tolerance_m,
-                label='direct',
-            )
+                _nearest_engine_image(
+                    images,
+                    source_local,
+                    tolerance_m=execution_input.engine_image_match_tolerance_m,
+                    label='direct',
+                )
             direct_departure = _vector(source_world, receiver_world)
             direct_length = _distance(source_world, receiver_world)
             if _segment_blocked(
@@ -1601,6 +2011,7 @@ def execute_deterministic_ga(
                 source_world,
                 receiver_world,
                 tolerance=execution_input.geometric_tolerance_m,
+                distance_scaled_tolerance=general_geometry,
             ):
                 rejected.append(
                     RejectedPathCandidate(
@@ -1669,39 +2080,59 @@ def execute_deterministic_ga(
                         )
                     )
 
-            for mapping in sorted(
-                (
-                    item
-                    for item in compiled_geometry.surface_mapping
-                    if item.semantic_class != 'room_boundary'
-                ),
-                key=lambda item: item.source_surface_id,
-            ):
-                rejected.append(
-                    RejectedPathCandidate(
-                        source_entity_id=source.source_entity_id,
-                        receiver_id=receiver.receiver_id,
-                        path_type='specular_reflection',
-                        interaction_surface_ids=(mapping.source_surface_id,),
-                        decision='UNSUPPORTED_GEOMETRY',
-                        reason=(
-                            'candidate pyroomacoustics image-source foundation does not '
-                            'silently synthesize first-order images for non-shoebox '
-                            'semantic surfaces; the exact surface remains an occluder'
-                        ),
+            if general_geometry:
+                for surface_id in execution_input.unsupported_reflection_surface_ids or ():
+                    rejected.append(
+                        RejectedPathCandidate(
+                            source_entity_id=source.source_entity_id,
+                            receiver_id=receiver.receiver_id,
+                            path_type='specular_reflection',
+                            interaction_surface_ids=(surface_id,),
+                            decision='UNSUPPORTED_GEOMETRY',
+                            reason=(
+                                'semantic surface is nonplanar or degenerate within the '
+                                'declared general-planar tolerance; it is retained for '
+                                'visibility but not silently planarized'
+                            ),
+                        )
                     )
-                )
+            else:
+                for mapping in sorted(
+                    (
+                        item
+                        for item in compiled_geometry.surface_mapping
+                        if item.semantic_class != 'room_boundary'
+                    ),
+                    key=lambda item: item.source_surface_id,
+                ):
+                    rejected.append(
+                        RejectedPathCandidate(
+                            source_entity_id=source.source_entity_id,
+                            receiver_id=receiver.receiver_id,
+                            path_type='specular_reflection',
+                            interaction_surface_ids=(mapping.source_surface_id,),
+                            decision='UNSUPPORTED_GEOMETRY',
+                            reason=(
+                                'candidate pyroomacoustics image-source foundation does not '
+                                'silently synthesize first-order images for non-shoebox '
+                                'semantic surfaces; the exact surface remains an occluder'
+                            ),
+                        )
+                    )
 
             for plane in execution_input.boundary_planes:
                 mirrored_world = _mirror_source(source_world, plane)
-                target_local = _local(mirrored_world, origin)
-                image_local = _nearest_engine_image(
-                    images,
-                    target_local,
-                    tolerance_m=execution_input.engine_image_match_tolerance_m,
-                    label=f'first reflection {plane.source_surface_id}',
-                )
-                image_world = _world(image_local, origin)
+                if general_geometry:
+                    image_world = mirrored_world
+                else:
+                    target_local = _local(mirrored_world, origin)
+                    image_local = _nearest_engine_image(
+                        images,
+                        target_local,
+                        tolerance_m=execution_input.engine_image_match_tolerance_m,
+                        label=f'first reflection {plane.source_surface_id}',
+                    )
+                    image_world = _world(image_local, origin)
                 reflection = _reflection_point(
                     image_world,
                     receiver_world,
@@ -1729,19 +2160,25 @@ def execute_deterministic_ga(
                     )
                     continue
 
-                ignored = frozenset((plane.source_surface_id,))
+                ignored = (
+                    frozenset()
+                    if general_geometry
+                    else frozenset((plane.source_surface_id,))
+                )
                 if _segment_blocked(
                     compiled_geometry,
                     source_world,
                     reflection,
                     tolerance=execution_input.geometric_tolerance_m,
                     ignored_surface_ids=ignored,
+                    distance_scaled_tolerance=general_geometry,
                 ) or _segment_blocked(
                     compiled_geometry,
                     reflection,
                     receiver_world,
                     tolerance=execution_input.geometric_tolerance_m,
                     ignored_surface_ids=ignored,
+                    distance_scaled_tolerance=general_geometry,
                 ):
                     rejected.append(
                         RejectedPathCandidate(
