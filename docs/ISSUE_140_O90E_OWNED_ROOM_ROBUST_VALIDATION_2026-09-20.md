@@ -64,11 +64,11 @@ A case whose measurement was captured before the effective preregistration
 authority is retrospective evidence. It remains auditable but cannot satisfy
 the preregistered production gate.
 
-Existing O60 campaign preregistration may serve as an earlier authority only
-when the case can be proven to be a strict specialization of the same exact
-campaign: same search/model/candidate set, same sensitivity candidate pair and
-observable, and the case itself does not broaden the campaign's predeclared
-requirements.
+An already captured measurement is not retroactively made prospective by an
+O60 campaign alone. It is prospective O90E evidence only when the exact O90E
+case was itself saved before capture and can be reopened through its original
+planned MeasurementPlan hashes. Creating a new O90E case after capture is
+retrospective, even when the measurement belongs to an earlier O60 campaign.
 
 ## Applicability / coverage contract
 
