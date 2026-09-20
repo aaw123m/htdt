@@ -557,7 +557,6 @@ def _fixture(tmp_path):
         channel_role='front_left',
         source_speaker_ids=('speaker-fl',),
         radiation_scope='single',
-        preregistered_at_utc='2030-01-01T00:30:00+00:00',
     )
     plus_case = validation_repository.preregister_case(
         robustness_spec_id=spec.robustness_spec_id,
@@ -572,7 +571,6 @@ def _fixture(tmp_path):
         channel_role='front_left',
         source_speaker_ids=('speaker-fl',),
         radiation_scope='single',
-        preregistered_at_utc='2030-01-01T00:30:00+00:00',
     )
 
     env = SimpleNamespace(
@@ -716,7 +714,6 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             channel_role='front_left',
             source_speaker_ids=('speaker-fl',),
             radiation_scope='single',
-            preregistered_at_utc='2030-01-01T00:30:00+00:00',
         )
 
     with pytest.raises(ValueError, match='nominal MeasurementPlan/candidate'):
@@ -733,7 +730,6 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             channel_role='front_left',
             source_speaker_ids=('speaker-fl',),
             radiation_scope='single',
-            preregistered_at_utc='2030-01-01T00:30:00+00:00',
         )
 
     with pytest.raises(ValueError, match='MeasurementPlan SceneRevision mismatch'):
@@ -752,7 +748,6 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             channel_role='front_left',
             source_speaker_ids=('speaker-fl',),
             radiation_scope='single',
-            preregistered_at_utc='2030-01-01T00:30:00+00:00',
         )
 
     with pytest.raises(ValueError, match='observable is not preregistered'):
@@ -769,7 +764,6 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             channel_role='front_left',
             source_speaker_ids=('speaker-fl',),
             radiation_scope='single',
-            preregistered_at_utc='2030-01-01T00:30:00+00:00',
         )
 
 
@@ -974,7 +968,6 @@ def test_o90e_retrospective_case_never_masquerades_as_preregistered(tmp_path) ->
         channel_role='front_left',
         source_speaker_ids=('speaker-fl',),
         radiation_scope='single',
-        preregistered_at_utc='2030-01-01T02:30:00+00:00',
     )
     assert retrospective.preregistration_status == 'retrospective'
 
