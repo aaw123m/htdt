@@ -5035,6 +5035,13 @@ class CadDeterministicPathArtifactRepository:
                     + tuple(crossings)
                     + (receiver_point,)
                 )
+                if (
+                    path.region_segment_evidence is None
+                    or len(path.region_segment_evidence) != len(path.ordered_region_ids)
+                ):
+                    raise ValueError(
+                        'path Portal graph segment proof authority is missing or incomplete'
+                    )
                 for index, region_id in enumerate(path.ordered_region_ids):
                     region = region_by_id.get(region_id)
                     if region is None:
@@ -5062,6 +5069,26 @@ class CadDeterministicPathArtifactRepository:
                     ):
                         raise ValueError(
                             'path Portal graph segment is no longer unoccluded'
+                        )
+                    evidence = path.region_segment_evidence[index]
+                    if (
+                        evidence.segment_index != index
+                        or evidence.region_id != region_id
+                        or evidence.start_point
+                        != _rounded_position(
+                            segment_points[index],
+                            execution_input.identity_decimal_places,
+                        )
+                        or evidence.end_point
+                        != _rounded_position(
+                            segment_points[index + 1],
+                            execution_input.identity_decimal_places,
+                        )
+                        or evidence.membership_result != 'valid'
+                        or evidence.occlusion_result != 'clear'
+                    ):
+                        raise ValueError(
+                            'path Portal graph persisted segment proof no longer reproduces exactly'
                         )
                 if abs(path.geometric_path_length_m - path_length) > (
                     execution_input.geometric_tolerance_m
