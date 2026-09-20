@@ -855,12 +855,14 @@ def compile_r120_geometry(
     unresolved = list(dict.fromkeys(unresolved))
     geometry_compiled = True
     authority_complete = not unresolved
+    portal_ga_diagnostics: list[str] = []
     portal_ga_topology_ready = _bounded_explicit_portal_ga_topology_ready(
         triangles=triangles,
         boundary_edges=boundary_edges,
         surface_mapping=surface_mapping,
         region_authority=region_authority,
         portal_authority=portal_authority,
+        diagnostics=portal_ga_diagnostics,
     )
     portal_ga_allowed_unresolved = {
         'input_semantic_geometry_not_compiler_contract_ready',
@@ -873,6 +875,22 @@ def compile_r120_geometry(
             and set(unresolved).issubset(portal_ga_allowed_unresolved)
         )
     )
+    portal_candidate_declared = (
+        region_authority is not None
+        and len(region_authority.declarations) == 2
+        and portal_authority is not None
+        and portal_authority.declaration_mode == 'explicit_list'
+        and len(portal_authority.declarations) == 1
+    )
+    if (
+        portal_candidate_declared
+        and not portal_ga_topology_ready
+        and portal_ga_diagnostics
+    ):
+        warnings.append(
+            'bounded explicit Portal GA topology proof failed: '
+            + portal_ga_diagnostics[0]
+        )
     if geometric_acoustics_authority_complete and not authority_complete:
         warnings.append(
             'bounded explicit two-region Portal topology is exact for geometric '
@@ -1313,6 +1331,7 @@ def _bounded_explicit_portal_ga_topology_ready(
     surface_mapping: tuple[CompiledSurfaceMapping, ...],
     region_authority: AcousticRegionAuthority | None,
     portal_authority: PortalAuthority | None,
+    diagnostics: list[str] | None = None,
 ) -> bool:
     """Prove the bounded two-region/one-Portal topology for GA readiness only.
 
@@ -1323,6 +1342,11 @@ def _bounded_explicit_portal_ga_topology_ready(
     through the Portal.
     """
 
+    def reject(reason: str) -> bool:
+        if diagnostics is not None:
+            diagnostics.append(reason)
+        return False
+
     if (
         region_authority is None
         or len(region_authority.declarations) != 2
@@ -1330,27 +1354,27 @@ def _bounded_explicit_portal_ga_topology_ready(
         or portal_authority.declaration_mode != 'explicit_list'
         or len(portal_authority.declarations) != 1
     ):
-        return False
+        return reject('authority_shape')
 
     portal = portal_authority.declarations[0]
     region_ids = {item.region_id for item in region_authority.declarations}
     if len(portal.region_ids) != 2 or set(portal.region_ids) != region_ids:
-        return False
+        return reject('region_adjacency')
     if len(portal.boundary_edges) < 3:
-        return False
+        return reject('aperture_edge_count')
 
     loop: list[int] = [int(portal.boundary_edges[0].vertex_a)]
     expected = loop[0]
     for edge in portal.boundary_edges:
         if int(edge.vertex_a) != expected:
-            return False
+            return reject('directed_loop_discontinuity')
         loop.append(int(edge.vertex_b))
         expected = int(edge.vertex_b)
     if loop[-1] != loop[0]:
-        return False
+        return reject('directed_loop_not_closed')
     loop = loop[:-1]
     if len(loop) < 3 or len(set(loop)) != len(loop):
-        return False
+        return reject('directed_loop_ambiguous')
 
     room_boundary_surface_ids = {
         item.source_surface_id
@@ -1367,22 +1391,22 @@ def _bounded_explicit_portal_ga_topology_ready(
         for edge in portal.boundary_edges
     }
     if actual_boundary_geometry != declared_boundary_geometry:
-        return False
+        return reject('room_boundary_edges_do_not_equal_portal')
 
     portal_surface_ids = {
         edge.source_surface_id for edge in portal.boundary_edges
     }
     if not portal_surface_ids:
-        return False
+        return reject('portal_surface_identity_missing')
     shared_region_surfaces = set(
         region_authority.declarations[0].boundary_surface_ids
     ).intersection(region_authority.declarations[1].boundary_surface_ids)
     if shared_region_surfaces != portal_surface_ids:
-        return False
+        return reject('shared_region_surface_set_mismatch')
 
     for region in region_authority.declarations:
         if not portal_surface_ids.issubset(set(region.boundary_surface_ids)):
-            return False
+            return reject(f'portal_surface_not_in_region:{region.region_id}')
         region_surface_ids = set(region.boundary_surface_ids)
         counts: dict[tuple[int, int], int] = defaultdict(int)
         has_triangle = False
@@ -1397,7 +1421,7 @@ def _bounded_explicit_portal_ga_topology_ready(
             ):
                 counts[edge] += 1
         if not has_triangle:
-            return False
+            return reject(f'region_has_no_triangles:{region.region_id}')
 
         for index in range(1, len(loop) - 1):
             for edge in (
@@ -1408,7 +1432,10 @@ def _bounded_explicit_portal_ga_topology_ready(
                 counts[edge] += 1
 
         if not counts or any(count != 2 for count in counts.values()):
-            return False
+            bad = sum(1 for count in counts.values() if count != 2)
+            return reject(
+                f'region_shell_not_manifold:{region.region_id}:bad_edges={bad}'
+            )
 
     return True
 
