@@ -1355,9 +1355,14 @@ def _compile_multi_region_portal_execution_input(
         raise ValueError(
             'multi-region deterministic GA requires exact R120 geometry preservation'
         )
-    unsupported_readiness = set(compiled_geometry.readiness.unresolved_conditions) - {
-        'compiled_non_manifold_edges'
+    supported_global_topology_markers = {
+        'compiled_non_manifold_edges',
+        'input_semantic_geometry_not_compiler_contract_ready',
     }
+    unsupported_readiness = (
+        set(compiled_geometry.readiness.unresolved_conditions)
+        - supported_global_topology_markers
+    )
     if unsupported_readiness:
         raise DeterministicGaUnsupportedError(
             'UNSUPPORTED_REGION_TOPOLOGY',
