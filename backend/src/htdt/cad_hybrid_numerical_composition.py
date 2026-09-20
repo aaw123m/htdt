@@ -22,6 +22,16 @@ from .cad_geometric_acoustics_response import (
     TRANSFER_QUANTITY,
     TRANSFER_UNIT,
 )
+from .cad_hybrid_grid_reconciliation import (
+    FrequencyGridReconciliationAuthority,
+    HybridCrossoverConfigurationAuthority,
+    HybridNumericalCompositionError,
+    HybridNumericalFailureCode,
+    build_frequency_grid_reconciliation_authority,
+    build_hybrid_crossover_configuration_authority,
+    reconcile_complex_series,
+    validate_frequency_grid,
+)
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema
 from .cad_wave_excitation import AcousticWaveExcitationAuthority
