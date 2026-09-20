@@ -38,10 +38,12 @@ from htdt.r130d_general3d_validation import (
     ObservableContractMismatch,
     R130DGeneral3DValidationPlan,
     analytic_complex_harmonic_spectrum,
+    analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
     compare_complex_transfer,
     load_target_window_diagnostic_plan,
     load_validation_plan,
+    native_window_left_rectangle_transfer,
     save_evidence,
     semantic_hash,
     target_window_sampling_metadata,
@@ -240,6 +242,37 @@ def _run_observation_operator_fixture(
         times = np.arange(sample_count, dtype=np.float64) * dt_s
         pressure = p_amp * np.exp(-2j * np.pi * p_hz * times)
         source = q_amp * np.exp(-2j * np.pi * q_hz * times)
+        native = native_window_left_rectangle_transfer(
+            pressure,
+            source,
+            dt_s=dt_s,
+            frequency_hz=frequencies,
+        )
+        native_exact_p = analytic_sampled_complex_harmonic_left_rectangle_spectrum(
+            amplitude=p_amp,
+            harmonic_frequency_hz=p_hz,
+            analysis_frequency_hz=frequencies,
+            dt_s=dt_s,
+            sample_count=sample_count,
+        )
+        native_exact_q = analytic_sampled_complex_harmonic_left_rectangle_spectrum(
+            amplitude=q_amp,
+            harmonic_frequency_hz=q_hz,
+            analysis_frequency_hz=frequencies,
+            dt_s=dt_s,
+            sample_count=sample_count,
+        )
+        native_exact = native_exact_p / native_exact_q
+        native_relative_error = float(
+            np.linalg.norm(native - native_exact)
+            / max(float(np.linalg.norm(native_exact)), np.finfo(np.float64).tiny)
+        )
+        if native_relative_error > 5.0e-13:
+            raise ValidationBlocked(
+                'native-window harmonic fixture differs from independent '
+                f'geometric-series authority: {native_relative_error}'
+            )
+
         aligned = target_window_clipped_left_rectangle_transfer(
             pressure,
             source,
@@ -258,8 +291,12 @@ def _run_observation_operator_fixture(
                 'sample_count': sample_count,
                 'n_dt_s': sample_count * dt_s,
                 'n_dt_minus_target_s': sample_count * dt_s - duration,
+                'native_window_transfer': _complex_pairs(native),
+                'analytic_native_window_transfer': _complex_pairs(native_exact),
+                'native_window_relative_error': native_relative_error,
                 'aligned_transfer': _complex_pairs(aligned),
-                'relative_transfer_error': relative_error,
+                'analytic_target_window_transfer': _complex_pairs(exact_transfer),
+                'aligned_target_relative_error': relative_error,
             }
         )
     monotone = all(
@@ -275,7 +312,8 @@ def _run_observation_operator_fixture(
     return {
         'state': 'PASS',
         'fixture_id': spec['fixture_id'],
-        'exact_transfer': _complex_pairs(exact_transfer),
+        'analytic_target_transfer': _complex_pairs(exact_transfer),
+        'native_window_extractor_validation': 'PASS',
         'cases': cases,
         'relative_error_strictly_decreasing': monotone,
         'finest_relative_error_max': finest_limit,
