@@ -425,10 +425,12 @@ def build_provider_measurement_validation(
     """O60 residual comparison using the typed provider, never a RoomSim disguise."""
 
     _require_provider_band(provider, low_hz=low_hz, high_hz=high_hz)
+    authority = provider.current_authority
+    if document_id != authority.document_id:
+        raise ValueError('provider validation document identity mismatch')
     measurement = measurement_repository.get_measurement(measurement_id)
     if measurement is None:
         raise ValueError('provider validation measurement does not exist')
-    authority = provider.current_authority
     if (
         measurement.document_id != authority.document_id
         or measurement.scene_revision_id != authority.scene_revision_id
@@ -488,6 +490,26 @@ def bind_provider_to_validation(
     return build_prediction_provider_binding(
         provider,
         consumer_kind='O60_VALIDATION',
+        consumer_id=validation.validation_id,
+        consumer_semantic_sha256=validation.validation_sha256,
+        required_observables=('frequency_response_magnitude',),
+    )
+
+
+def bind_provider_to_adaptive_validation(
+    provider: LowBandPredictionProvider,
+    validation: CadModelValidationRecord,
+) -> PredictionProviderBinding:
+    """O70 binds through the exact O60 residual authority, not solver payloads."""
+
+    if not any(
+        pair.prediction_source_id == provider.provider_id
+        for pair in validation.pairs
+    ):
+        raise ValueError('O70 validation does not reference this prediction provider')
+    return build_prediction_provider_binding(
+        provider,
+        consumer_kind='O70_ADAPTIVE',
         consumer_id=validation.validation_id,
         consumer_semantic_sha256=validation.validation_sha256,
         required_observables=('frequency_response_magnitude',),
