@@ -1252,6 +1252,7 @@ def topology_candidate_to_system_variant(
         proposed_entities=proposal_specs,
         remove_entity_ids=remove_ids,
         lifecycle_overrides=lifecycle_overrides,
+        equipment_bindings=template_variant.equipment_bindings,
         proposal_evidence=template_variant.proposal_evidence,
         provenance=provenance,
         parent_variant_id=template_variant.variant_id,

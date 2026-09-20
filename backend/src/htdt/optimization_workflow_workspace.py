@@ -35,12 +35,21 @@ from .ui_theme import (
     set_typography_role,
 )
 from .workflow_shell import WorkspaceMount
+from .system_expansion_workflow import SystemExpansionWorkflowService
+from .system_expansion_widgets import (
+    SystemExpansionMeasurementPanel,
+    SystemExpansionOptimizePanel,
+    SystemExpansionRobustnessPanel,
+)
 
 
 OPTIMIZATION_PAGE_IDS = ("setup", "candidates", "comparison", "robustness", "validation")
 _OPTIMIZATION_PAGE_ALIASES = {
     "objectives": "comparison",
     "measurement-plan": "validation",
+    "topology-comparison": "comparison",
+    "variant-robustness": "robustness",
+    "variant-measurement": "validation",
 }
 
 
@@ -177,6 +186,8 @@ class OptimizationWorkflowWorkspace(QWidget):
         set_surface_role(self, SurfaceRole.BASE)
         self.controller = OptimizationWorkflowController(repository, document_id)
         self.controller.statusChanged.connect(self._set_status)
+        self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
+        self._system_variant_robustness_variant_id: str | None = None
 
         self._optimization_stack = QStackedWidget()
         self._optimization_pages: dict[str, QWidget] = {}
@@ -260,7 +271,11 @@ class OptimizationWorkflowWorkspace(QWidget):
         self._optimization_stack.setCurrentWidget(self._optimization_pages[page_id])
         if page_id == "robustness":
             self.controller.refresh_robustness_view()
+        if page_id == "comparison" and hasattr(self, "system_expansion_compare_panel"):
+            self.system_expansion_compare_panel.refresh()
         if page_id == "validation":
+            if hasattr(self, "system_expansion_measurement_panel"):
+                self.system_expansion_measurement_panel.refresh()
             self.controller.refresh_measurement_plans()
             self.controller.refresh_validation_campaigns()
             self.controller.refresh_model_validations()
@@ -268,8 +283,31 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.controller.refresh_adaptive_extended_plans()
             self.controller._refresh_campaign_measurement_points()
 
+    def _show_system_variant_robustness(self, variant_id: str) -> None:
+        self._system_variant_robustness_variant_id = variant_id
+        self.select_section("robustness")
+        if hasattr(self, "system_expansion_robustness_panel"):
+            self.system_expansion_robustness_panel.select_variant(variant_id)
+
+    def _system_variant_applied(self, _revision_id: str) -> None:
+        self.controller.activate()
+        self.system_expansion_compare_panel.refresh()
+        self.system_expansion_measurement_panel.refresh()
+        self._set_status(
+            "SystemVariantを新しいSceneRevisionへ適用しました。設置済み/実測済みへの自動昇格は行いません。"
+        )
+
     def refresh_from_authorities(self) -> None:
         self.controller.refresh_from_authorities()
+        if hasattr(self, "system_expansion_compare_panel"):
+            self.system_expansion_compare_panel.refresh()
+        if hasattr(self, "system_expansion_measurement_panel"):
+            self.system_expansion_measurement_panel.refresh()
+        if (
+            hasattr(self, "system_expansion_robustness_panel")
+            and self._system_variant_robustness_variant_id is not None
+        ):
+            self.system_expansion_robustness_panel.refresh()
 
     def _render_scene(self, reset_camera: bool = False) -> None:
         self.viewport_widget.render_document(
@@ -531,6 +569,17 @@ class OptimizationWorkflowWorkspace(QWidget):
             )
         )
 
+        self.system_expansion_compare_panel = SystemExpansionOptimizePanel(
+            self.system_expansion
+        )
+        self.system_expansion_compare_panel.robustnessRequested.connect(
+            self._show_system_variant_robustness
+        )
+        self.system_expansion_compare_panel.applied.connect(
+            self._system_variant_applied
+        )
+        layout.addWidget(self.system_expansion_compare_panel)
+
         metrics_card, metrics = _card(
             "比較する指標",
             "同じ指標集合・単位で比較できる根拠データだけをPareto比較に使います。",
@@ -566,6 +615,11 @@ class OptimizationWorkflowWorkspace(QWidget):
                 " 総合点や自動推薦は作りません。",
             )
         )
+
+        self.system_expansion_robustness_panel = SystemExpansionRobustnessPanel(
+            self.system_expansion
+        )
+        layout.addWidget(self.system_expansion_robustness_panel)
 
         overlay_card, overlay = _card(
             "3D ばらつき範囲 / aim",
@@ -673,6 +727,11 @@ class OptimizationWorkflowWorkspace(QWidget):
                 " 本番データと合成データの根拠区分は既存の検証ルールに従います。",
             )
         )
+
+        self.system_expansion_measurement_panel = SystemExpansionMeasurementPanel(
+            self.system_expansion
+        )
+        layout.addWidget(self.system_expansion_measurement_panel)
 
         measure_card, measure = _card(
             "測定計画",

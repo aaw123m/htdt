@@ -78,9 +78,15 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
 }
 
 WORKSPACE_CONTEXT_ALIASES: dict[WorkspaceId, dict[str, str]] = {
+    WorkspaceId.ROOM: {
+        "system-proposal": "placement",
+    },
     WorkspaceId.OPTIMIZATION: {
         "objectives": "comparison",
         "measurement-plan": "validation",
+        "topology-comparison": "comparison",
+        "variant-robustness": "robustness",
+        "variant-measurement": "validation",
     },
 }
 

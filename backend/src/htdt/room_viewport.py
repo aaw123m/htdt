@@ -131,6 +131,7 @@ class RoomViewport3D(QFrame):
     """
 
     entitySelected = Signal(object)
+    proposedEntitySelected = Signal(object)
     contextMenuRequested = Signal(object, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -146,6 +147,7 @@ class RoomViewport3D(QFrame):
         layout.addWidget(self.interactor)
 
         self._actor_entity_ids: dict[int, str] = {}
+        self._actor_proposed_entity_ids: dict[int, str] = {}
         self._document: SceneDocument | None = None
         self._selected_id: str | None = None
         self._overlays = RoomOverlayState()
@@ -175,6 +177,7 @@ class RoomViewport3D(QFrame):
         self._selected_id = selected_id
         self._overlays = overlays
         self._actor_entity_ids.clear()
+        self._actor_proposed_entity_ids.clear()
         self.plotter.clear()
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
 
@@ -260,6 +263,38 @@ class RoomViewport3D(QFrame):
         )
         if reset_camera:
             self.fit_scene()
+        self.plotter.render()
+
+    def render_proposed_entities(
+        self,
+        entities: tuple[SceneEntity, ...],
+        *,
+        selected_id: str | None = None,
+    ) -> None:
+        """Overlay proposal ghosts without changing current SceneDocument truth."""
+        self._actor_proposed_entity_ids.clear()
+        if not entities:
+            return
+        for entity in entities:
+            actor = self.plotter.add_mesh(
+                _entity_mesh(entity),
+                color=DARK_THEME.viewport.geometry_edge.hex,
+                style="wireframe",
+                line_width=4 if entity.entity_id == selected_id else 2,
+                opacity=0.62 if entity.entity_id == selected_id else 0.34,
+                pickable=True,
+                name=f"proposal-ghost-{entity.entity_id}",
+                render=False,
+            )
+            self._actor_proposed_entity_ids[id(actor)] = entity.entity_id
+        self.plotter.add_text(
+            "提案 ghost · 未設置 / current Sceneは変更しません",
+            name="proposal-ghost-label",
+            position="upper_left",
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
         self.plotter.render()
 
     def _render_acoustic_overlay(self, document: SceneDocument) -> None:
@@ -392,6 +427,10 @@ class RoomViewport3D(QFrame):
         entity_id = self._actor_entity_ids.get(id(actor))
         if entity_id is not None:
             self.entitySelected.emit(entity_id)
+            return
+        proposed_id = self._actor_proposed_entity_ids.get(id(actor))
+        if proposed_id is not None:
+            self.proposedEntitySelected.emit(proposed_id)
 
     def begin_pan(self, position: QPointF) -> None:
         # Gesture lifetime is owned by CadInputController; this renderer only

@@ -1,6 +1,6 @@
 # O100 — System Expansion / Virtual Channel Topology Optimization
 
-> Status: **O100A–O100F implemented / O100G backend lifecycle + SystemVariant-specific MeasurementPlan/Campaign implemented / O100G UX + owned-Windows visual acceptance planned** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228, #231/#232/#233, #235/#239/#244
+> Status: **O100A–O100F implemented / O100G backend lifecycle + SystemVariant-specific MeasurementPlan/Campaign + workflow-first software UX implemented / UX160 owned-Windows visual acceptance remains** — tracking: [Issue #142](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/142) / implementations: PR #144, #150, #168/#198/#206/#212, #169/#214/#215, #228, #231/#232/#233, #235/#239/#244, #255
 >
 > O100 extends the existing N40 / G10 / O10–O90 / R-series authority. It does not replace them.
 >
@@ -736,7 +736,7 @@ Implemented in PR #228. The shared staged-fidelity authority distinguishes hard-
 
 ### O100G — UX / as-built / measurement loop
 
-**Backend lifecycle and SystemVariant-specific MeasurementPlan/Campaign backend implemented via PR #235 / #239 / #244.**
+**Backend lifecycle and SystemVariant-specific MeasurementPlan/Campaign backend implemented via PR #235 / #239 / #244. Workflow-first software UX implemented in PR #255. UX160 owned-Windows visual acceptance remains separate.**
 
 Implemented:
 - descendant-aware proposal lineage after explicit SystemVariantApplication;
@@ -750,14 +750,21 @@ Implemented:
 - append-only measured records; retakes do not rewrite earlier evidence;
 - immutable SystemVariant-specific MeasurementPlan / Campaign preregistration over exact variant/application/applied revision/AsBuilt authority;
 - exact measurement point/source/channel/capture-time/AcquisitionContext/quality-capability matching before campaign completion;
-- generic N60 measurements do not auto-promote a SystemVariant, and measured state does not imply O60 validation.
+- generic N60 measurements do not auto-promote a SystemVariant, and measured state does not imply O60 validation;
+- Room / スピーカー・座席 contextにSystemVariant proposalを統合し、current system / proposed entity / role / equipment / install-zone authority / lifecycleをJapanese-firstで表示;
+- proposed entityをcurrent SceneDocumentへ追加せず、semantic `proposed` stateだけからselectable wireframe ghostとして3D overlay表示;
+- Optimize / 比較 contextにTopologyComparisonEvaluation / VariantEvaluationBundleのhuman-readable comparisonを統合し、coverage / SPL-headroom / Standards / objective direction / eligibility reason / Pareto stateを独立表示;
+- hidden overall score / automatic winnerは作らず、missing/unsupported/stale authorityを0値として表示しない;
+- proposal robustnessは新しいO100専用ページを作らず、既存O90D「ばらつき耐性」context内のread-only proposal panelへexact O100F spec/evaluation/sample authorityを表示する。通常O90 CadCandidateへ偽装せず、nominal / finite sampled adverse / local sensitivity / feasibility・failure状態を分離する;
+- proposal applyは既存CadSystemVariantRepository.apply_variant()だけをwrite authorityとして使用し、確認画面で差分と「new SceneRevision / As-built自動昇格なし」を明示;
+- Room/Optimize標準表示からUUID/SHA/schema/repository keyを隔離し、Advanced provenanceで追跡可能性を保持;
+- validation contextで未計画 / 測定計画あり / campaign preregistered / evidence incomplete / 実測済み・未検証を区別;
+- workflow deep-linkは`system-proposal` / `topology-comparison` / `variant-robustness` / `variant-measurement`を既存Room/Optimize contextへ正規化し、内部ID入力を要求しない.
 
 Remaining:
-- proposed-speaker Room workflow and system-variant comparison UX;
-- Japanese-first copy and proposed/as-built/measured badges;
-- proposal ghost visuals and 3D tolerance overlays;
-- measured/validated comparison UX;
-- Windows visual acceptance under Issue #118.
+- UX160 owned-Windows visual acceptance only: Windows DPI/font rendering, mouse interaction, 3D readability, clipping and first-use visual clarity;
+- O90E / R180 / Issue #83 owned-room evidence gates remain separate and are not completed by software UX;
+- production recommendation validity remains evidence-gated; `measured` is not synonymous with `validated`.
 
 ## 23. Acceptance
 
@@ -875,6 +882,6 @@ The key distinction is that a proposal is useful before hardware exists, but bec
 
 The backend workflow now preserves the exact chain from a proposed SystemVariant through application and explicit AsBuilt state into preregistered measurement plans/campaigns. Exact measurement point, source/channel role, AcquisitionContext, quality capability and capture-time matching are required before the existing measured lifecycle authority can be materialized. Generic N60 imports do not auto-promote a variant, and measured state does not imply O60 validation or recommendation eligibility.
 
-This is backend completion for the MeasurementPlan/Campaign slice only. O100G remains partial until Room/Optimize UX, proposal ghost/badge, measured comparison and UX160 owned-Windows visual acceptance are completed.
+The backend MeasurementPlan/Campaign slice is complete, and PR #255 adds the workflow-first software UX layer. O100G still must not be called fully accepted until UX160 owned-Windows visual acceptance is completed. Owned-room validation/recommendation evidence gates are also separate; measured evidence never implies validation.
 
 See [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md).

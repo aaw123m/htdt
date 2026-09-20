@@ -48,6 +48,8 @@ from .ui_theme import (
     set_typography_role,
 )
 from .workflow_shell import WorkspaceMount
+from .system_expansion_workflow import SystemExpansionWorkflowService
+from .system_expansion_widgets import SystemExpansionRoomPanel
 
 
 ROOM_CONTEXT_IDS = ("geometry", "objects", "placement", "acoustics")
@@ -68,6 +70,13 @@ class RoomViewportPort(Protocol):
     def fit_scene(self) -> None: ...
 
     def focus_entity(self, entity_id: str) -> None: ...
+
+    def render_proposed_entities(
+        self,
+        entities: tuple[SceneEntity, ...],
+        *,
+        selected_id: str | None = None,
+    ) -> None: ...
 
     def close(self) -> bool: ...
 
@@ -722,6 +731,9 @@ class RoomWorkspace(QWidget):
         self._responsive_compact = False
         self._palette_user_open = False
         self._viewport_factory = viewport_factory or (lambda owner: RoomViewport3D(owner))
+        self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
+        self._proposed_variant_id: str | None = None
+        self._proposed_selected_id: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -758,6 +770,9 @@ class RoomWorkspace(QWidget):
         selected_signal = getattr(viewport_widget, "entitySelected", None)
         if selected_signal is not None and hasattr(selected_signal, "connect"):
             selected_signal.connect(self.select_entity)
+        proposed_signal = getattr(viewport_widget, "proposedEntitySelected", None)
+        if proposed_signal is not None and hasattr(proposed_signal, "connect"):
+            proposed_signal.connect(self._proposal_entity_selected)
         viewport_layout.addWidget(viewport_widget, 1)
         content.addWidget(viewport_column, 1)
 
@@ -767,6 +782,12 @@ class RoomWorkspace(QWidget):
         self.right_stack.setMinimumWidth(248)
         self.right_stack.setMaximumWidth(320)
         self.right_stack.addWidget(self.inspector)
+        self.system_expansion_panel = SystemExpansionRoomPanel(self.system_expansion)
+        self.system_expansion_panel.variantChanged.connect(self._proposal_variant_changed)
+        self.system_expansion_panel.ghostEntityRequested.connect(
+            self._proposal_entity_selected
+        )
+        self.right_stack.addWidget(self.system_expansion_panel)
         self.right_stack.setCurrentWidget(self.inspector)
         content.addWidget(self.right_stack)
         root.addLayout(content, 1)
@@ -918,6 +939,9 @@ class RoomWorkspace(QWidget):
             refresh = getattr(self.geometry_panel, "refresh", None)
             if callable(refresh):
                 refresh()
+        elif context_id == "placement":
+            self.system_expansion_panel.refresh()
+            self.right_stack.setCurrentWidget(self.system_expansion_panel)
         elif context_id == "acoustics":
             self.overlay_controls.acoustics.setChecked(True)
             if self.acoustics_panel is not None:
@@ -929,6 +953,15 @@ class RoomWorkspace(QWidget):
                 self.right_stack.setCurrentWidget(self.inspector)
         else:
             self.right_stack.setCurrentWidget(self.inspector)
+        self._render()
+
+    def _proposal_variant_changed(self, variant_id: str) -> None:
+        self._proposed_variant_id = variant_id
+        self._proposed_selected_id = None
+        self._render()
+
+    def _proposal_entity_selected(self, entity_id: object) -> None:
+        self._proposed_selected_id = str(entity_id)
         self._render()
 
     def select_entity(self, entity_id: object) -> None:
@@ -1095,6 +1128,19 @@ class RoomWorkspace(QWidget):
             overlays=overlays,
             reset_camera=reset_camera,
         )
+        if self.current_context == "placement" and self._proposed_variant_id is not None:
+            try:
+                proposal_entities = self.system_expansion.ghost_preview(
+                    self._proposed_variant_id
+                )
+            except (KeyError, ValueError):
+                proposal_entities = ()
+            render_proposals = getattr(self.viewport, "render_proposed_entities", None)
+            if callable(render_proposals):
+                render_proposals(
+                    proposal_entities,
+                    selected_id=self._proposed_selected_id,
+                )
         if overlays.acoustics and self.prediction_results:
             render_prediction = getattr(self.viewport, "render_prediction_results", None)
             if callable(render_prediction):
