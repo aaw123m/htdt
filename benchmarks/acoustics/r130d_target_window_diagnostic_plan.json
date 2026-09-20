@@ -15,16 +15,16 @@
   "analysis_fourier_kernel": "exp(+i*omega*t)",
   "window_function": "rectangular_no_taper",
   "operator": {
-    "operator_id": "htdt.r130d.target_window_zoh_exp_integral",
+    "operator_id": "htdt.r130d.target_window_clipped_left_rectangle",
     "operator_version": "1",
-    "native_sample_interpretation": "left-hold: sample y[n] is constant on [n*dt,(n+1)*dt)",
-    "endpoint_convention": "target interval is exactly [0,T); the final native hold cell is clipped at T; no sample at T is included",
-    "integration_rule": "exact analytic integral of exp(+i*omega*t) over each clipped hold cell multiplied by the native left sample",
-    "pressure_sampling": "solver-native pressure samples after the pre-existing pressure conversion; no resampling before observation",
-    "source_sampling": "same native source trace under the identical clipped zero-order-hold observation operator",
+    "native_sample_interpretation": "native sample y[n] is evaluated at t_n=n*dt exactly as in the canonical direct DTFT",
+    "endpoint_convention": "target interval is exactly [0,T); include native sample timestamps t_n<T; final quadrature width is clipped to T-t_last; no sample at T is included",
+    "integration_rule": "sum_n Delta_t[n] * y[n] * exp(+i*2*pi*f*t_n), with Delta_t[n]=min(dt,T-t_n); canonical left-rectangle rule is unchanged except the final cell is clipped at T",
+    "pressure_sampling": "solver-native pressure samples after the pre-existing pressure conversion; no interpolation or resampling",
+    "source_sampling": "same native source trace and same left-rectangle rule; q[0]=1 retains full dt weight because the first cell is not clipped",
     "frequency_grid": "exact frozen 40/80 Hz only",
     "requires_sample_after_target": false,
-    "reason_linear_trapezoid_not_adopted": "The canonical source authority is a discrete unit impulse q[0]=1,q[n>0]=0. Piecewise-linear/trapezoidal reconstruction would redefine that discrete impulse area (endpoint half-weight) unless source semantics were changed. ZOH preserves the existing discrete source semantics while isolating the finite-cell/window overrun."
+    "reason_linear_trapezoid_not_adopted": "The canonical source authority is a discrete unit impulse q[0]=1,q[n>0]=0. Piecewise-linear/trapezoidal endpoint weighting would redefine that impulse area. Clipped left-rectangle weighting preserves every canonical sample/kernel weight except the final record cell, isolating the N*dt-versus-T mismatch."
   },
   "series": {
     "mfem_refinements": [
