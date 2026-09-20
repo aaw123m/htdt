@@ -637,6 +637,27 @@ def _run_reference_level(
         dt_s=dt_s,
         frequency_hz=frequencies,
     )
+    aligned_transfer = target_window_zoh_transfer(
+        pressure,
+        source_trace,
+        dt_s=dt_s,
+        target_duration_s=plan.physical_quantity.duration_s,
+        frequency_hz=frequencies,
+    )
+    sampling_metadata = target_window_sampling_metadata(
+        solver='MFEM',
+        requested_duration_s=plan.physical_quantity.duration_s,
+        dt_s=dt_s,
+        sample_count=sample_count,
+        frequency_hz=frequencies,
+        source_sampling=(
+            'unit discrete volume-velocity impulse q[0]=1, q[n>0]=0 on '
+            'the MFEM modal sample grid'
+        ),
+        pressure_sampling=(
+            'full-basis modal pressure samples rho*r^T*phi_t at t_n=n*dt'
+        ),
+    )
     rss_final_mb = process.memory_info().rss / (1024.0 * 1024.0)
     checkpoint_rss_max_mb = max(rss_before_mb, rss_after_eigen_mb, rss_final_mb)
     if checkpoint_rss_max_mb > plan.resource_ceiling.max_reference_peak_ram_mb:
@@ -645,6 +666,13 @@ def _run_reference_level(
         )
 
     transfer_pairs = _complex_pairs(transfer)
+    aligned_transfer_pairs = _complex_pairs(aligned_transfer)
+    canonical_aligned_delta = compare_complex_transfer(
+        reference=transfer_pairs,
+        candidate=aligned_transfer_pairs,
+        frequency_hz=frequencies,
+        magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+    )
     return {
         'refinement': refinement,
         'mesh_identity_sha256': plan.reference_mesh_sha256(refinement),
@@ -678,6 +706,10 @@ def _run_reference_level(
         'frequency_hz': list(plan.physical_quantity.frequency_hz),
         'transfer_pa_per_m3_s': transfer_pairs,
         'transfer_sha256': semantic_hash(transfer_pairs),
+        'aligned_diagnostic_transfer_pa_per_m3_s': aligned_transfer_pairs,
+        'aligned_diagnostic_transfer_sha256': semantic_hash(aligned_transfer_pairs),
+        'canonical_aligned_delta': _metric_dict(canonical_aligned_delta),
+        'sampling_metadata': sampling_metadata,
         'source_mass_relative_residual': source_mass_residual,
         'mass_symmetry_max_abs': system['mass_symmetry_max_abs'],
         'stiffness_symmetry_max_abs': system['stiffness_symmetry_max_abs'],
