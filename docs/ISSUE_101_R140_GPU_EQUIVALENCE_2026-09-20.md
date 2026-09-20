@@ -78,6 +78,8 @@ Implemented immutable/content-addressed models:
 
 No change to `cad_r140_executor.py` was required.
 
+The bridge to `MultiFidelityExecutionTask` establishes deterministic GPU scheduling/admission/cache identity, but the existing `BoundedR140Executor` remains intentionally bound to its CPU `ExecutionResourceEstimate` contract. There is no integrated repository GPU worker backend in this slice, so this record does not claim that the current bounded CPU executor can execute a GPU task. A future real GPU worker must consume the GPU-specific task/resource authority and emit real-hardware provenance before numerical equivalence can be validated.
+
 ## Resource admission
 
 `GpuResourceEstimate.admission_resource_vector()` requires all of the following to be KNOWN before scheduling:
@@ -153,7 +155,7 @@ If a GPU is present without an integrated candidate backend, the state remains B
 - circular phase tolerance semantics
 - append-only save/reopen persistence
 
-The dedicated workflow also runs the existing `backend/tests/test_cad_r140_executor.py` CPU regression suite.
+The dedicated workflow also runs the existing `backend/tests/test_cad_r140_executor.py` CPU regression suite. Unit fixtures that set `REAL_GPU_HARDWARE` exercise validation-state invariants only; they are not hardware evidence and are never recorded as the repository hardware-validation result.
 
 ## GitHub Actions evidence
 
