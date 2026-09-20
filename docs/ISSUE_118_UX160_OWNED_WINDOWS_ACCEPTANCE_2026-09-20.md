@@ -41,13 +41,14 @@
 |---|---|---|
 | Latest main resolved | PASS | c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96 |
 | Normal CI on latest main | PASS | [run 35516523459](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/actions/runs/35516523459) |
+| PR normal CI on tested code/evidence | PASS | [run 35521488433](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/actions/runs/35521488433) |
 | Focused UX/workspace tests | PASS | 58 passed before fixes; post-fix focused suites passed (33, 20, 19, 15 as applicable) |
 | Full backend tests | PASS | 1093 passed, 1 skipped, 4 warnings |
 | CLI help / Python compile / PowerShell parse / O60R preflight | PASS | local Windows preflight 2026-09-21 |
 | Native package build | PASS | .tmp/ux160-package-20260921/HTDT/HTDT.exe created |
 | Packaged executable smoke | BLOCKED | packaged process shows “DLL load failed while importing QtGui: 指定されたプロシージャが見つかりません。” |
-| Installer/install-uninstall smoke | NOT_TESTED | blocked by packaged executable failure |
-| GitHub Windows Release Artifact on tested commit | NOT_TESTED | workflow dispatch was unavailable in the connected GitHub API |
+| Installer/install-uninstall smoke | PASS | included in Windows Release Artifact run 35521488422 |
+| GitHub Windows Release Artifact on tested commit | PASS | [run 35521488422](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/actions/runs/35521488422) |
 
 ## Acceptance matrix
 
