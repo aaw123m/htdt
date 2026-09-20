@@ -1299,6 +1299,299 @@ def _validate_supported_topology(
             'deterministic GA foundation supports exactly one explicit acoustic region',
         )
 
+
+def _compile_multi_region_portal_execution_input(
+    *,
+    snapshot: AcousticSceneSnapshot,
+    request: AcousticPredictionRequest,
+    dispatch: AcousticSolverDispatchBinding,
+    descriptor: AcousticSolverAdapterDescriptor,
+    compiled_geometry: R120CompiledGeometry,
+    region_authority: AcousticRegionAuthority,
+    portal_authority: PortalAuthority,
+    boundary_termination_authority: BoundaryTerminationAuthority,
+    directivity_datasets: Sequence[DirectivityDataset],
+    configuration: DeterministicGaConfiguration,
+    source_region_bindings: dict[str, str] | None,
+    receiver_region_bindings: dict[str, str] | None,
+) -> DeterministicGaExecutionInput:
+    """Compile the bounded two-region / one-Portal direct propagation lane."""
+
+    if boundary_termination_authority.declaration_mode != 'explicit_none':
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_BOUNDARY_TERMINATION',
+            'multi-region deterministic GA does not reinterpret or transmit '
+            'nontrivial BoundaryTermination authority',
+        )
+    if (
+        len(region_authority.declarations) != 2
+        or portal_authority.declaration_mode != 'explicit_list'
+        or len(portal_authority.declarations) != 1
+    ):
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_TOPOLOGY',
+            'bounded multi-region GA supports exactly two explicit AcousticRegions '
+            'connected by exactly one explicit Portal',
+        )
+    if configuration.maximum_portal_crossings != 1:
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_TOPOLOGY',
+            'bounded multi-region GA requires maximum_portal_crossings=1',
+        )
+    if configuration.maximum_reflection_order != 1:
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_TOPOLOGY',
+            'Portal propagation lane is direct-only; reflected Portal paths are unsupported',
+        )
+    if compiled_geometry.approximation_operations or compiled_geometry.dropped_features:
+        raise ValueError(
+            'multi-region deterministic GA rejects approximated/dropped R120 geometry'
+        )
+    if compiled_geometry.approximation_error_status != 'exact_preservation':
+        raise ValueError(
+            'multi-region deterministic GA requires exact R120 geometry preservation'
+        )
+    unsupported_readiness = set(compiled_geometry.readiness.unresolved_conditions) - {
+        'compiled_non_manifold_edges'
+    }
+    if unsupported_readiness:
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_REGION_TOPOLOGY',
+            'R120 geometry has unresolved conditions outside the exact two-region '
+            f'interface allowance: {sorted(unsupported_readiness)}',
+        )
+    if snapshot.environment is None or snapshot.environment.sound_speed_m_s is None:
+        raise ValueError('deterministic GA path delay requires exact sound-speed authority')
+    sound_speed = float(snapshot.environment.sound_speed_m_s)
+    for center in configuration.frequency_centers_hz:
+        if not request.requested_frequency_domain.contains(center):
+            raise ValueError(
+                f'GA frequency center {center} is outside requested frequency domain'
+            )
+
+    declaration = portal_authority.declarations[0]
+    if declaration.state != 'open':
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_STATE',
+            'Portal propagation requires explicit state=open; closed/legacy state is fail-closed',
+        )
+    if declaration.region_side_semantics != PORTAL_SIDE_SEMANTICS:
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_PORTAL_ORIENTATION',
+            'Portal propagation requires explicit directed region-side semantics',
+        )
+    try:
+        aperture = compile_single_portal_aperture(
+            compiled_geometry=compiled_geometry,
+            region_authority=region_authority,
+            declaration=declaration,
+            tolerance_m=configuration.geometric_tolerance_m,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        reason: UnsupportedCapabilityReason = (
+            'UNSUPPORTED_PORTAL_ORIENTATION'
+            if 'orientation' in message or 'first region to second region' in message
+            else 'UNSUPPORTED_PORTAL_APERTURE'
+        )
+        raise DeterministicGaUnsupportedError(reason, message) from exc
+
+    source_ids = {item.source_entity_id for item in snapshot.sources}
+    receiver_ids = {item.receiver_id for item in snapshot.receivers}
+    if (
+        source_region_bindings is None
+        or set(source_region_bindings) != source_ids
+        or receiver_region_bindings is None
+        or set(receiver_region_bindings) != receiver_ids
+    ):
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_REGION_MEMBERSHIP',
+            'multi-region GA requires explicit source and receiver AcousticRegion '
+            'bindings for every endpoint; membership is never inferred',
+        )
+
+    region_by_id = {item.region_id: item for item in region_authority.declarations}
+    if (
+        set(source_region_bindings.values()) - set(region_by_id)
+        or set(receiver_region_bindings.values()) - set(region_by_id)
+    ):
+        raise DeterministicGaUnsupportedError(
+            'UNSUPPORTED_REGION_MEMBERSHIP',
+            'source/receiver binding references a region outside exact AcousticRegion authority',
+        )
+
+    def require_exact_membership(
+        point: tuple[float, float, float],
+        *,
+        bound_region_id: str,
+        label: str,
+    ) -> None:
+        decisions = {
+            region_id: region_membership_with_portal_cap(
+                compiled_geometry=compiled_geometry,
+                region=region,
+                aperture=aperture,
+                point=point,
+                tolerance_m=configuration.geometric_tolerance_m,
+            )
+            for region_id, region in region_by_id.items()
+        }
+        if decisions.get(bound_region_id) != 'inside':
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_REGION_MEMBERSHIP',
+                f'{label} is not strictly inside explicitly bound region '
+                f'{bound_region_id} (membership={decisions.get(bound_region_id)})',
+            )
+        unexpected = {
+            region_id: decision
+            for region_id, decision in decisions.items()
+            if region_id != bound_region_id and decision != 'outside'
+        }
+        if unexpected:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_REGION_MEMBERSHIP',
+                f'{label} has ambiguous/non-exclusive region membership: {unexpected}',
+            )
+
+    dataset_by_hash = {item.semantic_sha256: item for item in directivity_datasets}
+    source_inputs: list[DeterministicGaSourceInput] = []
+    for source in sorted(snapshot.sources, key=lambda item: item.source_entity_id):
+        region_id = source_region_bindings[source.source_entity_id]
+        require_exact_membership(
+            _position_tuple(source.source_reference_point),
+            bound_region_id=region_id,
+            label=f'source {source.source_entity_id} acoustic reference point',
+        )
+        if source.geometric_directivity_state != 'SUPPORTED_FOR_GEOMETRIC_DIRECTIVITY':
+            raise ValueError(
+                f'source {source.source_entity_id} lacks exact geometric directivity capability'
+            )
+        if source.source_axis is None:
+            raise ValueError(
+                f'source {source.source_entity_id} lacks exact directivity reference axis'
+            )
+        if (
+            source.directivity_dataset_id is None
+            or source.directivity_dataset_version is None
+            or source.directivity_dataset_sha256 is None
+        ):
+            raise ValueError(
+                'multi-region deterministic GA does not substitute omnidirectional '
+                f'directivity for source {source.source_entity_id}'
+            )
+        dataset = dataset_by_hash.get(source.directivity_dataset_sha256)
+        if dataset is None:
+            raise ValueError(
+                f'exact DirectivityDataset is unresolved for source {source.source_entity_id}'
+            )
+        if (
+            dataset.dataset_id != source.directivity_dataset_id
+            or dataset.version != source.directivity_dataset_version
+        ):
+            raise ValueError('snapshot/directivity dataset exact identity mismatch')
+        source_inputs.append(
+            DeterministicGaSourceInput(
+                source_entity_id=source.source_entity_id,
+                r110_compiled_source_sha256=source.r110_compiled_source_sha256,
+                source_reference_point=source.source_reference_point,
+                source_axis=source.source_axis,
+                directivity_dataset_id=dataset.dataset_id,
+                directivity_dataset_version=dataset.version,
+                directivity_dataset_sha256=dataset.semantic_sha256,
+                acoustic_region_id=region_id,
+            )
+        )
+
+    receiver_inputs: list[DeterministicGaReceiverInput] = []
+    for receiver in sorted(snapshot.receivers, key=lambda item: item.receiver_id):
+        region_id = receiver_region_bindings[receiver.receiver_id]
+        require_exact_membership(
+            _position_tuple(receiver.world_position),
+            bound_region_id=region_id,
+            label=f'receiver {receiver.receiver_id} position',
+        )
+        receiver_inputs.append(
+            DeterministicGaReceiverInput(
+                receiver_id=receiver.receiver_id,
+                entity_id=receiver.entity_id,
+                world_position=receiver.world_position,
+                acoustic_region_id=region_id,
+            )
+        )
+    if not source_inputs or not receiver_inputs:
+        raise ValueError('deterministic GA execution requires source and receiver authority')
+
+    bounds = compiled_geometry.bounding_volume
+    origin = Position3(
+        x_m=bounds.min_x_m,
+        y_m=bounds.min_y_m,
+        z_m=bounds.min_z_m,
+    )
+    dimensions = (
+        float(bounds.max_x_m - bounds.min_x_m),
+        float(bounds.max_y_m - bounds.min_y_m),
+        float(bounds.max_z_m - bounds.min_z_m),
+    )
+    if any(value <= 0.0 for value in dimensions):
+        raise ValueError('R120 bounding dimensions must be positive')
+
+    object_triangle_indices = tuple(
+        sorted(
+            index
+            for mapping in compiled_geometry.surface_mapping
+            if mapping.semantic_class != 'room_boundary'
+            for index in mapping.compiled_triangle_indices
+        )
+    )
+    core: dict[str, Any] = {
+        'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
+        'authority_version': DETERMINISTIC_GA_AUTHORITY_VERSION,
+        'snapshot_id': snapshot.snapshot_id,
+        'snapshot_sha256': snapshot.semantic_sha256,
+        'prediction_request_id': request.request_id,
+        'prediction_request_sha256': request.request_semantic_sha256,
+        'dispatch_binding_id': dispatch.binding_id,
+        'dispatch_binding_sha256': dispatch.semantic_sha256,
+        'adapter_descriptor_id': descriptor.descriptor_id,
+        'adapter_descriptor_sha256': descriptor.semantic_sha256,
+        'solver_implementation_ref': dispatch.solver_implementation_ref.model_dump(
+            mode='json'
+        ),
+        'solver_configuration_ref': dispatch.solver_configuration_ref.model_dump(
+            mode='json'
+        ),
+        'r120_compiled_geometry_id': compiled_geometry.compiled_geometry_id,
+        'r120_compiled_geometry_sha256': compiled_geometry.compiled_hash_sha256,
+        'topology_identity_sha256': compiled_geometry.topology_identity_sha256,
+        'region_authority_ref': _authority_ref(region_authority).model_dump(mode='json'),
+        'portal_authority_ref': _authority_ref(portal_authority).model_dump(mode='json'),
+        'boundary_termination_authority_ref': _authority_ref(
+            boundary_termination_authority
+        ).model_dump(mode='json'),
+        'room_origin_m': origin.model_dump(mode='json'),
+        'room_dimensions_m': list(dimensions),
+        'boundary_planes': [],
+        'geometry_policy': 'general_planar_multi_region_portal_v1',
+        'unsupported_reflection_surface_ids': [],
+        'portal_apertures': [aperture.model_dump(mode='json')],
+        'maximum_portal_crossings': 1,
+        'occluder_triangle_indices': list(object_triangle_indices),
+        'sources': [item.model_dump(mode='json') for item in source_inputs],
+        'receivers': [item.model_dump(mode='json') for item in receiver_inputs],
+        'sound_speed_m_s': sound_speed,
+        'frequency_domain': request.requested_frequency_domain.model_dump(mode='json'),
+        'frequency_centers_hz': list(configuration.frequency_centers_hz),
+        'geometric_tolerance_m': configuration.geometric_tolerance_m,
+        'engine_image_match_tolerance_m': configuration.engine_image_match_tolerance_m,
+        'identity_decimal_places': configuration.identity_decimal_places,
+    }
+    digest = _semantic_hash(core)
+    return DeterministicGaExecutionInput(
+        execution_input_id=f'r150-ga-execution-input:{digest}',
+        semantic_sha256=digest,
+        **core,
+    )
+
 def compile_deterministic_ga_execution_input(
     *,
     snapshot: AcousticSceneSnapshot,
