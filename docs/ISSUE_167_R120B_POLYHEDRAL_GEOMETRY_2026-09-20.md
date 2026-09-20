@@ -52,6 +52,7 @@ Validation is fail-closed for:
 - detectable closed-volume self-intersection;
 - non-manifold edge;
 - invalid polygon hole;
+- missing material reference;
 - detectable region overlap;
 - invalid Portal/surface/region relationship.
 
@@ -88,6 +89,7 @@ The bounded polyhedral indexed-triangle representation can be READY for both whe
 - distinct-coordinate identity separation;
 - topology-report identity binding to validation tolerance;
 - explicit per-surface material identity preservation;
+- missing material reference diagnostic/fail-closed behavior;
 - non-manifold failure;
 - open-volume failure;
 - bounded tessellation/error authority and tolerance rejection;

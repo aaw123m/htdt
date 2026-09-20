@@ -249,6 +249,40 @@ def test_material_identity_is_preserved_per_surface() -> None:
     assert actual == expected
 
 
+def test_missing_material_reference_is_diagnostic_and_fail_closed() -> None:
+    vertices, faces = _sloped_fixture()
+    specs = tuple(
+        PlanarPolygonSurfaceSpec(
+            surface_key=key,
+            semantic_class='room_boundary',
+            outer_vertex_indices=loop,
+            material_authority=None if key == 'ceiling' else _material(key),
+        )
+        for key, loop in faces
+    )
+    geometry = make_r120_polyhedral_semantic_geometry(
+        source_geometry_identity='fixture:missing-material',
+        source_geometry_kind='explicit_polyhedral',
+        vertices=vertices,
+        surfaces=specs,
+        air_volumes=(
+            PolyhedralAirVolume(
+                region_id='room-air',
+                boundary_surface_keys=tuple(key for key, _ in faces),
+            ),
+        ),
+    )
+
+    report = validate_r120_polyhedral_topology(geometry)
+
+    assert report.valid is False
+    assert 'missing_material_reference' in {
+        item.code for item in report.findings
+    }
+    with pytest.raises(R120PolyhedralGeometryError, match='failed closed'):
+        compile_r120_polyhedral_geometry(geometry)
+
+
 def test_non_manifold_edge_fails_closed() -> None:
     vertices = (
         (0.0, 0.0, 0.0),

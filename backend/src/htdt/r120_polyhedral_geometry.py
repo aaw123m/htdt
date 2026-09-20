@@ -70,7 +70,7 @@ class PlanarPolygonSurfaceSpec(BaseModel):
     semantic_class: SurfaceSemanticClass = 'room_boundary'
     outer_vertex_indices: tuple[int, ...]
     hole_vertex_indices: tuple[tuple[int, ...], ...] = ()
-    material_authority: PolyhedralAuthorityRef
+    material_authority: PolyhedralAuthorityRef | None = None
 
     @model_validator(mode='after')
     def validate_loops(self) -> 'PlanarPolygonSurfaceSpec':
@@ -88,7 +88,7 @@ class PlanarPolygonSurface(BaseModel):
     semantic_class: SurfaceSemanticClass
     outer_vertex_indices: tuple[int, ...]
     hole_vertex_indices: tuple[tuple[int, ...], ...] = ()
-    material_authority: PolyhedralAuthorityRef
+    material_authority: PolyhedralAuthorityRef | None = None
 
     @model_validator(mode='after')
     def validate_surface_membership(self) -> 'PlanarPolygonSurface':
@@ -539,6 +539,15 @@ def validate_r120_polyhedral_topology(
     duplicate_signatures: dict[tuple[object, ...], str] = {}
 
     for surface in geometry.surfaces:
+        if surface.material_authority is None:
+            findings.append(
+                TopologyFinding(
+                    code='missing_material_reference',
+                    severity='error',
+                    message='Acoustic surface has no explicit material authority reference.',
+                    surface_keys=(surface.surface_key,),
+                )
+            )
         indices = surface.outer_vertex_indices
         points = tuple(geometry.vertices[index].point() for index in indices)
         plane = _plane_for_points(points, tolerance_m)
