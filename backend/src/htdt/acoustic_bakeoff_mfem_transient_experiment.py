@@ -62,7 +62,7 @@ class IntegratorConfiguration(BaseModel):
     algorithm_id: Literal['gauss-legendre-2stage-pade22-linear']
     algorithm_version: Literal['1']
     order: Literal[4]
-    substeps_per_output_interval: Literal[1, 2] = 1
+    substeps_per_output_interval: Literal[1, 2, 4] = 1
     substep_policy: Literal[
         'fixed equal GL2 substeps per output interval; no adaptive stepping'
     ] = 'fixed equal GL2 substeps per output interval; no adaptive stepping'
@@ -168,6 +168,7 @@ class MfemTransientExperimentPlan(BaseModel):
     schema_version: Literal[
         'r100b-mfem-transient-experiment-plan-1',
         'r100b-mfem-transient-experiment-plan-2',
+        'r100b-mfem-transient-experiment-plan-3',
     ]
     plan_id: str = Field(min_length=1)
     authority: AuthorityBinding
@@ -191,11 +192,11 @@ class MfemTransientExperimentPlan(BaseModel):
             raise ValueError(
                 'transient experiment attempts are frozen to transient-6000/9000/12000 in order'
             )
-        expected_substeps = (
-            1
-            if self.schema_version == 'r100b-mfem-transient-experiment-plan-1'
-            else 2
-        )
+        expected_substeps = {
+            'r100b-mfem-transient-experiment-plan-1': 1,
+            'r100b-mfem-transient-experiment-plan-2': 2,
+            'r100b-mfem-transient-experiment-plan-3': 4,
+        }[self.schema_version]
         if self.integrator.substeps_per_output_interval != expected_substeps:
             raise ValueError(
                 f'{self.schema_version} requires exactly {expected_substeps} '

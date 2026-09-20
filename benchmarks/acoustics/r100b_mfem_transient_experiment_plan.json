@@ -1,6 +1,6 @@
 {
-  "schema_version": "r100b-mfem-transient-experiment-plan-2",
-  "plan_id": "r100b-mfem-gl2-exact-two-halfsteps-current-authority-2026-09-20",
+  "schema_version": "r100b-mfem-transient-experiment-plan-3",
+  "plan_id": "r100b-mfem-gl2-exact-four-substeps-current-authority-2026-09-20",
   "authority": {
     "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
     "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
@@ -43,7 +43,7 @@
     "numpy_version": "2.1.3",
     "residual_relative_tolerance": 1e-10,
     "residual_check_interval_steps": 256,
-    "substeps_per_output_interval": 2,
+    "substeps_per_output_interval": 4,
     "substep_policy": "fixed equal GL2 substeps per output interval; no adaptive stepping"
   },
   "numerical_contract": {

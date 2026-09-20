@@ -957,7 +957,7 @@ def main(argv: list[str] | None = None) -> int:
             ),
             'factorization_reuse': (
                 'one sparse Padé denominator factorization per output rate, reused for '
-                'every internal half-step'
+                'every internal GL2 substep'
             ),
             'resource_ceiling': plan.resource_ceiling.model_dump(mode='json'),
         },

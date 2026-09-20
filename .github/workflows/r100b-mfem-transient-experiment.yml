@@ -1,4 +1,4 @@
-name: R100B MFEM GL2 Exact Half-Steps
+name: R100B MFEM GL2 Exact Four Substeps
 
 on:
   pull_request:
@@ -29,8 +29,8 @@ jobs:
       EXPERIMENT_DIR: artifacts/r100b/mfem_transient
       EXPERIMENT_REPORT: artifacts/r100b/mfem_transient/report.json
       HTDT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      HTDT_TASK_START_MAIN_SHA: 1fb07fa210aae55d91c7d86b3f4c5ee993be7c93
-      HTDT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '1fb07fa210aae55d91c7d86b3f4c5ee993be7c93' }}
+      HTDT_TASK_START_MAIN_SHA: c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96
+      HTDT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || 'c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +94,7 @@ jobs:
           "MFEM_RUNTIME_AVAILABLE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "MFEM_PROBE_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Run predeclared exact two-half-step transient experiment
+      - name: Run predeclared exact four-substep transient experiment
         if: env.MFEM_RUNTIME_AVAILABLE == '1'
         shell: pwsh
         run: |
@@ -110,7 +110,7 @@ jobs:
           $work = Join-Path $env:EXPERIMENT_DIR 'raw'
           python scripts\\run_r100b_mfem_transient_experiment.py --manifest benchmarks\\acoustics\\r100a_manifest.json --candidates benchmarks\\acoustics\\r100b_candidates.json --plan benchmarks\\acoustics\\r100b_mfem_transient_experiment_plan.json --modal-plan benchmarks\\acoustics\\r100b_mfem_modal_experiment_plan.json --modal-evidence benchmarks\\acoustics\\evidence\\r100b_mfem_modal_2026-09-20.json --mfem-root $env:MFEM_ROOT --work-dir $work --output $env:EXPERIMENT_REPORT --native-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
 
-      - name: Show exact-half-step experiment outcome
+      - name: Show exact-four-substep experiment outcome
         shell: pwsh
         run: |
           $report = Get-Content -Raw $env:EXPERIMENT_REPORT | ConvertFrom-Json

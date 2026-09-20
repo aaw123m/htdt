@@ -1,0 +1,310 @@
+{
+  "actions_checkout_merge_sha": "84db5ccfaf9b6ebbd44f933afe2791c8703e9277",
+  "adjacent_rate_metrics": [
+    {
+      "complex_rms_relative": 0.0036429502290525754,
+      "magnitude_max_abs_db": 0.927224931134063,
+      "magnitude_max_relative": 0.10125031030884701,
+      "pair": "6000->9000",
+      "phase_max_error_deg": 4.713124681601158
+    },
+    {
+      "complex_rms_relative": 0.0018655810185675176,
+      "magnitude_max_abs_db": 0.4441933257900743,
+      "magnitude_max_relative": 0.049854023310265214,
+      "pair": "9000->12000",
+      "phase_max_error_deg": 2.4155423751608396
+    }
+  ],
+  "attempts": [
+    {
+      "attempt_id": "transient-6000",
+      "checked_step_residual_count": 188,
+      "denominator_nnz": 93636,
+      "denominator_sparse_numeric_sha256": "504cf8e5a7795607edafacc3e57e0b642eada0ff405f1b7ea84a1c7b0aa7c0da",
+      "factor_storage_mb": 3.6614303588867188,
+      "factorization_identity_sha256": "bf08622a870bc62f066769c836ffc640160952f0aa6600b8f2e4a64ead1e98a5",
+      "factorization_s": 0.012592799999993076,
+      "internal_step_count": 47996,
+      "internal_step_s": 4.1666666666666665e-05,
+      "lu_nnz": 318540,
+      "mass_solve_relative_residual": 7.959244108169284e-16,
+      "max_checked_step_relative_residual": 5.051364627304269e-15,
+      "output_interval_s": 0.00016666666666666666,
+      "output_mb": 1.7752447128295898,
+      "peak_ram_mb": 98.4296875,
+      "pressure_record_sha256": "39bb2a73937a13c630c3598a1eba39316477d59751c90751416c900072506606",
+      "raw_output_sha256": "d53e111e657fb9e1c682b642cb17b822b6276cffcd6c650d17038d32991fed91",
+      "sample_count": 12000,
+      "sample_rate_hz": 6000,
+      "solve_s": 16.326872700000195,
+      "substeps_per_output_interval": 4
+    },
+    {
+      "attempt_id": "transient-9000",
+      "checked_step_residual_count": 282,
+      "denominator_nnz": 93636,
+      "denominator_sparse_numeric_sha256": "c299016a7b35110f4c15394fa69eb4d4ca7d98d5bca7a48e50af11cbf426016b",
+      "factor_storage_mb": 3.6473312377929688,
+      "factorization_identity_sha256": "c507b97d0775c7da4c132e9f4c855a139962886acdcaedded7214120a2bb84ae",
+      "factorization_s": 0.01008189999993192,
+      "internal_step_count": 71996,
+      "internal_step_s": 2.777777777777778e-05,
+      "lu_nnz": 317308,
+      "mass_solve_relative_residual": 7.743097034034262e-16,
+      "max_checked_step_relative_residual": 3.807959107712868e-15,
+      "output_interval_s": 0.00011111111111111112,
+      "output_mb": 2.7057056427001953,
+      "peak_ram_mb": 100.234375,
+      "pressure_record_sha256": "5f4e0a0d8ee1943ab52072df4f9aa4bb9ec2b55d4704052280ecdb23cc7be02a",
+      "raw_output_sha256": "2acd1a69e5efdd80cb89a9ad269e6d003d6434b7f01108ca9f7f29a0c44306a8",
+      "sample_count": 18000,
+      "sample_rate_hz": 9000,
+      "solve_s": 23.04269619999991,
+      "substeps_per_output_interval": 4
+    },
+    {
+      "attempt_id": "transient-12000",
+      "checked_step_residual_count": 375,
+      "denominator_nnz": 93636,
+      "denominator_sparse_numeric_sha256": "3d14bdae1ddb7ebb9b9bbf4ec87ed3c926e2ba4bcafd7f956af948076b58d9e7",
+      "factor_storage_mb": 3.6615676879882812,
+      "factorization_identity_sha256": "463ce72019d6570eff9a50408946e84b224a1af5e2ccea625d4650be41af8e30",
+      "factorization_s": 0.010645299999850977,
+      "internal_step_count": 95996,
+      "internal_step_s": 2.0833333333333333e-05,
+      "lu_nnz": 318552,
+      "mass_solve_relative_residual": 7.959244108169284e-16,
+      "max_checked_step_relative_residual": 3.0307745148551053e-15,
+      "output_interval_s": 8.333333333333333e-05,
+      "output_mb": 3.565042495727539,
+      "peak_ram_mb": 100.15234375,
+      "pressure_record_sha256": "bee2e8af3cf05fc478a77fb447de3cc37b0e1c9d3d1a9d1530ac8ddc681da1ef",
+      "raw_output_sha256": "217ac8044d4c5d518bece37b26584c1c3a14043b52ee6fcf40021dbb14ecd872",
+      "sample_count": 24000,
+      "sample_rate_hz": 12000,
+      "solve_s": 31.916056900000058,
+      "substeps_per_output_interval": 4
+    }
+  ],
+  "changed_variable": {
+    "adaptive_stepping": false,
+    "rate_specific_hidden_heuristic": false,
+    "substeps_per_output_interval": 4
+  },
+  "comparison_pr281_pr285_pr289": [
+    {
+      "candidate_solve_s": 18.023089800000207,
+      "current_r100a_tolerance_status": "FAIL",
+      "experiment_work_disk_mb": 17.295719146728516,
+      "final_9000_to_12000": {
+        "complex_rms_relative": 0.006045915824738044,
+        "magnitude_max_abs_db": 0.972198239243518,
+        "magnitude_max_relative": 0.10589177908375282,
+        "phase_max_error_deg": 9.03055141893384
+      },
+      "label": "pr281",
+      "modal_reference_agreement_status": "FAIL",
+      "native_mfem_build_s": 977.3779193,
+      "overall_experiment": "FAIL",
+      "peak_attempt_rss_mb": 103.125,
+      "production_adoption": "NO_GO",
+      "pull_request": 281,
+      "stepping_s": 17.98989840000013,
+      "substeps_per_output_interval": 1,
+      "transient_factorization_s": 0.030653600000050574
+    },
+    {
+      "candidate_solve_s": 35.16132650000054,
+      "current_r100a_tolerance_status": "FAIL",
+      "experiment_work_disk_mb": 17.297069549560547,
+      "final_9000_to_12000": {
+        "complex_rms_relative": 0.0021109373503622043,
+        "magnitude_max_abs_db": 0.489040528307882,
+        "magnitude_max_relative": 0.054747197619303606,
+        "phase_max_error_deg": 2.662964185569308
+      },
+      "label": "pr285",
+      "modal_reference_agreement_status": "PASS",
+      "native_mfem_build_s": 965.9421981,
+      "overall_experiment": "FAIL",
+      "peak_attempt_rss_mb": 103.44140625,
+      "production_adoption": "NO_GO",
+      "pull_request": 285,
+      "stepping_s": 35.12919000000056,
+      "substeps_per_output_interval": 2,
+      "transient_factorization_s": 0.029762399999981426
+    },
+    {
+      "candidate_solve_s": 71.32167630000004,
+      "current_r100a_tolerance_status": "PASS",
+      "experiment_work_disk_mb": 17.29702091217041,
+      "final_9000_to_12000": {
+        "complex_rms_relative": 0.0018655810185675176,
+        "magnitude_max_abs_db": 0.4441933257900743,
+        "magnitude_max_relative": 0.049854023310265214,
+        "phase_max_error_deg": 2.4155423751608396
+      },
+      "label": "pr289",
+      "modal_reference_agreement_status": "PASS",
+      "native_mfem_build_s": 943.2363632,
+      "overall_experiment": "PASS",
+      "peak_attempt_rss_mb": 100.234375,
+      "production_adoption": "NO_GO",
+      "pull_request": 289,
+      "stepping_s": 71.28562580000016,
+      "substeps_per_output_interval": 4,
+      "transient_factorization_s": 0.03331999999977597
+    }
+  ],
+  "cost_ratios": {
+    "vs_pr281": {
+      "candidate_solve_time_ratio": 3.957239135544851,
+      "disk_usage_ratio": 1.000075265181566,
+      "peak_attempt_rss_ratio": 0.9719696969696969,
+      "stepping_time_ratio": 3.962536319827112,
+      "transient_factorization_time_ratio": 1.0869848892045633
+    },
+    "vs_pr285": {
+      "candidate_solve_time_ratio": 2.028412560032368,
+      "disk_usage_ratio": 0.9999971881138595,
+      "peak_attempt_rss_ratio": 0.9689966390997319,
+      "stepping_time_ratio": 2.029241943807956,
+      "transient_factorization_time_ratio": 1.1195333709578787
+    }
+  },
+  "decision": {
+    "current_r100a_tolerance": "PASS",
+    "deterministic_report_identity_sha256": "babd0923af9f54140e702734ab552f00770acc7c063c4581d2f50eb552a30369",
+    "execution_suitability": "PASS",
+    "modal_reference_agreement": "PASS",
+    "numerical_convergence": "PASS",
+    "overall_experiment": "PASS",
+    "production_adoption": "NO_GO",
+    "violations": [],
+    "workflow_execution": "PASS"
+  },
+  "experiment": "exact 4 GL2 substeps per output interval",
+  "experiment_head_sha": "f97831f5008776f685bfa224446c2e81a2d463e6",
+  "frozen_authority": {
+    "elements": 40,
+    "h1_order": 2,
+    "integrator_configuration_sha256": "57fb31f41af617db111c649ef3ba25ced2b09e3af15f2922479760f2f922ace2",
+    "mass_nnz": 23409,
+    "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "modal_reference": {
+      "expected_basis_size": 525,
+      "modal_plan_file_sha256": "15c1faf1e24ef99910912666d476ba784b7724edcb58517e3f62c40415e624de",
+      "pull_request": 277,
+      "raw_output_sha256_by_rate": {
+        "12000": "73bf680e0cafafd2da5a71566d7b63a38ff020adede0f83225bd18053a57e330",
+        "6000": "de8af605e57a5069e804c10b7bc33acd2e7d94714a730de59d2749b1119beee6",
+        "9000": "768f40343c7a62d48dfb756b8904202183471ede661302d6bec5bfd62bc6d773"
+      },
+      "recomputed_basis_size": 525,
+      "reference_kind": "diagnostic_full_basis_modal_pr277",
+      "system_numeric_identity_sha256": "f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d"
+    },
+    "ndofs": 525,
+    "null_masks_db": {
+      "magnitude": -60,
+      "phase": -40
+    },
+    "observation_time_s": 2,
+    "output_grid_configuration_sha256": "4437d61b18add95c918ac7a08bd1c02bb14770189023d664b4239a807064d8e4",
+    "output_sample_rates_hz": [
+      6000,
+      9000,
+      12000
+    ],
+    "plan_file_sha256": "7eb0e56ff92fb4a755ef4feac99570699a11a2336f91e71708158eebc37f25ce",
+    "scored_frequency_hz": {
+      "start": 20,
+      "step": 1,
+      "stop": 300
+    },
+    "semidiscrete_raw_sha256": "83ebc5d89d7a100f159333775db6533e646996c4e6d0a9d19ba473aa4aff1bd4",
+    "semidiscrete_system_numeric_identity_sha256": "f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d",
+    "spatial_system_configuration_sha256": "908005a1f9b7aa431d7b20e9ccdb84ae58cbc77e0ab6f0f36d20fc9d52f9de49",
+    "stiffness_nnz": 23409,
+    "tolerance": {
+      "magnitude_abs_db": 0.75,
+      "magnitude_relative": 0.05,
+      "phase_deg": 8
+    },
+    "uniform_refinements": 1
+  },
+  "frozen_plan_commit_sha": "ba596ec0144b61874fbaaf1df9e1a5094778b44d",
+  "github_actions": {
+    "artifact_digest": "sha256:462e74730a2ff079e9f619edd909f42c22223d388de522c6d3e701a56c057d76",
+    "artifact_id": 10607427093,
+    "artifact_size_bytes": 2131813,
+    "artifact_zip_sha256_verified": "462e74730a2ff079e9f619edd909f42c22223d388de522c6d3e701a56c057d76",
+    "conclusion": "success",
+    "focused_tests": "14 passed",
+    "job_id": 106094558019,
+    "ordinary_ci": "1091 passed, 2 skipped",
+    "ordinary_ci_run_id": 35517017855,
+    "report_sha256": "b973c389800e3d3ee7c9ce0e8c9ddb35564fa4f37075298a1b9c576fa9dda771",
+    "run_attempt": 1,
+    "run_id": 35517017844,
+    "run_number": 12,
+    "windows_release": "success",
+    "windows_release_run_id": 35517017872,
+    "workflow_name": "R100B MFEM GL2 Exact Four Substeps"
+  },
+  "hard_rules": {
+    "adaptive_stepping": false,
+    "h2_retry_used": false,
+    "htdt_capture_changed": false,
+    "normalization_changed": false,
+    "null_mask_changed": false,
+    "production_claim_manually_promoted": false,
+    "rdc_usage_count": 0,
+    "record_duration_changed": false,
+    "result_driven_frequency_exclusion": false,
+    "result_driven_mode_exclusion": false,
+    "source_receiver_changed": false,
+    "spatial_refinement_changed": false,
+    "tolerance_changed": false
+  },
+  "issue": 101,
+  "modal_reference_metrics": [
+    {
+      "complex_rms_relative": 0.0001364589841954921,
+      "magnitude_max_abs_db": 0.020930150271695425,
+      "magnitude_max_relative": 0.002406771670031038,
+      "phase_max_error_deg": 0.2096309359745021,
+      "sample_rate_hz": 6000
+    },
+    {
+      "complex_rms_relative": 2.8682314025835826e-05,
+      "magnitude_max_abs_db": 0.004512258499431709,
+      "magnitude_max_relative": 0.0005193580447236846,
+      "phase_max_error_deg": 0.03940598216723856,
+      "sample_rate_hz": 9000
+    },
+    {
+      "complex_rms_relative": 9.337470653150653e-06,
+      "magnitude_max_abs_db": 0.0014683690560701734,
+      "magnitude_max_relative": 0.00016903794645278607,
+      "phase_max_error_deg": 0.01207702170162861,
+      "sample_rate_hz": 12000
+    }
+  ],
+  "pull_request": 289,
+  "resource_evidence": {
+    "candidate_solve_s": 71.32167630000004,
+    "candidate_solve_s_definition": "mass_factorization_s + transient_factorization_s + stepping_s",
+    "experiment_work_disk_mb": 17.29702091217041,
+    "mass_factorization_s": 0.0027305000000978907,
+    "native_mfem_build_s": 943.2363632,
+    "peak_attempt_rss_mb": 100.234375,
+    "reporting_process_rss_mb": 94.95703125,
+    "stepping_s": 71.28562580000016,
+    "total_internal_steps": 215988,
+    "transient_factorization_s": 0.03331999999977597
+  },
+  "schema_version": "r100b-mfem-gl2-four-substep-evidence-1",
+  "task_start_main_sha": "c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96"
+}

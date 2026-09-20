@@ -124,8 +124,8 @@ def _modal_metrics(*, relative: float = 0.01):
 
 def test_exact_frozen_plan_identity_and_integrator_contract() -> None:
     plan = _plan()
-    assert plan.schema_version == 'r100b-mfem-transient-experiment-plan-2'
-    assert plan.plan_id == 'r100b-mfem-gl2-exact-two-halfsteps-current-authority-2026-09-20'
+    assert plan.schema_version == 'r100b-mfem-transient-experiment-plan-3'
+    assert plan.plan_id == 'r100b-mfem-gl2-exact-four-substeps-current-authority-2026-09-20'
     assert plan.spatial_system.model_dump(mode='json') == {
         'h1_order': 2,
         'uniform_refinements': 1,
@@ -142,7 +142,7 @@ def test_exact_frozen_plan_identity_and_integrator_contract() -> None:
     }
     assert plan.integrator.algorithm_id == 'gauss-legendre-2stage-pade22-linear'
     assert plan.integrator.order == 4
-    assert plan.integrator.substeps_per_output_interval == 2
+    assert plan.integrator.substeps_per_output_interval == 4
     assert plan.integrator.substep_policy == (
         'fixed equal GL2 substeps per output interval; no adaptive stepping'
     )
@@ -297,19 +297,19 @@ def test_dense_or_nonreused_candidate_path_fails_production_suitability() -> Non
 
 
 
-def test_exact_two_halfstep_and_output_sampling_authority_is_enforced() -> None:
+def test_exact_four_substep_and_output_sampling_authority_is_enforced() -> None:
     plan = _plan()
     attempts = _attempts()
     for spec, result in zip(plan.attempts, attempts):
         output_interval_s = 1.0 / spec.sample_rate_hz
         assert result.sample_count == 2 * spec.sample_rate_hz
         assert result.output_interval_s == output_interval_s
-        assert result.substeps_per_output_interval == 2
-        assert result.internal_step_s == output_interval_s / 2.0
-        assert result.internal_step_count == (result.sample_count - 1) * 2
+        assert result.substeps_per_output_interval == 4
+        assert result.internal_step_s == output_interval_s / 4.0
+        assert result.internal_step_count == (result.sample_count - 1) * 4
 
     tampered = list(attempts)
-    tampered[0] = tampered[0].model_copy(update={'substeps_per_output_interval': 1})
+    tampered[0] = tampered[0].model_copy(update={'substeps_per_output_interval': 2})
     with pytest.raises(ValueError, match='substep count differs'):
         evaluate_transient_experiment(
             plan,
@@ -326,10 +326,20 @@ def test_invalid_substep_configuration_fails_closed() -> None:
         MfemTransientExperimentPlan.model_validate(payload)
 
     payload = _plan().model_dump(mode='json')
-    payload['integrator']['substeps_per_output_interval'] = 1
-    with pytest.raises(ValidationError, match='requires exactly 2'):
+    payload['integrator']['substeps_per_output_interval'] = 2
+    with pytest.raises(ValidationError, match='requires exactly 4'):
         MfemTransientExperimentPlan.model_validate(payload)
 
+
+
+def test_pr285_two_halfstep_plan_contract_remains_parseable() -> None:
+    payload = _plan().model_dump(mode='json')
+    payload['schema_version'] = 'r100b-mfem-transient-experiment-plan-2'
+    payload['plan_id'] = 'r100b-mfem-gl2-exact-two-halfsteps-current-authority-2026-09-20'
+    payload['integrator']['substeps_per_output_interval'] = 2
+    legacy = MfemTransientExperimentPlan.model_validate(payload)
+    assert legacy.integrator.substeps_per_output_interval == 2
+    assert legacy.schema_version == 'r100b-mfem-transient-experiment-plan-2'
 
 def test_pr281_single_step_plan_contract_remains_parseable() -> None:
     payload = _plan().model_dump(mode='json')
