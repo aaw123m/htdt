@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -50,6 +51,7 @@ from .ui_theme import (
 from .workflow_shell import WorkspaceMount
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
+from .standards_workspace import StandardsCriterionPanel
 
 
 ROOM_CONTEXT_IDS = ("geometry", "objects", "placement", "acoustics")
@@ -787,7 +789,19 @@ class RoomWorkspace(QWidget):
         self.system_expansion_panel.ghostEntityRequested.connect(
             self._proposal_entity_selected
         )
-        self.right_stack.addWidget(self.system_expansion_panel)
+        self.standards_panel = StandardsCriterionPanel(repository, document_id)
+        placement_body = QWidget()
+        placement_layout = QVBoxLayout(placement_body)
+        placement_layout.setContentsMargins(0, 0, 0, 0)
+        placement_layout.setSpacing(10)
+        placement_layout.addWidget(self.system_expansion_panel)
+        placement_layout.addWidget(self.standards_panel)
+        placement_layout.addStretch(1)
+        self.placement_panel = QScrollArea()
+        self.placement_panel.setWidgetResizable(True)
+        self.placement_panel.setFrameShape(QFrame.Shape.NoFrame)
+        self.placement_panel.setWidget(placement_body)
+        self.right_stack.addWidget(self.placement_panel)
         self.right_stack.setCurrentWidget(self.inspector)
         content.addWidget(self.right_stack)
         root.addLayout(content, 1)
@@ -941,7 +955,9 @@ class RoomWorkspace(QWidget):
                 refresh()
         elif context_id == "placement":
             self.system_expansion_panel.refresh()
-            self.right_stack.setCurrentWidget(self.system_expansion_panel)
+            self.standards_panel.refresh_targets()
+            self.standards_panel.refresh()
+            self.right_stack.setCurrentWidget(self.placement_panel)
         elif context_id == "acoustics":
             self.overlay_controls.acoustics.setChecked(True)
             if self.acoustics_panel is not None:

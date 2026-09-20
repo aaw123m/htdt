@@ -129,6 +129,18 @@ class CadStandardsRepository:
             for row in rows
         )
 
+    def list_profiles(self) -> tuple[StandardsProfile, ...]:
+        """Return every persisted immutable profile version in insertion order."""
+
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_standards_profiles ORDER BY seq ASC'
+            ).fetchall()
+        return tuple(
+            StandardsProfile.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
     def save_evaluation(
         self,
         evaluation: StandardsEvaluation,

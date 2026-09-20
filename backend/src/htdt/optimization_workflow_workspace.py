@@ -36,6 +36,7 @@ from .ui_theme import (
 )
 from .workflow_shell import WorkspaceMount
 from .system_expansion_workflow import SystemExpansionWorkflowService
+from .standards_workspace import StandardsVariantComparisonPanel
 from .system_expansion_widgets import (
     SystemExpansionMeasurementPanel,
     SystemExpansionOptimizePanel,
@@ -273,6 +274,7 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.controller.refresh_robustness_view()
         if page_id == "comparison" and hasattr(self, "system_expansion_compare_panel"):
             self.system_expansion_compare_panel.refresh()
+            self.standards_comparison_panel.refresh()
         if page_id == "validation":
             if hasattr(self, "system_expansion_measurement_panel"):
                 self.system_expansion_measurement_panel.refresh()
@@ -579,6 +581,12 @@ class OptimizationWorkflowWorkspace(QWidget):
             self._system_variant_applied
         )
         layout.addWidget(self.system_expansion_compare_panel)
+
+        self.standards_comparison_panel = StandardsVariantComparisonPanel(
+            self.system_expansion.scene_repository,
+            self.system_expansion.document_id,
+        )
+        layout.addWidget(self.standards_comparison_panel)
 
         metrics_card, metrics = _card(
             "比較する指標",

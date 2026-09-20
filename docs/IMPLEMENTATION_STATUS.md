@@ -565,3 +565,18 @@ Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_
 - R140 overall status: partial completion
 
 Implementation records: [ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md](ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md) and [ISSUE_101_R140_PFFDTD_RESOURCE_ESTIMATOR_2026-09-20.md](ISSUE_101_R140_PFFDTD_RESOURCE_ESTIMATOR_2026-09-20.md). RDC was not used.
+
+### Issue #170 / S130 StandardsProfile workflow integration — 2026-09-20
+
+- workflow placement: Room > スピーカー・座席 / Optimize > 比較へfirst-class integration。新global destinationなし。
+- profile selection: immutable built-in profileとpersisted user-defined profileをversion付きで選択可能。
+- criterion presentation: 日本語status、observed value、required range/rule、predicted/measured evidence、missing input/capability reasonを表示。
+- provenance: exact SceneRevision / optional SystemVariant / profile / evaluation / criterion source/reference / evidence identityはAdvancedへ退避。
+- explicit hard constraint: existing explicit_hard_constraint_gate() を再利用。selected FAIL/UNKNOWNのみblock、unselected FAILはadvisory、NOT_APPLICABLEはnon-blocking。
+- SystemVariant comparison: criterion matrixのみ。compliance score / winner / automatic ranking / hidden Pareto objectiveなし。
+- historical re-evaluation: newer profile versionはappend-only evaluation + reevaluation_of_id。旧evaluationを保存。
+- software acceptance: dedicated offscreen Qt S130 tests + existing workflow testsで検証する。
+- UX160 owned-Windows DPI/font/mouse/3D screenshot / first-use visual acceptance: **pending**。
+- RDC: **0**。
+
+Details: [Issue #170 S130 workspace integration](ISSUE_170_S130_STANDARDS_WORKSPACE_2026-09-20.md).

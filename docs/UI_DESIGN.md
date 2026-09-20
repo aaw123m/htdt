@@ -766,3 +766,21 @@ visual approvalは「綺麗に見える」だけで合格にしない。
 Windows実機visual acceptanceはUX160でRDCをまとめて使う。計画・構造レビューではRDCを使わない。
 
 旧browser UIの記録は履歴として残すが、native GUIの合格証拠へ流用しない。
+
+## 18. Issue #170 / S130 StandardsProfile integration
+
+StandardsProfileは新しいglobal destinationにせず、既存workflowの文脈へ統合する。
+
+- Room > 「スピーカー・座席」のright contextに、O100構成パネルと同居する「配置基準」を置く。
+- Optimize > 「比較」に、current SceneRevision / SystemVariantごとの基準項目matrixを置く。
+- 通常表示は日本語firstとし、PASS/FAIL/UNKNOWN/NOT_APPLICABLE のraw enumや
+  UUID/hashは主画面へ出さない。statusはtext/symbolでも識別する。
+- source/reference、exact SceneRevision/SystemVariant、profile/evaluation/evidence identityは
+  Advancedへprogressive disclosureする。
+- profile/versionはユーザーが明示選択する。旧versionのevaluationは上書きせず、
+  newer profileの再評価は別recordとして残す。
+- 「配置制約」としてチェックしたcriterionだけ既存hard-constraint gateへ渡す。
+  未選択の不適合はevidence表示のみ。判定材料不足を選択した場合はfail-closed。
+- SystemVariant比較で適合数score、winner、自動ranking、暗黙Pareto objectiveは作らない。
+- 新しい独自stylesheetは追加せず、既存UX150 token / surface / control semanticsを再利用する。
+- Windows DPI/font/mouse/3D screenshot/first-use acceptanceはUX160に残す。S130ではRDCを使わない。

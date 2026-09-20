@@ -207,6 +207,35 @@ A duplicate semantic evaluation may carry a later attempted timestamp, but the r
 returns the original stored record because timestamp metadata is not part of the
 deterministic criterion result identity.
 
+## S130 workflow-first software integration
+
+S130 exposes the existing authority through the native workflow without creating a second
+compliance model.
+
+- **Room > スピーカー・座席**: a StandardsProfile panel shares the existing right-side
+  placement context with O100. The user selects an exact profile/version and exact current
+  SceneRevision or SystemVariant target. Criterion rows show Japanese status text, observed
+  value, encoded requirement, predicted/measured evidence basis, and missing
+  input/capability reason.
+- **Optimize > 比較**: the same persisted evaluations are shown as a criterion-by-criterion
+  matrix across the current room and SystemVariants. There is no aggregate score, winner,
+  automatic recommendation, or implicit Pareto objective.
+- **Explicit hard constraint**: only checked criterion IDs are passed to
+  explicit_hard_constraint_gate(). A selected FAIL blocks, a selected UNKNOWN
+  blocks fail-closed, an unselected FAIL remains advisory evidence, and
+  NOT_APPLICABLE does not block.
+- **History**: profile versions remain selectable independently. Re-evaluation under a newer
+  version creates a new immutable evaluation linked through reevaluation_of_id; the
+  earlier evaluation is preserved.
+- **Advanced provenance**: exact SceneRevision, optional SystemVariant, profile
+  identity/version/hash, evaluation identity/timestamp/version, criterion source/reference,
+  criterion hash, and evidence identity are available through progressive disclosure rather
+  than normal-view hash dumps.
+- Built-in profiles are registered idempotently through CadStandardsRepository; persisted
+  user-defined profiles are listed by the same selector.
+
+S130 software acceptance is headless/offscreen Qt plus backend authority tests. Windows
+DPI/font/mouse/3D screenshot and first-use visual acceptance remain **UX160 pending**.
 ## Deferred / out of scope
 
 Issue #170 does not implement:
@@ -215,7 +244,7 @@ Issue #170 does not implement:
 - O100D coverage, SPL, headroom, worst-seat, or other acoustic objectives;
 - automatic conversion of criterion results into Pareto objectives;
 - automatic candidate deletion based on advisory `FAIL`;
-- GUI;
+- Windows owned-PC visual/first-use acceptance (UX160);
 - private/commercial document content that is not available in the cited public source;
 - inferred DTS:X tolerances or silent repair of ambiguous/inconsistent source data;
 - physical geometry/measurement derivation engines for every criterion. Those providers
