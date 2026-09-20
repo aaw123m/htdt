@@ -139,20 +139,50 @@
       "evidence_id": "pffdtd-concave-known-negative",
       "candidate_id": "pffdtd-main-aa319f6",
       "candidate_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
-      "candidate_semantic_hash": null,
-      "candidate_manifest_hash": null,
-      "r100a_manifest_id": null,
-      "r100a_semantic_hash": null,
+      "candidate_semantic_hash": "41579e23b5afb1eca66d3ab92c84a1d5e310caefa36698aa4e6b21cc4523c9fa",
+      "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+      "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+      "r100a_semantic_hash": "256c502bb34c35789ffcc8f38059e117556ae9c1ad70240cfb837b638296429b",
       "target_kind": "fixture",
       "fixture_id": "wave-concave-l-room-v1",
       "hard_gate_category": null,
       "reported_status": "fail",
-      "evidence_ref": "docs/R100B_SOLVER_BAKEOFF.md#next-r100b-implementation-slices",
-      "fixture_evidence": null,
+      "evidence_ref": "artifact:10578567268/pffdtd_concave.json",
+      "fixture_evidence": {
+        "fixture_id": "wave-concave-l-room-v1",
+        "status": "fail",
+        "evidence_ref": "artifact:artifacts/r100b/pffdtd_concave.json",
+        "adapter_id": "htdt-r100b-pffdtd-concave",
+        "adapter_version": "2",
+        "backend_version": "aa319f6c8651",
+        "precision": "float64",
+        "compile_s": 14.853270800000189,
+        "solve_s": 2.4083647999999584,
+        "postprocess_s": 0.263795699999946,
+        "peak_ram_mb": 295.52734375,
+        "disk_mb": 2.69219970703125,
+        "output_mb": 1.1552505493164062,
+        "observables": [],
+        "diagnostics": [
+          "Candidate failed its pre-reference exact-concave grid-convergence qualification.",
+          "complex RMS grid-refinement error is not strictly decreasing",
+          "No independent-reference comparison was scored; R100A observable evidence remains absent."
+        ]
+      },
       "hard_gate_evidence": null,
-      "platform": null,
+      "platform": {
+        "os": "Windows-2025Server-10.0.26100-SP0",
+        "architecture": "AMD64",
+        "python_version": "3.12.10",
+        "cpu": "AMD64 Family 25 Model 1 Stepping 1, AuthenticAMD",
+        "logical_threads": 4,
+        "thread_budget": 4,
+        "gpu": null,
+        "device_notes": "GitHub-hosted Windows PFFDTD Python/Numba CPU exact-concave pressure probe."
+      },
       "notes": [
-        "Exact-concave candidate evidence is retained as FAIL/non-converged history."
+        "Immutable artifact 10578567268 is exact candidate/version evidence and preserves FAIL/non-converged.",
+        "Its R100A semantic hash is 256c502b..., not current a9d45a3d..., so it is intentionally excluded from current selection as stale authority."
       ]
     },
     {
