@@ -76,5 +76,11 @@
       0.000875
     ],
     "acceptance": "relative P_T/Q_T error must strictly decrease at each refinement and finest error must be < 0.11"
+  },
+  "diagnosis_classification": {
+    "monotonic_if": "aligned second adjacent complex-RMS <= aligned first adjacent complex-RMS",
+    "substantially_reduced_if": "non-monotone remains but worsening excess ratio ((second/first)-1) is reduced by at least 50% versus canonical",
+    "substantial_reduction_fraction": 0.5,
+    "otherwise": "ALIGNED_NON_MONOTONICITY_REMAINS"
   }
 }
