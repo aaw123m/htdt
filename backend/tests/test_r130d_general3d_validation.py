@@ -6,16 +6,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from htdt.acoustic_pffdtd_adapter import finite_record_pressure_transfer
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     PairMetrics,
     ObservableContractMismatch,
     analytic_complex_harmonic_spectrum,
+    analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
     compare_complex_transfer,
     load_evidence,
     load_target_window_diagnostic_plan,
     load_validation_plan,
+    native_window_left_rectangle_spectrum,
+    native_window_left_rectangle_transfer,
     save_evidence,
     target_window_sampling_metadata,
     target_window_clipped_left_rectangle_spectrum,
@@ -550,3 +554,49 @@ def test_target_window_sampling_metadata_exposes_native_overrun_exactly():
     )
     assert metadata['target_effective_integration_interval_s'] == [0.0, 0.25]
     assert metadata['analysis_fourier_kernel'] == 'exp(+i*omega*t)'
+
+
+def test_native_window_generalization_matches_existing_real_extractor():
+    dt_s = 0.0037
+    frequencies = np.asarray([40.0, 80.0], dtype=np.float64)
+    times = np.arange(71, dtype=np.float64) * dt_s
+    pressure = 1.3 * np.cos(2.0 * np.pi * 31.0 * times + 0.2)
+    source = np.zeros(times.size, dtype=np.float64)
+    source[0] = 1.0
+    existing = finite_record_pressure_transfer(
+        pressure,
+        source,
+        time_step_s=dt_s,
+        frequency_hz=frequencies,
+    )
+    generalized = native_window_left_rectangle_transfer(
+        pressure,
+        source,
+        dt_s=dt_s,
+        frequency_hz=frequencies,
+    )
+    assert np.allclose(existing, generalized, rtol=0.0, atol=1.0e-13)
+
+
+def test_native_window_complex_harmonic_matches_independent_geometric_series():
+    dt_s = 0.007
+    target_duration_s = 0.25
+    sample_count = int(np.ceil(target_duration_s / dt_s))
+    frequencies = np.asarray([40.0, 80.0], dtype=np.float64)
+    amplitude = 2.1 + 0.4j
+    harmonic_hz = 53.0
+    times = np.arange(sample_count, dtype=np.float64) * dt_s
+    samples = amplitude * np.exp(-2j * np.pi * harmonic_hz * times)
+    numerical = native_window_left_rectangle_spectrum(
+        samples,
+        dt_s=dt_s,
+        frequency_hz=frequencies,
+    )
+    analytic = analytic_sampled_complex_harmonic_left_rectangle_spectrum(
+        amplitude=amplitude,
+        harmonic_frequency_hz=harmonic_hz,
+        analysis_frequency_hz=frequencies,
+        dt_s=dt_s,
+        sample_count=sample_count,
+    )
+    assert np.allclose(numerical, analytic, rtol=2.0e-13, atol=2.0e-13)
