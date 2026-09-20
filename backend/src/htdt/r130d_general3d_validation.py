@@ -72,6 +72,11 @@ class PhysicalQuantityContract(BaseModel):
     mfem_initial_condition: str = Field(min_length=1)
     pressure_conversion: str = Field(min_length=1)
     normalization_claim: str = Field(min_length=1)
+    window_function: Literal['rectangular_no_taper'] = 'rectangular_no_taper'
+    frequency_bin_policy: str = 'arbitrary finite-record evaluation frequencies'
+    source_normalization: str = 'unit discrete volume-velocity impulse'
+    receiver_observable: str = 'point acoustic pressure'
+    geometry_units: Literal['m'] = 'm'
 
     @model_validator(mode='after')
     def validate_frequency_axis(self) -> 'PhysicalQuantityContract':
@@ -79,6 +84,13 @@ class PhysicalQuantityContract(BaseModel):
             raise ValueError('comparison frequencies must be sorted and unique')
         if any(item <= 0.0 or not math.isfinite(item) for item in self.frequency_hz):
             raise ValueError('comparison frequencies must be finite and positive')
+        if self.frequency_bin_policy == 'record_coherent_integer_cycles':
+            for frequency in self.frequency_hz:
+                cycles = float(frequency) * float(self.duration_s)
+                if not math.isclose(cycles, round(cycles), rel_tol=0.0, abs_tol=1.0e-12):
+                    raise ValueError(
+                        'record-coherent comparison requires an integer cycle count'
+                    )
         return self
 
 
@@ -93,6 +105,7 @@ class IndependentReferenceContract(BaseModel):
     polynomial_order: int = Field(ge=1)
     uniform_refinements: tuple[int, ...] = Field(min_length=3)
     expected_element_counts: tuple[int, ...] = Field(min_length=3)
+    expected_dofs: tuple[int, ...] | None = None
     boundary_condition: str = Field(min_length=1)
     mass_assembly: str = Field(min_length=1)
     stiffness_assembly: str = Field(min_length=1)
@@ -107,10 +120,19 @@ class IndependentReferenceContract(BaseModel):
 
     @model_validator(mode='after')
     def validate_schedule(self) -> 'IndependentReferenceContract':
-        if self.uniform_refinements != (0, 1, 2):
-            raise ValueError('MFEM refinement schedule is frozen to 0/1/2')
-        if self.expected_element_counts != (6, 48, 384):
-            raise ValueError('MFEM element schedule is frozen to 6/48/384')
+        legacy = ((0, 1, 2), (6, 48, 384))
+        diagnosed = ((1, 2, 3), (48, 384, 3072))
+        schedule = (self.uniform_refinements, self.expected_element_counts)
+        if schedule not in (legacy, diagnosed):
+            raise ValueError(
+                'MFEM refinement schedule must be the PR #282 legacy series '
+                'or the predeclared diagnosed 1/2/3 series'
+            )
+        if self.uniform_refinements == diagnosed[0]:
+            if self.expected_dofs != (125, 729, 4913):
+                raise ValueError('diagnosed MFEM DOF schedule is frozen to 125/729/4913')
+        elif self.expected_dofs is not None and len(self.expected_dofs) != 3:
+            raise ValueError('legacy MFEM expected_dofs must have three entries when set')
         return self
 
 
@@ -130,8 +152,14 @@ class PffdtdContract(BaseModel):
 
     @model_validator(mode='after')
     def validate_schedule(self) -> 'PffdtdContract':
-        if self.points_per_wavelength != (6.0, 8.0, 10.0):
-            raise ValueError('PFFDTD refinement schedule is frozen to PPW 6/8/10')
+        if self.points_per_wavelength not in (
+            (6.0, 8.0, 10.0),
+            (8.0, 10.0, 12.0),
+        ):
+            raise ValueError(
+                'PFFDTD refinement schedule must be PR #282 legacy 6/8/10 '
+                'or the predeclared diagnosed 8/10/12 series'
+            )
         return self
 
 
@@ -293,6 +321,58 @@ def validate_refinement_schedule(
         raise ValueError('PFFDTD refinement schedule differs from predeclared plan')
 
 
+class ObservableContractMismatch(ValueError):
+    pass
+
+
+def validate_physical_observable_contract(
+    *,
+    expected: dict[str, Any],
+    actual: dict[str, Any],
+) -> None:
+    required = (
+        'quantity',
+        'unit',
+        'source_position_m',
+        'receiver_position_m',
+        'source_convention',
+        'pressure_normalization',
+        'excitation_normalization',
+        'phasor_convention',
+        'analysis_fourier_kernel',
+        'record_duration_s',
+        'record_interval',
+        'window_function',
+        'frequency_hz',
+        'sound_speed_m_s',
+        'density_kg_m3',
+        'boundary_condition',
+        'geometry_sha256',
+        'geometry_units',
+    )
+    for name in required:
+        if name not in expected or name not in actual:
+            raise ObservableContractMismatch(
+                f'R130D physical observable contract missing {name}'
+            )
+        left = expected[name]
+        right = actual[name]
+        if isinstance(left, float) or isinstance(right, float):
+            try:
+                equal = math.isclose(
+                    float(left), float(right), rel_tol=0.0, abs_tol=1.0e-12
+                )
+            except (TypeError, ValueError):
+                equal = False
+        else:
+            equal = left == right
+        if not equal:
+            raise ObservableContractMismatch(
+                f'R130D physical observable contract mismatch for {name}: '
+                f'{right!r} != {left!r}'
+            )
+
+
 class PairMetrics(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -384,6 +464,169 @@ def metric_status(metrics: PairMetrics, threshold: MetricThreshold) -> Validatio
     ):
         return 'FAIL'
     return 'PASS'
+
+
+class SelfConvergenceAssessment(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    state: Literal['SELF_CONVERGENCE_PASS', 'SELF_CONVERGENCE_FAILED']
+    pair_count: int = Field(ge=2)
+    final_pair_status: Literal['PASS', 'FAIL']
+    complex_rms_trend: Literal['DECREASING', 'NON_DECREASING']
+    magnitude_relative_trend: Literal['DECREASING', 'NON_DECREASING']
+    phase_trend: Literal['DECREASING', 'NON_DECREASING']
+    pair_metrics: tuple[PairMetrics, ...] = Field(min_length=2)
+
+
+def _decreasing(values: Sequence[float]) -> bool:
+    numeric = [float(value) for value in values]
+    tolerance = 1.0e-12
+    return (
+        len(numeric) >= 2
+        and all(
+            following <= previous * (1.0 + tolerance) + tolerance
+            for previous, following in zip(numeric, numeric[1:])
+        )
+        and numeric[-1] < numeric[0]
+    )
+
+
+def assess_refinement_series(
+    metrics: Sequence[PairMetrics],
+    threshold: MetricThreshold,
+) -> SelfConvergenceAssessment:
+    pairs = tuple(metrics)
+    if len(pairs) < 2:
+        raise ValueError(
+            'self-convergence requires at least two adjacent comparisons '
+            'from three predeclared levels'
+        )
+    rms_decreasing = _decreasing([item.complex_rms_relative for item in pairs])
+    magnitude_decreasing = _decreasing(
+        [item.magnitude_max_relative for item in pairs]
+    )
+    phase_decreasing = _decreasing([item.phase_max_deg for item in pairs])
+    final_status = metric_status(pairs[-1], threshold)
+    passed = bool(
+        final_status == 'PASS'
+        and rms_decreasing
+        and magnitude_decreasing
+        and phase_decreasing
+    )
+    return SelfConvergenceAssessment(
+        state='SELF_CONVERGENCE_PASS' if passed else 'SELF_CONVERGENCE_FAILED',
+        pair_count=len(pairs),
+        final_pair_status=final_status,
+        complex_rms_trend='DECREASING' if rms_decreasing else 'NON_DECREASING',
+        magnitude_relative_trend=(
+            'DECREASING' if magnitude_decreasing else 'NON_DECREASING'
+        ),
+        phase_trend='DECREASING' if phase_decreasing else 'NON_DECREASING',
+        pair_metrics=pairs,
+    )
+
+
+def validation_decision_v2(
+    *,
+    execution_state: Literal['PASS', 'EXECUTION_FAILED'],
+    contract_state: Literal['MATCH', 'CONTRACT_MISMATCH'],
+    reference_assessment: SelfConvergenceAssessment | None,
+    pffdtd_assessment: SelfConvergenceAssessment | None,
+    cross_solver_metrics: PairMetrics | None,
+    plan: R130DGeneral3DValidationPlan,
+) -> dict[str, str]:
+    if execution_state != 'PASS':
+        return {
+            'execution_state': 'EXECUTION_FAILED',
+            'contract_state': contract_state,
+            'reference_self_convergence_state': 'NOT_EVALUATED',
+            'pffdtd_self_convergence_state': 'NOT_EVALUATED',
+            'cross_solver_state': 'CROSS_SOLVER_BLOCKED',
+            'validation_state': 'NOT_VALIDATED',
+            'reference_build_execution_status': 'FAIL',
+            'reference_self_convergence_status': 'BLOCKED',
+            'pffdtd_self_convergence_status': 'BLOCKED',
+            'cross_solver_agreement_status': 'BLOCKED',
+            'fixture_validation_result': 'BLOCKED',
+            'general_3d_validation_state': 'NOT_VALIDATED',
+        }
+    if contract_state != 'MATCH':
+        return {
+            'execution_state': 'PASS',
+            'contract_state': 'CONTRACT_MISMATCH',
+            'reference_self_convergence_state': (
+                reference_assessment.state
+                if reference_assessment is not None
+                else 'NOT_EVALUATED'
+            ),
+            'pffdtd_self_convergence_state': (
+                pffdtd_assessment.state
+                if pffdtd_assessment is not None
+                else 'NOT_EVALUATED'
+            ),
+            'cross_solver_state': 'CROSS_SOLVER_BLOCKED',
+            'validation_state': 'NOT_VALIDATED',
+            'reference_build_execution_status': 'PASS',
+            'reference_self_convergence_status': (
+                'PASS'
+                if reference_assessment is not None
+                and reference_assessment.state == 'SELF_CONVERGENCE_PASS'
+                else 'BLOCKED'
+            ),
+            'pffdtd_self_convergence_status': (
+                'PASS'
+                if pffdtd_assessment is not None
+                and pffdtd_assessment.state == 'SELF_CONVERGENCE_PASS'
+                else 'BLOCKED'
+            ),
+            'cross_solver_agreement_status': 'BLOCKED',
+            'fixture_validation_result': 'BLOCKED',
+            'general_3d_validation_state': 'NOT_VALIDATED',
+        }
+    if reference_assessment is None or pffdtd_assessment is None:
+        raise ValueError('successful execution requires both self-convergence assessments')
+
+    reference_pass = reference_assessment.state == 'SELF_CONVERGENCE_PASS'
+    pffdtd_pass = pffdtd_assessment.state == 'SELF_CONVERGENCE_PASS'
+    if not reference_pass or not pffdtd_pass:
+        return {
+            'execution_state': 'PASS',
+            'contract_state': 'MATCH',
+            'reference_self_convergence_state': reference_assessment.state,
+            'pffdtd_self_convergence_state': pffdtd_assessment.state,
+            'cross_solver_state': 'CROSS_SOLVER_BLOCKED',
+            'validation_state': 'NOT_VALIDATED',
+            'reference_build_execution_status': 'PASS',
+            'reference_self_convergence_status': 'PASS' if reference_pass else 'FAIL',
+            'pffdtd_self_convergence_status': 'PASS' if pffdtd_pass else 'FAIL',
+            'cross_solver_agreement_status': 'BLOCKED',
+            'fixture_validation_result': 'FAIL',
+            'general_3d_validation_state': 'NOT_VALIDATED',
+        }
+    if cross_solver_metrics is None:
+        raise ValueError(
+            'cross-solver metrics are required only after both self-convergence gates pass'
+        )
+    cross_pass = (
+        metric_status(cross_solver_metrics, plan.acceptance.cross_solver_fine_fine)
+        == 'PASS'
+    )
+    return {
+        'execution_state': 'PASS',
+        'contract_state': 'MATCH',
+        'reference_self_convergence_state': reference_assessment.state,
+        'pffdtd_self_convergence_state': pffdtd_assessment.state,
+        'cross_solver_state': (
+            'CROSS_SOLVER_PASS' if cross_pass else 'CROSS_SOLVER_FAILED'
+        ),
+        'validation_state': 'VALIDATED' if cross_pass else 'NOT_VALIDATED',
+        'reference_build_execution_status': 'PASS',
+        'reference_self_convergence_status': 'PASS',
+        'pffdtd_self_convergence_status': 'PASS',
+        'cross_solver_agreement_status': 'PASS' if cross_pass else 'FAIL',
+        'fixture_validation_result': 'PASS' if cross_pass else 'FAIL',
+        'general_3d_validation_state': 'VALIDATED' if cross_pass else 'NOT_VALIDATED',
+    }
 
 
 def validation_decision(
