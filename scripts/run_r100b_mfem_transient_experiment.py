@@ -853,6 +853,17 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     htdt = baseline._htdt_git_provenance()
+    task_start_main_sha = os.environ.get('HTDT_TASK_START_MAIN_SHA', '').strip().lower()
+    workflow_base_sha = os.environ.get('HTDT_PR_BASE_SHA', '').strip().lower()
+    for provenance_name, provenance_sha in (
+        ('HTDT_TASK_START_MAIN_SHA', task_start_main_sha),
+        ('HTDT_PR_BASE_SHA', workflow_base_sha),
+    ):
+        if len(provenance_sha) != 40 or any(
+            character not in '0123456789abcdef' for character in provenance_sha
+        ):
+            raise SystemExit(f'{provenance_name} must be an exact 40-character Git SHA')
+
     report = {
         'schema_version': ARTIFACT_SCHEMA,
         'workflow_execution_status': 'PASS',
@@ -871,6 +882,14 @@ def main(argv: list[str] | None = None) -> int:
         'spatial_system_configuration_sha256': plan.spatial_system_configuration_hash(),
         'integrator_configuration_sha256': plan.integrator_configuration_hash(),
         'output_grid_configuration_sha256': plan.output_grid_configuration_hash(),
+        'source_provenance': {
+            'task_start_main_sha': task_start_main_sha,
+            'workflow_base_sha': workflow_base_sha,
+            'pr_head_sha': htdt['pr_head_commit_sha'],
+            'checkout_sha': htdt['checkout_commit_sha'],
+            'github_run_id': os.environ.get('GITHUB_RUN_ID'),
+            'github_run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT'),
+        },
         'htdt_source_commit_sha': htdt['pr_head_commit_sha'],
         'htdt_checkout_commit_sha': htdt['checkout_commit_sha'],
         'mfem_checkout_commit_sha': baseline._git_head(args.mfem_root),
