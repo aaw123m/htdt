@@ -1195,3 +1195,55 @@ def test_complex_directional_dataset_phase_multiplies_point_source_transfer() ->
     assert response.capability == 'COMPLEX_SUPPORTED'
     assert sample.complex_real_pa_per_m3_s == pytest.approx(expected.real, rel=1e-12)
     assert sample.complex_imag_pa_per_m3_s == pytest.approx(expected.imag, rel=1e-12)
+
+
+def test_execution_input_source_and_environment_bindings_fail_closed() -> None:
+    frequency = 1000.0
+    common = _common((frequency,))
+    path = _path(
+        length_m=2.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='7',
+    )
+    execution_input = _execution_input(path, common)
+    path_artifact = _artifact(path, execution_input)
+
+    stale_execution_input = _execution_input(
+        path,
+        common,
+        semantic_sha256='f' * 64,
+    )
+    stale = _response(
+        path,
+        common,
+        execution_input=stale_execution_input,
+        path_artifact=path_artifact,
+    )
+    assert stale.capability == 'UNSUPPORTED'
+    assert 'STALE_OR_MISMATCHED_EXECUTION_INPUT' in stale.unsupported_reasons
+
+    mismatched_source = build_source_response_authority(
+        source_entity_id='source-1',
+        r110_source_ref=_ref('r110-source:source-1-revision', H3),
+        equipment_definition=_equipment((frequency,)),
+        point_source_normalization=common['normalization'],
+    )
+    source_mismatch = _response(
+        path,
+        common,
+        source_authority=mismatched_source,
+    )
+    assert source_mismatch.capability == 'UNSUPPORTED'
+    assert 'SOURCE_R110_AUTHORITY_MISMATCH' in source_mismatch.unsupported_reasons
+
+    environment_mismatch_input = execution_input.model_copy(
+        update={'sound_speed_m_s': 330.0}
+    )
+    environment_mismatch = _response(
+        path,
+        common,
+        execution_input=environment_mismatch_input,
+        path_artifact=_artifact(path, environment_mismatch_input),
+    )
+    assert environment_mismatch.capability == 'UNSUPPORTED'
+    assert 'EXECUTION_INPUT_ENVIRONMENT_MISMATCH' in environment_mismatch.unsupported_reasons
