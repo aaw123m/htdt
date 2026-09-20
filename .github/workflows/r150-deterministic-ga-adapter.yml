@@ -3,6 +3,7 @@ name: R150 Deterministic GA Adapter
 on:
   pull_request:
     paths:
+      - 'backend/src/htdt/cad_acoustic_snapshot.py'
       - 'backend/src/htdt/cad_geometric_acoustics_adapter.py'
       - 'backend/src/htdt/cad_geometric_acoustics_portal.py'
       - 'backend/src/htdt/r120_geometry_compiler.py'
