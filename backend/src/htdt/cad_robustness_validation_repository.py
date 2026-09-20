@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from .cad_measurement_loop import CadMeasurementPlan
 from .cad_measurement_quality import (
@@ -198,7 +198,6 @@ class CadRobustnessValidationRepository:
         channel_role: str,
         source_speaker_ids: Sequence[str],
         radiation_scope: str,
-        preregistered_at_utc: str,
     ) -> O90EValidationCase:
         spec = self._spec(robustness_spec_id)
         campaign = self.campaign_repository.get(o60_campaign_id)
@@ -240,7 +239,7 @@ class CadRobustnessValidationRepository:
             channel_role=channel_role,
             source_speaker_ids=source_speaker_ids,
             radiation_scope=radiation_scope,
-            preregistered_at_utc=preregistered_at_utc,
+            preregistered_at_utc=datetime.now(timezone.utc).isoformat(),
         )
         self.save_case(case)
         return case
@@ -426,7 +425,7 @@ class CadRobustnessValidationRepository:
             or batch.model_id != spec.model_id
         ):
             reasons.append('stale_model_or_result')
-        if spec.prediction_provider_id not in {batch.model_id, batch.adapter_version}:
+        if spec.prediction_provider_id != batch.adapter_version:
             reasons.append('stale_model_or_result')
 
         ref = O90EPredictionAuthorityRef(
@@ -891,64 +890,6 @@ class CadRobustnessValidationRepository:
             or batch.adapter_version != ref.adapter_version
         ):
             raise ValueError('O90E decision prediction config binding is stale or tampered')
-
-    def _validate_measurement_ref(
-        self,
-        ref: O90EMeasurementEvidenceRef,
-    ) -> None:
-        plan = None
-        for candidate_plan in self.measurement_repository.list_measurement_plans(
-            self._spec_for_candidate(ref.candidate_id).search_spec_id
-        ):
-            if (
-                candidate_plan.plan_id == ref.plan_id
-                and candidate_plan.plan_sha256 == ref.completed_plan_sha256
-            ):
-                plan = candidate_plan
-                break
-        if plan is None or ref.measurement_id not in plan.measurement_ids:
-            raise ValueError('O90E decision MeasurementPlan binding is stale or tampered')
-
-        measurement = self.measurement_repository.get_measurement(ref.measurement_id)
-        dataset = self.measurement_repository.get_dataset(ref.dataset_id)
-        report = self.quality_repository.get_report(ref.quality_report_id)
-        if (
-            measurement is None
-            or dataset is None
-            or report is None
-            or measurement_sha256(measurement) != ref.measurement_sha256
-            or dataset_sha256(dataset) != ref.dataset_sha256
-            or dataset.source_sha256 != ref.raw_asset_sha256
-            or report.report_sha256 != ref.quality_report_sha256
-        ):
-            raise ValueError('O90E decision measurement/quality binding is stale or tampered')
-        acquisition = report.acquisition_context
-        if ref.acquisition_context_id is None:
-            if acquisition is not None:
-                raise ValueError('O90E historical acquisition binding changed')
-        elif (
-            acquisition is None
-            or acquisition.acquisition_context_id != ref.acquisition_context_id
-            or acquisition.acquisition_context_sha256 != ref.acquisition_context_sha256
-        ):
-            raise ValueError('O90E decision acquisition binding is stale or tampered')
-
-    def _spec_for_candidate(self, candidate_id: str) -> RobustnessSpec:
-        # Measurement refs are validated only from a decision, but keeping this
-        # lookup explicit avoids deriving SearchSpec identity from labels.
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                '''
-                SELECT robustness_spec_id
-                FROM cad_robustness_validation_decisions
-                WHERE candidate_id=?
-                ORDER BY seq DESC LIMIT 1
-                ''',
-                (candidate_id,),
-            ).fetchone()
-        if row is None:
-            raise ValueError('O90E decision candidate has no persisted RobustnessSpec')
-        return self._spec(str(row['robustness_spec_id']))
 
     def _validate_decision_bindings(
         self,
