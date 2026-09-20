@@ -1261,7 +1261,14 @@ def build_deterministic_path_frequency_response(
 
     source_mode: Literal['complex', 'magnitude', 'unsupported'] = 'complex'
     if source_authority.capability == 'MAGNITUDE_ONLY_DIRECTIVITY':
-        source_mode = 'magnitude'
+        if directivity_dataset is None:
+            reasons.append('DIRECTIVITY_DATASET_AUTHORITY_MISMATCH')
+            source_mode = 'unsupported'
+        elif directivity_dataset.normalization.reference != 'on_axis_per_frequency':
+            reasons.append('DIRECTIVITY_NORMALIZATION_NOT_POINT_SOURCE_RATIO')
+            source_mode = 'unsupported'
+        else:
+            source_mode = 'magnitude'
     elif source_authority.capability == 'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE':
         if (
             directivity_dataset is None
@@ -1274,6 +1281,9 @@ def build_deterministic_path_frequency_response(
             )
         ):
             reasons.append('DIRECTIVITY_DATASET_AUTHORITY_MISMATCH')
+            source_mode = 'unsupported'
+        elif directivity_dataset.normalization.reference != 'on_axis_per_frequency':
+            reasons.append('DIRECTIVITY_NORMALIZATION_NOT_POINT_SOURCE_RATIO')
             source_mode = 'unsupported'
     elif source_authority.capability == 'UNSUPPORTED_UNKNOWN_DIRECTIVITY':
         source_mode = 'unsupported'
