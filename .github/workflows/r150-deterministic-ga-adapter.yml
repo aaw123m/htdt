@@ -28,8 +28,7 @@ jobs:
 
       - name: Run deterministic GA authority fixtures
         run: |
-          python -m pytest backend/tests/test_cad_geometric_acoustics_adapter.py \
-            --ignore-glob='*does-not-exist*'
+          python -m pytest backend/tests/test_cad_geometric_acoustics_adapter.py
 
   pyroomacoustics-candidate-execution:
     runs-on: ubuntu-latest

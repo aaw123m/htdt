@@ -814,6 +814,12 @@ def compile_deterministic_ga_execution_input(
         descriptor=descriptor,
         configuration=configuration,
     )
+    if snapshot.treatment_boundary_bindings:
+        raise ValueError(
+            'deterministic GA foundation does not flatten attached-treatment '
+            'composition into one specular surface quantity; active treatment '
+            'boundary bindings require a future exact GA composition evaluator'
+        )
     if (
         snapshot.r120_compiled_geometry_id != compiled_geometry.compiled_geometry_id
         or snapshot.r120_compiled_geometry_sha256

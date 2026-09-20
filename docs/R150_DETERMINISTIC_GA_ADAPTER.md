@@ -81,6 +81,8 @@ R110 v1 currently has no numerical evaluator authority for analytic directivity 
 
 A reflection is accepted only when the exact surface material resolves to `AcousticMaterial.geometric_model == "banded"` and an exact requested center-frequency band exists. Missing or unsupported GA material data is `UNSUPPORTED_BOUNDARY_QUANTITY`. Wave impedance/admittance is not converted into a GA reflection quantity.
 
+Attached-treatment composition is not flattened into a replacement wall coefficient in this slice. The existing treatment authority intentionally preserves base construction and selected treatment material separately, but it does not yet define the GA composition law needed to turn those authorities into one specular-energy factor. Therefore any snapshot carrying active `treatment_boundary_bindings` is rejected by this adapter foundation rather than silently ignoring the treatment or fabricating a composite reflection quantity.
+
 ## Determinism
 
 Canonical path ordering is source, receiver, direct-before-reflection, ordered surface identity, path id. Rejected candidates are also canonically ordered.
