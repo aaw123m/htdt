@@ -1,62 +1,95 @@
 # R150 deterministic direct / first-specular adapter foundation
 
-Status: **implemented as a bounded candidate-execution foundation; R150 is not complete and no production GA solver is selected.**
+Status: **implemented as a bounded deterministic execution foundation for exact shoebox and general planar single-region geometry; R150 is not complete and no production GA solver is selected.**
 
 Issue: #101  
 Adapter authority: `htdt.r150.deterministic-path@1`  
-Candidate engine: pyroomacoustics 0.10.1 image-source model (reference/candidate only)
+Shoebox reference candidate: pyroomacoustics 0.10.1 image-source model  
+General-planar construction authority: `adapter-kernel:htdt-r150-general-planar-first-order@1`
 
 ## Scope
 
-This slice establishes the first solver-neutral geometrical-acoustics execution chain:
+The adapter establishes this solver-neutral geometrical-acoustics execution chain:
 
 ```text
 AcousticSceneSnapshot
   -> AcousticPredictionRequest(observable=deterministic_paths)
   -> READY AcousticSolverDispatchBinding
   -> DeterministicGaExecutionInput
-  -> candidate image-source execution
-  -> direct + first-order specular candidates
+  -> deterministic direct / first-order image construction
+  -> exact finite-surface + visibility capability checks
   -> DeterministicPathArtifact
   -> AcousticSolverResultEnvelope
 ```
 
-It deliberately does **not** select pyroomacoustics as the production solver and does not claim R150 validation.
+Two explicit geometry policies exist:
 
-## Exact authority boundary
+- `exact_axis_aligned_closed_shoebox_v1`: the PR #245 compatibility/reference lane. It retains the pinned pyroomacoustics 0.10.1 shoebox image-source bridge.
+- `general_planar_closed_polyhedral_v1`: the current arbitrary-planar first-order lane. HTDT mirrors the exact source across each accepted semantic plane and computes the first-order intersection itself. It does not approximate the room as a shoebox and does not use pyroomacoustics native shoebox image generation for this lane.
 
-The adapter consumes the existing exact authorities rather than introducing a second room model. The concrete engine must also present the exact solver-implementation authority bound by the READY dispatch; mismatched engines are rejected before path execution:
+The general-planar kernel is an adapter execution authority, not a production GA solver selection. This slice does not claim full R150 numerical validation or general concave-room qualification.
 
-- R120 compiled vertices / triangles / semantic surface identity
-- exact acoustic-region authority
-- exact portal authority
-- exact boundary-termination authority
-- R110 source identity and source reference axis
-- exact DirectivityDataset identity
+## Exact geometry authority
+
+The adapter consumes existing exact R120 authority rather than constructing a second room model:
+
+- R120 compiled vertices, triangles, and semantic-surface identity
+- exact `AcousticRegionAuthority`
+- exact `PortalAuthority`
+- exact `BoundaryTerminationAuthority`
+- exact surface material / boundary-physics refs
+- R110 source identity, reference point, and source axis
+- exact `DirectivityDataset`
 - exact receiver world position
 - exact environment sound-speed authority
-- exact external solver implementation and solver configuration refs
+- exact solver/adapter implementation and configuration refs
 
-The current candidate-native room compiler accepts only an exact axis-aligned, closed shoebox shell with six separate semantic room-boundary surfaces and exactly one explicit acoustic region. Portal and boundary-termination authorities must both be `explicit_none`. Any other topology fails closed; it is not simplified into a shoebox. The six R120 room-boundary surfaces are additionally checked as their own closed manifold and their enclosed volume must match the bounding shoebox within the declared geometry tolerance; a hole or partial face is never filled by the candidate room constructor. Every source acoustic-reference point and receiver point must also lie strictly inside that sole explicit region (outside or boundary-ambiguous points are rejected), so unmodeled external space is never treated as an implicit propagation region.
+The general-planar lane requires exactly one explicit acoustic region, no Portal declarations, and no BoundaryTermination declarations. The exact region boundary surface ids must equal the R120 `room_boundary` subset, and that subset must itself be a closed manifold with non-zero enclosed volume. Multi-region and Portal topology remain explicitly unsupported; they are not flattened into one room.
 
-Non-shoebox semantic surfaces remain part of the exact R120 visibility geometry. They can block direct/reflection segments, but this foundation does not synthesize native image sources for them. A first-order candidate on such a surface is recorded as `UNSUPPORTED_GEOMETRY`, so unsupported reflection coverage is visible rather than silently discarded.
+Every region boundary semantic surface must be planar within the configuration's `geometric_tolerance_m`. A semantic surface may contain multiple coplanar triangles; those triangles remain one surface authority and one reflection candidate. Plane extraction uses the exact compiled triangles and preserves their indices. A region-boundary surface that is nonplanar or degenerate fails closed for the whole execution input.
 
-## Typed deterministic path artifact
+Planar non-region semantic surfaces are also eligible first-order candidates. A nonplanar or degenerate non-region semantic surface is retained in the exact triangle visibility geometry but is listed as an unsupported reflection surface; it is never silently planarized.
 
-Every accepted path keeps:
+Source and receiver region membership is evaluated against the exact region triangle shell. Boundary or numerically ambiguous membership fails closed as `UNSUPPORTED_REGION_MEMBERSHIP`; unmodeled external space is never treated as an implicit propagation region.
 
-- deterministic path identity/hash
-- source and receiver identity
-- `direct` or `specular_reflection`
-- ordered semantic surface ids and reflection points
-- geometric path length and propagation delay
-- world departure and arrival propagation directions
-- exact center-frequency band definition
-- source-directivity evaluation identity and magnitude contribution
-- exact material/boundary refs plus absorption/scattering contribution for reflections
-- adapter and exact solver-implementation provenance
+## First-order construction and finite-surface membership
 
-The path quantity is intentionally phase-free:
+For each accepted plane, the general-planar lane deterministically computes:
+
+```text
+source
+  -> mirror source across exact plane
+  -> line from mirrored source to receiver
+  -> exact plane intersection
+  -> reflection point
+  -> source-to-reflection segment
+  -> reflection-to-receiver segment
+  -> path length
+  -> delay = path_length / exact sound_speed
+```
+
+The infinite-plane intersection is only a candidate. The reflection point must lie in the union of the exact R120 triangles mapped to that semantic surface. An AABB or plane bounding box is not sufficient. A point outside the finite semantic triangle domain is rejected as `UNSUPPORTED_GEOMETRY`.
+
+The deterministic trapezoidal-prism fixture includes a non-axis-aligned wall with plane `3x + y = 12`; its first-order reflection point, path length, delay, and exact semantic surface id are checked analytically.
+
+## Visibility / occlusion semantics
+
+Direct and reflected visibility both use exact R120 triangles.
+
+For a reflection candidate, both segments are checked independently:
+
+- source -> reflection point
+- reflection point -> receiver
+
+No reflecting semantic surface is globally removed from visibility. Instead, triangle hits within the declared geometric distance tolerance of a segment endpoint are excluded. This prevents the intended touch at the reflection point from self-blocking while still allowing another interior intersection with the same semantic surface to block the path.
+
+The segment-triangle test derives a normalized endpoint parameter epsilon from `geometric_tolerance_m / segment_length`; its parallel/barycentric tolerance is likewise scaled from the declared geometry tolerance and segment/triangle extent. Therefore the numerical policy remains tied to the versioned configuration rather than an unrecorded magic epsilon.
+
+Shared-edge/touching semantics are intentionally bounded: an intersection that occurs only within the endpoint epsilon is treated as the intended endpoint contact; an intersection strictly inside either segment with any triangle, including another surface sharing an edge, blocks the candidate. Coplanar/grazing cases that cannot establish an unambiguous finite first-order interaction are not promoted into a separate inferred path truth.
+
+## Boundary / material contribution
+
+The existing R150 geometrical-energy semantics are unchanged:
 
 ```text
 relative_energy_transport_per_m2
@@ -71,72 +104,88 @@ For direct paths, `specular_energy_factor = 1`. For supported reflected paths:
 specular_energy_factor = (1 - absorption) * (1 - scattering)
 ```
 
-This is a declared geometrical-energy transport quantity, not calibrated SPL, pressure transfer, or a coherent reflection coefficient. Scalar absorption/scattering data is never promoted to phase. The artifact explicitly carries `UNAVAILABLE_NOT_SYNTHESIZED` for coherent phase.
+A reflection is accepted only when the exact material resolves to `AcousticMaterial.geometric_model == "banded"` and one exact requested center-frequency band exists. Unsupported or missing material data becomes `UNSUPPORTED_BOUNDARY_QUANTITY`.
 
-## Capability gates
+This quantity is deliberately phase-free. Scalar absorption/scattering is not converted into a complex reflection coefficient, impedance, or coherent phase. `DeterministicPathArtifact` continues to record `UNAVAILABLE_NOT_SYNTHESIZED` for coherent phase.
 
-Source directivity is evaluated only through the exact bound `DirectivityDataset`. If a requested path angle/frequency is outside that authority, the candidate is rejected as `UNSUPPORTED_DIRECTIVITY`; there is no implicit omnidirectional fallback. This foundation also requires an explicit horizontal source aim axis and uses the HTDT z-up convention with the dataset's declared positive-left / positive-up convention; elevated/rolled source-frame reconstruction is not inferred.
+Attached-treatment composition remains unsupported in this adapter foundation. A snapshot with active `treatment_boundary_bindings` is rejected rather than inventing a composite law.
 
-R110 v1 currently has no numerical evaluator authority for analytic directivity names, including analytic omnidirectional declarations, so this slice does not silently add one. Supporting explicit analytic omnidirectional sources requires a separate exact numerical evaluator authority.
+## Directivity
 
-A reflection is accepted only when the exact surface material resolves to `AcousticMaterial.geometric_model == "banded"` and an exact requested center-frequency band exists. Missing or unsupported GA material data is `UNSUPPORTED_BOUNDARY_QUANTITY`. Wave impedance/admittance is not converted into a GA reflection quantity.
+Source directivity is evaluated only through the exact bound `DirectivityDataset`.
 
-Attached-treatment composition is not flattened into a replacement wall coefficient in this slice. The existing treatment authority intentionally preserves base construction and selected treatment material separately, but it does not yet define the GA composition law needed to turn those authorities into one specular-energy factor. Therefore any snapshot carrying active `treatment_boundary_bindings` is rejected by this adapter foundation rather than silently ignoring the treatment or fabricating a composite reflection quantity.
+- angle/frequency outside exact authority -> `UNSUPPORTED_DIRECTIVITY`
+- no implicit omnidirectional fallback
+- no phase synthesized from magnitude-only data
+- analytic directivity names are not silently converted into a numerical evaluator
+- an explicit horizontal source axis is still required by this bounded evaluator
+
+The general-planar lane reuses this same authority; it does not create a second directivity path.
+
+## Artifact and persistence compatibility
+
+`DeterministicPathArtifact` remains schema/version 1. The existing path truth already represents arbitrary ordered semantic surface ids and interaction points, so general geometry does not introduce a second artifact type.
+
+`DeterministicGaExecutionInput` receives additive optional general-planar fields. Legacy shoebox semantic payloads omit those fields, and legacy plane payloads without point/normal/triangle-index fields remain valid. This preserves old shoebox execution semantics while allowing new general-planar inputs to carry exact plane/triangle authority.
+
+`CadDeterministicPathArtifactRepository` continues append-only persistence for execution inputs and path artifacts. Reopen regenerates the execution input from exact persisted snapshot/request/dispatch/R120/region/portal/termination/source/directivity/config authorities and re-resolves material/directivity contributions. General-planar save/reopen is covered by a focused exact-identity test.
 
 ## Determinism
 
-Canonical path ordering is source, receiver, direct-before-reflection, ordered surface identity, path id. Rejected candidates are also canonically ordered.
+Canonical accepted-path ordering remains:
 
-The default configuration records:
+1. source id
+2. receiver id
+3. direct before reflection
+4. ordered interaction surface ids
+5. path id
 
-- geometry comparison tolerance: `1e-9 m`
-- candidate image-source match tolerance: `1e-8 m`
+Rejected candidates are also canonically ordered.
+
+The default numeric configuration remains:
+
+- geometry tolerance: `1e-9 m`
+- shoebox candidate image match tolerance: `1e-8 m`
 - semantic numeric identity rounding: 12 decimal places
 
-The implementation does not claim raw floating-point bitwise portability across arbitrary runtimes. Artifact semantic identity is based on the recorded rounded typed values and exact authority hashes.
-
-## Persistence
-
-`CadDeterministicPathArtifactRepository` adds append-only persistence for both:
-
-- `DeterministicGaExecutionInput`
-- `DeterministicPathArtifact`
-
-On reopen the execution input is regenerated from persisted snapshot/request/READY dispatch/descriptor/R120 geometry/region/portal/termination/source/directivity/receiver/config authorities. Artifact reopen also re-resolves material band contributions and directivity evaluations. Missing or mismatched authority fails closed.
-
-The repository exposes exact external refs for the typed artifact and execution provenance so the existing `CadAcousticSolverResultRepository` can re-resolve the completed `AcousticSolverResultEnvelope`.
+The image-match tolerance is relevant only to the legacy pyroomacoustics shoebox lane. The general-planar lane records the same configuration contract but constructs its image analytically from exact R120 planes.
 
 ## Focused validation
 
-`backend/tests/test_cad_geometric_acoustics_adapter.py` covers:
+`backend/tests/test_cad_geometric_acoustics_adapter.py` covers the existing PR #245 regressions plus:
 
-- direct path length / delay against analytic geometry
-- first-order reflection point / length and exact surface identity against image-source geometry
-- blocked direct path removal using exact R120 triangle visibility
-- deterministic artifact identity and ordering
-- exact candidate engine / READY-dispatch solver-implementation identity
-- unsupported directivity angle without omnidirectional fill
-- missing GA boundary quantity without fabricated reflection
-- execution-input -> artifact -> result save/reopen and missing-authority fail-closed
-- the same direct/first-reflection fixture with the actual pyroomacoustics 0.10.1 candidate when installed
+- non-axis-aligned arbitrary planar first-order reflection point
+- analytic first-order path length and delay
+- exact semantic surface identity
+- finite semantic polygon rejection when the infinite-plane point lies outside
+- reflected-path occlusion by another exact R120 surface
+- nonplanar semantic object retained as visibility geometry but rejected as a reflection candidate
+- typed unsupported multi-region and Portal states
+- legacy execution-input payload loading without additive general-planar fields
+- general-planar execution-input / artifact save-reopen exact identity
 
-`.github/workflows/r150-deterministic-ga-adapter.yml` runs the focused authority tests and a separate Linux candidate-execution job that installs pyroomacoustics 0.10.1 and executes the actual candidate adapter fixture.
+Existing focused regressions continue to cover deterministic ordering/hash, directivity capability failure, material capability failure, old shoebox analytic behavior, result-envelope persistence, and actual pyroomacoustics 0.10.1 shoebox execution.
+
+`.github/workflows/r150-deterministic-ga-adapter.yml` runs the focused authority tests and the separate pinned pyroomacoustics shoebox candidate job.
 
 ## Explicitly deferred
 
 The following remain open R150/R160 work:
 
 - production GA solver selection
-- general arbitrary planar/polyhedral first-order candidate execution
-- explicit multi-region portal propagation
-- non-`explicit_none` boundary terminations
-- higher-order reflections
+- explicit multi-region / Portal propagation
+- non-`explicit_none` BoundaryTermination propagation
+- qualified general-concave-room coverage and validation
+- second and higher-order reflections
 - late reverberation / diffuse tail
 - stochastic ray tracing
 - directional scattering transport
 - diffraction
 - coherent reflection phase
-- hybrid R160 stitching
+- active treatment composition law
+- R160 hybrid stitching
 - GPU ray tracing
 - optimization integration
+- owned-room validation
 
+R150 and Issue #101 therefore remain incomplete.
