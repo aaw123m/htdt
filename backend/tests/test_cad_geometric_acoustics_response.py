@@ -790,3 +790,117 @@ def test_save_reopen_exact_and_stale_dependency_rejection(tmp_path: Path) -> Non
     )
     with pytest.raises(ValueError, match='missing/stale'):
         repository.get(response.artifact_id)
+
+
+def test_source_receiver_and_stale_surface_identity_mismatches_fail_closed() -> None:
+    frequency = 900.0
+    common = _common((frequency,))
+    path = _path(
+        length_m=2.5,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='1',
+    )
+    wrong_source = build_source_response_authority(
+        source_entity_id='source-other',
+        r110_source_ref=_ref('r110-source:source-other', H2),
+        equipment_definition=_equipment((frequency,)),
+        point_source_normalization=common['normalization'],
+    )
+    source_mismatch = build_deterministic_path_frequency_response(
+        path_artifact=_artifact(path),
+        path_id=path.path_id,
+        r120_geometry_ref=common['r120'],
+        source_authority=wrong_source,
+        point_source_normalization=common['normalization'],
+        receiver_authority=common['receiver'],
+        environment=common['environment'],
+        frequency_grid=common['frequency_grid'],
+        configuration=common['configuration'],
+    )
+    assert source_mismatch.capability == 'UNSUPPORTED'
+    assert 'SOURCE_IDENTITY_MISMATCH' in source_mismatch.unsupported_reasons
+
+    wrong_receiver = build_receiver_response_authority(
+        receiver_id='receiver-1',
+        receiver_entity_id='receiver-entity-other',
+        receiver_authority_ref=_ref('r110-receiver:receiver-other', H4),
+    )
+    receiver_mismatch = build_deterministic_path_frequency_response(
+        path_artifact=_artifact(path),
+        path_id=path.path_id,
+        r120_geometry_ref=common['r120'],
+        source_authority=common['source'],
+        point_source_normalization=common['normalization'],
+        receiver_authority=wrong_receiver,
+        environment=common['environment'],
+        frequency_grid=common['frequency_grid'],
+        configuration=common['configuration'],
+    )
+    assert receiver_mismatch.capability == 'UNSUPPORTED'
+    assert 'RECEIVER_IDENTITY_MISMATCH' in receiver_mismatch.unsupported_reasons
+
+    reflected = _path(
+        length_m=3.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='2',
+        surfaces=(SURFACE_A,),
+    )
+    stale_reflection = build_explicit_complex_surface_reflection_authority(
+        source_surface_id=SURFACE_A,
+        r120_geometry_ref=_ref('r120-compiled-geometry:' + H2, H2),
+        material_authority_ref=_ref('material:a', H3),
+        frequency_coefficients={frequency: 0.8 + 0.1j},
+        provenance='stale geometry fixture',
+    )
+    stale = _response(
+        reflected,
+        common,
+        surface_reflections={SURFACE_A: stale_reflection},
+    )
+    assert stale.capability == 'UNSUPPORTED'
+    assert f'STALE_REFLECTION_SURFACE_AUTHORITY:{SURFACE_A}' in stale.unsupported_reasons
+
+
+def test_stale_portal_transfer_authority_fails_closed() -> None:
+    frequency = 650.0
+    common = _common((frequency,))
+    path = _portal_path(sound_speed_m_s=common['environment'].sound_speed_m_s)
+    current_portal_ref = _ref('r120-portals:' + H2, H2)
+    stale_portal_ref = _ref('r120-portals:' + H3, H3)
+    transfer_ab = build_portal_acoustic_transfer_authority(
+        portal_id='portal-ab',
+        from_region_id='A',
+        to_region_id='B',
+        portal_geometry_authority_ref=stale_portal_ref,
+        frequency_coefficients={frequency: 0.9 + 0.0j},
+        provenance='stale portal fixture AB',
+        provenance_state='measured',
+        uncertainty='fixture',
+    )
+    transfer_bc = build_portal_acoustic_transfer_authority(
+        portal_id='portal-bc',
+        from_region_id='B',
+        to_region_id='C',
+        portal_geometry_authority_ref=stale_portal_ref,
+        frequency_coefficients={frequency: 0.9 + 0.0j},
+        provenance='stale portal fixture BC',
+        provenance_state='measured',
+        uncertainty='fixture',
+    )
+
+    response = _response(
+        path,
+        common,
+        portal_geometry_authority_ref=current_portal_ref,
+        portal_transfers={
+            ('portal-ab', 'A', 'B'): transfer_ab,
+            ('portal-bc', 'B', 'C'): transfer_bc,
+        },
+    )
+
+    assert response.capability == 'UNSUPPORTED'
+    assert response.samples == ()
+    assert any(
+        item.startswith('STALE_PORTAL_TRANSFER_AUTHORITY:')
+        for item in response.unsupported_reasons
+    )
