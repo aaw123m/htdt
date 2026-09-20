@@ -484,7 +484,14 @@ class DeterministicGaExecutionInput(BaseModel):
         if self.unsupported_reflection_surface_ids is None:
             payload.pop('unsupported_reflection_surface_ids', None)
         for plane in payload['boundary_planes']:
-            for key in ('point_m', 'normal', 'compiled_triangle_indices'):
+            for key in (
+                'axis',
+                'side',
+                'coordinate_m',
+                'point_m',
+                'normal',
+                'compiled_triangle_indices',
+            ):
                 if plane.get(key) is None:
                     plane.pop(key, None)
         return payload
@@ -1394,7 +1401,11 @@ def compile_deterministic_ga_execution_input(
         'room_origin_m': origin.model_dump(mode='json'),
         'room_dimensions_m': list(dimensions),
         'boundary_planes': [
-            item.model_dump(mode='json')
+            {
+                key: value
+                for key, value in item.model_dump(mode='json').items()
+                if value is not None
+            }
             for item in (
                 sorted(planes, key=lambda item: item.source_surface_id)
                 if general_geometry
