@@ -65,10 +65,15 @@ authority is retrospective evidence. It remains auditable but cannot satisfy
 the preregistered production gate.
 
 An already captured measurement is not retroactively made prospective by an
-O60 campaign alone. It is prospective O90E evidence only when the exact O90E
-case was itself saved before capture and can be reopened through its original
-planned MeasurementPlan hashes. Creating a new O90E case after capture is
-retrospective, even when the measurement belongs to an earlier O60 campaign.
+O60 campaign alone. The repository assigns the O90E preregistration timestamp
+at case creation, rather than accepting a caller-supplied production timestamp.
+It is prospective O90E evidence only when the exact O90E case was saved while
+both exact MeasurementPlans were still planned and can later be reopened
+through those original planned-plan hashes. Initial persistence also rechecks
+the current plan history, so a caller cannot reconstruct an old planned snapshot
+after measurement completion and backdate it into prospective evidence.
+Creating a new O90E case after capture is retrospective, even when the
+measurement belongs to an earlier O60 campaign.
 
 ## Applicability / coverage contract
 
