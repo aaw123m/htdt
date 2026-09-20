@@ -418,7 +418,7 @@ def _portal_semantic_geometry(*, occluder: bool = False):
     vertices: list[tuple[float, float, float]] = []
     vertex_index: dict[tuple[float, float, float], int] = {}
     faces: list[tuple[int, int, int]] = []
-    face_ranges: dict[str, tuple[int, int]] = {}
+    face_indices: dict[str, list[int]] = {}
 
     def vid(point: tuple[float, float, float]) -> int:
         if point not in vertex_index:
@@ -436,11 +436,7 @@ def _portal_semantic_geometry(*, occluder: bool = False):
         start = len(faces)
         ia, ib, ic, id_ = (vid(point) for point in (a, b, c_, d))
         faces.extend(((ia, ib, ic), (ia, ic, id_)))
-        previous = face_ranges.get(key)
-        face_ranges[key] = (
-            previous[0] if previous is not None else start,
-            len(faces),
-        )
+        face_indices.setdefault(key, []).extend((start, start + 1))
 
     y_values = (0.0, 1.0, 2.0, 3.0)
     z_values = (0.0, 0.5, 1.5, 2.0)
@@ -535,11 +531,11 @@ def _portal_semantic_geometry(*, occluder: bool = False):
     )
     ids = raw_triangle_ids(mesh)
     assignments = []
-    for key, (start, end) in face_ranges.items():
+    for key, indices in face_indices.items():
         assignments.append(
             SurfaceSemanticAssignment(
                 surface_key=key,
-                triangle_ids=ids[start:end],
+                triangle_ids=tuple(ids[index] for index in indices),
                 semantic_class=(
                     'object_surface'
                     if key == 'portal-opaque-blocker'
