@@ -25,6 +25,7 @@ The bounded execution policy is:
 - exactly **2** explicit `AcousticRegionDeclaration` entries;
 - exactly **1** explicit `PortalDeclaration`;
 - exactly **1** maximum Portal crossing;
+- `maximum_reflection_order=0` explicitly in the Portal configuration authority;
 - direct propagation only in this multi-region lane;
 - explicit source-region and receiver-region bindings are mandatory;
 - the Portal must bind exactly those two regions;
@@ -49,6 +50,7 @@ For the supported Portal:
 - the directed loop normal must point from the first region to the second;
 - the boundary edges must be exact single-incidence R120 geometric opening edges;
 - all aperture vertices must be coplanar within the existing R120/R150 `geometric_tolerance_m`;
+- the temporary exact region-cap lane accepts a simple strictly-convex aperture polygon only; concave, self-intersecting, self-touching, or tolerance-degenerate polygons fail closed rather than being silently fan-triangulated;
 - the two regions' shared semantic boundary surfaces must equal the Portal surface set exactly.
 
 A closed Portal, reversed orientation, wrong adjacency, unknown region, malformed/open loop, stale authority, or aperture mismatch fails closed.
@@ -177,7 +179,7 @@ The existing `.github/workflows/r150-deterministic-ga-adapter.yml` remains the f
 ## Explicit non-claims
 
 - maximum Portal crossings: **1**;
-- supported reflection order in the Portal lane: **0** (direct only);
+- supported/configured reflection order in the Portal lane: **0** (direct only);
 - single-region first-/second-order reflection support remains unchanged;
 - third+ reflection order: **not implemented**;
 - reflection-before/after-Portal: **not implemented**;
