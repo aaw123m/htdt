@@ -791,6 +791,8 @@ def build_numerical_hybrid_composition_spec(
     transition_start_hz: float,
     transition_end_hz: float,
     normalization_authority: HybridConventionNormalizationAuthority | None = None,
+    reconciliation_method: str = 'exact_bin_identity_v1',
+    frequency_tolerance_hz: float = 0.0,
 ) -> NumericalHybridCompositionSpec:
     result = AcousticSolverResultEnvelope.model_validate(
         r130_result.model_dump(mode='python')
@@ -818,14 +820,21 @@ def build_numerical_hybrid_composition_spec(
         excitation=excitation,
         receiver_id=receiver_id,
     )
-    grid = tuple(float(item) for item in exact_frequency_grid_hz)
-    if grid != tuple(sorted(set(grid))) or len(grid) < 2:
-        raise ValueError('R160 exact shared grid must contain sorted unique bins')
-    if any(item not in wave_grid for item in grid):
-        raise ValueError('R160 refuses R130 frequency interpolation/resampling')
-    excitation_grid = {float(item.frequency_hz) for item in excitation.samples}
-    if any(item not in excitation_grid for item in grid):
-        raise ValueError('R160 requires exact Q(f) samples; interpolation is not authorized')
+    grid = validate_frequency_grid(
+        exact_frequency_grid_hz,
+        label='R160 requested output grid',
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    excitation_grid = validate_frequency_grid(
+        tuple(float(item.frequency_hz) for item in excitation.samples),
+        label='R160 wave excitation grid',
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    if excitation_grid != wave_grid:
+        raise HybridNumericalCompositionError(
+            HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+            'R130 Q(f) grid must exactly bind the original wave grid before reconciliation',
+        )
 
     source_ids = {item.source_entity_id for item in responses}
     receiver_ids = {item.receiver_id for item in responses}
@@ -872,9 +881,38 @@ def build_numerical_hybrid_composition_spec(
             or item.phasor_convention != COMMON_PHASOR_CONVENTION
             or item.time_origin != COMMON_TIME_ORIGIN
         ):
-            raise ValueError('R160 R150 physical convention mismatch')
-        if any(frequency not in item.exact_frequency_grid_hz for frequency in grid):
-            raise ValueError('R160 refuses R150 frequency interpolation/resampling')
+            raise HybridNumericalCompositionError(
+                HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                'R160 R150 physical convention mismatch',
+            )
+
+    ga_grids = {
+        tuple(float(frequency) for frequency in item.exact_frequency_grid_hz)
+        for item in responses
+    }
+    if len(ga_grids) != 1:
+        raise HybridNumericalCompositionError(
+            HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+            'R150 paths must share one original GA frequency grid before coherent summation',
+        )
+    ga_grid = validate_frequency_grid(
+        next(iter(ga_grids)),
+        label='R160 original GA grid',
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    reconciliation = build_frequency_grid_reconciliation_authority(
+        original_wave_frequency_grid_hz=wave_grid,
+        original_ga_frequency_grid_hz=ga_grid,
+        requested_output_frequency_grid_hz=grid,
+        reconciliation_method=reconciliation_method,
+        tolerance_hz=frequency_tolerance_hz,
+    )
+    crossover = build_hybrid_crossover_configuration_authority(
+        overlap_lower_hz=float(transition_start_hz),
+        overlap_upper_hz=float(transition_end_hz),
+        wave_validity_band_hz=reconciliation.wave_valid_input_band_hz,
+        ga_validity_band_hz=reconciliation.ga_valid_input_band_hz,
+    )
 
     normalization = (
         build_hybrid_convention_normalization_authority()
@@ -916,6 +954,8 @@ def build_numerical_hybrid_composition_spec(
         'normalization_authority_ref': normalization.as_external_ref().model_dump(
             mode='json'
         ),
+        'grid_reconciliation': reconciliation.model_dump(mode='json'),
+        'crossover_configuration': crossover.model_dump(mode='json'),
         'transition_start_hz': float(transition_start_hz),
         'transition_end_hz': float(transition_end_hz),
         'weight_law': 'linear_frequency_complementary_v1',
