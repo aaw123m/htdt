@@ -137,6 +137,10 @@ class PortalDeclaration(BaseModel):
     portal_id: str = Field(min_length=1)
     region_ids: tuple[str, ...]
     boundary_edges: tuple[PortalBoundaryEdge, ...]
+    state: Literal['open', 'closed'] | None = None
+    region_side_semantics: Literal[
+        'directed_boundary_edge_loop_normal_from_first_to_second'
+    ] | None = None
 
     @model_validator(mode='after')
     def validate_declaration(self) -> 'PortalDeclaration':
@@ -149,6 +153,14 @@ class PortalDeclaration(BaseModel):
         keys = [edge.canonical_key() for edge in self.boundary_edges]
         if len(keys) != len(set(keys)):
             raise ValueError('portal boundary edges must be unique')
+        if (self.state is None) != (self.region_side_semantics is None):
+            raise ValueError(
+                'portal state and explicit region-side semantics must be declared together'
+            )
+        if self.region_side_semantics is not None and len(self.region_ids) != 2:
+            raise ValueError(
+                'explicit portal side semantics require exactly two adjacent regions'
+            )
         return self
 
 
@@ -172,7 +184,14 @@ class PortalAuthority(BaseModel):
         ids = [item.portal_id for item in self.declarations]
         if len(ids) != len(set(ids)):
             raise ValueError('portal ids must be unique')
-        core = self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+        core = {
+            'authority_version': self.authority_version,
+            'declaration_mode': self.declaration_mode,
+            'declarations': [
+                item.model_dump(mode='json', exclude_none=True)
+                for item in self.declarations
+            ],
+        }
         expected = _semantic_hash(core)
         if self.semantic_hash_sha256 != expected:
             raise ValueError('portal authority hash mismatch')
@@ -578,7 +597,10 @@ def make_portal_authority(
     core = {
         'authority_version': '1',
         'declaration_mode': declaration_mode,
-        'declarations': [item.model_dump(mode='json') for item in declarations],
+        'declarations': [
+            item.model_dump(mode='json', exclude_none=True)
+            for item in declarations
+        ],
     }
     digest = _semantic_hash(core)
     return PortalAuthority(
