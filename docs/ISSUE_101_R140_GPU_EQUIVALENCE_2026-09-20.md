@@ -117,7 +117,7 @@ Before numerical comparison, the evaluator rejects mismatches in:
 
 A GPU capability without the requested observable/precision returns UNSUPPORTED.
 
-PASS/FAIL is structurally impossible unless both provenance and GPU evidence identify `REAL_GPU_HARDWARE`. MOCK/SYNTHETIC evidence returns NOT_VALIDATED and cannot be promoted by setting a validation flag.
+PASS/FAIL decisions are structurally impossible unless both provenance and GPU evidence identify `REAL_GPU_HARDWARE`. `gpu_numerical_equivalence_validated` is true only for PASS; a real-hardware tolerance failure records FAIL while the equivalence-validation gate remains false. MOCK/SYNTHETIC evidence returns NOT_VALIDATED and cannot be promoted by setting a validation flag.
 
 `production_gpu_support` remains hard-coded false in this slice; numerical equivalence alone is not a production-adoption decision.
 
