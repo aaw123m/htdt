@@ -1,0 +1,28 @@
+{
+  "fixture_id": "r160-frequency-grid-stitch-synthetic-v1",
+  "evidence_scope": "synthetic deterministic stitch validation only; not production broadband validation",
+  "transfer": {
+    "real_intercept": 1.0,
+    "real_slope_per_hz": 0.0125,
+    "imag_intercept": 0.2,
+    "imag_slope_per_hz": 0.004
+  },
+  "cases": [
+    {
+      "name": "unequal_regular",
+      "wave_grid_hz": [40.0, 50.0, 60.0, 70.0, 80.0],
+      "ga_grid_hz": [40.0, 48.0, 56.0, 64.0, 72.0, 80.0],
+      "output_grid_hz": [40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0, 80.0],
+      "overlap_lower_hz": 50.0,
+      "overlap_upper_hz": 70.0
+    },
+    {
+      "name": "unequal_irregular",
+      "wave_grid_hz": [40.0, 51.0, 67.0, 80.0],
+      "ga_grid_hz": [40.0, 46.0, 63.0, 74.0, 80.0],
+      "output_grid_hz": [40.0, 50.0, 60.0, 70.0, 80.0],
+      "overlap_lower_hz": 50.0,
+      "overlap_upper_hz": 70.0
+    }
+  ]
+}
