@@ -45,7 +45,7 @@ from htdt.r130d_general3d_validation import (
     save_evidence,
     semantic_hash,
     target_window_sampling_metadata,
-    target_window_zoh_transfer,
+    target_window_clipped_left_rectangle_transfer,
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
@@ -240,7 +240,7 @@ def _run_observation_operator_fixture(
         times = np.arange(sample_count, dtype=np.float64) * dt_s
         pressure = p_amp * np.exp(-2j * np.pi * p_hz * times)
         source = q_amp * np.exp(-2j * np.pi * q_hz * times)
-        aligned = target_window_zoh_transfer(
+        aligned = target_window_clipped_left_rectangle_transfer(
             pressure,
             source,
             dt_s=dt_s,
@@ -637,7 +637,7 @@ def _run_reference_level(
         dt_s=dt_s,
         frequency_hz=frequencies,
     )
-    aligned_transfer = target_window_zoh_transfer(
+    aligned_transfer = target_window_clipped_left_rectangle_transfer(
         pressure,
         source_trace,
         dt_s=dt_s,
@@ -975,7 +975,7 @@ def _run_pffdtd_level(
             'PFFDTD canonical transfer does not reproduce from persisted raw trace: '
             f'max_abs={canonical_raw_error}'
         )
-    aligned_transfer = target_window_zoh_transfer(
+    aligned_transfer = target_window_clipped_left_rectangle_transfer(
         pressure_trace,
         source_trace,
         dt_s=time_step_s,
