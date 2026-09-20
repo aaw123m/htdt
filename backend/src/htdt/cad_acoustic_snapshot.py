@@ -353,6 +353,7 @@ class AcousticSceneSnapshot(BaseModel):
     acoustic_region_authority_ref: ExactExternalAuthorityRef | None = None
     portal_authority_ref: ExactExternalAuthorityRef | None = None
     boundary_termination_authority_ref: ExactExternalAuthorityRef | None = None
+    geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None = None
 
     surface_boundary_configuration: tuple[SurfaceBoundaryConfiguration, ...]
     material_boundary_configuration_sha256: str = Field(
@@ -390,6 +391,10 @@ class AcousticSceneSnapshot(BaseModel):
             if self.readiness.geometric_boundary_ready is not None:
                 raise ValueError(
                     'AcousticSceneSnapshot v1 cannot carry v2 geometric boundary readiness'
+                )
+            if self.geometric_acoustics_topology_preflight_ref is not None:
+                raise ValueError(
+                    'AcousticSceneSnapshot v1 cannot carry geometric topology preflight authority'
                 )
         elif self.schema_version == 2:
             if (
@@ -488,6 +493,8 @@ class AcousticSceneSnapshot(BaseModel):
         )
         if self.schema_version < 3:
             payload.pop('wave_source_excitation_bindings', None)
+        if self.geometric_acoustics_topology_preflight_ref is None:
+            payload.pop('geometric_acoustics_topology_preflight_ref', None)
         if self.schema_version == 1:
             payload.pop('treatment_boundary_bindings', None)
             readiness = payload.get('readiness')
@@ -737,8 +744,13 @@ def _derive_readiness(
     wave_excitation_bindings: tuple[WaveSourceExcitationBinding, ...],
     requested_frequency_domain: FrequencyDomain,
     schema_version: int,
+    geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None = None,
 ) -> AcousticSceneReadiness:
     geometry_ready = compiled.readiness.geometry_compiled
+    geometric_geometry_ready = (
+        compiled.readiness.geometric_acoustics_geometry_ready
+        or geometric_acoustics_topology_preflight_ref is not None
+    )
     geometric_directivity_ready = bool(sources) and all(
         item.geometric_directivity_state
         == 'SUPPORTED_FOR_GEOMETRIC_DIRECTIVITY'
@@ -808,7 +820,7 @@ def _derive_readiness(
         compiled.readiness.wave_geometry_ready and treatment_wave_ready
     )
     geometric_boundary_ready = (
-        compiled.readiness.geometric_acoustics_geometry_ready
+        geometric_geometry_ready
         and treatment_geometric_ready
     )
     environment_ready = (
@@ -822,9 +834,7 @@ def _derive_readiness(
         _observable_readiness(
             observable,
             geometry_ready=geometry_ready,
-            geometric_geometry_ready=(
-                compiled.readiness.geometric_acoustics_geometry_ready
-            ),
+            geometric_geometry_ready=geometric_geometry_ready,
             geometric_directivity_ready=geometric_directivity_ready,
             wave_source_ready=wave_source_ready,
             wave_boundary_ready=wave_boundary_ready,
@@ -1030,6 +1040,7 @@ def build_acoustic_scene_snapshot(
     valid_frequency_domain_authority_ref: ExactExternalAuthorityRef | None = None,
     treatment_boundary_results: tuple[TreatmentBoundaryCompilationResult, ...] = (),
     wave_source_excitation_bindings: tuple[WaveSourceExcitationBinding, ...] = (),
+    geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None = None,
 ) -> AcousticSceneSnapshot:
     compiled_geometry = R120CompiledGeometry.model_validate(
         compiled_geometry.model_dump(mode='python')
@@ -1057,6 +1068,50 @@ def build_acoustic_scene_snapshot(
         raise ValueError(
             'valid frequency domain requires an exact authority ref'
         )
+
+    if geometric_acoustics_topology_preflight_ref is not None:
+        preflight = geometric_acoustics_topology_preflight_ref
+        if (
+            preflight.authority_version != '1'
+            or preflight.authority_id
+            != f'r150-portal-graph:{preflight.semantic_hash_sha256}'
+        ):
+            raise ValueError(
+                'geometric acoustic topology preflight must be an exact R150 Portal graph authority'
+            )
+        if set(requested_observables) != {'deterministic_paths'}:
+            raise ValueError(
+                'R150 Portal graph topology preflight is bounded to deterministic_paths'
+            )
+        if (
+            compiled_geometry.approximation_operations
+            or compiled_geometry.dropped_features
+            or compiled_geometry.approximation_error_status != 'exact_preservation'
+        ):
+            raise ValueError(
+                'R150 Portal graph topology preflight requires exact preserved R120 geometry'
+            )
+        allowed_preflight_unresolved = {
+            'compiled_non_manifold_edges',
+            'input_semantic_geometry_not_compiler_contract_ready',
+        }
+        unsupported_preflight = (
+            set(compiled_geometry.readiness.unresolved_conditions)
+            - allowed_preflight_unresolved
+        )
+        if unsupported_preflight:
+            raise ValueError(
+                'R150 Portal graph topology preflight cannot override unrelated '
+                f'R120 unresolved conditions: {sorted(unsupported_preflight)}'
+            )
+        if (
+            compiled_geometry.region_authority_ref is None
+            or compiled_geometry.portal_authority_ref is None
+            or compiled_geometry.boundary_termination_authority_ref is None
+        ):
+            raise ValueError(
+                'R150 Portal graph topology preflight requires exact R120 geometry authorities'
+            )
 
     source_models = tuple(
         sorted(
@@ -1170,6 +1225,7 @@ def build_acoustic_scene_snapshot(
         snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
     elif (
         treatment_bindings
+        or geometric_acoustics_topology_preflight_ref is not None
         or compiled_geometry.readiness.geometric_acoustics_geometry_ready
         != compiled_geometry.readiness.wave_geometry_ready
     ):
@@ -1192,6 +1248,9 @@ def build_acoustic_scene_snapshot(
         wave_excitation_bindings=wave_excitation_bindings,
         requested_frequency_domain=requested_frequency_domain,
         schema_version=snapshot_schema_version,
+        geometric_acoustics_topology_preflight_ref=(
+            geometric_acoustics_topology_preflight_ref
+        ),
     )
 
     unresolved = list(compiled_geometry.unresolved_conditions)
@@ -1308,6 +1367,10 @@ def build_acoustic_scene_snapshot(
         'readiness': readiness,
         'unresolved_conditions': tuple(unresolved),
     }
+    if geometric_acoustics_topology_preflight_ref is not None:
+        core['geometric_acoustics_topology_preflight_ref'] = (
+            geometric_acoustics_topology_preflight_ref
+        )
     if snapshot_schema_version >= 2:
         core['treatment_boundary_bindings'] = treatment_bindings
     if snapshot_schema_version >= 3:
