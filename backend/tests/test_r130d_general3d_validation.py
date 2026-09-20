@@ -380,6 +380,7 @@ def test_contract_mismatch_blocks_cross_solver_even_with_converged_series():
         cross_solver_metrics=_pass_metrics(),
         plan=plan,
     )
+    assert decision['execution_state'] == 'PASS'
     assert decision['contract_state'] == 'CONTRACT_MISMATCH'
     assert decision['cross_solver_state'] == 'CROSS_SOLVER_BLOCKED'
     assert decision['validation_state'] == 'NOT_VALIDATED'
