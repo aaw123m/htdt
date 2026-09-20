@@ -789,6 +789,13 @@ def _run_pffdtd_level(
         ),
     )
     dispatch = _create_pffdtd_dispatch(fixture, configuration=configuration)
+    execution_authority, _, _ = executor.compile_input(
+        dispatch_binding_id=dispatch.binding_id,
+        configuration=configuration,
+        semantic_geometry_ref=semantic_ref,
+        compiled_geometry_ref=compiled_ref,
+        rigid_boundary_physics_ref=rigid_boundary_ref,
+    )
     _restore_pinned_pffdtd_checkout(fixture['executor'])
     result = executor.execute(
         dispatch_binding_id=dispatch.binding_id,
@@ -908,6 +915,97 @@ def _run_pffdtd_level(
     transfer_pairs = _complex_pairs(transfer)
     time_step_s = float(provenance['time_step_s'])
     time_step_count = int(provenance['time_step_count'])
+
+    run_dir = (
+        executor.base_executor.work_root
+        / execution_authority.semantic_sha256
+        / 'sim'
+    )
+    raw_output_path = run_dir / 'sim_outs.h5'
+    comms_path = run_dir / 'comms_out.h5'
+    if not raw_output_path.is_file() or not comms_path.is_file():
+        raise ValidationBlocked(
+            'PFFDTD raw output/comms assets are missing for target-window diagnosis'
+        )
+    try:
+        import h5py
+
+        with h5py.File(raw_output_path, 'r') as handle:
+            raw_grid = np.asarray(handle['u_out'][...], dtype=np.float64)
+        with h5py.File(comms_path, 'r') as handle:
+            out_alpha = np.asarray(handle['out_alpha'][...], dtype=np.float64)
+            raw_nt = int(handle['Nt'][()])
+    except Exception as exc:
+        raise ValidationBlocked(
+            f'PFFDTD raw diagnostic trace load failed: {type(exc).__name__}: {exc}'
+        ) from exc
+    if raw_nt != time_step_count:
+        raise ValidationBlocked(
+            'PFFDTD raw diagnostic Nt differs from execution provenance'
+        )
+    receiver_potential = recombine_pffdtd_receiver_traces(
+        raw_grid,
+        out_alpha,
+        receiver_count=1,
+        nt=time_step_count,
+    )[0]
+    pressure_trace = pffdtd_velocity_potential_to_pressure_trace(
+        receiver_potential,
+        time_step_s=time_step_s,
+        density_kg_m3=plan.fixture.density_kg_m3,
+    )
+    source_trace = np.zeros(time_step_count, dtype=np.float64)
+    source_trace[0] = 1.0
+    canonical_from_raw = pffdtd_finite_record_pressure_transfer(
+        pressure_trace,
+        source_trace,
+        time_step_s=time_step_s,
+        frequency_hz=np.asarray(
+            plan.physical_quantity.frequency_hz, dtype=np.float64
+        ),
+    )
+    canonical_raw_error = float(np.max(np.abs(canonical_from_raw - transfer)))
+    if not np.allclose(
+        canonical_from_raw,
+        transfer,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    ):
+        raise ValidationBlocked(
+            'PFFDTD canonical transfer does not reproduce from persisted raw trace: '
+            f'max_abs={canonical_raw_error}'
+        )
+    aligned_transfer = target_window_zoh_transfer(
+        pressure_trace,
+        source_trace,
+        dt_s=time_step_s,
+        target_duration_s=plan.physical_quantity.duration_s,
+        frequency_hz=np.asarray(
+            plan.physical_quantity.frequency_hz, dtype=np.float64
+        ),
+    )
+    aligned_transfer_pairs = _complex_pairs(aligned_transfer)
+    canonical_aligned_delta = compare_complex_transfer(
+        reference=transfer_pairs,
+        candidate=aligned_transfer_pairs,
+        frequency_hz=plan.physical_quantity.frequency_hz,
+        magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
+    )
+    sampling_metadata = target_window_sampling_metadata(
+        solver='PFFDTD',
+        requested_duration_s=plan.physical_quantity.duration_s,
+        dt_s=time_step_s,
+        sample_count=time_step_count,
+        frequency_hz=plan.physical_quantity.frequency_hz,
+        source_sampling=(
+            'unit discrete volume-velocity impulse q[0]=1, q[n>0]=0 from '
+            'the exact PFFDTD candidate source mapping'
+        ),
+        pressure_sampling=(
+            'native recombined PFFDTD receiver potential converted by the '
+            'existing second-order p=rho*d(phi)/dt pressure mapping'
+        ),
+    )
     grid_spacing_m = float(evidence['grid_spacing_m'])
     courant_c_dt_over_h = (
         plan.fixture.sound_speed_m_s * time_step_s / grid_spacing_m
@@ -966,6 +1064,23 @@ def _run_pffdtd_level(
         'exact_excitation_q_m3_s': _complex_pairs(q),
         'transfer_pa_per_m3_s': transfer_pairs,
         'transfer_sha256': semantic_hash(transfer_pairs),
+        'aligned_diagnostic_transfer_pa_per_m3_s': aligned_transfer_pairs,
+        'aligned_diagnostic_transfer_sha256': semantic_hash(
+            aligned_transfer_pairs
+        ),
+        'canonical_aligned_delta': _metric_dict(canonical_aligned_delta),
+        'canonical_recomputed_from_raw_max_abs_error': canonical_raw_error,
+        'sampling_metadata': sampling_metadata,
+        'diagnostic_raw_trace': {
+            'sim_outs_sha256': _sha256_file(raw_output_path),
+            'comms_out_sha256': _sha256_file(comms_path),
+            'pressure_trace_sha256': semantic_hash(
+                [float(x) for x in pressure_trace]
+            ),
+            'source_trace_sha256': semantic_hash(
+                [float(x) for x in source_trace]
+            ),
+        },
     }
 
 
