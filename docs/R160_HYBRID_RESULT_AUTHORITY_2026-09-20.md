@@ -104,10 +104,12 @@ Every available component has `HybridObservableValidity` with:
 - exact solver implementation/configuration refs;
 - validation/evidence state.
 
-Current R130A/R150 candidate execution is represented as
-`EXECUTED_UNVALIDATED` unless a caller supplies a stronger exact evidence
-state. This slice does not convert candidate execution into numerical or
-owned-room validation.
+Current R130A/R150 candidate execution is represented only as
+`EXECUTED_UNVALIDATED`. This R160 foundation has no exact validation-authority
+binding, so callers cannot promote a component to `VALIDATED` by supplying a
+flag or string. A future validated state must bind and re-resolve an explicit
+validation authority. This slice does not convert candidate execution into
+numerical or owned-room validation.
 
 No global 20–300 Hz crossover is encoded.
 
