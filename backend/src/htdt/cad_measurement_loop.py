@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_objective_models import CadObjectiveInputRef
+from .cad_prediction_provider import PredictionProviderBinding
 from .cad_repository import SceneRepository
 from .cad_search_repository import CadSearchRepository
 from .cad_search import candidate_preview_document, generate_cad_candidates
@@ -30,6 +31,11 @@ class CadMeasurementPlan(BaseModel):
     applied_scene_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     status: Literal['planned', 'measured'] = 'planned'
     measurement_ids: tuple[str, ...] = ()
+    prediction_provider_binding_id: str | None = Field(default=None, min_length=1)
+    prediction_provider_binding_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
     plan_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
@@ -40,12 +46,16 @@ class CadMeasurementPlan(BaseModel):
             raise ValueError('measured measurement plan requires measurements')
         if len(self.measurement_ids) != len(set(self.measurement_ids)):
             raise ValueError('measurement ids must be unique')
+        if (self.prediction_provider_binding_id is None) != (
+            self.prediction_provider_binding_sha256 is None
+        ):
+            raise ValueError('prediction provider binding id/hash must be supplied together')
         if self.plan_sha256 != _hash(self.identity_payload()):
             raise ValueError('measurement plan identity hash mismatch')
         return self
 
     def identity_payload(self) -> dict:
-        return {
+        payload = {
             'document_id': self.document_id,
             'search_spec_id': self.search_spec_id,
             'search_spec_sha256': self.search_spec_sha256,
@@ -56,6 +66,12 @@ class CadMeasurementPlan(BaseModel):
             'status': self.status,
             'measurement_ids': list(self.measurement_ids),
         }
+        if self.prediction_provider_binding_id is not None:
+            payload['prediction_provider_binding_id'] = self.prediction_provider_binding_id
+            payload['prediction_provider_binding_sha256'] = (
+                self.prediction_provider_binding_sha256
+            )
+        return payload
 
 
 def _hash(value: object) -> str:
@@ -109,6 +125,38 @@ def build_measurement_plan(scene_repository: SceneRepository, search_repository:
         'applied_scene_content_hash': revision.content_hash, 'status': 'planned', 'measurement_ids': [],
     }
     return CadMeasurementPlan(plan_id=str(uuid4()), plan_sha256=_hash(payload), **payload)
+
+
+def bind_measurement_plan_prediction(
+    plan: CadMeasurementPlan,
+    binding: PredictionProviderBinding,
+) -> CadMeasurementPlan:
+    """Bind O50 planning to one exact R170A prediction authority."""
+
+    if plan.status != 'planned':
+        raise ValueError('prediction authority must be bound before measurement completion')
+    if binding.consumer_kind != 'O50_MEASUREMENT_PLAN':
+        raise ValueError('measurement plan requires an O50 prediction-provider binding')
+    if binding.consumer_id != plan.plan_id:
+        raise ValueError('prediction-provider binding references another measurement plan')
+    if 'frequency_response_magnitude' not in binding.required_observables:
+        raise ValueError('measurement plan prediction binding requires FR magnitude capability')
+    payload = plan.identity_payload()
+    payload['prediction_provider_binding_id'] = binding.binding_id
+    payload['prediction_provider_binding_sha256'] = binding.semantic_sha256
+    base = plan.model_dump(
+        exclude={
+            'prediction_provider_binding_id',
+            'prediction_provider_binding_sha256',
+            'plan_sha256',
+        }
+    )
+    return CadMeasurementPlan(
+        **base,
+        prediction_provider_binding_id=binding.binding_id,
+        prediction_provider_binding_sha256=binding.semantic_sha256,
+        plan_sha256=_hash(payload),
+    )
 
 
 def complete_measurement_plan(plan: CadMeasurementPlan, measurement_repository: CadMeasurementRepository,
