@@ -161,16 +161,16 @@ The dedicated workflow also runs the existing `backend/tests/test_cad_r140_execu
 
 Dedicated workflow: `R140 GPU Execution Authority`.
 
-Accepted code-state run before this documentation-only update:
+Accepted final code-state run before the subsequent documentation-only clarification:
 
-- run #2 / `35500572096`: PASS
-- authority + CPU regression job `106051496869`: **22 passed**
-- hardware-validation-gate job `106051497082`: PASS
+- run #6 / `35500755454`: PASS
+- authority + CPU regression job `106051978677`: **23 passed**
+- hardware-validation-gate job `106051978781`: PASS
 - hardware numerical execution: NOT_RUN
 - GPU numerical equivalence: NOT_VALIDATED
 - production GPU support: false
 
-The first workflow attempt exposed only an invalid one-stage MultiFidelityPlan test fixture; the implementation tests themselves were otherwise 20 passed. The fixture was corrected to satisfy the existing two-stage plan contract, then run #2 passed.
+The first workflow attempt exposed only an invalid one-stage MultiFidelityPlan test fixture; the implementation tests themselves were otherwise 20 passed. The fixture was corrected to satisfy the existing two-stage plan contract. A later semantic review also fixed the equivalence gate so real-hardware tolerance FAIL leaves `gpu_numerical_equivalence_validated=false`; run #6 includes that regression and passed.
 
 ## Changed files
 
