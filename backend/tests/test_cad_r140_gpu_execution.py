@@ -150,6 +150,14 @@ def _plan():
                 fidelity_label='fixture',
                 evaluator_authority=_ref('objective_evaluator', 'gpu-evaluator', '5'),
             ),
+            MultiFidelityStageDefinition(
+                stage_id='final',
+                order=1,
+                name='Final common fidelity',
+                policy='final_common_fidelity',
+                fidelity_label='fixture-final',
+                evaluator_authority=_ref('objective_evaluator', 'final-evaluator', '8'),
+            ),
         ),
     )
 
