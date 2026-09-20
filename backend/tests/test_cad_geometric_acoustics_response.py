@@ -11,13 +11,19 @@ from htdt.acoustic_benchmark import (
     GeometricAcousticBand,
     SpecificImpedancePoint,
 )
-from htdt.cad_directivity import DirectivityDataset, DirectivityNormalization
+from htdt.cad_directivity import (
+    DirectivityCoordinateConvention,
+    DirectivityDataset,
+    DirectivityNormalization,
+    DirectivitySample,
+)
 from htdt.cad_equipment import (
     AngleDomain,
     DirectivityCapability,
     DirectivityDomain,
     EquipmentDefinition,
     FrequencyDomain,
+    InterpolationProvenance,
 )
 from htdt.cad_geometric_acoustics_adapter import (
     DeterministicAcousticPath,
@@ -1030,3 +1036,87 @@ def test_explicit_reference_directivity_is_not_assumed_to_be_point_source_ratio(
     assert response.capability == 'UNSUPPORTED'
     assert response.samples == ()
     assert 'DIRECTIVITY_NORMALIZATION_NOT_POINT_SOURCE_RATIO' in response.unsupported_reasons
+
+
+def test_complex_directional_dataset_phase_multiplies_point_source_transfer() -> None:
+    frequency = 1000.0
+    common = _common((frequency,))
+    interpolation = InterpolationProvenance.model_construct(
+        method='none',
+        implementation='response-fixture-exact-grid',
+        implementation_version='1',
+        provenance=None,
+    )
+    directivity_capability = DirectivityCapability.model_construct(
+        tier='complex',
+        data_format='custom',
+        provenance=None,
+        data_asset_sha256=H3,
+        valid_domain=_directivity_domain((frequency,)),
+        interpolation=interpolation,
+        coherent_phase=True,
+        phase_reference='source_volume_velocity_t0',
+        analytic_model=None,
+    )
+    equipment = EquipmentDefinition.model_construct(
+        definition_id='equipment:test-speaker',
+        version='1',
+        semantic_sha256=H2,
+        directivity=directivity_capability,
+    )
+    dataset = DirectivityDataset.model_construct(
+        dataset_id='directivity:test-speaker',
+        version='1',
+        semantic_sha256=H3,
+        equipment_definition_id='equipment:test-speaker',
+        equipment_definition_version='1',
+        equipment_definition_sha256=H2,
+        kind='complex',
+        coordinate_convention=DirectivityCoordinateConvention(
+            angle_semantics='spherical_azimuth_elevation',
+            horizontal_wrap='signed_180',
+        ),
+        normalization=DirectivityNormalization(
+            source_magnitude_unit='db',
+            reference='on_axis_per_frequency',
+        ),
+        phase_reference='source_volume_velocity_t0',
+        valid_domain=_directivity_domain((frequency,)),
+        interpolation=interpolation,
+        samples=(
+            DirectivitySample(
+                frequency_hz=frequency,
+                horizontal_angle_deg=0.0,
+                vertical_angle_deg=0.0,
+                magnitude_db=0.0,
+                phase_deg=30.0,
+            ),
+        ),
+    )
+    common['dataset'] = dataset
+    common['source'] = build_source_response_authority(
+        source_entity_id='source-1',
+        r110_source_ref=_ref('r110-source:source-1', H2),
+        equipment_definition=equipment,
+        directivity_dataset=dataset,
+        point_source_normalization=common['normalization'],
+    )
+    path = _path(
+        length_m=2.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='c',
+        bands=(_band(frequency, magnitude_linear=1.0, dataset=dataset),),
+    )
+
+    response = _response(path, common)
+
+    expected = _expected_monopole(
+        frequency_hz=frequency,
+        density_kg_m3=common['environment'].density_kg_m3,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        distance_m=2.0,
+    ) * cmath.exp(1j * pi / 6.0)
+    sample = response.samples[0]
+    assert response.capability == 'COMPLEX_SUPPORTED'
+    assert sample.complex_real_pa_per_m3_s == pytest.approx(expected.real, rel=1e-12)
+    assert sample.complex_imag_pa_per_m3_s == pytest.approx(expected.imag, rel=1e-12)
