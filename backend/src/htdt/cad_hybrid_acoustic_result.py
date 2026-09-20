@@ -1157,6 +1157,11 @@ def build_hybrid_acoustic_result(
                     'magnitude-only/phase-only solver output cannot be promoted '
                     'to CoherentTransfer'
                 )
+            else:
+                raise ValueError(
+                    'solver result observable is unsupported by R160 foundation: '
+                    f'{artifact.observable}'
+                )
         if not contributed:
             raise ValueError(
                 'participating solver result has no R160 typed observable'
