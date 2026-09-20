@@ -953,6 +953,20 @@ def test_source_receiver_and_stale_surface_identity_mismatches_fail_closed() -> 
     assert receiver_mismatch.capability == 'UNSUPPORTED'
     assert 'RECEIVER_IDENTITY_MISMATCH' in receiver_mismatch.unsupported_reasons
 
+    moved_receiver = build_receiver_response_authority(
+        receiver_id='receiver-1',
+        receiver_entity_id='receiver-entity-1',
+        receiver_authority_ref=_ref('r110-receiver:receiver-1', H4),
+        world_position=Position3(x_m=2.1, y_m=0.0, z_m=0.0),
+    )
+    moved_receiver_response = _response(
+        path,
+        common,
+        receiver_authority=moved_receiver,
+    )
+    assert moved_receiver_response.capability == 'UNSUPPORTED'
+    assert 'RECEIVER_POSITION_MISMATCH' in moved_receiver_response.unsupported_reasons
+
     reflected = _path(
         length_m=3.0,
         sound_speed_m_s=common['environment'].sound_speed_m_s,
@@ -1017,6 +1031,48 @@ def test_stale_portal_transfer_authority_fails_closed() -> None:
     assert any(
         item.startswith('STALE_PORTAL_TRANSFER_AUTHORITY:')
         for item in response.unsupported_reasons
+    )
+
+    current_ab = build_portal_acoustic_transfer_authority(
+        portal_id='portal-ab',
+        from_region_id='A',
+        to_region_id='B',
+        portal_geometry_authority_ref=current_portal_ref,
+        frequency_coefficients={frequency: 0.9 + 0.0j},
+        provenance='current portal fixture AB',
+        provenance_state='measured',
+        uncertainty='fixture',
+    )
+    current_bc = build_portal_acoustic_transfer_authority(
+        portal_id='portal-bc',
+        from_region_id='B',
+        to_region_id='C',
+        portal_geometry_authority_ref=current_portal_ref,
+        frequency_coefficients={frequency: 0.9 + 0.0j},
+        provenance='current portal fixture BC',
+        provenance_state='measured',
+        uncertainty='fixture',
+    )
+    stale_execution_input = _execution_input(
+        path,
+        common,
+        portal_authority_ref=stale_portal_ref,
+    )
+    execution_mismatch = _response(
+        path,
+        common,
+        execution_input=stale_execution_input,
+        path_artifact=_artifact(path, stale_execution_input),
+        portal_geometry_authority_ref=current_portal_ref,
+        portal_transfers={
+            ('portal-ab', 'A', 'B'): current_ab,
+            ('portal-bc', 'B', 'C'): current_bc,
+        },
+    )
+    assert execution_mismatch.capability == 'UNSUPPORTED'
+    assert (
+        'EXECUTION_INPUT_PORTAL_AUTHORITY_MISMATCH'
+        in execution_mismatch.unsupported_reasons
     )
 
 
