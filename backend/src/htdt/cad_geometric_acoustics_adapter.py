@@ -808,6 +808,15 @@ class DeterministicAcousticPath(BaseModel):
         )
         if self.ordered_interactions is None:
             payload.pop('ordered_interactions', None)
+        else:
+            payload['ordered_interactions'] = [
+                {
+                    key: value
+                    for key, value in interaction.items()
+                    if value is not None
+                }
+                for interaction in payload['ordered_interactions']
+            ]
         if self.ordered_region_ids is None:
             payload.pop('ordered_region_ids', None)
         for band in payload['bands']:
