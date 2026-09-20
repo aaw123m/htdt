@@ -203,6 +203,36 @@ def test_compile_identity_is_stable_across_input_order_and_loop_rotation() -> No
     assert compiled_second.compiled_hash_sha256 == compiled_first.compiled_hash_sha256
 
 
+def test_distinct_coordinates_do_not_collapse_semantic_or_surface_identity() -> None:
+    vertices, faces = _sloped_fixture()
+    first = _make_geometry(vertices, faces)
+    changed_vertices = tuple(
+        (x + 0.125, y, z) if index == 6 else (x, y, z)
+        for index, (x, y, z) in enumerate(vertices)
+    )
+    second = _make_geometry(changed_vertices, faces)
+
+    assert second.geometry_id != first.geometry_id
+    first_surfaces = {item.surface_key: item.surface_id for item in first.surfaces}
+    second_surfaces = {item.surface_key: item.surface_id for item in second.surfaces}
+    assert second_surfaces['ceiling'] != first_surfaces['ceiling']
+    assert second_surfaces['right'] != first_surfaces['right']
+
+
+def test_topology_report_identity_binds_validation_tolerance() -> None:
+    vertices, faces = _sloped_fixture()
+    geometry = _make_geometry(vertices, faces)
+
+    tight = validate_r120_polyhedral_topology(geometry, tolerance_m=1.0e-9)
+    loose = validate_r120_polyhedral_topology(geometry, tolerance_m=1.0e-6)
+
+    assert tight.valid is True
+    assert loose.valid is True
+    assert tight.topology_tolerance_m == 1.0e-9
+    assert loose.topology_tolerance_m == 1.0e-6
+    assert tight.report_id != loose.report_id
+
+
 def test_material_identity_is_preserved_per_surface() -> None:
     vertices, faces = _sloped_fixture()
     geometry = _make_geometry(vertices, faces)
