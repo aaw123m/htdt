@@ -334,15 +334,11 @@ class O90EValidationDecision(BaseModel):
     @model_validator(mode='after')
     def valid_identity(self) -> 'O90EValidationDecision':
         _aware_timestamp(self.decided_at_utc)
-        if (self.o60_validation_sha256 is None) != (
-            self.o60_campaign_id is None or self.o60_campaign_sha256 is None
-        ):
-            # A resolved O60 validation must include its preregistered campaign.
-            if self.o60_validation_sha256 is not None:
-                raise ValueError(
-                    'resolved O60 validation requires exact campaign id/hash'
-                )
+        if (self.o60_campaign_id is None) != (self.o60_campaign_sha256 is None):
+            raise ValueError('O90E O60 campaign id/hash must be paired')
         if self.production_gate == 'eligible':
+            if self.o60_campaign_id is None or self.o60_campaign_sha256 is None:
+                raise ValueError('O90E eligible decision requires O60 campaign authority')
             if self.support_state != 'full' or self.reasons != ('eligible',):
                 raise ValueError(
                     'O90E eligible gate requires full support and eligible-only reason'
@@ -444,7 +440,10 @@ def build_o90e_validation_case(
 ) -> O90EValidationCase:
     """Freeze a strict specialization of an existing O60 campaign before capture."""
 
-    _aware_timestamp(preregistered_at_utc)
+    preregistered_at = _aware_timestamp(preregistered_at_utc)
+    campaign_created_at = _aware_timestamp(campaign.created_at_utc)
+    if preregistered_at < campaign_created_at:
+        raise ValueError('O90E case cannot predate its O60 preregistration campaign')
     axis = _axis_for_id(spec, axis_id)
     if not axis.parameter.endswith('_m'):
         raise ValueError(
