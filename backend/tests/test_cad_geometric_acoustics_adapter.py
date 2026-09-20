@@ -392,6 +392,174 @@ def _general_semantic_geometry(
     return convert_raw_visual_mesh_to_semantic_geometry(mesh, request)
 
 
+
+PORTAL_POLICY = 'general_planar_multi_region_portal_v1'
+PORTAL_REGION_SURFACES = {
+    'region-a': (
+        'portal-floor-a',
+        'portal-ceiling-a',
+        'portal-front-a',
+        'portal-rear-a',
+        'portal-left-a',
+        'portal-interface',
+    ),
+    'region-b': (
+        'portal-floor-b',
+        'portal-ceiling-b',
+        'portal-front-b',
+        'portal-rear-b',
+        'portal-right-b',
+        'portal-interface',
+    ),
+}
+
+
+def _portal_semantic_geometry(*, occluder: bool = False):
+    vertices: list[tuple[float, float, float]] = []
+    vertex_index: dict[tuple[float, float, float], int] = {}
+    faces: list[tuple[int, int, int]] = []
+    face_ranges: dict[str, tuple[int, int]] = {}
+
+    def vid(point: tuple[float, float, float]) -> int:
+        if point not in vertex_index:
+            vertex_index[point] = len(vertices)
+            vertices.append(point)
+        return vertex_index[point]
+
+    def add_quad(
+        key: str,
+        a: tuple[float, float, float],
+        b: tuple[float, float, float],
+        c_: tuple[float, float, float],
+        d: tuple[float, float, float],
+    ) -> None:
+        start = len(faces)
+        ia, ib, ic, id_ = (vid(point) for point in (a, b, c_, d))
+        faces.extend(((ia, ib, ic), (ia, ic, id_)))
+        previous = face_ranges.get(key)
+        face_ranges[key] = (
+            previous[0] if previous is not None else start,
+            len(faces),
+        )
+
+    y_values = (0.0, 1.0, 2.0, 3.0)
+    z_values = (0.0, 0.5, 1.5, 2.0)
+
+    for region_key, x0, x1 in (
+        ('a', 0.0, 2.0),
+        ('b', 2.0, 4.0),
+    ):
+        for y0, y1 in zip(y_values[:-1], y_values[1:], strict=True):
+            add_quad(
+                f'portal-floor-{region_key}',
+                (x0, y0, 0.0),
+                (x1, y0, 0.0),
+                (x1, y1, 0.0),
+                (x0, y1, 0.0),
+            )
+            add_quad(
+                f'portal-ceiling-{region_key}',
+                (x0, y0, 2.0),
+                (x0, y1, 2.0),
+                (x1, y1, 2.0),
+                (x1, y0, 2.0),
+            )
+        for z0, z1 in zip(z_values[:-1], z_values[1:], strict=True):
+            add_quad(
+                f'portal-front-{region_key}',
+                (x0, 0.0, z0),
+                (x0, 0.0, z1),
+                (x1, 0.0, z1),
+                (x1, 0.0, z0),
+            )
+            add_quad(
+                f'portal-rear-{region_key}',
+                (x0, 3.0, z0),
+                (x1, 3.0, z0),
+                (x1, 3.0, z1),
+                (x0, 3.0, z1),
+            )
+
+    for y0, y1 in zip(y_values[:-1], y_values[1:], strict=True):
+        for z0, z1 in zip(z_values[:-1], z_values[1:], strict=True):
+            add_quad(
+                'portal-left-a',
+                (0.0, y0, z0),
+                (0.0, y1, z0),
+                (0.0, y1, z1),
+                (0.0, y0, z1),
+            )
+            add_quad(
+                'portal-right-b',
+                (4.0, y0, z0),
+                (4.0, y0, z1),
+                (4.0, y1, z1),
+                (4.0, y1, z0),
+            )
+            if not (y0 == 1.0 and y1 == 2.0 and z0 == 0.5 and z1 == 1.5):
+                add_quad(
+                    'portal-interface',
+                    (2.0, y0, z0),
+                    (2.0, y0, z1),
+                    (2.0, y1, z1),
+                    (2.0, y1, z0),
+                )
+
+    if occluder:
+        add_quad(
+            'portal-opaque-blocker',
+            (2.5, 0.5, 0.5),
+            (2.5, 2.5, 0.5),
+            (2.5, 2.5, 1.5),
+            (2.5, 0.5, 1.5),
+        )
+
+    portal_points = (
+        (2.0, 1.0, 0.5),
+        (2.0, 2.0, 0.5),
+        (2.0, 2.0, 1.5),
+        (2.0, 1.0, 1.5),
+    )
+    portal_loop = tuple(vid(point) for point in portal_points)
+
+    obj_lines = [
+        *(f'v {x} {y} {z}' for x, y, z in vertices),
+        *(
+            f'f {a + 1} {b + 1} {c_ + 1}'
+            for a, b, c_ in faces
+        ),
+    ]
+    mesh = import_raw_visual_mesh(
+        ('\n'.join(obj_lines) + '\n').encode('utf-8'),
+        source_name='r150-ga-two-region-portal.obj',
+    )
+    ids = raw_triangle_ids(mesh)
+    assignments = []
+    for key, (start, end) in face_ranges.items():
+        assignments.append(
+            SurfaceSemanticAssignment(
+                surface_key=key,
+                triangle_ids=ids[start:end],
+                semantic_class=(
+                    'object_surface'
+                    if key == 'portal-opaque-blocker'
+                    else 'room_boundary'
+                ),
+            )
+        )
+    request = make_semantic_geometry_conversion_request(
+        mesh,
+        source_scene_revision_id=None,
+        source_to_scene_transform=explicit_identity_source_to_scene_transform(
+            reason='two-region Portal fixture uses explicit HTDT metre coordinates',
+        ),
+        surface_assignments=tuple(assignments),
+    )
+    return (
+        convert_raw_visual_mesh_to_semantic_geometry(mesh, request),
+        portal_loop,
+    )
+
 def _directivity_definition(*, narrow: bool):
     source_hash = 'd' * 64
     provenance = EquipmentDataProvenance(
