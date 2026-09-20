@@ -1,0 +1,1772 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import closing
+from hashlib import sha256
+import json
+from math import atan2, cos, isfinite, pi, sin, sqrt
+from pathlib import Path
+import sqlite3
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .acoustic_benchmark import AcousticMaterial
+from .cad_directivity import DirectivityDataset, evaluate_directivity
+from .cad_equipment import EquipmentDefinition, FrequencyDomain
+from .cad_geometric_acoustics_adapter import (
+    DeterministicAcousticPath,
+    DeterministicPathArtifact,
+)
+from .cad_repository import SceneRepository
+from .r120_geometry_compiler import ExactExternalAuthorityRef
+
+
+R150_PATH_RESPONSE_SCHEMA_VERSION = 1
+R150_PATH_RESPONSE_AUTHORITY_VERSION = 'r150-complex-path-response-1'
+POINT_SOURCE_MODEL = 'point_volume_velocity_monopole_free_field_v1'
+ANALYTIC_OMNI_DIRECTIVITY_MODEL = 'point_volume_velocity_monopole_omnidirectional_v1'
+PHASOR_CONVENTION = 'exp(+i*omega*t)'
+GREEN_FUNCTION_CONVENTION = 'exp(-i*k*r)/(4*pi*r)'
+TRANSFER_QUANTITY = 'complex_acoustic_pressure_per_volume_velocity'
+TRANSFER_UNIT = 'Pa/(m3/s)'
+
+ResponseCapability = Literal['COMPLEX_SUPPORTED', 'MAGNITUDE_ONLY', 'UNSUPPORTED']
+SourceCapability = Literal[
+    'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE',
+    'MAGNITUDE_ONLY_DIRECTIVITY',
+    'ANALYTIC_OMNIDIRECTIONAL_MODEL',
+    'UNSUPPORTED_UNKNOWN_DIRECTIVITY',
+]
+ReflectionCapability = Literal['COMPLEX', 'MAGNITUDE_ONLY']
+PortalProvenanceState = Literal['measured', 'manufacturer', 'analytic', 'assumed']
+
+
+def _canonical_json(payload: object) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+        allow_nan=False,
+    )
+
+
+def _semantic_hash(payload: object) -> str:
+    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
+
+
+def _finite(value: float, *, name: str) -> float:
+    result = float(value)
+    if not isfinite(result):
+        raise ValueError(f'{name} must be finite')
+    return result
+
+
+def _phase(value: complex) -> float:
+    return atan2(value.imag, value.real)
+
+
+def _complex_from_parts(real: float, imag: float) -> complex:
+    return complex(_finite(real, name='complex real'), _finite(imag, name='complex imag'))
+
+
+def _ref_payload(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
+    return (ref.authority_id, ref.authority_version, ref.semantic_hash_sha256)
+
+
+def _identity_ref(
+    *,
+    authority_id: str,
+    authority_version: str,
+    semantic_hash_sha256: str,
+) -> ExactExternalAuthorityRef:
+    return ExactExternalAuthorityRef(
+        authority_id=authority_id,
+        authority_version=authority_version,
+        semantic_hash_sha256=semantic_hash_sha256,
+    )
+
+
+class ComplexTransferSample(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    frequency_hz: float = Field(gt=0.0)
+    magnitude: float = Field(ge=0.0)
+    phase_rad: float | None = None
+    real: float | None = None
+    imag: float | None = None
+
+    @field_validator('frequency_hz', 'magnitude', 'phase_rad', 'real', 'imag')
+    @classmethod
+    def finite_values(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        return _finite(value, name='transfer sample value')
+
+    @model_validator(mode='after')
+    def coherent_parts(self) -> 'ComplexTransferSample':
+        complex_present = self.real is not None or self.imag is not None
+        if complex_present != (self.phase_rad is not None):
+            raise ValueError('complex transfer real/imag and phase must be present together')
+        if complex_present:
+            if self.real is None or self.imag is None:
+                raise ValueError('complex transfer requires both real and imag')
+            value = complex(self.real, self.imag)
+            if abs(abs(value) - self.magnitude) > max(1e-12, self.magnitude * 1e-10):
+                raise ValueError('complex transfer magnitude mismatch')
+        return self
+
+    @classmethod
+    def from_complex(cls, frequency_hz: float, value: complex) -> 'ComplexTransferSample':
+        return cls(
+            frequency_hz=frequency_hz,
+            magnitude=abs(value),
+            phase_rad=_phase(value),
+            real=value.real,
+            imag=value.imag,
+        )
+
+    @classmethod
+    def magnitude_only(cls, frequency_hz: float, magnitude: float) -> 'ComplexTransferSample':
+        return cls(frequency_hz=frequency_hz, magnitude=magnitude)
+
+    def complex_value(self) -> complex | None:
+        if self.real is None or self.imag is None:
+            return None
+        return complex(self.real, self.imag)
+
+
+class AcousticEnvironmentAuthority(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-response-environment:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    density_kg_m3: float = Field(gt=0.0)
+    sound_speed_m_s: float = Field(gt=0.0)
+    temperature_c: float | None = None
+    relative_humidity_percent: float | None = Field(default=None, ge=0.0, le=100.0)
+    pressure_pa: float | None = Field(default=None, gt=0.0)
+    valid_frequency_domain: FrequencyDomain
+
+    @field_validator(
+        'density_kg_m3',
+        'sound_speed_m_s',
+        'temperature_c',
+        'relative_humidity_percent',
+        'pressure_pa',
+    )
+    @classmethod
+    def finite_values(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        return _finite(value, name='environment value')
+
+    @model_validator(mode='after')
+    def identity(self) -> 'AcousticEnvironmentAuthority':
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('response environment semantic hash mismatch')
+        if self.authority_id != f'r150-response-environment:{expected}':
+            raise ValueError('response environment id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def build_acoustic_environment_authority(
+    *,
+    density_kg_m3: float,
+    sound_speed_m_s: float,
+    valid_frequency_domain: FrequencyDomain,
+    temperature_c: float | None = None,
+    relative_humidity_percent: float | None = None,
+    pressure_pa: float | None = None,
+) -> AcousticEnvironmentAuthority:
+    core = {
+        'authority_version': '1',
+        'density_kg_m3': float(density_kg_m3),
+        'sound_speed_m_s': float(sound_speed_m_s),
+        'temperature_c': temperature_c,
+        'relative_humidity_percent': relative_humidity_percent,
+        'pressure_pa': pressure_pa,
+        'valid_frequency_domain': valid_frequency_domain.model_dump(mode='json'),
+    }
+    digest = _semantic_hash(core)
+    return AcousticEnvironmentAuthority(
+        authority_id=f'r150-response-environment:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+class FrequencyGridAuthority(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-response-frequency-grid:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    frequencies_hz: tuple[float, ...] = Field(min_length=1)
+    valid_frequency_domain: FrequencyDomain
+
+    @field_validator('frequencies_hz')
+    @classmethod
+    def valid_grid(cls, values: tuple[float, ...]) -> tuple[float, ...]:
+        result = tuple(float(value) for value in values)
+        if any(not isfinite(value) or value <= 0.0 for value in result):
+            raise ValueError('response frequency grid must be finite and positive')
+        if result != tuple(sorted(set(result))):
+            raise ValueError('response frequency grid must be unique and sorted')
+        return result
+
+    @model_validator(mode='after')
+    def identity(self) -> 'FrequencyGridAuthority':
+        if (
+            self.frequencies_hz[0] != self.valid_frequency_domain.minimum_hz
+            or self.frequencies_hz[-1] != self.valid_frequency_domain.maximum_hz
+        ):
+            if len(self.frequencies_hz) > 1:
+                raise ValueError('frequency-grid valid band must match exact grid extent')
+            if not self.valid_frequency_domain.contains(self.frequencies_hz[0]):
+                raise ValueError('single-point grid must lie inside its declared valid band')
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('response frequency grid semantic hash mismatch')
+        if self.authority_id != f'r150-response-frequency-grid:{expected}':
+            raise ValueError('response frequency grid id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def build_frequency_grid_authority(
+    frequencies_hz: Sequence[float],
+) -> FrequencyGridAuthority:
+    frequencies = tuple(float(value) for value in frequencies_hz)
+    if not frequencies:
+        raise ValueError('response frequency grid cannot be empty')
+    if len(frequencies) == 1:
+        domain = FrequencyDomain(
+            minimum_hz=frequencies[0] * (1.0 - 1e-12),
+            maximum_hz=frequencies[0] * (1.0 + 1e-12),
+        )
+    else:
+        domain = FrequencyDomain(minimum_hz=frequencies[0], maximum_hz=frequencies[-1])
+    core = {
+        'authority_version': '1',
+        'frequencies_hz': list(frequencies),
+        'valid_frequency_domain': domain.model_dump(mode='json'),
+    }
+    digest = _semantic_hash(core)
+    return FrequencyGridAuthority(
+        authority_id=f'r150-response-frequency-grid:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+class PathResponseConfiguration(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-response-configuration:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    quantity: Literal['complex_acoustic_pressure_per_volume_velocity'] = TRANSFER_QUANTITY
+    unit: Literal['Pa/(m3/s)'] = TRANSFER_UNIT
+    source_normalization: Literal['unit_volume_velocity_m3_s'] = 'unit_volume_velocity_m3_s'
+    phasor_convention: Literal['exp(+i*omega*t)'] = PHASOR_CONVENTION
+    angular_frequency_convention: Literal['omega=2*pi*f'] = 'omega=2*pi*f'
+    green_function_convention: Literal['exp(-i*k*r)/(4*pi*r)'] = GREEN_FUNCTION_CONVENTION
+    time_origin: Literal['source_t0'] = 'source_t0'
+    distance_normalization: Literal['absolute_spherical_green_no_reference_distance'] = (
+        'absolute_spherical_green_no_reference_distance'
+    )
+    reference_distance_m: None = None
+    minimum_path_length_m: float = Field(default=1e-6, gt=0.0)
+    path_sum_policy: Literal['per_path_only_no_sum'] = 'per_path_only_no_sum'
+
+    @field_validator('minimum_path_length_m')
+    @classmethod
+    def finite_length(cls, value: float) -> float:
+        return _finite(value, name='minimum_path_length_m')
+
+    @model_validator(mode='after')
+    def identity(self) -> 'PathResponseConfiguration':
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('path response configuration semantic hash mismatch')
+        if self.authority_id != f'r150-response-configuration:{expected}':
+            raise ValueError('path response configuration id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def build_path_response_configuration(
+    *,
+    minimum_path_length_m: float = 1e-6,
+) -> PathResponseConfiguration:
+    core = {
+        'authority_version': '1',
+        'quantity': TRANSFER_QUANTITY,
+        'unit': TRANSFER_UNIT,
+        'source_normalization': 'unit_volume_velocity_m3_s',
+        'phasor_convention': PHASOR_CONVENTION,
+        'angular_frequency_convention': 'omega=2*pi*f',
+        'green_function_convention': GREEN_FUNCTION_CONVENTION,
+        'time_origin': 'source_t0',
+        'distance_normalization': 'absolute_spherical_green_no_reference_distance',
+        'reference_distance_m': None,
+        'minimum_path_length_m': float(minimum_path_length_m),
+        'path_sum_policy': 'per_path_only_no_sum',
+    }
+    digest = _semantic_hash(core)
+    return PathResponseConfiguration(
+        authority_id=f'r150-response-configuration:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+class PointSourceNormalizationAuthority(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-point-source-normalization:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    model: Literal['point_volume_velocity_monopole_free_field_v1'] = POINT_SOURCE_MODEL
+    quantity: Literal['complex_acoustic_pressure_per_volume_velocity'] = TRANSFER_QUANTITY
+    unit: Literal['Pa/(m3/s)'] = TRANSFER_UNIT
+    source_reference: Literal['unit_volume_velocity_m3_s'] = 'unit_volume_velocity_m3_s'
+    phasor_convention: Literal['exp(+i*omega*t)'] = PHASOR_CONVENTION
+    green_function_convention: Literal['exp(-i*k*r)/(4*pi*r)'] = GREEN_FUNCTION_CONVENTION
+    provenance_state: Literal['analytic'] = 'analytic'
+    provenance: str = Field(min_length=1)
+    valid_frequency_domain: FrequencyDomain
+
+    @model_validator(mode='after')
+    def identity(self) -> 'PointSourceNormalizationAuthority':
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('point-source normalization semantic hash mismatch')
+        if self.authority_id != f'r150-point-source-normalization:{expected}':
+            raise ValueError('point-source normalization id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def build_point_source_normalization_authority(
+    *,
+    valid_frequency_domain: FrequencyDomain,
+    provenance: str = 'analytic linear-acoustics monopole Green-function reference',
+) -> PointSourceNormalizationAuthority:
+    core = {
+        'authority_version': '1',
+        'model': POINT_SOURCE_MODEL,
+        'quantity': TRANSFER_QUANTITY,
+        'unit': TRANSFER_UNIT,
+        'source_reference': 'unit_volume_velocity_m3_s',
+        'phasor_convention': PHASOR_CONVENTION,
+        'green_function_convention': GREEN_FUNCTION_CONVENTION,
+        'provenance_state': 'analytic',
+        'provenance': provenance,
+        'valid_frequency_domain': valid_frequency_domain.model_dump(mode='json'),
+    }
+    digest = _semantic_hash(core)
+    return PointSourceNormalizationAuthority(
+        authority_id=f'r150-point-source-normalization:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+class SourceResponseAuthority(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-source-response:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_entity_id: str = Field(min_length=1)
+    r110_source_ref: ExactExternalAuthorityRef
+    equipment_definition_ref: ExactExternalAuthorityRef
+    capability: SourceCapability
+    directivity_dataset_ref: ExactExternalAuthorityRef | None = None
+    analytic_directivity_model: str | None = None
+    point_source_normalization_ref: ExactExternalAuthorityRef | None = None
+    valid_frequency_domain: FrequencyDomain | None = None
+    phase_reference: str | None = None
+    unsupported_reason: str | None = None
+
+    @model_validator(mode='after')
+    def identity(self) -> 'SourceResponseAuthority':
+        if self.capability == 'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE':
+            if self.directivity_dataset_ref is None or self.phase_reference is None:
+                raise ValueError('complex directional source requires dataset and phase reference')
+        elif self.capability == 'MAGNITUDE_ONLY_DIRECTIVITY':
+            if self.directivity_dataset_ref is None or self.phase_reference is not None:
+                raise ValueError('magnitude-only source requires dataset without phase reference')
+        elif self.capability == 'ANALYTIC_OMNIDIRECTIONAL_MODEL':
+            if self.analytic_directivity_model != ANALYTIC_OMNI_DIRECTIVITY_MODEL:
+                raise ValueError('analytic source requires explicit supported omnidirectional model')
+            if self.phase_reference is None:
+                raise ValueError('analytic coherent source requires explicit phase reference')
+        elif self.unsupported_reason is None:
+            raise ValueError('unsupported source capability requires a reason')
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('source response authority semantic hash mismatch')
+        if self.authority_id != f'r150-source-response:{expected}':
+            raise ValueError('source response authority id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def build_source_response_authority(
+    *,
+    source_entity_id: str,
+    r110_source_ref: ExactExternalAuthorityRef,
+    equipment_definition: EquipmentDefinition,
+    directivity_dataset: DirectivityDataset | None = None,
+    point_source_normalization: PointSourceNormalizationAuthority | None = None,
+) -> SourceResponseAuthority:
+    directivity = equipment_definition.directivity
+    equipment_ref = _identity_ref(
+        authority_id=equipment_definition.definition_id,
+        authority_version=equipment_definition.version,
+        semantic_hash_sha256=equipment_definition.semantic_sha256,
+    )
+    dataset_ref: ExactExternalAuthorityRef | None = None
+    capability: SourceCapability
+    analytic_model: str | None = None
+    valid_band = directivity.valid_domain.frequency if directivity.valid_domain is not None else None
+    phase_reference: str | None = None
+    unsupported_reason: str | None = None
+
+    if directivity.tier in {'complex', 'magnitude_only'}:
+        if directivity_dataset is None:
+            capability = 'UNSUPPORTED_UNKNOWN_DIRECTIVITY'
+            unsupported_reason = 'declared imported directivity is missing exact DirectivityDataset authority'
+        else:
+            if (
+                directivity_dataset.equipment_definition_id != equipment_definition.definition_id
+                or directivity_dataset.equipment_definition_version != equipment_definition.version
+                or directivity_dataset.equipment_definition_sha256 != equipment_definition.semantic_sha256
+            ):
+                raise ValueError('DirectivityDataset does not bind the supplied EquipmentDefinition')
+            dataset_ref = _identity_ref(
+                authority_id=directivity_dataset.dataset_id,
+                authority_version=directivity_dataset.version,
+                semantic_hash_sha256=directivity_dataset.semantic_sha256,
+            )
+            valid_band = directivity_dataset.valid_domain.frequency
+            if directivity.tier == 'complex':
+                capability = 'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE'
+                phase_reference = directivity.phase_reference
+            else:
+                capability = 'MAGNITUDE_ONLY_DIRECTIVITY'
+    elif directivity.tier == 'analytic':
+        if (
+            directivity.analytic_model == ANALYTIC_OMNI_DIRECTIVITY_MODEL
+            and directivity.coherent_phase
+            and directivity.phase_reference is not None
+        ):
+            capability = 'ANALYTIC_OMNIDIRECTIONAL_MODEL'
+            analytic_model = directivity.analytic_model
+            phase_reference = directivity.phase_reference
+        else:
+            capability = 'UNSUPPORTED_UNKNOWN_DIRECTIVITY'
+            unsupported_reason = (
+                'analytic directivity is not the explicit supported coherent omnidirectional model'
+            )
+    else:
+        capability = 'UNSUPPORTED_UNKNOWN_DIRECTIVITY'
+        unsupported_reason = (
+            'source directivity is unknown or lacks exact directional transfer authority'
+        )
+
+    core = {
+        'authority_version': '1',
+        'source_entity_id': source_entity_id,
+        'r110_source_ref': r110_source_ref.model_dump(mode='json'),
+        'equipment_definition_ref': equipment_ref.model_dump(mode='json'),
+        'capability': capability,
+        'directivity_dataset_ref': (
+            dataset_ref.model_dump(mode='json') if dataset_ref is not None else None
+        ),
+        'analytic_directivity_model': analytic_model,
+        'point_source_normalization_ref': (
+            point_source_normalization.as_external_ref().model_dump(mode='json')
+            if point_source_normalization is not None
+            else None
+        ),
+        'valid_frequency_domain': (
+            valid_band.model_dump(mode='json') if valid_band is not None else None
+        ),
+        'phase_reference': phase_reference,
+        'unsupported_reason': unsupported_reason,
+    }
+    digest = _semantic_hash(core)
+    return SourceResponseAuthority(
+        authority_id=f'r150-source-response:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+class ReceiverResponseAuthority(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-receiver-response:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    receiver_id: str = Field(min_length=1)
+    receiver_entity_id: str = Field(min_length=1)
+    receiver_authority_ref: ExactExternalAuthorityRef
+    observable: Literal['ideal_point_acoustic_pressure'] = 'ideal_point_acoustic_pressure'
+
+    @model_validator(mode='after')
+    def identity(self) -> 'ReceiverResponseAuthority':
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('receiver response authority semantic hash mismatch')
+        if self.authority_id != f'r150-receiver-response:{expected}':
+            raise ValueError('receiver response authority id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def build_receiver_response_authority(
+    *,
+    receiver_id: str,
+    receiver_entity_id: str,
+    receiver_authority_ref: ExactExternalAuthorityRef,
+) -> ReceiverResponseAuthority:
+    core = {
+        'authority_version': '1',
+        'receiver_id': receiver_id,
+        'receiver_entity_id': receiver_entity_id,
+        'receiver_authority_ref': receiver_authority_ref.model_dump(mode='json'),
+        'observable': 'ideal_point_acoustic_pressure',
+    }
+    digest = _semantic_hash(core)
+    return ReceiverResponseAuthority(
+        authority_id=f'r150-receiver-response:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+class SurfaceReflectionTransferAuthority(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-surface-reflection:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_surface_id: str = Field(pattern=r'^semantic-surface:[0-9a-f]{64}$')
+    r120_geometry_ref: ExactExternalAuthorityRef
+    material_authority_ref: ExactExternalAuthorityRef
+    boundary_physics_authority_ref: ExactExternalAuthorityRef | None = None
+    capability: ReflectionCapability
+    derivation: Literal[
+        'mathematically_exact_rigid_boundary',
+        'specific_impedance_local_reaction',
+        'explicit_complex_reflection_transfer',
+        'geometric_absorption_scattering_magnitude_only',
+    ]
+    incidence_cosine: float | None = Field(default=None, gt=0.0, le=1.0)
+    valid_frequency_domain: FrequencyDomain
+    samples: tuple[ComplexTransferSample, ...] = Field(min_length=1)
+    provenance: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def identity(self) -> 'SurfaceReflectionTransferAuthority':
+        frequencies = tuple(sample.frequency_hz for sample in self.samples)
+        if frequencies != tuple(sorted(set(frequencies))):
+            raise ValueError('surface reflection frequency samples must be unique and sorted')
+        if self.capability == 'COMPLEX':
+            if any(sample.complex_value() is None for sample in self.samples):
+                raise ValueError('complex reflection authority requires complex samples')
+        elif any(sample.complex_value() is not None for sample in self.samples):
+            raise ValueError('magnitude-only reflection authority cannot carry phase')
+        if self.derivation == 'specific_impedance_local_reaction' and self.incidence_cosine is None:
+            raise ValueError('specific-impedance reflection requires explicit incidence cosine')
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('surface reflection semantic hash mismatch')
+        if self.authority_id != f'r150-surface-reflection:{expected}':
+            raise ValueError('surface reflection id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def _domain_from_samples(samples: Sequence[ComplexTransferSample]) -> FrequencyDomain:
+    frequencies = [item.frequency_hz for item in samples]
+    if len(frequencies) == 1:
+        return FrequencyDomain(
+            minimum_hz=frequencies[0] * (1.0 - 1e-12),
+            maximum_hz=frequencies[0] * (1.0 + 1e-12),
+        )
+    return FrequencyDomain(minimum_hz=min(frequencies), maximum_hz=max(frequencies))
+
+
+def _build_surface_reflection(
+    *,
+    source_surface_id: str,
+    r120_geometry_ref: ExactExternalAuthorityRef,
+    material_authority_ref: ExactExternalAuthorityRef,
+    boundary_physics_authority_ref: ExactExternalAuthorityRef | None,
+    capability: ReflectionCapability,
+    derivation: str,
+    samples: Sequence[ComplexTransferSample],
+    provenance: str,
+    incidence_cosine: float | None = None,
+) -> SurfaceReflectionTransferAuthority:
+    sample_items = tuple(samples)
+    core = {
+        'authority_version': '1',
+        'source_surface_id': source_surface_id,
+        'r120_geometry_ref': r120_geometry_ref.model_dump(mode='json'),
+        'material_authority_ref': material_authority_ref.model_dump(mode='json'),
+        'boundary_physics_authority_ref': (
+            boundary_physics_authority_ref.model_dump(mode='json')
+            if boundary_physics_authority_ref is not None
+            else None
+        ),
+        'capability': capability,
+        'derivation': derivation,
+        'incidence_cosine': incidence_cosine,
+        'valid_frequency_domain': _domain_from_samples(sample_items).model_dump(mode='json'),
+        'samples': [item.model_dump(mode='json') for item in sample_items],
+        'provenance': provenance,
+    }
+    digest = _semantic_hash(core)
+    return SurfaceReflectionTransferAuthority(
+        authority_id=f'r150-surface-reflection:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+def build_rigid_surface_reflection_authority(
+    *,
+    source_surface_id: str,
+    r120_geometry_ref: ExactExternalAuthorityRef,
+    material_authority_ref: ExactExternalAuthorityRef,
+    material: AcousticMaterial,
+    frequency_grid: FrequencyGridAuthority,
+    boundary_physics_authority_ref: ExactExternalAuthorityRef | None = None,
+) -> SurfaceReflectionTransferAuthority:
+    if material.wave_model != 'rigid':
+        raise ValueError('rigid reflection authority requires material.wave_model=rigid')
+    return _build_surface_reflection(
+        source_surface_id=source_surface_id,
+        r120_geometry_ref=r120_geometry_ref,
+        material_authority_ref=material_authority_ref,
+        boundary_physics_authority_ref=boundary_physics_authority_ref,
+        capability='COMPLEX',
+        derivation='mathematically_exact_rigid_boundary',
+        samples=tuple(
+            ComplexTransferSample.from_complex(frequency, 1.0 + 0.0j)
+            for frequency in frequency_grid.frequencies_hz
+        ),
+        provenance=f'{material.material_id}@{material.version}: exact rigid pressure reflection +1',
+    )
+
+
+def build_specific_impedance_surface_reflection_authority(
+    *,
+    source_surface_id: str,
+    r120_geometry_ref: ExactExternalAuthorityRef,
+    material_authority_ref: ExactExternalAuthorityRef,
+    material: AcousticMaterial,
+    environment: AcousticEnvironmentAuthority,
+    frequency_grid: FrequencyGridAuthority,
+    incidence_cosine: float,
+    boundary_physics_authority_ref: ExactExternalAuthorityRef | None = None,
+) -> SurfaceReflectionTransferAuthority:
+    if material.wave_model != 'specific_impedance_table':
+        raise ValueError('specific-impedance reflection requires matching wave material')
+    mu = float(incidence_cosine)
+    if not isfinite(mu) or not (0.0 < mu <= 1.0):
+        raise ValueError('incidence_cosine must lie within (0, 1]')
+    impedance_by_frequency = {
+        item.frequency_hz: complex(item.resistance_pa_s_m, item.reactance_pa_s_m)
+        for item in material.specific_impedance
+    }
+    characteristic = environment.density_kg_m3 * environment.sound_speed_m_s
+    samples: list[ComplexTransferSample] = []
+    for frequency in frequency_grid.frequencies_hz:
+        impedance = impedance_by_frequency.get(frequency)
+        if impedance is None:
+            raise ValueError(
+                'specific-impedance reflection requires an exact impedance sample at every response frequency'
+            )
+        denominator = impedance * mu + characteristic
+        if abs(denominator) <= 1e-15:
+            raise ValueError('specific-impedance reflection denominator is singular')
+        coefficient = (impedance * mu - characteristic) / denominator
+        samples.append(ComplexTransferSample.from_complex(frequency, coefficient))
+    return _build_surface_reflection(
+        source_surface_id=source_surface_id,
+        r120_geometry_ref=r120_geometry_ref,
+        material_authority_ref=material_authority_ref,
+        boundary_physics_authority_ref=boundary_physics_authority_ref,
+        capability='COMPLEX',
+        derivation='specific_impedance_local_reaction',
+        samples=samples,
+        incidence_cosine=mu,
+        provenance=(
+            f'{material.material_id}@{material.version}: local-reaction pressure reflection '
+            'R=(Z*cos(theta)-rho*c)/(Z*cos(theta)+rho*c)'
+        ),
+    )
+
+
+def build_explicit_complex_surface_reflection_authority(
+    *,
+    source_surface_id: str,
+    r120_geometry_ref: ExactExternalAuthorityRef,
+    material_authority_ref: ExactExternalAuthorityRef,
+    frequency_coefficients: Mapping[float, complex],
+    provenance: str,
+    boundary_physics_authority_ref: ExactExternalAuthorityRef | None = None,
+) -> SurfaceReflectionTransferAuthority:
+    samples = tuple(
+        ComplexTransferSample.from_complex(float(frequency), complex(value))
+        for frequency, value in sorted(frequency_coefficients.items())
+    )
+    return _build_surface_reflection(
+        source_surface_id=source_surface_id,
+        r120_geometry_ref=r120_geometry_ref,
+        material_authority_ref=material_authority_ref,
+        boundary_physics_authority_ref=boundary_physics_authority_ref,
+        capability='COMPLEX',
+        derivation='explicit_complex_reflection_transfer',
+        samples=samples,
+        provenance=provenance,
+    )
+
+
+def build_magnitude_only_surface_reflection_authority(
+    *,
+    source_surface_id: str,
+    r120_geometry_ref: ExactExternalAuthorityRef,
+    material_authority_ref: ExactExternalAuthorityRef,
+    material: AcousticMaterial,
+    frequency_grid: FrequencyGridAuthority,
+    boundary_physics_authority_ref: ExactExternalAuthorityRef | None = None,
+) -> SurfaceReflectionTransferAuthority:
+    if material.geometric_model != 'banded':
+        raise ValueError('magnitude-only reflection requires geometric band material data')
+    bands = {item.center_hz: item for item in material.geometric_bands}
+    samples: list[ComplexTransferSample] = []
+    for frequency in frequency_grid.frequencies_hz:
+        band = bands.get(frequency)
+        if band is None:
+            raise ValueError('geometric reflection requires an exact material band center')
+        magnitude = sqrt(max(0.0, (1.0 - band.absorption) * (1.0 - band.scattering)))
+        samples.append(ComplexTransferSample.magnitude_only(frequency, magnitude))
+    return _build_surface_reflection(
+        source_surface_id=source_surface_id,
+        r120_geometry_ref=r120_geometry_ref,
+        material_authority_ref=material_authority_ref,
+        boundary_physics_authority_ref=boundary_physics_authority_ref,
+        capability='MAGNITUDE_ONLY',
+        derivation='geometric_absorption_scattering_magnitude_only',
+        samples=samples,
+        provenance=(
+            f'{material.material_id}@{material.version}: amplitude magnitude from '
+            'sqrt((1-absorption)*(1-scattering)); phase explicitly unavailable'
+        ),
+    )
+
+
+class PortalAcousticTransferAuthority(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_id: str = Field(pattern=r'^r150-portal-transfer:[0-9a-f]{64}$')
+    authority_version: Literal['1'] = '1'
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    portal_id: str = Field(min_length=1)
+    from_region_id: str = Field(min_length=1)
+    to_region_id: str = Field(min_length=1)
+    portal_geometry_authority_ref: ExactExternalAuthorityRef
+    quantity: Literal['complex_pressure_transmission_ratio'] = (
+        'complex_pressure_transmission_ratio'
+    )
+    unit: Literal['dimensionless'] = 'dimensionless'
+    valid_frequency_domain: FrequencyDomain
+    samples: tuple[ComplexTransferSample, ...] = Field(min_length=1)
+    provenance: str = Field(min_length=1)
+    provenance_state: PortalProvenanceState
+    uncertainty: str = Field(min_length=1)
+    approximation_version: str | None = None
+    approximation_tolerance: str | None = None
+
+    @model_validator(mode='after')
+    def identity(self) -> 'PortalAcousticTransferAuthority':
+        if self.from_region_id == self.to_region_id:
+            raise ValueError('Portal transfer direction requires distinct regions')
+        if any(sample.complex_value() is None for sample in self.samples):
+            raise ValueError('Portal transmission authority requires explicit complex samples')
+        frequencies = tuple(sample.frequency_hz for sample in self.samples)
+        if frequencies != tuple(sorted(set(frequencies))):
+            raise ValueError('Portal transfer frequency samples must be unique and sorted')
+        if self.provenance_state == 'analytic':
+            if self.approximation_version is None or self.approximation_tolerance is None:
+                raise ValueError(
+                    'analytic Portal approximation requires version and tolerance/validity statement'
+                )
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('Portal transfer semantic hash mismatch')
+        if self.authority_id != f'r150-portal-transfer:{expected}':
+            raise ValueError('Portal transfer id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+
+def build_portal_acoustic_transfer_authority(
+    *,
+    portal_id: str,
+    from_region_id: str,
+    to_region_id: str,
+    portal_geometry_authority_ref: ExactExternalAuthorityRef,
+    frequency_coefficients: Mapping[float, complex],
+    provenance: str,
+    provenance_state: PortalProvenanceState,
+    uncertainty: str,
+    approximation_version: str | None = None,
+    approximation_tolerance: str | None = None,
+) -> PortalAcousticTransferAuthority:
+    samples = tuple(
+        ComplexTransferSample.from_complex(float(frequency), complex(value))
+        for frequency, value in sorted(frequency_coefficients.items())
+    )
+    core = {
+        'authority_version': '1',
+        'portal_id': portal_id,
+        'from_region_id': from_region_id,
+        'to_region_id': to_region_id,
+        'portal_geometry_authority_ref': portal_geometry_authority_ref.model_dump(mode='json'),
+        'quantity': 'complex_pressure_transmission_ratio',
+        'unit': 'dimensionless',
+        'valid_frequency_domain': _domain_from_samples(samples).model_dump(mode='json'),
+        'samples': [item.model_dump(mode='json') for item in samples],
+        'provenance': provenance,
+        'provenance_state': provenance_state,
+        'uncertainty': uncertainty,
+        'approximation_version': approximation_version,
+        'approximation_tolerance': approximation_tolerance,
+    }
+    digest = _semantic_hash(core)
+    return PortalAcousticTransferAuthority(
+        authority_id=f'r150-portal-transfer:{digest}',
+        semantic_hash_sha256=digest,
+        **core,
+    )
+
+
+def build_open_aperture_unity_transfer_authority(
+    *,
+    portal_id: str,
+    from_region_id: str,
+    to_region_id: str,
+    portal_geometry_authority_ref: ExactExternalAuthorityRef,
+    frequency_grid: FrequencyGridAuthority,
+    approximation_version: str,
+    approximation_tolerance: str,
+    validity_statement: str,
+) -> PortalAcousticTransferAuthority:
+    return build_portal_acoustic_transfer_authority(
+        portal_id=portal_id,
+        from_region_id=from_region_id,
+        to_region_id=to_region_id,
+        portal_geometry_authority_ref=portal_geometry_authority_ref,
+        frequency_coefficients={
+            frequency: 1.0 + 0.0j for frequency in frequency_grid.frequencies_hz
+        },
+        provenance=f'analytic open-aperture unity approximation: {validity_statement}',
+        provenance_state='analytic',
+        uncertainty='bounded only by the declared approximation validity/tolerance',
+        approximation_version=approximation_version,
+        approximation_tolerance=approximation_tolerance,
+    )
+
+
+class PathFrequencyResponseSample(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    frequency_hz: float = Field(gt=0.0)
+    propagation_phase_rad: float
+    geometric_spreading_per_m: float = Field(gt=0.0)
+    magnitude_pa_per_m3_s: float = Field(ge=0.0)
+    phase_rad: float | None = None
+    complex_real_pa_per_m3_s: float | None = None
+    complex_imag_pa_per_m3_s: float | None = None
+
+    @model_validator(mode='after')
+    def valid_complex(self) -> 'PathFrequencyResponseSample':
+        for value in (
+            self.frequency_hz,
+            self.propagation_phase_rad,
+            self.geometric_spreading_per_m,
+            self.magnitude_pa_per_m3_s,
+            self.phase_rad,
+            self.complex_real_pa_per_m3_s,
+            self.complex_imag_pa_per_m3_s,
+        ):
+            if value is not None and not isfinite(float(value)):
+                raise ValueError('path response sample values must be finite')
+        present = (
+            self.phase_rad is not None,
+            self.complex_real_pa_per_m3_s is not None,
+            self.complex_imag_pa_per_m3_s is not None,
+        )
+        if len(set(present)) != 1:
+            raise ValueError('path response complex phase/real/imag must be present together')
+        if all(present):
+            value = complex(
+                self.complex_real_pa_per_m3_s,
+                self.complex_imag_pa_per_m3_s,
+            )
+            if abs(abs(value) - self.magnitude_pa_per_m3_s) > max(
+                1e-12, self.magnitude_pa_per_m3_s * 1e-10
+            ):
+                raise ValueError('path response sample magnitude mismatch')
+        return self
+
+
+class DeterministicPathFrequencyResponseArtifact(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema_version: Literal[1] = R150_PATH_RESPONSE_SCHEMA_VERSION
+    authority_version: Literal['r150-complex-path-response-1'] = (
+        R150_PATH_RESPONSE_AUTHORITY_VERSION
+    )
+    artifact_id: str = Field(pattern=r'^r150-path-frequency-response:[0-9a-f]{64}$')
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    deterministic_path_artifact_id: str
+    deterministic_path_artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    deterministic_path_id: str
+    deterministic_path_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_entity_id: str
+    receiver_id: str
+    receiver_entity_id: str
+    ordered_surface_interactions: tuple[str, ...]
+    ordered_portal_interactions: tuple[str, ...]
+    path_length_m: float = Field(gt=0.0)
+    quantity: Literal['complex_acoustic_pressure_per_volume_velocity'] = TRANSFER_QUANTITY
+    unit: Literal['Pa/(m3/s)'] = TRANSFER_UNIT
+    source_normalization: Literal['unit_volume_velocity_m3_s'] = 'unit_volume_velocity_m3_s'
+    phasor_convention: Literal['exp(+i*omega*t)'] = PHASOR_CONVENTION
+    time_origin: Literal['source_t0'] = 'source_t0'
+    sound_speed_m_s: float = Field(gt=0.0)
+    density_kg_m3: float = Field(gt=0.0)
+    exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=1)
+    valid_frequency_domain: FrequencyDomain
+    capability: ResponseCapability
+    unsupported_reasons: tuple[str, ...] = ()
+    samples: tuple[PathFrequencyResponseSample, ...] = ()
+    dependency_refs: tuple[ExactExternalAuthorityRef, ...] = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def identity(self) -> 'DeterministicPathFrequencyResponseArtifact':
+        if self.capability == 'UNSUPPORTED':
+            if not self.unsupported_reasons or self.samples:
+                raise ValueError('unsupported response requires reasons and no fabricated samples')
+        else:
+            if self.unsupported_reasons:
+                raise ValueError('supported/magnitude response cannot carry unsupported reasons')
+            if len(self.samples) != len(self.exact_frequency_grid_hz):
+                raise ValueError('response sample count must match exact frequency grid')
+            if tuple(item.frequency_hz for item in self.samples) != self.exact_frequency_grid_hz:
+                raise ValueError('response samples must preserve exact frequency-grid ordering')
+            if self.capability == 'COMPLEX_SUPPORTED':
+                if any(item.phase_rad is None for item in self.samples):
+                    raise ValueError('complex-supported response requires phase for every sample')
+            elif any(item.phase_rad is not None for item in self.samples):
+                raise ValueError('magnitude-only response must not fabricate phase')
+        keys = tuple(_ref_payload(item) for item in self.dependency_refs)
+        if keys != tuple(sorted(set(keys))):
+            raise ValueError('response dependencies must be exact, unique, and canonically sorted')
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_sha256 != expected:
+            raise ValueError('path frequency response semantic hash mismatch')
+        if self.artifact_id != f'r150-path-frequency-response:{expected}':
+            raise ValueError('path frequency response id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'artifact_id', 'semantic_sha256'})
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return _identity_ref(
+            authority_id=self.artifact_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_sha256,
+        )
+
+
+def _sample_at(
+    samples: Sequence[ComplexTransferSample],
+    frequency_hz: float,
+) -> ComplexTransferSample | None:
+    return next((item for item in samples if item.frequency_hz == frequency_hz), None)
+
+
+def _path_band(path: DeterministicAcousticPath, frequency_hz: float):
+    return next((item for item in path.bands if item.center_hz == frequency_hz), None)
+
+
+def _sorted_unique_refs(refs: Sequence[ExactExternalAuthorityRef]) -> tuple[ExactExternalAuthorityRef, ...]:
+    by_key = {_ref_payload(item): item for item in refs}
+    return tuple(by_key[key] for key in sorted(by_key))
+
+
+def _response_artifact(
+    *,
+    path_artifact: DeterministicPathArtifact,
+    path: DeterministicAcousticPath,
+    environment: AcousticEnvironmentAuthority,
+    frequency_grid: FrequencyGridAuthority,
+    dependency_refs: Sequence[ExactExternalAuthorityRef],
+    ordered_portal_ids: Sequence[str],
+    capability: ResponseCapability,
+    unsupported_reasons: Sequence[str] = (),
+    samples: Sequence[PathFrequencyResponseSample] = (),
+) -> DeterministicPathFrequencyResponseArtifact:
+    core = {
+        'schema_version': R150_PATH_RESPONSE_SCHEMA_VERSION,
+        'authority_version': R150_PATH_RESPONSE_AUTHORITY_VERSION,
+        'deterministic_path_artifact_id': path_artifact.artifact_id,
+        'deterministic_path_artifact_sha256': path_artifact.semantic_sha256,
+        'deterministic_path_id': path.path_id,
+        'deterministic_path_sha256': path.semantic_sha256,
+        'source_entity_id': path.source_entity_id,
+        'receiver_id': path.receiver_id,
+        'receiver_entity_id': path.receiver_entity_id,
+        'ordered_surface_interactions': list(path.ordered_interaction_surface_ids),
+        'ordered_portal_interactions': list(ordered_portal_ids),
+        'path_length_m': path.geometric_path_length_m,
+        'quantity': TRANSFER_QUANTITY,
+        'unit': TRANSFER_UNIT,
+        'source_normalization': 'unit_volume_velocity_m3_s',
+        'phasor_convention': PHASOR_CONVENTION,
+        'time_origin': 'source_t0',
+        'sound_speed_m_s': environment.sound_speed_m_s,
+        'density_kg_m3': environment.density_kg_m3,
+        'exact_frequency_grid_hz': list(frequency_grid.frequencies_hz),
+        'valid_frequency_domain': frequency_grid.valid_frequency_domain.model_dump(mode='json'),
+        'capability': capability,
+        'unsupported_reasons': sorted(set(unsupported_reasons)),
+        'samples': [item.model_dump(mode='json') for item in samples],
+        'dependency_refs': [
+            item.model_dump(mode='json') for item in _sorted_unique_refs(dependency_refs)
+        ],
+    }
+    digest = _semantic_hash(core)
+    return DeterministicPathFrequencyResponseArtifact(
+        artifact_id=f'r150-path-frequency-response:{digest}',
+        semantic_sha256=digest,
+        **core,
+    )
+
+
+def build_deterministic_path_frequency_response(
+    *,
+    path_artifact: DeterministicPathArtifact,
+    path_id: str,
+    r120_geometry_ref: ExactExternalAuthorityRef,
+    source_authority: SourceResponseAuthority,
+    point_source_normalization: PointSourceNormalizationAuthority | None,
+    receiver_authority: ReceiverResponseAuthority,
+    environment: AcousticEnvironmentAuthority,
+    frequency_grid: FrequencyGridAuthority,
+    configuration: PathResponseConfiguration,
+    surface_reflections: Mapping[str, SurfaceReflectionTransferAuthority] = {},
+    portal_geometry_authority_ref: ExactExternalAuthorityRef | None = None,
+    portal_transfers: Mapping[
+        tuple[str, str, str], PortalAcousticTransferAuthority
+    ] = {},
+    directivity_dataset: DirectivityDataset | None = None,
+) -> DeterministicPathFrequencyResponseArtifact:
+    path = next((item for item in path_artifact.paths if item.path_id == path_id), None)
+    if path is None:
+        raise ValueError('deterministic path id is not present in the supplied path artifact')
+
+    refs: list[ExactExternalAuthorityRef] = [
+        r120_geometry_ref,
+        source_authority.as_external_ref(),
+        source_authority.r110_source_ref,
+        source_authority.equipment_definition_ref,
+        receiver_authority.as_external_ref(),
+        receiver_authority.receiver_authority_ref,
+        environment.as_external_ref(),
+        frequency_grid.as_external_ref(),
+        configuration.as_external_ref(),
+    ]
+    if point_source_normalization is not None:
+        refs.append(point_source_normalization.as_external_ref())
+    if source_authority.directivity_dataset_ref is not None:
+        refs.append(source_authority.directivity_dataset_ref)
+
+    reasons: list[str] = []
+    if (
+        path_artifact.r120_compiled_geometry_id != r120_geometry_ref.authority_id
+        or path_artifact.r120_compiled_geometry_sha256
+        != r120_geometry_ref.semantic_hash_sha256
+    ):
+        reasons.append('STALE_OR_MISMATCHED_R120_GEOMETRY')
+    if source_authority.source_entity_id != path.source_entity_id:
+        reasons.append('SOURCE_IDENTITY_MISMATCH')
+    if (
+        receiver_authority.receiver_id != path.receiver_id
+        or receiver_authority.receiver_entity_id != path.receiver_entity_id
+    ):
+        reasons.append('RECEIVER_IDENTITY_MISMATCH')
+    if (
+        not isfinite(path.geometric_path_length_m)
+        or path.geometric_path_length_m <= configuration.minimum_path_length_m
+    ):
+        reasons.append('ZERO_OR_NEAR_SINGULAR_PATH_LENGTH')
+    expected_delay = path.geometric_path_length_m / environment.sound_speed_m_s
+    if abs(path.propagation_delay_s - expected_delay) > max(1e-12, expected_delay * 1e-9):
+        reasons.append('ENVIRONMENT_PATH_DELAY_MISMATCH')
+
+    for frequency in frequency_grid.frequencies_hz:
+        if not environment.valid_frequency_domain.contains(frequency):
+            reasons.append('ENVIRONMENT_VALID_BAND_MISMATCH')
+            break
+        if not configuration.minimum_path_length_m > 0.0:
+            reasons.append('INVALID_RESPONSE_CONFIGURATION')
+            break
+        if source_authority.valid_frequency_domain is not None and not source_authority.valid_frequency_domain.contains(frequency):
+            reasons.append('SOURCE_VALID_BAND_MISMATCH')
+            break
+        if (
+            point_source_normalization is not None
+            and not point_source_normalization.valid_frequency_domain.contains(frequency)
+        ):
+            reasons.append('SOURCE_NORMALIZATION_VALID_BAND_MISMATCH')
+            break
+
+    if source_authority.capability == 'UNSUPPORTED_UNKNOWN_DIRECTIVITY':
+        reasons.append(source_authority.unsupported_reason or 'SOURCE_DIRECTIVITY_UNSUPPORTED')
+    if point_source_normalization is None:
+        reasons.append('SOURCE_ABSOLUTE_NORMALIZATION_UNSUPPORTED')
+    elif source_authority.point_source_normalization_ref != point_source_normalization.as_external_ref():
+        reasons.append('SOURCE_NORMALIZATION_AUTHORITY_MISMATCH')
+
+    source_mode: Literal['complex', 'magnitude', 'unsupported'] = 'complex'
+    if source_authority.capability == 'MAGNITUDE_ONLY_DIRECTIVITY':
+        source_mode = 'magnitude'
+    elif source_authority.capability == 'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE':
+        if (
+            directivity_dataset is None
+            or source_authority.directivity_dataset_ref is None
+            or source_authority.directivity_dataset_ref
+            != _identity_ref(
+                authority_id=directivity_dataset.dataset_id,
+                authority_version=directivity_dataset.version,
+                semantic_hash_sha256=directivity_dataset.semantic_sha256,
+            )
+        ):
+            reasons.append('DIRECTIVITY_DATASET_AUTHORITY_MISMATCH')
+            source_mode = 'unsupported'
+    elif source_authority.capability == 'UNSUPPORTED_UNKNOWN_DIRECTIVITY':
+        source_mode = 'unsupported'
+
+    reflection_authorities: list[SurfaceReflectionTransferAuthority] = []
+    magnitude_only = source_mode == 'magnitude'
+    for surface_id in path.ordered_interaction_surface_ids:
+        authority = surface_reflections.get(surface_id)
+        if authority is None:
+            reasons.append(f'MISSING_REFLECTION_AUTHORITY:{surface_id}')
+            continue
+        reflection_authorities.append(authority)
+        refs.extend(
+            [
+                authority.as_external_ref(),
+                authority.material_authority_ref,
+                authority.r120_geometry_ref,
+            ]
+        )
+        if authority.boundary_physics_authority_ref is not None:
+            refs.append(authority.boundary_physics_authority_ref)
+        if authority.r120_geometry_ref != r120_geometry_ref:
+            reasons.append(f'STALE_REFLECTION_SURFACE_AUTHORITY:{surface_id}')
+        if authority.capability == 'MAGNITUDE_ONLY':
+            magnitude_only = True
+
+    portal_interactions = tuple(
+        item
+        for item in (path.ordered_interactions or ())
+        if item.kind == 'portal_crossing'
+    )
+    portal_authorities: list[PortalAcousticTransferAuthority] = []
+    if portal_interactions:
+        if portal_geometry_authority_ref is None:
+            reasons.append('MISSING_PORTAL_GEOMETRY_AUTHORITY')
+        else:
+            refs.append(portal_geometry_authority_ref)
+        for interaction in portal_interactions:
+            assert interaction.portal_id is not None
+            assert interaction.from_region_id is not None
+            assert interaction.to_region_id is not None
+            key = (
+                interaction.portal_id,
+                interaction.from_region_id,
+                interaction.to_region_id,
+            )
+            authority = portal_transfers.get(key)
+            if authority is None:
+                reasons.append(f'MISSING_PORTAL_TRANSFER_AUTHORITY:{interaction.portal_id}')
+                continue
+            portal_authorities.append(authority)
+            refs.extend(
+                [
+                    authority.as_external_ref(),
+                    authority.portal_geometry_authority_ref,
+                ]
+            )
+            if (
+                portal_geometry_authority_ref is None
+                or authority.portal_geometry_authority_ref
+                != portal_geometry_authority_ref
+            ):
+                reasons.append(f'STALE_PORTAL_TRANSFER_AUTHORITY:{interaction.portal_id}')
+
+    if reasons:
+        return _response_artifact(
+            path_artifact=path_artifact,
+            path=path,
+            environment=environment,
+            frequency_grid=frequency_grid,
+            dependency_refs=refs,
+            ordered_portal_ids=[
+                item.portal_id for item in portal_interactions if item.portal_id is not None
+            ],
+            capability='UNSUPPORTED',
+            unsupported_reasons=reasons,
+        )
+
+    assert point_source_normalization is not None
+    response_samples: list[PathFrequencyResponseSample] = []
+    distance = path.geometric_path_length_m
+    spread = 1.0 / (4.0 * pi * distance)
+
+    for frequency in frequency_grid.frequencies_hz:
+        omega = 2.0 * pi * frequency
+        k = omega / environment.sound_speed_m_s
+        propagation_phase = -k * distance
+        propagation = complex(cos(propagation_phase), sin(propagation_phase))
+        monopole = 1j * omega * environment.density_kg_m3 * spread * propagation
+
+        source_complex = 1.0 + 0.0j
+        source_magnitude = 1.0
+        if source_authority.capability in {
+            'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE',
+            'MAGNITUDE_ONLY_DIRECTIVITY',
+        }:
+            band = _path_band(path, frequency)
+            if band is None:
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=('PATH_DIRECTIVITY_FREQUENCY_GRID_MISMATCH',),
+                )
+            contribution = band.source_directivity
+            if source_authority.directivity_dataset_ref is None or (
+                contribution.dataset_id != source_authority.directivity_dataset_ref.authority_id
+                or contribution.dataset_version
+                != source_authority.directivity_dataset_ref.authority_version
+                or contribution.dataset_semantic_sha256
+                != source_authority.directivity_dataset_ref.semantic_hash_sha256
+            ):
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=('PATH_DIRECTIVITY_AUTHORITY_MISMATCH',),
+                )
+            if source_authority.capability == 'MAGNITUDE_ONLY_DIRECTIVITY':
+                source_magnitude = contribution.magnitude_linear
+            else:
+                assert directivity_dataset is not None
+                evaluated = evaluate_directivity(
+                    directivity_dataset,
+                    frequency_hz=frequency,
+                    horizontal_angle_deg=contribution.horizontal_angle_deg,
+                    vertical_angle_deg=contribution.vertical_angle_deg,
+                    request='complex',
+                )
+                if evaluated.decision != 'SUPPORTED':
+                    return _response_artifact(
+                        path_artifact=path_artifact,
+                        path=path,
+                        environment=environment,
+                        frequency_grid=frequency_grid,
+                        dependency_refs=refs,
+                        ordered_portal_ids=[
+                            item.portal_id for item in portal_interactions
+                            if item.portal_id is not None
+                        ],
+                        capability='UNSUPPORTED',
+                        unsupported_reasons=(
+                            'COMPLEX_SOURCE_DIRECTIVITY_EVALUATION_UNSUPPORTED',
+                        ),
+                    )
+                assert evaluated.complex_real is not None
+                assert evaluated.complex_imag is not None
+                source_complex = complex(evaluated.complex_real, evaluated.complex_imag)
+                source_magnitude = abs(source_complex)
+
+        reflection_complex = 1.0 + 0.0j
+        reflection_magnitude = 1.0
+        for authority in reflection_authorities:
+            if not authority.valid_frequency_domain.contains(frequency):
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'REFLECTION_VALID_BAND_MISMATCH:{authority.source_surface_id}',
+                    ),
+                )
+            sample = _sample_at(authority.samples, frequency)
+            if sample is None:
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'REFLECTION_FREQUENCY_GRID_MISMATCH:{authority.source_surface_id}',
+                    ),
+                )
+            reflection_magnitude *= sample.magnitude
+            if authority.capability == 'COMPLEX':
+                value = sample.complex_value()
+                assert value is not None
+                reflection_complex *= value
+
+        portal_complex = 1.0 + 0.0j
+        portal_magnitude = 1.0
+        for authority in portal_authorities:
+            if not authority.valid_frequency_domain.contains(frequency):
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'PORTAL_TRANSFER_VALID_BAND_MISMATCH:{authority.portal_id}',
+                    ),
+                )
+            sample = _sample_at(authority.samples, frequency)
+            if sample is None:
+                return _response_artifact(
+                    path_artifact=path_artifact,
+                    path=path,
+                    environment=environment,
+                    frequency_grid=frequency_grid,
+                    dependency_refs=refs,
+                    ordered_portal_ids=[
+                        item.portal_id for item in portal_interactions
+                        if item.portal_id is not None
+                    ],
+                    capability='UNSUPPORTED',
+                    unsupported_reasons=(
+                        f'PORTAL_TRANSFER_FREQUENCY_GRID_MISMATCH:{authority.portal_id}',
+                    ),
+                )
+            value = sample.complex_value()
+            assert value is not None
+            portal_complex *= value
+            portal_magnitude *= sample.magnitude
+
+        if magnitude_only:
+            magnitude = abs(monopole) * source_magnitude * reflection_magnitude * portal_magnitude
+            response_samples.append(
+                PathFrequencyResponseSample(
+                    frequency_hz=frequency,
+                    propagation_phase_rad=propagation_phase,
+                    geometric_spreading_per_m=spread,
+                    magnitude_pa_per_m3_s=magnitude,
+                )
+            )
+        else:
+            value = monopole * source_complex * reflection_complex * portal_complex
+            response_samples.append(
+                PathFrequencyResponseSample(
+                    frequency_hz=frequency,
+                    propagation_phase_rad=propagation_phase,
+                    geometric_spreading_per_m=spread,
+                    magnitude_pa_per_m3_s=abs(value),
+                    phase_rad=_phase(value),
+                    complex_real_pa_per_m3_s=value.real,
+                    complex_imag_pa_per_m3_s=value.imag,
+                )
+            )
+
+    return _response_artifact(
+        path_artifact=path_artifact,
+        path=path,
+        environment=environment,
+        frequency_grid=frequency_grid,
+        dependency_refs=refs,
+        ordered_portal_ids=[
+            item.portal_id for item in portal_interactions if item.portal_id is not None
+        ],
+        capability='MAGNITUDE_ONLY' if magnitude_only else 'COMPLEX_SUPPORTED',
+        samples=response_samples,
+    )
+
+
+ResponseDependency = (
+    AcousticEnvironmentAuthority
+    | FrequencyGridAuthority
+    | PathResponseConfiguration
+    | PointSourceNormalizationAuthority
+    | SourceResponseAuthority
+    | ReceiverResponseAuthority
+    | SurfaceReflectionTransferAuthority
+    | PortalAcousticTransferAuthority
+    | DirectivityDataset
+    | ExactExternalAuthorityRef
+)
+PathArtifactResolver = Callable[[str], DeterministicPathArtifact | None]
+ResponseDependencyResolver = Callable[[ExactExternalAuthorityRef], ResponseDependency | None]
+
+
+def _dependency_ref(value: ResponseDependency) -> ExactExternalAuthorityRef:
+    if isinstance(value, ExactExternalAuthorityRef):
+        return value
+    if isinstance(value, DirectivityDataset):
+        return _identity_ref(
+            authority_id=value.dataset_id,
+            authority_version=value.version,
+            semantic_hash_sha256=value.semantic_sha256,
+        )
+    return value.as_external_ref()
+
+
+class CadPathFrequencyResponseRepository:
+    """Append-only per-path response persistence with exact dependency re-resolution."""
+
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        *,
+        path_artifact_resolver: PathArtifactResolver,
+        dependency_resolver: ResponseDependencyResolver,
+    ) -> None:
+        self.scene_repository = scene_repository
+        self.path = Path(scene_repository.path)
+        self.path_artifact_resolver = path_artifact_resolver
+        self.dependency_resolver = dependency_resolver
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        connection.execute('PRAGMA foreign_keys=ON')
+        return connection
+
+    def _initialize(self) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS r150_path_frequency_response_artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    semantic_sha256 TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                )
+                """
+            )
+
+    def _resolve_dependency(
+        self,
+        ref: ExactExternalAuthorityRef,
+    ) -> ResponseDependency:
+        value = self.dependency_resolver(ref)
+        if value is None:
+            raise ValueError(
+                f'path response dependency is missing/stale: {ref.authority_id}'
+            )
+        if _dependency_ref(value) != ref:
+            raise ValueError(
+                f'path response dependency exact identity mismatch: {ref.authority_id}'
+            )
+        return value
+
+    def _rebuild(
+        self,
+        artifact: DeterministicPathFrequencyResponseArtifact,
+    ) -> DeterministicPathFrequencyResponseArtifact:
+        path_artifact = self.path_artifact_resolver(
+            artifact.deterministic_path_artifact_id
+        )
+        if path_artifact is None:
+            raise ValueError('deterministic path artifact is missing/stale')
+        if path_artifact.semantic_sha256 != artifact.deterministic_path_artifact_sha256:
+            raise ValueError('deterministic path artifact exact identity mismatch')
+        path = next(
+            (
+                item
+                for item in path_artifact.paths
+                if item.path_id == artifact.deterministic_path_id
+            ),
+            None,
+        )
+        if path is None or path.semantic_sha256 != artifact.deterministic_path_sha256:
+            raise ValueError('deterministic path exact identity mismatch')
+
+        resolved = {
+            _ref_payload(ref): self._resolve_dependency(ref)
+            for ref in artifact.dependency_refs
+        }
+
+        def typed(cls):
+            matches = [value for value in resolved.values() if isinstance(value, cls)]
+            if len(matches) != 1:
+                raise ValueError(
+                    f'path response requires exactly one resolved {cls.__name__} authority'
+                )
+            return matches[0]
+
+        source = typed(SourceResponseAuthority)
+        receiver = typed(ReceiverResponseAuthority)
+        environment = typed(AcousticEnvironmentAuthority)
+        grid = typed(FrequencyGridAuthority)
+        configuration = typed(PathResponseConfiguration)
+
+        normalizations = [
+            value
+            for value in resolved.values()
+            if isinstance(value, PointSourceNormalizationAuthority)
+        ]
+        normalization = normalizations[0] if len(normalizations) == 1 else None
+        if len(normalizations) > 1:
+            raise ValueError('multiple point-source normalization authorities resolved')
+
+        datasets = [
+            value for value in resolved.values() if isinstance(value, DirectivityDataset)
+        ]
+        dataset = datasets[0] if len(datasets) == 1 else None
+        if len(datasets) > 1:
+            raise ValueError('multiple directivity datasets resolved for one source')
+
+        reflections = {
+            value.source_surface_id: value
+            for value in resolved.values()
+            if isinstance(value, SurfaceReflectionTransferAuthority)
+        }
+        portals = {
+            (value.portal_id, value.from_region_id, value.to_region_id): value
+            for value in resolved.values()
+            if isinstance(value, PortalAcousticTransferAuthority)
+        }
+
+        r120_ref = next(
+            (
+                ref
+                for ref in artifact.dependency_refs
+                if ref.authority_id == path_artifact.r120_compiled_geometry_id
+                and ref.semantic_hash_sha256
+                == path_artifact.r120_compiled_geometry_sha256
+            ),
+            None,
+        )
+        if r120_ref is None:
+            raise ValueError('R120 compiled geometry dependency is missing/stale')
+
+        portal_interactions = tuple(
+            item
+            for item in (path.ordered_interactions or ())
+            if item.kind == 'portal_crossing'
+        )
+        portal_ref: ExactExternalAuthorityRef | None = None
+        if portal_interactions:
+            portal_transfer_values = tuple(portals.values())
+            if portal_transfer_values:
+                candidate = portal_transfer_values[0].portal_geometry_authority_ref
+                if any(
+                    item.portal_geometry_authority_ref != candidate
+                    for item in portal_transfer_values
+                ):
+                    raise ValueError('Portal transfer authorities bind different Portal geometry')
+                portal_ref = candidate
+            else:
+                portal_refs = [
+                    ref
+                    for ref in artifact.dependency_refs
+                    if ref.authority_id.startswith('r120-portals:')
+                ]
+                portal_ref = portal_refs[0] if len(portal_refs) == 1 else None
+
+        rebuilt = build_deterministic_path_frequency_response(
+            path_artifact=path_artifact,
+            path_id=artifact.deterministic_path_id,
+            r120_geometry_ref=r120_ref,
+            source_authority=source,
+            point_source_normalization=normalization,
+            receiver_authority=receiver,
+            environment=environment,
+            frequency_grid=grid,
+            configuration=configuration,
+            surface_reflections=reflections,
+            portal_geometry_authority_ref=portal_ref,
+            portal_transfers=portals,
+            directivity_dataset=dataset,
+        )
+        if rebuilt != artifact:
+            raise ValueError(
+                'persisted path response no longer reproduces from current exact authorities'
+            )
+        return rebuilt
+
+    def save(self, artifact: DeterministicPathFrequencyResponseArtifact) -> None:
+        self._rebuild(artifact)
+        payload = _canonical_json(artifact.model_dump(mode='json'))
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                'SELECT semantic_sha256, payload_json '
+                'FROM r150_path_frequency_response_artifacts WHERE artifact_id = ?',
+                (artifact.artifact_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing['semantic_sha256'] != artifact.semantic_sha256
+                    or existing['payload_json'] != payload
+                ):
+                    raise ValueError('immutable path response artifact identity collision')
+                return
+            connection.execute(
+                'INSERT INTO r150_path_frequency_response_artifacts '
+                '(artifact_id, semantic_sha256, payload_json) VALUES (?, ?, ?)',
+                (artifact.artifact_id, artifact.semantic_sha256, payload),
+            )
+
+    def get(
+        self,
+        artifact_id: str,
+    ) -> DeterministicPathFrequencyResponseArtifact | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT payload_json FROM r150_path_frequency_response_artifacts '
+                'WHERE artifact_id = ?',
+                (artifact_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        artifact = DeterministicPathFrequencyResponseArtifact.model_validate_json(
+            row['payload_json']
+        )
+        return self._rebuild(artifact)
