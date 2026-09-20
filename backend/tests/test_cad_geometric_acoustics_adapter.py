@@ -730,6 +730,21 @@ def test_same_exact_input_has_same_path_identity_and_order(tmp_path: Path) -> No
     ]
 
 
+def test_engine_must_match_ready_dispatch_solver_implementation(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+
+    class WrongImplementationEngine(FixtureImageEngine):
+        solver_implementation_ref = _ref(
+            'fixture:wrong-image-source',
+            'wrong-image-source-implementation',
+        )
+
+    with pytest.raises(ValueError, match='solver implementation authority'):
+        _execute(fx, engine=WrongImplementationEngine())
+
+
 def test_unsupported_directivity_angle_is_not_filled_as_omnidirectional(
     tmp_path: Path,
 ) -> None:

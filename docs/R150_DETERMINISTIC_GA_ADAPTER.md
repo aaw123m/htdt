@@ -75,7 +75,7 @@ This is a declared geometrical-energy transport quantity, not calibrated SPL, pr
 
 ## Capability gates
 
-Source directivity is evaluated only through the exact bound `DirectivityDataset`. If a requested path angle/frequency is outside that authority, the candidate is rejected as `UNSUPPORTED_DIRECTIVITY`; there is no implicit omnidirectional fallback.
+Source directivity is evaluated only through the exact bound `DirectivityDataset`. If a requested path angle/frequency is outside that authority, the candidate is rejected as `UNSUPPORTED_DIRECTIVITY`; there is no implicit omnidirectional fallback. This foundation also requires an explicit horizontal source aim axis and uses the HTDT z-up convention with the dataset's declared positive-left / positive-up convention; elevated/rolled source-frame reconstruction is not inferred.
 
 R110 v1 currently has no numerical evaluator authority for analytic directivity names, including analytic omnidirectional declarations, so this slice does not silently add one. Supporting explicit analytic omnidirectional sources requires a separate exact numerical evaluator authority.
 
@@ -114,6 +114,7 @@ The repository exposes exact external refs for the typed artifact and execution 
 - first-order reflection point / length and exact surface identity against image-source geometry
 - blocked direct path removal using exact R120 triangle visibility
 - deterministic artifact identity and ordering
+- exact candidate engine / READY-dispatch solver-implementation identity
 - unsupported directivity angle without omnidirectional fill
 - missing GA boundary quantity without fabricated reflection
 - execution-input -> artifact -> result save/reopen and missing-authority fail-closed
