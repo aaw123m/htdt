@@ -284,7 +284,7 @@ def build_hybrid_convention_normalization_authority(
 
 
 class NumericalHybridCompositionSpec(BaseModel):
-    """Exact numerical composition request over explicit shared frequency bins."""
+    """Numerical composition request over an explicit, authority-bound output grid."""
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -324,6 +324,8 @@ class NumericalHybridCompositionSpec(BaseModel):
     time_origin: Literal['source_t0'] = COMMON_TIME_ORIGIN
 
     normalization_authority_ref: ExactExternalAuthorityRef
+    grid_reconciliation: FrequencyGridReconciliationAuthority
+    crossover_configuration: HybridCrossoverConfigurationAuthority
     transition_start_hz: float = Field(gt=0.0)
     transition_end_hz: float = Field(gt=0.0)
     weight_law: HybridWeightLaw = 'linear_frequency_complementary_v1'
@@ -341,7 +343,23 @@ class NumericalHybridCompositionSpec(BaseModel):
             self.transition_start_hz < grid[0]
             or self.transition_end_hz > grid[-1]
         ):
-            raise ValueError('R160 transition endpoints must lie inside exact grid domain')
+            raise ValueError('R160 transition endpoints must lie inside output grid domain')
+        if grid != self.grid_reconciliation.requested_output_frequency_grid_hz:
+            raise ValueError('R160 output grid does not match reconciliation authority')
+        crossover = self.crossover_configuration
+        if (
+            self.transition_start_hz != crossover.overlap_lower_hz
+            or self.transition_end_hz != crossover.overlap_upper_hz
+            or self.weight_law != crossover.blend_law
+        ):
+            raise ValueError('R160 transition does not match crossover authority')
+        if (
+            self.grid_reconciliation.wave_valid_input_band_hz
+            != crossover.wave_validity_band_hz
+            or self.grid_reconciliation.ga_valid_input_band_hz
+            != crossover.ga_validity_band_hz
+        ):
+            raise ValueError('R160 crossover validity bands do not match reconciliation authority')
         ref_keys = tuple(_ref_key(item) for item in self.r150_response_refs)
         if ref_keys != tuple(sorted(set(ref_keys))):
             raise ValueError('R160 R150 response refs must be unique/canonically sorted')
