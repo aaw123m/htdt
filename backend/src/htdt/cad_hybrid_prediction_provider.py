@@ -711,6 +711,47 @@ class CadHybridPredictionProviderRepository:
                 """
             )
 
+    def build_current(
+        self,
+        *,
+        base_provider_id: str,
+        r160_artifact_id: str,
+    ) -> HybridPredictionProvider:
+        """Build only after both R170A and R160 repositories prove currentness."""
+
+        base = self.base_provider_repository.get_provider(base_provider_id)
+        if base is None:
+            raise ValueError('R170B base R170A provider is missing/stale')
+
+        get_artifact = getattr(self.r160_repository, 'get', None)
+        if not callable(get_artifact):
+            raise ValueError('R170B R160 repository does not expose exact get()')
+        artifact = get_artifact(r160_artifact_id)
+        if artifact is None:
+            raise ValueError('R170B R160 numerical artifact is missing/stale')
+
+        spec = self.composition_spec_resolver(
+            artifact.composition_spec.composition_spec_id
+        )
+        if spec is None or spec != artifact.composition_spec:
+            raise ValueError('R170B R160 composition spec is missing/stale')
+
+        excitation = self.wave_excitation_resolver(
+            spec.wave_excitation_ref.authority_id
+        )
+        if (
+            excitation is None
+            or _excitation_ref(excitation) != spec.wave_excitation_ref
+        ):
+            raise ValueError('R170B source excitation is missing/stale')
+
+        return build_hybrid_prediction_provider(
+            base_provider=base,
+            r160_artifact=artifact,
+            composition_spec=spec,
+            wave_excitation=excitation,
+        )
+
     def _validate(
         self,
         provider: HybridPredictionProvider,
