@@ -1,0 +1,338 @@
+{
+  "schema_version": "htdt.r130d.target-window-diagnostic-run-summary-1",
+  "source": {
+    "issue": 101,
+    "pull_request": 295,
+    "workflow_run_id": 35540693380,
+    "workflow_run_number": 62,
+    "workflow_name": "R130D Independent General-3D Validation",
+    "evidence_producing_commit": "321edaf6808217b8864f1d865b5450bb1655d08c",
+    "artifact_id": 10614827536,
+    "artifact_name": "r130d-independent-general3d-validation",
+    "artifact_digest_sha256": "62a57fc08bb983ca4d5f5ead6ae86a8ab87819a255d75fe082c4a01570195b9f",
+    "evidence_semantic_sha256": "d03582d4a56251d704d8a3b8db92b3cfa968bf22248e10cc4189d29dd6ece473",
+    "evidence_file_sha256": "07a45df2c7678e1b55252c2e356fab7b75e21f1bbc49200f6a9407ceb0d788db",
+    "artifact_manifest_file_sha256": "54caed4c7c2a4a524e0fb9ec3072214dce1c02a5bb4b7900a3092eeecdd747a4"
+  },
+  "frozen_authority": {
+    "task_start_main": "c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96",
+    "general3d_plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+    "general3d_plan_semantic_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+    "general3d_plan_file_sha256": "5d8838bcd7d9740e32e3e4e80db5dd2852729b5019c54e014d2a950ac4466152",
+    "diagnostic_id": "r130d-general3d-target-window-clipped-left-rectangle-2026-09-20",
+    "diagnostic_plan_semantic_sha256": "ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db",
+    "diagnostic_plan_file_sha256": "0d946341427b4f117e60135a666e868ced22e0b54128ec5c63b21ef4fb5cb30e",
+    "pr286_baseline_summary_file_sha256": "5e13260a619439983893ce62dff9a69bc74788d7d004749fad542a5a76745adc",
+    "requested_duration_s": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "mfem_refinements": [
+      1,
+      2,
+      3
+    ],
+    "pffdtd_points_per_wavelength": [
+      8,
+      10,
+      12
+    ],
+    "window": "rectangular_no_taper",
+    "phasor_convention": "exp(-i*omega*t)",
+    "analysis_fourier_kernel": "exp(+i*omega*t)",
+    "acceptance_thresholds_changed": false
+  },
+  "diagnostic_operator_validation": {
+    "state": "PASS",
+    "fixture_id": "complex-harmonic-pressure-source-v1",
+    "dt_s": [
+      0.007,
+      0.0035,
+      0.00175,
+      0.000875
+    ],
+    "aligned_target_relative_error": [
+      0.9874835054963683,
+      0.47109288789124354,
+      0.20399165383662876,
+      0.10218180324861083
+    ],
+    "native_window_relative_error": [
+      4.423899888750729e-14,
+      3.248077991899464e-14,
+      2.4919316909061585e-14,
+      2.4272077328046008e-14
+    ],
+    "strictly_decreasing": true,
+    "finest_relative_error_max": 0.11
+  },
+  "sampling": {
+    "mfem": [
+      {
+        "refinement": 1,
+        "dt_s": 0.00008333333333333333,
+        "sample_count": 3000,
+        "last_sample_time_s": 0.24991666666666665,
+        "n_dt_s": 0.25,
+        "n_dt_minus_requested_s": 0
+      },
+      {
+        "refinement": 2,
+        "dt_s": 0.00008333333333333333,
+        "sample_count": 3000,
+        "last_sample_time_s": 0.24991666666666665,
+        "n_dt_s": 0.25,
+        "n_dt_minus_requested_s": 0
+      },
+      {
+        "refinement": 3,
+        "dt_s": 0.00008333333333333333,
+        "sample_count": 3000,
+        "last_sample_time_s": 0.24991666666666665,
+        "n_dt_s": 0.25,
+        "n_dt_minus_requested_s": 0
+      }
+    ],
+    "pffdtd": [
+      {
+        "points_per_wavelength": 8,
+        "dt_s": 0.0007209661486505452,
+        "sample_count": 347,
+        "last_sample_time_s": 0.24945428743308865,
+        "n_dt_s": 0.2501752535817392,
+        "n_dt_minus_requested_s": 0.0001752535817391987
+      },
+      {
+        "points_per_wavelength": 10,
+        "dt_s": 0.0005767729189204362,
+        "sample_count": 434,
+        "last_sample_time_s": 0.24974267389254887,
+        "n_dt_s": 0.2503194468114693,
+        "n_dt_minus_requested_s": 0.00031944681146928167
+      },
+      {
+        "points_per_wavelength": 12,
+        "dt_s": 0.0004806440991003634,
+        "sample_count": 521,
+        "last_sample_time_s": 0.24993493153218896,
+        "n_dt_s": 0.25041557563128936,
+        "n_dt_minus_requested_s": 0.0004155756312893555
+      }
+    ],
+    "endpoint_convention": "native timestamps t_n=n*dt with t_n<T; canonical gives each sample full dt; diagnostic clips only the final left-rectangle cell to exact [0,T)",
+    "source_sampling": "unit discrete volume-velocity impulse q[0]=1, q[n>0]=0",
+    "pressure_sampling": "solver-native pressure samples; PFFDTD keeps the existing second-order p=rho*d(phi)/dt mapping",
+    "frequency_evaluation": "direct exact 40/80 Hz evaluation; no FFT-bin rounding, shift, masking change, fit, or taper"
+  },
+  "canonical_pr286_reproduction": {
+    "state": "PASS",
+    "baseline_workflow_run_id": 35513920639,
+    "baseline_artifact_digest_sha256": "a6e1117b52d6827287dcc6d6339b251913822642158329da18c75b0455db4006",
+    "max_abs_complex_component_error_all_six_levels": 0
+  },
+  "outputs": {
+    "mfem": [
+      {
+        "refinement": 1,
+        "canonical": [
+          [
+            22.09444234817552,
+            9.918892223867068
+          ],
+          [
+            -24.049770677803888,
+            -0.6011502054551858
+          ]
+        ],
+        "aligned": [
+          [
+            22.09444234817545,
+            9.91889222386708
+          ],
+          [
+            -24.049770677803934,
+            -0.6011502054550812
+          ]
+        ],
+        "canonical_aligned_complex_rms": 3.9555764414608774e-15
+      },
+      {
+        "refinement": 2,
+        "canonical": [
+          [
+            20.4509172032659,
+            -1.168982468533045
+          ],
+          [
+            -10.452883021440876,
+            -218.14222365145602
+          ]
+        ],
+        "aligned": [
+          [
+            20.450917203265924,
+            -1.168982468533055
+          ],
+          [
+            -10.452883021440845,
+            -218.14222365145594
+          ]
+        ],
+        "canonical_aligned_complex_rms": 4.300949085104571e-16
+      },
+      {
+        "refinement": 3,
+        "canonical": [
+          [
+            -24.623804962781954,
+            2.4212982864254116
+          ],
+          [
+            -14.169471220600029,
+            -217.3078904142101
+          ]
+        ],
+        "aligned": [
+          [
+            -24.62380496278214,
+            2.421298286425467
+          ],
+          [
+            -14.169471220599826,
+            -217.30789041420988
+          ]
+        ],
+        "canonical_aligned_complex_rms": 1.6445692110202634e-15
+      }
+    ],
+    "pffdtd": [
+      {
+        "points_per_wavelength": 8,
+        "canonical": [
+          [
+            -34.92513607705468,
+            -13.008151753896083
+          ],
+          [
+            -34.79457934155918,
+            -94.57358931689443
+          ]
+        ],
+        "aligned": [
+          [
+            -27.280864780526407,
+            -14.06320667383575
+          ],
+          [
+            -27.366343111117093,
+            -96.66388380422464
+          ]
+        ],
+        "canonical_aligned_complex_rms": 0.10157204837244856
+      },
+      {
+        "points_per_wavelength": 10,
+        "canonical": [
+          [
+            -23.79175672506672,
+            34.05195148492657
+          ],
+          [
+            220.12588490165516,
+            -463.1821162252182
+          ]
+        ],
+        "aligned": [
+          [
+            -9.603386783018143,
+            33.13306407674583
+          ],
+          [
+            234.22520708884772,
+            -465.01604903289996
+          ]
+        ],
+        "canonical_aligned_complex_rms": 0.03908085880442921
+      },
+      {
+        "points_per_wavelength": 12,
+        "canonical": [
+          [
+            15.497498999874912,
+            13.537245252928091
+          ],
+          [
+            -69.78140073908766,
+            -121.8334884485062
+          ]
+        ],
+        "aligned": [
+          [
+            50.2075904512219,
+            12.969563524901295
+          ],
+          [
+            -35.0852337225948,
+            -122.9687000890589
+          ]
+        ],
+        "canonical_aligned_complex_rms": 0.3459706790098712
+      }
+    ]
+  },
+  "convergence": {
+    "mfem": {
+      "canonical_adjacent_complex_rms": [
+        0.9949966914407217,
+        0.20704266998106935
+      ],
+      "aligned_adjacent_complex_rms": [
+        0.9949966914407222,
+        0.20704266998107046
+      ],
+      "canonical_self_convergence": "SELF_CONVERGENCE_FAILED",
+      "aligned_self_convergence": "SELF_CONVERGENCE_FAILED"
+    },
+    "pffdtd": {
+      "canonical_adjacent_complex_rms": [
+        0.8761219168261092,
+        3.171427115345244
+      ],
+      "aligned_adjacent_complex_rms": [
+        0.8711728980294441,
+        3.187878726950837
+      ],
+      "canonical_self_convergence": "SELF_CONVERGENCE_FAILED",
+      "aligned_self_convergence": "SELF_CONVERGENCE_FAILED",
+      "canonical_worsening_ratio": 3.6198467980737687,
+      "aligned_worsening_ratio": 3.6592951114086336,
+      "worsening_excess_reduction_fraction": -0.015057488614933162,
+      "classification": "ALIGNED_NON_MONOTONICITY_REMAINS"
+    }
+  },
+  "decision": {
+    "solver_execution": "PASS",
+    "canonical_observable_contract": "MATCH",
+    "diagnostic_observation_operator_validation": "PASS",
+    "canonical_reference_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "aligned_reference_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "canonical_pffdtd_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "aligned_pffdtd_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "cross_solver_eligibility": "CROSS_SOLVER_BLOCKED",
+    "general_3d_validation_state": "NOT_VALIDATED",
+    "diagnostic_does_not_promote_validation": true
+  },
+  "verification": {
+    "focused_tests": "32 passed, 1 warning",
+    "runner_compile_check": "PASS",
+    "rdc_calls": 0,
+    "htdt_capture_changed": false
+  },
+  "interpretation": {
+    "sampling_mismatch_is_principal_cause": false,
+    "observation": "Exact target-window clipping materially changes individual PFFDTD transfer values but does not make adjacent self-convergence monotone; the predeclared worsening-excess metric is 1.5057488614933162% worse after alignment.",
+    "canonical_contract_change_recommended_by_this_slice": false,
+    "next_slice": "Predeclare a separate diagnosis of PFFDTD voxel/staircase boundary geometry and modal/bin sensitivity; do not reinterpret this failed canonical series."
+  }
+}
