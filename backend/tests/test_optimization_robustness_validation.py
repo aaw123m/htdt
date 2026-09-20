@@ -1172,6 +1172,20 @@ def test_o90e_historical_decision_is_immutable_and_new_evidence_adds_new_decisio
     )
 
 
+def test_o90e_raw_measurement_asset_tamper_rejected_on_reopen(tmp_path) -> None:
+    env = _fixture(tmp_path)
+    decision = _decision(env, decided_at='2030-01-01T04:25:00+00:00')
+
+    measurement_id = env.measurement_ids[env.plus.candidate_id]
+    dataset = env.measurement_repository.dataset_for_measurement(measurement_id)
+    assert dataset is not None
+    asset_path = env.measurement_repository.assets_dir / dataset.source_sha256
+    asset_path.write_bytes(b'tampered-o90e-raw-asset')
+
+    with pytest.raises(ValueError, match='raw measurement asset is missing or tampered'):
+        env.validation_repository.get_decision(decision.decision_id)
+
+
 def test_o90e_tamper_rejected_on_reopen(tmp_path) -> None:
     env = _fixture(tmp_path)
     decision = _decision(env, decided_at='2030-01-01T04:30:00+00:00')
