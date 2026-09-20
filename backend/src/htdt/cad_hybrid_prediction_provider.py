@@ -83,6 +83,14 @@ def _excitation_ref(
     )
 
 
+def _crossover_ref(crossover: object) -> ExactExternalAuthorityRef:
+    return ExactExternalAuthorityRef(
+        authority_id=getattr(crossover, 'authority_id'),
+        authority_version=getattr(crossover, 'authority_version'),
+        semantic_hash_sha256=getattr(crossover, 'semantic_sha256'),
+    )
+
+
 def _domain_for_grid(grid: tuple[float, ...]) -> FrequencyDomain:
     return FrequencyDomain(
         minimum_hz=float(grid[0]),
@@ -550,7 +558,7 @@ def build_hybrid_prediction_provider(
             artifact.grid_reconciliation.as_external_ref().model_dump(mode='json')
         ),
         'crossover_configuration_ref': (
-            artifact.crossover_configuration.as_external_ref().model_dump(mode='json')
+            _crossover_ref(artifact.crossover_configuration).model_dump(mode='json')
         ),
         'normalization_authority_ref': (
             spec.normalization_authority_ref.model_dump(mode='json')
