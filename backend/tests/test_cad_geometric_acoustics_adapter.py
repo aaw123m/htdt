@@ -49,8 +49,10 @@ from htdt.cad_geometric_acoustics_adapter import (
     DeterministicGaUnsupportedError,
     GeometricMaterialAuthority,
     HtdtPlanarImageSourceEngine,
+    HtdtPortalDirectEngine,
     HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF,
+    HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
@@ -59,6 +61,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     compile_deterministic_ga_execution_input,
     execute_deterministic_ga,
 )
+from htdt.cad_geometric_acoustics_portal import PORTAL_SIDE_SEMANTICS
 from htdt.cad_r110_source import compile_r110_source_model
 from htdt.cad_r110_source_repository import CadR110SourceRepository
 from htdt.cad_repository import SceneRepository
@@ -80,6 +83,7 @@ from htdt.r120_geometry_compiler import (
     AcousticRegionAuthority,
     AcousticRegionDeclaration,
     BoundaryTerminationAuthority,
+    BoundaryTerminationDeclaration,
     ExactExternalAuthorityRef,
     PortalAuthority,
     PortalBoundaryEdge,
@@ -517,6 +521,16 @@ def _fixture(
     maximum_reflection_order: int = 1,
     multi_region: bool = False,
     explicit_portal: bool = False,
+    region_surface_keys_by_id: dict[str, tuple[str, ...]] | None = None,
+    portal_loop_vertex_indices: tuple[int, ...] | None = None,
+    portal_surface_key: str | None = None,
+    portal_region_ids: tuple[str, str] | None = None,
+    portal_state: str = 'open',
+    reverse_portal_orientation: bool = False,
+    source_region_id: str | None = None,
+    receiver_region_id: str | None = None,
+    boundary_termination_authority: BoundaryTerminationAuthority | None = None,
+    maximum_portal_crossings: int | None = None,
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
@@ -609,21 +623,59 @@ def _fixture(
         'right-x-max',
     )
     room_surface_ids = tuple(surface_by_key[key] for key in selected_room_keys)
-    declarations = [
-        AcousticRegionDeclaration(
-            region_id='room-air',
-            boundary_surface_ids=room_surface_ids,
-        )
-    ]
-    if multi_region:
-        declarations.append(
+    if region_surface_keys_by_id is not None:
+        declarations = [
             AcousticRegionDeclaration(
-                region_id='room-air-secondary',
-                boundary_surface_ids=(room_surface_ids[0],),
+                region_id=region_id,
+                boundary_surface_ids=tuple(
+                    surface_by_key[key] for key in surface_keys
+                ),
             )
-        )
+            for region_id, surface_keys in region_surface_keys_by_id.items()
+        ]
+    else:
+        declarations = [
+            AcousticRegionDeclaration(
+                region_id='room-air',
+                boundary_surface_ids=room_surface_ids,
+            )
+        ]
+        if multi_region:
+            declarations.append(
+                AcousticRegionDeclaration(
+                    region_id='room-air-secondary',
+                    boundary_surface_ids=(room_surface_ids[0],),
+                )
+            )
     region = make_acoustic_region_authority(tuple(declarations))
-    if explicit_portal:
+    if portal_loop_vertex_indices is not None:
+        if portal_surface_key is None or portal_region_ids is None:
+            raise ValueError('Portal fixture requires surface key and region ids')
+        loop = (
+            tuple(reversed(portal_loop_vertex_indices))
+            if reverse_portal_orientation
+            else portal_loop_vertex_indices
+        )
+        portals = make_portal_authority(
+            declaration_mode='explicit_list',
+            declarations=(
+                PortalDeclaration(
+                    portal_id='fixture-portal',
+                    region_ids=portal_region_ids,
+                    boundary_edges=tuple(
+                        PortalBoundaryEdge(
+                            source_surface_id=surface_by_key[portal_surface_key],
+                            vertex_a=loop[index],
+                            vertex_b=loop[(index + 1) % len(loop)],
+                        )
+                        for index in range(len(loop))
+                    ),
+                    state=portal_state,
+                    region_side_semantics=PORTAL_SIDE_SEMANTICS,
+                ),
+            ),
+        )
+    elif explicit_portal:
         portals = make_portal_authority(
             declaration_mode='explicit_list',
             declarations=(
@@ -642,8 +694,10 @@ def _fixture(
         )
     else:
         portals = make_portal_authority(declaration_mode='explicit_none')
-    terminations = make_boundary_termination_authority(
-        declaration_mode='explicit_none'
+    terminations = (
+        boundary_termination_authority
+        if boundary_termination_authority is not None
+        else make_boundary_termination_authority(declaration_mode='explicit_none')
     )
     material = _material(supported=supported_material)
     boundary_ref = _ref('fixture-boundary-physics', 'boundary')
@@ -714,18 +768,23 @@ def _fixture(
         engine_image_match_tolerance_m=1.0e-8,
         room_policy=room_policy,
         maximum_reflection_order=maximum_reflection_order,
+        maximum_portal_crossings=maximum_portal_crossings,
     )
     implementation_ref = (
         PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
         if use_pyroomacoustics
         else (
-            (
-                HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF
-                if maximum_reflection_order == 2
-                else HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+            HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF
+            if room_policy == 'general_planar_multi_region_portal_v1'
+            else (
+                (
+                    HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF
+                    if maximum_reflection_order == 2
+                    else HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+                )
+                if room_policy == 'general_planar_closed_polyhedral_v1'
+                else FixtureImageEngine.solver_implementation_ref
             )
-            if room_policy == 'general_planar_closed_polyhedral_v1'
-            else FixtureImageEngine.solver_implementation_ref
         )
     )
     configuration_schema_ref = _ref(
@@ -827,6 +886,16 @@ def _fixture(
         boundary_termination_authority=terminations,
         directivity_datasets=(dataset,),
         configuration=configuration,
+        source_region_bindings=(
+            {'speaker-fl': source_region_id}
+            if source_region_id is not None
+            else None
+        ),
+        receiver_region_bindings=(
+            {receiver.receiver_id: receiver_region_id}
+            if receiver_region_id is not None
+            else None
+        ),
     )
 
     return {
@@ -848,6 +917,7 @@ def _fixture(
         'configuration': configuration,
         'configuration_resolver': configuration_resolver,
         'geometry_resolver': geometry_resolver,
+        'geometry_authorities': geometry_authorities,
         'external_resolver': external_resolver,
         'execution_input': execution_input,
         'surface_by_key': surface_by_key,
@@ -857,14 +927,19 @@ def _fixture(
 def _execute(fx, engine=None):
     if engine is None:
         engine = (
-            HtdtPlanarImageSourceEngine(
-                maximum_reflection_order=(
-                    fx['execution_input'].maximum_reflection_order or 1
-                )
-            )
+            HtdtPortalDirectEngine()
             if fx['execution_input'].geometry_policy
-            == 'general_planar_closed_polyhedral_v1'
-            else FixtureImageEngine()
+            == 'general_planar_multi_region_portal_v1'
+            else (
+                HtdtPlanarImageSourceEngine(
+                    maximum_reflection_order=(
+                        fx['execution_input'].maximum_reflection_order or 1
+                    )
+                )
+                if fx['execution_input'].geometry_policy
+                == 'general_planar_closed_polyhedral_v1'
+                else FixtureImageEngine()
+            )
         )
     return execute_deterministic_ga(
         execution_input=fx['execution_input'],
