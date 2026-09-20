@@ -326,6 +326,29 @@ def test_real_gpu_complex_pressure_equivalence_uses_explicit_tolerance() -> None
     assert evaluation.production_gpu_support is False
 
 
+def test_real_gpu_tolerance_failure_does_not_claim_equivalence_validated() -> None:
+    capability, _, spec, _, provenance, cpu, _ = _real_fixture()
+    gpu = _evidence(
+        producer='GPU_RESULT',
+        hardware='REAL_GPU_HARDWARE',
+        result_ref=GPU_RESULT,
+        backend_ref=GPU_BACKEND,
+        real=(1.5, 2.5),
+        imag=(0.5, -0.25),
+    )
+    evaluation = evaluate_cpu_gpu_equivalence(
+        spec=spec,
+        capability=capability,
+        cpu=cpu,
+        gpu=gpu,
+        provenance=provenance,
+    )
+
+    assert evaluation.state == 'FAIL'
+    assert evaluation.gpu_numerical_equivalence_validated is False
+    assert evaluation.compared_value_count == 2
+
+
 def test_mismatched_solver_input_is_rejected_before_comparison() -> None:
     capability, _, spec, _, provenance, _, gpu = _real_fixture()
     cpu = _evidence(
