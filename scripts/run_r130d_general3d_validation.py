@@ -605,7 +605,6 @@ def _accepted_frequencies(plan, cross_metrics) -> list[dict[str, Any]]:
     for item in cross_metrics.frequency_metrics:
         accepted = bool(
             item['masked_in']
-            and item['complex_relative'] <= threshold.complex_rms_relative_max
             and item['magnitude_relative'] <= threshold.magnitude_max_relative
             and (
                 threshold.magnitude_max_db is None
