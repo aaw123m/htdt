@@ -1,0 +1,105 @@
+{
+  "schema_version": "r100b-mfem-concave-bounded-experiment-plan-1",
+  "plan_id": "r100b-mfem-concave-current-authority-2026-09-20",
+  "authority": {
+    "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+    "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+    "fixture_id": "wave-concave-l-room-v1",
+    "fixture_hash_algorithm": "sha256(canonical_benchmark_json)",
+    "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+    "candidate_id": "mfem-v4.10-d964264",
+    "candidate_semantic_hash": "d7845fa151ccada42e741b5fc49b0576ade9ab9fd74ca18adeb3989f47c0ed13",
+    "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f"
+  },
+  "solver_configuration": {
+    "backend": "MFEM",
+    "backend_version": "4.10.0",
+    "source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "primary_field": "velocity_potential_phi",
+    "governing_equation": "M*phi_tt+c^2*K*phi=c^2*b*q",
+    "pressure_conversion": "p=rho*d(phi)/dt",
+    "source_mapping": "phi_t(0+)=c^2*dt*M^-1*b*q[0]",
+    "time_integrator": "Newmark(beta=0.25,gamma=0.5)",
+    "algorithmic_damping": "none",
+    "linear_solver": "serial CG with diagonal Jacobi preconditioner",
+    "linear_relative_tolerance": 1e-12,
+    "linear_max_iterations": 1000,
+    "qualification_residual_limit": 1e-8
+  },
+  "numerical_contract": {
+    "quantity": "finite_record_complex_pressure_transfer",
+    "unit": "Pa/(m3/s)",
+    "source_normalization": "volume_velocity_m3_s",
+    "coordinate_system": "x_right_y_rear_z_up",
+    "interpolation": "linear_complex",
+    "fourier_sign": "exp(-i*omega*t)",
+    "finite_record_dtft_kernel": "exp(+i*2*pi*f*n*dt)",
+    "record_interval": "half_open_0_T",
+    "observation_time_s": 2.0,
+    "frequency_start_hz": 20.0,
+    "frequency_stop_hz": 300.0,
+    "frequency_step_hz": 1.0,
+    "magnitude_null_mask_below_db": -60.0,
+    "phase_null_mask_below_db": -40.0,
+    "magnitude_absolute_tolerance_db": 0.75,
+    "magnitude_relative_tolerance": 0.05,
+    "phase_tolerance_deg": 8.0
+  },
+  "resource_ceiling": {
+    "cpu_thread_budget": 4,
+    "ram_budget_mb": 8192.0,
+    "disk_budget_mb": 2048.0,
+    "max_solve_s_per_attempt": 300.0,
+    "max_output_mb_per_attempt": 512.0,
+    "subprocess_wall_timeout_s": 330.0
+  },
+  "attempts": [
+    {
+      "attempt_id": "time-p2-h1-sr6000",
+      "order": 2,
+      "uniform_refinements": 1,
+      "sample_rate_hz": 6000
+    },
+    {
+      "attempt_id": "time-p2-h1-sr9000",
+      "order": 2,
+      "uniform_refinements": 1,
+      "sample_rate_hz": 9000
+    },
+    {
+      "attempt_id": "pivot-p2-h1-sr12000",
+      "order": 2,
+      "uniform_refinements": 1,
+      "sample_rate_hz": 12000
+    },
+    {
+      "attempt_id": "space-p2-h0-sr12000",
+      "order": 2,
+      "uniform_refinements": 0,
+      "sample_rate_hz": 12000
+    },
+    {
+      "attempt_id": "space-p2-h2-sr12000",
+      "order": 2,
+      "uniform_refinements": 2,
+      "sample_rate_hz": 12000
+    }
+  ],
+  "time_track": [
+    "time-p2-h1-sr6000",
+    "time-p2-h1-sr9000",
+    "pivot-p2-h1-sr12000"
+  ],
+  "space_track": [
+    "space-p2-h0-sr12000",
+    "pivot-p2-h1-sr12000",
+    "space-p2-h2-sr12000"
+  ],
+  "promotion": {
+    "require_all_attempts": true,
+    "require_both_tracks_pass": true,
+    "best_trace_selection_forbidden": true,
+    "nonconverged_promotion_forbidden": true,
+    "promotable_attempt_id": "space-p2-h2-sr12000"
+  }
+}
