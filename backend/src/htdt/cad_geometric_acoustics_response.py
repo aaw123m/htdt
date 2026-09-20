@@ -496,6 +496,10 @@ def build_source_response_authority(
                 or directivity_dataset.equipment_definition_sha256 != equipment_definition.semantic_sha256
             ):
                 raise ValueError('DirectivityDataset does not bind the supplied EquipmentDefinition')
+            if directivity_dataset.kind != directivity.tier:
+                raise ValueError(
+                    'DirectivityDataset kind does not match EquipmentDefinition directivity tier'
+                )
             dataset_ref = _identity_ref(
                 authority_id=directivity_dataset.dataset_id,
                 authority_version=directivity_dataset.version,
@@ -661,6 +665,8 @@ class SurfaceReflectionTransferAuthority(BaseModel):
 
 
 def _domain_from_samples(samples: Sequence[ComplexTransferSample]) -> FrequencyDomain:
+    if not samples:
+        raise ValueError('transfer authority requires at least one frequency sample')
     frequencies = [item.frequency_hz for item in samples]
     if len(frequencies) == 1:
         return FrequencyDomain(
