@@ -381,7 +381,7 @@ def _fixture(tmp_path):
     applied = {}
     planned = {}
     for candidate in (minus, nominal, plus, calibration):
-        preview = candidate_preview_document(source, candidate)
+        preview = candidate_preview_document(source.document, candidate)
         revision = scene_repository.save(
             preview,
             parent_revision_id=source.revision_id,
