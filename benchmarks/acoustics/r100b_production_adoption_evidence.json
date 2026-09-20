@@ -27,20 +27,72 @@
       "evidence_id": "mfem-finite-record-concave-2026-09-19",
       "candidate_id": "mfem-v4.10-d964264",
       "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
-      "candidate_semantic_hash": null,
+      "candidate_semantic_hash": "d7845fa151ccada42e741b5fc49b0576ade9ab9fd74ca18adeb3989f47c0ed13",
       "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
-      "r100a_manifest_id": "r100a-canonical-v1",
+      "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
       "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
       "target_kind": "fixture",
       "fixture_id": "wave-concave-l-room-v1",
       "hard_gate_category": null,
       "reported_status": "fail",
-      "evidence_ref": "benchmarks/acoustics/evidence/r100b_mfem_finite_record_2026-09-19.json",
-      "fixture_evidence": null,
+      "evidence_ref": "artifact:10583118482/mfem_concave_finite_record_reference.json",
+      "fixture_evidence": {
+        "fixture_id": "wave-concave-l-room-v1",
+        "status": "fail",
+        "evidence_ref": "artifact:artifacts/r100b/mfem_concave_finite_record_reference.json",
+        "adapter_id": "htdt-r100b-mfem-concave-finite-record",
+        "adapter_version": "1",
+        "backend_version": "4.10.0",
+        "precision": "float64",
+        "compile_s": 0.1485029,
+        "solve_s": 136.8716437,
+        "postprocess_s": 2.464117799999997,
+        "peak_ram_mb": 14.109375,
+        "disk_mb": 7.710732460021973,
+        "output_mb": 7.710732460021973,
+        "observables": [
+          {
+            "observable_id": "lroom-fr",
+            "status": "fail",
+            "absolute_error": 35.08819531606021,
+            "relative_error": 16.80364180532249,
+            "phase_error_deg": null,
+            "statistical_stddev": null,
+            "difference_from_peer": null,
+            "summary": "complex RMS coupled p/dt refinement error is not strictly decreasing; final magnitude/relative deltas exceed frozen qualification"
+          },
+          {
+            "observable_id": "lroom-phase",
+            "status": "fail",
+            "absolute_error": null,
+            "relative_error": null,
+            "phase_error_deg": 179.72890333019876,
+            "statistical_stddev": null,
+            "difference_from_peer": null,
+            "summary": "final phase delta exceeds frozen qualification"
+          }
+        ],
+        "diagnostics": [
+          "Exact five-cell L-prism; natural rigid Neumann boundary on every exterior face.",
+          "Transient velocity-potential FEM with physical pressure p=rho*d(phi)/dt.",
+          "No PFFDTD observation and no unqualified harmonic finest trace participates."
+        ]
+      },
       "hard_gate_evidence": null,
-      "platform": null,
+      "platform": {
+        "os": "Windows-2025Server-10.0.26100-SP0",
+        "architecture": "AMD64",
+        "python_version": "3.12.10",
+        "cpu": "AMD64 Family 26 Model 2 Stepping 1, AuthenticAMD",
+        "logical_threads": 4,
+        "thread_budget": 4,
+        "gpu": null,
+        "device_notes": "Pinned MFEM v4.10 serial H1 transient finite-record independent reference."
+      },
       "notes": [
-        "Negative non-converged evidence is retained and the finest trace remains unqualified."
+        "Exact immutable Actions artifact 10583118482 was re-resolved against current R100A-4 and current candidate manifest.",
+        "Artifact run mfem-concave-finite-record-35439744627 is current and remains FAIL/non-converged.",
+        "The finest trace is retained only as raw_finest_unqualified_observation and is not reference truth."
       ]
     },
     {
@@ -263,6 +315,31 @@
       "platform": null,
       "notes": [
         "Independent MFEM complex reflection extraction remains BLOCKED; no PASS is fabricated."
+      ]
+    },
+    {
+      "evidence_id": "mfem-reproducible-authority-35439744627",
+      "candidate_id": "mfem-v4.10-d964264",
+      "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "candidate_semantic_hash": "d7845fa151ccada42e741b5fc49b0576ade9ab9fd74ca18adeb3989f47c0ed13",
+      "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+      "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+      "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+      "target_kind": "hard_gate",
+      "fixture_id": null,
+      "hard_gate_category": "reproducible_authority",
+      "reported_status": "pass",
+      "evidence_ref": "artifact:10583118482/mfem_concave_finite_record_reference.json",
+      "fixture_evidence": null,
+      "hard_gate_evidence": {
+        "category": "reproducible_authority",
+        "status": "pass",
+        "evidence_ref": "artifact:artifacts/r100b/mfem_concave_finite_record_reference.json",
+        "summary": "Pinned MFEM source commit, exact current R100A-4 semantic hash, finite-record contract, raw pressure/source records, frozen refinement sequence and resource/provenance evidence are recorded."
+      },
+      "platform": null,
+      "notes": [
+        "This PASS is provenance/replayability evidence only; the concave physics fixture in the same artifact is explicitly FAIL/non-converged."
       ]
     }
   ]
