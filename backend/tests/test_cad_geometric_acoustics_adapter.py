@@ -49,8 +49,10 @@ from htdt.cad_geometric_acoustics_adapter import (
     DeterministicGaUnsupportedError,
     GeometricMaterialAuthority,
     HtdtPlanarImageSourceEngine,
+    HtdtPortalDirectEngine,
     HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF,
+    HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
@@ -59,6 +61,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     compile_deterministic_ga_execution_input,
     execute_deterministic_ga,
 )
+from htdt.cad_geometric_acoustics_portal import PORTAL_SIDE_SEMANTICS
 from htdt.cad_r110_source import compile_r110_source_model
 from htdt.cad_r110_source_repository import CadR110SourceRepository
 from htdt.cad_repository import SceneRepository
@@ -80,6 +83,7 @@ from htdt.r120_geometry_compiler import (
     AcousticRegionAuthority,
     AcousticRegionDeclaration,
     BoundaryTerminationAuthority,
+    BoundaryTerminationDeclaration,
     ExactExternalAuthorityRef,
     PortalAuthority,
     PortalBoundaryEdge,
@@ -388,6 +392,170 @@ def _general_semantic_geometry(
     return convert_raw_visual_mesh_to_semantic_geometry(mesh, request)
 
 
+
+PORTAL_POLICY = 'general_planar_multi_region_portal_v1'
+PORTAL_REGION_SURFACES = {
+    'region-a': (
+        'portal-floor-a',
+        'portal-ceiling-a',
+        'portal-front-a',
+        'portal-rear-a',
+        'portal-left-a',
+        'portal-interface',
+    ),
+    'region-b': (
+        'portal-floor-b',
+        'portal-ceiling-b',
+        'portal-front-b',
+        'portal-rear-b',
+        'portal-right-b',
+        'portal-interface',
+    ),
+}
+
+
+def _portal_semantic_geometry(*, occluder: bool = False):
+    vertices: list[tuple[float, float, float]] = []
+    vertex_index: dict[tuple[float, float, float], int] = {}
+    faces: list[tuple[int, int, int]] = []
+    face_indices: dict[str, list[int]] = {}
+
+    def vid(point: tuple[float, float, float]) -> int:
+        if point not in vertex_index:
+            vertex_index[point] = len(vertices)
+            vertices.append(point)
+        return vertex_index[point]
+
+    def add_quad(
+        key: str,
+        a: tuple[float, float, float],
+        b: tuple[float, float, float],
+        c_: tuple[float, float, float],
+        d: tuple[float, float, float],
+    ) -> None:
+        start = len(faces)
+        ia, ib, ic, id_ = (vid(point) for point in (a, b, c_, d))
+        faces.extend(((ia, ib, ic), (ia, ic, id_)))
+        face_indices.setdefault(key, []).extend((start, start + 1))
+
+    y_values = (0.0, 1.0, 2.0, 3.0)
+    z_values = (0.0, 0.5, 1.5, 2.0)
+
+    for region_key, x0, x1 in (
+        ('a', 0.0, 2.0),
+        ('b', 2.0, 4.0),
+    ):
+        for y0, y1 in zip(y_values[:-1], y_values[1:], strict=True):
+            add_quad(
+                f'portal-floor-{region_key}',
+                (x0, y0, 0.0),
+                (x1, y0, 0.0),
+                (x1, y1, 0.0),
+                (x0, y1, 0.0),
+            )
+            add_quad(
+                f'portal-ceiling-{region_key}',
+                (x0, y0, 2.0),
+                (x0, y1, 2.0),
+                (x1, y1, 2.0),
+                (x1, y0, 2.0),
+            )
+        for z0, z1 in zip(z_values[:-1], z_values[1:], strict=True):
+            add_quad(
+                f'portal-front-{region_key}',
+                (x0, 0.0, z0),
+                (x0, 0.0, z1),
+                (x1, 0.0, z1),
+                (x1, 0.0, z0),
+            )
+            add_quad(
+                f'portal-rear-{region_key}',
+                (x0, 3.0, z0),
+                (x1, 3.0, z0),
+                (x1, 3.0, z1),
+                (x0, 3.0, z1),
+            )
+
+    for y0, y1 in zip(y_values[:-1], y_values[1:], strict=True):
+        for z0, z1 in zip(z_values[:-1], z_values[1:], strict=True):
+            add_quad(
+                'portal-left-a',
+                (0.0, y0, z0),
+                (0.0, y1, z0),
+                (0.0, y1, z1),
+                (0.0, y0, z1),
+            )
+            add_quad(
+                'portal-right-b',
+                (4.0, y0, z0),
+                (4.0, y0, z1),
+                (4.0, y1, z1),
+                (4.0, y1, z0),
+            )
+            if not (y0 == 1.0 and y1 == 2.0 and z0 == 0.5 and z1 == 1.5):
+                add_quad(
+                    'portal-interface',
+                    (2.0, y0, z0),
+                    (2.0, y0, z1),
+                    (2.0, y1, z1),
+                    (2.0, y1, z0),
+                )
+
+    if occluder:
+        add_quad(
+            'portal-opaque-blocker',
+            (2.5, 0.5, 0.5),
+            (2.5, 2.5, 0.5),
+            (2.5, 2.5, 1.5),
+            (2.5, 0.5, 1.5),
+        )
+
+    portal_points = (
+        (2.0, 1.0, 0.5),
+        (2.0, 2.0, 0.5),
+        (2.0, 2.0, 1.5),
+        (2.0, 1.0, 1.5),
+    )
+    portal_loop = tuple(vid(point) for point in portal_points)
+
+    obj_lines = [
+        *(f'v {x} {y} {z}' for x, y, z in vertices),
+        *(
+            f'f {a + 1} {b + 1} {c_ + 1}'
+            for a, b, c_ in faces
+        ),
+    ]
+    mesh = import_raw_visual_mesh(
+        ('\n'.join(obj_lines) + '\n').encode('utf-8'),
+        source_name='r150-ga-two-region-portal.obj',
+    )
+    ids = raw_triangle_ids(mesh)
+    assignments = []
+    for key, indices in face_indices.items():
+        assignments.append(
+            SurfaceSemanticAssignment(
+                surface_key=key,
+                triangle_ids=tuple(ids[index] for index in indices),
+                semantic_class=(
+                    'object_surface'
+                    if key == 'portal-opaque-blocker'
+                    else 'room_boundary'
+                ),
+            )
+        )
+    request = make_semantic_geometry_conversion_request(
+        mesh,
+        source_scene_revision_id=None,
+        source_to_scene_transform=explicit_identity_source_to_scene_transform(
+            reason='two-region Portal fixture uses explicit HTDT metre coordinates',
+        ),
+        surface_assignments=tuple(assignments),
+    )
+    return (
+        convert_raw_visual_mesh_to_semantic_geometry(mesh, request),
+        portal_loop,
+    )
+
 def _directivity_definition(*, narrow: bool):
     source_hash = 'd' * 64
     provenance = EquipmentDataProvenance(
@@ -517,6 +685,18 @@ def _fixture(
     maximum_reflection_order: int = 1,
     multi_region: bool = False,
     explicit_portal: bool = False,
+    region_surface_keys_by_id: dict[str, tuple[str, ...]] | None = None,
+    portal_loop_vertex_indices: tuple[int, ...] | None = None,
+    portal_surface_key: str | None = None,
+    portal_region_ids: tuple[str, str] | None = None,
+    portal_state: str = 'open',
+    reverse_portal_orientation: bool = False,
+    source_region_id: str | None = None,
+    receiver_region_id: str | None = None,
+    boundary_termination_authority: BoundaryTerminationAuthority | None = None,
+    nontrivial_boundary_termination: bool = False,
+    maximum_portal_crossings: int | None = None,
+    expected_dispatch_state: str = 'READY',
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
@@ -600,30 +780,75 @@ def _fixture(
     geometry = revision.document.r120_semantic_geometry
     assert geometry is not None
     surface_by_key = {item.surface_key: item.surface_id for item in geometry.surfaces}
-    selected_room_keys = room_surface_keys or (
-        'floor-z-min',
-        'ceiling-z-max',
-        'front-y-min',
-        'rear-y-max',
-        'left-x-min',
-        'right-x-max',
-    )
-    room_surface_ids = tuple(surface_by_key[key] for key in selected_room_keys)
-    declarations = [
-        AcousticRegionDeclaration(
-            region_id='room-air',
-            boundary_surface_ids=room_surface_ids,
-        )
-    ]
-    if multi_region:
-        declarations.append(
-            AcousticRegionDeclaration(
-                region_id='room-air-secondary',
-                boundary_surface_ids=(room_surface_ids[0],),
+    selected_room_keys = (
+        room_surface_keys
+        or (
+            next(iter(region_surface_keys_by_id.values()))
+            if region_surface_keys_by_id is not None
+            else (
+                'floor-z-min',
+                'ceiling-z-max',
+                'front-y-min',
+                'rear-y-max',
+                'left-x-min',
+                'right-x-max',
             )
         )
+    )
+    room_surface_ids = tuple(surface_by_key[key] for key in selected_room_keys)
+    if region_surface_keys_by_id is not None:
+        declarations = [
+            AcousticRegionDeclaration(
+                region_id=region_id,
+                boundary_surface_ids=tuple(
+                    surface_by_key[key] for key in surface_keys
+                ),
+            )
+            for region_id, surface_keys in region_surface_keys_by_id.items()
+        ]
+    else:
+        declarations = [
+            AcousticRegionDeclaration(
+                region_id='room-air',
+                boundary_surface_ids=room_surface_ids,
+            )
+        ]
+        if multi_region:
+            declarations.append(
+                AcousticRegionDeclaration(
+                    region_id='room-air-secondary',
+                    boundary_surface_ids=(room_surface_ids[0],),
+                )
+            )
     region = make_acoustic_region_authority(tuple(declarations))
-    if explicit_portal:
+    if portal_loop_vertex_indices is not None:
+        if portal_surface_key is None or portal_region_ids is None:
+            raise ValueError('Portal fixture requires surface key and region ids')
+        loop = (
+            tuple(reversed(portal_loop_vertex_indices))
+            if reverse_portal_orientation
+            else portal_loop_vertex_indices
+        )
+        portals = make_portal_authority(
+            declaration_mode='explicit_list',
+            declarations=(
+                PortalDeclaration(
+                    portal_id='fixture-portal',
+                    region_ids=portal_region_ids,
+                    boundary_edges=tuple(
+                        PortalBoundaryEdge(
+                            source_surface_id=surface_by_key[portal_surface_key],
+                            vertex_a=loop[index],
+                            vertex_b=loop[(index + 1) % len(loop)],
+                        )
+                        for index in range(len(loop))
+                    ),
+                    state=portal_state,
+                    region_side_semantics=PORTAL_SIDE_SEMANTICS,
+                ),
+            ),
+        )
+    elif explicit_portal:
         portals = make_portal_authority(
             declaration_mode='explicit_list',
             declarations=(
@@ -642,9 +867,34 @@ def _fixture(
         )
     else:
         portals = make_portal_authority(declaration_mode='explicit_none')
-    terminations = make_boundary_termination_authority(
-        declaration_mode='explicit_none'
-    )
+    if boundary_termination_authority is not None:
+        terminations = boundary_termination_authority
+    elif nontrivial_boundary_termination:
+        if portal_loop_vertex_indices is None or portal_surface_key is None:
+            raise ValueError('nontrivial termination fixture requires Portal geometry')
+        terminations = make_boundary_termination_authority(
+            declaration_mode='explicit_list',
+            declarations=(
+                BoundaryTerminationDeclaration(
+                    termination_id='fixture-termination',
+                    boundary_edges=(
+                        PortalBoundaryEdge(
+                            source_surface_id=surface_by_key[portal_surface_key],
+                            vertex_a=portal_loop_vertex_indices[0],
+                            vertex_b=portal_loop_vertex_indices[1],
+                        ),
+                    ),
+                    external_authority=_ref(
+                        'fixture-boundary-termination',
+                        'boundary-termination',
+                    ),
+                ),
+            ),
+        )
+    else:
+        terminations = make_boundary_termination_authority(
+            declaration_mode='explicit_none'
+        )
     material = _material(supported=supported_material)
     boundary_ref = _ref('fixture-boundary-physics', 'boundary')
     bindings = tuple(
@@ -660,6 +910,11 @@ def _fixture(
         make_r120_geometry_compilation_request(
             revision,
             geometric_tolerance_m=1.0e-9,
+            input_policy=(
+                'diagnostic_compile_unresolved'
+                if room_policy == PORTAL_POLICY
+                else 'require_contract_ready'
+            ),
         ),
         surface_boundary_bindings=bindings,
         region_authority=region,
@@ -714,18 +969,23 @@ def _fixture(
         engine_image_match_tolerance_m=1.0e-8,
         room_policy=room_policy,
         maximum_reflection_order=maximum_reflection_order,
+        maximum_portal_crossings=maximum_portal_crossings,
     )
     implementation_ref = (
         PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
         if use_pyroomacoustics
         else (
-            (
-                HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF
-                if maximum_reflection_order == 2
-                else HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+            HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF
+            if room_policy == 'general_planar_multi_region_portal_v1'
+            else (
+                (
+                    HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF
+                    if maximum_reflection_order == 2
+                    else HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+                )
+                if room_policy == 'general_planar_closed_polyhedral_v1'
+                else FixtureImageEngine.solver_implementation_ref
             )
-            if room_policy == 'general_planar_closed_polyhedral_v1'
-            else FixtureImageEngine.solver_implementation_ref
         )
     )
     configuration_schema_ref = _ref(
@@ -749,7 +1009,21 @@ def _fixture(
         adapter=descriptor,
         solver_configuration_ref=configuration.as_external_ref(),
     )
-    assert dispatch.state == 'READY'
+    assert dispatch.state == expected_dispatch_state, {
+        'dispatch_reasons': dispatch.reasons,
+        'compiled_unresolved': compiled.unresolved_conditions,
+        'compiled_readiness': compiled.readiness.model_dump(mode='json'),
+        'compiler_warnings': compiled.compiler_warnings,
+        'closed_shell': compiled.closed_shell_diagnostics.model_dump(mode='json'),
+    }
+    if expected_dispatch_state != 'READY':
+        return {
+            'dispatch': dispatch,
+            'compiled': compiled,
+            'region': region,
+            'portals': portals,
+            'terminations': terminations,
+        }
 
     snapshot_repository = CadAcousticSnapshotRepository(
         scene_repository,
@@ -827,6 +1101,16 @@ def _fixture(
         boundary_termination_authority=terminations,
         directivity_datasets=(dataset,),
         configuration=configuration,
+        source_region_bindings=(
+            {'speaker-fl': source_region_id}
+            if source_region_id is not None
+            else None
+        ),
+        receiver_region_bindings=(
+            {receiver.receiver_id: receiver_region_id}
+            if receiver_region_id is not None
+            else None
+        ),
     )
 
     return {
@@ -848,6 +1132,7 @@ def _fixture(
         'configuration': configuration,
         'configuration_resolver': configuration_resolver,
         'geometry_resolver': geometry_resolver,
+        'geometry_authorities': geometry_authorities,
         'external_resolver': external_resolver,
         'execution_input': execution_input,
         'surface_by_key': surface_by_key,
@@ -857,14 +1142,19 @@ def _fixture(
 def _execute(fx, engine=None):
     if engine is None:
         engine = (
-            HtdtPlanarImageSourceEngine(
-                maximum_reflection_order=(
-                    fx['execution_input'].maximum_reflection_order or 1
-                )
-            )
+            HtdtPortalDirectEngine()
             if fx['execution_input'].geometry_policy
-            == 'general_planar_closed_polyhedral_v1'
-            else FixtureImageEngine()
+            == 'general_planar_multi_region_portal_v1'
+            else (
+                HtdtPlanarImageSourceEngine(
+                    maximum_reflection_order=(
+                        fx['execution_input'].maximum_reflection_order or 1
+                    )
+                )
+                if fx['execution_input'].geometry_policy
+                == 'general_planar_closed_polyhedral_v1'
+                else FixtureImageEngine()
+            )
         )
     return execute_deterministic_ga(
         execution_input=fx['execution_input'],
@@ -1450,3 +1740,262 @@ def test_actual_pyroomacoustics_candidate_executes_same_direct_first_reflection_
         and item.ordered_interaction_surface_ids == (front_id,)
     )
     assert isclose(reflected.geometric_path_length_m, sqrt(13.0), abs_tol=1.0e-8)
+
+
+def _portal_fixture(
+    tmp_path: Path,
+    *,
+    portal_state: str = 'open',
+    reverse_portal_orientation: bool = False,
+    portal_region_ids: tuple[str, str] = ('region-a', 'region-b'),
+    source_region_id: str = 'region-a',
+    receiver_region_id: str = 'region-b',
+    receiver_position: Position3 | None = None,
+    occluder: bool = False,
+    nontrivial_boundary_termination: bool = False,
+    expected_dispatch_state: str = 'READY',
+):
+    geometry, portal_loop = _portal_semantic_geometry(occluder=occluder)
+    return _fixture(
+        tmp_path,
+        semantic_geometry=geometry,
+        receiver_position=receiver_position,
+        room_policy=PORTAL_POLICY,
+        region_surface_keys_by_id=PORTAL_REGION_SURFACES,
+        portal_loop_vertex_indices=portal_loop,
+        portal_surface_key='portal-interface',
+        portal_region_ids=portal_region_ids,
+        portal_state=portal_state,
+        reverse_portal_orientation=reverse_portal_orientation,
+        source_region_id=source_region_id,
+        receiver_region_id=receiver_region_id,
+        nontrivial_boundary_termination=nontrivial_boundary_termination,
+        maximum_reflection_order=0,
+        maximum_portal_crossings=1,
+        expected_dispatch_state=expected_dispatch_state,
+    )
+
+
+def test_portal_lane_requires_explicit_zero_reflection_order() -> None:
+    with pytest.raises(ValueError, match='maximum_reflection_order=0'):
+        build_deterministic_ga_configuration(
+            frequency_centers_hz=(500.0, 1000.0),
+            room_policy=PORTAL_POLICY,
+            maximum_reflection_order=1,
+            maximum_portal_crossings=1,
+        )
+
+
+def test_portal_endpoint_region_bindings_are_mandatory(tmp_path: Path) -> None:
+    geometry, portal_loop = _portal_semantic_geometry()
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _fixture(
+            tmp_path,
+            semantic_geometry=geometry,
+            room_policy=PORTAL_POLICY,
+            region_surface_keys_by_id=PORTAL_REGION_SURFACES,
+            portal_loop_vertex_indices=portal_loop,
+            portal_surface_key='portal-interface',
+            portal_region_ids=('region-a', 'region-b'),
+            source_region_id=None,
+            receiver_region_id='region-b',
+            maximum_reflection_order=0,
+            maximum_portal_crossings=1,
+        )
+    assert error.value.reason_code == 'UNSUPPORTED_REGION_MEMBERSHIP'
+
+
+def test_portal_non_manifold_region_topology_blocks_dispatch(tmp_path: Path) -> None:
+    geometry, portal_loop = _portal_semantic_geometry()
+    broken_regions = dict(PORTAL_REGION_SURFACES)
+    broken_regions['region-a'] = tuple(
+        key for key in broken_regions['region-a']
+        if key != 'portal-floor-a'
+    )
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=geometry,
+        room_policy=PORTAL_POLICY,
+        region_surface_keys_by_id=broken_regions,
+        portal_loop_vertex_indices=portal_loop,
+        portal_surface_key='portal-interface',
+        portal_region_ids=('region-a', 'region-b'),
+        source_region_id='region-a',
+        receiver_region_id='region-b',
+        maximum_reflection_order=0,
+        maximum_portal_crossings=1,
+        expected_dispatch_state='BLOCKED',
+    )
+    assert fx['compiled'].readiness.geometric_acoustics_geometry_ready is False
+
+
+def test_multi_region_open_portal_direct_path_has_exact_ordered_region_sequence(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path)
+    artifact = _execute(fx)
+
+    assert fx['configuration'].maximum_reflection_order == 0
+    assert fx['execution_input'].maximum_reflection_order == 0
+    assert artifact.path_scope == 'direct_single_portal_propagation'
+    assert len(artifact.paths) == 1
+    path = artifact.paths[0]
+    assert path.path_type == 'direct'
+    assert path.ordered_interaction_surface_ids == ()
+    assert path.ordered_interaction_points == ()
+    assert path.ordered_region_ids == ('region-a', 'region-b')
+    assert path.ordered_interactions is not None
+    assert len(path.ordered_interactions) == 1
+    interaction = path.ordered_interactions[0]
+    assert interaction.kind == 'portal_crossing'
+    assert interaction.portal_id == 'fixture-portal'
+    assert interaction.from_region_id == 'region-a'
+    assert interaction.to_region_id == 'region-b'
+    assert isclose(interaction.point.x_m, 2.0, abs_tol=1.0e-9)
+    assert 1.0 <= interaction.point.y_m <= 2.0
+    assert 0.5 <= interaction.point.z_m <= 1.5
+    for band in path.bands:
+        assert band.boundary_material is None
+        assert band.boundary_materials is None
+        assert band.coherent_phase == 'UNAVAILABLE_NOT_SYNTHESIZED'
+
+
+def test_same_multi_region_geometry_with_closed_portal_fails_closed(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, portal_state='closed')
+    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_STATE'
+
+
+def test_portal_plane_crossing_outside_exact_polygon_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(
+        tmp_path,
+        receiver_position=Position3(x_m=3.0, y_m=0.2, z_m=1.0),
+    )
+    artifact = _execute(fx)
+    assert artifact.paths == ()
+    assert any(
+        item.decision == 'INVALID_PORTAL_CROSSING'
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_portal_wrong_region_adjacency_fails_closed(tmp_path: Path) -> None:
+    fx = _portal_fixture(
+        tmp_path,
+        portal_region_ids=('region-a', 'ghost-region'),
+        expected_dispatch_state='BLOCKED',
+    )
+    assert fx['dispatch'].state == 'BLOCKED'
+
+
+def test_portal_source_wrong_explicit_region_binding_fails_closed(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, source_region_id='region-b')
+    assert error.value.reason_code == 'UNSUPPORTED_REGION_MEMBERSHIP'
+
+
+def test_portal_receiver_wrong_explicit_region_binding_fails_closed(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, receiver_region_id='region-a')
+    assert error.value.reason_code == 'UNSUPPORTED_REGION_MEMBERSHIP'
+
+
+def test_portal_direct_path_is_blocked_by_opaque_surface(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path, occluder=True)
+    artifact = _execute(fx)
+    assert artifact.paths == ()
+    assert any(
+        item.decision == 'BLOCKED_VISIBILITY'
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_portal_reversed_directed_edge_loop_fails_orientation_semantics(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, reverse_portal_orientation=True)
+    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_ORIENTATION'
+
+
+def test_portal_path_identity_is_deterministic(tmp_path: Path) -> None:
+    fx = _portal_fixture(tmp_path)
+    first = _execute(fx)
+    second = _execute(fx)
+    assert second == first
+    assert second.artifact_id == first.artifact_id
+    assert second.paths[0].path_id == first.paths[0].path_id
+
+
+def test_multi_region_portal_execution_input_and_artifact_save_reopen_exact_identity(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path)
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    reopened = CadDeterministicPathArtifactRepository(
+        SceneRepository(fx['scene_repository'].path),
+        snapshot_repository=CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path)
+        ),
+        dispatch_repository=CadAcousticSolverDispatchRepository(
+            SceneRepository(fx['scene_repository'].path),
+            external_authority_resolver=fx['external_resolver'],
+        ),
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    assert reopened.get_execution_input(
+        fx['execution_input'].execution_input_id
+    ) == fx['execution_input']
+    assert reopened.get(artifact.artifact_id) == artifact
+
+
+def test_stale_portal_authority_does_not_reopen_as_current(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_fixture(tmp_path)
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    fx['geometry_authorities'].pop(fx['portals'].authority_id)
+    with pytest.raises(ValueError, match='portal exact authority'):
+        repository.get(artifact.artifact_id)
+
+
+def test_nontrivial_boundary_termination_is_not_transmitted_as_portal(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _portal_fixture(tmp_path, nontrivial_boundary_termination=True)
+    assert error.value.reason_code == 'UNSUPPORTED_BOUNDARY_TERMINATION'

@@ -1168,7 +1168,13 @@ def build_acoustic_scene_snapshot(
         )
     if wave_excitation_bindings:
         snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
-    elif treatment_bindings:
+    elif (
+        treatment_bindings
+        or compiled_geometry.readiness.geometric_acoustics_geometry_ready
+        != compiled_geometry.readiness.wave_geometry_ready
+    ):
+        # V2 is the first snapshot schema that carries geometric boundary
+        # readiness independently from wave boundary readiness.
         snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_V2_SCHEMA_VERSION
     else:
         snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_V1_SCHEMA_VERSION

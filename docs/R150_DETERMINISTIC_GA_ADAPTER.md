@@ -22,10 +22,11 @@ AcousticSceneSnapshot
   -> AcousticSolverResultEnvelope
 ```
 
-Two explicit geometry policies exist:
+Three explicit geometry policies exist:
 
 - `exact_axis_aligned_closed_shoebox_v1`: the PR #245 compatibility/reference lane. It retains the pinned pyroomacoustics 0.10.1 shoebox image-source bridge.
-- `general_planar_closed_polyhedral_v1`: the arbitrary-planar lane. With `maximum_reflection_order=1`, it preserves the existing first-order kernel/provenance. With `maximum_reflection_order=2`, it uses the second-order kernel/provenance and enumerates deterministic ordered surface pairs. It does not approximate the room as a shoebox and does not use pyroomacoustics native shoebox image generation for this lane.
+- `general_planar_closed_polyhedral_v1`: the arbitrary-planar single-region lane. With `maximum_reflection_order=1`, it preserves the existing first-order kernel/provenance. With `maximum_reflection_order=2`, it uses the second-order kernel/provenance and enumerates deterministic ordered surface pairs. It does not approximate the room as a shoebox and does not use pyroomacoustics native shoebox image generation for this lane.
+- `general_planar_multi_region_portal_v1`: the bounded exact two-region / one-Portal direct lane added by PR #265. Its full authority and fail-closed contract is recorded in `docs/R150_MULTI_REGION_PORTAL_PROPAGATION.md`.
 
 The general-planar kernel is an adapter execution authority, not a production GA solver selection. This slice does not claim full R150 numerical validation or general concave-room qualification.
 
@@ -44,7 +45,7 @@ The adapter consumes existing exact R120 authority rather than constructing a se
 - exact environment sound-speed authority
 - exact solver/adapter implementation and configuration refs
 
-The general-planar lane requires exactly one explicit acoustic region, no Portal declarations, and no BoundaryTermination declarations. The exact region boundary surface ids must equal the R120 `room_boundary` subset, and that subset must itself be a closed manifold with non-zero enclosed volume. Multi-region and Portal topology remain explicitly unsupported; they are not flattened into one room.
+The `general_planar_closed_polyhedral_v1` lane requires exactly one explicit acoustic region, no Portal declarations, and no BoundaryTermination declarations. The exact region boundary surface ids must equal the R120 `room_boundary` subset, and that subset must itself be a closed manifold with non-zero enclosed volume. The separate `general_planar_multi_region_portal_v1` lane supports the bounded exact two-region/one-Portal topology documented in `R150_MULTI_REGION_PORTAL_PROPAGATION.md`; it does not flatten the two regions into one room.
 
 Every region boundary semantic surface must be planar within the configuration's `geometric_tolerance_m`. A semantic surface may contain multiple coplanar triangles; those triangles remain one surface authority and one reflection candidate. Plane extraction uses the exact compiled triangles and preserves their indices. A region-boundary surface that is nonplanar or degenerate fails closed for the whole execution input.
 
@@ -234,7 +235,7 @@ Accepted second-order code head validation:
 The following remain open R150/R160 work:
 
 - production GA solver selection
-- explicit multi-region / Portal propagation
+- arbitrary multi-region graphs / multiple-Portal propagation beyond the bounded PR #265 lane
 - non-`explicit_none` BoundaryTermination propagation
 - qualified general-concave-room coverage and validation
 - third and higher-order reflections
