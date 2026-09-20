@@ -17,7 +17,7 @@ TARGET_WINDOW_DIAGNOSTIC_PLAN_SCHEMA = (
     'htdt.r130d.target-window-diagnostic-plan-1'
 )
 TARGET_WINDOW_DIAGNOSTIC_PLAN_SHA256 = (
-    '632d7d18b348e387496477bfdbcc457df0d0c7a7f3148f35d11ece457ef0dfb9'
+    'f8593e7b3f61f11a3c421d9c60b719c9c9e81733135a2b7984abebface510ff2'
 )
 
 
