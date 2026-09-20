@@ -32,6 +32,7 @@ from htdt.cad_geometric_acoustics_adapter import (
 from htdt.cad_hybrid_acoustic_result import (
     CadHybridAcousticResultRepository,
     HybridFrequencyPartition,
+    HybridObservableValidity,
     build_hybrid_acoustic_result,
     build_hybrid_stitching_policy,
 )
@@ -949,3 +950,21 @@ def test_missing_external_artifact_fails_closed_after_save(
 
     with pytest.raises(ValueError, match='external artifact is unavailable'):
         fixture.repository().get(hybrid.hybrid_result_id)
+
+
+
+def test_r160_v1_cannot_claim_validated_without_exact_validation_authority() -> None:
+    with pytest.raises(ValueError):
+        HybridObservableValidity(
+            frequency_domain=FrequencyDomain(minimum_hz=20.0, maximum_hz=80.0),
+            observable_type='coherent_transfer',
+            source_observable='complex_pressure',
+            phase_capability='COMPLEX_EXPLICIT_REFERENCE',
+            solver_result_id=f'acoustic-solver-result:{_hash("validation-result-id")}',
+            solver_result_sha256=_hash('validation-result'),
+            adapter_descriptor_id=f'acoustic-solver-adapter:{_hash("validation-adapter-id")}',
+            adapter_descriptor_sha256=_hash('validation-adapter'),
+            solver_implementation_ref=_ref('validation-solver'),
+            solver_configuration_ref=_ref('validation-config'),
+            evidence_state='VALIDATED',
+        )
