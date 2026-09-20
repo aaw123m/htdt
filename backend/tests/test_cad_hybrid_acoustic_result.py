@@ -21,9 +21,13 @@ from htdt.cad_acoustic_solver_result import (
     AcousticSolverObservableArtifact,
     AcousticSolverResultEnvelope,
 )
+from htdt.cad_candidate_wave_execution import (
+    COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
+)
 from htdt.cad_equipment import FrequencyDomain
 from htdt.cad_geometric_acoustics_adapter import (
     DETERMINISTIC_PATH_ARTIFACT_SCHEMA_REF,
+    BoundaryMaterialContribution,
     DeterministicAcousticPath,
     DeterministicPathArtifact,
     DeterministicPathBandQuantity,
@@ -31,10 +35,15 @@ from htdt.cad_geometric_acoustics_adapter import (
 )
 from htdt.cad_hybrid_acoustic_result import (
     CadHybridAcousticResultRepository,
+    HybridAcousticResult,
+    HybridCrossoverPolicy,
+    HybridDoubleCountExclusionPolicy,
     HybridFrequencyPartition,
     HybridObservableValidity,
     build_hybrid_acoustic_result,
+    build_hybrid_composition_spec,
     build_hybrid_stitching_policy,
+    compose_hybrid_acoustic_result,
 )
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Direction3, Position3
@@ -294,8 +303,11 @@ def _wave_pair(
         domain=domain,
         tag=tag,
     )
+    solver_execution_id = (
+        f'r130a-candidate-wave:{_hash(tag)[:20]}:fixture'
+    )
     payload = {
-        'schema_version': 'test-complex-pressure-1',
+        'schema_version': COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
         'quantity_type': 'complex_pressure',
         'complex_representation': {
             'form': 'cartesian_real_imag',
@@ -318,13 +330,35 @@ def _wave_pair(
             float(domain.minimum_hz),
             float(domain.maximum_hz),
         ],
+        'time_sampling': {
+            'time_step_s': 1.0e-4,
+            'sample_count': 1024,
+            'finite_record_interval': '[0,T)',
+            'requested_duration_s': 0.1024,
+        },
         'units': 'Pa',
-        'reference': 'absolute complex acoustic pressure',
+        'reference': (
+            'absolute complex acoustic pressure from finite-record P/Q '
+            'transfer multiplied by exact AcousticWaveExcitationAuthority Q(f)'
+        ),
         'valid_domain': domain.model_dump(mode='json'),
+        'solver_execution_id': solver_execution_id,
+        'candidate_execution_input_id': (
+            f'candidate-wave-input:{_hash(f"{tag}:candidate-input")}'
+        ),
+        'candidate_execution_input_sha256': _hash(f'{tag}:candidate-input'),
         'source_authority': {
             'r110_compiled_source_sha256': (
                 snapshot.sources[0].r110_compiled_source_sha256
             ),
+            'wave_excitation_binding_sha256': _hash(
+                f'{tag}:wave-excitation-binding'
+            ),
+            'wave_excitation_sha256': _hash(f'{tag}:wave-excitation'),
+        },
+        'solver_raw_asset': {
+            'name': 'sim_outs.h5',
+            'sha256': _hash(f'{tag}:raw-pffdtd-output'),
         },
         'pressure_real_pa': [
             [1.0, 0.5] for _ in snapshot.receivers
@@ -334,17 +368,26 @@ def _wave_pair(
         ],
     }
     artifact_ref = _payload_ref(
-        'test-complex-pressure',
-        'test-complex-pressure-1',
+        'acoustic-solver-artifact',
+        COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
         payload,
     )
+    schema_payload = {
+        'schema_version': COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
+        'quantity_type': 'complex_pressure',
+    }
     result = _result(
         request,
         observable='complex_pressure',
         artifact_ref=artifact_ref,
-        schema_ref=_ref(f'{tag}:complex-schema'),
+        schema_ref=_payload_ref(
+            'complex-pressure-artifact-schema',
+            '1',
+            schema_payload,
+        ),
         domain=domain,
         tag=tag,
+        execution_id=solver_execution_id,
     )
     return request, result, payload
 
@@ -968,3 +1011,680 @@ def test_r160_v1_cannot_claim_validated_without_exact_validation_authority() -> 
             solver_configuration_ref=_ref('validation-config'),
             evidence_state='VALIDATED',
         )
+
+
+def _bounded_composition_fixture(
+    *,
+    wave_domain: FrequencyDomain | None = None,
+    ga_domain: FrequencyDomain | None = None,
+):
+    snapshot = _snapshot()
+    wave_domain = wave_domain or FrequencyDomain(
+        minimum_hz=20.0,
+        maximum_hz=120.0,
+    )
+    ga_domain = ga_domain or FrequencyDomain(
+        minimum_hz=80.0,
+        maximum_hz=300.0,
+    )
+    wave_request, wave_result, payload = _wave_pair(
+        snapshot,
+        domain=wave_domain,
+    )
+    ga_request, ga_result, path = _ga_pair(
+        snapshot,
+        domain=ga_domain,
+    )
+    policy = build_hybrid_stitching_policy(
+        mode=(
+            'overlap_preserve_components'
+            if wave_domain.maximum_hz > ga_domain.minimum_hz
+            else 'disjoint_by_observable'
+        )
+    )
+    hybrid = build_hybrid_acoustic_result(
+        snapshot=snapshot,
+        prediction_requests=(wave_request, ga_request),
+        solver_results=(wave_result, ga_result),
+        stitching_policy=policy,
+        deterministic_path_artifacts=(path,),
+        external_payload_resolver=lambda ref: payload,
+    )
+    return (
+        snapshot,
+        wave_request,
+        wave_result,
+        payload,
+        ga_request,
+        ga_result,
+        path,
+        policy,
+        hybrid,
+    )
+
+
+def _second_order_path(
+    direct: DeterministicAcousticPath,
+    *,
+    solver_implementation_ref: ExactExternalAuthorityRef,
+) -> DeterministicAcousticPath:
+    source_directivity = direct.bands[0].source_directivity
+    materials = (
+        BoundaryMaterialContribution(
+            source_surface_id='surface-a',
+            material_authority=_ref('second-order-material-a'),
+            frequency_hz=source_directivity.frequency_hz,
+            absorption=0.1,
+            scattering=0.0,
+            specular_energy_factor=0.9,
+        ),
+        BoundaryMaterialContribution(
+            source_surface_id='surface-b',
+            material_authority=_ref('second-order-material-b'),
+            frequency_hz=source_directivity.frequency_hz,
+            absorption=0.2,
+            scattering=0.0,
+            specular_energy_factor=0.8,
+        ),
+    )
+    band = DeterministicPathBandQuantity(
+        center_hz=source_directivity.frequency_hz,
+        spreading_factor_per_m2=0.1,
+        source_directivity=source_directivity,
+        boundary_materials=materials,
+        relative_energy_transport_per_m2=0.072,
+    )
+    probe = DeterministicAcousticPath.model_construct(
+        path_id=f'deterministic-acoustic-path:{_hash("placeholder-second")}',
+        semantic_sha256=_hash('placeholder-second'),
+        source_entity_id=direct.source_entity_id,
+        receiver_id=direct.receiver_id,
+        receiver_entity_id=direct.receiver_entity_id,
+        path_type='specular_reflection',
+        ordered_interaction_surface_ids=('surface-a', 'surface-b'),
+        ordered_interaction_points=(
+            Position3(x_m=0.5, y_m=0.0, z_m=0.0),
+            Position3(x_m=1.5, y_m=0.0, z_m=0.0),
+        ),
+        geometric_path_length_m=3.0,
+        propagation_delay_s=3.0 / 343.0,
+        departure_direction=Direction3(x=1.0, y=0.0, z=0.0),
+        arrival_direction=Direction3(x=1.0, y=0.0, z=0.0),
+        direction_semantics=direct.direction_semantics,
+        bands=(band,),
+        adapter_id=direct.adapter_id,
+        adapter_version=direct.adapter_version,
+        solver_implementation_ref=solver_implementation_ref,
+    )
+    digest = _digest(probe.semantic_payload())
+    payload = probe.model_dump(mode='python')
+    payload['path_id'] = f'deterministic-acoustic-path:{digest}'
+    payload['semantic_sha256'] = digest
+    return DeterministicAcousticPath.model_validate(payload)
+
+
+def _ga_pair_second_order(
+    snapshot: AcousticSceneSnapshot,
+    *,
+    domain: FrequencyDomain,
+):
+    request, original_result, original_artifact = _ga_pair(
+        snapshot,
+        domain=domain,
+        tag='ga-second',
+    )
+    second = _second_order_path(
+        original_artifact.paths[0],
+        solver_implementation_ref=original_artifact.solver_implementation_ref,
+    )
+    probe = original_artifact.model_copy(
+        update={
+            'artifact_id': (
+                'deterministic-path-artifact:'
+                f'{_hash("placeholder-second-artifact")}'
+            ),
+            'semantic_sha256': _hash('placeholder-second-artifact'),
+            'path_scope': 'direct_through_second_order_specular',
+            'paths': (original_artifact.paths[0], second),
+        }
+    )
+    digest = _digest(probe.semantic_payload())
+    artifact_payload = probe.model_dump(mode='python')
+    artifact_payload['artifact_id'] = f'deterministic-path-artifact:{digest}'
+    artifact_payload['semantic_sha256'] = digest
+    artifact = DeterministicPathArtifact.model_validate(artifact_payload)
+    result = _result(
+        request,
+        observable='deterministic_paths',
+        artifact_ref=artifact.as_external_ref(),
+        schema_ref=DETERMINISTIC_PATH_ARTIFACT_SCHEMA_REF,
+        domain=domain,
+        tag='ga-second-result',
+        execution_id=artifact.execution_id,
+        dispatch_id=artifact.dispatch_binding_id,
+        dispatch_sha256=artifact.dispatch_binding_sha256,
+        adapter_id=artifact.adapter_descriptor_id,
+        adapter_sha256=artifact.adapter_descriptor_sha256,
+        solver_implementation_ref=artifact.solver_implementation_ref,
+        solver_configuration_ref=artifact.solver_configuration_ref,
+    )
+    return request, result, artifact
+
+
+def test_bounded_composition_binds_compatible_actual_artifacts() -> None:
+    *_, path, _, hybrid = _bounded_composition_fixture()
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=20.0,
+            maximum_hz=300.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='preserve_overlap_no_blend'
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    composed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=spec,
+        deterministic_path_artifact=path,
+    )
+
+    assert composed.composition_spec == spec
+    assert composed.composition_decision is not None
+    assert composed.composition_decision.status == (
+        'ELIGIBLE_BOUNDED_NO_NUMERIC_BLEND'
+    )
+    assert composed.composition_decision.supported_observables == (
+        'deterministic_path_identity',
+    )
+    assert composed.composition_decision.approximation_error.extrapolation_performed is False
+    assert composed.hybrid_result_id != hybrid.hybrid_result_id
+
+
+def test_bounded_composition_rejects_incompatible_scene_artifact() -> None:
+    *_, path, _, hybrid = _bounded_composition_fixture()
+    other = _snapshot('composition-other-scene')
+    _, _, other_path = _ga_pair(
+        other,
+        domain=FrequencyDomain(minimum_hz=80.0, maximum_hz=300.0),
+        tag='other-scene-ga',
+    )
+
+    with pytest.raises(ValueError, match='GA artifact identity|incompatible scene'):
+        build_hybrid_composition_spec(
+            hybrid=hybrid,
+            deterministic_path_artifact=other_path,
+            observable='deterministic_path_identity',
+            requested_frequency_domain=FrequencyDomain(
+                minimum_hz=20.0,
+                maximum_hz=300.0,
+            ),
+            crossover_policy=HybridCrossoverPolicy(
+                mode='preserve_overlap_no_blend'
+            ),
+            double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+                mode='preserve_components_no_numeric_sum'
+            ),
+        )
+
+
+def test_bounded_composition_rejects_receiver_set_mismatch() -> None:
+    snapshot = _snapshot(receiver_ids=('receiver-1', 'receiver-2'))
+    wave_request, wave_result, payload = _wave_pair(
+        snapshot,
+        domain=FrequencyDomain(minimum_hz=20.0, maximum_hz=120.0),
+        tag='wave-receiver-mismatch',
+    )
+    ga_request, ga_result, path = _ga_pair(
+        snapshot,
+        domain=FrequencyDomain(minimum_hz=80.0, maximum_hz=300.0),
+        tag='ga-receiver-mismatch',
+    )
+    policy = build_hybrid_stitching_policy(mode='overlap_preserve_components')
+    hybrid = build_hybrid_acoustic_result(
+        snapshot=snapshot,
+        prediction_requests=(wave_request, ga_request),
+        solver_results=(wave_result, ga_result),
+        stitching_policy=policy,
+        deterministic_path_artifacts=(path,),
+        external_payload_resolver=lambda ref: payload,
+    )
+
+    with pytest.raises(ValueError, match='receiver identity mismatch'):
+        build_hybrid_composition_spec(
+            hybrid=hybrid,
+            deterministic_path_artifact=path,
+            observable='deterministic_path_identity',
+            requested_frequency_domain=FrequencyDomain(
+                minimum_hz=80.0,
+                maximum_hz=120.0,
+            ),
+            crossover_policy=HybridCrossoverPolicy(
+                mode='preserve_overlap_no_blend'
+            ),
+            double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+                mode='preserve_components_no_numeric_sum'
+            ),
+        )
+
+
+def test_bounded_composition_preserves_no_overlap_gap() -> None:
+    *_, path, _, hybrid = _bounded_composition_fixture(
+        wave_domain=FrequencyDomain(minimum_hz=20.0, maximum_hz=80.0),
+        ga_domain=FrequencyDomain(minimum_hz=100.0, maximum_hz=300.0),
+    )
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=20.0,
+            maximum_hz=300.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(mode='preserve_gap_no_fill'),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    composed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=spec,
+        deterministic_path_artifact=path,
+    )
+    assert spec.overlap_domain is None
+    assert composed.composition_decision is not None
+    assert composed.composition_decision.gap_domains == (
+        FrequencyDomain(minimum_hz=80.0, maximum_hz=100.0),
+    )
+    assert composed.composition_decision.valid_domains == (
+        FrequencyDomain(minimum_hz=100.0, maximum_hz=300.0),
+    )
+
+
+def test_bounded_composition_missing_coherent_phase_rejected() -> None:
+    *_, path, _, hybrid = _bounded_composition_fixture()
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='coherent_phase',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='preserve_overlap_no_blend'
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    with pytest.raises(ValueError, match='missing coherent phase authority'):
+        compose_hybrid_acoustic_result(
+            hybrid=hybrid,
+            composition_spec=spec,
+            deterministic_path_artifact=path,
+        )
+
+
+def test_bounded_composition_observable_capability_is_specific() -> None:
+    *_, path, _, hybrid = _bounded_composition_fixture()
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='explicit_partition_no_blend',
+            crossover_hz=100.0,
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    composed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=spec,
+        deterministic_path_artifact=path,
+    )
+    assert composed.composition_decision is not None
+    unsupported = {
+        item.observable: item.reason_code
+        for item in composed.composition_decision.unsupported_observables
+    }
+    assert unsupported['magnitude_energy'] == 'INCOMPATIBLE_QUANTITY_REFERENCE'
+    assert unsupported['coherent_phase'] == 'MISSING_COHERENT_PHASE_AUTHORITY'
+    assert unsupported['arrival_timing'] == 'MISSING_SHARED_TIME_ORIGIN'
+    assert unsupported['late_decay'] == 'MISSING_LATE_DECAY_AUTHORITY'
+
+
+def test_bounded_composition_double_count_ambiguity_rejected() -> None:
+    *_, path, _, hybrid = _bounded_composition_fixture()
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='magnitude_energy',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='preserve_overlap_no_blend'
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='require_disjoint_component_ownership'
+        ),
+    )
+    with pytest.raises(ValueError, match='double-count ambiguity'):
+        compose_hybrid_acoustic_result(
+            hybrid=hybrid,
+            composition_spec=spec,
+            deterministic_path_artifact=path,
+        )
+
+
+def test_bounded_composition_identity_is_deterministic_and_policy_bound() -> None:
+    *_, path, _, hybrid = _bounded_composition_fixture()
+    common = dict(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    first_spec = build_hybrid_composition_spec(
+        **common,
+        crossover_policy=HybridCrossoverPolicy(
+            mode='explicit_partition_no_blend',
+            crossover_hz=100.0,
+        ),
+    )
+    second_spec = build_hybrid_composition_spec(
+        **common,
+        crossover_policy=HybridCrossoverPolicy(
+            mode='explicit_partition_no_blend',
+            crossover_hz=100.0,
+        ),
+    )
+    changed_spec = build_hybrid_composition_spec(
+        **common,
+        crossover_policy=HybridCrossoverPolicy(
+            mode='explicit_partition_no_blend',
+            crossover_hz=110.0,
+        ),
+    )
+    first = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=first_spec,
+        deterministic_path_artifact=path,
+    )
+    second = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=second_spec,
+        deterministic_path_artifact=path,
+    )
+    changed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=changed_spec,
+        deterministic_path_artifact=path,
+    )
+    assert first_spec == second_spec
+    assert first.hybrid_result_id == second.hybrid_result_id
+    assert changed_spec.composition_spec_id != first_spec.composition_spec_id
+    assert changed.hybrid_result_id != first.hybrid_result_id
+
+
+def test_bounded_composition_save_reopen_and_policy_stale(tmp_path: Path) -> None:
+    (
+        snapshot,
+        wave_request,
+        wave_result,
+        payload,
+        ga_request,
+        ga_result,
+        path,
+        policy,
+        hybrid,
+    ) = _bounded_composition_fixture()
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='explicit_partition_no_blend',
+            crossover_hz=100.0,
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    composed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=spec,
+        deterministic_path_artifact=path,
+    )
+    fixture = _repository_fixture(
+        tmp_path,
+        snapshot=snapshot,
+        requests=(wave_request, ga_request),
+        results=(wave_result, ga_result),
+        paths=(path,),
+        payloads=((wave_result.artifacts[0].artifact_authority, payload),),
+    )
+    repository = fixture.repository()
+    repository.save(composed, policy=policy)
+
+    reopened = fixture.repository().get(
+        composed.hybrid_result_id,
+        expected_composition_spec=spec,
+    )
+    assert reopened == composed
+
+    changed_spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='explicit_partition_no_blend',
+            crossover_hz=110.0,
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    with pytest.raises(ValueError, match='stale for expected spec'):
+        fixture.repository().get(
+            composed.hybrid_result_id,
+            expected_composition_spec=changed_spec,
+        )
+
+
+def test_bounded_composition_wave_artifact_stale_after_reopen(tmp_path: Path) -> None:
+    (
+        snapshot,
+        wave_request,
+        wave_result,
+        payload,
+        ga_request,
+        ga_result,
+        path,
+        policy,
+        hybrid,
+    ) = _bounded_composition_fixture()
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='preserve_overlap_no_blend'
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    composed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=spec,
+        deterministic_path_artifact=path,
+    )
+    fixture = _repository_fixture(
+        tmp_path,
+        snapshot=snapshot,
+        requests=(wave_request, ga_request),
+        results=(wave_result, ga_result),
+        paths=(path,),
+        payloads=((wave_result.artifacts[0].artifact_authority, payload),),
+    )
+    fixture.repository().save(composed, policy=policy)
+    fixture.payload_store.payloads[
+        wave_result.artifacts[0].artifact_authority.authority_id
+    ] = {**payload, 'reference': 'changed reference'}
+
+    with pytest.raises(ValueError):
+        fixture.repository().get(composed.hybrid_result_id)
+
+
+def test_bounded_composition_ga_and_snapshot_stale_after_reopen(
+    tmp_path: Path,
+) -> None:
+    (
+        snapshot,
+        wave_request,
+        wave_result,
+        payload,
+        ga_request,
+        ga_result,
+        path,
+        policy,
+        hybrid,
+    ) = _bounded_composition_fixture()
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='preserve_overlap_no_blend'
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    composed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=spec,
+        deterministic_path_artifact=path,
+    )
+    fixture = _repository_fixture(
+        tmp_path,
+        snapshot=snapshot,
+        requests=(wave_request, ga_request),
+        results=(wave_result, ga_result),
+        paths=(path,),
+        payloads=((wave_result.artifacts[0].artifact_authority, payload),),
+    )
+    fixture.repository().save(composed, policy=policy)
+
+    _, _, stale_path = _ga_pair(
+        snapshot,
+        domain=path.frequency_domain,
+        tag='ga-stale-replacement',
+    )
+    fixture.path_store.artifacts[path.artifact_id] = stale_path
+    with pytest.raises(ValueError, match='missing/stale R150'):
+        fixture.repository().get(composed.hybrid_result_id)
+
+    fixture.path_store.artifacts[path.artifact_id] = path
+    fixture.snapshot_store.snapshots[snapshot.snapshot_id] = _snapshot(
+        'receiver-stale',
+        receiver_ids=('receiver-1', 'receiver-2'),
+    )
+    with pytest.raises(
+        ValueError,
+        match='snapshot/geometry/source/receiver/environment compatibility',
+    ):
+        fixture.repository().get(composed.hybrid_result_id)
+
+
+def test_bounded_composition_accepts_second_order_path_identity() -> None:
+    snapshot = _snapshot()
+    wave_request, wave_result, payload = _wave_pair(
+        snapshot,
+        domain=FrequencyDomain(minimum_hz=20.0, maximum_hz=120.0),
+        tag='wave-second-order',
+    )
+    ga_request, ga_result, path = _ga_pair_second_order(
+        snapshot,
+        domain=FrequencyDomain(minimum_hz=80.0, maximum_hz=300.0),
+    )
+    policy = build_hybrid_stitching_policy(mode='overlap_preserve_components')
+    hybrid = build_hybrid_acoustic_result(
+        snapshot=snapshot,
+        prediction_requests=(wave_request, ga_request),
+        solver_results=(wave_result, ga_result),
+        stitching_policy=policy,
+        deterministic_path_artifacts=(path,),
+        external_payload_resolver=lambda ref: payload,
+    )
+    spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path,
+        observable='deterministic_path_identity',
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=80.0,
+            maximum_hz=120.0,
+        ),
+        crossover_policy=HybridCrossoverPolicy(
+            mode='preserve_overlap_no_blend'
+        ),
+        double_count_exclusion_policy=HybridDoubleCountExclusionPolicy(
+            mode='preserve_components_no_numeric_sum'
+        ),
+    )
+    composed = compose_hybrid_acoustic_result(
+        hybrid=hybrid,
+        composition_spec=spec,
+        deterministic_path_artifact=path,
+    )
+    assert composed.composition_decision is not None
+    assert composed.composition_decision.path_reflection_orders_present == (0, 2)
+
+
+def test_pr254_legacy_typed_artifact_identity_remains_compatible() -> None:
+    *_, hybrid = _bounded_composition_fixture()
+    legacy_payload = hybrid.model_dump(
+        mode='python',
+        exclude={'composition_spec', 'composition_decision'},
+    )
+    restored = HybridAcousticResult.model_validate(legacy_payload)
+    assert restored == hybrid
+    assert restored.hybrid_result_id == hybrid.hybrid_result_id
+    assert 'composition_spec' not in restored.semantic_payload()
+    assert 'composition_decision' not in restored.semantic_payload()

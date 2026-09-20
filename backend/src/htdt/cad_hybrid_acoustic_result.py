@@ -51,6 +51,32 @@ StitchingMode = Literal[
     'frequency_partition_no_blend',
     'overlap_preserve_components',
 ]
+HybridCompositionObservable = Literal[
+    'magnitude_energy',
+    'coherent_phase',
+    'arrival_timing',
+    'deterministic_path_identity',
+    'late_decay',
+]
+HybridPhysicalComponent = Literal[
+    'direct',
+    'deterministic_early_reflection',
+    'diffuse_late_energy',
+    'full_field',
+]
+HybridCompositionCapabilityRequirement = Literal[
+    'compatible_quantity_reference',
+    'double_count_resolved',
+    'coherent_phase_authority_both',
+    'source_phase_reference',
+    'shared_time_origin',
+    'compatible_fourier_sign_convention',
+    'compatible_propagation_timing',
+    'deterministic_path_identity',
+    'late_energy_decay_authority',
+]
+
+HYBRID_COMPOSITION_SPEC_AUTHORITY_VERSION = 'r160-hybrid-composition-spec-1'
 
 ExternalPayloadResolver = Callable[[ExactExternalAuthorityRef], Any]
 
@@ -119,6 +145,72 @@ def _domains_overlap(first: FrequencyDomain, second: FrequencyDomain) -> bool:
         max(float(first.minimum_hz), float(second.minimum_hz))
         <= min(float(first.maximum_hz), float(second.maximum_hz))
     )
+
+
+def _domain_intersection(
+    first: FrequencyDomain,
+    second: FrequencyDomain,
+) -> FrequencyDomain | None:
+    minimum = max(float(first.minimum_hz), float(second.minimum_hz))
+    maximum = min(float(first.maximum_hz), float(second.maximum_hz))
+    if maximum <= minimum:
+        return None
+    return FrequencyDomain(minimum_hz=minimum, maximum_hz=maximum)
+
+
+def _gap_within_requested_domain(
+    first: FrequencyDomain,
+    second: FrequencyDomain,
+    requested: FrequencyDomain,
+) -> tuple[FrequencyDomain, ...]:
+    if _domain_intersection(first, second) is not None:
+        return ()
+    left, right = sorted(
+        (first, second),
+        key=lambda item: float(item.minimum_hz),
+    )
+    gap_minimum = max(float(requested.minimum_hz), float(left.maximum_hz))
+    gap_maximum = min(float(requested.maximum_hz), float(right.minimum_hz))
+    if gap_maximum <= gap_minimum:
+        return ()
+    return (
+        FrequencyDomain(
+            minimum_hz=gap_minimum,
+            maximum_hz=gap_maximum,
+        ),
+    )
+
+
+def _composition_requirements(
+    observable: HybridCompositionObservable,
+) -> tuple[HybridCompositionCapabilityRequirement, ...]:
+    mapping: dict[
+        HybridCompositionObservable,
+        tuple[HybridCompositionCapabilityRequirement, ...],
+    ] = {
+        'magnitude_energy': (
+            'compatible_quantity_reference',
+            'double_count_resolved',
+        ),
+        'coherent_phase': (
+            'coherent_phase_authority_both',
+            'source_phase_reference',
+            'shared_time_origin',
+            'compatible_fourier_sign_convention',
+            'double_count_resolved',
+        ),
+        'arrival_timing': (
+            'shared_time_origin',
+            'compatible_propagation_timing',
+        ),
+        'deterministic_path_identity': (
+            'deterministic_path_identity',
+        ),
+        'late_decay': (
+            'late_energy_decay_authority',
+        ),
+    }
+    return mapping[observable]
 
 
 class HybridSourceIdentity(BaseModel):
@@ -441,6 +533,242 @@ def build_hybrid_stitching_policy(
     )
 
 
+class HybridCompositionArtifactIdentity(BaseModel):
+    """Exact participating artifact identity and physical component semantics."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    backend: Literal['wave', 'deterministic_ga']
+    solver_result_id: str = Field(pattern=r'^acoustic-solver-result:[0-9a-f]{64}$')
+    solver_result_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    artifact_authority: ExactExternalAuthorityRef
+    encoding_schema_ref: ExactExternalAuthorityRef
+    valid_band: FrequencyDomain
+    quantity: str = Field(min_length=1)
+    units: str = Field(min_length=1)
+    reference: str = Field(min_length=1)
+    component_semantics: tuple[HybridPhysicalComponent, ...] = Field(min_length=1)
+
+
+class HybridCrossoverPolicy(BaseModel):
+    """Explicit overlap/crossover behavior. There is intentionally no default."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    mode: Literal[
+        'preserve_overlap_no_blend',
+        'explicit_partition_no_blend',
+        'preserve_gap_no_fill',
+    ]
+    crossover_hz: float | None = Field(default=None, gt=0.0)
+    blend_width_hz: float = Field(default=0.0, ge=0.0, le=0.0)
+
+    @model_validator(mode='after')
+    def explicit_crossover_contract(self) -> 'HybridCrossoverPolicy':
+        if self.mode == 'explicit_partition_no_blend':
+            if self.crossover_hz is None:
+                raise ValueError(
+                    'explicit_partition_no_blend requires explicit crossover_hz'
+                )
+        elif self.crossover_hz is not None:
+            raise ValueError(
+                f'{self.mode} forbids an implicit/unused crossover frequency'
+            )
+        return self
+
+
+class HybridNormalizationReferenceConvention(BaseModel):
+    """Exact native quantity/reference convention; no hidden unit conversion."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    mode: Literal['native_exact_no_cross_quantity_conversion'] = (
+        'native_exact_no_cross_quantity_conversion'
+    )
+    wave_quantity: Literal['complex_pressure'] = 'complex_pressure'
+    wave_units: str = Field(min_length=1)
+    wave_reference: str = Field(min_length=1)
+    ga_quantity: Literal['relative_energy_transport_per_m2'] = (
+        'relative_energy_transport_per_m2'
+    )
+    ga_units: Literal['relative_energy_per_m2'] = 'relative_energy_per_m2'
+    ga_reference: Literal[
+        'solver_native_relative_energy_transport'
+    ] = 'solver_native_relative_energy_transport'
+
+
+class HybridDoubleCountExclusionPolicy(BaseModel):
+    """Explicit policy for overlapping physical components."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    mode: Literal[
+        'preserve_components_no_numeric_sum',
+        'require_disjoint_component_ownership',
+    ]
+    subtraction_authority_ref: None = None
+
+
+class HybridCompositionSpec(BaseModel):
+    """Immutable authority for one bounded wave/GA composition request."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_version: Literal[
+        'r160-hybrid-composition-spec-1'
+    ] = HYBRID_COMPOSITION_SPEC_AUTHORITY_VERSION
+    composition_spec_id: str = Field(
+        pattern=r'^hybrid-composition-spec:[0-9a-f]{64}$'
+    )
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    wave_input: HybridCompositionArtifactIdentity
+    ga_input: HybridCompositionArtifactIdentity
+
+    acoustic_scene_snapshot_id: str
+    acoustic_scene_snapshot_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    scene_revision_id: str = Field(min_length=1)
+    scene_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_identity_sha256: tuple[str, ...] = Field(min_length=1)
+    receiver_identity_sha256: tuple[str, ...] = Field(min_length=1)
+    environment_binding_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    observable: HybridCompositionObservable
+    requested_frequency_domain: FrequencyDomain
+    wave_valid_band: FrequencyDomain
+    ga_valid_band: FrequencyDomain
+    overlap_domain: FrequencyDomain | None
+    crossover_policy: HybridCrossoverPolicy
+    normalization_reference_convention: HybridNormalizationReferenceConvention
+    double_count_exclusion_policy: HybridDoubleCountExclusionPolicy
+    capability_requirements: tuple[
+        HybridCompositionCapabilityRequirement, ...
+    ] = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def composition_spec_contract(self) -> 'HybridCompositionSpec':
+        if self.wave_input.backend != 'wave':
+            raise ValueError('hybrid composition wave input backend mismatch')
+        if self.ga_input.backend != 'deterministic_ga':
+            raise ValueError('hybrid composition GA input backend mismatch')
+        if self.wave_input.valid_band != self.wave_valid_band:
+            raise ValueError('hybrid composition wave valid-band mismatch')
+        if self.ga_input.valid_band != self.ga_valid_band:
+            raise ValueError('hybrid composition GA valid-band mismatch')
+        normalization = self.normalization_reference_convention
+        if (
+            self.wave_input.quantity != normalization.wave_quantity
+            or self.wave_input.units != normalization.wave_units
+            or self.wave_input.reference != normalization.wave_reference
+            or self.ga_input.quantity != normalization.ga_quantity
+            or self.ga_input.units != normalization.ga_units
+            or self.ga_input.reference != normalization.ga_reference
+        ):
+            raise ValueError(
+                'hybrid composition normalization/reference convention '
+                'does not match exact input quantities'
+            )
+        expected_overlap = _domain_intersection(
+            self.wave_valid_band,
+            self.ga_valid_band,
+        )
+        if self.overlap_domain != expected_overlap:
+            raise ValueError('hybrid composition overlap-domain mismatch')
+        if self.capability_requirements != _composition_requirements(
+            self.observable
+        ):
+            raise ValueError(
+                'hybrid composition capability requirements are incomplete'
+            )
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_sha256 != expected:
+            raise ValueError('HybridCompositionSpec semantic hash mismatch')
+        if self.composition_spec_id != f'hybrid-composition-spec:{expected}':
+            raise ValueError('HybridCompositionSpec id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode='json',
+            exclude={'composition_spec_id', 'semantic_sha256'},
+        )
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return ExactExternalAuthorityRef(
+            authority_id=self.composition_spec_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_sha256,
+        )
+
+
+class HybridUnsupportedObservable(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    observable: HybridCompositionObservable
+    reason_code: Literal[
+        'INCOMPATIBLE_QUANTITY_REFERENCE',
+        'DOUBLE_COUNT_AMBIGUITY',
+        'MISSING_COHERENT_PHASE_AUTHORITY',
+        'MISSING_SHARED_TIME_ORIGIN',
+        'MISSING_LATE_DECAY_AUTHORITY',
+        'NO_DETERMINISTIC_PATHS',
+    ]
+    detail: str = Field(min_length=1)
+
+
+class HybridApproximationErrorMetadata(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    numerical_combination_performed: Literal[False] = False
+    interpolation_performed: Literal[False] = False
+    extrapolation_performed: Literal[False] = False
+    estimated_error_bound: None = None
+    error_bound_state: Literal[
+        'UNAVAILABLE_NO_CROSS_BACKEND_NUMERIC_OPERATION'
+    ] = 'UNAVAILABLE_NO_CROSS_BACKEND_NUMERIC_OPERATION'
+    note: str = Field(min_length=1)
+
+
+class HybridCompositionDecision(BaseModel):
+    """Auditable result of capability, overlap, and double-count gates."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    status: Literal['ELIGIBLE_BOUNDED_NO_NUMERIC_BLEND']
+    composition_spec_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    requested_observable: HybridCompositionObservable
+    supported_observables: tuple[HybridCompositionObservable, ...] = Field(
+        min_length=1
+    )
+    unsupported_observables: tuple[HybridUnsupportedObservable, ...]
+    source_valid_domains: tuple[FrequencyDomain, FrequencyDomain]
+    valid_domains: tuple[FrequencyDomain, ...] = Field(min_length=1)
+    overlap_domain: FrequencyDomain | None
+    gap_domains: tuple[FrequencyDomain, ...]
+    path_reflection_orders_present: tuple[int, ...]
+    double_count_decision: Literal[
+        'PRESERVED_COMPONENT_IDENTITIES_NO_NUMERIC_SUM',
+        'NOT_APPLICABLE_NON_NUMERIC_OBSERVABLE',
+    ]
+    evidence: tuple[str, ...] = Field(min_length=1)
+    approximation_error: HybridApproximationErrorMetadata
+
+    @model_validator(mode='after')
+    def composition_decision_contract(self) -> 'HybridCompositionDecision':
+        if self.requested_observable not in self.supported_observables:
+            raise ValueError(
+                'composition decision cannot mark requested observable unsupported'
+            )
+        unsupported_names = {
+            item.observable for item in self.unsupported_observables
+        }
+        if unsupported_names.intersection(self.supported_observables):
+            raise ValueError(
+                'composition observable cannot be both supported and unsupported'
+            )
+        return self
+
+
 class HybridAcousticResult(BaseModel):
     """Solver-neutral R160 authority containing refs, not copied solver truth."""
 
@@ -487,6 +815,8 @@ class HybridAcousticResult(BaseModel):
         'OVERLAPPING_COMPONENT_VALIDITY',
     ]
     stitching_policy_ref: ExactExternalAuthorityRef
+    composition_spec: HybridCompositionSpec | None = None
+    composition_decision: HybridCompositionDecision | None = None
     algorithm_id: Literal[
         'htdt.r160.typed_hybrid_result'
     ] = HYBRID_ALGORITHM_ID
@@ -515,6 +845,42 @@ class HybridAcousticResult(BaseModel):
                 )
         if self.frequency_domain_relationship != self._derived_frequency_relationship():
             raise ValueError('hybrid frequency-domain relationship mismatch')
+        if (self.composition_spec is None) != (self.composition_decision is None):
+            raise ValueError(
+                'hybrid composition spec and decision must be paired'
+            )
+        if self.composition_spec is not None:
+            assert self.composition_decision is not None
+            spec = self.composition_spec
+            decision = self.composition_decision
+            if (
+                spec.acoustic_scene_snapshot_id
+                != self.acoustic_scene_snapshot_id
+                or spec.acoustic_scene_snapshot_sha256
+                != self.acoustic_scene_snapshot_sha256
+                or spec.scene_revision_id != self.scene_revision_id
+                or spec.scene_content_hash != self.scene_content_hash
+                or spec.source_identity_sha256
+                != tuple(item.source_binding_sha256 for item in self.source_identities)
+                or spec.receiver_identity_sha256
+                != tuple(
+                    item.receiver_binding_sha256
+                    for item in self.receiver_identity_order
+                )
+                or spec.environment_binding_sha256
+                != self.environment_identity.environment_binding_sha256
+            ):
+                raise ValueError(
+                    'hybrid composition spec is incompatible with result authority'
+                )
+            if decision.composition_spec_sha256 != spec.semantic_sha256:
+                raise ValueError(
+                    'hybrid composition decision/spec identity mismatch'
+                )
+            if decision.overlap_domain != spec.overlap_domain:
+                raise ValueError(
+                    'hybrid composition decision/spec overlap mismatch'
+                )
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('HybridAcousticResult semantic hash mismatch')
@@ -536,10 +902,16 @@ class HybridAcousticResult(BaseModel):
         return tuple(values)
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'hybrid_result_id', 'semantic_sha256'},
         )
+        # Preserve PR #254 v1 identities exactly when no bounded composition
+        # authority is attached.
+        if self.composition_spec is None:
+            payload.pop('composition_spec', None)
+            payload.pop('composition_decision', None)
+        return payload
 
     def has_frequency_response(self) -> bool:
         return self.coherent_transfer is not None
@@ -1278,6 +1650,435 @@ def build_hybrid_acoustic_result(
     )
 
 
+def _composition_result_ref(
+    hybrid: HybridAcousticResult,
+    result_id: str,
+) -> HybridSolverResultRef:
+    for item in hybrid.participating_solver_results:
+        if item.result_id == result_id:
+            return item
+    raise ValueError('hybrid composition references non-participating result')
+
+
+def _composition_artifact_semantics(
+    path_artifact: DeterministicPathArtifact,
+) -> tuple[HybridPhysicalComponent, ...]:
+    semantics: list[HybridPhysicalComponent] = []
+    if any(item.path_type == 'direct' for item in path_artifact.paths):
+        semantics.append('direct')
+    if any(item.path_type == 'specular_reflection' for item in path_artifact.paths):
+        semantics.append('deterministic_early_reflection')
+    if not semantics:
+        raise ValueError(
+            'hybrid composition requires at least one deterministic GA path'
+        )
+    return tuple(semantics)
+
+
+def build_hybrid_composition_spec(
+    *,
+    hybrid: HybridAcousticResult,
+    deterministic_path_artifact: DeterministicPathArtifact,
+    observable: HybridCompositionObservable,
+    requested_frequency_domain: FrequencyDomain,
+    crossover_policy: HybridCrossoverPolicy,
+    double_count_exclusion_policy: HybridDoubleCountExclusionPolicy,
+) -> HybridCompositionSpec:
+    """Bind exact R130/R150 artifacts to one explicit composition request."""
+
+    hybrid = HybridAcousticResult.model_validate(
+        hybrid.model_dump(mode='python')
+    )
+    if hybrid.coherent_transfer is None or hybrid.deterministic_path_set is None:
+        raise ValueError(
+            'bounded hybrid composition requires exact wave and GA components'
+        )
+    coherent = hybrid.coherent_transfer
+    paths = hybrid.deterministic_path_set
+    path_artifact = DeterministicPathArtifact.model_validate(
+        deterministic_path_artifact.model_dump(mode='python')
+    )
+    if path_artifact.as_external_ref() != paths.artifact_authority:
+        raise ValueError(
+            'hybrid composition GA artifact identity does not match R160 component'
+        )
+    if (
+        path_artifact.snapshot_id != hybrid.acoustic_scene_snapshot_id
+        or path_artifact.snapshot_sha256
+        != hybrid.acoustic_scene_snapshot_sha256
+    ):
+        raise ValueError(
+            'hybrid composition GA artifact binds an incompatible scene'
+        )
+    ga_source_ids = {
+        item.source_entity_id for item in path_artifact.paths
+    } | {
+        item.source_entity_id for item in path_artifact.rejected_candidates
+    }
+    if ga_source_ids != set(coherent.source_entity_ids):
+        raise ValueError(
+            'hybrid composition wave/GA source identity mismatch'
+        )
+    ga_receiver_ids = {
+        item.receiver_id for item in path_artifact.paths
+    } | {
+        item.receiver_id for item in path_artifact.rejected_candidates
+    }
+    if ga_receiver_ids != set(coherent.receiver_identity_order):
+        raise ValueError(
+            'hybrid composition wave/GA receiver identity mismatch'
+        )
+
+    wave_result = _composition_result_ref(
+        hybrid,
+        coherent.validity.solver_result_id,
+    )
+    ga_result = _composition_result_ref(
+        hybrid,
+        paths.validity.solver_result_id,
+    )
+    wave_band = coherent.validity.frequency_domain
+    ga_band = paths.validity.frequency_domain
+    overlap = _domain_intersection(wave_band, ga_band)
+
+    policy = HybridCrossoverPolicy.model_validate(
+        crossover_policy.model_dump(mode='python')
+    )
+    if policy.mode == 'preserve_overlap_no_blend' and overlap is None:
+        raise ValueError(
+            'preserve_overlap_no_blend requires a real wave/GA overlap domain'
+        )
+    if policy.mode == 'explicit_partition_no_blend':
+        if overlap is None:
+            raise ValueError(
+                'explicit crossover requires a real wave/GA overlap domain'
+            )
+        assert policy.crossover_hz is not None
+        if not overlap.contains(policy.crossover_hz):
+            raise ValueError(
+                'explicit crossover must lie inside the exact overlap domain'
+            )
+    if policy.mode == 'preserve_gap_no_fill' and overlap is not None:
+        raise ValueError(
+            'preserve_gap_no_fill is only valid when wave/GA bands are disjoint'
+        )
+    requested = FrequencyDomain.model_validate(
+        requested_frequency_domain.model_dump(mode='python')
+    )
+    if (
+        _domain_intersection(requested, wave_band) is None
+        and _domain_intersection(requested, ga_band) is None
+    ):
+        raise ValueError(
+            'requested composition domain does not intersect either source band'
+        )
+
+    normalization = HybridNormalizationReferenceConvention(
+        wave_units=coherent.units,
+        wave_reference=coherent.reference,
+    )
+    wave_input = HybridCompositionArtifactIdentity(
+        backend='wave',
+        solver_result_id=wave_result.result_id,
+        solver_result_sha256=wave_result.semantic_sha256,
+        artifact_authority=coherent.artifact_authority,
+        encoding_schema_ref=coherent.encoding_schema_ref,
+        valid_band=wave_band,
+        quantity=coherent.quantity,
+        units=coherent.units,
+        reference=coherent.reference,
+        component_semantics=('full_field',),
+    )
+    ga_input = HybridCompositionArtifactIdentity(
+        backend='deterministic_ga',
+        solver_result_id=ga_result.result_id,
+        solver_result_sha256=ga_result.semantic_sha256,
+        artifact_authority=paths.artifact_authority,
+        encoding_schema_ref=paths.encoding_schema_ref,
+        valid_band=ga_band,
+        quantity=paths.contribution_quantity,
+        units='relative_energy_per_m2',
+        reference='solver_native_relative_energy_transport',
+        component_semantics=_composition_artifact_semantics(path_artifact),
+    )
+    core = {
+        'authority_version': HYBRID_COMPOSITION_SPEC_AUTHORITY_VERSION,
+        'wave_input': wave_input.model_dump(mode='json'),
+        'ga_input': ga_input.model_dump(mode='json'),
+        'acoustic_scene_snapshot_id': hybrid.acoustic_scene_snapshot_id,
+        'acoustic_scene_snapshot_sha256': hybrid.acoustic_scene_snapshot_sha256,
+        'scene_revision_id': hybrid.scene_revision_id,
+        'scene_content_hash': hybrid.scene_content_hash,
+        'source_identity_sha256': [
+            item.source_binding_sha256 for item in hybrid.source_identities
+        ],
+        'receiver_identity_sha256': [
+            item.receiver_binding_sha256
+            for item in hybrid.receiver_identity_order
+        ],
+        'environment_binding_sha256': (
+            hybrid.environment_identity.environment_binding_sha256
+        ),
+        'observable': observable,
+        'requested_frequency_domain': requested.model_dump(mode='json'),
+        'wave_valid_band': wave_band.model_dump(mode='json'),
+        'ga_valid_band': ga_band.model_dump(mode='json'),
+        'overlap_domain': (
+            None if overlap is None else overlap.model_dump(mode='json')
+        ),
+        'crossover_policy': policy.model_dump(mode='json'),
+        'normalization_reference_convention': normalization.model_dump(
+            mode='json'
+        ),
+        'double_count_exclusion_policy': (
+            double_count_exclusion_policy.model_dump(mode='json')
+        ),
+        'capability_requirements': list(_composition_requirements(observable)),
+    }
+    digest = _semantic_hash(core)
+    return HybridCompositionSpec(
+        composition_spec_id=f'hybrid-composition-spec:{digest}',
+        semantic_sha256=digest,
+        **core,
+    )
+
+
+_COMPOSITION_OBSERVABLE_ORDER: tuple[HybridCompositionObservable, ...] = (
+    'magnitude_energy',
+    'coherent_phase',
+    'arrival_timing',
+    'deterministic_path_identity',
+    'late_decay',
+)
+
+
+def _composition_capabilities(
+    *,
+    hybrid: HybridAcousticResult,
+    spec: HybridCompositionSpec,
+    path_artifact: DeterministicPathArtifact,
+) -> tuple[
+    tuple[HybridCompositionObservable, ...],
+    tuple[HybridUnsupportedObservable, ...],
+    tuple[int, ...],
+]:
+    supported: list[HybridCompositionObservable] = []
+    unsupported: list[HybridUnsupportedObservable] = []
+
+    if path_artifact.paths:
+        supported.append('deterministic_path_identity')
+    else:
+        unsupported.append(
+            HybridUnsupportedObservable(
+                observable='deterministic_path_identity',
+                reason_code='NO_DETERMINISTIC_PATHS',
+                detail='R150 artifact contains no deterministic paths',
+            )
+        )
+
+    if hybrid.late_energy_decay.state == 'AVAILABLE':
+        supported.append('late_decay')
+    else:
+        unsupported.append(
+            HybridUnsupportedObservable(
+                observable='late_decay',
+                reason_code='MISSING_LATE_DECAY_AUTHORITY',
+                detail=(
+                    'bounded early-specular R150 evidence is not a '
+                    'LateEnergyDecay authority'
+                ),
+            )
+        )
+
+    if (
+        spec.double_count_exclusion_policy.mode
+        == 'require_disjoint_component_ownership'
+        and 'full_field' in spec.wave_input.component_semantics
+        and any(
+            component in spec.ga_input.component_semantics
+            for component in ('direct', 'deterministic_early_reflection')
+        )
+    ):
+        magnitude_reason = HybridUnsupportedObservable(
+            observable='magnitude_energy',
+            reason_code='DOUBLE_COUNT_AMBIGUITY',
+            detail=(
+                'double-count ambiguity: wave full_field may already contain '
+                'the direct/deterministic-early components represented by GA; '
+                'no exact subtraction authority exists'
+            ),
+        )
+    else:
+        magnitude_reason = HybridUnsupportedObservable(
+            observable='magnitude_energy',
+            reason_code='INCOMPATIBLE_QUANTITY_REFERENCE',
+            detail=(
+                'wave complex pressure in Pa and GA relative energy transport '
+                'do not share an exact numeric normalization/reference'
+            ),
+        )
+    unsupported.append(magnitude_reason)
+    unsupported.append(
+        HybridUnsupportedObservable(
+            observable='coherent_phase',
+            reason_code='MISSING_COHERENT_PHASE_AUTHORITY',
+            detail=(
+                'missing coherent phase authority: R150 path length/material '
+                'energy does not authorize coherent reflection phase'
+            ),
+        )
+    )
+    unsupported.append(
+        HybridUnsupportedObservable(
+            observable='arrival_timing',
+            reason_code='MISSING_SHARED_TIME_ORIGIN',
+            detail=(
+                'wave and GA artifacts do not expose one shared explicit time '
+                'origin/propagation timing convention'
+            ),
+        )
+    )
+
+    supported_set = set(supported)
+    unsupported_by_name = {item.observable: item for item in unsupported}
+    ordered_supported = tuple(
+        item for item in _COMPOSITION_OBSERVABLE_ORDER if item in supported_set
+    )
+    ordered_unsupported = tuple(
+        unsupported_by_name[item]
+        for item in _COMPOSITION_OBSERVABLE_ORDER
+        if item in unsupported_by_name
+    )
+    reflection_orders = tuple(
+        sorted(
+            {
+                0
+                if item.path_type == 'direct'
+                else len(item.ordered_interaction_surface_ids)
+                for item in path_artifact.paths
+            }
+        )
+    )
+    return ordered_supported, ordered_unsupported, reflection_orders
+
+
+def compose_hybrid_acoustic_result(
+    *,
+    hybrid: HybridAcousticResult,
+    composition_spec: HybridCompositionSpec,
+    deterministic_path_artifact: DeterministicPathArtifact,
+) -> HybridAcousticResult:
+    """Attach a fail-closed bounded composition decision to R160 typed authority."""
+
+    hybrid = HybridAcousticResult.model_validate(
+        hybrid.model_dump(mode='python')
+    )
+    if hybrid.composition_spec is not None:
+        raise ValueError(
+            'bounded hybrid composition requires an uncomposed R160 foundation result'
+        )
+
+    path_artifact = DeterministicPathArtifact.model_validate(
+        deterministic_path_artifact.model_dump(mode='python')
+    )
+    spec = HybridCompositionSpec.model_validate(
+        composition_spec.model_dump(mode='python')
+    )
+    expected_spec = build_hybrid_composition_spec(
+        hybrid=hybrid,
+        deterministic_path_artifact=path_artifact,
+        observable=spec.observable,
+        requested_frequency_domain=spec.requested_frequency_domain,
+        crossover_policy=spec.crossover_policy,
+        double_count_exclusion_policy=spec.double_count_exclusion_policy,
+    )
+    if expected_spec != spec:
+        raise ValueError(
+            'hybrid composition spec is stale or incompatible with exact inputs'
+        )
+
+    supported, unsupported, path_orders = _composition_capabilities(
+        hybrid=hybrid,
+        spec=spec,
+        path_artifact=path_artifact,
+    )
+    unsupported_by_name = {item.observable: item for item in unsupported}
+    if spec.observable not in supported:
+        reason = unsupported_by_name[spec.observable]
+        raise ValueError(reason.detail)
+
+    if spec.observable == 'deterministic_path_identity':
+        valid_domain = _domain_intersection(
+            spec.requested_frequency_domain,
+            spec.ga_valid_band,
+        )
+    elif spec.observable == 'late_decay':
+        late_validity = hybrid.late_energy_decay.validity
+        valid_domain = (
+            None
+            if late_validity is None
+            else _domain_intersection(
+                spec.requested_frequency_domain,
+                late_validity.frequency_domain,
+            )
+        )
+    else:
+        valid_domain = None
+    if valid_domain is None:
+        raise ValueError(
+            'requested observable has no valid domain inside requested frequencies'
+        )
+
+    decision = HybridCompositionDecision(
+        status='ELIGIBLE_BOUNDED_NO_NUMERIC_BLEND',
+        composition_spec_sha256=spec.semantic_sha256,
+        requested_observable=spec.observable,
+        supported_observables=supported,
+        unsupported_observables=unsupported,
+        source_valid_domains=(spec.wave_valid_band, spec.ga_valid_band),
+        valid_domains=(valid_domain,),
+        overlap_domain=spec.overlap_domain,
+        gap_domains=_gap_within_requested_domain(
+            spec.wave_valid_band,
+            spec.ga_valid_band,
+            spec.requested_frequency_domain,
+        ),
+        path_reflection_orders_present=path_orders,
+        double_count_decision='NOT_APPLICABLE_NON_NUMERIC_OBSERVABLE',
+        evidence=(
+            'exact R130 complex-pressure artifact identity resolved',
+            'exact R150 deterministic-path artifact identity resolved',
+            'scene/source/receiver/environment compatibility inherited and rechecked',
+            'requested observable passed observable-specific capability gate',
+            'no cross-backend numeric addition, interpolation, or extrapolation performed',
+        ),
+        approximation_error=HybridApproximationErrorMetadata(
+            note=(
+                'authority-level composition only; no numeric cross-backend '
+                'operation exists from which to claim an error bound'
+            )
+        ),
+    )
+
+    core = hybrid.model_dump(
+        mode='json',
+        exclude={
+            'hybrid_result_id',
+            'semantic_sha256',
+            'composition_spec',
+            'composition_decision',
+        },
+    )
+    core['composition_spec'] = spec.model_dump(mode='json')
+    core['composition_decision'] = decision.model_dump(mode='json')
+    digest = _semantic_hash(core)
+    return HybridAcousticResult(
+        hybrid_result_id=f'hybrid-acoustic-result:{digest}',
+        semantic_sha256=digest,
+        **core,
+    )
+
+
 class CadHybridAcousticResultRepository:
     """Append-only R160 persistence with exact source re-resolution."""
 
@@ -1463,6 +2264,16 @@ class CadHybridAcousticResultRepository:
             ),
             late_energy_decay_reason=hybrid.late_energy_decay.reason,
         )
+        if hybrid.composition_spec is not None:
+            if len(path_artifacts) != 1:
+                raise ValueError(
+                    'R160 bounded composition requires exact persisted R150 artifact'
+                )
+            regenerated = compose_hybrid_acoustic_result(
+                hybrid=regenerated,
+                composition_spec=hybrid.composition_spec,
+                deterministic_path_artifact=path_artifacts[0],
+            )
         if regenerated != hybrid:
             raise ValueError(
                 'R160 hybrid result does not reproduce from exact persisted '
@@ -1574,6 +2385,8 @@ class CadHybridAcousticResultRepository:
     def get(
         self,
         hybrid_result_id: str,
+        *,
+        expected_composition_spec: HybridCompositionSpec | None = None,
     ) -> HybridAcousticResult | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -1586,6 +2399,15 @@ class CadHybridAcousticResultRepository:
             ).fetchone()
         if row is None:
             return None
-        return self._validate(
+        hybrid = self._validate(
             HybridAcousticResult.model_validate_json(row['payload_json'])
         )
+        if expected_composition_spec is not None:
+            if (
+                hybrid.composition_spec is None
+                or hybrid.composition_spec != expected_composition_spec
+            ):
+                raise ValueError(
+                    'R160 persisted hybrid composition is stale for expected spec'
+                )
+        return hybrid

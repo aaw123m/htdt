@@ -275,3 +275,78 @@ This foundation does **not** establish:
 R160 remains **partial** until later numerical combination/continuity semantics
 are justified by explicit physical authority and validation evidence. Issue #101
 must remain open.
+
+
+## Bounded hybrid composition authority
+
+The next R160 slice extends the PR #254 foundation with an explicit,
+content-addressed `HybridCompositionSpec` and an immutable composition
+decision attached to the existing `HybridAcousticResult`. The original PR #254
+payload remains compatible: when no composition authority is attached, the new
+optional fields are excluded from the semantic payload so the legacy identity
+does not change.
+
+The composition spec binds the exact wave result/artifact and exact R150
+`DeterministicPathArtifact`, exact snapshot/SceneRevision, source identity,
+receiver identity/order and environment identity. It also records the requested
+observable/domain, each backend valid band, the exact overlap domain (or its
+absence), an explicit crossover/overlap policy, native normalization/reference
+conventions, a double-count exclusion policy and observable-specific capability
+requirements. There is no implicit crossover default.
+
+The bounded policies are intentionally non-blending:
+
+- `preserve_overlap_no_blend`: overlap is recorded but components remain
+  separate;
+- `explicit_partition_no_blend`: an explicit crossover frequency must lie
+  inside the exact overlap domain, while blend width remains zero;
+- `preserve_gap_no_fill`: valid only for disjoint source bands and preserves
+  the unsupported gap.
+
+Current actual R130/R150 capabilities support
+`deterministic_path_identity` composition. R150 path order is derived from the
+ordered interaction sequence, so direct, first-order and second-order paths are
+not collapsed into an assumed order-1 model.
+
+Current actual capabilities intentionally do **not** authorize:
+
+- `magnitude_energy`: R130 complex pressure is in Pa with an absolute pressure
+  reference, while R150 exposes solver-native relative energy transport; there
+  is no exact cross-quantity normalization. In addition, wave `full_field`
+  may already contain the direct/early components represented by R150, so a
+  disjoint-component policy fails closed without exact subtraction authority;
+- `coherent_phase`: R150 remains
+  `UNAVAILABLE_NOT_SYNTHESIZED`; path length is not treated as reflection
+  phase authority, and a shared source/time/Fourier convention is required;
+- `arrival_timing`: the current wave artifact does not expose a shared explicit
+  time origin compatible with the GA propagation-delay semantics;
+- `late_decay`: bounded direct/early specular paths are not RT60/EDT or other
+  `LateEnergyDecay` evidence.
+
+The resulting `HybridCompositionDecision` retains source valid domains,
+overlap, internal gaps, requested-observable valid domains, supported and
+unsupported observables with reason codes, path reflection orders, explicit
+double-count handling, and approximation/error metadata. It records that no
+cross-backend numerical addition, interpolation or extrapolation was performed.
+
+Persistence continues through the existing append-only R160 repository. Reopen
+regenerates the PR #254 foundation from exact snapshot/request/result/path
+authorities and then regenerates the bounded composition from the stored spec.
+Changed/missing wave or GA artifacts fail closed. Callers may also provide an
+expected composition spec on reopen; a changed crossover/overlap/double-count
+policy is then reported as stale rather than silently reusing an older result.
+
+### Gap semantics
+
+A gap between the wave and GA valid bands is a first-class result. R160 does not
+interpolate or extrapolate across it and does not manufacture a continuous
+20 Hz–20 kHz response. The gap is retained explicitly in composition decision
+metadata.
+
+### Non-claims
+
+This slice is an auditable composition-eligibility authority, not a production
+hybrid acoustic solver. It does not provide broadband pressure stitching,
+automatic crossover selection, coherent broadband IR synthesis, late
+reverberation, stochastic ray tracing, diffraction, owned-room crossover tuning,
+R170 UI integration or R180 validation.
