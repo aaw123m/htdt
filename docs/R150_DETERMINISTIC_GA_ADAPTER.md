@@ -81,9 +81,9 @@ For a reflection candidate, both segments are checked independently:
 - source -> reflection point
 - reflection point -> receiver
 
-No reflecting semantic surface is globally removed from visibility. Instead, triangle hits within the declared geometric distance tolerance of a segment endpoint are excluded. This prevents the intended touch at the reflection point from self-blocking while still allowing another interior intersection with the same semantic surface to block the path.
+In the general-planar lane, no reflecting semantic surface is globally removed from visibility. Instead, triangle hits within the declared geometric distance tolerance of a segment endpoint are excluded. This prevents the intended touch at the reflection point from self-blocking while still allowing another interior intersection with the same semantic surface to block the path. The legacy shoebox lane retains the PR #245 reflecting-surface exclusion behavior for backward-compatible replay.
 
-The segment-triangle test derives a normalized endpoint parameter epsilon from `geometric_tolerance_m / segment_length`; its parallel/barycentric tolerance is likewise scaled from the declared geometry tolerance and segment/triangle extent. Therefore the numerical policy remains tied to the versioned configuration rather than an unrecorded magic epsilon.
+For general-planar visibility, the segment-triangle test derives a normalized endpoint parameter epsilon from `geometric_tolerance_m / segment_length`; its parallel/barycentric tolerance is likewise scaled from the declared geometry tolerance and segment/triangle extent. Therefore the new numerical policy remains tied to the versioned configuration rather than an unrecorded magic epsilon. Legacy shoebox visibility keeps the original PR #245 tolerance semantics.
 
 Shared-edge/touching semantics are intentionally bounded: an intersection that occurs only within the endpoint epsilon is treated as the intended endpoint contact; an intersection strictly inside either segment with any triangle, including another surface sharing an edge, blocks the candidate. Coplanar/grazing cases that cannot establish an unambiguous finite first-order interaction are not promoted into a separate inferred path truth.
 
