@@ -72,6 +72,7 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("setup", "探索設定"),
         WorkspaceContext("candidates", "候補"),
         WorkspaceContext("comparison", "比較"),
+        WorkspaceContext("robustness", "ばらつき耐性"),
         WorkspaceContext("validation", "測定・検証"),
     ),
 }

@@ -476,3 +476,25 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - RDC: not used
 
 Details: [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md).
+
+### Issue #140 / O90D robustness UI — 2026-09-20
+
+- Optimize > ばらつき耐性 canonical context: implemented
+- Nominal / sensitivity / sampled adverse / feasibility / completeness presentation: implemented
+- axis-by-axis local sensitivity chart: implemented
+- finite PerturbationSample performance-distribution histogram: implemented; unweighted frequency is not probability, explicit weights are normalized only over scored feasible samples and labeled conditional probability mass
+- dedicated 3D position / aim / body-yaw tolerance overlay: implemented
+- persisted infeasible position-sample markers: implemented
+- bounded vs explicit probability semantics: implemented
+- p95/probability unsupported reason near affected UI: implemented
+- minimize/maximize direction: backend authority driven
+- sampled worst wording: finite-sample wording, not global worst-case
+- exact Scene/Search/constraint/model/fidelity/objective comparison eligibility: implemented
+- stale evaluation warning/block: implemented
+- hidden robustness score / automatic winner: absent by design
+- internal IDs/SHA/provider/fidelity: Advanced only
+- solver/sampling on UI thread: none
+- UX160 owned-Windows visual acceptance: pending
+- RDC: not used
+
+Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md).

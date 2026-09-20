@@ -60,7 +60,7 @@ def test_workflow_shell_routes_canonical_workspaces_lazily() -> None:
     assert context_events[WorkspaceId.MEASUREMENT][-1] == "quality"
 
     assert window.navigate(WorkspaceId.OPTIMIZATION)
-    assert window.context_labels == ("探索設定", "候補", "比較", "測定・検証")
+    assert window.context_labels == ("探索設定", "候補", "比較", "ばらつき耐性", "測定・検証")
     assert context_events[WorkspaceId.OPTIMIZATION][-1] == "setup"
 
     assert window.handle_deep_link(
@@ -231,7 +231,7 @@ def test_workflow_shell_layout_profiles_do_not_clip_context_navigation() -> None
         )
 
         buttons = tuple(window.context_bar._context_buttons.values())
-        assert len(buttons) == 4
+        assert len(buttons) == 5
         assert all(button.isVisible() for button in buttons)
         for index, left in enumerate(buttons):
             for right in buttons[index + 1:]:

@@ -64,15 +64,16 @@ class FakeOptimizationViewport(QWidget):
         self.render_calls.append((selected_id, reset_camera))
 
 
-def test_ux140_uses_four_canonical_optimization_pages() -> None:
+def test_o90d_uses_five_canonical_optimization_pages() -> None:
     contexts = CANONICAL_WORKSPACE_CONTEXTS[WorkspaceId.OPTIMIZATION]
 
-    assert OPTIMIZATION_PAGE_IDS == ("setup", "candidates", "comparison", "validation")
+    assert OPTIMIZATION_PAGE_IDS == ("setup", "candidates", "comparison", "robustness", "validation")
     assert tuple(context.context_id for context in contexts) == OPTIMIZATION_PAGE_IDS
     assert tuple(context.label for context in contexts) == (
         "探索設定",
         "候補",
         "比較",
+        "ばらつき耐性",
         "測定・検証",
     )
 
@@ -107,10 +108,33 @@ def test_ux140_real_workspace_has_no_legacy_mainwindow_or_docks(tmp_path) -> Non
 
     assert not isinstance(workspace, QMainWindow)
     assert workspace.findChildren(QDockWidget) == []
-    assert workspace.page_ids == ("setup", "candidates", "comparison", "validation")
+    assert workspace.page_ids == ("setup", "candidates", "comparison", "robustness", "validation")
     assert workspace.controller.__class__.__name__ == "OptimizationWorkflowController"
     assert workspace.controller.rew_combo is not None
     assert workspace.controller.campaign_measurement_point_combo is not None
+    assert workspace.robustness_viewport_widget is not workspace.viewport_widget
+    assert workspace.controller.robustness_sensitivity_plot is not None
+    assert workspace.controller.robustness_distribution_plot is not None
+
+    workspace.controller.search_selected_candidate_id = "candidate-preserved"
+    workspace.select_section("robustness")
+    assert workspace.current_page_id == "robustness"
+    assert workspace.controller.search_selected_candidate_id == "candidate-preserved"
+    headers = [
+        workspace.controller.robustness_tree.headerItem().text(index)
+        for index in range(workspace.controller.robustness_tree.columnCount())
+    ]
+    assert "ばらつき耐性" in next(
+        context.label
+        for context in CANONICAL_WORKSPACE_CONTEXTS[WorkspaceId.OPTIMIZATION]
+        if context.context_id == "robustness"
+    )
+    assert not any(
+        token in " ".join(headers)
+        for token in ("UUID", "SHA", "schema", "solver implementation")
+    )
+    workspace.select_section("candidates")
+    assert workspace.controller.search_selected_candidate_id == "candidate-preserved"
 
     workspace.controller.scene.add_object("measurement_point")
     allowed, reason = workspace.before_deactivate()

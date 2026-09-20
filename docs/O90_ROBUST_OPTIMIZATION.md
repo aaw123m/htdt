@@ -1,6 +1,6 @@
 # O90 — Robust / Tolerance-aware Optimization
 
-> Status: **O90A–O90C implemented / O90D–E planned** — tracking: [Issue #140](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/140) / O90B: [Issue #146](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/146)
+> Status: **O90A–O90D software implemented / O90E planned** — tracking: [Issue #140](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/140) / O90B: [Issue #146](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/146)
 >
 > This document is the detailed authority for O90. Implementation order remains `docs/IMPLEMENTATION_ROADMAP.md`.
 >
@@ -555,3 +555,9 @@ HTDT reports:
 It does **not** report that B is universally “better”.
 
 That decision remains visible as a Pareto trade-off.
+
+## O90D workflow-first robustness UI — 2026-09-20
+
+Optimize now exposes a first-class 「ばらつき耐性」 context backed by existing O90A-O90C authority. Nominal, local sensitivity, axis sensitivity chart, finite sampled performance distribution, finite sampled adverse value, feasibility, completeness and probability-capable metrics remain separate; no hidden robustness score or automatic recommendation is introduced. Bounded/unweighted uncertainty never displays fake p95/probability. Exact Scene/Search/constraint/Objective/model/fidelity mismatch is shown as blocked/stale evidence. A dedicated 3D viewport renders declared position/aim/body-yaw tolerance primitives and persisted infeasible position-sample markers without mutating Scene authority.
+
+O90D software integration is distinct from UX160 owned-Windows visual acceptance. See [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md).

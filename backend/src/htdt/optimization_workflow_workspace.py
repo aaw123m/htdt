@@ -37,7 +37,7 @@ from .ui_theme import (
 from .workflow_shell import WorkspaceMount
 
 
-OPTIMIZATION_PAGE_IDS = ("setup", "candidates", "comparison", "validation")
+OPTIMIZATION_PAGE_IDS = ("setup", "candidates", "comparison", "robustness", "validation")
 _OPTIMIZATION_PAGE_ALIASES = {
     "objectives": "comparison",
     "measurement-plan": "validation",
@@ -187,6 +187,15 @@ class OptimizationWorkflowWorkspace(QWidget):
         )
         self.viewport_widget = viewport_widget
         self.viewport_adapter = _OptimizationViewportAdapter(viewport_widget)
+        robustness_viewport_widget = (
+            RoomViewport3D(self)
+            if viewport_factory is None
+            else viewport_factory(self)
+        )
+        self.robustness_viewport_widget = robustness_viewport_widget
+        self.robustness_viewport_adapter = _OptimizationViewportAdapter(
+            robustness_viewport_widget
+        )
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(20, 16, 20, 16)
@@ -197,6 +206,9 @@ class OptimizationWorkflowWorkspace(QWidget):
             "setup": self._build_setup_page(),
             "candidates": self._build_candidates_page(self.viewport_widget),
             "comparison": self._build_comparison_page(),
+            "robustness": self._build_robustness_page(
+                self.robustness_viewport_widget
+            ),
             "validation": self._build_validation_page(),
         }
         for page_id in OPTIMIZATION_PAGE_IDS:
@@ -212,6 +224,10 @@ class OptimizationWorkflowWorkspace(QWidget):
         root_layout.addWidget(self.status)
 
         self.controller.bind_viewport(self.viewport_adapter, self._render_scene)
+        self.controller.bind_robustness_viewport(
+            self.robustness_viewport_adapter,
+            self._render_robustness_scene,
+        )
         self.select_section("setup")
         self._set_status("保存済み")
 
@@ -242,6 +258,8 @@ class OptimizationWorkflowWorkspace(QWidget):
     def select_section(self, section_id: str) -> None:
         page_id = normalize_optimization_page(section_id)
         self._optimization_stack.setCurrentWidget(self._optimization_pages[page_id])
+        if page_id == "robustness":
+            self.controller.refresh_robustness_view()
         if page_id == "validation":
             self.controller.refresh_measurement_plans()
             self.controller.refresh_validation_campaigns()
@@ -261,12 +279,25 @@ class OptimizationWorkflowWorkspace(QWidget):
             reset_camera=reset_camera,
         )
 
+    def _render_robustness_scene(self, document) -> None:
+        self.robustness_viewport_widget.render_document(
+            document,
+            selected_id=None,
+            overlays=RoomOverlayState(
+                grid=True,
+                labels=False,
+                acoustics=True,
+            ),
+            reset_camera=False,
+        )
+
     def _set_status(self, text: str) -> None:
         self.status.setText(str(text))
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.controller.dispose()
         self.viewport_widget.close()
+        self.robustness_viewport_widget.close()
         event.accept()
 
     def _build_setup_page(self) -> QWidget:
@@ -521,6 +552,113 @@ class OptimizationWorkflowWorkspace(QWidget):
         layout.addWidget(metrics_card)
         layout.addWidget(pareto_card, 1)
         return body
+
+    def _build_robustness_page(self, viewport_widget: QWidget) -> QWidget:
+        body = QWidget()
+        set_surface_role(body, SurfaceRole.BASE)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 8, 12)
+        layout.setSpacing(12)
+        layout.addWidget(
+            _heading(
+                "ばらつき耐性",
+                "保存済みばらつき評価の基準値・感度・評価サンプル内の不利側・制約・評価完全性を並べて確認します。"
+                " 総合点や自動推薦は作りません。",
+            )
+        )
+
+        overlay_card, overlay = _card(
+            "3D ばらつき範囲 / aim",
+            "選択候補の位置 tolerance と acoustic aim / cabinet yaw の宣言範囲を、"
+            "保存済みばらつき条件から読み取り専用で表示します。部屋状態は変更しません。",
+        )
+        viewport_widget.setMinimumHeight(300)
+        overlay.addWidget(viewport_widget, 1)
+        layout.addWidget(overlay_card, 1)
+
+        overview_card, overview = _card(
+            "候補比較",
+            "同じ計算モデル・計算精度・評価条件で比較できる候補だけを横断評価します。"
+            " 比較できない場合は理由を表示します。",
+        )
+        summary = _required(
+            self.robustness_summary_label,
+            "robustness_summary_label",
+        )
+        summary.setWordWrap(True)
+        overview.addWidget(summary)
+        comparison_tree = _required(
+            self.robustness_comparison_tree,
+            "robustness_comparison_tree",
+        )
+        comparison_tree.setMinimumHeight(180)
+        overview.addWidget(comparison_tree, 1)
+        tree = _required(self.robustness_tree, "robustness_tree")
+        tree.setMinimumHeight(200)
+        overview.addWidget(tree, 1)
+        layout.addWidget(overview_card, 1)
+
+        charts_card, charts = _card(
+            "感度 / 性能分布",
+            "軸別の局所感度と、保存済み評価点の有限サンプル分布を表示します。"
+            " 分布頻度を暗黙の確率へ変換しません。",
+        )
+        sensitivity_plot = _required(
+            self.robustness_sensitivity_plot,
+            "robustness_sensitivity_plot",
+        )
+        sensitivity_plot.setMinimumHeight(170)
+        charts.addWidget(sensitivity_plot)
+        distribution_plot = _required(
+            self.robustness_distribution_plot,
+            "robustness_distribution_plot",
+        )
+        distribution_plot.setMinimumHeight(170)
+        charts.addWidget(distribution_plot)
+        distribution_note = _required(
+            self.robustness_distribution_note_label,
+            "robustness_distribution_note_label",
+        )
+        distribution_note.setWordWrap(True)
+        charts.addWidget(distribution_note)
+        layout.addWidget(charts_card)
+
+        evidence_card, evidence = _card(
+            "確率・制約・評価完全性",
+            "bounded intervalを確率分布として扱いません。p95や制約違反確率は、"
+            "backendに明示的な確率モデルがある場合だけ表示します。",
+        )
+        probability = _required(
+            self.robustness_probability_label,
+            "robustness_probability_label",
+        )
+        probability.setWordWrap(True)
+        evidence.addWidget(probability)
+        detail = _required(
+            self.robustness_detail_label,
+            "robustness_detail_label",
+        )
+        detail.setWordWrap(True)
+        evidence.addWidget(detail)
+        layout.addWidget(evidence_card)
+
+        advanced_content = QWidget()
+        advanced_layout = QVBoxLayout(advanced_content)
+        advanced_layout.setContentsMargins(0, 4, 0, 0)
+        advanced = _required(
+            self.robustness_advanced_label,
+            "robustness_advanced_label",
+        )
+        advanced.setWordWrap(True)
+        advanced_layout.addWidget(advanced)
+        layout.addWidget(
+            _advanced_block(
+                "詳細: authority / model / fidelity",
+                "UUID・SHA・solver/provider等の内部情報は通常表示から分離します。",
+                advanced_content,
+            )
+        )
+        return _scroll_page(body)
 
     def _build_validation_page(self) -> QWidget:
         body = QWidget()

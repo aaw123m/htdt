@@ -38,6 +38,7 @@ from .cad_model_validation_service import CadModelValidationService
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_objectives import build_pareto_set
 from .cad_repository import SceneRepository
+from .cad_robustness_repository import CadRobustnessRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_scene import scene_content_hash
 from .cad_search import search_spec_current_working
@@ -50,6 +51,7 @@ from .optimization_adaptive_controller import AdaptiveControllerMixin
 from .optimization_adaptive_extended_controller import AdaptiveExtendedControllerMixin
 from .optimization_extended_controller import ExtendedSearchControllerMixin
 from .optimization_measurement_controller import MeasurementPlanControllerMixin
+from .optimization_robustness_controller import RobustnessControllerMixin
 from .optimization_search_controller import SearchControllerMixin
 from .optimization_task import _SearchTask
 from .optimization_validation_controller import ValidationControllerMixin
@@ -126,6 +128,7 @@ class OptimizationWorkflowController(
     QObject,
     ValidationControllerMixin,
     MeasurementPlanControllerMixin,
+    RobustnessControllerMixin,
     AdaptiveControllerMixin,
     AdaptiveExtendedControllerMixin,
     ExtendedSearchControllerMixin,
@@ -149,6 +152,7 @@ class OptimizationWorkflowController(
 
         self.search_repository = CadSearchRepository(repository)
         self.objective_repository = CadObjectiveRepository(repository, self.search_repository)
+        self.robustness_repository = CadRobustnessRepository(repository.path)
         self.measurement_repository = CadMeasurementRepository(repository)
         self.roomsim_repository = CadRoomSimRepository(repository, self.search_repository)
         self.validation_repository = CadModelValidationRepository(
@@ -657,6 +661,7 @@ class OptimizationWorkflowController(
                     self.campaign_measurement_point_combo.setCurrentIndex(index)
 
     def _create_controls(self) -> None:
+        self._create_robustness_controls()
         self.search_binding_label = QLabel("保存済みの部屋状態から探索設定を作成します")
         self.search_binding_label.setWordWrap(True)
         self.search_name_field = QLineEdit()

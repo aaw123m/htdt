@@ -329,3 +329,7 @@ Issue #166の子Issue #167–#176は、独立できるgeometry/report/measuremen
 ### O100G MeasurementPlan / Campaign backend — 2026-09-20
 
 SystemVariant → applied SceneRevision → explicit AsBuilt → SystemVariant-specific MeasurementPlan → preregistered Campaign → exact Measurement/Dataset/AcquisitionContext/Quality evidence → existing measured lifecycle is implemented. Evidence mismatches and pre-campaign captures fail closed. O60 model-validation authority remains independent and cannot be bypassed. O100G overall remains partial because workflow UX/ghost-badge/measured-comparison/UX160 acceptance are still pending.
+
+### O90D robustness workflow UI — 2026-09-20
+
+The workflow-first Optimize workspace now includes 「ばらつき耐性」 between comparison and measurement/validation. Existing O90A-O90C authority is rendered without duplicating backend algorithms. Bounded/probability semantics, sampled-worst wording, objective direction, exact comparison eligibility and stale reasons are preserved. Axis sensitivity and finite sample-distribution charts plus a read-only 3D position/aim/body-yaw tolerance overlay and infeasible-sample markers are included. UX160 owned-Windows visual acceptance remains a separate gate; RDC was not used.
