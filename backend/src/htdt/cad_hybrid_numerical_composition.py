@@ -1077,7 +1077,6 @@ def _normalized_wave_transfer(
     excitation: AcousticWaveExcitationAuthority,
 ) -> dict[float, complex]:
     frequencies = tuple(float(item) for item in payload['frequency_axis_hz'])
-    index_by_frequency = {item: index for index, item in enumerate(frequencies)}
     receiver_order = payload['receiver_identity_order']
     receiver_index = next(
         index
@@ -1091,25 +1090,37 @@ def _normalized_wave_transfer(
         for item in excitation.samples
     }
 
-    normalized: dict[float, complex] = {}
-    for frequency in spec.exact_frequency_grid_hz:
-        pressure_index = index_by_frequency.get(frequency)
+    native: list[complex] = []
+    for pressure_index, frequency in enumerate(frequencies):
         q = q_by_frequency.get(frequency)
-        if pressure_index is None or q is None:
-            raise ValueError('R160 exact shared wave/Q frequency sample is missing')
+        if q is None:
+            raise HybridNumericalCompositionError(
+                HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                f'R160 exact Q(f) sample is missing at {frequency} Hz',
+            )
         if abs(q) <= 1e-18:
-            raise ValueError('R160 source-normalization conversion rejects zero Q(f)')
+            raise HybridNumericalCompositionError(
+                HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                'R160 source-normalization conversion rejects zero Q(f)',
+            )
         pressure = complex(
             pressure_real[pressure_index],
             pressure_imag[pressure_index],
         )
-        transfer_r130 = pressure / q
-        normalized[frequency] = convert_complex_phasor(
-            transfer_r130,
-            input_convention=R130_PHASOR_CONVENTION,
-            output_convention=COMMON_PHASOR_CONVENTION,
+        native.append(
+            convert_complex_phasor(
+                pressure / q,
+                input_convention=R130_PHASOR_CONVENTION,
+                output_convention=COMMON_PHASOR_CONVENTION,
+            )
         )
-    return normalized
+    return reconcile_complex_series(
+        original_grid_hz=frequencies,
+        values=native,
+        output_grid_hz=spec.exact_frequency_grid_hz,
+        authority=spec.grid_reconciliation,
+        label='R160 wave transfer',
+    )
 
 
 def compose_numerical_hybrid_response(
