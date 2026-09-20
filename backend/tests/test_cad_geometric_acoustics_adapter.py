@@ -696,6 +696,7 @@ def _fixture(
     boundary_termination_authority: BoundaryTerminationAuthority | None = None,
     nontrivial_boundary_termination: bool = False,
     maximum_portal_crossings: int | None = None,
+    expected_dispatch_state: str = 'READY',
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
@@ -1008,7 +1009,15 @@ def _fixture(
         adapter=descriptor,
         solver_configuration_ref=configuration.as_external_ref(),
     )
-    assert dispatch.state == 'READY'
+    assert dispatch.state == expected_dispatch_state
+    if expected_dispatch_state != 'READY':
+        return {
+            'dispatch': dispatch,
+            'compiled': compiled,
+            'region': region,
+            'portals': portals,
+            'terminations': terminations,
+        }
 
     snapshot_repository = CadAcousticSnapshotRepository(
         scene_repository,
@@ -1738,6 +1747,7 @@ def _portal_fixture(
     receiver_position: Position3 | None = None,
     occluder: bool = False,
     nontrivial_boundary_termination: bool = False,
+    expected_dispatch_state: str = 'READY',
 ):
     geometry, portal_loop = _portal_semantic_geometry(occluder=occluder)
     return _fixture(
@@ -1755,6 +1765,7 @@ def _portal_fixture(
         receiver_region_id=receiver_region_id,
         nontrivial_boundary_termination=nontrivial_boundary_termination,
         maximum_portal_crossings=1,
+        expected_dispatch_state=expected_dispatch_state,
     )
 
 
@@ -1811,12 +1822,12 @@ def test_portal_plane_crossing_outside_exact_polygon_is_rejected(
 
 
 def test_portal_wrong_region_adjacency_fails_closed(tmp_path: Path) -> None:
-    with pytest.raises(DeterministicGaUnsupportedError) as error:
-        _portal_fixture(
-            tmp_path,
-            portal_region_ids=('region-a', 'ghost-region'),
-        )
-    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_APERTURE'
+    fx = _portal_fixture(
+        tmp_path,
+        portal_region_ids=('region-a', 'ghost-region'),
+        expected_dispatch_state='BLOCKED',
+    )
+    assert fx['dispatch'].state == 'BLOCKED'
 
 
 def test_portal_source_wrong_explicit_region_binding_fails_closed(
