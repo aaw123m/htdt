@@ -18,6 +18,11 @@ import psutil
 import scipy
 from scipy import linalg
 
+from htdt.acoustic_pffdtd_adapter import (
+    finite_record_pressure_transfer as pffdtd_finite_record_pressure_transfer,
+    pffdtd_velocity_potential_to_pressure_trace,
+    recombine_pffdtd_receiver_traces,
+)
 from htdt.acoustic_pffdtd_polyhedral_geometry import (
     PffdtdPolyhedralCandidateWaveExecutor,
     register_r120b_polyhedral_authorities,
@@ -32,11 +37,15 @@ from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     ObservableContractMismatch,
     R130DGeneral3DValidationPlan,
+    analytic_complex_harmonic_spectrum,
     assess_refinement_series,
     compare_complex_transfer,
+    load_target_window_diagnostic_plan,
     load_validation_plan,
     save_evidence,
     semantic_hash,
+    target_window_sampling_metadata,
+    target_window_zoh_transfer,
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
@@ -131,6 +140,147 @@ def _git_head(root: Path) -> str:
 def _complex_pairs(values: np.ndarray) -> list[list[float]]:
     array = np.asarray(values, dtype=np.complex128)
     return [[float(item.real), float(item.imag)] for item in array]
+
+
+def _validate_target_window_diagnostic_binding(
+    plan: R130DGeneral3DValidationPlan,
+    diagnostic: dict[str, Any],
+) -> None:
+    checks = (
+        (
+            'parent_general3d_plan_sha256',
+            diagnostic.get('parent_general3d_plan_sha256'),
+            plan.plan_sha256(),
+        ),
+        (
+            'target_duration_s',
+            float(diagnostic.get('target_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'frequency_hz',
+            tuple(float(x) for x in diagnostic.get('frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'mfem_refinements',
+            tuple(int(x) for x in diagnostic.get('series', {}).get('mfem_refinements', ())),
+            tuple(int(x) for x in plan.independent_reference.uniform_refinements),
+        ),
+        (
+            'pffdtd_ppw',
+            tuple(float(x) for x in diagnostic.get('series', {}).get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValidationBlocked(
+                f'target-window diagnostic binding mismatch for {label}: '
+                f'{actual!r} != {expected!r}'
+            )
+
+    thresholds = diagnostic.get('acceptance_thresholds_unchanged', {})
+    if thresholds.get('mfem') != {
+        'complex_rms_relative_max': 0.05,
+        'magnitude_max_relative': 0.08,
+        'phase_max_deg': 5.0,
+    }:
+        raise ValidationBlocked('diagnostic MFEM thresholds changed from PR #286')
+    if thresholds.get('pffdtd') != {
+        'complex_rms_relative_max': 0.2,
+        'magnitude_max_relative': 0.25,
+        'phase_max_deg': 15.0,
+    }:
+        raise ValidationBlocked('diagnostic PFFDTD thresholds changed from PR #286')
+    if float(thresholds.get('magnitude_mask_relative_db', math.nan)) != -50.0:
+        raise ValidationBlocked('diagnostic magnitude mask changed from PR #286')
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_observable_replaced') is False
+        and decision.get('cross_solver_unblocked_by_diagnostic_only') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic_only') is False
+    ):
+        raise ValidationBlocked('diagnostic decision semantics are not fail-closed')
+
+
+def _run_observation_operator_fixture(
+    diagnostic: dict[str, Any],
+) -> dict[str, Any]:
+    spec = diagnostic['analytic_fixture']
+    frequencies = np.asarray(diagnostic['frequency_hz'], dtype=np.float64)
+    duration = float(diagnostic['target_duration_s'])
+    p_amp = complex(*[float(x) for x in spec['pressure_amplitude']])
+    q_amp = complex(*[float(x) for x in spec['source_amplitude']])
+    p_hz = float(spec['pressure_harmonic_hz'])
+    q_hz = float(spec['source_harmonic_hz'])
+    exact_p = analytic_complex_harmonic_spectrum(
+        amplitude=p_amp,
+        harmonic_frequency_hz=p_hz,
+        analysis_frequency_hz=frequencies,
+        duration_s=duration,
+    )
+    exact_q = analytic_complex_harmonic_spectrum(
+        amplitude=q_amp,
+        harmonic_frequency_hz=q_hz,
+        analysis_frequency_hz=frequencies,
+        duration_s=duration,
+    )
+    exact_transfer = exact_p / exact_q
+    cases = []
+    errors = []
+    for dt_s in (float(x) for x in spec['dt_s']):
+        sample_count = int(math.ceil(duration / dt_s))
+        ratio = duration / dt_s
+        if math.isclose(ratio, round(ratio), rel_tol=0.0, abs_tol=1.0e-12):
+            raise ValidationBlocked(
+                'analytic fixture requires non-integer target_duration/dt'
+            )
+        times = np.arange(sample_count, dtype=np.float64) * dt_s
+        pressure = p_amp * np.exp(-2j * np.pi * p_hz * times)
+        source = q_amp * np.exp(-2j * np.pi * q_hz * times)
+        aligned = target_window_zoh_transfer(
+            pressure,
+            source,
+            dt_s=dt_s,
+            target_duration_s=duration,
+            frequency_hz=frequencies,
+        )
+        relative_error = float(
+            np.linalg.norm(aligned - exact_transfer)
+            / max(float(np.linalg.norm(exact_transfer)), np.finfo(np.float64).tiny)
+        )
+        errors.append(relative_error)
+        cases.append(
+            {
+                'dt_s': dt_s,
+                'sample_count': sample_count,
+                'n_dt_s': sample_count * dt_s,
+                'n_dt_minus_target_s': sample_count * dt_s - duration,
+                'aligned_transfer': _complex_pairs(aligned),
+                'relative_transfer_error': relative_error,
+            }
+        )
+    monotone = all(
+        following < previous
+        for previous, following in zip(errors, errors[1:])
+    )
+    finest_limit = 0.11
+    passed = bool(monotone and errors[-1] < finest_limit)
+    if not passed:
+        raise ValidationBlocked(
+            'target-window analytic fixture did not satisfy frozen convergence gate'
+        )
+    return {
+        'state': 'PASS',
+        'fixture_id': spec['fixture_id'],
+        'exact_transfer': _complex_pairs(exact_transfer),
+        'cases': cases,
+        'relative_error_strictly_decreasing': monotone,
+        'finest_relative_error_max': finest_limit,
+        'finest_relative_error': errors[-1],
+    }
 
 
 def _finite_record_transfer(
