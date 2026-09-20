@@ -1776,6 +1776,59 @@ def _portal_fixture(
     )
 
 
+def test_portal_lane_requires_explicit_zero_reflection_order() -> None:
+    with pytest.raises(ValueError, match='maximum_reflection_order=0'):
+        build_deterministic_ga_configuration(
+            frequency_centers_hz=(500.0, 1000.0),
+            room_policy=PORTAL_POLICY,
+            maximum_reflection_order=1,
+            maximum_portal_crossings=1,
+        )
+
+
+def test_portal_endpoint_region_bindings_are_mandatory(tmp_path: Path) -> None:
+    geometry, portal_loop = _portal_semantic_geometry()
+    with pytest.raises(DeterministicGaUnsupportedError) as error:
+        _fixture(
+            tmp_path,
+            semantic_geometry=geometry,
+            room_policy=PORTAL_POLICY,
+            region_surface_keys_by_id=PORTAL_REGION_SURFACES,
+            portal_loop_vertex_indices=portal_loop,
+            portal_surface_key='portal-interface',
+            portal_region_ids=('region-a', 'region-b'),
+            source_region_id=None,
+            receiver_region_id='region-b',
+            maximum_reflection_order=0,
+            maximum_portal_crossings=1,
+        )
+    assert error.value.reason_code == 'UNSUPPORTED_REGION_MEMBERSHIP'
+
+
+def test_portal_non_manifold_region_topology_blocks_dispatch(tmp_path: Path) -> None:
+    geometry, portal_loop = _portal_semantic_geometry()
+    broken_regions = dict(PORTAL_REGION_SURFACES)
+    broken_regions['region-a'] = tuple(
+        key for key in broken_regions['region-a']
+        if key != 'portal-floor-a'
+    )
+    fx = _fixture(
+        tmp_path,
+        semantic_geometry=geometry,
+        room_policy=PORTAL_POLICY,
+        region_surface_keys_by_id=broken_regions,
+        portal_loop_vertex_indices=portal_loop,
+        portal_surface_key='portal-interface',
+        portal_region_ids=('region-a', 'region-b'),
+        source_region_id='region-a',
+        receiver_region_id='region-b',
+        maximum_reflection_order=0,
+        maximum_portal_crossings=1,
+        expected_dispatch_state='BLOCKED',
+    )
+    assert fx['compiled'].readiness.geometric_acoustics_geometry_ready is False
+
+
 def test_multi_region_open_portal_direct_path_has_exact_ordered_region_sequence(
     tmp_path: Path,
 ) -> None:
