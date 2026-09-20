@@ -325,3 +325,8 @@ Issue #166の子Issue #167–#176は、独立できるgeometry/report/measuremen
 ### Issue #166 completion rule
 
 本節とPROJECT_PLANから#167–#176のscope、依存、状態、残gateへ到達できることをcanonical trackingとする。子Issueの実装完了は、それぞれのfocused fixture / persistence / exact reopen evidenceで判定し、Windows実機・solver numerical validation・owned-room evidenceを一括の「完成」へ混ぜない。
+
+
+## R150 deterministic direct / first-specular adapter foundation — 2026-09-20
+
+Implemented as a bounded Issue #101 slice: exact `AcousticSceneSnapshot` -> deterministic-path request -> READY geometric dispatch -> exact GA execution input -> pyroomacoustics 0.10.1 candidate image-source execution -> typed direct/first-specular `DeterministicPathArtifact` -> existing result envelope, with append-only save/reopen and fail-closed authority re-resolution. Candidate-native execution is intentionally limited to an exact single-region axis-aligned closed shoebox shell; unsupported R120 geometry/portal/termination cases are explicit and are not simplified. Production GA solver selection, general arbitrary-room first-order execution, higher-order/late/scattering/diffraction work, and R150 overall validation remain open. See `docs/R150_DETERMINISTIC_GA_ADAPTER.md`.

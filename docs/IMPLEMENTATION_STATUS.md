@@ -459,3 +459,8 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - exact exported settingsを参照するVerificationMeasurementPlan foundationとbefore/after Measurement lineageを実装。
 - all-pass correction、coherent inter-channel phase correction、proprietary adapters、advanced PEQ generation、#174 joint optimization、owned-room production recommendation enablementはdeferred。
 - 詳細: [CalibrationPlan authority](CALIBRATION_PLAN.md)
+
+
+## Issue #101 / R150 deterministic GA execution foundation — 2026-09-20
+
+**PARTIAL / bounded foundation implemented.** The solver-neutral acoustic authority chain now has a deterministic GA execution adapter foundation for `deterministic_paths`: exact snapshot/request/READY dispatch, typed execution input, candidate direct + first-order specular execution, phase-free banded relative-energy path artifact, result-envelope binding, and append-only input/artifact persistence with exact save/reopen re-resolution. Source directivity and GA material quantities fail closed; magnitude-only/scalar authorities never synthesize coherent phase. pyroomacoustics 0.10.1 remains a reference/candidate implementation only and is **not** designated production. Current native candidate room support is the exact six-surface single-region shoebox subset of R120; arbitrary polyhedral/multi-region/portal GA execution and the remainder of R150 remain incomplete. See `docs/R150_DETERMINISTIC_GA_ADAPTER.md`.
