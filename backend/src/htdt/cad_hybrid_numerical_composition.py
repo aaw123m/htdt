@@ -307,7 +307,6 @@ class NumericalHybridCompositionSpec(BaseModel):
     source_entity_id: str = Field(min_length=1)
     receiver_id: str = Field(min_length=1)
     exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=2)
-    grid_reconciliation_ref: ExactExternalAuthorityRef
 
     quantity: Literal[
         'complex_acoustic_pressure_per_volume_velocity'
@@ -431,6 +430,7 @@ class AggregatedGaComplexResponse(BaseModel):
     source_entity_id: str = Field(min_length=1)
     receiver_id: str = Field(min_length=1)
     exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=2)
+    grid_reconciliation_ref: ExactExternalAuthorityRef
 
     quantity: Literal[
         'complex_acoustic_pressure_per_volume_velocity'
@@ -596,6 +596,11 @@ class NumericalHybridResponseArtifact(BaseModel):
             raise ValueError('R160 output R150 response identity mismatch')
         if self.aggregated_ga.as_external_ref() != self.exact_aggregated_ga_identity:
             raise ValueError('R160 output GA aggregate identity mismatch')
+        if (
+            self.aggregated_ga.grid_reconciliation_ref
+            != self.grid_reconciliation.as_external_ref()
+        ):
+            raise ValueError('R160 output GA reconciliation identity mismatch')
         if self.exact_frequency_grid_hz != self.composition_spec.exact_frequency_grid_hz:
             raise ValueError('R160 output frequency grid mismatch')
         if self.grid_reconciliation != self.composition_spec.grid_reconciliation:
