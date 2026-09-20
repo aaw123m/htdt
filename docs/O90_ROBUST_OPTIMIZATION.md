@@ -1,6 +1,6 @@
 # O90 — Robust / Tolerance-aware Optimization
 
-> Status: **O90A–O90D software implemented / O90E planned** — tracking: [Issue #140](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/140) / O90B: [Issue #146](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/146)
+> Status: **O90A–O90E software authority implemented / O90E real owned-room evidence pending** — tracking: [Issue #140](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/140) / O90B: [Issue #146](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/146)
 >
 > This document is the detailed authority for O90. Implementation order remains `docs/IMPLEMENTATION_ROADMAP.md`.
 >
@@ -531,11 +531,25 @@ PR #149 provides the bounded multidimensional foundation. The Issue #146 complet
 
 ### O90E — owned-room robust validation
 
-- preregister perturbation validation cases;
-- reuse O60 sensitivity evidence;
-- targeted measured perturbations around selected candidates;
-- fail-closed production gate;
-- record applicability limits.
+Software authority is implemented in the Issue #140 O90E slice. It:
+
+- preregisters exact signed perturbation validation cases before capture;
+- binds exact RobustnessSpec/candidate/SceneRevision/model/provider/objective authority;
+- reuses campaign-backed O60 validation and exact O60 sensitivity pairs rather
+  than creating another model-validation flag;
+- re-resolves exact MeasurementPlan, measurement/dataset, AcquisitionContext and
+  MeasurementQualityReport capability authority;
+- re-resolves the existing SystemVariant application/variant lineage when a
+  candidate revision descends from one, and rejects cross-lineage evidence;
+- compares requested O90 axis endpoints and observable band against tested O60
+  perturbation evidence;
+- persists append-only historical decisions with explicit fail-closed reasons;
+- rejects stale, mismatched, retrospective, incomplete and synthetic evidence.
+
+This is software authority only. No genuine owned-room O90E campaign is present
+in the repository, so the production-owned-room robustness gate remains closed.
+See
+[ISSUE_140_O90E_OWNED_ROOM_ROBUST_VALIDATION_2026-09-20.md](ISSUE_140_O90E_OWNED_ROOM_ROBUST_VALIDATION_2026-09-20.md).
 
 ## 16. Example decision semantics
 
