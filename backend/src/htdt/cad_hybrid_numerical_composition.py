@@ -307,6 +307,7 @@ class NumericalHybridCompositionSpec(BaseModel):
     source_entity_id: str = Field(min_length=1)
     receiver_id: str = Field(min_length=1)
     exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=2)
+    grid_reconciliation_ref: ExactExternalAuthorityRef
 
     quantity: Literal[
         'complex_acoustic_pressure_per_volume_velocity'
@@ -1002,6 +1003,9 @@ def aggregate_r150_complex_paths(
         'source_entity_id': spec.source_entity_id,
         'receiver_id': spec.receiver_id,
         'exact_frequency_grid_hz': list(spec.exact_frequency_grid_hz),
+        'grid_reconciliation_ref': spec.grid_reconciliation.as_external_ref().model_dump(
+            mode='json'
+        ),
         'quantity': TRANSFER_QUANTITY,
         'unit': TRANSFER_UNIT,
         'source_normalization': COMMON_SOURCE_NORMALIZATION,
@@ -1016,28 +1020,39 @@ def aggregate_r150_complex_paths(
             'samples': [],
         }
     else:
-        sums = {frequency: 0.0 + 0.0j for frequency in spec.exact_frequency_grid_hz}
+        native_grid = spec.grid_reconciliation.original_ga_frequency_grid_hz
+        sums = {frequency: 0.0 + 0.0j for frequency in native_grid}
         for response in response_tuple:
-            samples = {item.frequency_hz: item for item in response.samples}
-            for frequency in spec.exact_frequency_grid_hz:
+            samples = {float(item.frequency_hz): item for item in response.samples}
+            for frequency in native_grid:
                 sample = samples.get(frequency)
                 if (
                     sample is None
                     or sample.complex_real_pa_per_m3_s is None
                     or sample.complex_imag_pa_per_m3_s is None
                 ):
-                    raise ValueError('R160 exact R150 complex sample is missing')
+                    raise HybridNumericalCompositionError(
+                        HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+                        'R160 original GA complex sample is missing',
+                    )
                 sums[frequency] += complex(
                     sample.complex_real_pa_per_m3_s,
                     sample.complex_imag_pa_per_m3_s,
                 )
+        reconciled = reconcile_complex_series(
+            original_grid_hz=native_grid,
+            values=tuple(sums[frequency] for frequency in native_grid),
+            output_grid_hz=spec.exact_frequency_grid_hz,
+            authority=spec.grid_reconciliation,
+            label='R160 GA aggregate',
+        )
         aggregate_samples = [
             {
                 'frequency_hz': frequency,
-                'complex_real_pa_per_m3_s': sums[frequency].real,
-                'complex_imag_pa_per_m3_s': sums[frequency].imag,
-                'magnitude_pa_per_m3_s': abs(sums[frequency]),
-                'phase_rad': _phase(sums[frequency]),
+                'complex_real_pa_per_m3_s': reconciled[frequency].real,
+                'complex_imag_pa_per_m3_s': reconciled[frequency].imag,
+                'magnitude_pa_per_m3_s': abs(reconciled[frequency]),
+                'phase_rad': _phase(reconciled[frequency]),
             }
             for frequency in spec.exact_frequency_grid_hz
         ]
