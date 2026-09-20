@@ -115,6 +115,12 @@ class ComplexTransferSample(BaseModel):
             value = complex(self.real, self.imag)
             if abs(abs(value) - self.magnitude) > max(1e-12, self.magnitude * 1e-10):
                 raise ValueError('complex transfer magnitude mismatch')
+            phase_error = atan2(
+                sin(float(self.phase_rad) - _phase(value)),
+                cos(float(self.phase_rad) - _phase(value)),
+            )
+            if abs(phase_error) > 1e-10:
+                raise ValueError('complex transfer phase does not match real/imag')
         return self
 
     @classmethod
@@ -507,6 +513,10 @@ def build_source_response_authority(
             )
             valid_band = directivity_dataset.valid_domain.frequency
             if directivity.tier == 'complex':
+                if directivity_dataset.phase_reference != directivity.phase_reference:
+                    raise ValueError(
+                        'DirectivityDataset phase reference does not match EquipmentDefinition'
+                    )
                 capability = 'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE'
                 phase_reference = directivity.phase_reference
             else:
@@ -1010,6 +1020,12 @@ class PathFrequencyResponseSample(BaseModel):
                 1e-12, self.magnitude_pa_per_m3_s * 1e-10
             ):
                 raise ValueError('path response sample magnitude mismatch')
+            phase_error = atan2(
+                sin(float(self.phase_rad) - _phase(value)),
+                cos(float(self.phase_rad) - _phase(value)),
+            )
+            if abs(phase_error) > 1e-10:
+                raise ValueError('path response phase does not match real/imag')
         return self
 
 
@@ -1212,6 +1228,9 @@ def build_deterministic_path_frequency_response(
         reasons.append('ENVIRONMENT_PATH_DELAY_MISMATCH')
 
     for frequency in frequency_grid.frequencies_hz:
+        if not path_artifact.frequency_domain.contains(frequency):
+            reasons.append('PATH_ARTIFACT_VALID_BAND_MISMATCH')
+            break
         if not environment.valid_frequency_domain.contains(frequency):
             reasons.append('ENVIRONMENT_VALID_BAND_MISMATCH')
             break
@@ -1230,6 +1249,11 @@ def build_deterministic_path_frequency_response(
 
     if source_authority.capability == 'UNSUPPORTED_UNKNOWN_DIRECTIVITY':
         reasons.append(source_authority.unsupported_reason or 'SOURCE_DIRECTIVITY_UNSUPPORTED')
+    if source_authority.capability in {
+        'COMPLEX_DIRECTIONAL_TRANSFER_AVAILABLE',
+        'ANALYTIC_OMNIDIRECTIONAL_MODEL',
+    } and source_authority.phase_reference != 'source_volume_velocity_t0':
+        reasons.append('SOURCE_PHASE_REFERENCE_MISMATCH')
     if point_source_normalization is None:
         reasons.append('SOURCE_ABSOLUTE_NORMALIZATION_UNSUPPORTED')
     elif source_authority.point_source_normalization_ref != point_source_normalization.as_external_ref():
