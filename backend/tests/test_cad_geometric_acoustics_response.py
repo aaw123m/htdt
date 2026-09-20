@@ -27,6 +27,9 @@ from htdt.cad_equipment import (
 )
 from htdt.cad_geometric_acoustics_adapter import (
     DeterministicAcousticPath,
+    DeterministicGaExecutionInput,
+    DeterministicGaReceiverInput,
+    DeterministicGaSourceInput,
     DeterministicPathArtifact,
     DeterministicPathBandQuantity,
     DeterministicPathInteraction,
@@ -233,13 +236,82 @@ def _path(
     )
 
 
-def _artifact(path: DeterministicAcousticPath) -> DeterministicPathArtifact:
+def _execution_input(
+    path: DeterministicAcousticPath,
+    common: dict,
+    *,
+    semantic_sha256: str = 'e' * 64,
+    frequency_domain: FrequencyDomain | None = None,
+) -> DeterministicGaExecutionInput:
+    directivity_ref = common['source'].directivity_dataset_ref
+    return DeterministicGaExecutionInput.model_construct(
+        authority_version='r150-deterministic-ga-1',
+        execution_input_id=f'r150-ga-execution-input:{semantic_sha256}',
+        semantic_sha256=semantic_sha256,
+        r120_compiled_geometry_id=common['r120'].authority_id,
+        r120_compiled_geometry_sha256=common['r120'].semantic_hash_sha256,
+        sources=(
+            DeterministicGaSourceInput(
+                source_entity_id=path.source_entity_id,
+                r110_compiled_source_sha256=common['source'].r110_source_ref.semantic_hash_sha256,
+                source_reference_point=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+                source_axis=Direction3(x=1.0, y=0.0, z=0.0),
+                directivity_dataset_id=(
+                    directivity_ref.authority_id
+                    if directivity_ref is not None
+                    else 'directivity:geometry-only-placeholder'
+                ),
+                directivity_dataset_version=(
+                    directivity_ref.authority_version
+                    if directivity_ref is not None
+                    else '1'
+                ),
+                directivity_dataset_sha256=(
+                    directivity_ref.semantic_hash_sha256
+                    if directivity_ref is not None
+                    else H3
+                ),
+            ),
+        ),
+        receivers=(
+            DeterministicGaReceiverInput(
+                receiver_id=path.receiver_id,
+                entity_id=path.receiver_entity_id,
+                world_position=Position3(
+                    x_m=path.geometric_path_length_m,
+                    y_m=0.0,
+                    z_m=0.0,
+                ),
+            ),
+        ),
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        frequency_domain=(
+            frequency_domain
+            if frequency_domain is not None
+            else FrequencyDomain(minimum_hz=20.0, maximum_hz=20000.0)
+        ),
+    )
+
+
+def _artifact(
+    path: DeterministicAcousticPath,
+    execution_input: DeterministicGaExecutionInput,
+    *,
+    frequency_domain: FrequencyDomain | None = None,
+) -> DeterministicPathArtifact:
     return DeterministicPathArtifact.model_construct(
+        authority_version='r150-deterministic-ga-1',
         artifact_id=f'deterministic-path-artifact:{H5}',
         semantic_sha256=H5,
+        execution_input_id=execution_input.execution_input_id,
+        execution_input_sha256=execution_input.semantic_sha256,
         r120_compiled_geometry_id='r120-compiled-geometry:' + H,
         r120_compiled_geometry_sha256=H,
-        frequency_domain=FrequencyDomain(minimum_hz=20.0, maximum_hz=20000.0),
+        frequency_domain=(
+            frequency_domain
+            if frequency_domain is not None
+            else FrequencyDomain(minimum_hz=20.0, maximum_hz=20000.0)
+        ),
         paths=(path,),
     )
 
@@ -289,13 +361,19 @@ def _common(
 
 
 def _response(path: DeterministicAcousticPath, common: dict, **kwargs):
+    execution_input = kwargs.pop('execution_input', _execution_input(path, common))
+    path_artifact = kwargs.pop(
+        'path_artifact',
+        _artifact(path, execution_input),
+    )
     return build_deterministic_path_frequency_response(
-        path_artifact=_artifact(path),
+        path_artifact=path_artifact,
+        execution_input=execution_input,
         path_id=path.path_id,
         r120_geometry_ref=common['r120'],
-        source_authority=common['source'],
+        source_authority=kwargs.pop('source_authority', common['source']),
         point_source_normalization=common['normalization'],
-        receiver_authority=common['receiver'],
+        receiver_authority=kwargs.pop('receiver_authority', common['receiver']),
         environment=common['environment'],
         frequency_grid=common['frequency_grid'],
         configuration=common['configuration'],
@@ -761,9 +839,11 @@ def test_save_reopen_exact_and_stale_dependency_rejection(tmp_path: Path) -> Non
         sound_speed_m_s=common['environment'].sound_speed_m_s,
         path_id_seed='6',
     )
-    path_artifact = _artifact(path)
+    execution_input = _execution_input(path, common)
+    path_artifact = _artifact(path, execution_input)
     response = build_deterministic_path_frequency_response(
         path_artifact=path_artifact,
+        execution_input=execution_input,
         path_id=path.path_id,
         r120_geometry_ref=common['r120'],
         source_authority=common['source'],
@@ -776,6 +856,7 @@ def test_save_reopen_exact_and_stale_dependency_rejection(tmp_path: Path) -> Non
 
     dependency_map = {}
     typed = (
+        execution_input,
         common['source'],
         common['normalization'],
         common['receiver'],
@@ -784,7 +865,14 @@ def test_save_reopen_exact_and_stale_dependency_rejection(tmp_path: Path) -> Non
         common['configuration'],
     )
     for item in typed:
-        ref = item.as_external_ref()
+        if isinstance(item, DeterministicGaExecutionInput):
+            ref = ExactExternalAuthorityRef(
+                authority_id=item.execution_input_id,
+                authority_version=item.authority_version,
+                semantic_hash_sha256=item.semantic_sha256,
+            )
+        else:
+            ref = item.as_external_ref()
         dependency_map[(ref.authority_id, ref.authority_version, ref.semantic_hash_sha256)] = item
     for ref in response.dependency_refs:
         dependency_map.setdefault(
@@ -832,16 +920,10 @@ def test_source_receiver_and_stale_surface_identity_mismatches_fail_closed() -> 
         equipment_definition=_equipment((frequency,)),
         point_source_normalization=common['normalization'],
     )
-    source_mismatch = build_deterministic_path_frequency_response(
-        path_artifact=_artifact(path),
-        path_id=path.path_id,
-        r120_geometry_ref=common['r120'],
+    source_mismatch = _response(
+        path,
+        common,
         source_authority=wrong_source,
-        point_source_normalization=common['normalization'],
-        receiver_authority=common['receiver'],
-        environment=common['environment'],
-        frequency_grid=common['frequency_grid'],
-        configuration=common['configuration'],
     )
     assert source_mismatch.capability == 'UNSUPPORTED'
     assert 'SOURCE_IDENTITY_MISMATCH' in source_mismatch.unsupported_reasons
@@ -851,16 +933,10 @@ def test_source_receiver_and_stale_surface_identity_mismatches_fail_closed() -> 
         receiver_entity_id='receiver-entity-other',
         receiver_authority_ref=_ref('r110-receiver:receiver-other', H4),
     )
-    receiver_mismatch = build_deterministic_path_frequency_response(
-        path_artifact=_artifact(path),
-        path_id=path.path_id,
-        r120_geometry_ref=common['r120'],
-        source_authority=common['source'],
-        point_source_normalization=common['normalization'],
+    receiver_mismatch = _response(
+        path,
+        common,
         receiver_authority=wrong_receiver,
-        environment=common['environment'],
-        frequency_grid=common['frequency_grid'],
-        configuration=common['configuration'],
     )
     assert receiver_mismatch.capability == 'UNSUPPORTED'
     assert 'RECEIVER_IDENTITY_MISMATCH' in receiver_mismatch.unsupported_reasons
@@ -949,16 +1025,15 @@ def test_complex_sample_phase_and_path_artifact_band_are_fail_closed() -> None:
         sound_speed_m_s=common['environment'].sound_speed_m_s,
         path_id_seed='3',
     )
-    path_artifact = DeterministicPathArtifact.model_construct(
-        artifact_id=f'deterministic-path-artifact:{H5}',
-        semantic_sha256=H5,
-        r120_compiled_geometry_id='r120-compiled-geometry:' + H,
-        r120_compiled_geometry_sha256=H,
+    execution_input = _execution_input(path, common)
+    path_artifact = _artifact(
+        path,
+        execution_input,
         frequency_domain=FrequencyDomain(minimum_hz=100.0, maximum_hz=800.0),
-        paths=(path,),
     )
     response = build_deterministic_path_frequency_response(
         path_artifact=path_artifact,
+        execution_input=execution_input,
         path_id=path.path_id,
         r120_geometry_ref=common['r120'],
         source_authority=common['source'],
