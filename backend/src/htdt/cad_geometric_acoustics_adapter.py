@@ -49,6 +49,8 @@ DETERMINISTIC_GA_ADAPTER_VERSION = '1'
 PYROOMACOUSTICS_ENGINE_ID = 'pyroomacoustics.image_source_model'
 PYROOMACOUSTICS_ENGINE_VERSION = '0.10.1'
 PYROOMACOUSTICS_CANDIDATE_SOURCE_COMMIT = 'f02b01dd6609709e2089aefa5d1e59c91d3a0601'
+HTDT_PLANAR_ENGINE_ID = 'htdt.r150.general_planar_image_construction'
+HTDT_PLANAR_ENGINE_VERSION = '1'
 
 PathType = Literal['direct', 'specular_reflection']
 PathCandidateDecision = Literal[
@@ -107,6 +109,20 @@ PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
             'package': 'pyroomacoustics',
             'version': PYROOMACOUSTICS_ENGINE_VERSION,
             'source_commit': PYROOMACOUSTICS_CANDIDATE_SOURCE_COMMIT,
+        }
+    ),
+)
+
+
+HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='adapter-kernel:htdt-r150-general-planar-first-order',
+    authority_version=HTDT_PLANAR_ENGINE_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'implementation': HTDT_PLANAR_ENGINE_ID,
+            'version': HTDT_PLANAR_ENGINE_VERSION,
+            'construction': 'exact_plane_mirror_and_triangle_domain_first_order',
+            'maximum_reflection_order': 1,
         }
     ),
 )
@@ -735,6 +751,27 @@ class DeterministicImageSourceEngine(Protocol):
         receiver_local_m: tuple[float, float, float],
     ) -> tuple[NativeImageSource, ...]:
         ...
+
+
+class HtdtPlanarImageSourceEngine:
+    """Deterministic HTDT analytic kernel for arbitrary planar first-order images."""
+
+    engine_id = HTDT_PLANAR_ENGINE_ID
+    engine_version = HTDT_PLANAR_ENGINE_VERSION
+    candidate_source_commit = None
+    solver_implementation_ref = HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+
+    def execute_shoebox(
+        self,
+        *,
+        dimensions_m: tuple[float, float, float],
+        source_local_m: tuple[float, float, float],
+        receiver_local_m: tuple[float, float, float],
+    ) -> tuple[NativeImageSource, ...]:
+        del dimensions_m, source_local_m, receiver_local_m
+        raise RuntimeError(
+            'HTDT general-planar kernel does not construct or approximate a shoebox'
+        )
 
 
 class PyroomacousticsImageSourceEngine:
