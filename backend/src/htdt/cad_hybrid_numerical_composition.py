@@ -1157,6 +1157,8 @@ def compose_numerical_hybrid_response(
         transition_start_hz=spec.transition_start_hz,
         transition_end_hz=spec.transition_end_hz,
         normalization_authority=normalization,
+        reconciliation_method=spec.grid_reconciliation.reconciliation_method,
+        frequency_tolerance_hz=spec.grid_reconciliation.tolerance_hz,
     )
     if expected_spec != spec:
         raise ValueError('R160 numerical composition spec is stale for exact inputs')
@@ -1180,6 +1182,8 @@ def compose_numerical_hybrid_response(
             mode='json'
         ),
         'aggregated_ga': aggregate.model_dump(mode='json'),
+        'grid_reconciliation': spec.grid_reconciliation.model_dump(mode='json'),
+        'crossover_configuration': spec.crossover_configuration.model_dump(mode='json'),
         'exact_frequency_grid_hz': list(spec.exact_frequency_grid_hz),
         'quantity': TRANSFER_QUANTITY,
         'unit': TRANSFER_UNIT,
@@ -1196,6 +1200,7 @@ def compose_numerical_hybrid_response(
         core = {
             **base,
             'capability_state': 'UNSUPPORTED',
+            'failure_codes': [HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH],
             'unsupported_reasons': [
                 'R150 coherent path aggregation unavailable: '
                 + '; '.join(aggregate.unsupported_reasons)
@@ -1242,6 +1247,7 @@ def compose_numerical_hybrid_response(
         core = {
             **base,
             'capability_state': 'COMPLEX_SUPPORTED',
+            'failure_codes': [],
             'unsupported_reasons': [],
             'samples': samples,
         }
