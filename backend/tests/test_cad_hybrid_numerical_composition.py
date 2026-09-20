@@ -302,6 +302,12 @@ def _r130_payload(
             }
         ],
         'frequency_axis_hz': list(frequencies),
+        'time_sampling': {
+            'time_step_s': 1.0e-4,
+            'sample_count': 1024,
+            'finite_record_interval': '[0,T)',
+            'requested_duration_s': 0.1,
+        },
         'units': 'Pa',
         'reference': R130_PRESSURE_REFERENCE,
         'candidate_execution_input_id': candidate.execution_input_id,
