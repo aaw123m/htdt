@@ -4060,11 +4060,71 @@ class CadDeterministicPathArtifactRepository:
 
         source_by_id = {item.source_entity_id: item for item in snapshot.sources}
         receiver_by_id = {item.receiver_id: item for item in snapshot.receivers}
+        execution_source_by_id = {
+            item.source_entity_id: item for item in execution_input.sources
+        }
+        execution_receiver_by_id = {
+            item.receiver_id: item for item in execution_input.receivers
+        }
         for path in artifact.paths:
             source = source_by_id.get(path.source_entity_id)
             receiver = receiver_by_id.get(path.receiver_id)
             if source is None or receiver is None:
                 raise ValueError('path artifact source/receiver no longer resolves')
+
+            portal_interactions = tuple(
+                item
+                for item in (path.ordered_interactions or ())
+                if item.kind == 'portal_crossing'
+            )
+            if portal_interactions:
+                execution_source = execution_source_by_id.get(path.source_entity_id)
+                execution_receiver = execution_receiver_by_id.get(path.receiver_id)
+                if (
+                    execution_source is None
+                    or execution_receiver is None
+                    or execution_source.acoustic_region_id is None
+                    or execution_receiver.acoustic_region_id is None
+                    or execution_input.portal_apertures is None
+                    or len(execution_input.portal_apertures) != 1
+                    or len(portal_interactions) != 1
+                ):
+                    raise ValueError(
+                        'path Portal interaction no longer resolves from exact execution input'
+                    )
+                aperture = execution_input.portal_apertures[0]
+                interaction = portal_interactions[0]
+                if (
+                    interaction.portal_id != aperture.portal_id
+                    or path.ordered_region_ids
+                    != (
+                        execution_source.acoustic_region_id,
+                        execution_receiver.acoustic_region_id,
+                    )
+                ):
+                    raise ValueError(
+                        'path Portal/region ordered identity no longer resolves exactly'
+                    )
+                crossing = resolve_direct_portal_crossing(
+                    aperture,
+                    start=_position_tuple(execution_source.source_reference_point),
+                    end=_position_tuple(execution_receiver.world_position),
+                    from_region_id=execution_source.acoustic_region_id,
+                    to_region_id=execution_receiver.acoustic_region_id,
+                    tolerance_m=execution_input.geometric_tolerance_m,
+                )
+                if (
+                    crossing is None
+                    or interaction.point
+                    != _rounded_position(
+                        crossing,
+                        execution_input.identity_decimal_places,
+                    )
+                ):
+                    raise ValueError(
+                        'path Portal crossing point no longer reproduces exactly'
+                    )
+
             model = self.snapshot_repository.r110_repository.get_model(
                 source.r110_compiled_source_sha256
             )
