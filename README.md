@@ -146,12 +146,14 @@ HTDTの中心は、数値フォームを先に埋める方式ではなく、同�
 - O90A: immutable RobustnessSpec / bounded ± local sensitivity / speaker・listener XYZ / aim yaw・pitch / cabinet yaw / perturbationごとのG10・O80再評価 / infeasible evidence保持 / sampled_worst semantics / persistence
 - O90B: deterministic multidimensional bounded / explicit distribution・empirical・discrete uncertainty / linked axes / probability-gated mean・percentile・violation probability / sampled envelope / feasible fraction / cancel・cache・resume・stale protection / nominal vs sampled_worst Pareto
 - O90C: auditable multi-fidelity hard-gate / validated screening / budget defer / R140 exact execution+resource-bounded batching+cache/resume / common-fidelity exact robust-Pareto finalization
+- O90D: workflow-first「ばらつき耐性」/ nominal・sampled adverse・sensitivity・feasibility・completeness / finite-sample distribution / 3D tolerance+aim overlay / stale・comparison eligibility
 - O100A: immutable SystemVariant / ProposedEntitySpec / ChannelRoleBinding / exact add-remove-replace diff / proposed lifecycle / explicit apply→new SceneRevision / proposal lineage
 - O100B: TopologySearchSpec / proposed XYZ・height・aim/toe-in / allowed・exclusion regions / linked SL/SR / O10+G10+O80 deterministic placement / candidate→SystemVariant
 - O100C: EquipmentDefinition / DirectivityDataset / exact equipment-source binding / R110 source capability
 - O100D: coverage / direct SPL / acoustic+electrical headroom / named topology comparison / direction-aware Pareto
 - O100E: auditable multi-fidelity hard-gate / validated screening / budget defer / exact common-fidelity finalization
 - O100F: proposal-aware O90 local+multidimensional robustness / exact O100D bundle lineage / nominal-vs-sampled-worst robust Pareto
+- O100G backend: descendant-aware proposal lineage / explicit As-built / exact measured evidence / SystemVariant-specific MeasurementPlan+Campaign preregistration / measured lifecycle
 - N90: reproducible package / per-user installer / backup+restore / update+uninstall data retention
 
 ## 対象環境
