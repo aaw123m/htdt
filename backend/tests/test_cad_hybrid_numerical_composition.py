@@ -612,6 +612,7 @@ def test_identity_fixture_is_invariant_under_complementary_crossover_weights() -
     output = _compose(_bundle(physical_transfer_plus=expected))
 
     assert output.capability_state == 'COMPLEX_SUPPORTED'
+    assert output.grid_reconciliation.reconciliation_method == 'exact_bin_identity_v1'
     assert tuple(
         (sample.low_weight, sample.high_weight) for sample in output.samples
     ) == ((1.0, 0.0), (0.5, 0.5), (0.0, 1.0))
@@ -755,6 +756,9 @@ def test_magnitude_only_required_path_fails_closed_without_fabricated_complex_ou
     )
 
     assert output.capability_state == 'UNSUPPORTED'
+    assert output.failure_codes == (
+        HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH,
+    )
     assert output.samples == ()
     assert output.unsupported_reasons
     assert 'MAGNITUDE_ONLY' in output.unsupported_reasons[0]
@@ -771,7 +775,7 @@ def test_r130_payload_must_match_exact_result_artifact_hash() -> None:
     )
     tampered = json.loads(json.dumps(bundle['payload']))
     tampered['pressure_real_pa'][0][0] += 0.125
-    with pytest.raises(ValueError, match='payload hash mismatch'):
+    with pytest.raises(HybridNumericalCompositionError) as error:
         build_numerical_hybrid_composition_spec(
             r130_result=bundle['result'],
             r130_artifact_payload=tampered,
@@ -784,6 +788,7 @@ def test_r130_payload_must_match_exact_result_artifact_hash() -> None:
             transition_end_hz=80.0,
             normalization_authority=bundle['normalization'],
         )
+    assert error.value.code == HybridNumericalFailureCode.ARTIFACT_HASH_MISMATCH
 
 
 def test_duplicate_r150_deterministic_path_identity_is_rejected() -> None:
@@ -820,7 +825,7 @@ def test_exact_frequency_grid_mismatch_rejects_nearest_neighbor_guessing() -> No
             3.0 + 0.0j,
         )
     )
-    with pytest.raises(ValueError, match='interpolation/resampling'):
+    with pytest.raises(HybridNumericalCompositionError) as error:
         build_numerical_hybrid_composition_spec(
             r130_result=bundle['result'],
             r130_artifact_payload=bundle['payload'],
@@ -833,6 +838,7 @@ def test_exact_frequency_grid_mismatch_rejects_nearest_neighbor_guessing() -> No
             transition_end_hz=80.0,
             normalization_authority=bundle['normalization'],
         )
+    assert error.value.code == HybridNumericalFailureCode.INVALID_GRID
 
 
 def test_save_reopen_exact_and_r130_r150_composition_stale_rejection(
@@ -886,7 +892,11 @@ def test_save_reopen_exact_and_r130_r150_composition_stale_rejection(
         ),
     )
     repository.save(output)
-    assert repository.get(output.artifact_id) == output
+    reopened = repository.get(output.artifact_id)
+    assert reopened == output
+    assert reopened is not None
+    assert reopened.grid_reconciliation == output.grid_reconciliation
+    assert reopened.crossover_configuration == output.crossover_configuration
 
     saved_result = results.pop(bundle['result'].result_id)
     with pytest.raises(ValueError, match='R130 result dependency'):
