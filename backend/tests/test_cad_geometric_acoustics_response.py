@@ -242,6 +242,7 @@ def _execution_input(
     *,
     semantic_sha256: str = 'e' * 64,
     frequency_domain: FrequencyDomain | None = None,
+    portal_authority_ref: ExactExternalAuthorityRef | None = None,
 ) -> DeterministicGaExecutionInput:
     directivity_ref = common['source'].directivity_dataset_ref
     return DeterministicGaExecutionInput.model_construct(
@@ -250,6 +251,11 @@ def _execution_input(
         semantic_sha256=semantic_sha256,
         r120_compiled_geometry_id=common['r120'].authority_id,
         r120_compiled_geometry_sha256=common['r120'].semantic_hash_sha256,
+        portal_authority_ref=(
+            portal_authority_ref
+            if portal_authority_ref is not None
+            else _ref('r120-portals:' + H4, H4)
+        ),
         sources=(
             DeterministicGaSourceInput(
                 source_entity_id=path.source_entity_id,
@@ -277,11 +283,7 @@ def _execution_input(
             DeterministicGaReceiverInput(
                 receiver_id=path.receiver_id,
                 entity_id=path.receiver_entity_id,
-                world_position=Position3(
-                    x_m=path.geometric_path_length_m,
-                    y_m=0.0,
-                    z_m=0.0,
-                ),
+                world_position=common['receiver'].world_position,
             ),
         ),
         sound_speed_m_s=common['environment'].sound_speed_m_s,
@@ -346,6 +348,7 @@ def _common(
         receiver_id='receiver-1',
         receiver_entity_id='receiver-entity-1',
         receiver_authority_ref=_ref('r110-receiver:receiver-1', H4),
+        world_position=Position3(x_m=2.0, y_m=0.0, z_m=0.0),
     )
     r120 = _ref('r120-compiled-geometry:' + H, H)
     return {
@@ -361,7 +364,15 @@ def _common(
 
 
 def _response(path: DeterministicAcousticPath, common: dict, **kwargs):
-    execution_input = kwargs.pop('execution_input', _execution_input(path, common))
+    portal_ref = kwargs.get('portal_geometry_authority_ref')
+    execution_input = kwargs.pop(
+        'execution_input',
+        _execution_input(
+            path,
+            common,
+            portal_authority_ref=portal_ref,
+        ),
+    )
     path_artifact = kwargs.pop(
         'path_artifact',
         _artifact(path, execution_input),
@@ -932,6 +943,7 @@ def test_source_receiver_and_stale_surface_identity_mismatches_fail_closed() -> 
         receiver_id='receiver-1',
         receiver_entity_id='receiver-entity-other',
         receiver_authority_ref=_ref('r110-receiver:receiver-other', H4),
+        world_position=common['receiver'].world_position,
     )
     receiver_mismatch = _response(
         path,
