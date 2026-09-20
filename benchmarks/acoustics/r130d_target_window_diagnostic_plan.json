@@ -1,0 +1,49 @@
+{
+  "schema_version": "htdt.r130d.target-window-diagnostic-plan-1",
+  "diagnostic_id": "r130d-general3d-target-window-zoh-2026-09-20",
+  "task_start_main": "c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96",
+  "parent_general3d_plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+  "parent_general3d_plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+  "purpose": "Diagnose finite-record native sampling/window-length contribution without replacing the canonical PR #286 observable.",
+  "target_duration_s": 0.25,
+  "target_interval": "[0,T)",
+  "frequency_hz": [40.0, 80.0],
+  "phasor_convention": "exp(-i*omega*t)",
+  "analysis_fourier_kernel": "exp(+i*omega*t)",
+  "window_function": "rectangular_no_taper",
+  "operator": {
+    "operator_id": "htdt.r130d.target_window_zoh_exp_integral",
+    "operator_version": "1",
+    "native_sample_interpretation": "left-hold: sample y[n] is constant on [n*dt,(n+1)*dt)",
+    "endpoint_convention": "target interval is exactly [0,T); the final native hold cell is clipped at T; no sample at T is included",
+    "integration_rule": "exact analytic integral of exp(+i*omega*t) over each clipped hold cell multiplied by the native left sample",
+    "pressure_sampling": "solver-native pressure samples after the pre-existing pressure conversion; no resampling before observation",
+    "source_sampling": "same native source trace under the identical clipped zero-order-hold observation operator",
+    "frequency_grid": "exact frozen 40/80 Hz only",
+    "requires_sample_after_target": false,
+    "reason_linear_trapezoid_not_adopted": "The canonical source authority is a discrete unit impulse q[0]=1,q[n>0]=0. Piecewise-linear/trapezoidal reconstruction would redefine that discrete impulse area (endpoint half-weight) unless source semantics were changed. ZOH preserves the existing discrete source semantics while isolating the finite-cell/window overrun."
+  },
+  "series": {
+    "mfem_refinements": [1, 2, 3],
+    "pffdtd_ppw": [8.0, 10.0, 12.0]
+  },
+  "acceptance_thresholds_unchanged": {
+    "mfem": {
+      "complex_rms_relative_max": 0.05,
+      "magnitude_max_relative": 0.08,
+      "phase_max_deg": 5.0
+    },
+    "pffdtd": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15.0
+    },
+    "magnitude_mask_relative_db": -50.0
+  },
+  "decision_semantics": {
+    "diagnostic_only": true,
+    "canonical_observable_replaced": false,
+    "cross_solver_unblocked_by_diagnostic_only": false,
+    "general_3d_validation_promoted_by_diagnostic_only": false
+  }
+}
