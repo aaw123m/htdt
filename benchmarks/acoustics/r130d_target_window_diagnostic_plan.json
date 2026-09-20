@@ -7,7 +7,10 @@
   "purpose": "Diagnose finite-record native sampling/window-length contribution without replacing the canonical PR #286 observable.",
   "target_duration_s": 0.25,
   "target_interval": "[0,T)",
-  "frequency_hz": [40.0, 80.0],
+  "frequency_hz": [
+    40,
+    80
+  ],
   "phasor_convention": "exp(-i*omega*t)",
   "analysis_fourier_kernel": "exp(+i*omega*t)",
   "window_function": "rectangular_no_taper",
@@ -24,26 +27,54 @@
     "reason_linear_trapezoid_not_adopted": "The canonical source authority is a discrete unit impulse q[0]=1,q[n>0]=0. Piecewise-linear/trapezoidal reconstruction would redefine that discrete impulse area (endpoint half-weight) unless source semantics were changed. ZOH preserves the existing discrete source semantics while isolating the finite-cell/window overrun."
   },
   "series": {
-    "mfem_refinements": [1, 2, 3],
-    "pffdtd_ppw": [8.0, 10.0, 12.0]
+    "mfem_refinements": [
+      1,
+      2,
+      3
+    ],
+    "pffdtd_ppw": [
+      8,
+      10,
+      12
+    ]
   },
   "acceptance_thresholds_unchanged": {
     "mfem": {
       "complex_rms_relative_max": 0.05,
       "magnitude_max_relative": 0.08,
-      "phase_max_deg": 5.0
+      "phase_max_deg": 5
     },
     "pffdtd": {
       "complex_rms_relative_max": 0.2,
       "magnitude_max_relative": 0.25,
-      "phase_max_deg": 15.0
+      "phase_max_deg": 15
     },
-    "magnitude_mask_relative_db": -50.0
+    "magnitude_mask_relative_db": -50
   },
   "decision_semantics": {
     "diagnostic_only": true,
     "canonical_observable_replaced": false,
     "cross_solver_unblocked_by_diagnostic_only": false,
     "general_3d_validation_promoted_by_diagnostic_only": false
+  },
+  "analytic_fixture": {
+    "fixture_id": "complex-harmonic-pressure-source-v1",
+    "pressure_amplitude": [
+      2.1,
+      0.4
+    ],
+    "pressure_harmonic_hz": 53,
+    "source_amplitude": [
+      0.7,
+      -0.2
+    ],
+    "source_harmonic_hz": 17,
+    "dt_s": [
+      0.007,
+      0.0035,
+      0.00175,
+      0.000875
+    ],
+    "acceptance": "relative P_T/Q_T error must strictly decrease at each refinement and finest error must be < 0.11"
   }
 }
