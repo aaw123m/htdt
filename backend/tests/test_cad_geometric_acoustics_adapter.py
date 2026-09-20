@@ -782,13 +782,20 @@ def _fixture(
     geometry = revision.document.r120_semantic_geometry
     assert geometry is not None
     surface_by_key = {item.surface_key: item.surface_id for item in geometry.surfaces}
-    selected_room_keys = room_surface_keys or (
-        'floor-z-min',
-        'ceiling-z-max',
-        'front-y-min',
-        'rear-y-max',
-        'left-x-min',
-        'right-x-max',
+    selected_room_keys = (
+        room_surface_keys
+        or (
+            next(iter(region_surface_keys_by_id.values()))
+            if region_surface_keys_by_id is not None
+            else (
+                'floor-z-min',
+                'ceiling-z-max',
+                'front-y-min',
+                'rear-y-max',
+                'left-x-min',
+                'right-x-max',
+            )
+        )
     )
     room_surface_ids = tuple(surface_by_key[key] for key in selected_room_keys)
     if region_surface_keys_by_id is not None:
