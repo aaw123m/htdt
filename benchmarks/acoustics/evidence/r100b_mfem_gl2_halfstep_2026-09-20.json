@@ -60,7 +60,33 @@
     "source_mapping": "phi_t(0+)=c^2*output_dt*M^-1*b*q[0]",
     "pressure_mapping": "p(t)=rho*r.T*phi_t(t)",
     "fourier_sign": "exp(-i*omega*t)",
-    "finite_record_dtft_kernel": "exp(+i*2*pi*f*n*dt)"
+    "finite_record_dtft_kernel": "exp(+i*2*pi*f*n*dt)",
+    "source_identity": {
+      "source_id": "src",
+      "region_id": "lroom",
+      "position_m": [
+        1,
+        1,
+        1
+      ],
+      "normalization": "volume_velocity_m3_s",
+      "amplitude": 1,
+      "phase_deg": 0,
+      "directivity": "omnidirectional",
+      "semidiscrete_functional_float64_sha256": "fdcb36b71c931634ade8310f7cf5e049f5771e7c0fd4573ec3db867032c1a4bc"
+    },
+    "receiver_identity": {
+      "receiver_id": "rx",
+      "region_id": "lroom",
+      "position_m": [
+        5,
+        1,
+        1
+      ],
+      "calibration_state": "ideal_flat",
+      "timing_reference": "source_t0",
+      "semidiscrete_functional_float64_sha256": "2df89c8759d8c20c5fd60fe8efb7ad266708734a455799bbe9c712e631ec12f8"
+    }
   },
   "implementation": {
     "family": "2-stage Gauss-Legendre implicit Runge-Kutta / [2/2] Pade linear propagator",
