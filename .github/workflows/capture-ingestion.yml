@@ -6,9 +6,11 @@ on:
       - "backend/src/htdt/raw_mesh.py"
       - "backend/src/htdt/capture_mesh_ingestion.py"
       - "backend/src/htdt/capture_ingestion_transaction.py"
+      - "backend/src/htdt/capture_semantic_promotion.py"
       - "backend/tests/test_raw_mesh.py"
       - "backend/tests/test_capture_mesh_ingestion.py"
       - "backend/tests/test_capture_ingestion_transaction.py"
+      - "backend/tests/test_capture_semantic_promotion.py"
       - ".github/workflows/capture-ingestion.yml"
   push:
     branches:
@@ -17,9 +19,11 @@ on:
       - "backend/src/htdt/raw_mesh.py"
       - "backend/src/htdt/capture_mesh_ingestion.py"
       - "backend/src/htdt/capture_ingestion_transaction.py"
+      - "backend/src/htdt/capture_semantic_promotion.py"
       - "backend/tests/test_raw_mesh.py"
       - "backend/tests/test_capture_mesh_ingestion.py"
       - "backend/tests/test_capture_ingestion_transaction.py"
+      - "backend/tests/test_capture_semantic_promotion.py"
       - ".github/workflows/capture-ingestion.yml"
 
 permissions:
@@ -44,3 +48,4 @@ jobs:
           backend/tests/test_raw_mesh.py
           backend/tests/test_capture_mesh_ingestion.py
           backend/tests/test_capture_ingestion_transaction.py
+          backend/tests/test_capture_semantic_promotion.py
