@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - 'backend/src/htdt/cad_geometric_acoustics_adapter.py'
+      - 'backend/src/htdt/cad_geometric_acoustics_portal.py'
+      - 'backend/src/htdt/r120_geometry_compiler.py'
       - 'backend/tests/test_cad_geometric_acoustics_adapter.py'
       - 'docs/R150_DETERMINISTIC_GA_ADAPTER.md'
+      - 'docs/R150_MULTI_REGION_PORTAL_PROPAGATION.md'
       - '.github/workflows/r150-deterministic-ga-adapter.yml'
   workflow_dispatch:
 
