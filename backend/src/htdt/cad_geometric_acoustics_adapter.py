@@ -44,7 +44,7 @@ from .r120_geometry_compiler import (
 
 DETERMINISTIC_GA_SCHEMA_VERSION = 1
 DETERMINISTIC_GA_AUTHORITY_VERSION = 'r150-deterministic-ga-1'
-DETERMINISTIC_GA_ADAPTER_ID = 'htdt.r150.pyroomacoustics-deterministic-path'
+DETERMINISTIC_GA_ADAPTER_ID = 'htdt.r150.deterministic-path'
 DETERMINISTIC_GA_ADAPTER_VERSION = '1'
 PYROOMACOUSTICS_ENGINE_ID = 'pyroomacoustics.image_source_model'
 PYROOMACOUSTICS_ENGINE_VERSION = '0.10.1'
@@ -73,6 +73,19 @@ def _canonical_json(payload: object) -> str:
 
 def _semantic_hash(payload: object) -> str:
     return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
+
+
+PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='candidate:pyroomacoustics',
+    authority_version=PYROOMACOUSTICS_ENGINE_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'package': 'pyroomacoustics',
+            'version': PYROOMACOUSTICS_ENGINE_VERSION,
+            'source_commit': PYROOMACOUSTICS_CANDIDATE_SOURCE_COMMIT,
+        }
+    ),
+)
 
 
 def _utc_now() -> str:
@@ -451,7 +464,7 @@ class DeterministicAcousticPath(BaseModel):
     ] = 'world_propagation_direction_source_out_and_receiver_in'
     bands: tuple[DeterministicPathBandQuantity, ...] = Field(min_length=1)
     adapter_id: Literal[
-        'htdt.r150.pyroomacoustics-deterministic-path'
+        'htdt.r150.deterministic-path'
     ] = DETERMINISTIC_GA_ADAPTER_ID
     adapter_version: Literal['1'] = DETERMINISTIC_GA_ADAPTER_VERSION
     solver_implementation_ref: ExactExternalAuthorityRef
@@ -635,6 +648,7 @@ class DeterministicImageSourceEngine(Protocol):
     engine_id: str
     engine_version: str
     candidate_source_commit: str | None
+    solver_implementation_ref: ExactExternalAuthorityRef
 
     def execute_shoebox(
         self,
@@ -652,6 +666,7 @@ class PyroomacousticsImageSourceEngine:
     engine_id = PYROOMACOUSTICS_ENGINE_ID
     engine_version = PYROOMACOUSTICS_ENGINE_VERSION
     candidate_source_commit = PYROOMACOUSTICS_CANDIDATE_SOURCE_COMMIT
+    solver_implementation_ref = PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
 
     def execute_shoebox(
         self,
@@ -1419,6 +1434,11 @@ def execute_deterministic_ga(
     execution_input = DeterministicGaExecutionInput.model_validate(
         execution_input.model_dump(mode='python')
     )
+    if engine.solver_implementation_ref != execution_input.solver_implementation_ref:
+        raise ValueError(
+            'candidate engine exact solver implementation authority does not '
+            'match the READY dispatch execution input'
+        )
     if (
         compiled_geometry.compiled_geometry_id
         != execution_input.r120_compiled_geometry_id

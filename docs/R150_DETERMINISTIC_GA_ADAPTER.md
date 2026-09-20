@@ -3,7 +3,7 @@
 Status: **implemented as a bounded candidate-execution foundation; R150 is not complete and no production GA solver is selected.**
 
 Issue: #101  
-Adapter authority: `htdt.r150.pyroomacoustics-deterministic-path@1`  
+Adapter authority: `htdt.r150.deterministic-path@1`  
 Candidate engine: pyroomacoustics 0.10.1 image-source model (reference/candidate only)
 
 ## Scope
@@ -25,7 +25,7 @@ It deliberately does **not** select pyroomacoustics as the production solver and
 
 ## Exact authority boundary
 
-The adapter consumes the existing exact authorities rather than introducing a second room model:
+The adapter consumes the existing exact authorities rather than introducing a second room model. The concrete engine must also present the exact solver-implementation authority bound by the READY dispatch; mismatched engines are rejected before path execution:
 
 - R120 compiled vertices / triangles / semantic surface identity
 - exact acoustic-region authority

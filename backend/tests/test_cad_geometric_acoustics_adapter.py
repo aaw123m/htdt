@@ -47,6 +47,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     DeterministicGaConfiguration,
     GeometricMaterialAuthority,
     NativeImageSource,
+    PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
     build_deterministic_ga_configuration,
     build_deterministic_ga_result_envelope,
@@ -328,6 +329,10 @@ class FixtureImageEngine:
     engine_id = 'fixture.image-source'
     engine_version = '1'
     candidate_source_commit = None
+    solver_implementation_ref = _ref(
+        'fixture:deterministic-image-source',
+        'fixture-image-source-implementation',
+    )
 
     def execute_shoebox(
         self,
@@ -357,6 +362,7 @@ def _fixture(
     occluder: bool = False,
     narrow_directivity: bool = False,
     supported_material: bool = True,
+    use_pyroomacoustics: bool = False,
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
@@ -523,16 +529,10 @@ def _fixture(
         geometric_tolerance_m=1.0e-9,
         engine_image_match_tolerance_m=1.0e-8,
     )
-    implementation_ref = ExactExternalAuthorityRef(
-        authority_id='candidate:pyroomacoustics',
-        authority_version='0.10.1',
-        semantic_hash_sha256=_digest(
-            {
-                'package': 'pyroomacoustics',
-                'version': '0.10.1',
-                'source_commit': 'f02b01dd6609709e2089aefa5d1e59c91d3a0601',
-            }
-        ),
+    implementation_ref = (
+        PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF
+        if use_pyroomacoustics
+        else FixtureImageEngine.solver_implementation_ref
     )
     configuration_schema_ref = _ref(
         'htdt.r150.deterministic-ga-configuration.schema',
@@ -832,7 +832,7 @@ def test_actual_pyroomacoustics_candidate_executes_same_direct_first_reflection_
     tmp_path: Path,
 ) -> None:
     pytest.importorskip('pyroomacoustics')
-    fx = _fixture(tmp_path)
+    fx = _fixture(tmp_path, use_pyroomacoustics=True)
     artifact = _execute(fx, engine=PyroomacousticsImageSourceEngine())
 
     assert any(item.path_type == 'direct' for item in artifact.paths)
