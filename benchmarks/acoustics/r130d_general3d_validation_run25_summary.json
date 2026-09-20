@@ -1,0 +1,319 @@
+{
+  "schema_version": "htdt.r130d.general3d-self-convergence-run-summary-1",
+  "evidence_run": "github-actions:35513920639",
+  "workflow_run_number": 25,
+  "workflow_artifact": {
+    "artifact_id": 10606905738,
+    "name": "r130d-independent-general3d-validation",
+    "sha256": "a6e1117b52d6827287dcc6d6339b251913822642158329da18c75b0455db4006",
+    "evidence_semantic_sha256": "aab68a65a7d5c40e5477c71e9efd6898b0672febb9a8d74c7cd69b8973798e20"
+  },
+  "repository_head": "f9802da57f47d6fa64961014de509350092e49bf",
+  "task_start_main": "1fb07fa210aae55d91c7d86b3f4c5ee993be7c93",
+  "plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+  "plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+  "fixture_sha256": "b846084627eb266d174e8412b5737b8691bbc279ff21e066c48dc61ded1d72c3",
+  "runtime": {
+    "operating_system": "Windows-2025Server-10.0.26100-SP0",
+    "architecture": "AMD64",
+    "cpu_identity": "AMD64 Family 25 Model 1 Stepping 1, AuthenticAMD",
+    "logical_cpus": 4,
+    "python": "3.12.10",
+    "numpy": "1.26.4",
+    "scipy": "1.14.1",
+    "numba": "0.60.0",
+    "h5py": "3.12.1",
+    "mfem_build_s": 1010.6033317
+  },
+  "solvers": {
+    "mfem": {
+      "source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "polynomial_order": 2
+    },
+    "pffdtd": {
+      "source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "backend": "Python/Numba CPU",
+      "fmax_hz": 100
+    }
+  },
+  "physical_observable": {
+    "quantity": "finite_record_complex_acoustic_pressure_per_volume_velocity",
+    "unit": "Pa/(m3/s)",
+    "source_position_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_position_m": [
+      2.5,
+      2,
+      2
+    ],
+    "requested_record_duration_s": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "phasor_convention": "exp(-i*omega*t)",
+    "analysis_fourier_kernel": "exp(+i*omega*t)",
+    "density_kg_m3": 1.2,
+    "sound_speed_m_s": 343.2,
+    "boundary_condition": "rigid / natural homogeneous Neumann",
+    "contract_state": "MATCH",
+    "fitted_amplitude_scale": false,
+    "fitted_phase_rotation": false,
+    "frequency_shift": false,
+    "window_function": "rectangular_no_taper",
+    "discrete_sampling_note": "MFEM has N*dt=0.25 exactly. PFFDTD uses all native samples with sample times in [0,T), while N*dt is 0.2501752536, 0.2503194468, and 0.2504155756 s for 8/10/12 PPW. Therefore f*T is integer-cycle coherent for requested T, but the discrete DTFT sample count is not exactly coherent at every PFFDTD level."
+  },
+  "mfem_levels": [
+    {
+      "refinement": 1,
+      "elements": 48,
+      "dofs": 125,
+      "polynomial_order": 2,
+      "mesh_characteristic_size_m": 3.2015621187164243,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "runtime_s": {
+        "system_export": 0.023486900000079913,
+        "generalized_eigen": 0.3387645000000248,
+        "modal_reconstruction": 0.004839700000047742
+      },
+      "checkpoint_rss_max_mb": 264.15234375,
+      "estimated_dense_modal_bytes": 750000,
+      "transfer_pa_per_m3_s": [
+        [
+          22.09444234817552,
+          9.918892223867068
+        ],
+        [
+          -24.049770677803888,
+          -0.6011502054551858
+        ]
+      ]
+    },
+    {
+      "refinement": 2,
+      "elements": 384,
+      "dofs": 729,
+      "polynomial_order": 2,
+      "mesh_characteristic_size_m": 1.6007810593582121,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "runtime_s": {
+        "system_export": 0.05546609999987595,
+        "generalized_eigen": 8.160381199999847,
+        "modal_reconstruction": 0.02551480000010997
+      },
+      "checkpoint_rss_max_mb": 292.2734375,
+      "estimated_dense_modal_bytes": 25509168,
+      "transfer_pa_per_m3_s": [
+        [
+          20.4509172032659,
+          -1.168982468533045
+        ],
+        [
+          -10.452883021440876,
+          -218.14222365145602
+        ]
+      ]
+    },
+    {
+      "refinement": 3,
+      "elements": 3072,
+      "dofs": 4913,
+      "polynomial_order": 2,
+      "mesh_characteristic_size_m": 0.8003905296791061,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "runtime_s": {
+        "system_export": 0.3828587000000425,
+        "generalized_eigen": 26.524318699999867,
+        "modal_reconstruction": 0.1596950000000561
+      },
+      "checkpoint_rss_max_mb": 1401.80859375,
+      "estimated_dense_modal_bytes": 1158603312,
+      "transfer_pa_per_m3_s": [
+        [
+          -24.623804962781954,
+          2.4212982864254116
+        ],
+        [
+          -14.169471220600029,
+          -217.3078904142101
+        ]
+      ]
+    }
+  ],
+  "pffdtd_levels": [
+    {
+      "points_per_wavelength": 8,
+      "grid_spacing_m": 0.429,
+      "grid_dimensions": [
+        18,
+        18,
+        18
+      ],
+      "grid_cell_count": 5832,
+      "boundary_node_count": 808,
+      "time_step_s": 0.0007209661486505452,
+      "time_step_count": 347,
+      "record_last_sample_time_s": 0.24945428743308865,
+      "record_next_sample_time_s": 0.2501752535817392,
+      "courant_c_dt_over_h": 0.5767729189204361,
+      "cfl_fraction_of_3d_cartesian_limit": 0.9989999999999999,
+      "runtime_s": {
+        "compile": 1.765324999999848,
+        "solve": 13.293590199999926,
+        "postprocess": 0.004031499999882726
+      },
+      "transfer_pa_per_m3_s": [
+        [
+          -34.92513607705468,
+          -13.008151753896083
+        ],
+        [
+          -34.79457934155918,
+          -94.57358931689443
+        ]
+      ]
+    },
+    {
+      "points_per_wavelength": 10,
+      "grid_spacing_m": 0.3432,
+      "grid_dimensions": [
+        20,
+        20,
+        20
+      ],
+      "grid_cell_count": 8000,
+      "boundary_node_count": 1442,
+      "time_step_s": 0.0005767729189204362,
+      "time_step_count": 434,
+      "record_last_sample_time_s": 0.24974267389254887,
+      "record_next_sample_time_s": 0.2503194468114693,
+      "courant_c_dt_over_h": 0.5767729189204361,
+      "cfl_fraction_of_3d_cartesian_limit": 0.9989999999999999,
+      "runtime_s": {
+        "compile": 0.25783149999983834,
+        "solve": 0.07391559999996389,
+        "postprocess": 0.0038085000001046865
+      },
+      "transfer_pa_per_m3_s": [
+        [
+          -23.79175672506672,
+          34.05195148492657
+        ],
+        [
+          220.12588490165516,
+          -463.1821162252182
+        ]
+      ]
+    },
+    {
+      "points_per_wavelength": 12,
+      "grid_spacing_m": 0.286,
+      "grid_dimensions": [
+        22,
+        22,
+        22
+      ],
+      "grid_cell_count": 10648,
+      "boundary_node_count": 2018,
+      "time_step_s": 0.0004806440991003634,
+      "time_step_count": 521,
+      "record_last_sample_time_s": 0.24993493153218896,
+      "record_next_sample_time_s": 0.25041557563128936,
+      "courant_c_dt_over_h": 0.576772918920436,
+      "cfl_fraction_of_3d_cartesian_limit": 0.9989999999999998,
+      "runtime_s": {
+        "compile": 0.12804340000002412,
+        "solve": 0.08841639999991457,
+        "postprocess": 0.0036677000000508997
+      },
+      "transfer_pa_per_m3_s": [
+        [
+          15.497498999874912,
+          13.537245252928091
+        ],
+        [
+          -69.78140073908766,
+          -121.8334884485062
+        ]
+      ]
+    }
+  ],
+  "adjacent_comparisons": {
+    "mfem": [
+      {
+        "coarse": 1,
+        "fine": 2,
+        "complex_rms_relative": 0.9949966914407217,
+        "magnitude_max_relative": 0.8898438335734191,
+        "magnitude_max_db": 19.159823729668965,
+        "phase_max_deg": 85.82474174719296
+      },
+      {
+        "coarse": 2,
+        "fine": 3,
+        "complex_rms_relative": 0.20704266998106935,
+        "magnitude_max_relative": 0.17210277835836021,
+        "magnitude_max_db": 1.6404714972595844,
+        "phase_max_deg": 177.6555572902266
+      }
+    ],
+    "pffdtd": [
+      {
+        "coarse_ppw": 8,
+        "fine_ppw": 10,
+        "complex_rms_relative": 0.8761219168261092,
+        "magnitude_max_relative": 0.8034993026847357,
+        "magnitude_max_db": 14.13271808239866,
+        "phase_max_deg": 75.48664328096115
+      },
+      {
+        "coarse_ppw": 10,
+        "fine_ppw": 12,
+        "complex_rms_relative": 3.171427115345244,
+        "magnitude_max_relative": 2.6525614377313196,
+        "magnitude_max_db": 11.251950593937991,
+        "phase_max_deg": 83.80402351293702
+      }
+    ]
+  },
+  "convergence": {
+    "mfem": {
+      "state": "SELF_CONVERGENCE_FAILED",
+      "complex_rms_trend": "DECREASING",
+      "magnitude_relative_trend": "DECREASING",
+      "phase_trend": "NON_DECREASING",
+      "final_pair_status": "FAIL"
+    },
+    "pffdtd": {
+      "state": "SELF_CONVERGENCE_FAILED",
+      "complex_rms_trend": "NON_DECREASING",
+      "magnitude_relative_trend": "NON_DECREASING",
+      "phase_trend": "NON_DECREASING",
+      "final_pair_status": "FAIL"
+    }
+  },
+  "valid_overlapping_numerical_band": {
+    "minimum_hz": 0,
+    "maximum_hz": 100,
+    "compared_frequency_hz": [
+      40,
+      80
+    ]
+  },
+  "decision": {
+    "execution_state": "PASS",
+    "contract_state": "MATCH",
+    "reference_self_convergence_state": "SELF_CONVERGENCE_FAILED",
+    "pffdtd_self_convergence_state": "SELF_CONVERGENCE_FAILED",
+    "cross_solver_state": "CROSS_SOLVER_BLOCKED",
+    "validation_state": "NOT_VALIDATED"
+  },
+  "rdc_calls": 0,
+  "htdt_capture_changed": false
+}
