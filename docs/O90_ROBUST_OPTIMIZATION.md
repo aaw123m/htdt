@@ -539,6 +539,8 @@ Software authority is implemented in the Issue #140 O90E slice. It:
   than creating another model-validation flag;
 - re-resolves exact MeasurementPlan, measurement/dataset, AcquisitionContext and
   MeasurementQualityReport capability authority;
+- re-resolves the existing SystemVariant application/variant lineage when a
+  candidate revision descends from one, and rejects cross-lineage evidence;
 - compares requested O90 axis endpoints and observable band against tested O60
   perturbation evidence;
 - persists append-only historical decisions with explicit fail-closed reasons;
