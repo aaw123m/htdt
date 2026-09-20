@@ -14,12 +14,19 @@ from htdt.r130d_general3d_validation import (
     analytic_complex_harmonic_spectrum,
     analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
+    classify_frequency_neighborhood,
+    classify_spatial_representation_trend,
     compare_complex_transfer,
+    connected_air_domain_node_metrics,
+    interpolation_stencil_diagnostic,
     load_evidence,
+    load_spatial_representation_diagnostic_plan,
     load_target_window_diagnostic_plan,
     load_validation_plan,
     native_window_left_rectangle_spectrum,
     native_window_left_rectangle_transfer,
+    normalized_complex_difference,
+    plane_distance_metrics,
     save_evidence,
     target_window_sampling_metadata,
     target_window_clipped_left_rectangle_spectrum,
@@ -27,6 +34,7 @@ from htdt.r130d_general3d_validation import (
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
+    validate_spatial_representation_diagnostic_binding,
     validation_decision,
     validation_decision_v2,
 )
@@ -38,6 +46,19 @@ DIAGNOSTIC_PLAN = (
     / 'benchmarks'
     / 'acoustics'
     / 'r130d_target_window_diagnostic_plan.json'
+)
+
+SPATIAL_DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_spatial_representation_diagnostic_plan.json'
+)
+PR295_SUMMARY = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_target_window_diagnostic_run62_summary.json'
 )
 
 
@@ -600,3 +621,208 @@ def test_native_window_complex_harmonic_matches_independent_geometric_series():
         sample_count=sample_count,
     )
     assert np.allclose(numerical, analytic, rtol=2.0e-13, atol=2.0e-13)
+
+
+def test_spatial_diagnostic_plan_hash_binding_and_canonical_contract_are_frozen():
+    plan = _plan()
+    diagnostic = load_spatial_representation_diagnostic_plan(
+        SPATIAL_DIAGNOSTIC_PLAN
+    )
+    validate_spatial_representation_diagnostic_binding(plan, diagnostic)
+    assert diagnostic['task_start_main_sha'] == (
+        '9e6066259ec58c093e9a7587550ccf907f28402f'
+    )
+    assert diagnostic['frozen_solver_contract']['pffdtd_ppw'] == [
+        8.0, 10.0, 12.0
+    ]
+    assert diagnostic['frozen_solver_contract']['canonical_frequency_hz'] == [
+        40.0, 80.0
+    ]
+    assert diagnostic['frequency_neighborhood']['diagnostic_frequency_hz'] == [
+        39.0, 40.0, 41.0, 79.0, 80.0, 81.0
+    ]
+    assert diagnostic['frequency_neighborhood']['canonical_acceptance_inclusion'] is False
+    assert diagnostic['frozen_solver_contract']['magnitude_mask_relative_db'] == -50.0
+    assert diagnostic['frozen_solver_contract']['pffdtd_self_convergence_thresholds'] == {
+        'complex_rms_relative_max': 0.2,
+        'magnitude_max_relative': 0.25,
+        'phase_max_deg': 15.0,
+    }
+
+
+def test_spatial_diagnostic_binding_rejects_stale_geometry_identity():
+    plan = _plan()
+    diagnostic = load_spatial_representation_diagnostic_plan(
+        SPATIAL_DIAGNOSTIC_PLAN
+    )
+    stale = json.loads(json.dumps(diagnostic))
+    stale['frozen_solver_contract']['fixture_id'] = 'stale-fixture'
+    with pytest.raises(ValueError, match='fixture id'):
+        validate_spatial_representation_diagnostic_binding(plan, stale)
+
+
+def test_node_adjacency_air_domain_synthetic_split_is_counted_from_source_component():
+    dims = (3, 3, 3)
+    boundary = []
+    adjacency = []
+    for ix in (1, 2):
+        for iy in range(3):
+            for iz in range(3):
+                boundary.append(ix * 9 + iy * 3 + iz)
+                row = [True] * 6
+                if ix == 1:
+                    row[0] = False
+                else:
+                    row[1] = False
+                adjacency.append(row)
+    metrics = connected_air_domain_node_metrics(
+        dimensions=dims,
+        boundary_linear_indices=boundary,
+        boundary_adjacency=adjacency,
+        source_linear_indices=[0],
+        neighbor_directions=[
+            [1, 0, 0], [-1, 0, 0], [0, 1, 0],
+            [0, -1, 0], [0, 0, 1], [0, 0, -1],
+        ],
+    )
+    assert metrics['active_node_count'] == 27
+    assert metrics['reachable_air_node_count'] == 18
+    assert metrics['boundary_node_count'] == 9
+    assert metrics['interior_node_count'] == 9
+    assert metrics['exterior_or_disconnected_node_count'] == 9
+
+
+def test_exact_plane_distance_metric_preserves_physical_and_over_h_units():
+    metrics = plane_distance_metrics(
+        [[0.0, 0.0, 0.1], [1.0, 0.0, -0.1], [0.0, 1.0, 0.2]],
+        plane_point_m=[0.0, 0.0, 0.0],
+        plane_unit_normal=[0.0, 0.0, 1.0],
+        grid_spacing_m=0.5,
+    )
+    assert metrics['sloped_signed_normal_distance_m'] == pytest.approx(
+        [0.1, -0.1, 0.2]
+    )
+    assert metrics['sloped_rms_abs_normal_distance_m'] == pytest.approx(
+        np.sqrt(0.02)
+    )
+    assert metrics['sloped_max_abs_normal_distance_m'] == pytest.approx(0.2)
+    assert metrics['sloped_rms_abs_normal_distance_over_h'] == pytest.approx(
+        2.0 * np.sqrt(0.02)
+    )
+    assert metrics['sloped_max_abs_normal_distance_over_h'] == pytest.approx(0.4)
+
+
+def test_trilinear_stencil_weight_sum_and_coordinate_reconstruction():
+    target = np.asarray([0.25, 0.5, 0.75], dtype=np.float64)
+    linear_indices = [7, 3, 5, 6, 1, 2, 4, 0]
+    positions = [
+        (1, 1, 1), (0, 1, 1), (1, 0, 1), (1, 1, 0),
+        (0, 0, 1), (0, 1, 0), (1, 0, 0), (0, 0, 0),
+    ]
+    weights = [
+        float(np.prod([
+            target[axis] if node[axis] else 1.0 - target[axis]
+            for axis in range(3)
+        ]))
+        for node in positions
+    ]
+    diagnostic = interpolation_stencil_diagnostic(
+        xv=[0.0, 1.0],
+        yv=[0.0, 1.0],
+        zv=[0.0, 1.0],
+        linear_indices=linear_indices,
+        weights=weights,
+        exact_position_m=target,
+        grid_spacing_m=1.0,
+    )
+    assert diagnostic['weight_sum'] == pytest.approx(1.0)
+    assert diagnostic['fractional_cell_coordinate'] == pytest.approx(target)
+    assert diagnostic['reconstructed_coordinate_m'] == pytest.approx(target)
+    assert diagnostic['reconstruction_error_m'] < 1.0e-15
+    assert len(diagnostic['stencil_sha256']) == 64
+
+
+def test_normalized_complex_difference_uses_frozen_symmetric_floor_formula():
+    assert normalized_complex_difference(
+        1.0 + 0.0j, 2.0 + 0.0j, fixed_floor=1.0e-12
+    ) == pytest.approx(0.5)
+    assert normalized_complex_difference(
+        0.0j, 0.0j, fixed_floor=1.0e-12
+    ) == 0.0
+
+
+@pytest.mark.parametrize(
+    ('worsening_count', 'expected'),
+    [
+        (0, 'NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'),
+        (2, 'NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'),
+        (3, 'MIXED_NEIGHBORHOOD_SENSITIVITY'),
+        (4, 'NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD'),
+        (6, 'NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD'),
+    ],
+)
+def test_frequency_neighborhood_classifier_frozen_boundaries(
+    worsening_count, expected
+):
+    d_8_10 = [1.0] * 6
+    d_10_12 = [2.0 if index < worsening_count else 0.5 for index in range(6)]
+    result = classify_frequency_neighborhood(d_8_10, d_10_12)
+    assert result['worsening_count'] == worsening_count
+    assert result['classification'] == expected
+
+
+def test_spatial_classifier_uses_physical_volume_and_plane_rms_ten_to_twelve():
+    monotonic = [
+        {'points_per_wavelength': 8.0, 'relative_volume_error': 0.2,
+         'sloped_rms_abs_normal_distance_m': 0.2},
+        {'points_per_wavelength': 10.0, 'relative_volume_error': -0.1,
+         'sloped_rms_abs_normal_distance_m': 0.1},
+        {'points_per_wavelength': 12.0, 'relative_volume_error': 0.1,
+         'sloped_rms_abs_normal_distance_m': 0.1},
+    ]
+    assert classify_spatial_representation_trend(monotonic)['classification'] == (
+        'SPATIAL_REPRESENTATION_MONOTONIC'
+    )
+    volume_worse = json.loads(json.dumps(monotonic))
+    volume_worse[2]['relative_volume_error'] = 0.100001
+    assert classify_spatial_representation_trend(volume_worse)['classification'] == (
+        'SPATIAL_REPRESENTATION_NON_MONOTONIC'
+    )
+    plane_worse = json.loads(json.dumps(monotonic))
+    plane_worse[2]['sloped_rms_abs_normal_distance_m'] = 0.100001
+    assert classify_spatial_representation_trend(plane_worse)['classification'] == (
+        'SPATIAL_REPRESENTATION_NON_MONOTONIC'
+    )
+
+
+def test_pr295_canonical_baseline_binds_all_six_levels_and_failed_states():
+    summary = json.loads(PR295_SUMMARY.read_text(encoding='utf-8'))
+    assert [item['refinement'] for item in summary['outputs']['mfem']] == [1, 2, 3]
+    assert [
+        item['points_per_wavelength'] for item in summary['outputs']['pffdtd']
+    ] == [8, 10, 12]
+    assert all(len(item['canonical']) == 2 for item in summary['outputs']['pffdtd'])
+    assert summary['canonical_pr286_reproduction']['max_abs_complex_component_error_all_six_levels'] == 0
+    assert summary['decision']['canonical_reference_self_convergence'] == (
+        'SELF_CONVERGENCE_FAILED'
+    )
+    assert summary['decision']['canonical_pffdtd_self_convergence'] == (
+        'SELF_CONVERGENCE_FAILED'
+    )
+    assert summary['decision']['cross_solver_eligibility'] == 'CROSS_SOLVER_BLOCKED'
+    assert summary['decision']['general_3d_validation_state'] == 'NOT_VALIDATED'
+
+
+def test_diagnostic_frequency_set_cannot_enter_canonical_acceptance():
+    plan = _plan()
+    diagnostic = load_spatial_representation_diagnostic_plan(
+        SPATIAL_DIAGNOSTIC_PLAN
+    )
+    assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
+    assert tuple(
+        diagnostic['frequency_neighborhood']['canonical_scored_frequency_hz']
+    ) == (40.0, 80.0)
+    assert set(
+        diagnostic['frequency_neighborhood']['diagnostic_only_frequency_hz']
+    ).isdisjoint(plan.physical_quantity.frequency_hz)
+    assert diagnostic['frequency_neighborhood']['canonical_acceptance_inclusion'] is False
