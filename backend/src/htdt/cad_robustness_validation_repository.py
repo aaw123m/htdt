@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
@@ -187,6 +188,27 @@ class CadRobustnessValidationRepository:
             plan_id=plan_id,
         )
         return history[-1] if history else None
+
+    def _raw_asset_valid(self, digest: str) -> bool:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                '''
+                SELECT relative_path, size_bytes
+                FROM cad_measurement_assets
+                WHERE sha256=?
+                ''',
+                (digest,),
+            ).fetchone()
+        if row is None:
+            return False
+        asset_path = self.path.parent / str(row['relative_path'])
+        if not asset_path.is_file():
+            return False
+        raw = asset_path.read_bytes()
+        return (
+            len(raw) == int(row['size_bytes'])
+            and sha256(raw).hexdigest() == digest
+        )
 
     def _system_variant_ref(
         self,
@@ -554,6 +576,8 @@ class CadRobustnessValidationRepository:
         measurement = self.measurement_repository.get_measurement(pair.measurement_id)
         dataset = self.measurement_repository.dataset_for_measurement(pair.measurement_id)
         if measurement is None or dataset is None:
+            return None, ['missing_measurement_evidence']
+        if not self._raw_asset_valid(dataset.source_sha256):
             return None, ['missing_measurement_evidence']
         if measurement.evidence_type != 'measured':
             reasons.append('synthetic_evidence')
@@ -1110,6 +1134,10 @@ class CadRobustnessValidationRepository:
                     ):
                         raise ValueError(
                             'O90E decision measurement/quality binding is stale or tampered'
+                        )
+                    if not self._raw_asset_valid(measurement.raw_asset_sha256):
+                        raise ValueError(
+                            'O90E decision raw measurement asset is missing or tampered'
                         )
                     current_variant = self._system_variant_ref(
                         current.scene_revision_id
