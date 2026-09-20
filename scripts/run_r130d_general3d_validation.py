@@ -1474,9 +1474,17 @@ def _run_pffdtd_level(
             _complex_pairs(neighborhood_transfer)
         ),
         'spatial_representation_diagnostic': {
-            key: value
-            for key, value in spatial_metrics.items()
-            if key not in ('source_stencil', 'receiver_stencil')
+            **{
+                key: value
+                for key, value in spatial_metrics.items()
+                if key not in ('source_stencil', 'receiver_stencil')
+            },
+            'pffdtd_cart_grid_logical_sha256': evidence[
+                'cart_grid_logical_sha256'
+            ],
+            'pffdtd_boundary_mask_logical_sha256': evidence[
+                'boundary_mask_logical_sha256'
+            ],
         },
         'source_interpolation_stencil': spatial_metrics['source_stencil'],
         'receiver_interpolation_stencil': spatial_metrics['receiver_stencil'],
