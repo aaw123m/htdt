@@ -613,7 +613,11 @@ def _fixture(
 
     def material_resolver(ref: ExactExternalAuthorityRef):
         item = material_box['value']
-        return item if item.authority_ref == ref else None
+        return (
+            item
+            if item is not None and item.authority_ref == ref
+            else None
+        )
 
     def configuration_resolver(ref: ExactExternalAuthorityRef):
         return configuration if configuration.as_external_ref() == ref else None
