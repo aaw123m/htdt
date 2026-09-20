@@ -9,7 +9,7 @@ This plan is committed before the authoritative numerical run. The refinement se
 ## Frozen parent authority
 
 - Parent plan id: `r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20`
-- Parent plan SHA-256: `22b77577a404cf8c3d81818bf081594225bbe0319dc3ef7fd04dcedd8385a347`
+- Parent plan SHA-256: `5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec`
 - MFEM refinements: 1 / 2 / 3
 - PFFDTD: 8 / 10 / 12 PPW
 - Requested target duration: 0.25 s
@@ -17,7 +17,7 @@ This plan is committed before the authoritative numerical run. The refinement se
 - Rectangular/no taper
 - PR #282/#286 acceptance thresholds unchanged
 
-The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json`. Its semantic SHA-256 over canonical sorted JSON is `06a3fa89a00ceebbf528c80713be9cd06ac6b6a5dd37c81ea6287bf8a2959364`.
+The machine-readable diagnostic plan is `benchmarks/acoustics/r130d_target_window_diagnostic_plan.json`. Its semantic SHA-256 over canonical sorted JSON is `22b77577a404cf8c3d81818bf081594225bbe0319dc3ef7fd04dcedd8385a347`.
 
 ## Frozen diagnostic observation operator
 
