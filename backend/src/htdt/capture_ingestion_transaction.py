@@ -768,6 +768,22 @@ class CaptureIngestionRepository:
             row['payload_json']
         )
 
+    def mesh_binding_ids_for_ingestion(
+        self,
+        lineage_digest: str,
+    ) -> tuple[str, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                '''
+                SELECT binding_id
+                FROM capture_ingestion_mesh_links
+                WHERE lineage_digest=?
+                ORDER BY binding_id ASC
+                ''',
+                (lineage_digest,),
+            ).fetchall()
+        return tuple(str(row['binding_id']) for row in rows)
+
     def get_authority_record(
         self,
         authority_record_handoff_id: str,
