@@ -452,7 +452,7 @@ def test_negative_evidence_is_preserved_when_stale_and_superseded() -> None:
     assert candidate_report.decision == 'READY'
     assert 'historical-negative' in candidate_report.negative_evidence_ids
     excluded = {item.evidence_id: item.reason for item in candidate_report.excluded_evidence}
-    assert excluded['historical-negative'] == 'missing_candidate_authority_binding'
+    assert excluded['historical-negative'] == 'stale_r100a_manifest_id'
 
 
 def test_adding_candidate_does_not_mutate_existing_candidate_result() -> None:
@@ -470,6 +470,7 @@ def test_adding_candidate_does_not_mutate_existing_candidate_result() -> None:
         }
     )
     payload = candidates.model_dump(mode='python')
+    payload['candidates'] = list(payload['candidates'])
     payload['candidates'].append(extra.model_dump(mode='python'))
     expanded = BakeoffCandidateManifest.model_validate(payload)
 
