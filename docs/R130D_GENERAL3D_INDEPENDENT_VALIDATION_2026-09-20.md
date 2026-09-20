@@ -168,6 +168,17 @@ for cross-solver PASS. Fine/fine acceptance requires all of:
 
 These tolerances are task-specific heterogeneous-discretization validation
 limits, not R100A benchmark tolerances and not production accuracy guarantees.
+They were chosen before results to require the independent FEM medium/fine pair
+to be substantially tighter than the cross-method comparison, while allowing
+the voxel FDTD pair a wider discretization envelope. The fine/fine limits still
+require order-one agreement in the complex transfer: less than 3 dB magnitude
+difference and less than 25 degrees phase difference at the scored low-band
+samples, with an aggregate complex RMS relative error below 0.35.
+
+Per-frequency ACCEPTED/REJECTED status uses the magnitude mask, magnitude
+relative, magnitude-dB, and phase limits above. The complex RMS relative limit
+is intentionally an aggregate all-frequency gate and is not reused as a
+per-frequency threshold.
 
 ## Fail-closed states
 
