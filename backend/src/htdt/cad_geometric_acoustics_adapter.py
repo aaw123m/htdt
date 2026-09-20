@@ -2139,19 +2139,16 @@ def execute_deterministic_ga(
                     )
                     continue
 
-                ignored = frozenset((plane.source_surface_id,))
                 if _segment_blocked(
                     compiled_geometry,
                     source_world,
                     reflection,
                     tolerance=execution_input.geometric_tolerance_m,
-                    ignored_surface_ids=ignored,
                 ) or _segment_blocked(
                     compiled_geometry,
                     reflection,
                     receiver_world,
                     tolerance=execution_input.geometric_tolerance_m,
-                    ignored_surface_ids=ignored,
                 ):
                     rejected.append(
                         RejectedPathCandidate(
