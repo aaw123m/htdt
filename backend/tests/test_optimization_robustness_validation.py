@@ -714,6 +714,7 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             channel_role='front_left',
             source_speaker_ids=('speaker-fl',),
             radiation_scope='single',
+            preregistered_at_utc='2030-01-01T00:30:00+00:00',
         )
 
     with pytest.raises(ValueError, match='nominal MeasurementPlan/candidate'):
@@ -748,6 +749,7 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             channel_role='front_left',
             source_speaker_ids=('speaker-fl',),
             radiation_scope='single',
+            preregistered_at_utc='2030-01-01T00:30:00+00:00',
         )
 
     with pytest.raises(ValueError, match='observable is not preregistered'):
@@ -951,6 +953,34 @@ def test_o90e_explicit_quality_failure_is_not_interpolated_to_pass(tmp_path) -> 
 
     assert decision.production_gate == 'closed'
     assert 'quality_failure' in decision.reasons
+
+
+def test_o90e_posthoc_backdated_prospective_case_is_rejected(tmp_path) -> None:
+    env = _fixture(tmp_path)
+    forged = build_o90e_validation_case(
+        spec=env.spec,
+        axis_id='speaker-x',
+        direction='minus',
+        nominal_plan=env.planned[env.nominal.candidate_id],
+        perturbation_plan=env.planned[env.minus.candidate_id],
+        nominal_revision=env.applied[env.nominal.candidate_id],
+        perturbation_revision=env.applied[env.minus.candidate_id],
+        campaign=env.campaign,
+        observable_id='response.shape_rms_db',
+        receiver_entity_id='listener-main',
+        required_capability='magnitude_response',
+        channel_role='front_left',
+        source_speaker_ids=('speaker-fl',),
+        radiation_scope='single',
+        preregistered_at_utc='2030-01-01T00:30:00+00:00',
+    )
+    assert forged.preregistration_status == 'prospective'
+
+    with pytest.raises(
+        ValueError,
+        match='must be persisted before measurement completion',
+    ):
+        env.validation_repository.save_case(forged)
 
 
 def test_o90e_retrospective_case_never_masquerades_as_preregistered(tmp_path) -> None:
