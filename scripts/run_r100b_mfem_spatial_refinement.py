@@ -357,11 +357,16 @@ def main(argv=None):
     preview_ledger = BakeoffReadinessEvidenceLedger(ledger_id=f"{ledger.ledger_id}-spatial-preview-{run_id}", records=ledger.records + (record,))
     after = build_production_adoption_readiness_report(benchmark, candidates, profile, preview_ledger)
     after_candidate = candidate_report(after, CANDIDATE_ID)
+    target_readiness = next(x for x in after_candidate.fixture_results if x.check_id == FIXTURE_ID)
+    readiness_record_admitted = record.evidence_id in target_readiness.evidence_ids
+    typed_admissibility = "PASS" if readiness_record_admitted else "BLOCKED"
     if observable is None:
         outcome = "BLOCKED"
     elif spatial_status == "FAIL" or tolerance_status == "FAIL":
         outcome = "FAIL"
     elif resource_status != "PASS":
+        outcome = "BLOCKED"
+    elif typed_admissibility != "PASS":
         outcome = "BLOCKED"
     else:
         outcome = "PASS"
@@ -377,11 +382,14 @@ def main(argv=None):
         "schema_version": REPORT_SCHEMA, "run_id": run_id,
         "workflow_execution": "PASS", "spatial_numerical_convergence": spatial_status,
         "current_r100a_fixture_tolerance": tolerance_status, "resource_suitability": resource_status,
-        "typed_evidence_admissibility": "PASS", "candidate_wide_readiness": after_candidate.decision,
+        "typed_evidence_admissibility": typed_admissibility, "candidate_wide_readiness": after_candidate.decision,
+        "readiness_record_admitted": readiness_record_admitted,
+        "readiness_record_excluded_ids": list(target_readiness.excluded_evidence_ids),
         "production_solver_selection": False, "experiment_outcome": outcome,
         "task_start_main_sha": "9e6066259ec58c093e9a7587550ccf907f28402f",
         "implementation_head_sha": os.environ.get("HTDT_PR_HEAD_SHA", os.environ.get("GITHUB_SHA", "unknown")),
-        "frozen_plan_commit_sha": "c181fb62993e5dcbff719feac02b013a0459d5d2",
+        "frozen_plan_commit_sha": "e4ac01664603bbfd9e761ebd15d2e530896a337e",
+        "initial_plan_commit_sha": "c181fb62993e5dcbff719feac02b013a0459d5d2",
         "frozen_plan_sha256": file_sha256(args.plan), "plan": plan.model_dump(mode="json"),
         "frequency_count": len(scored_frequency_grid(fx)), "frequency_start_hz": scored_frequency_grid(fx)[0],
         "frequency_stop_hz": scored_frequency_grid(fx)[-1],
@@ -414,7 +422,7 @@ def main(argv=None):
     print(json.dumps({
         "experiment_outcome": outcome, "spatial_numerical_convergence": spatial_status,
         "current_r100a_fixture_tolerance": tolerance_status, "resource_suitability": resource_status,
-        "typed_evidence_admissibility": "PASS", "candidate_wide_readiness": after_candidate.decision,
+        "typed_evidence_admissibility": typed_admissibility, "candidate_wide_readiness": after_candidate.decision,
         "production_solver_selected": False, "report": str(args.output),
     }, indent=2, sort_keys=True))
     print("R100B_SPATIAL_READINESS_RECORD=" + json.dumps(record.model_dump(mode="json"), separators=(",", ":")))
