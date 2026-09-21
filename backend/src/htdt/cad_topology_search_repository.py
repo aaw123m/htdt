@@ -15,6 +15,7 @@ from .cad_topology_search import (
     TopologyPlacementSearchSpec,
     build_topology_placement_search_spec,
     declared_base_constraint_set,
+    generate_topology_placement_candidates,
 )
 
 
@@ -383,27 +384,70 @@ class CadTopologySearchRepository:
             ).fetchall()
         return tuple(self._validated_spec(row) for row in rows)
 
+    def _rederived_candidate_page(
+        self,
+        spec: TopologyPlacementSearchSpec,
+        *,
+        offset: int,
+        limit: int,
+    ) -> TopologyPlacementCandidateSetPage:
+        """Regenerate one canonical candidate page from persisted authority.
+
+        Resolves the baseline SceneRevision and template SystemVariant named
+        by the already-replayed search spec and reruns the deterministic
+        O10/G10/O80 generator over the exact persisted inputs. The result is
+        the only authoritative page for the requested window: candidate
+        payloads/SHAs/IDs, feasible indices, the full candidate-set digest,
+        and all count/rejection metadata are recomputed rather than trusted
+        from a caller or a stored row.
+        """
+
+        baseline = self.scene_repository.get(spec.baseline_revision_id)
+        if baseline is None:
+            raise ValueError('topology search baseline SceneRevision does not exist')
+        template = self.variant_repository.get_variant(spec.template_variant_id)
+        if template is None:
+            raise ValueError('topology search template SystemVariant is not persisted')
+        return generate_topology_placement_candidates(
+            baseline=baseline,
+            template_variant=template,
+            spec=spec,
+            offset=offset,
+            limit=limit,
+        )
+
     def save_candidate_page(
         self,
         page: TopologyPlacementCandidateSetPage,
     ) -> None:
+        page = TopologyPlacementCandidateSetPage.model_validate(
+            page.model_dump(mode='python')
+        )
         spec = self.get_spec(page.search_id)
         if spec is None:
             raise ValueError('topology search spec must be persisted before candidates')
         if page.search_sha256 != spec.search_sha256:
             raise ValueError('topology candidate page search hash mismatch')
 
+        # Candidate persistence rederives exact generator authority: the
+        # submitted page must equal the canonical regeneration of the
+        # persisted search spec, so fabricated candidates, forged
+        # candidate-set digests, and mismatched count/rejection metadata
+        # fail closed. One regeneration validates the whole batch, which is
+        # then persisted atomically.
+        expected = self._rederived_candidate_page(
+            spec,
+            offset=page.offset,
+            limit=page.limit,
+        )
+        if page != expected:
+            raise ValueError(
+                'topology candidate page is not the canonical regeneration '
+                'of the persisted placement search authority'
+            )
+
         with closing(self._connect()) as connection, connection:
-            for candidate in page.candidates:
-                if (
-                    candidate.search_id != spec.search_id
-                    or candidate.search_sha256 != spec.search_sha256
-                    or candidate.topology_search_id != spec.topology_search_id
-                    or candidate.topology_search_sha256
-                    != spec.topology_search_sha256
-                    or candidate.topology_option_id != spec.topology_option_id
-                ):
-                    raise ValueError('topology candidate belongs to another search')
+            for candidate in expected.candidates:
                 row = connection.execute(
                     'SELECT candidate_set_sha256, payload_json '
                     'FROM cad_topology_placement_candidates '
@@ -417,7 +461,7 @@ class CadTopologySearchRepository:
                     if (
                         stored != candidate
                         or row['candidate_set_sha256']
-                        != page.candidate_set_sha256
+                        != expected.candidate_set_sha256
                     ):
                         raise ValueError(
                             'deterministic topology candidate identity collision'
@@ -434,11 +478,50 @@ class CadTopologySearchRepository:
                         candidate.candidate_id,
                         candidate.candidate_sha256,
                         candidate.search_id,
-                        page.candidate_set_sha256,
+                        expected.candidate_set_sha256,
                         candidate.feasible_index,
                         candidate.model_dump_json(),
                     ),
                 )
+
+    def _validated_candidate(self, row: sqlite3.Row) -> TopologyPlacementCandidate:
+        """Deserialize one persisted candidate row and replay its membership.
+
+        The row columns must agree with the payload, the persisted spec must
+        still replay its own canonical authority, and the payload must be
+        the exact deterministic member of the regenerated candidate set at
+        its feasible index with the stored candidate-set digest. Fabricated
+        or tampered rows fail closed instead of being returned as
+        authoritative.
+        """
+
+        candidate = TopologyPlacementCandidate.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['candidate_id'] != candidate.candidate_id
+            or row['candidate_sha256'] != candidate.candidate_sha256
+            or row['search_id'] != candidate.search_id
+            or row['feasible_index'] != candidate.feasible_index
+        ):
+            raise ValueError(
+                'persisted topology candidate row disagrees with its payload'
+            )
+        spec = self.get_spec(candidate.search_id)
+        if spec is None:
+            raise ValueError('topology candidate search spec is missing')
+        page = self._rederived_candidate_page(
+            spec,
+            offset=candidate.feasible_index,
+            limit=1,
+        )
+        if page.candidate_set_sha256 != row['candidate_set_sha256']:
+            raise ValueError('topology candidate-set authority mismatch')
+        if page.candidates != (candidate,):
+            raise ValueError(
+                'topology candidate is not an exact deterministic search member'
+            )
+        return candidate
 
     def get_candidate(
         self,
@@ -446,17 +529,11 @@ class CadTopologySearchRepository:
     ) -> TopologyPlacementCandidate | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_topology_placement_candidates '
+                'SELECT * FROM cad_topology_placement_candidates '
                 'WHERE candidate_id=?',
                 (candidate_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else TopologyPlacementCandidate.model_validate_json(
-                row['payload_json']
-            )
-        )
+        return None if row is None else self._validated_candidate(row)
 
     def list_candidates(
         self,
@@ -464,14 +541,11 @@ class CadTopologySearchRepository:
     ) -> tuple[TopologyPlacementCandidate, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_topology_placement_candidates '
+                'SELECT * FROM cad_topology_placement_candidates '
                 'WHERE search_id=? ORDER BY feasible_index ASC',
                 (search_id,),
             ).fetchall()
-        return tuple(
-            TopologyPlacementCandidate.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+        return tuple(self._validated_candidate(row) for row in rows)
 
     def save_candidate_variant(
         self,

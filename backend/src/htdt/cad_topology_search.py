@@ -328,6 +328,15 @@ class TopologyPlacementCandidate(BaseModel):
 
 
 class TopologyPlacementCandidateSetPage(BaseModel):
+    """One deterministic window over the canonical O100B candidate set.
+
+    The wrapper asserts only the internal invariants every generated page
+    must satisfy; it cannot prove membership by itself. Persisting a page
+    requires exact equality with a fresh
+    generate_topology_placement_candidates replay over the persisted search
+    authority (see CadTopologySearchRepository.save_candidate_page).
+    """
+
     model_config = ConfigDict(frozen=True)
 
     search_id: str = Field(min_length=1)
@@ -341,6 +350,41 @@ class TopologyPlacementCandidateSetPage(BaseModel):
     offset: int = Field(ge=0)
     limit: int = Field(ge=1, le=500)
     candidates: tuple[TopologyPlacementCandidate, ...]
+
+    @model_validator(mode='after')
+    def valid_page(self) -> 'TopologyPlacementCandidateSetPage':
+        if (
+            self.raw_candidate_count
+            != self.feasible_candidate_count
+            + self.rejected_candidate_count
+            + self.duplicate_candidate_count
+        ):
+            raise ValueError('topology candidate page counts are inconsistent')
+        if len(self.candidates) > self.limit:
+            raise ValueError('topology candidate page exceeds its limit')
+        if self.candidates:
+            if self.offset + len(self.candidates) > self.feasible_candidate_count:
+                raise ValueError(
+                    'topology candidate page overruns the feasible set'
+                )
+            for index, candidate in enumerate(self.candidates):
+                if (
+                    candidate.search_id != self.search_id
+                    or candidate.search_sha256 != self.search_sha256
+                ):
+                    raise ValueError(
+                        'topology candidate page mixes search authority'
+                    )
+                if candidate.feasible_index != self.offset + index:
+                    raise ValueError(
+                        'topology candidate page feasible indices are not '
+                        'contiguous'
+                    )
+                if candidate.raw_index >= self.raw_candidate_count:
+                    raise ValueError(
+                        'topology candidate page raw index outside the raw set'
+                    )
+        return self
 
 
 def _zone_constraint_id(item: ProposedPlacementSpec) -> str:
