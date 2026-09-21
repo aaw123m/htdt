@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NamedTuple, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,7 +28,7 @@ from .cad_topology_search import (
     topology_candidate_document,
 )
 from .cad_topology_search_repository import CadTopologySearchRepository
-from .optimization_objectives import ObjectiveVector
+from .optimization_objectives import ObjectiveMetric, ObjectiveVector
 from .optimization_robustness import (
     ROBUSTNESS_ALGORITHM_VERSION,
     ROBUSTNESS_MULTIDIMENSIONAL_ALGORITHM_VERSION,
@@ -178,6 +178,46 @@ class ProposalPerturbationObjectiveResult(BaseModel):
                 'proposal objective evidence order must match objective vector'
             )
         return self
+
+
+class ProposalObjectiveResultAuthority(BaseModel):
+    """Replayable binding for one exact perturbed objective result.
+
+    Resolving an ``ExactAuthorityRef`` alone proves only that a result exists;
+    it does not prove that the submitted ``ObjectiveVector`` metric derives
+    from that result or that the result belongs to this exact perturbed
+    Scene/sample. This richer immutable result authority records the perturbed
+    input identity plus the canonical metric payload so persistence can replay
+    exact objective output on save and on every authoritative read.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    result_ref: ExactAuthorityRef
+    robustness_spec_id: str = Field(
+        pattern=r'^proposal-robustness:[0-9a-f]{64}$'
+    )
+    robustness_spec_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    sample_id: str = Field(min_length=1)
+    perturbed_scene_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    metric: ObjectiveMetric
+
+
+ObjectiveResultResolver = Callable[
+    [ProposalObjectiveEvidenceBinding],
+    ProposalObjectiveResultAuthority | None,
+]
+
+
+class _ExpectedSampleEvidence(NamedTuple):
+    """Deterministic perturbed-scene evidence replayed for one plan item."""
+
+    perturbed_scene_content_hash: str
+    feasible: bool
+    g10_results: tuple[CadConstraintResult, ...]
+    o80_rejection_ids: tuple[str, ...]
+    domain_rejection_ids: tuple[str, ...]
+    perturbation_failure_reason: str | None
 
 
 class ProposalRobustnessSpec(BaseModel):
@@ -1118,6 +1158,40 @@ class CadProposalRobustnessRepository:
     """Append-only O100F local-robustness persistence.
 
     Existing O90 tables and identities are intentionally not modified.
+
+    Pydantic validity and self-hashes are necessary but not sufficient for a
+    persisted O100F row. Every write and every authoritative read replays the
+    canonical perturbation authority of ``evaluate_proposal_local_robustness``
+    and its multidimensional equivalent:
+
+    * ``save_spec``/``get_spec`` re-resolve the exact baseline SceneRevision,
+      SystemVariants, O100B authorities and nominal VariantEvaluationBundle,
+      then rebuild the spec (multidimensional rows additionally re-derive from
+      their persisted local parent) and require exact equality;
+    * ``save_sample``/``list_samples`` rebuild the deterministic sampling plan
+      from the validated spec, require each stored row to equal the plan
+      member at its ``sample_index``, rematerialize the exact proposal Scene,
+      re-apply the exact perturbation, and require the persisted
+      ``perturbed_scene_content_hash``, ``g10_results``,
+      ``o80_rejection_ids``, ``domain_rejection_ids``, ``feasible`` and
+      ``failure_reason`` to equal the replayed canonical output;
+    * scored non-nominal samples additionally resolve every objective result
+      ref: a typed ``objective_result_resolvers`` entry replays the richer
+      ``ProposalObjectiveResultAuthority`` (exact perturbed Scene/sample
+      binding plus canonical metric payload), and ``external_resolvers``
+      proves exact ref identity whenever no typed resolver covers the
+      authority kind; the repository's own persisted result authorities —
+      recorded on save — must reproduce the same record so a ref cannot
+      migrate across perturbations and an ``ObjectiveVector`` value cannot
+      drift from the recorded output;
+    * ``save_evaluation``/``list_evaluations`` regenerate each stored
+      evaluation from the validated samples and require exact equality.
+
+    ``schema_version``/``authority_version``/``algorithm_version`` are part of
+    every spec and sample identity, are pinned to the supported literals, and
+    are re-verified under the same canonical semantics on every read; unknown
+    evaluator versions fail closed through the exact objective-contract
+    signature instead of being silently trusted.
     """
 
     def __init__(
@@ -1128,12 +1202,16 @@ class CadProposalRobustnessRepository:
         topology_repository: CadTopologySearchRepository,
         bundle_resolver: VariantBundleResolver,
         external_resolvers: Mapping[str, AuthorityResolver] | None = None,
+        objective_result_resolvers: (
+            Mapping[str, ObjectiveResultResolver] | None
+        ) = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.variant_repository = variant_repository
         self.topology_repository = topology_repository
         self.bundle_resolver = bundle_resolver
         self.external_resolvers = dict(external_resolvers or {})
+        self.objective_result_resolvers = dict(objective_result_resolvers or {})
         self.path = Path(scene_repository.path)
 
         repositories = (
@@ -1195,6 +1273,22 @@ class CadProposalRobustnessRepository:
                     FOREIGN KEY(robustness_spec_id)
                         REFERENCES cad_proposal_robustness_specs(robustness_spec_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS cad_proposal_objective_result_authorities (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    authority_kind TEXT NOT NULL,
+                    authority_id TEXT NOT NULL,
+                    objective_id TEXT NOT NULL,
+                    sample_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    recorded_at_utc TEXT NOT NULL,
+                    UNIQUE(authority_kind, authority_id, objective_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_proposal_objective_result_sample_seq
+                    ON cad_proposal_objective_result_authorities(
+                        sample_id,
+                        seq ASC
+                    );
 
                 CREATE TABLE IF NOT EXISTS cad_proposal_robustness_evaluations (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1432,9 +1526,228 @@ class CadProposalRobustnessRepository:
             return None
         return self._validate_spec(self._parse_spec_json(row['payload_json']))
 
+    @staticmethod
+    def _sampling_plan(
+        spec: ProposalRobustnessAuthority,
+    ) -> tuple[LocalPerturbation, ...]:
+        if spec.sampling_strategy == 'deterministic_local_stencil':
+            return build_local_stencil(spec)
+        if spec.sampling_strategy == MULTIDIMENSIONAL_SAMPLING_STRATEGY:
+            return build_multidimensional_sampling_plan(spec)
+        raise ValueError(
+            'unsupported proposal robustness sampling strategy: '
+            f'{spec.sampling_strategy}'
+        )
+
+    def _expected_sample_evidence(
+        self,
+        *,
+        spec: ProposalRobustnessAuthority,
+        plan: LocalPerturbation,
+        baseline: SceneRevision,
+        candidate_variant: SystemVariant,
+        topology_spec: TopologyPlacementSearchSpec,
+    ) -> _ExpectedSampleEvidence:
+        """Replay the canonical perturbed-scene evidence for one plan item.
+
+        This mirrors ``evaluate_proposal_local_robustness`` and the O100F
+        multidimensional equivalent exactly: the same perturbation application
+        order, the same domain rejection bookkeeping, the same changed-entity
+        set handed to the O80 orientation gate, and the same feasible
+        computation over the persisted O100B constraint snapshot.
+        """
+        constraint_payload = json.loads(topology_spec.constraint_snapshot_json)
+        if (
+            canonical_robustness_sha256(constraint_payload)
+            != spec.constraint_snapshot_sha256
+        ):
+            raise ValueError(
+                'proposal robustness constraint snapshot hash mismatch'
+            )
+        constraint_set = CadConstraintSet.model_validate(constraint_payload)
+
+        nominal_document = materialize_system_variant(baseline, candidate_variant)
+        if (
+            scene_content_hash(nominal_document)
+            != spec.materialized_scene_content_hash
+        ):
+            raise ValueError('proposal robustness nominal scene hash mismatch')
+
+        axis_by_id = {item.axis_id: item for item in spec.axes}
+        document = nominal_document
+        changed: set[str] = set()
+        domain_rejections: list[str] = []
+        perturbation_failure_reason: str | None = None
+
+        if spec.sampling_strategy == 'deterministic_local_stencil':
+            if plan.axis_id is None:
+                changed.update(item.entity_id for item in spec.axes)
+            else:
+                axis = axis_by_id[plan.axis_id]
+                delta = float(plan.parameter_deltas[plan.axis_id])
+                changed.add(axis.entity_id)
+                local_rejections = _domain_rejections(axis, delta)
+                domain_rejections.extend(local_rejections)
+                if not local_rejections:
+                    try:
+                        document = apply_local_perturbation(document, axis, delta)
+                    except Exception as exc:
+                        domain_rejections.append(
+                            f'__perturbation_unsupported__:{axis.axis_id}'
+                        )
+                        perturbation_failure_reason = (
+                            f'perturbation_failed:{exc}'
+                        )
+            expected_domain_ids = tuple(domain_rejections)
+        elif spec.sampling_strategy == MULTIDIMENSIONAL_SAMPLING_STRATEGY:
+            if plan.step == 'nominal':
+                changed.update(item.entity_id for item in spec.axes)
+            else:
+                for axis_id in sorted(plan.parameter_deltas):
+                    axis = axis_by_id[axis_id]
+                    delta = float(plan.parameter_deltas[axis_id])
+                    changed.add(axis.entity_id)
+                    domain_rejections.extend(_domain_rejections(axis, delta))
+                    try:
+                        document = apply_local_perturbation(document, axis, delta)
+                    except Exception as exc:
+                        domain_rejections.append(
+                            f'__perturbation_unsupported__:{axis.axis_id}'
+                        )
+                        perturbation_failure_reason = (
+                            f'perturbation_failed:{exc}'
+                        )
+            expected_domain_ids = tuple(sorted(set(domain_rejections)))
+        else:
+            raise ValueError(
+                'unsupported proposal robustness sampling strategy: '
+                f'{spec.sampling_strategy}'
+            )
+
+        g10 = evaluate_cad_constraints(document, constraint_set)
+        o80 = orientation_constraint_rejections(
+            document,
+            constraint_set,
+            changed_entity_ids=tuple(sorted(changed)),
+        )
+        feasible = (
+            g10.constraints_satisfied
+            and not o80
+            and not expected_domain_ids
+        )
+        return _ExpectedSampleEvidence(
+            perturbed_scene_content_hash=scene_content_hash(document),
+            feasible=feasible,
+            g10_results=tuple(g10.results),
+            o80_rejection_ids=tuple(o80),
+            domain_rejection_ids=expected_domain_ids,
+            perturbation_failure_reason=perturbation_failure_reason,
+        )
+
+    def _require_objective_result_authority(
+        self,
+        expected: ProposalObjectiveResultAuthority,
+        *,
+        connection: sqlite3.Connection | None,
+    ) -> None:
+        """Require exact perturbed-sample binding for one result ref.
+
+        A typed ``ObjectiveResultResolver`` replays the external result
+        authority directly. Without one, the repository still requires its own
+        persisted richer result authority — recorded at save time — to
+        reproduce the exact perturbed Scene/sample binding and canonical
+        metric payload, so a ref cannot be reused across perturbations and a
+        submitted ObjectiveVector value cannot drift from the recorded output.
+        """
+        ref = expected.result_ref
+        resolver = self.objective_result_resolvers.get(ref.authority_kind)
+        if resolver is not None:
+            resolved = resolver(
+                ProposalObjectiveEvidenceBinding(
+                    objective_id=expected.metric.objective_id,
+                    result_ref=ref,
+                )
+            )
+            if resolved is None:
+                raise ValueError(
+                    'proposal objective result authority does not exist: '
+                    f'{ref.authority_kind}:{ref.authority_id}'
+                )
+            resolved = ProposalObjectiveResultAuthority.model_validate(resolved)
+            if resolved != expected:
+                raise ValueError(
+                    'proposal objective result authority does not reproduce '
+                    'the exact perturbed sample binding'
+                )
+
+        if connection is not None:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_proposal_objective_result_authorities
+                WHERE authority_kind=? AND authority_id=? AND objective_id=?
+                """,
+                (
+                    ref.authority_kind,
+                    ref.authority_id,
+                    expected.metric.objective_id,
+                ),
+            ).fetchone()
+        else:
+            with closing(self._connect()) as local:
+                row = local.execute(
+                    """
+                    SELECT payload_json
+                    FROM cad_proposal_objective_result_authorities
+                    WHERE authority_kind=? AND authority_id=? AND objective_id=?
+                    """,
+                    (
+                        ref.authority_kind,
+                        ref.authority_id,
+                        expected.metric.objective_id,
+                    ),
+                ).fetchone()
+        if row is not None:
+            persisted = ProposalObjectiveResultAuthority.model_validate_json(
+                row['payload_json']
+            )
+            if persisted != expected:
+                raise ValueError(
+                    'proposal objective result authority binds a different '
+                    'perturbed sample or objective output'
+                )
+            return
+        if connection is None:
+            raise ValueError(
+                'proposal objective result authority was never persisted for '
+                f'{ref.authority_kind}:{ref.authority_id}'
+            )
+        connection.execute(
+            """
+            INSERT INTO cad_proposal_objective_result_authorities(
+                authority_kind,
+                authority_id,
+                objective_id,
+                sample_id,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ref.authority_kind,
+                ref.authority_id,
+                expected.metric.objective_id,
+                expected.sample_id,
+                expected.model_dump_json(),
+                _utc_now(),
+            ),
+        )
+
     def _validate_sample(
         self,
         sample: ProposalPerturbationSample,
+        *,
+        connection: sqlite3.Connection | None = None,
     ) -> ProposalPerturbationSample:
         sample = ProposalPerturbationSample.model_validate(
             sample.model_dump(mode='python')
@@ -1449,59 +1762,149 @@ class CadProposalRobustnessRepository:
         ):
             raise ValueError('proposal sample robustness authority mismatch')
 
-        plans = (
-            build_multidimensional_sampling_plan(spec)
-            if isinstance(spec, ProposalMultidimensionalRobustnessSpec)
-            else build_local_stencil(spec)
+        plans = self._sampling_plan(spec)
+        expected_plan = LocalPerturbation(
+            sample_id=sample.sample_id,
+            sample_index=sample.sample_index,
+            axis_id=sample.axis_id,
+            step=sample.step,
+            parameter_deltas=sample.parameter_deltas,
         )
         if (
             sample.sample_index >= len(plans)
-            or plans[sample.sample_index]
-            != LocalPerturbation(
-                sample_id=sample.sample_id,
-                sample_index=sample.sample_index,
-                axis_id=sample.axis_id,
-                step=sample.step,
-                parameter_deltas=sample.parameter_deltas,
-            )
+            or plans[sample.sample_index] != expected_plan
         ):
             raise ValueError(
                 'proposal sample does not match deterministic sampling plan'
             )
+        plan = plans[sample.sample_index]
 
-        *_, bundle = self._resolve_spec_authorities(spec)
-        if sample.objective_vector is not None:
-            expected_signature = _objective_signature(
-                _selected_nominal_vector(bundle, spec.objective_ids)
+        (
+            baseline,
+            _template_variant,
+            candidate_variant,
+            topology_spec,
+            _topology_candidate,
+            bundle,
+        ) = self._resolve_spec_authorities(spec)
+        expected = self._expected_sample_evidence(
+            spec=spec,
+            plan=plan,
+            baseline=baseline,
+            candidate_variant=candidate_variant,
+            topology_spec=topology_spec,
+        )
+        if (
+            sample.perturbed_scene_content_hash
+            != expected.perturbed_scene_content_hash
+            or sample.feasible != expected.feasible
+            or tuple(sample.g10_results) != expected.g10_results
+            or tuple(sample.o80_rejection_ids) != expected.o80_rejection_ids
+            or tuple(sample.domain_rejection_ids)
+            != expected.domain_rejection_ids
+        ):
+            raise ValueError(
+                'proposal sample does not reproduce canonical perturbed '
+                'scene, constraint and feasibility evidence'
             )
-            if _objective_signature(sample.objective_vector) != expected_signature:
-                raise ValueError('proposal sample objective schema mismatch')
-            if sample.step == 'nominal':
-                expected_evidence = _nominal_evidence(bundle, spec.objective_ids)
-                if sample.objective_evidence != expected_evidence:
-                    raise ValueError(
-                        'proposal nominal sample evidence differs from exact bundle'
-                    )
-            else:
-                for binding in sample.objective_evidence:
-                    self._resolve_external(binding.result_ref)
-                _validate_result_contract(
-                    nominal_bundle=bundle,
-                    spec=spec,
-                    result=ProposalPerturbationObjectiveResult(
-                        objective_vector=sample.objective_vector,
-                        objective_evidence=sample.objective_evidence,
-                    ),
-                    sample_id=sample.sample_id,
+
+        if not expected.feasible:
+            expected_failure = (
+                expected.perturbation_failure_reason
+                or 'hard_constraint_violation'
+            )
+            if sample.failure_reason != expected_failure:
+                raise ValueError('proposal sample failure_reason mismatch')
+            if (
+                sample.objective_vector is not None
+                or sample.objective_evidence
+            ):
+                raise ValueError(
+                    'infeasible proposal sample must remain unscored'
                 )
+            return sample
+
+        if sample.objective_vector is None:
+            if plan.step == 'nominal':
+                raise ValueError(
+                    'feasible nominal proposal sample requires exact '
+                    'bundle objective output'
+                )
+            if not (sample.failure_reason or '').startswith(
+                'objective_evaluation_failed:'
+            ):
+                raise ValueError(
+                    'feasible unscored proposal sample requires objective '
+                    'evaluator failure provenance'
+                )
+            return sample
+
+        if sample.failure_reason is not None:
+            raise ValueError(
+                'scored proposal sample cannot carry failure_reason'
+            )
+        expected_signature = _objective_signature(
+            _selected_nominal_vector(bundle, spec.objective_ids)
+        )
+        if _objective_signature(sample.objective_vector) != expected_signature:
+            raise ValueError('proposal sample objective schema mismatch')
+
+        if plan.step == 'nominal':
+            if sample.objective_evidence != _nominal_evidence(
+                bundle,
+                spec.objective_ids,
+            ):
+                raise ValueError(
+                    'proposal nominal sample evidence differs from exact bundle'
+                )
+            if sample.objective_vector != _selected_nominal_vector(
+                bundle,
+                spec.objective_ids,
+                candidate_id=sample.sample_id,
+            ):
+                raise ValueError(
+                    'proposal nominal sample objective vector differs from '
+                    'exact bundle'
+                )
+            return sample
+
+        for binding in sample.objective_evidence:
+            if (
+                binding.result_ref.authority_kind
+                not in self.objective_result_resolvers
+            ):
+                self._resolve_external(binding.result_ref)
+        _validate_result_contract(
+            nominal_bundle=bundle,
+            spec=spec,
+            result=ProposalPerturbationObjectiveResult(
+                objective_vector=sample.objective_vector,
+                objective_evidence=sample.objective_evidence,
+            ),
+            sample_id=sample.sample_id,
+        )
+        for binding in sample.objective_evidence:
+            self._require_objective_result_authority(
+                ProposalObjectiveResultAuthority(
+                    result_ref=binding.result_ref,
+                    robustness_spec_id=spec.robustness_spec_id,
+                    robustness_spec_sha256=spec.robustness_spec_sha256,
+                    sample_id=sample.sample_id,
+                    perturbed_scene_content_hash=(
+                        expected.perturbed_scene_content_hash
+                    ),
+                    metric=sample.objective_vector.metric(binding.objective_id),
+                ),
+                connection=connection,
+            )
         return sample
 
     def save_sample(
         self,
         sample: ProposalPerturbationSample,
     ) -> ProposalPerturbationSample:
-        sample = self._validate_sample(sample)
         with closing(self._connect()) as connection, connection:
+            sample = self._validate_sample(sample, connection=connection)
             row = connection.execute(
                 """
                 SELECT payload_json
@@ -1518,7 +1921,7 @@ class CadProposalRobustnessRepository:
                     raise ValueError(
                         'ProposalPerturbationSample id exists with different semantics'
                     )
-                return self._validate_sample(persisted)
+                return persisted
             connection.execute(
                 """
                 INSERT INTO cad_proposal_perturbation_samples(
