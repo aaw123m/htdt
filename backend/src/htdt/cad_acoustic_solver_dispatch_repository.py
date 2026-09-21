@@ -7,7 +7,10 @@ from pathlib import Path
 import sqlite3
 
 from .cad_acoustic_snapshot import AcousticPredictionRequest
-from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
+from .cad_acoustic_snapshot_repository import (
+    AcousticSnapshotAuthorityResolvers,
+    CadAcousticSnapshotRepository,
+)
 from .cad_acoustic_solver_adapter import (
     AcousticNumericalFidelityPolicy,
     AcousticSolverAdapterDescriptor,
@@ -50,6 +53,7 @@ class CadAcousticSolverDispatchRepository:
         snapshot_repository: CadAcousticSnapshotRepository | None = None,
         external_authority_resolver: ExternalAuthorityResolver,
         fidelity_policy_resolver: NumericalFidelityPolicyResolver,
+        snapshot_authority_resolvers: AcousticSnapshotAuthorityResolvers | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.fidelity_policy_resolver = fidelity_policy_resolver
@@ -59,6 +63,7 @@ class CadAcousticSolverDispatchRepository:
             else CadAcousticSnapshotRepository(
                 scene_repository,
                 fidelity_policy_resolver=fidelity_policy_resolver,
+                authority_resolvers=snapshot_authority_resolvers,
             )
         )
         if self.snapshot_repository.fidelity_policy_resolver is None:

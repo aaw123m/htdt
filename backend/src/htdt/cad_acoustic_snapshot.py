@@ -134,6 +134,23 @@ class AcousticReceiverBinding(BaseModel):
         return self
 
 
+class ReceiverMeasurementAuthority(BaseModel):
+    """Canonical external measurement record bound to an exact receiver pose.
+
+    Persisted/reopened snapshots resolve ``measurement_authority_ref`` to this
+    record and require it to reproduce the exact receiver entity, world
+    position and claimed orientation; an opaque ref never authorizes a
+    receiver pose.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_ref: ExactExternalAuthorityRef
+    entity_id: str = Field(min_length=1)
+    world_position: Position3
+    orientation: Quaternion4 | None = None
+
+
 class AcousticSceneSourceBinding(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -733,6 +750,27 @@ def _observable_readiness(
     )
 
 
+def _snapshot_schema_version(
+    *,
+    compiled: R120CompiledGeometry,
+    treatment_bindings: tuple[TreatmentBoundarySnapshotBinding, ...],
+    wave_excitation_bindings: tuple[WaveSourceExcitationBinding, ...],
+    geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None,
+) -> int:
+    if wave_excitation_bindings:
+        return ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
+    if (
+        treatment_bindings
+        or geometric_acoustics_topology_preflight_ref is not None
+        or compiled.readiness.geometric_acoustics_geometry_ready
+        != compiled.readiness.wave_geometry_ready
+    ):
+        # V2 is the first snapshot schema that carries geometric boundary
+        # readiness independently from wave boundary readiness.
+        return ACOUSTIC_SCENE_SNAPSHOT_V2_SCHEMA_VERSION
+    return ACOUSTIC_SCENE_SNAPSHOT_V1_SCHEMA_VERSION
+
+
 def _derive_readiness(
     *,
     compiled: R120CompiledGeometry,
@@ -860,6 +898,129 @@ def _derive_readiness(
         and all(item.state == 'READY' for item in statuses),
         observable_readiness=statuses,
     )
+
+
+def _derive_unresolved_conditions(
+    *,
+    compiled: R120CompiledGeometry,
+    sources: tuple[AcousticSceneSourceBinding, ...],
+    receivers: tuple[AcousticReceiverBinding, ...],
+    environment: SnapshotEnvironmentAuthorityRef | None,
+    readiness: AcousticSceneReadiness,
+    valid_frequency_domain: FrequencyDomain | None,
+    requested_frequency_domain: FrequencyDomain,
+    treatment_bindings: tuple[TreatmentBoundarySnapshotBinding, ...],
+    wave_excitation_bindings: tuple[WaveSourceExcitationBinding, ...],
+) -> tuple[str, ...]:
+    unresolved = list(compiled.unresolved_conditions)
+    if not sources:
+        unresolved.append('source_authority_missing')
+    externally_resolved_wave_sources = {
+        item.r110_compiled_source_sha256
+        for item in wave_excitation_bindings
+    }
+    if any(
+        item.wave_excitation_state == 'BLOCKED_FOR_WAVE_EXCITATION'
+        and item.r110_compiled_source_sha256
+        not in externally_resolved_wave_sources
+        for item in sources
+    ):
+        unresolved.append('wave_source_excitation_blocked')
+    if any(
+        (
+            not binding.valid_frequency_domain.contains(
+                requested_frequency_domain.minimum_hz
+            )
+            or not binding.valid_frequency_domain.contains(
+                requested_frequency_domain.maximum_hz
+            )
+        )
+        for binding in wave_excitation_bindings
+    ):
+        unresolved.append(
+            'wave_source_excitation_frequency_domain_unsupported'
+        )
+    if not receivers:
+        unresolved.append('receiver_set_missing')
+    if environment is None:
+        unresolved.append('environment_unknown')
+    elif not readiness.environment_ready:
+        unresolved.append('environment_sound_speed_unknown')
+    if valid_frequency_domain is None:
+        unresolved.append('valid_frequency_domain_unknown')
+    if compiled.region_authority_ref is None:
+        unresolved.append('acoustic_region_authority_missing')
+    if compiled.portal_authority_ref is None:
+        unresolved.append('portal_authority_missing')
+    if compiled.boundary_termination_authority_ref is None:
+        unresolved.append('boundary_termination_authority_missing')
+    for binding in treatment_bindings:
+        if binding.status != 'AVAILABLE':
+            unresolved.append(
+                f'treatment_{binding.target_domain}_boundary_'
+                f'{binding.status.lower()}'
+            )
+        if any(
+            item.wave_capability_state != 'AVAILABLE'
+            for item in binding.attached_treatment_overlays
+        ):
+            unresolved.append('treatment_wave_boundary_capability_unknown')
+        if any(
+            item.geometric_capability_state != 'AVAILABLE'
+            for item in binding.attached_treatment_overlays
+        ):
+            unresolved.append('treatment_geometric_boundary_capability_unknown')
+    return tuple(dict.fromkeys(unresolved))
+
+
+def _require_geometric_topology_preflight_authority(
+    *,
+    preflight_ref: ExactExternalAuthorityRef,
+    compiled: R120CompiledGeometry,
+    requested_observables: tuple[str, ...],
+) -> None:
+    """Canonical R150 topology preflight contract shared by build and replay."""
+    if (
+        preflight_ref.authority_version != '1'
+        or preflight_ref.authority_id
+        != f'r150-portal-graph:{preflight_ref.semantic_hash_sha256}'
+    ):
+        raise ValueError(
+            'geometric acoustic topology preflight must be an exact R150 Portal graph authority'
+        )
+    if set(requested_observables) != {'deterministic_paths'}:
+        raise ValueError(
+            'R150 Portal graph topology preflight is bounded to deterministic_paths'
+        )
+    if (
+        compiled.approximation_operations
+        or compiled.dropped_features
+        or compiled.approximation_error_status != 'exact_preservation'
+    ):
+        raise ValueError(
+            'R150 Portal graph topology preflight requires exact preserved R120 geometry'
+        )
+    allowed_preflight_unresolved = {
+        'compiled_non_manifold_edges',
+        'input_semantic_geometry_not_compiler_contract_ready',
+    }
+    unsupported_preflight = (
+        set(compiled.readiness.unresolved_conditions)
+        - allowed_preflight_unresolved
+    )
+    if unsupported_preflight:
+        raise ValueError(
+            'R150 Portal graph topology preflight cannot override unrelated '
+            f'R120 unresolved conditions: {sorted(unsupported_preflight)}'
+        )
+    if (
+        compiled.region_authority_ref is None
+        or compiled.portal_authority_ref is None
+        or compiled.boundary_termination_authority_ref is None
+    ):
+        raise ValueError(
+            'R150 Portal graph topology preflight requires exact R120 geometry authorities'
+        )
 
 
 def _treatment_overlay_snapshot_ref(
@@ -1070,48 +1231,11 @@ def build_acoustic_scene_snapshot(
         )
 
     if geometric_acoustics_topology_preflight_ref is not None:
-        preflight = geometric_acoustics_topology_preflight_ref
-        if (
-            preflight.authority_version != '1'
-            or preflight.authority_id
-            != f'r150-portal-graph:{preflight.semantic_hash_sha256}'
-        ):
-            raise ValueError(
-                'geometric acoustic topology preflight must be an exact R150 Portal graph authority'
-            )
-        if set(requested_observables) != {'deterministic_paths'}:
-            raise ValueError(
-                'R150 Portal graph topology preflight is bounded to deterministic_paths'
-            )
-        if (
-            compiled_geometry.approximation_operations
-            or compiled_geometry.dropped_features
-            or compiled_geometry.approximation_error_status != 'exact_preservation'
-        ):
-            raise ValueError(
-                'R150 Portal graph topology preflight requires exact preserved R120 geometry'
-            )
-        allowed_preflight_unresolved = {
-            'compiled_non_manifold_edges',
-            'input_semantic_geometry_not_compiler_contract_ready',
-        }
-        unsupported_preflight = (
-            set(compiled_geometry.readiness.unresolved_conditions)
-            - allowed_preflight_unresolved
+        _require_geometric_topology_preflight_authority(
+            preflight_ref=geometric_acoustics_topology_preflight_ref,
+            compiled=compiled_geometry,
+            requested_observables=requested_observables,
         )
-        if unsupported_preflight:
-            raise ValueError(
-                'R150 Portal graph topology preflight cannot override unrelated '
-                f'R120 unresolved conditions: {sorted(unsupported_preflight)}'
-            )
-        if (
-            compiled_geometry.region_authority_ref is None
-            or compiled_geometry.portal_authority_ref is None
-            or compiled_geometry.boundary_termination_authority_ref is None
-        ):
-            raise ValueError(
-                'R150 Portal graph topology preflight requires exact R120 geometry authorities'
-            )
 
     source_models = tuple(
         sorted(
@@ -1221,19 +1345,14 @@ def build_acoustic_scene_snapshot(
         raise ValueError(
             'treatment boundary results must be unique per surface/domain'
         )
-    if wave_excitation_bindings:
-        snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_SCHEMA_VERSION
-    elif (
-        treatment_bindings
-        or geometric_acoustics_topology_preflight_ref is not None
-        or compiled_geometry.readiness.geometric_acoustics_geometry_ready
-        != compiled_geometry.readiness.wave_geometry_ready
-    ):
-        # V2 is the first snapshot schema that carries geometric boundary
-        # readiness independently from wave boundary readiness.
-        snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_V2_SCHEMA_VERSION
-    else:
-        snapshot_schema_version = ACOUSTIC_SCENE_SNAPSHOT_V1_SCHEMA_VERSION
+    snapshot_schema_version = _snapshot_schema_version(
+        compiled=compiled_geometry,
+        treatment_bindings=treatment_bindings,
+        wave_excitation_bindings=wave_excitation_bindings,
+        geometric_acoustics_topology_preflight_ref=(
+            geometric_acoustics_topology_preflight_ref
+        ),
+    )
     surface_configuration = _surface_configuration(compiled_geometry)
     boundary_hash = _digest(
         [item.model_dump(mode='json') for item in surface_configuration]
@@ -1253,64 +1372,17 @@ def build_acoustic_scene_snapshot(
         ),
     )
 
-    unresolved = list(compiled_geometry.unresolved_conditions)
-    if not source_bindings:
-        unresolved.append('source_authority_missing')
-    externally_resolved_wave_sources = {
-        item.r110_compiled_source_sha256
-        for item in wave_excitation_bindings
-    }
-    if any(
-        item.wave_excitation_state == 'BLOCKED_FOR_WAVE_EXCITATION'
-        and item.r110_compiled_source_sha256
-        not in externally_resolved_wave_sources
-        for item in source_bindings
-    ):
-        unresolved.append('wave_source_excitation_blocked')
-    if any(
-        (
-            not binding.valid_frequency_domain.contains(
-                requested_frequency_domain.minimum_hz
-            )
-            or not binding.valid_frequency_domain.contains(
-                requested_frequency_domain.maximum_hz
-            )
-        )
-        for binding in wave_excitation_bindings
-    ):
-        unresolved.append(
-            'wave_source_excitation_frequency_domain_unsupported'
-        )
-    if not receivers:
-        unresolved.append('receiver_set_missing')
-    if environment is None:
-        unresolved.append('environment_unknown')
-    elif not readiness.environment_ready:
-        unresolved.append('environment_sound_speed_unknown')
-    if valid_frequency_domain is None:
-        unresolved.append('valid_frequency_domain_unknown')
-    if compiled_geometry.region_authority_ref is None:
-        unresolved.append('acoustic_region_authority_missing')
-    if compiled_geometry.portal_authority_ref is None:
-        unresolved.append('portal_authority_missing')
-    if compiled_geometry.boundary_termination_authority_ref is None:
-        unresolved.append('boundary_termination_authority_missing')
-    for binding in treatment_bindings:
-        if binding.status != 'AVAILABLE':
-            unresolved.append(
-                f'treatment_{binding.target_domain}_boundary_{binding.status.lower()}'
-            )
-        if any(
-            item.wave_capability_state != 'AVAILABLE'
-            for item in binding.attached_treatment_overlays
-        ):
-            unresolved.append('treatment_wave_boundary_capability_unknown')
-        if any(
-            item.geometric_capability_state != 'AVAILABLE'
-            for item in binding.attached_treatment_overlays
-        ):
-            unresolved.append('treatment_geometric_boundary_capability_unknown')
-    unresolved = list(dict.fromkeys(unresolved))
+    unresolved = _derive_unresolved_conditions(
+        compiled=compiled_geometry,
+        sources=source_bindings,
+        receivers=receiver_tuple,
+        environment=environment,
+        readiness=readiness,
+        valid_frequency_domain=valid_frequency_domain,
+        requested_frequency_domain=requested_frequency_domain,
+        treatment_bindings=treatment_bindings,
+        wave_excitation_bindings=wave_excitation_bindings,
+    )
 
     if snapshot_schema_version == 1:
         snapshot_authority_version = ACOUSTIC_SCENE_SNAPSHOT_V1_AUTHORITY_VERSION
