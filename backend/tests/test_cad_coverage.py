@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from contextlib import closing
+from hashlib import sha256
+import json
 from math import cos, radians, sin
 from pathlib import Path
+import sqlite3
 
 import pytest
 
 from htdt.cad_coverage import (
+    CoverageEvaluation,
     build_coverage_evaluation_scenario,
     coverage_objective_vector,
     evaluate_coverage,
@@ -807,6 +812,122 @@ def test_coverage_scenario_and_evaluation_round_trip(
     assert reopened.list_evaluations_for_scenario(scenario.scenario_id) == (
         evaluation,
     )
+
+
+def _forged_coverage_evaluation(
+    evaluation: CoverageEvaluation,
+) -> CoverageEvaluation:
+    """Return a self-hash-valid evaluation carrying a fabricated frequency value."""
+
+    payload = evaluation.model_dump(mode='json')
+    seat_results = [dict(item) for item in payload['seat_results']]
+    off_axis = dict(seat_results[1])
+    frequency_results = [dict(item) for item in off_axis['frequency_results']]
+    first = dict(frequency_results[0])
+    first['relative_level_db'] = float(first['relative_level_db']) + 3.0
+    frequency_results[0] = first
+    off_axis['frequency_results'] = frequency_results
+    seat_results[1] = off_axis
+    payload['seat_results'] = seat_results
+    identity = {
+        key: value
+        for key, value in payload.items()
+        if key not in ('evaluation_id', 'evaluation_sha256')
+    }
+    digest = sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        ).encode('utf-8')
+    ).hexdigest()
+    payload['evaluation_id'] = f'coverage-{digest[:24]}'
+    payload['evaluation_sha256'] = digest
+    return CoverageEvaluation.model_validate(payload)
+
+
+def test_fabricated_self_hashed_evaluation_is_rejected_on_save_and_read(
+    tmp_path: Path,
+) -> None:
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+        directivity_repository,
+        definition,
+        dataset,
+        variant,
+        scenario,
+    ) = _fixture(tmp_path)
+    evaluation = evaluate_coverage(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        directivity_dataset=dataset,
+        scenario=scenario,
+    )
+    repository = CadCoverageRepository(
+        scene_repository,
+        variant_repository,
+        equipment_repository,
+        directivity_repository,
+    )
+    repository.save_scenario(scenario)
+
+    forged = _forged_coverage_evaluation(evaluation)
+    assert forged.evaluation_sha256 != evaluation.evaluation_sha256
+    assert (
+        forged.seat_results[1].frequency_results[0].relative_level_db
+        == pytest.approx(
+            float(
+                evaluation.seat_results[1]
+                .frequency_results[0]
+                .relative_level_db
+            )
+            + 3.0
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='coverage evaluation does not match evaluator authority',
+    ):
+        repository.save_evaluation(forged)
+
+    repository.save_evaluation(evaluation)
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_coverage_evaluations
+            SET evaluation_id=?, evaluation_sha256=?, payload_json=?
+            WHERE evaluation_id=?
+            """,
+            (
+                forged.evaluation_id,
+                forged.evaluation_sha256,
+                forged.model_dump_json(),
+                evaluation.evaluation_id,
+            ),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match='coverage evaluation does not match evaluator authority',
+    ):
+        repository.get_evaluation(forged.evaluation_id)
+    with pytest.raises(
+        ValueError,
+        match='coverage evaluation does not match evaluator authority',
+    ):
+        repository.list_evaluations_for_variant(variant.variant_id)
+    with pytest.raises(
+        ValueError,
+        match='coverage evaluation does not match evaluator authority',
+    ):
+        repository.list_evaluations_for_scenario(scenario.scenario_id)
 
 
 def test_coverage_maximize_and_loss_minimize_use_direction_aware_pareto(
