@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import tempfile
+import time
 from uuid import uuid4
 
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementComparison, CadMeasurementRecord
@@ -165,6 +167,69 @@ class CadMeasurementRepository:
     def _asset_path(self, digest: str) -> Path:
         return self.assets_dir / digest
 
+    @staticmethod
+    def _fsync_directory(directory: Path) -> None:
+        # Making the rename durable requires a directory fsync, which is
+        # only meaningful on POSIX filesystems.
+        if os.name != 'posix':
+            return
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _read_asset(target: Path, attempts: int = 100) -> bytes:
+        # A file being atomically replaced may briefly refuse reads on
+        # Windows while the previous handle is pending deletion.
+        for attempt in range(attempts):
+            try:
+                return target.read_bytes()
+            except PermissionError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.01)
+        raise RuntimeError('unreachable')
+
+    def _install_asset(self, digest: str, raw_bytes: bytes) -> None:
+        """Durably install *raw_bytes* at the content-addressed digest path.
+
+        The payload is written to a unique temporary file in the same
+        filesystem, flushed, fsynced and verified before being atomically
+        renamed onto the digest path, so the final path never exposes a
+        partially written file. Only the private temporary file is removed
+        on failure; an already-installed digest path is never touched.
+        """
+        target = self._asset_path(digest)
+        descriptor, temp_name = tempfile.mkstemp(
+            dir=self.assets_dir, prefix='.asset-', suffix='.tmp'
+        )
+        temp = Path(temp_name)
+        try:
+            with os.fdopen(descriptor, 'wb') as handle:
+                handle.write(raw_bytes)
+                handle.flush()
+                os.fsync(handle.fileno())
+            persisted = temp.read_bytes()
+            if len(persisted) != len(raw_bytes) or sha256(persisted).hexdigest() != digest:
+                raise RuntimeError('measurement asset write verification failed')
+            try:
+                os.replace(temp, target)
+            except PermissionError:
+                # Windows can refuse a replace while a racing install holds
+                # the destination; an identical already-installed digest is a
+                # success, anything else means the install genuinely failed.
+                try:
+                    installed = self._read_asset(target) == raw_bytes
+                except OSError:
+                    installed = False
+                if not installed:
+                    raise
+            self._fsync_directory(self.assets_dir)
+        finally:
+            temp.unlink(missing_ok=True)
+
     def save(
         self,
         record: CadMeasurementRecord,
@@ -180,89 +245,87 @@ class CadMeasurementRepository:
         if digest != dataset.source_sha256:
             raise ValueError('raw asset SHA-256 does not match dataset source_sha256')
         target = self._asset_path(digest)
-        created_asset_file = False
         if target.exists():
-            if target.read_bytes() != raw_bytes:
+            # An already-installed identical digest is a successful dedup hit;
+            # anything else at the path is corrupt or a genuine collision.
+            if self._read_asset(target) != raw_bytes:
                 raise ValueError('content-addressed measurement asset hash collision')
         else:
-            target.write_bytes(raw_bytes)
-            created_asset_file = True
+            self._install_asset(digest, raw_bytes)
 
-        try:
-            with closing(self._connect()) as connection, connection:
-                connection.execute('BEGIN IMMEDIATE')
-                if connection.execute(
-                    'SELECT 1 FROM cad_measurements WHERE measurement_id=?',
-                    (record.measurement_id,),
-                ).fetchone() is not None:
-                    raise ValueError(f'measurement already exists: {record.measurement_id}')
-                if connection.execute(
-                    'SELECT 1 FROM cad_frequency_responses WHERE dataset_id=?',
-                    (dataset.dataset_id,),
-                ).fetchone() is not None:
-                    raise ValueError(f'dataset already exists: {dataset.dataset_id}')
-                connection.execute(
-                    '''INSERT OR IGNORE INTO cad_measurement_assets(
-                        sha256, filename, relative_path, size_bytes
-                    ) VALUES (?, ?, ?, ?)''',
-                    (digest, raw_filename, str(target.relative_to(self.path.parent)), len(raw_bytes)),
-                )
-                connection.execute(
-                    '''INSERT INTO cad_measurements(
-                        measurement_id, document_id, scene_revision_id, scene_content_hash,
-                        measurement_entity_id, measurement_position_json, measurement_direction_json,
-                        evidence_type, channel_role, source_speaker_ids_json, radiation_scope,
-                        routing_evidence, captured_at, imported_at, source_kind, external_source_id,
-                        quality_status, quality_reasons_json, quality_source, provenance_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (
-                        record.measurement_id,
-                        record.document_id,
-                        record.scene_revision_id,
-                        record.scene_content_hash,
-                        record.measurement_entity_id,
-                        record.measurement_position.model_dump_json(),
-                        None if record.measurement_direction is None else record.measurement_direction.model_dump_json(),
-                        record.evidence_type,
-                        record.channel_role,
-                        json.dumps(record.source_speaker_ids, ensure_ascii=False, separators=(',', ':')),
-                        record.radiation_scope,
-                        record.routing_evidence,
-                        record.captured_at,
-                        record.imported_at,
-                        record.source_kind,
-                        record.external_source_id,
-                        record.quality_status,
-                        json.dumps(record.quality_reasons, ensure_ascii=False, separators=(',', ':')),
-                        record.quality_source,
-                        record.provenance_json,
-                    ),
-                )
-                connection.execute(
-                    '''INSERT INTO cad_frequency_responses(
-                        dataset_id, measurement_id, frequency_blob, level_blob, phase_blob,
-                        phase_status, level_reference, smoothing, processing_json,
-                        source_sha256, importer_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (
-                        dataset.dataset_id,
-                        dataset.measurement_id,
-                        _pack(dataset.frequency_hz),
-                        _pack(dataset.level_db),
-                        _pack(dataset.phase_deg),
-                        dataset.phase_status,
-                        dataset.level_reference,
-                        dataset.smoothing,
-                        dataset.processing_json,
-                        dataset.source_sha256,
-                        dataset.importer_version,
-                    ),
-                )
-                connection.commit()
-        except Exception:
-            if created_asset_file:
-                target.unlink(missing_ok=True)
-            raise
+        # A failed transaction leaves the installed digest path in place: the
+        # content-addressed file may already be referenced by another committed
+        # row, and an orphaned asset is safer than deleting referenced data.
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_measurements WHERE measurement_id=?',
+                (record.measurement_id,),
+            ).fetchone() is not None:
+                raise ValueError(f'measurement already exists: {record.measurement_id}')
+            if connection.execute(
+                'SELECT 1 FROM cad_frequency_responses WHERE dataset_id=?',
+                (dataset.dataset_id,),
+            ).fetchone() is not None:
+                raise ValueError(f'dataset already exists: {dataset.dataset_id}')
+            connection.execute(
+                '''INSERT OR IGNORE INTO cad_measurement_assets(
+                    sha256, filename, relative_path, size_bytes
+                ) VALUES (?, ?, ?, ?)''',
+                (digest, raw_filename, str(target.relative_to(self.path.parent)), len(raw_bytes)),
+            )
+            connection.execute(
+                '''INSERT INTO cad_measurements(
+                    measurement_id, document_id, scene_revision_id, scene_content_hash,
+                    measurement_entity_id, measurement_position_json, measurement_direction_json,
+                    evidence_type, channel_role, source_speaker_ids_json, radiation_scope,
+                    routing_evidence, captured_at, imported_at, source_kind, external_source_id,
+                    quality_status, quality_reasons_json, quality_source, provenance_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    record.measurement_id,
+                    record.document_id,
+                    record.scene_revision_id,
+                    record.scene_content_hash,
+                    record.measurement_entity_id,
+                    record.measurement_position.model_dump_json(),
+                    None if record.measurement_direction is None else record.measurement_direction.model_dump_json(),
+                    record.evidence_type,
+                    record.channel_role,
+                    json.dumps(record.source_speaker_ids, ensure_ascii=False, separators=(',', ':')),
+                    record.radiation_scope,
+                    record.routing_evidence,
+                    record.captured_at,
+                    record.imported_at,
+                    record.source_kind,
+                    record.external_source_id,
+                    record.quality_status,
+                    json.dumps(record.quality_reasons, ensure_ascii=False, separators=(',', ':')),
+                    record.quality_source,
+                    record.provenance_json,
+                ),
+            )
+            connection.execute(
+                '''INSERT INTO cad_frequency_responses(
+                    dataset_id, measurement_id, frequency_blob, level_blob, phase_blob,
+                    phase_status, level_reference, smoothing, processing_json,
+                    source_sha256, importer_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    dataset.dataset_id,
+                    dataset.measurement_id,
+                    _pack(dataset.frequency_hz),
+                    _pack(dataset.level_db),
+                    _pack(dataset.phase_deg),
+                    dataset.phase_status,
+                    dataset.level_reference,
+                    dataset.smoothing,
+                    dataset.processing_json,
+                    dataset.source_sha256,
+                    dataset.importer_version,
+                ),
+            )
+            connection.commit()
 
     def get_measurement(self, measurement_id: str) -> CadMeasurementRecord | None:
         with closing(self._connect()) as connection, connection:
