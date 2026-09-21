@@ -169,11 +169,11 @@
     "target_kind": "fixture",
     "fixture_id": "wave-rectangular-convergence-v1",
     "hard_gate_category": null,
-    "reported_status": "blocked",
+    "reported_status": "fail",
     "evidence_ref": "benchmarks/acoustics/evidence/r100b_mfem_spatial_refinement_2026-09-21.json",
     "fixture_evidence": {
       "fixture_id": "wave-rectangular-convergence-v1",
-      "status": "blocked",
+      "status": "fail",
       "evidence_ref": "benchmarks/acoustics/evidence/r100b_mfem_spatial_refinement_2026-09-21.json",
       "adapter_id": "htdt-r100b-mfem-spatial-refinement",
       "adapter_version": "1",
@@ -185,11 +185,23 @@
       "peak_ram_mb": 96.1796875,
       "disk_mb": 2.1964073181152344,
       "output_mb": 0.052115440368652344,
-      "observables": [],
+      "observables": [
+        {
+          "observable_id": "convergence",
+          "status": "fail",
+          "summary": "convergence absolute complex RMS error is not strictly decreasing; convergence relative complex RMS error is not strictly decreasing; convergence final absolute complex RMS error 2051.501589723451 > 0.02; convergence final relative complex RMS error 1.0371906979821295 > 0.02",
+          "absolute_error": 2051.501589723451,
+          "relative_error": 1.0371906979821295,
+          "phase_error_deg": null,
+          "statistical_stddev": null,
+          "difference_from_peer": null
+        }
+      ],
       "diagnostics": [
-        "Numerical h0/h1/h2 execution completed, but the current R100A compile resource ceiling is exceeded so typed fixture status is BLOCKED fail-closed.",
-        "Spatial complex-RMS convergence is FAIL: h0-vs-h2 abs/rel 1997.3399296377147 / 1.009807843243144, h1-vs-h2 2051.501589723451 / 1.0371906979821295.",
+        "Executed physics evidence is FAIL and remains FAIL even though resource suitability is independently BLOCKED.",
+        "Spatial complex-RMS convergence FAIL: h0-vs-h2 abs/rel 1997.3399296377147 / 1.009807843243144, h1-vs-h2 2051.501589723451 / 1.0371906979821295.",
         "Current R100A final absolute/relative tolerance is 0.02 / 0.02; no dB/phase gate was applied.",
+        "Native MFEM build 878.4277483 s exceeds current R100A max_compile_s=60, while all h0/h1/h2 numerical solves remain within their frozen solve ceilings.",
         "Exact H1 p2 uniform refinements 0/1/2 and exact four GL2/Padé[2/2] substeps per 12000 Hz output interval."
       ]
     },
@@ -205,9 +217,9 @@
       "device_notes": "GitHub-hosted Windows MFEM v4.10 serial H1 p2 spatial h-refinement / sparse GL2 experiment."
     },
     "notes": [
-      "Authoritative workflow run 35546506102, job 106173302135, artifact 10616154340.",
+      "Authoritative numerical workflow run 35546506102, job 106173302135, artifact 10616154340.",
       "Artifact digest sha256:faab6d2d373c348f0a279faa1f50e433ad0d0353614720f4fde73e99c56ee644.",
-      "Exact current R100A/candidate authority binding was accepted by the readiness resolver.",
+      "Exact current R100A/candidate authority binding; executed numerical FAIL is preserved independently of resource BLOCKED.",
       "Experiment FAIL != production adoption; production_solver_selected=false."
     ]
   },
@@ -215,5 +227,6 @@
     "This slice qualifies only the current rigid rectangular spatial-convergence fixture.",
     "The resource BLOCKED status is caused by the current R100A max_compile_s ceiling; all three numerical refinements themselves completed within the predeclared per-refinement solve ceiling.",
     "No h3, p-order, record-duration, frequency-grid, time-step, geometry, source/receiver, mask, or tolerance retry was performed."
-  ]
+  ],
+  "typed_status_semantics": "Executed observable FAIL is retained as typed fixture FAIL; resource suitability remains independently BLOCKED because native build exceeds current R100A compile budget."
 }

@@ -24,6 +24,7 @@ from htdt.acoustic_bakeoff_mfem_spatial_experiment import (
     load_spatial_refinement_plan, rectangular_box_geometry, scored_frequency_grid,
     semantic_hash, validate_current_fixture_contract, validate_exact_authority_binding,
     validate_level_order, validate_semidiscrete_metadata, validate_typed_record_binding,
+    typed_fixture_status,
 )
 from htdt.acoustic_bakeoff_readiness import BakeoffReadinessEvidenceLedger, build_production_adoption_readiness_report, load_readiness_evidence_ledger
 from htdt.acoustic_benchmark import load_acoustic_benchmark_manifest
@@ -341,7 +342,7 @@ def main(argv=None):
         or disk_mb > rb.disk_budget_mb or output_mb > rb.max_output_mb
     ) else "PASS"
 
-    fixture_status = "blocked" if resource_status == "BLOCKED" or observable is None else ("pass" if observable.status == "pass" else "fail")
+    fixture_status = typed_fixture_status(None if observable is None else observable.status, resource_status)
     fixture_evidence = BakeoffFixtureEvidence(
         fixture_id=FIXTURE_ID, status=fixture_status, evidence_ref=evidence_ref,
         adapter_id=ADAPTER_ID, adapter_version=ADAPTER_VERSION, backend_version=c.source_commit_sha[:12],

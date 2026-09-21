@@ -12,6 +12,7 @@ from htdt.acoustic_bakeoff_mfem_spatial_experiment import (
     evaluate_spatial_transfers,
     load_spatial_refinement_plan,
     resource_status_fail_closed,
+    typed_fixture_status,
     scored_frequency_grid,
     validate_current_fixture_contract,
     validate_exact_authority_binding,
@@ -201,3 +202,11 @@ def test_pr289_legacy_transient_plan_parsing_regression():
     assert legacy.integrator.substeps_per_output_interval == 4
     assert [x.sample_rate_hz for x in legacy.attempts] == [6000, 9000, 12000]
     assert legacy.integrator.algorithm_id == "gauss-legendre-2stage-pade22-linear"
+
+
+def test_typed_fixture_status_preserves_numerical_fail_and_gates_pass_on_resources():
+    assert typed_fixture_status("fail", "BLOCKED") == "fail"
+    assert typed_fixture_status("fail", "PASS") == "fail"
+    assert typed_fixture_status("pass", "PASS") == "pass"
+    assert typed_fixture_status("pass", "BLOCKED") == "blocked"
+    assert typed_fixture_status(None, "PASS") == "blocked"

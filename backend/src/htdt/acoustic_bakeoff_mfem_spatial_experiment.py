@@ -314,3 +314,20 @@ def validate_typed_record_binding(record, plan, benchmark, candidates) -> None:
 
 def resource_status_fail_closed(levels: Sequence[SpatialLevelResult]) -> Literal["PASS", "BLOCKED"]:
     return "BLOCKED" if any(item.status != "COMPLETED" for item in levels) else "PASS"
+
+
+def typed_fixture_status(
+    observable_status: Literal["pass", "fail"] | None,
+    resource_status: Literal["PASS", "BLOCKED"],
+) -> Literal["pass", "fail", "blocked"]:
+    """Preserve executed physics FAIL while keeping PASS resource-gated.
+
+    Existing R100B fixture semantics retain an executed observable FAIL even when
+    resource evidence is over budget. A passing observable may only become typed
+    PASS when resources are also suitable; missing numerical evidence is BLOCKED.
+    """
+    if observable_status is None:
+        return "blocked"
+    if observable_status == "fail":
+        return "fail"
+    return "pass" if resource_status == "PASS" else "blocked"
