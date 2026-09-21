@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
-from threading import Event
 from uuid import uuid4
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QSignalBlocker, QThread, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -74,6 +73,7 @@ from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
+from .native_worker import NativeWorker, NativeWorkerPool
 from .prediction_workspace import PredictionWorkspaceWindow
 
 from .optimization_adaptive_controller import AdaptiveControllerMixin
@@ -81,7 +81,6 @@ from .optimization_adaptive_extended_controller import AdaptiveExtendedControlle
 from .optimization_extended_controller import ExtendedSearchControllerMixin
 from .optimization_measurement_controller import MeasurementPlanControllerMixin
 from .optimization_search_controller import SearchControllerMixin, candidate_cloud_points
-from .optimization_task import _SearchTask
 from .optimization_validation_controller import ValidationControllerMixin
 class OptimizationWorkspaceWindow(
     ValidationControllerMixin,
@@ -231,14 +230,17 @@ class OptimizationWorkspaceWindow(
         self.campaign_applicability_detail: dict[str, QLineEdit] = {}
         self.campaign_assignments: dict[str, str] = {}
         self._search_actor_names: set[str] = set()
-        self._search_tasks: dict[str, tuple[QThread, _SearchTask]] = {}
+        # Parentless until self is a QObject; reparented right after super().
+        self._search_pool = NativeWorkerPool()
         self._search_task_spec_ids: dict[str, str] = {}
         self._current_search_task_id: str | None = None
         self._extended_actor_names: set[str] = set()
-        self._extended_tasks: dict[str, tuple[QThread, _SearchTask]] = {}
+        self._extended_pool = NativeWorkerPool()
         self._extended_task_spec_ids: dict[str, tuple[str, str]] = {}
         self._current_extended_task_id: str | None = None
         super().__init__(repository, document_id)
+        self._search_pool.setParent(self)
+        self._extended_pool.setParent(self)
         self.setWindowTitle('Home Theater Digital Twin — 最適化CAD')
         self._create_search_dock()
         self._refresh_search_entities()
@@ -1007,26 +1009,31 @@ class OptimizationWorkspaceWindow(
             self._render_search_overlay()
             self._render_extended_overlay()
 
+    @property
+    def _search_tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live search worker records owned by ``self._search_pool``."""
+        return self._search_pool.tasks
+
+    @property
+    def _extended_tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live extended worker records owned by ``self._extended_pool``."""
+        return self._extended_pool.tasks
+
     def active_search_worker_count(self) -> int:
-        return sum(
-            1
-            for thread, _worker in self._search_tasks.values()
-            if thread.isRunning()
-        )
+        return self._search_pool.active_count
 
     def active_extended_worker_count(self) -> int:
-        return sum(
-            1
-            for thread, _worker in self._extended_tasks.values()
-            if thread.isRunning()
-        )
+        return self._extended_pool.active_count
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
-        for tasks in (self._search_tasks, self._extended_tasks):
-            for thread, worker in tuple(tasks.values()):
-                worker.cancel()
-                thread.requestInterruption()
-                thread.quit()
-                thread.wait(1800)
+        self._disposed = True
+        reports = (
+            self._search_pool.shutdown(),
+            self._extended_pool.shutdown(),
+        )
+        if any(not report.all_stopped for report in reports):
+            self.statusBar().showMessage(
+                '候補生成の停止が遅延しています · 遅延結果は適用しません'
+            )
         super().closeEvent(event)
 

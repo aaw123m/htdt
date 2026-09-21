@@ -73,7 +73,6 @@ from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
 
-from .optimization_task import _SearchTask
 
 _SPLIT_LABELS = {"calibration": "調整用", "holdout": "検証用"}
 _GATE_LABELS = {

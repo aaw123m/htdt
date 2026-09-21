@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from threading import Event
 from uuid import uuid4
 
 from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
@@ -47,13 +46,13 @@ from .cad_search_repository import CadSearchRepository
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .native_editor import ROLE
+from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .optimization_adaptive_controller import AdaptiveControllerMixin
 from .optimization_adaptive_extended_controller import AdaptiveExtendedControllerMixin
 from .optimization_extended_controller import ExtendedSearchControllerMixin
 from .optimization_measurement_controller import MeasurementPlanControllerMixin
 from .optimization_robustness_controller import RobustnessControllerMixin
 from .optimization_search_controller import SearchControllerMixin
-from .optimization_task import _SearchTask
 from .optimization_validation_controller import ValidationControllerMixin
 from .rew_api import RewApiClient
 from .room_workspace import RoomWorkspaceController
@@ -65,24 +64,6 @@ class _StatusProxy:
 
     def showMessage(self, message: str) -> None:  # noqa: N802
         self._callback(str(message))
-
-
-class _RewTask(QObject):
-    completed = Signal(object, object, object)
-
-    def __init__(self, key: str, operation: Callable[[], object]) -> None:
-        super().__init__()
-        self.key = key
-        self.operation = operation
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            result = self.operation()
-        except Exception as exc:
-            self.completed.emit(self.key, None, str(exc))
-        else:
-            self.completed.emit(self.key, result, None)
 
 
 _OBJECTIVE_LABELS = {
@@ -214,13 +195,14 @@ class OptimizationWorkflowController(
         self.campaign_assignments: dict[str, str] = {}
 
         self._search_actor_names: set[str] = set()
-        self._search_tasks: dict[str, tuple[QThread, _SearchTask]] = {}
+        self._search_pool = NativeWorkerPool(self)
         self._search_task_spec_ids: dict[str, str] = {}
         self._current_search_task_id: str | None = None
         self._extended_actor_names: set[str] = set()
-        self._extended_tasks: dict[str, tuple[QThread, _SearchTask]] = {}
+        self._extended_pool = NativeWorkerPool(self)
         self._extended_task_spec_ids: dict[str, tuple[str, str]] = {}
         self._current_extended_task_id: str | None = None
+        self._disposed = False
 
         self.viewport = None
         self._render_scene: Callable[[bool], None] | None = None
@@ -228,7 +210,7 @@ class OptimizationWorkflowController(
 
         self.rew_client = RewApiClient()
         self.rew_job_guard = MeasurementJobGuard()
-        self._rew_tasks: dict[str, tuple[QThread, _RewTask]] = {}
+        self._rew_pool = NativeWorkerPool(self)
         self._rew_tokens: dict[str, MeasurementJobToken] = {}
         self._rew_semantics: dict[str, tuple[str, str, str | None, str | None]] = {}
         self._latest_rew_list_key: str | None = None
@@ -336,24 +318,43 @@ class OptimizationWorkflowController(
             self._render_extended_overlay()
         self.sceneChanged.emit(bool(reset_camera))
 
+    @property
+    def _search_tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live search worker records owned by ``self._search_pool``."""
+        return self._search_pool.tasks
+
+    @property
+    def _extended_tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live extended worker records owned by ``self._extended_pool``."""
+        return self._extended_pool.tasks
+
+    @property
+    def _rew_tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live REW worker records owned by ``self._rew_pool``."""
+        return self._rew_pool.tasks
+
     def active_search_worker_count(self) -> int:
-        return sum(1 for thread, _worker in self._search_tasks.values() if thread.isRunning())
+        return self._search_pool.active_count
 
     def active_extended_worker_count(self) -> int:
-        return sum(1 for thread, _worker in self._extended_tasks.values() if thread.isRunning())
+        return self._extended_pool.active_count
 
     def dispose(self) -> None:
-        for tasks in (self._search_tasks, self._extended_tasks):
-            for thread, worker in tuple(tasks.values()):
-                worker.cancel()
-                thread.requestInterruption()
-                thread.quit()
-                thread.wait(1800)
+        self._disposed = True
         for token in tuple(self._rew_tokens.values()):
             self.rew_job_guard.cancel(token)
-        for thread, _worker in tuple(self._rew_tasks.values()):
-            thread.quit()
-            thread.wait(1800)
+        reports = (
+            self._search_pool.shutdown(),
+            self._extended_pool.shutdown(),
+            self._rew_pool.shutdown(),
+        )
+        if any(not report.all_stopped for report in reports):
+            self.statusChanged.emit(
+                "バックグラウンド処理の停止が遅延しています · 遅延結果は適用しません"
+            )
+        self._rew_tokens.clear()
+        self._rew_semantics.clear()
+        self._current_rew_token_id = None
         self.scene.close()
 
     def refresh_pareto_comparison(self) -> None:
@@ -539,24 +540,23 @@ class OptimizationWorkflowController(
         self.statusChanged.emit("REWを読み込んでいます…")
 
     def _start_rew_task(self, key: str, operation: Callable[[], object]) -> None:
-        thread = QThread(self)
-        worker = _RewTask(key, operation)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.completed.connect(self._rew_task_completed)
-        worker.completed.connect(thread.quit)
-        worker.completed.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda task_key=key: self._rew_task_finished(task_key))
-        self._rew_tasks[key] = (thread, worker)
+        if self._disposed:
+            return
+        self._rew_pool.start(
+            key,
+            lambda _cancel_event: operation(),
+            self._rew_task_completed,
+            on_finished=self._rew_task_finished,
+        )
         self.rewBusyChanged.emit(True)
-        thread.start()
 
     @Slot(object, object, object)
     def _rew_task_completed(self, key: object, result: object, error: object) -> None:
+        if self._disposed:
+            return
         task_key = str(key)
         if task_key.startswith("list:"):
-            if task_key != self._latest_rew_list_key:
+            if task_key != self._latest_rew_list_key or error == WORKER_CANCELLED:
                 return
             if error is not None:
                 self.statusChanged.emit(f"REW一覧取得失敗 · {error}")
@@ -583,7 +583,7 @@ class OptimizationWorkflowController(
         if token is None:
             return
         if error is not None:
-            if not self.rew_job_guard.is_cancelled(token):
+            if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
                 self.statusChanged.emit(f"REW読込失敗 · {error}")
             return
         context = self._current_job_apply_context()

@@ -439,7 +439,11 @@ class DataManagementController(QObject):
         worker.failed.connect(self._capture_failure)
         worker.finished.connect(thread.quit)
         thread.finished.connect(self._thread_finished)
-        thread.finished.connect(worker.deleteLater)
+        # NOTE: no ``finished -> worker.deleteLater``. Deleting a
+        # moved-to-thread QObject while its QThread emits ``finished``
+        # races native thread teardown (PySide6/Windows: sporadic access
+        # violation / abort). ``_active.worker`` keeps the Python-owned C++
+        # object alive until ``_thread_finished`` runs on this thread.
         thread.finished.connect(thread.deleteLater)
 
         self._active = _ActiveOperation(

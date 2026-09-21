@@ -5,7 +5,7 @@ from hashlib import sha256
 from threading import Event
 
 import pyvista as pv
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QThread, Qt, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -31,34 +31,7 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import F1_DOCUMENT_ID, acoustic_reference_position, domain_to_render, scene_content_hash
 from .measurement_workspace import MeasurementWorkspaceWindow
 from .native_editor import ROLE
-
-
-class _PredictionTask(QObject):
-    completed = Signal(object, object, object)
-
-    def __init__(self, key: str, operation: Callable[[Event], object]) -> None:
-        super().__init__()
-        self.key = key
-        self.operation = operation
-        self.cancel_event = Event()
-
-    def cancel(self) -> None:
-        self.cancel_event.set()
-
-    @Slot()
-    def run(self) -> None:
-        if self.cancel_event.is_set():
-            self.completed.emit(self.key, None, 'cancelled')
-            return
-        try:
-            result = self.operation(self.cancel_event)
-        except Exception as exc:
-            self.completed.emit(self.key, None, str(exc))
-        else:
-            if self.cancel_event.is_set():
-                self.completed.emit(self.key, None, 'cancelled')
-            else:
-                self.completed.emit(self.key, result, None)
+from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 
 
 class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
@@ -79,10 +52,12 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.prediction_reflection_checkbox: QCheckBox | None = None
         self.prediction_scalar_button: QPushButton | None = None
         self._prediction_actor_names: set[str] = set()
-        self._prediction_tasks: dict[str, tuple[QThread, _PredictionTask]] = {}
+        # Parentless until self is a QObject; reparented right after super().
+        self._prediction_pool = NativeWorkerPool()
         self._prediction_tokens: dict[str, PredictionJobToken] = {}
         self._current_prediction_token_id: str | None = None
         super().__init__(repository, document_id)
+        self._prediction_pool.setParent(self)
         self.setWindowTitle('Home Theater Digital Twin — 予測CAD')
         self._create_prediction_dock()
         self._refresh_prediction_receivers()
@@ -302,40 +277,43 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         if token_id is None:
             return
         token = self._prediction_tokens.get(token_id)
-        task_record = self._prediction_tasks.get(token_id)
         if token is not None:
             self.prediction_job_guard.cancel(token)
-        if task_record is not None:
-            task_record[1].cancel()
+        self._prediction_pool.cancel(token_id)
         self._current_prediction_token_id = None
         if self.prediction_run_button is not None:
             self.prediction_run_button.setEnabled(True)
         self.statusBar().showMessage('予測をキャンセルしました · 遅延結果は現在sceneへ適用しません')
 
     def _start_prediction_task(self, key: str, operation: Callable[[Event], object]) -> None:
-        thread = QThread(self)
-        worker = _PredictionTask(key, operation)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.completed.connect(self._prediction_task_completed)
-        worker.completed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        self._prediction_tasks[key] = (thread, worker)
-        thread.start()
+        if self._disposed:
+            return
+        self._prediction_pool.start(
+            key,
+            operation,
+            self._prediction_task_completed,
+        )
+
+    @property
+    def _prediction_tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live worker records owned by ``self._prediction_pool``."""
+        return self._prediction_pool.tasks
 
     @Slot(object, object, object)
     def _prediction_task_completed(self, key: object, result: object, error: object) -> None:
+        if self._disposed:
+            return
         token_id = str(key)
         token = self._prediction_tokens.pop(token_id, None)
-        self._prediction_tasks.pop(token_id, None)
+        # The pool keeps the task record until QThread.finished so the worker
+        # stays busy-visible during the completed -> finished interval.
         if self._current_prediction_token_id == token_id:
             self._current_prediction_token_id = None
             if self.prediction_run_button is not None:
                 self.prediction_run_button.setEnabled(True)
         if token is None:
             return
-        if self.prediction_job_guard.is_cancelled(token) or error == 'cancelled':
+        if self.prediction_job_guard.is_cancelled(token) or error == WORKER_CANCELLED:
             self.statusBar().showMessage('予測キャンセル済み · 結果は保存/適用しません')
             return
         if error is not None:
@@ -581,14 +559,15 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             )
 
     def active_prediction_worker_count(self) -> int:
-        return sum(1 for thread, _worker in self._prediction_tasks.values() if thread.isRunning())
+        return self._prediction_pool.active_count
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        self._disposed = True
         for token in tuple(self._prediction_tokens.values()):
             self.prediction_job_guard.cancel(token)
-        for thread, worker in tuple(self._prediction_tasks.values()):
-            worker.cancel()
-            thread.requestInterruption()
-            thread.quit()
-            thread.wait(1800)
+        report = self._prediction_pool.shutdown()
+        if not report.all_stopped:
+            self.statusBar().showMessage(
+                '予測処理の停止が遅延しています · 遅延結果は保存・適用しません'
+            )
         super().closeEvent(event)

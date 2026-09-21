@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pyqtgraph as pg
 import pyvista as pv
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QThread, Qt, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -42,25 +42,8 @@ from .constraint_editor import ConstraintEditorWindow
 from .ingress import read_file_bounded
 from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
 from .native_editor import ROLE
+from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .rew_api import RewApiClient
-
-
-class _RewTask(QObject):
-    completed = Signal(object, object, object)
-
-    def __init__(self, key: str, operation: Callable[[], object]) -> None:
-        super().__init__()
-        self.key = key
-        self.operation = operation
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            result = self.operation()
-        except Exception as exc:  # external process/API boundary
-            self.completed.emit(self.key, None, str(exc))
-        else:
-            self.completed.emit(self.key, result, None)
 
 
 def measurement_is_synthetic(record: CadMeasurementRecord) -> bool:
@@ -107,13 +90,16 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self.compare_high_field: QDoubleSpinBox | None = None
         self.rew_client = RewApiClient()
         self.rew_job_guard = MeasurementJobGuard()
-        self._rew_tasks: dict[str, tuple[QThread, _RewTask]] = {}
+        # Parentless until self is a QObject; reparented right after super().
+        self._rew_pool = NativeWorkerPool()
         self._rew_tokens: dict[str, MeasurementJobToken] = {}
         self._rew_semantics: dict[str, tuple[str, str, str | None, str | None]] = {}
         self._latest_rew_list_key: str | None = None
         self._rew_list_sequence = 0
         self._current_rew_token_id: str | None = None
+        self._disposed = False
         super().__init__(repository, document_id)
+        self._rew_pool.setParent(self)
         self.setWindowTitle('Home Theater Digital Twin — 実測CAD')
         self._create_measurement_dock()
         self._refresh_measurement_list()
@@ -593,24 +579,28 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             self.statusBar().showMessage('REW読込をキャンセルしました · 遅延結果は適用しません')
         self._current_rew_token_id = None
 
+    @property
+    def _rew_tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live worker records owned by ``self._rew_pool``."""
+        return self._rew_pool.tasks
+
     def _start_rew_task(self, key: str, operation: Callable[[], object]) -> None:
-        thread = QThread(self)
-        worker = _RewTask(key, operation)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.completed.connect(self._rew_task_completed)
-        worker.completed.connect(thread.quit)
-        worker.completed.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(lambda task_key=key: self._rew_task_finished(task_key))
-        self._rew_tasks[key] = (thread, worker)
-        thread.start()
+        if self._disposed:
+            return
+        self._rew_pool.start(
+            key,
+            lambda _cancel_event: operation(),
+            self._rew_task_completed,
+            on_finished=self._rew_task_finished,
+        )
 
     @Slot(object, object, object)
     def _rew_task_completed(self, key: object, result: object, error: object) -> None:
+        if self._disposed:
+            return
         key = str(key)
         if key.startswith('list:'):
-            if key != self._latest_rew_list_key:
+            if key != self._latest_rew_list_key or error == WORKER_CANCELLED:
                 return
             if error is not None:
                 self.statusBar().showMessage(f'REW一覧取得失敗 · {error}')
@@ -630,7 +620,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         if token is None:
             return
         if error is not None:
-            if not self.rew_job_guard.is_cancelled(token):
+            if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
                 self.statusBar().showMessage(f'REW読込失敗 · {error}')
             return
         context = self._current_job_apply_context()
@@ -682,9 +672,12 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
                 self._current_rew_token_id = None
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        self._disposed = True
         for token in tuple(self._rew_tokens.values()):
             self.rew_job_guard.cancel(token)
-        for thread, _worker in tuple(self._rew_tasks.values()):
-            thread.quit()
-            thread.wait(1800)
+        report = self._rew_pool.shutdown()
+        if not report.all_stopped:
+            self.statusBar().showMessage(
+                'REW処理の停止が遅延しています · 遅延結果は適用しません'
+            )
         super().closeEvent(event)

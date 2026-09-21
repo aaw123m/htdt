@@ -73,7 +73,6 @@ from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
 
-from .optimization_task import _SearchTask
 
 class AdaptiveControllerMixin:
     def build_selected_adaptive_plan(self) -> None:
