@@ -1098,6 +1098,11 @@ class CadCalibrationLifecycleEvent(BaseModel):
     )
     measurement_ids: tuple[str, ...] = ()
     note: str | None = Field(default=None, min_length=1)
+    # Exact persisted predecessor this transition claims; None marks the first
+    # lifecycle event of a plan. Omitted from the semantic payload when unset so
+    # events persisted before predecessor tracking keep their
+    # event_semantic_sha256.
+    supersedes_event_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     event_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
@@ -1127,7 +1132,7 @@ class CadCalibrationLifecycleEvent(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'calibration_plan_id': self.calibration_plan_id,
             'calibration_plan_semantic_sha256': self.calibration_plan_semantic_sha256,
             'state': self.state,
@@ -1138,6 +1143,9 @@ class CadCalibrationLifecycleEvent(BaseModel):
             'measurement_ids': list(self.measurement_ids),
             'note': self.note,
         }
+        if self.supersedes_event_sha256 is not None:
+            payload['supersedes_event_sha256'] = self.supersedes_event_sha256
+        return payload
 
 
 def build_calibration_lifecycle_event(
@@ -1147,10 +1155,16 @@ def build_calibration_lifecycle_event(
     exported_settings: CadCalibrationExportSnapshot | None = None,
     verification_plan: CadVerificationMeasurementPlan | None = None,
     measurement_ids: Sequence[str] = (),
+    supersedes_event: CadCalibrationLifecycleEvent | None = None,
     event_id: str | None = None,
     created_at_utc: str,
     note: str | None = None,
 ) -> CadCalibrationLifecycleEvent:
+    if supersedes_event is not None and (
+        supersedes_event.calibration_plan_id != plan.plan_id
+        or supersedes_event.calibration_plan_semantic_sha256 != plan.plan_semantic_sha256
+    ):
+        raise ValueError('lifecycle predecessor event belongs to another CalibrationPlan')
     payload: dict[str, Any] = {
         'event_id': event_id or str(uuid4()),
         'created_at_utc': created_at_utc,
@@ -1167,6 +1181,9 @@ def build_calibration_lifecycle_event(
         ),
         'measurement_ids': tuple(measurement_ids),
         'note': note,
+        'supersedes_event_sha256': (
+            None if supersedes_event is None else supersedes_event.event_semantic_sha256
+        ),
     }
     provisional = CadCalibrationLifecycleEvent.model_construct(
         **payload,

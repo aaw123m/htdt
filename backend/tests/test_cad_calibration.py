@@ -5,11 +5,14 @@ from hashlib import sha256
 import io
 import json
 from pathlib import Path
+import sqlite3
+import threading
 
 import pytest
 
 from htdt.cad_calibration import (
     CadCalibrationChannel,
+    CadCalibrationLifecycleEvent,
     CadCrossoverSetting,
     CadDeviceCapabilityConstraints,
     CadTargetCurve,
@@ -26,7 +29,10 @@ from htdt.cad_calibration import (
     render_generic_biquad_csv,
     render_generic_biquad_json,
 )
-from htdt.cad_calibration_repository import CadCalibrationRepository
+from htdt.cad_calibration_repository import (
+    CadCalibrationRepository,
+    CalibrationLifecycleConflictError,
+)
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
     CadAcquisitionContextBinding,
@@ -629,3 +635,473 @@ def test_generic_biquad_csv_neutralizes_formula_prefixed_identifiers(tmp_path: P
     for cell in data:
         candidate = cell.lstrip()
         assert not candidate or candidate[0] not in ('=', '+', '@')
+
+
+def _lifecycle_authorities(tmp_path: Path):
+    """Persist a plan, its export and its verification plan for lifecycle tests."""
+    revision, variant, measurements, quality, _variants, calibration = _repositories(tmp_path)
+    before, dataset = _save_measurement(measurements, revision, 'lifecycle-before')
+    report = _save_quality(quality, before, dataset, report_id='quality-lifecycle')
+    after, _after_dataset = _save_measurement(measurements, revision, 'lifecycle-after')
+    plan = _plan(revision, variant, before, dataset, report, _channel(peq=(_peq(),)))
+    calibration.save_plan(plan)
+    export = build_generic_biquad_export(
+        plan,
+        export_id='export-lifecycle',
+        created_at_utc='2026-09-19T12:34:00+00:00',
+    )
+    calibration.save_export(export)
+    verification = build_verification_measurement_plan(
+        plan=plan,
+        exported_settings=export,
+        measurement_points=(
+            CadVerificationMeasurementPoint(
+                point_id='point-mlp',
+                position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
+            ),
+        ),
+        routing=('FL',),
+        reference_level_db_spl=75.0,
+        required_measurement_capabilities=('magnitude_response', 'repeatability'),
+        before_measurement_ids=(before.measurement_id,),
+        after_measurement_ids=(after.measurement_id,),
+        verification_plan_id='verification-lifecycle',
+        created_at_utc='2026-09-19T12:37:00+00:00',
+    )
+    calibration.save_verification_plan(verification)
+    return calibration, plan, export, verification, after.measurement_id
+
+
+def _lifecycle_chain(plan, export, verification, measurement_id):
+    """The honest proposed -> exported -> user_applied -> remeasured -> validated chain."""
+    proposed = build_calibration_lifecycle_event(
+        plan=plan,
+        state='proposed',
+        event_id='event-proposed',
+        created_at_utc='2026-09-19T12:40:00+00:00',
+    )
+    exported = build_calibration_lifecycle_event(
+        plan=plan,
+        state='exported',
+        exported_settings=export,
+        supersedes_event=proposed,
+        event_id='event-exported',
+        created_at_utc='2026-09-19T12:41:00+00:00',
+    )
+    applied = build_calibration_lifecycle_event(
+        plan=plan,
+        state='user_applied',
+        exported_settings=export,
+        supersedes_event=exported,
+        event_id='event-applied',
+        created_at_utc='2026-09-19T12:42:00+00:00',
+    )
+    remeasured = build_calibration_lifecycle_event(
+        plan=plan,
+        state='remeasured',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=(measurement_id,),
+        supersedes_event=applied,
+        event_id='event-remeasured',
+        created_at_utc='2026-09-19T12:43:00+00:00',
+    )
+    validated = build_calibration_lifecycle_event(
+        plan=plan,
+        state='validated',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=(measurement_id,),
+        supersedes_event=remeasured,
+        event_id='event-validated',
+        created_at_utc='2026-09-19T12:44:00+00:00',
+    )
+    return proposed, exported, applied, remeasured, validated
+
+
+def _mutate_event(event, **updates):
+    """Return a hash-valid lifecycle event with semantic fields overridden."""
+    payload = {**event.semantic_payload(), **updates}
+    if payload.get('supersedes_event_sha256') is None:
+        # An unset predecessor claim is omitted from the semantic payload.
+        payload.pop('supersedes_event_sha256', None)
+    return CadCalibrationLifecycleEvent(
+        event_id=event.event_id,
+        created_at_utc=event.created_at_utc,
+        event_semantic_sha256=_semantic_hash(payload),
+        **payload,
+    )
+
+
+def _insert_lifecycle_row(repository: CadCalibrationRepository, event, payload=None) -> None:
+    payload = event.model_dump(mode='json') if payload is None else payload
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            """
+            INSERT INTO cad_calibration_lifecycle_events(
+                event_id, plan_id, state, event_semantic_sha256,
+                created_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload['event_id'],
+                payload['calibration_plan_id'],
+                payload['state'],
+                payload['event_semantic_sha256'],
+                payload['created_at_utc'],
+                json.dumps(payload, sort_keys=True, separators=(',', ':')),
+            ),
+        )
+
+
+def _insert_legacy_lifecycle_row(repository: CadCalibrationRepository, event) -> str:
+    """Persist a pre-supersedes row exactly like the pre-tracking writer did.
+
+    Returns the legacy event_semantic_sha256: the semantic hash of the same
+    payload without the predecessor claim, which is what rows persisted before
+    predecessor tracking carried.
+    """
+    payload = event.model_dump(mode='json')
+    payload.pop('supersedes_event_sha256', None)
+    identity = event.semantic_payload()
+    identity.pop('supersedes_event_sha256', None)
+    payload['event_semantic_sha256'] = _semantic_hash(identity)
+    _insert_lifecycle_row(repository, event, payload=payload)
+    return payload['event_semantic_sha256']
+
+
+def test_calibration_lifecycle_exact_progression_persists_and_reopens(tmp_path: Path) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+    chain = _lifecycle_chain(plan, export, verification, after_id)
+    for event in chain:
+        calibration.save_lifecycle_event(event)
+
+    assert chain[1].supersedes_event_sha256 == chain[0].event_semantic_sha256
+    assert chain[2].supersedes_event_sha256 == chain[1].event_semantic_sha256
+    assert chain[3].supersedes_event_sha256 == chain[2].event_semantic_sha256
+    assert chain[4].supersedes_event_sha256 == chain[3].event_semantic_sha256
+
+    reopened = CadCalibrationRepository(
+        scene_repository=calibration.scene_repository,
+        system_variant_repository=calibration.system_variant_repository,
+        measurement_repository=calibration.measurement_repository,
+        quality_repository=calibration.quality_repository,
+    )
+    assert reopened.list_lifecycle_events(plan.plan_id) == chain
+    assert tuple(event.state for event in reopened.list_lifecycle_events(plan.plan_id)) == (
+        'proposed',
+        'exported',
+        'user_applied',
+        'remeasured',
+        'validated',
+    )
+
+
+def test_calibration_lifecycle_rejects_skipped_state_and_terminal_extension(tmp_path: Path) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+    proposed, exported, applied, remeasured, validated = _lifecycle_chain(
+        plan, export, verification, after_id
+    )
+    calibration.save_lifecycle_event(proposed)
+    calibration.save_lifecycle_event(exported)
+
+    # exported -> validated claims the exact current head yet skips the
+    # user_applied and remeasured facts the protocol requires to stay distinct.
+    skipped = build_calibration_lifecycle_event(
+        plan=plan,
+        state='validated',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=(after_id,),
+        supersedes_event=exported,
+        event_id='event-skipped',
+        created_at_utc='2026-09-19T12:45:00+00:00',
+    )
+    with pytest.raises(
+        CalibrationLifecycleConflictError,
+        match='exported -> validated is not an allowed lifecycle transition',
+    ):
+        calibration.save_lifecycle_event(skipped)
+
+    # Export alone can also never jump straight to re-measured evidence.
+    jumped = build_calibration_lifecycle_event(
+        plan=plan,
+        state='remeasured',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=(after_id,),
+        supersedes_event=exported,
+        event_id='event-jumped',
+        created_at_utc='2026-09-19T12:46:00+00:00',
+    )
+    with pytest.raises(
+        CalibrationLifecycleConflictError,
+        match='exported -> remeasured is not an allowed lifecycle transition',
+    ):
+        calibration.save_lifecycle_event(jumped)
+
+    calibration.save_lifecycle_event(applied)
+    calibration.save_lifecycle_event(remeasured)
+    calibration.save_lifecycle_event(validated)
+
+    # A validated head is terminal.
+    post_validated = _mutate_event(
+        validated,
+        supersedes_event_sha256=validated.event_semantic_sha256,
+    ).model_copy(update={'event_id': 'event-post-validated'})
+    with pytest.raises(
+        CalibrationLifecycleConflictError,
+        match='validated -> validated is not an allowed lifecycle transition',
+    ):
+        calibration.save_lifecycle_event(post_validated)
+
+    assert calibration.list_lifecycle_events(plan.plan_id) == (
+        proposed,
+        exported,
+        applied,
+        remeasured,
+        validated,
+    )
+
+
+def test_calibration_lifecycle_rejects_stale_and_unclaimed_successors(tmp_path: Path) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+    proposed = build_calibration_lifecycle_event(
+        plan=plan,
+        state='proposed',
+        event_id='event-proposed',
+        created_at_utc='2026-09-19T12:40:00+00:00',
+    )
+    calibration.save_lifecycle_event(proposed)
+    exported = build_calibration_lifecycle_event(
+        plan=plan,
+        state='exported',
+        exported_settings=export,
+        supersedes_event=proposed,
+        event_id='event-exported',
+        created_at_utc='2026-09-19T12:41:00+00:00',
+    )
+    calibration.save_lifecycle_event(exported)
+
+    # A transition derived from the stale pre-export head can no longer advance.
+    stale = build_calibration_lifecycle_event(
+        plan=plan,
+        state='exported',
+        exported_settings=export,
+        supersedes_event=proposed,
+        event_id='event-stale',
+        created_at_utc='2026-09-19T12:47:00+00:00',
+    )
+    with pytest.raises(CalibrationLifecycleConflictError, match='persisted head'):
+        calibration.save_lifecycle_event(stale)
+
+    # Once a head exists a new event must claim it exactly.
+    unclaimed = build_calibration_lifecycle_event(
+        plan=plan,
+        state='user_applied',
+        exported_settings=export,
+        event_id='event-unclaimed',
+        created_at_utc='2026-09-19T12:48:00+00:00',
+    )
+    with pytest.raises(CalibrationLifecycleConflictError, match='supersedes_event_sha256'):
+        calibration.save_lifecycle_event(unclaimed)
+
+    assert calibration.list_lifecycle_events(plan.plan_id) == (proposed, exported)
+
+
+def test_calibration_lifecycle_rejects_bad_root_and_unpersisted_predecessor(tmp_path: Path) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+
+    # A first-ever event may only open the chain at proposed or exported.
+    mid_chain_root = build_calibration_lifecycle_event(
+        plan=plan,
+        state='user_applied',
+        exported_settings=export,
+        event_id='event-mid-root',
+        created_at_utc='2026-09-19T12:40:00+00:00',
+    )
+    with pytest.raises(
+        CalibrationLifecycleConflictError,
+        match='must be proposed or exported',
+    ):
+        calibration.save_lifecycle_event(mid_chain_root)
+
+    # A root event may not claim a predecessor that was never persisted.
+    orphaned = _mutate_event(
+        build_calibration_lifecycle_event(
+            plan=plan,
+            state='proposed',
+            event_id='event-orphaned',
+            created_at_utc='2026-09-19T12:41:00+00:00',
+        ),
+        supersedes_event_sha256='d' * 64,
+    )
+    with pytest.raises(
+        CalibrationLifecycleConflictError,
+        match='never persisted',
+    ):
+        calibration.save_lifecycle_event(orphaned)
+
+    assert calibration.list_lifecycle_events(plan.plan_id) == ()
+
+
+def test_calibration_lifecycle_concurrent_writers_single_winner(tmp_path: Path) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+    exported = build_calibration_lifecycle_event(
+        plan=plan,
+        state='exported',
+        exported_settings=export,
+        event_id='event-exported',
+        created_at_utc='2026-09-19T12:40:00+00:00',
+    )
+    calibration.save_lifecycle_event(exported)
+
+    # Two writers build competing transitions on the same head; exactly one
+    # can commit because the head check runs under BEGIN IMMEDIATE.
+    contender_a = build_calibration_lifecycle_event(
+        plan=plan,
+        state='user_applied',
+        exported_settings=export,
+        supersedes_event=exported,
+        event_id='event-applied-a',
+        created_at_utc='2026-09-19T12:41:00+00:00',
+        note='writer a',
+    )
+    contender_b = build_calibration_lifecycle_event(
+        plan=plan,
+        state='user_applied',
+        exported_settings=export,
+        supersedes_event=exported,
+        event_id='event-applied-b',
+        created_at_utc='2026-09-19T12:42:00+00:00',
+        note='writer b',
+    )
+
+    barrier = threading.Barrier(2)
+    outcomes: dict[str, str] = {}
+
+    def attempt(key: str, event) -> None:
+        barrier.wait(timeout=10)
+        try:
+            calibration.save_lifecycle_event(event)
+            outcomes[key] = 'saved'
+        except CalibrationLifecycleConflictError:
+            outcomes[key] = 'conflict'
+
+    threads = (
+        threading.Thread(target=attempt, args=('a', contender_a)),
+        threading.Thread(target=attempt, args=('b', contender_b)),
+    )
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(outcomes.values()) == ['conflict', 'saved']
+    winner = contender_a if outcomes['a'] == 'saved' else contender_b
+    assert calibration.list_lifecycle_events(plan.plan_id) == (exported, winner)
+
+
+def test_calibration_lifecycle_read_detects_historical_fork(tmp_path: Path) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+    proposed, exported, applied, remeasured, _validated = _lifecycle_chain(
+        plan, export, verification, after_id
+    )
+
+    # Rows persisted before predecessor tracking carry no supersedes claim;
+    # a linear legacy chain over valid edges keeps its semantic identity and
+    # reads unchanged.
+    _insert_legacy_lifecycle_row(calibration, proposed)
+    legacy_exported_sha = _insert_legacy_lifecycle_row(calibration, exported)
+    history = calibration.list_lifecycle_events(plan.plan_id)
+    assert history[0] == proposed
+    expected_legacy_exported = CadCalibrationLifecycleEvent(
+        **exported.model_dump(exclude={'supersedes_event_sha256', 'event_semantic_sha256'}),
+        event_semantic_sha256=legacy_exported_sha,
+    )
+    assert history[1] == expected_legacy_exported
+    assert history[1].supersedes_event_sha256 is None
+
+    # A tracked successor claiming the exact persisted head still extends a
+    # legacy chain...
+    applied_on_legacy = _mutate_event(
+        applied,
+        supersedes_event_sha256=legacy_exported_sha,
+    )
+    _insert_lifecycle_row(calibration, applied_on_legacy)
+    assert calibration.list_lifecycle_events(plan.plan_id)[-1] == applied_on_legacy
+
+    # ...but a second event built on that same earlier head is a fork, and the
+    # read surfaces it instead of silently ordering past it.
+    forked = _mutate_event(
+        remeasured,
+        supersedes_event_sha256=legacy_exported_sha,
+    ).model_copy(update={'event_id': 'event-forked'})
+    _insert_lifecycle_row(calibration, forked)
+    with pytest.raises(ValueError, match='not a single chain'):
+        calibration.list_lifecycle_events(plan.plan_id)
+
+
+def test_calibration_lifecycle_read_detects_historical_invalid_edge(tmp_path: Path) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+    _proposed, exported, _applied, _remeasured, _validated = _lifecycle_chain(
+        plan, export, verification, after_id
+    )
+
+    # The pre-tracking writer accepted any strictly increasing state, so a
+    # legacy exported -> validated history could exist; the read path must
+    # surface the skipped user_applied/remeasured facts instead of trusting
+    # sequence order.
+    _insert_legacy_lifecycle_row(calibration, exported)
+    skipped = build_calibration_lifecycle_event(
+        plan=plan,
+        state='validated',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=(after_id,),
+        event_id='event-legacy-skipped',
+        created_at_utc='2026-09-19T12:50:00+00:00',
+    )
+    _insert_lifecycle_row(calibration, skipped)
+    with pytest.raises(
+        ValueError,
+        match='exported -> validated is not an allowed lifecycle transition',
+    ):
+        calibration.list_lifecycle_events(plan.plan_id)
+
+
+def test_calibration_lifecycle_builder_rejects_predecessor_of_another_plan(tmp_path: Path) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+    proposed = build_calibration_lifecycle_event(
+        plan=plan,
+        state='proposed',
+        event_id='event-proposed',
+        created_at_utc='2026-09-19T12:40:00+00:00',
+    )
+
+    revision, variant, measurements, quality, _v, second_calibration = _repositories(
+        tmp_path / 'second'
+    )
+    before, dataset = _save_measurement(measurements, revision, 'other-before')
+    report = _save_quality(quality, before, dataset, report_id='quality-other')
+    other_plan = _plan(
+        revision,
+        variant,
+        before,
+        dataset,
+        report,
+        _channel(peq=(_peq(),)),
+        plan_id='plan-other',
+    )
+    second_calibration.save_plan(other_plan)
+
+    with pytest.raises(ValueError, match='belongs to another CalibrationPlan'):
+        build_calibration_lifecycle_event(
+            plan=other_plan,
+            state='exported',
+            exported_settings=export,
+            supersedes_event=proposed,
+            event_id='event-cross-plan',
+            created_at_utc='2026-09-19T12:41:00+00:00',
+        )
+    assert calibration.list_lifecycle_events(plan.plan_id) == ()

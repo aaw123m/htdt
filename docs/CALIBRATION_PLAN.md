@@ -102,14 +102,26 @@ coefficient contract.
 
 ## Export/application/verification lifecycle
 
-Lifecycle facts are append-only and monotonic:
+Lifecycle facts are append-only and follow one explicit edge set:
 
 `proposed -> exported -> user_applied -> remeasured -> validated`
 
 The plan itself is the proposal authority. An export event requires an exact
 export ID/hash. `user_applied` is a separate user-confirmed fact; export does
 not imply it. `remeasured` and `validated` require an exact
-VerificationMeasurementPlan and re-measurement IDs.
+VerificationMeasurementPlan and re-measurement IDs. `exported` may open the
+chain as a root fact (a plan can be exported before lifecycle recording
+begins); `validated` is terminal.
+
+Each persisted event after the first claims the exact chain head via
+`supersedes_event_sha256`, and the head check runs inside the same
+`BEGIN IMMEDIATE` transaction as the insert. A successor that names a stale
+predecessor, skips a state, extends a terminal `validated` head, or omits the
+claim is rejected with `CalibrationLifecycleConflictError`; two writers
+building on the same head cannot both commit. Reopen replays the chain and
+rejects any historical fork or invalid edge rather than trusting insertion
+order (rows persisted before predecessor tracking carry no claim and are
+tolerated as implicit extensions).
 
 No lifecycle transition mutates SceneRevision/SystemVariant into an as-built
 state.
