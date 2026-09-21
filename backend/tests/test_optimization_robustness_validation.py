@@ -385,9 +385,13 @@ def _fixture(tmp_path):
     planned = {}
     for candidate in (minus, nominal, plus, calibration):
         preview = candidate_preview_document(source.document, candidate)
+        # Measurement plans require each applied revision to descend directly
+        # from the SearchSpec source, so the fixture deliberately writes
+        # non-head sibling lineage.
         revision = scene_repository.save(
             preview,
             parent_revision_id=source.revision_id,
+            allow_branch=True,
         ).revision
         applied[candidate.candidate_id] = revision
         plan = build_measurement_plan(

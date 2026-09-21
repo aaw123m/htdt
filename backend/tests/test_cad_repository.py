@@ -1,11 +1,12 @@
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 
 import pytest
 
 from htdt.cad_document import WorkingDocument
-from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import Position3, make_f1_scene
+from htdt.cad_repository import SceneRepository, SceneRevisionConflictError
+from htdt.cad_scene import Position3, make_empty_scene, make_f1_scene
 
 
 def test_scene_revision_save_reopen_noop_and_parent_history(tmp_path: Path) -> None:
@@ -108,6 +109,198 @@ def test_failed_save_does_not_change_working_document_or_formal_revision(tmp_pat
     assert working.history_length == history_length
     assert working.is_dirty
     assert repository.latest(first.document_id).revision_id == first.revision_id
+
+
+def test_second_root_save_for_existing_document_is_rejected(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None)
+    assert first.created
+
+    changed = make_empty_scene(first.revision.document_id)
+    with pytest.raises(SceneRevisionConflictError, match='duplicate root'):
+        repository.save(changed, parent_revision_id=None)
+
+    latest = repository.latest(first.revision.document_id)
+    assert latest is not None
+    assert latest.revision_id == first.revision.revision_id
+    with closing(sqlite3.connect(repository.path)) as connection:
+        count = connection.execute(
+            'SELECT COUNT(*) FROM scene_revisions WHERE document_id=?',
+            (first.revision.document_id,),
+        ).fetchone()[0]
+    assert count == 1
+
+    # The contract is per-document: a root for another document still saves.
+    other = repository.save(make_empty_scene('other-document'), parent_revision_id=None)
+    assert other.created
+    assert (
+        repository.latest('other-document').revision_id
+        == other.revision.revision_id
+    )
+
+
+def test_stale_parent_save_is_rejected_and_latest_is_unchanged(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+
+    working = WorkingDocument(
+        first.document,
+        source_revision_id=first.revision_id,
+        saved_content_hash=first.content_hash,
+    )
+    working.move_entity('speaker-fl', Position3(x_m=1.5, y_m=0.75, z_m=1.05))
+    second = repository.save(
+        working.committed_document,
+        parent_revision_id=working.source_revision_id,
+    ).revision
+    assert repository.latest(first.document_id).revision_id == second.revision_id
+
+    stale_working = WorkingDocument(
+        first.document,
+        source_revision_id=first.revision_id,
+        saved_content_hash=first.content_hash,
+    )
+    stale_working.move_entity('speaker-fl', Position3(x_m=1.6, y_m=0.75, z_m=1.05))
+    with pytest.raises(SceneRevisionConflictError, match='stale parent'):
+        repository.save(
+            stale_working.committed_document,
+            parent_revision_id=first.revision_id,
+        )
+
+    # A stale expected head is a conflict even when the payload equals the
+    # stale parent's content (no silent no-op against a moved head).
+    with pytest.raises(SceneRevisionConflictError, match='stale parent'):
+        repository.save(first.document, parent_revision_id=first.revision_id)
+
+    assert repository.latest(first.document_id).revision_id == second.revision_id
+    assert repository.get(first.revision_id) is not None
+
+
+def test_second_writer_from_same_head_cannot_advance(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+
+    def stale_edit(x_m: float) -> WorkingDocument:
+        working = WorkingDocument(
+            first.document,
+            source_revision_id=first.revision_id,
+            saved_content_hash=first.content_hash,
+        )
+        working.move_entity('speaker-fl', Position3(x_m=x_m, y_m=0.75, z_m=1.05))
+        return working
+
+    # Two writers load the same head; only the first compare-and-swap commits.
+    writer_a = stale_edit(1.5)
+    writer_b = stale_edit(1.6)
+    saved = repository.save(
+        writer_a.committed_document,
+        parent_revision_id=writer_a.source_revision_id,
+    )
+    assert saved.created
+    with pytest.raises(SceneRevisionConflictError, match='stale parent'):
+        repository.save(
+            writer_b.committed_document,
+            parent_revision_id=writer_b.source_revision_id,
+        )
+    assert (
+        repository.latest(first.document_id).revision_id
+        == saved.revision.revision_id
+    )
+
+
+def test_stale_parent_inside_caller_transaction_rejects_and_rolls_back(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    changed = first.document.model_copy(
+        update={
+            'entities': tuple(
+                entity.model_copy(
+                    update={'position': Position3(x_m=1.7, y_m=0.75, z_m=1.05)}
+                )
+                if entity.entity_id == 'speaker-fl'
+                else entity
+                for entity in first.document.entities
+            )
+        }
+    )
+    repository.save(changed, parent_revision_id=first.revision_id)
+
+    stale_edit = first.document.model_copy(
+        update={
+            'entities': tuple(
+                entity.model_copy(
+                    update={'position': Position3(x_m=1.8, y_m=0.75, z_m=1.05)}
+                )
+                if entity.entity_id == 'speaker-fl'
+                else entity
+                for entity in first.document.entities
+            )
+        }
+    )
+    with closing(repository._connect()) as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        with pytest.raises(SceneRevisionConflictError, match='stale parent'):
+            repository._save_in_transaction(
+                connection,
+                stale_edit,
+                parent_revision_id=first.revision_id,
+            )
+        connection.rollback()
+
+    latest = repository.latest(first.document_id)
+    assert latest is not None
+    assert latest.revision_id != first.revision_id
+
+
+def test_allow_branch_writes_deliberate_non_head_revision(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+
+    working = WorkingDocument(
+        first.document,
+        source_revision_id=first.revision_id,
+        saved_content_hash=first.content_hash,
+    )
+    working.move_entity('speaker-fl', Position3(x_m=1.5, y_m=0.75, z_m=1.05))
+    second = repository.save(
+        working.committed_document,
+        parent_revision_id=working.source_revision_id,
+    ).revision
+
+    branch_document = first.document.model_copy(
+        update={
+            'entities': tuple(
+                entity.model_copy(
+                    update={'position': Position3(x_m=1.6, y_m=0.75, z_m=1.05)}
+                )
+                if entity.entity_id == 'speaker-fl'
+                else entity
+                for entity in first.document.entities
+            )
+        }
+    )
+    branch = repository.save(
+        branch_document,
+        parent_revision_id=first.revision_id,
+        allow_branch=True,
+    )
+    assert branch.created
+    assert branch.revision.parent_revision_id == first.revision_id
+    # latest() still selects by insertion order; deliberate branch rows become
+    # the reported head, so callers must bind them by id (documented contract).
+    assert (
+        repository.latest(first.document_id).revision_id
+        == branch.revision.revision_id
+    )
+    assert repository.get(second.revision_id) is not None
+
+    # allow_branch never permits a second root.
+    with pytest.raises(SceneRevisionConflictError, match='duplicate root'):
+        repository.save(
+            make_empty_scene(first.document_id),
+            parent_revision_id=None,
+            allow_branch=True,
+        )
 
 
 def test_editor_view_state_round_trip_is_not_part_of_scene_revision(tmp_path: Path) -> None:

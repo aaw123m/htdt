@@ -110,9 +110,13 @@ def _save_geometry_revision(
     payload['schema_version'] = max(4, int(payload.get('schema_version', 1)))
     payload['r120_semantic_geometry'] = geometry.model_dump(mode='json')
     document = SceneDocument.model_validate(payload)
+    # Alternative geometry outcomes for the same parent are deliberate
+    # non-head lineage: the R120 binding rule requires the parent to equal the
+    # geometry's source revision, so siblings off one parent are intended.
     return repository.save(
         document,
         parent_revision_id=parent.revision_id,
+        allow_branch=True,
     ).revision
 
 

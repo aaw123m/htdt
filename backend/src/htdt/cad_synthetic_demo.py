@@ -402,9 +402,13 @@ def seed_synthetic_optimization_demo(
             source.document,
             candidate,
         )
+        # O50 measurement plans require each applied candidate revision to
+        # descend directly from the SearchSpec source revision, so this
+        # development fixture deliberately writes non-head sibling lineage.
         applied_revision = scene_repository.save(
             applied_document,
             parent_revision_id=source.revision_id,
+            allow_branch=True,
         ).revision
         plan = build_measurement_plan(
             scene_repository,
