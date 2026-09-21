@@ -296,6 +296,7 @@ def test_new_native_database_records_schema_version(tmp_path: Path) -> None:
         (1, 'adopt pre-versioned native CAD schema as baseline v1'),
         (2, 'migrate native schema to v2'),
         (3, 'migrate native schema to v3'),
+        (4, 'migrate native schema to v4'),
     ]
 
 

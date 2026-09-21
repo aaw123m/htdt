@@ -38,6 +38,19 @@ MAX_NATIVE_BACKUP_MANIFEST_BYTES = 2 * MIB
 MAX_NATIVE_BACKUP_MEMBERS = 4096
 MAX_NATIVE_BACKUP_COMPRESSION_RATIO = 1000.0
 
+# Capture ingestion bundles carry opaque source evidence plus dense ARKit mesh
+# geometry. Aggregate per-ingest bounds are enforced on declared plan values
+# before any payload is hashed, parsed, or staged, so hostile or corrupt
+# manifests cannot force unbounded allocation. Limits stay generous for real
+# captures while keeping the deduplicated native database comfortably inside
+# the 4 GiB backup member ceiling.
+MAX_CAPTURE_INGEST_SOURCE_EVIDENCE_COUNT = 4096
+MAX_CAPTURE_INGEST_MESH_COUNT = 2048
+MAX_CAPTURE_INGEST_SOURCE_BYTES = 2 * GIB
+MAX_CAPTURE_INGEST_VERTEX_COUNT = 16 * 1024 * 1024
+MAX_CAPTURE_INGEST_FACE_COUNT = 32 * 1024 * 1024
+MAX_CAPTURE_INGEST_WORKING_BYTES = 8 * GIB
+
 
 def max_base64_chars(decoded_bytes: int) -> int:
     if decoded_bytes < 0:

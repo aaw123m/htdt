@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from base64 import b64decode
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,9 +17,27 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from htdt.cad_repository import SceneRepository
 from htdt.cad_schema import ensure_native_schema
 from htdt.capture_mesh_ingestion import (
+    CAPTURE_MESH_BINDING_RECORD_SCHEMA,
+    CAPTURE_MESH_BINDING_RECORD_VERSION,
     CaptureMeshHandoff,
+    CaptureMeshIngestionError,
     CaptureRawVisualMeshBinding,
     adapt_capture_mesh_handoff,
+    parse_mesh_binding_record,
+    serialize_mesh_binding_record,
+)
+from htdt.content_blobs import (
+    ensure_content_blob_store,
+    read_content_blob,
+    store_content_blob,
+)
+from htdt.limits import (
+    MAX_CAPTURE_INGEST_FACE_COUNT,
+    MAX_CAPTURE_INGEST_MESH_COUNT,
+    MAX_CAPTURE_INGEST_SOURCE_BYTES,
+    MAX_CAPTURE_INGEST_SOURCE_EVIDENCE_COUNT,
+    MAX_CAPTURE_INGEST_VERTEX_COUNT,
+    MAX_CAPTURE_INGEST_WORKING_BYTES,
 )
 
 
@@ -32,6 +51,16 @@ AUTHORITY_HANDOFF_DOMAIN = 'htdt.capture.authority-record.v1'
 INGESTOR_CONFIGURATION_DIGEST = (
     '3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3'
 )
+
+# Estimated transient bytes held while one decoded mesh element is staged as
+# frozen pydantic models (model instance, field objects, container slots) and
+# while a geometry payload exists both as immutable bytes and as the Base64
+# copy embedded in RawVisualMesh. These weights are deliberately generous
+# upper bounds; the ingestion budget exists to bound allocation, not to meter
+# it exactly.
+_VERTEX_WORKING_BYTES = 640
+_FACE_WORKING_BYTES = 640
+_GEOMETRY_WORKING_FACTOR = 4
 
 
 CaptureProvenance = Literal[
@@ -431,6 +460,27 @@ class CaptureIngestionCommitResult:
 
 
 @dataclass(frozen=True)
+class CaptureIngestionBudget:
+    """Aggregate per-ingest bounds enforced on declared plan values.
+
+    All checks run before any payload is hashed, parsed, or staged so that
+    oversized or adversarial manifests fail before large allocations. The
+    defaults come from htdt.limits and stay well inside the native backup
+    member ceiling once payloads are deduplicated.
+    """
+
+    max_source_evidence_count: int = MAX_CAPTURE_INGEST_SOURCE_EVIDENCE_COUNT
+    max_source_payload_bytes: int = MAX_CAPTURE_INGEST_SOURCE_BYTES
+    max_mesh_count: int = MAX_CAPTURE_INGEST_MESH_COUNT
+    max_vertex_count: int = MAX_CAPTURE_INGEST_VERTEX_COUNT
+    max_face_count: int = MAX_CAPTURE_INGEST_FACE_COUNT
+    max_working_bytes: int = MAX_CAPTURE_INGEST_WORKING_BYTES
+
+
+DEFAULT_CAPTURE_INGESTION_BUDGET = CaptureIngestionBudget()
+
+
+@dataclass(frozen=True)
 class PersistedCaptureSourceEvidence:
     record: CaptureSourceEvidence
     payload: bytes
@@ -541,11 +591,134 @@ class CaptureIngestionRepository:
                 );
                 '''
             )
+            ensure_content_blob_store(connection)
+            self._externalize_inline_source_payloads(connection)
+            self._compact_legacy_mesh_bindings(connection)
+
+    @staticmethod
+    def _externalize_inline_source_payloads(
+        connection: sqlite3.Connection,
+    ) -> None:
+        """Migrate legacy inline evidence blobs into the canonical blob store.
+
+        Databases written before the content-addressed store existed keep raw
+        payload bytes in capture_source_evidence.payload_blob. This one-time,
+        idempotent migration copies each distinct payload into
+        htdt_content_blobs keyed by its SHA-256 and leaves an empty inline
+        blob behind; readers resolve externalized payloads by digest. Lossless
+        by construction: the evidence row keeps payload_sha256/byte_count and
+        every read re-verifies both.
+        """
+
+        connection.execute(
+            '''
+            INSERT OR IGNORE INTO htdt_content_blobs(
+                payload_sha256, byte_count, payload_blob
+            )
+            SELECT payload_sha256, byte_count, payload_blob
+            FROM capture_source_evidence
+            WHERE length(payload_blob) > 0
+            '''
+        )
+        connection.execute(
+            '''
+            UPDATE capture_source_evidence
+            SET payload_blob = X''
+            WHERE length(payload_blob) > 0
+            '''
+        )
+
+    @staticmethod
+    def _compact_legacy_mesh_bindings(
+        connection: sqlite3.Connection,
+    ) -> None:
+        """Rewrite pre-dedup binding rows into compact handoff records.
+
+        Legacy payload_json embeds the complete RawVisualMesh — a second copy
+        of the canonical geometry bytes as Base64 plus expanded vertex/face
+        arrays. A row is rewritten only when the rewrite is provably lossless:
+
+        - the embedded Base64 bytes hash back to handoff.geometry_sha256,
+        - the canonical blob for that digest exists after migration,
+        - the recorded provenance matches what the current deterministic
+          HTDTMSH1 importer reproduces (source name, format, importer
+          version), so re-adapting the canonical bytes yields the identical
+          mesh, binding id, and semantic hash.
+
+        Anything else is preserved verbatim: readers still accept the legacy
+        embedded representation, so no evidence is ever lost in migration.
+        """
+
+        rows = connection.execute(
+            '''
+            SELECT binding_id, payload_json
+            FROM capture_raw_visual_mesh_bindings
+            '''
+        ).fetchall()
+        for row in rows:
+            try:
+                data = json.loads(row['payload_json'])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(data, dict) or 'raw_mesh' not in data:
+                continue
+            mesh = data.get('raw_mesh')
+            handoff = data.get('handoff')
+            if not isinstance(mesh, dict) or not isinstance(handoff, dict):
+                continue
+            provenance = mesh.get('provenance')
+            if not isinstance(provenance, dict):
+                continue
+            encoded = mesh.get('original_asset_base64')
+            geometry_sha256 = handoff.get('geometry_sha256')
+            if (
+                not isinstance(encoded, str)
+                or not isinstance(geometry_sha256, str)
+                or provenance.get('asset_format') != 'htdt_meshbin_v1'
+                or provenance.get('importer_version') != '2'
+                or provenance.get('original_asset_sha256') != geometry_sha256
+                or provenance.get('source_name') != handoff.get('geometry_path')
+            ):
+                continue
+            try:
+                embedded = b64decode(encoded.encode('ascii'), validate=True)
+            except (ValueError, UnicodeEncodeError):
+                continue
+            if sha256(embedded).hexdigest() != geometry_sha256:
+                continue
+            canonical = connection.execute(
+                '''
+                SELECT length(payload_blob)
+                FROM htdt_content_blobs
+                WHERE payload_sha256=?
+                ''',
+                (geometry_sha256,),
+            ).fetchone()
+            if canonical is None or int(canonical[0]) != len(embedded):
+                continue
+            compact = _canonical_json(
+                {
+                    'schema': CAPTURE_MESH_BINDING_RECORD_SCHEMA,
+                    'schema_version': CAPTURE_MESH_BINDING_RECORD_VERSION,
+                    'binding_id': data.get('binding_id') or row['binding_id'],
+                    'handoff': handoff,
+                }
+            )
+            connection.execute(
+                '''
+                UPDATE capture_raw_visual_mesh_bindings
+                SET payload_json=?
+                WHERE binding_id=?
+                ''',
+                (compact, row['binding_id']),
+            )
 
     def ingest(
         self,
         plan: CaptureIngestionPlan | Mapping[str, Any],
         payloads_by_path: Mapping[str, bytes],
+        *,
+        budget: CaptureIngestionBudget | None = None,
     ) -> CaptureIngestionCommitResult:
         typed = (
             plan
@@ -561,6 +734,12 @@ class CaptureIngestionRepository:
                 f'payload path set mismatch: missing={missing}, extra={extra}'
             )
 
+        self._enforce_budget(
+            typed,
+            payloads,
+            budget or DEFAULT_CAPTURE_INGESTION_BUDGET,
+        )
+
         source_by_path = {item.path: item for item in typed.source_evidence}
         for path, payload in payloads.items():
             if not isinstance(payload, bytes):
@@ -574,15 +753,6 @@ class CaptureIngestionRepository:
                 raise CaptureIngestionTransactionError(
                     f'capture payload SHA-256 mismatch: {path}'
                 )
-
-        staged_bindings: list[CaptureRawVisualMeshBinding] = []
-        for handoff in typed.raw_visual_mesh_handoffs:
-            staged_bindings.append(
-                adapt_capture_mesh_handoff(
-                    handoff,
-                    payloads[handoff.geometry_path],
-                )
-            )
 
         plan_json = _canonical_json(
             typed.model_dump(mode='json', by_alias=True)
@@ -664,7 +834,15 @@ class CaptureIngestionRepository:
                         ),
                     )
 
-                for binding in staged_bindings:
+                # Adapt and persist one binding at a time inside the
+                # transaction so peak memory tracks a single decoded mesh
+                # rather than the whole staged set; the canonical geometry
+                # bytes were already verified against the plan above.
+                for handoff in typed.raw_visual_mesh_handoffs:
+                    binding = adapt_capture_mesh_handoff(
+                        handoff,
+                        payloads[handoff.geometry_path],
+                    )
                     self._upsert_mesh_binding(connection, binding)
                     connection.execute(
                         '''
@@ -727,22 +905,22 @@ class CaptureIngestionRepository:
                 ''',
                 (source_evidence_id,),
             ).fetchone()
-        if row is None:
-            return None
-        record = CaptureSourceEvidence(
-            source_evidence_id=row['source_evidence_id'],
-            bundle_digest=row['bundle_digest'],
-            capture_revision_id=row['capture_revision_id'],
-            path=row['logical_path'],
-            payload_sha256=row['payload_sha256'],
-            bytes=row['byte_count'],
-            media_type=row['media_type'],
-            producer=row['producer'],
-            provenance_class=row['provenance_class'],
-            role=row['role'],
-            source_refs=tuple(json.loads(row['source_refs_json'])),
-        )
-        payload = bytes(row['payload_blob'])
+            if row is None:
+                return None
+            record = CaptureSourceEvidence(
+                source_evidence_id=row['source_evidence_id'],
+                bundle_digest=row['bundle_digest'],
+                capture_revision_id=row['capture_revision_id'],
+                path=row['logical_path'],
+                payload_sha256=row['payload_sha256'],
+                bytes=row['byte_count'],
+                media_type=row['media_type'],
+                producer=row['producer'],
+                provenance_class=row['provenance_class'],
+                role=row['role'],
+                source_refs=tuple(json.loads(row['source_refs_json'])),
+            )
+            payload = self._evidence_payload(connection, row)
         if len(payload) != record.bytes or sha256(payload).hexdigest() != record.payload_sha256:
             raise CaptureIngestionTransactionError(
                 f'persisted source evidence integrity mismatch: {source_evidence_id}'
@@ -762,11 +940,13 @@ class CaptureIngestionRepository:
                 ''',
                 (binding_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return CaptureRawVisualMeshBinding.model_validate_json(
-            row['payload_json']
-        )
+            if row is None:
+                return None
+            return self._binding_from_payload_json(
+                connection,
+                row['payload_json'],
+                binding_id=binding_id,
+            )
 
     def mesh_binding_ids_for_ingestion(
         self,
@@ -843,13 +1023,21 @@ class CaptureIngestionRepository:
             if (
                 _canonical_json(existing_record.model_dump(mode='json'))
                 != record_json
-                or bytes(existing['payload_blob']) != payload
+                or self._evidence_payload(connection, existing) != payload
             ):
                 raise CaptureIngestionTransactionError(
                     'source evidence identity already exists with different semantics'
                 )
             return
 
+        # Raw bytes live once in the content-addressed blob store keyed by
+        # payload_sha256; the evidence row keeps an empty inline blob as the
+        # marker that its payload is externalized.
+        store_content_blob(
+            connection,
+            payload,
+            expected_sha256=record.payload_sha256,
+        )
         connection.execute(
             '''
             INSERT INTO capture_source_evidence(
@@ -871,7 +1059,7 @@ class CaptureIngestionRepository:
                 record.provenance_class,
                 record.role,
                 _canonical_json(list(record.source_refs)),
-                payload,
+                b'',
             ),
         )
 
@@ -880,9 +1068,7 @@ class CaptureIngestionRepository:
         connection: sqlite3.Connection,
         binding: CaptureRawVisualMeshBinding,
     ) -> None:
-        payload_json = _canonical_json(
-            binding.model_dump(mode='json', by_alias=True)
-        )
+        payload_json = serialize_mesh_binding_record(binding)
         existing = connection.execute(
             '''
             SELECT payload_json
@@ -893,9 +1079,20 @@ class CaptureIngestionRepository:
         ).fetchone()
         if existing is not None:
             if existing['payload_json'] != payload_json:
-                raise CaptureIngestionTransactionError(
-                    'raw mesh binding identity already exists with different semantics'
+                # The persisted representation changed from an embedded mesh
+                # dump to a compact handoff record. Compare semantic identity
+                # instead of bytes so mixed-format rows still deduplicate:
+                # binding_id already pins handoff_id and the mesh semantic
+                # hash, so equal handoffs mean equal bindings.
+                persisted = self._binding_from_payload_json(
+                    connection,
+                    existing['payload_json'],
+                    binding_id=binding.binding_id,
                 )
+                if persisted.handoff != binding.handoff:
+                    raise CaptureIngestionTransactionError(
+                        'raw mesh binding identity already exists with different semantics'
+                    )
             return
         connection.execute(
             '''
@@ -944,6 +1141,185 @@ class CaptureIngestionRepository:
                 payload_json,
             ),
         )
+
+    @staticmethod
+    def _enforce_budget(
+        plan: CaptureIngestionPlan,
+        payloads: dict[str, bytes],
+        budget: CaptureIngestionBudget,
+    ) -> None:
+        """Reject oversized/adversarial manifests before large allocations.
+
+        Everything here is evaluated on declared plan fields and payload
+        lengths — no payload is hashed, parsed, or decoded yet.
+        """
+
+        def over(kind: str, actual: int, limit: int) -> None:
+            raise CaptureIngestionTransactionError(
+                f'capture ingestion budget exceeded: {kind} '
+                f'{actual} > {limit}'
+            )
+
+        if len(plan.source_evidence) > budget.max_source_evidence_count:
+            over(
+                'source evidence count',
+                len(plan.source_evidence),
+                budget.max_source_evidence_count,
+            )
+        declared_bytes = sum(item.bytes for item in plan.source_evidence)
+        if declared_bytes > budget.max_source_payload_bytes:
+            over(
+                'declared source payload bytes',
+                declared_bytes,
+                budget.max_source_payload_bytes,
+            )
+        actual_bytes = 0
+        for payload in payloads.values():
+            if not isinstance(payload, bytes):
+                raise TypeError(
+                    'capture source payloads must be immutable bytes'
+                )
+            actual_bytes += len(payload)
+        if actual_bytes > budget.max_source_payload_bytes:
+            over(
+                'source payload bytes',
+                actual_bytes,
+                budget.max_source_payload_bytes,
+            )
+        handoffs = plan.raw_visual_mesh_handoffs
+        if len(handoffs) > budget.max_mesh_count:
+            over('raw mesh count', len(handoffs), budget.max_mesh_count)
+        declared_vertices = sum(handoff.vertex_count for handoff in handoffs)
+        if declared_vertices > budget.max_vertex_count:
+            over(
+                'declared vertex count',
+                declared_vertices,
+                budget.max_vertex_count,
+            )
+        declared_faces = sum(handoff.face_count for handoff in handoffs)
+        if declared_faces > budget.max_face_count:
+            over(
+                'declared face count',
+                declared_faces,
+                budget.max_face_count,
+            )
+        declared_by_path = {item.path: item.bytes for item in plan.source_evidence}
+        working = actual_bytes
+        for handoff in handoffs:
+            geometry_bytes = declared_by_path[handoff.geometry_path]
+            working += (
+                geometry_bytes * _GEOMETRY_WORKING_FACTOR
+                + handoff.vertex_count * _VERTEX_WORKING_BYTES
+                + handoff.face_count * _FACE_WORKING_BYTES
+            )
+        if working > budget.max_working_bytes:
+            over(
+                'decoded working bytes',
+                working,
+                budget.max_working_bytes,
+            )
+
+    @staticmethod
+    def _evidence_payload(
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> bytes:
+        """Resolve evidence payload bytes from inline or canonical storage.
+
+        Legacy rows carry the payload in payload_blob; deduplicated rows leave
+        it empty and reference htdt_content_blobs by payload_sha256. An inline
+        blob is authoritative only when it verifies against the recorded
+        byte_count/SHA-256, otherwise the canonical blob is consulted.
+        """
+
+        inline = row['payload_blob']
+        payload = bytes(inline) if inline else b''
+        if (
+            len(payload) == int(row['byte_count'])
+            and sha256(payload).hexdigest() == row['payload_sha256']
+        ):
+            return payload
+        blob = read_content_blob(connection, row['payload_sha256'])
+        if blob is None:
+            raise CaptureIngestionTransactionError(
+                'persisted source evidence payload is missing from the '
+                f'content blob store: {row["payload_sha256"]}'
+            )
+        return blob
+
+    @staticmethod
+    def _canonical_geometry_bytes(
+        connection: sqlite3.Connection,
+        handoff: CaptureMeshHandoff,
+    ) -> bytes:
+        """Fetch the canonical geometry payload for a persisted binding."""
+
+        blob = read_content_blob(connection, handoff.geometry_sha256)
+        if blob is not None:
+            return blob
+        row = connection.execute(
+            '''
+            SELECT payload_sha256, byte_count, payload_blob
+            FROM capture_source_evidence
+            WHERE source_evidence_id=?
+            ''',
+            (handoff.geometry_source_evidence_id,),
+        ).fetchone()
+        if row is not None:
+            payload = bytes(row['payload_blob']) if row['payload_blob'] else b''
+            if (
+                row['payload_sha256'] == handoff.geometry_sha256
+                and len(payload) == int(row['byte_count'])
+                and sha256(payload).hexdigest() == handoff.geometry_sha256
+            ):
+                return payload
+        raise CaptureIngestionTransactionError(
+            'canonical capture geometry payload is missing or inconsistent '
+            f'for evidence {handoff.geometry_source_evidence_id}'
+        )
+
+    def _binding_from_payload_json(
+        self,
+        connection: sqlite3.Connection,
+        payload_json: str,
+        *,
+        binding_id: str | None = None,
+    ) -> CaptureRawVisualMeshBinding:
+        """Rebuild a persisted binding from either storage representation.
+
+        Legacy rows embed the complete RawVisualMesh (including a Base64 copy
+        of the source bytes). Compact rows keep only the handoff; the mesh is
+        re-adapted from the canonical content-addressed source bytes, which
+        re-validates the hash and declared counts and reproduces the identical
+        binding identity.
+        """
+
+        try:
+            record = parse_mesh_binding_record(payload_json)
+        except ValueError as exc:
+            raise CaptureIngestionTransactionError(
+                f'persisted mesh binding record is invalid: {exc}'
+            ) from exc
+        if record is None:
+            return CaptureRawVisualMeshBinding.model_validate_json(payload_json)
+        stored_binding_id, handoff = record
+        if binding_id is not None and stored_binding_id != binding_id:
+            raise CaptureIngestionTransactionError(
+                'persisted mesh binding record identity mismatch'
+            )
+        asset = self._canonical_geometry_bytes(connection, handoff)
+        try:
+            binding = adapt_capture_mesh_handoff(handoff, asset)
+        except (CaptureMeshIngestionError, ValueError) as exc:
+            raise CaptureIngestionTransactionError(
+                'persisted mesh binding cannot be rebuilt from the canonical '
+                f'geometry payload: {exc}'
+            ) from exc
+        if binding.binding_id != stored_binding_id:
+            raise CaptureIngestionTransactionError(
+                'persisted mesh binding does not reproduce its recorded identity'
+            )
+        return binding
 
     @staticmethod
     def _result(

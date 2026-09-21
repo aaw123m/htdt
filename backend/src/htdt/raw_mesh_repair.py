@@ -13,6 +13,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_schema import ensure_native_schema
+from .content_blobs import (
+    ensure_content_blob_store,
+    read_content_blob,
+    store_content_blob,
+)
 from .raw_mesh import (
     AcousticVolumeReadiness,
     RawMeshDiagnosticFinding,
@@ -22,6 +27,8 @@ from .raw_mesh import (
     RawMeshVertex,
     RawVisualMesh,
     diagnose_raw_visual_mesh,
+    rehydrate_raw_visual_mesh,
+    serialize_raw_visual_mesh_reference,
 )
 
 
@@ -686,6 +693,71 @@ def deserialize_raw_mesh_repair_bundle(payload: str) -> RawMeshRepairBundle:
     return RawMeshRepairBundle.model_validate(json.loads(payload))
 
 
+def _persisted_bundle_json(bundle: RawMeshRepairBundle) -> str:
+    """Compact persisted form of a repair bundle.
+
+    The embedded source RawVisualMesh is reduced to its content-addressed
+    reference (mesh_id + provenance, which already carries
+    original_asset_sha256); the canonical asset bytes live once in
+    htdt_content_blobs rather than being embedded again as Base64 JSON.
+    """
+
+    data = bundle.model_dump(mode='json', exclude={'source_raw_mesh'})
+    data['source_raw_mesh'] = serialize_raw_visual_mesh_reference(
+        bundle.source_raw_mesh
+    )
+    return _canonical_json(data)
+
+
+def _load_persisted_bundle(
+    connection: sqlite3.Connection,
+    payload_json: str,
+) -> RawMeshRepairBundle:
+    """Rebuild a persisted bundle from either storage representation.
+
+    Legacy rows embed the complete source RawVisualMesh (including its
+    original asset bytes as Base64). Compact rows carry only the mesh
+    reference; the canonical asset bytes are fetched from the content blob
+    store and the mesh is deterministically re-imported and re-verified.
+    """
+
+    data = json.loads(payload_json)
+    source = data.get('source_raw_mesh') if isinstance(data, dict) else None
+    if isinstance(source, dict) and 'original_asset_base64' not in source:
+        provenance = source.get('provenance')
+        asset_sha256 = (
+            provenance.get('original_asset_sha256')
+            if isinstance(provenance, dict)
+            else None
+        )
+        asset = (
+            read_content_blob(connection, asset_sha256)
+            if isinstance(asset_sha256, str)
+            else None
+        )
+        if asset is None:
+            raise RawMeshRepairError(
+                'canonical raw mesh asset is missing from the content blob store'
+            )
+        try:
+            return RawMeshRepairBundle(
+                source_raw_mesh=rehydrate_raw_visual_mesh(source, asset),
+                source_diagnostic=RawMeshDiagnosticResult.model_validate(
+                    data['source_diagnostic']
+                ),
+                repair_plan=RawMeshRepairPlan.model_validate(data['repair_plan']),
+                repaired_mesh=RepairedRawMesh.model_validate(data['repaired_mesh']),
+                post_repair_diagnostic=RepairedRawMeshDiagnosticResult.model_validate(
+                    data['post_repair_diagnostic']
+                ),
+            )
+        except ValueError as exc:
+            raise RawMeshRepairError(
+                f'persisted repair bundle is invalid: {exc}'
+            ) from exc
+    return deserialize_raw_mesh_repair_bundle(payload_json)
+
+
 class RawMeshRepairRepository:
     """Append-only raw-mesh repair authority stored in the native HTDT SQLite database."""
 
@@ -702,18 +774,37 @@ class RawMeshRepairRepository:
 
     def save(self, bundle: RawMeshRepairBundle) -> bool:
         _validate_bundle_against_recomputation(bundle)
-        payload = serialize_raw_mesh_repair_bundle(bundle)
+        payload = _persisted_bundle_json(bundle)
+        asset = bundle.source_raw_mesh.original_asset_bytes()
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            # Keep one canonical copy of the source asset bytes in the
+            # content-addressed blob store; the bundle record references it
+            # by the SHA-256 already carried in the mesh provenance.
+            ensure_content_blob_store(connection)
+            store_content_blob(
+                connection,
+                asset,
+                expected_sha256=(
+                    bundle.source_raw_mesh.provenance.original_asset_sha256
+                ),
+            )
             existing = connection.execute(
                 'SELECT payload_json FROM cad_raw_mesh_repair_bundles WHERE repaired_mesh_id=?',
                 (bundle.repaired_mesh.repaired_mesh_id,),
             ).fetchone()
             if existing is not None:
                 if existing['payload_json'] != payload:
-                    raise RawMeshRepairError(
-                        'repaired mesh identity collision with different persisted payload'
+                    # Legacy rows embed the full source mesh; compare the
+                    # rehydrated bundle semantically instead of bytes.
+                    stored = _load_persisted_bundle(
+                        connection,
+                        existing['payload_json'],
                     )
+                    if stored != bundle:
+                        raise RawMeshRepairError(
+                            'repaired mesh identity collision with different persisted payload'
+                        )
                 return False
             connection.execute(
                 '''
@@ -751,9 +842,9 @@ class RawMeshRepairRepository:
                 'SELECT * FROM cad_raw_mesh_repair_bundles WHERE repaired_mesh_id=?',
                 (repaired_mesh_id,),
             ).fetchone()
-        if row is None:
-            return None
-        bundle = deserialize_raw_mesh_repair_bundle(row['payload_json'])
+            if row is None:
+                return None
+            bundle = _load_persisted_bundle(connection, row['payload_json'])
         if bundle.repaired_mesh.repaired_mesh_id != row['repaired_mesh_id']:
             raise RawMeshRepairError('persisted repaired mesh id mismatch')
         if bundle.repaired_mesh.semantic_hash() != row['repaired_mesh_semantic_hash']:

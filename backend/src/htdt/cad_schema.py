@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
+from .content_blobs import CONTENT_BLOB_DDL
 
-NATIVE_SCHEMA_VERSION = 3
+
+NATIVE_SCHEMA_VERSION = 4
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -704,10 +706,18 @@ def _migrate_2_to_3(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_3_to_4(connection: sqlite3.Connection) -> None:
+    # Canonical content-addressed blob authority shared by capture ingestion
+    # and raw-mesh repair. Raw payloads are stored once under their SHA-256
+    # and records reference them by digest instead of embedding Base64 copies.
+    connection.execute(CONTENT_BLOB_DDL)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
     3: _migrate_2_to_3,
+    4: _migrate_3_to_4,
 }
 
 
