@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 from pydantic import ValidationError
@@ -444,6 +445,91 @@ def test_variant_persistence_rejects_unpersisted_equipment_binding(
     with pytest.raises(ValueError, match='unpersisted definition'):
         variant_repository.save_variant(variant)
     assert variant_repository.get_variant(variant.variant_id) is None
+
+
+def _equipment_bound_variant(tmp_path: Path):
+    scene_repository, baseline = _baseline(tmp_path)
+    variant_repository = CadSystemVariantRepository(scene_repository)
+    equipment_repository = CadEquipmentRepository(
+        scene_repository,
+        variant_repository,
+    )
+    definition = _magnitude_only()
+    equipment_repository.save_definition(definition)
+    variant = build_system_variant(
+        baseline=baseline,
+        name='Add SL with exact equipment',
+        role_bindings=(
+            ChannelRoleBinding(role_id='FL', display_name='FL'),
+            ChannelRoleBinding(role_id='SL', display_name='SL'),
+        ),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='proposal-sl',
+                entity=_speaker('sl', 'SL', 0.5),
+                role_binding_id='SL',
+            ),
+        ),
+        equipment_bindings=(
+            EquipmentBindingRef(
+                entity_id='sl',
+                equipment_definition_id=definition.definition_id,
+                equipment_definition_version=definition.version,
+                equipment_definition_sha256=definition.semantic_sha256,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    variant_repository.save_variant(variant)
+    return scene_repository, variant_repository, definition, variant
+
+
+def test_variant_read_rejects_dangling_equipment_definition(
+    tmp_path: Path,
+) -> None:
+    scene_repository, variant_repository, definition, variant = (
+        _equipment_bound_variant(tmp_path)
+    )
+    assert variant_repository.get_variant(variant.variant_id) == variant
+
+    # Direct tamper simulates an authority that cannot be re-resolved after
+    # reopen. SQLite foreign keys are intentionally not enabled on this raw
+    # connection.
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_equipment_definitions WHERE semantic_sha256=?',
+            (definition.semantic_sha256,),
+        )
+
+    with pytest.raises(ValueError, match='unpersisted definition'):
+        variant_repository.get_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='unpersisted definition'):
+        variant_repository.list_variants('o100c-fixture')
+
+
+def test_variant_read_rejects_equipment_definition_identity_mismatch(
+    tmp_path: Path,
+) -> None:
+    scene_repository, variant_repository, definition, variant = (
+        _equipment_bound_variant(tmp_path)
+    )
+    assert variant_repository.get_variant(variant.variant_id) == variant
+
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_equipment_definitions SET version=? '
+            'WHERE semantic_sha256=?',
+            ('rewritten-version', definition.semantic_sha256),
+        )
+
+    with pytest.raises(
+        ValueError, match='definition identity mismatch'
+    ):
+        variant_repository.get_variant(variant.variant_id)
+    with pytest.raises(
+        ValueError, match='definition identity mismatch'
+    ):
+        variant_repository.list_variants('o100c-fixture')
 
 
 def test_equipment_catalog_snapshot_is_deterministic_exact_reference_surface(

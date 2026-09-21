@@ -11,9 +11,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_repository import SceneRepository
+from .cad_repository import SceneRepository, SceneRevision
 from .cad_system_variant import SystemVariant, materialize_system_variant
-from .cad_scene import scene_content_hash
+from .cad_scene import SceneDocument, scene_content_hash
 
 
 def _utc_now() -> str:
@@ -191,8 +191,18 @@ class CadSystemVariantRepository:
                         'SystemVariant equipment binding definition identity mismatch'
                     )
 
-    def save_variant(self, variant: SystemVariant) -> None:
-        variant = SystemVariant.model_validate(variant.model_dump(mode='python'))
+    def _require_variant_authority(
+        self,
+        variant: SystemVariant,
+        lineage: frozenset[str] = frozenset(),
+    ) -> tuple[SceneRevision, SceneDocument]:
+        """Replay the exact external authority one SystemVariant is bound to.
+
+        Returns the resolved baseline SceneRevision and the materialized
+        proposed scene. Missing, mismatched, or cyclical authority fails
+        closed; used by both save-time validation and authoritative reads.
+        """
+
         self._validate_equipment_bindings_persisted(variant)
         baseline = self.scene_repository.get(variant.baseline_revision_id)
         if baseline is None:
@@ -202,14 +212,140 @@ class CadSystemVariantRepository:
             or baseline.content_hash != variant.baseline_content_hash
         ):
             raise ValueError('SystemVariant baseline authority mismatch')
-        materialize_system_variant(baseline, variant)
+        proposed = materialize_system_variant(baseline, variant)
 
         if variant.parent_variant_id is not None:
-            parent = self.get_variant(variant.parent_variant_id)
+            if (
+                variant.parent_variant_id == variant.variant_id
+                or variant.parent_variant_id in lineage
+            ):
+                raise ValueError('SystemVariant parent lineage contains a cycle')
+            parent = self._get_variant(
+                variant.parent_variant_id,
+                lineage | {variant.variant_id},
+            )
             if parent is None:
                 raise ValueError('SystemVariant parent variant does not exist')
             if parent.document_id != variant.document_id:
                 raise ValueError('SystemVariant parent belongs to another document')
+        return baseline, proposed
+
+    def _validated_variant(
+        self,
+        row: sqlite3.Row,
+        lineage: frozenset[str],
+    ) -> SystemVariant:
+        """Deserialize one persisted variant row and replay its exact authority."""
+
+        variant = SystemVariant.model_validate_json(row['payload_json'])
+        if (
+            row['variant_id'] != variant.variant_id
+            or row['document_id'] != variant.document_id
+            or row['baseline_revision_id'] != variant.baseline_revision_id
+            or row['baseline_content_hash'] != variant.baseline_content_hash
+            or row['parent_variant_id'] != variant.parent_variant_id
+            or row['variant_sha256'] != variant.variant_sha256
+            or row['created_at_utc'] != variant.created_at_utc
+        ):
+            raise ValueError(
+                'persisted SystemVariant row disagrees with its payload'
+            )
+        self._require_variant_authority(variant, lineage)
+        return variant
+
+    def _get_variant(
+        self,
+        variant_id: str,
+        lineage: frozenset[str],
+    ) -> SystemVariant | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT * FROM cad_system_variants WHERE variant_id=?',
+                (variant_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._validated_variant(row, lineage)
+
+    def _validated_application(
+        self,
+        row: sqlite3.Row,
+    ) -> SystemVariantApplication:
+        """Deserialize one application row and replay its exact authority."""
+
+        application = SystemVariantApplication.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['application_id'] != application.application_id
+            or row['variant_id'] != application.variant_id
+            or row['document_id'] != application.document_id
+            or row['baseline_revision_id'] != application.baseline_revision_id
+            or row['applied_revision_id'] != application.applied_revision_id
+            or row['application_sha256'] != application.application_sha256
+            or row['selected_at_utc'] != application.selected_at_utc
+        ):
+            raise ValueError(
+                'persisted SystemVariantApplication row disagrees with its payload'
+            )
+        variant = self.get_variant(application.variant_id)
+        if variant is None:
+            raise ValueError(
+                'SystemVariant application references missing variant'
+            )
+        if (
+            variant.variant_sha256 != application.variant_sha256
+            or variant.document_id != application.document_id
+            or variant.baseline_revision_id != application.baseline_revision_id
+            or variant.baseline_content_hash != application.baseline_content_hash
+        ):
+            raise ValueError(
+                'SystemVariant application variant authority mismatch'
+            )
+        baseline = self.scene_repository.get(application.baseline_revision_id)
+        if baseline is None:
+            raise ValueError(
+                'SystemVariant application baseline SceneRevision does not exist'
+            )
+        if (
+            baseline.document_id != application.document_id
+            or baseline.content_hash != application.baseline_content_hash
+        ):
+            raise ValueError(
+                'SystemVariant application baseline authority mismatch'
+            )
+        applied = self.scene_repository.get(application.applied_revision_id)
+        if applied is None:
+            raise ValueError(
+                'SystemVariant application applied SceneRevision does not exist'
+            )
+        if (
+            applied.document_id != application.document_id
+            or applied.parent_revision_id != baseline.revision_id
+            or applied.content_hash != application.applied_content_hash
+        ):
+            raise ValueError(
+                'SystemVariant application applied SceneRevision mismatch'
+            )
+        proposed = materialize_system_variant(baseline, variant)
+        proposed_hash = scene_content_hash(proposed)
+        if proposed_hash == baseline.content_hash:
+            raise ValueError(
+                'SystemVariant application must not reproduce its baseline'
+            )
+        if (
+            proposed_hash != application.applied_content_hash
+            or proposed != applied.document
+        ):
+            raise ValueError(
+                'SystemVariant application does not reproduce the applied '
+                'SceneRevision'
+            )
+        return application
+
+    def save_variant(self, variant: SystemVariant) -> None:
+        variant = SystemVariant.model_validate(variant.model_dump(mode='python'))
+        self._require_variant_authority(variant)
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -233,60 +369,46 @@ class CadSystemVariantRepository:
             )
 
     def get_variant(self, variant_id: str) -> SystemVariant | None:
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT payload_json FROM cad_system_variants WHERE variant_id=?',
-                (variant_id,),
-            ).fetchone()
-        return None if row is None else SystemVariant.model_validate_json(row['payload_json'])
+        return self._get_variant(variant_id, frozenset())
 
     def list_variants(self, document_id: str) -> tuple[SystemVariant, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_system_variants '
+                'SELECT * FROM cad_system_variants '
                 'WHERE document_id=? ORDER BY seq ASC',
                 (document_id,),
             ).fetchall()
-        return tuple(SystemVariant.model_validate_json(row['payload_json']) for row in rows)
+        return tuple(
+            self._validated_variant(row, frozenset())
+            for row in rows
+        )
 
     def get_application(self, application_id: str) -> SystemVariantApplication | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_system_variant_applications '
+                'SELECT * FROM cad_system_variant_applications '
                 'WHERE application_id=?',
                 (application_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else SystemVariantApplication.model_validate_json(row['payload_json'])
-        )
+        return None if row is None else self._validated_application(row)
 
     def application_for_variant(self, variant_id: str) -> SystemVariantApplication | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_system_variant_applications '
+                'SELECT * FROM cad_system_variant_applications '
                 'WHERE variant_id=?',
                 (variant_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else SystemVariantApplication.model_validate_json(row['payload_json'])
-        )
+        return None if row is None else self._validated_application(row)
 
     def application_for_revision(self, revision_id: str) -> SystemVariantApplication | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_system_variant_applications '
+                'SELECT * FROM cad_system_variant_applications '
                 'WHERE applied_revision_id=?',
                 (revision_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else SystemVariantApplication.model_validate_json(row['payload_json'])
-        )
+        return None if row is None else self._validated_application(row)
 
     def apply_variant(
         self,
@@ -344,14 +466,12 @@ class CadSystemVariantRepository:
             connection.execute('BEGIN IMMEDIATE')
 
             existing_row = connection.execute(
-                'SELECT payload_json FROM cad_system_variant_applications '
+                'SELECT * FROM cad_system_variant_applications '
                 'WHERE variant_id=?',
                 (variant.variant_id,),
             ).fetchone()
             if existing_row is not None:
-                return SystemVariantApplication.model_validate_json(
-                    existing_row['payload_json']
-                )
+                return self._validated_application(existing_row)
 
             latest_row = connection.execute(
                 'SELECT revision_id, content_hash FROM scene_revisions '
