@@ -318,6 +318,10 @@ class CadJointOptimizationRepository:
             else candidate.calibration_candidate.plan_id
         )
         with closing(self._connect()) as connection, connection:
+            # BEGIN IMMEDIATE holds the write lock for the whole admission so
+            # the duplicate recheck, persisted-budget count, and insert are
+            # serialized: concurrent writers cannot both observe count < budget.
+            connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute(
                 """
                 SELECT payload_json
