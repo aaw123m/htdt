@@ -31,6 +31,8 @@ $BuildInfoFile = Join-Path $PackageDir "_internal\htdt_build\build_info.json"
 $CommitSha = $null
 $Dirty = $false
 $LockSha256 = $null
+$PythonVersion = $null
+$PipVersion = $null
 if (Test-Path $BuildInfoFile) {
     $PackageBuild = Get-Content $BuildInfoFile -Raw | ConvertFrom-Json
     if ($PackageBuild.version -and $PackageBuild.version -ne $Version) {
@@ -42,6 +44,12 @@ if (Test-Path $BuildInfoFile) {
     $Dirty = [bool]$PackageBuild.dirty
     if ($PackageBuild.lock_sha256) {
         $LockSha256 = [string]$PackageBuild.lock_sha256
+    }
+    if ($PackageBuild.python_version) {
+        $PythonVersion = [string]$PackageBuild.python_version
+    }
+    if ($PackageBuild.pip_version) {
+        $PipVersion = [string]$PackageBuild.pip_version
     }
 } else {
     Write-Warning "Package has no embedded build info ($BuildInfoFile); the installer will carry the plain canonical version."
@@ -121,6 +129,10 @@ $Manifest = [ordered]@{
     lock_file           = [ordered]@{
         path   = "backend/requirements-n05-windows.lock"
         sha256 = $LockSha256
+    }
+    toolchain           = [ordered]@{
+        python = $PythonVersion
+        pip    = $PipVersion
     }
     github              = [ordered]@{
         workflow    = $env:GITHUB_WORKFLOW

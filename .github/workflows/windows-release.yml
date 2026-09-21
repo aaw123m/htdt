@@ -7,6 +7,7 @@ on:
       - "backend/**"
       - "scripts/build-native.ps1"
       - "scripts/build-installer.ps1"
+      - "scripts/check_dependency_lock.py"
       - "scripts/Get-HtdtVersion.ps1"
       - "scripts/native_entry.py"
       - "scripts/prepare_branding_assets.py"
@@ -14,6 +15,9 @@ on:
       - "installer/**"
       - ".github/workflows/windows-release.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: windows-release-${{ github.event.pull_request.number || github.ref }}
@@ -25,16 +29,42 @@ jobs:
     env:
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-python@v5
+      # Pinned release toolchain: the lock was generated on CPython 3.12.10
+      # (see backend/requirements-n05-windows.lock) and the packaged wheel
+      # closure targets CPython 3.12 on Windows x64. build-native.ps1 and the
+      # locked-closure test below both consume this interpreter via PATH.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.10"
+
+      - name: Test backend under shipped dependency closure
+        shell: pwsh
+        run: |
+          # The release gate must exercise the exact third-party closure that
+          # ships: create a clean venv on the pinned interpreter, install the
+          # hash-verified lock, then overlay only the pinned dev test harness
+          # (backend[dev] extras). pytest imports htdt from backend/src via the
+          # pytest pythonpath config — the same source PyInstaller packages.
+          python --version
+          $venv = Join-Path $env:RUNNER_TEMP "htdt-shipped-closure"
+          python -m venv $venv
+          $py = Join-Path $venv "Scripts\python.exe"
+          & $py -m pip install --disable-pip-version-check --require-hashes -r backend\requirements-n05-windows.lock
+          if ($LASTEXITCODE -ne 0) { throw "Locked dependency install failed with exit code $LASTEXITCODE" }
+          & $py -m pip install --disable-pip-version-check -e ".\backend[dev]"
+          if ($LASTEXITCODE -ne 0) { throw "Test harness install failed with exit code $LASTEXITCODE" }
+          & $py -m pytest backend\tests
+          if ($LASTEXITCODE -ne 0) { throw "Backend tests failed under the shipped closure (exit code $LASTEXITCODE)" }
+          # The dev harness overlay must never move a locked package.
+          & $py scripts\check_dependency_lock.py --verify-installed
+          if ($LASTEXITCODE -ne 0) { throw "Installed closure diverged from the lock" }
 
       - name: Build locked native package
         shell: pwsh
         run: |
-          .\scripts\build-native.ps1 -OutputDir "$env:RUNNER_TEMP\htdt-package"
+          .\scripts\build-native.ps1 -OutputDir "$env:RUNNER_TEMP\htdt-package" -PythonExe (Get-Command python).Source
 
       - name: Smoke packaged maintenance CLI
         shell: pwsh
@@ -113,7 +143,7 @@ jobs:
             --work-dir "$env:RUNNER_TEMP\htdt-pc-migration"
 
       - name: Upload PC migration acceptance evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: HTDT-windows-pc-migration-acceptance
           path: ${{ runner.temp }}\htdt-pc-migration\pc-migration-report.json
@@ -182,6 +212,16 @@ jobs:
             throw "Release manifest lock-file SHA-256 mismatch"
           }
 
+          # Toolchain provenance: the packaged build must report the pinned
+          # release interpreter, and the manifest must carry it forward.
+          $expectedPython = (& python -c "import platform; print(platform.python_version())").Trim()
+          if ($buildInfo.python_version -ne $expectedPython) {
+            throw "Packaged build used Python '$($buildInfo.python_version)', expected pinned toolchain '$expectedPython'"
+          }
+          if ($release.toolchain.python -ne $buildInfo.python_version) {
+            throw "Release manifest toolchain does not carry the packaged Python version"
+          }
+
       - name: Smoke install and uninstall without deleting user data
         shell: pwsh
         run: |
@@ -231,14 +271,14 @@ jobs:
           Remove-Item -Recurse -Force $dataRoot
 
       - name: Upload native package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: HTDT-windows-package
           path: ${{ runner.temp }}\htdt-package\HTDT
           if-no-files-found: error
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: HTDT-windows-installer
           path: |

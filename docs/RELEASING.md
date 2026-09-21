@@ -69,15 +69,53 @@ The display version is surfaced consistently by:
 `build-installer.ps1` writes `HTDT-Setup-<display_version>.manifest.json`
 next to the installer, recording `application_version`, `display_version`,
 `commit_sha`, `dirty`, `build_id`, installer SHA-256, the dependency lock
-SHA-256, GitHub run context and a UTC timestamp. The `windows-release`
-workflow uploads it with the installer artifact and verifies it against the
-checked-out source.
+SHA-256, the build toolchain (`toolchain.python` / `toolchain.pip`), GitHub
+run context and a UTC timestamp. The `windows-release` workflow uploads it
+with the installer artifact and verifies it against the checked-out source.
+
+## Dependency closure and reproducibility
+
+The single authority for the third-party Python closure that ships inside
+`HTDT.exe` and the installer is the hash-pinned lock
+`backend/requirements-n05-windows.lock`. Every pin is `==`-exact and carries
+`--hash=sha256` digests for all released files, so installs run under
+`pip install --require-hashes` and every downloaded artifact is digest-verified.
+
+- `scripts/build-native.ps1` creates its build venv from an explicitly
+  supplied interpreter (`-PythonExe`, defaulting to `python` on PATH — never
+  `py -3.12`), requires CPython 3.12 on Windows x64, installs the lock under
+  `--require-hashes`, then installs HTDT with `--no-deps`. The interpreter
+  version and lock SHA-256 are embedded in `build_info.json`.
+- `windows-release.yml` pins the release toolchain (`python-version:
+  "3.12.10"`, matching the lock header) and runs the full backend test suite
+  in a clean venv holding exactly the hash-verified locked closure plus the
+  pinned `backend[dev]` test harness; `check_dependency_lock.py
+  --verify-installed` then proves no locked package moved. The package job
+  therefore proves the shipped closure passed the release gate.
+- `python scripts/check_dependency_lock.py` verifies the lock stays
+  consistent with `pyproject.toml` (`ci.yml` and
+  `backend/tests/test_dependency_lock.py` enforce it). After re-pinning,
+  refresh digests with `--refresh-hashes`.
+- All GitHub Actions are pinned to full commit SHAs (`# vX.Y.Z` comments keep
+  the readable version) and workflows declare least-privilege
+  `permissions: contents: read`.
+
+### Intentional dev-vs-shipped differences
+
+`ci.yml` deliberately floats on the latest CPython 3.12.x with freshly
+resolved transitive dependencies (`-e ".\backend[dev]"`), so upstream drift
+surfaces early in ordinary PRs. The shipped environment is the locked
+closure above; the release workflow tests that exact closure before
+packaging, so a CI-green commit cannot ship an untested dependency set.
 
 ## CI verification
 
 - `backend/tests/test_release_identity.py` fails CI if `pyproject.toml` stops
   deriving the package version from `htdt.__version__` or if the Inno Setup
   fallback diverges.
+- `backend/tests/test_dependency_lock.py` fails CI if the lock loses hash
+  pinning or diverges from `pyproject.toml`, or if any workflow action is
+  not pinned to a commit SHA.
 - The `Verify release identity` step in `windows-release.yml` fails the build
-  if the packaged `build_info.json`, the checked-out `HEAD` and the installer
-  filename/manifest disagree.
+  if the packaged `build_info.json`, the checked-out `HEAD`, the pinned
+  Python toolchain or the installer filename/manifest disagree.

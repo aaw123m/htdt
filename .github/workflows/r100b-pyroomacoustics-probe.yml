@@ -11,6 +11,9 @@ on:
       - '.github/workflows/r100b-pyroomacoustics-probe.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   windows-reference-probe:
     runs-on: windows-latest
@@ -18,9 +21,9 @@ jobs:
       PYTHONUTF8: '1'
       PROBE_OUTPUT: artifacts/r100b/pyroomacoustics_direct_first_reflection.json
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
           cache: pip
@@ -91,7 +94,7 @@ jobs:
           Write-Host "R100B_CANDIDATE_HASH=$($probe.candidate_manifest_hash)"
 
       - name: Upload R100B pyroomacoustics evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: r100b-pyroomacoustics-direct-first-reflection
           path: artifacts/r100b/pyroomacoustics_direct_first_reflection.json
