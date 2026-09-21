@@ -1,25 +1,46 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from contextlib import closing
+from hashlib import sha256
+import sqlite3
 
 import pytest
 
+import htdt.cad_validation_campaign as campaign_module
+import htdt.cad_validation_campaign_repository as campaign_repository_module
 from htdt.cad_constraint_models import CadConstraintSet
+from htdt.cad_measurement_loop import (
+    build_measurement_plan,
+    complete_measurement_plan,
+)
+from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_repository import CadMeasurementRepository
+from htdt.cad_measurements import measurement_record_for_revision
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
-from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
+from htdt.cad_search import (
+    build_cad_search_spec,
+    candidate_preview_document,
+    generate_cad_candidates,
+)
 from htdt.cad_search_models import CadSearchAxis
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_validation_campaign import (
+    CadValidationCampaign,
     CadValidationCampaignCandidate,
     CadValidationCampaignRepeatability,
     CadValidationCampaignSensitivity,
     CadValidationCampaignSeparation,
     CadValidationTargetResponse,
     build_validation_campaign,
+    build_validation_campaign_registration,
+    exact_campaign_registration,
 )
 from htdt.cad_validation_campaign_repository import CadValidationCampaignRepository
+
+
+CLAIMED_TIME = '2020-01-01T00:00:00+00:00'
+REGISTER_TIME = '2026-09-21T00:04:30+00:00'
 
 
 def _fixture(tmp_path):
@@ -36,6 +57,12 @@ def _fixture(tmp_path):
                 speaker_role='FL',
                 position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
                 size_m=Size3(x_m=0.2, y_m=0.2, z_m=0.4),
+            ),
+            SceneEntity(
+                entity_id='mlp',
+                kind='measurement_point',
+                name='MLP',
+                position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
             ),
         ),
     )
@@ -121,6 +148,56 @@ def _campaign(
     )
 
 
+def _applied_revision(scene_repository, source, candidate):
+    preview = candidate_preview_document(source.document, candidate)
+    return scene_repository.save(
+        preview,
+        parent_revision_id=source.revision_id,
+        allow_branch=True,
+    ).revision
+
+
+def _save_measurement(
+    measurement_repository,
+    revision,
+    measurement_id,
+    *,
+    provenance=None,
+    evidence_type='measured',
+    captured_at='2030-01-01T00:00:00+00:00',
+):
+    record = measurement_record_for_revision(
+        revision,
+        'mlp',
+        measurement_id=measurement_id,
+        evidence_type=evidence_type,
+        captured_at=captured_at,
+        source_kind='rew_api',
+        provenance=provenance,
+    )
+    raw = measurement_id.encode()
+    dataset = CadFrequencyResponseDataset(
+        dataset_id=f'dataset:{measurement_id}',
+        measurement_id=measurement_id,
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=(70.0, 71.0, 69.0, 70.0),
+        phase_status='absent',
+        source_sha256=sha256(raw).hexdigest(),
+        importer_version='test-1',
+    )
+    measurement_repository.save(
+        record,
+        dataset,
+        raw_filename=f'{measurement_id}.bin',
+        raw_bytes=raw,
+    )
+    return record
+
+
+def _candidate(page, candidate_id):
+    return next(item for item in page.candidates if item.candidate_id == candidate_id)
+
+
 def test_campaign_round_trip_preregisters_split_and_thresholds(tmp_path):
     (
         _scene,
@@ -133,7 +210,7 @@ def test_campaign_round_trip_preregisters_split_and_thresholds(tmp_path):
     ) = _fixture(tmp_path)
     campaign = _campaign(spec, page, candidate_ids)
 
-    repository.save(campaign)
+    registration = repository.save(campaign)
 
     assert repository.get(campaign.campaign_id) == campaign
     assert repository.find_by_sha(spec.search_spec_id, campaign.campaign_sha256) == campaign
@@ -143,6 +220,9 @@ def test_campaign_round_trip_preregisters_split_and_thresholds(tmp_path):
         'holdout',
         'calibration',
     ]
+    assert registration.campaign_id == campaign.campaign_id
+    assert registration.campaign_sha256 == campaign.campaign_sha256
+    assert repository.get_registration(campaign.campaign_id) == registration
 
 
 
@@ -245,9 +325,253 @@ def test_campaign_rejects_candidate_outside_exact_search_set(tmp_path):
         repository.save(campaign)
 
 
-def test_campaign_cannot_be_registered_after_candidate_plan_is_measured(tmp_path, monkeypatch):
+def test_campaign_cannot_be_registered_after_candidate_plan_is_measured(tmp_path):
+    (
+        scene_repository,
+        search_repository,
+        measurement_repository,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    source = scene_repository.get(spec.scene_revision_id)
+    applied = _applied_revision(
+        scene_repository,
+        source,
+        _candidate(page, candidate_ids[2]),
+    )
+    plan = build_measurement_plan(
+        scene_repository,
+        search_repository,
+        search_spec_id=spec.search_spec_id,
+        candidate_id=candidate_ids[2],
+        applied_scene_revision_id=applied.revision_id,
+    )
+    measurement_repository.save_measurement_plan(plan)
+    _save_measurement(measurement_repository, applied, 'measurement:early')
+    completed = complete_measurement_plan(
+        plan,
+        measurement_repository,
+        ('measurement:early',),
+    )
+    measurement_repository.save_measurement_plan(completed)
+
+    campaign = _campaign(spec, page, candidate_ids)
+
+    with pytest.raises(ValueError, match='qualifying measurement evidence'):
+        repository.save(campaign)
+    assert repository.get(campaign.campaign_id) is None
+    assert repository.get_registration(campaign.campaign_id) is None
+
+
+def test_campaign_commit_time_is_repository_attested_not_caller_supplied(
+    tmp_path,
+    monkeypatch,
+):
     (
         _scene,
+        _search,
+        _measurement,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    # The caller backdates the claimed preregistration time arbitrarily.
+    monkeypatch.setattr(campaign_module, '_utc_now', lambda: CLAIMED_TIME)
+    monkeypatch.setattr(
+        campaign_repository_module,
+        '_utc_now',
+        lambda: REGISTER_TIME,
+    )
+    campaign = _campaign(spec, page, candidate_ids)
+    assert campaign.created_at_utc == CLAIMED_TIME
+
+    registration = repository.save(campaign)
+
+    assert registration.campaign_id == campaign.campaign_id
+    assert registration.campaign_sha256 == campaign.campaign_sha256
+    assert registration.registered_at_utc == REGISTER_TIME
+    assert registration.registered_at_utc != campaign.created_at_utc
+    assert repository.get_registration(campaign.campaign_id) == registration
+    # The caller claim stays hashed campaign metadata; the durable commit
+    # timestamp did not move.
+    persisted = repository.get(campaign.campaign_id)
+    assert persisted.created_at_utc == CLAIMED_TIME
+
+
+def test_campaign_commit_time_is_not_rewriteable_by_resave(tmp_path, monkeypatch):
+    (
+        _scene,
+        _search,
+        _measurement,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    monkeypatch.setattr(campaign_module, '_utc_now', lambda: CLAIMED_TIME)
+    monkeypatch.setattr(
+        campaign_repository_module,
+        '_utc_now',
+        lambda: REGISTER_TIME,
+    )
+    campaign = _campaign(spec, page, candidate_ids)
+    registration = repository.save(campaign)
+
+    monkeypatch.setattr(
+        campaign_repository_module,
+        '_utc_now',
+        lambda: '2030-06-01T00:00:00+00:00',
+    )
+    assert repository.save(campaign) == registration
+    assert registration.registered_at_utc == REGISTER_TIME
+
+
+def test_campaign_timestamp_change_invalidates_registration_identity(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _scene,
+        _search,
+        _measurement,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    monkeypatch.setattr(campaign_module, '_utc_now', lambda: CLAIMED_TIME)
+    campaign = _campaign(spec, page, candidate_ids)
+    registration = repository.save(campaign)
+
+    # A campaign identical except for the claimed timestamp is a different
+    # campaign identity.
+    monkeypatch.setattr(
+        campaign_module,
+        '_utc_now',
+        lambda: '2020-01-01T00:00:01+00:00',
+    )
+    retimed = _campaign(spec, page, candidate_ids)
+    assert retimed.campaign_sha256 != campaign.campaign_sha256
+    assert {
+        key: value
+        for key, value in retimed.model_dump(mode='python').items()
+        if key not in {'campaign_id', 'created_at_utc', 'campaign_sha256'}
+    } == {
+        key: value
+        for key, value in campaign.model_dump(mode='python').items()
+        if key not in {'campaign_id', 'created_at_utc', 'campaign_sha256'}
+    }
+    with pytest.raises(ValueError, match='registration authority mismatch'):
+        exact_campaign_registration(retimed, registration)
+
+    # Tampering with only the timestamp cannot keep the original identity.
+    tampered = campaign.model_copy(
+        update={'created_at_utc': '2020-06-01T00:00:00+00:00'}
+    )
+    with pytest.raises(ValueError, match='identity hash mismatch'):
+        CadValidationCampaign.model_validate(tampered.model_dump(mode='python'))
+    foreign = build_validation_campaign_registration(
+        campaign=retimed,
+        registered_at_utc=REGISTER_TIME,
+    )
+    with pytest.raises(ValueError, match='registration authority mismatch'):
+        exact_campaign_registration(campaign, foreign)
+
+
+def test_campaign_claimed_preregistration_cannot_postdate_commit(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        _scene,
+        _search,
+        _measurement,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    # A campaign built before the commit cannot claim a preregistration
+    # timestamp later than the durable registration time.
+    monkeypatch.setattr(
+        campaign_module,
+        '_utc_now',
+        lambda: '2030-01-01T00:00:00+00:00',
+    )
+    campaign = _campaign(spec, page, candidate_ids)
+
+    with pytest.raises(ValueError, match='cannot postdate durable registration'):
+        repository.save(campaign)
+    assert repository.get(campaign.campaign_id) is None
+
+
+def test_campaign_registration_rejects_naive_and_malformed_timestamps(tmp_path):
+    (
+        _scene,
+        _search,
+        _measurement,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    campaign = _campaign(spec, page, candidate_ids)
+
+    naive = campaign.model_copy(
+        update={'created_at_utc': '2020-01-01T00:00:00'}
+    )
+    with pytest.raises(ValueError, match='timezone-aware'):
+        repository.save(naive)
+
+    malformed = campaign.model_copy(
+        update={'created_at_utc': 'not-a-timestamp'}
+    )
+    with pytest.raises(ValueError, match='ISO-8601'):
+        repository.save(malformed)
+
+
+def test_raw_candidate_evidence_blocks_registration_before_plan_completion(
+    tmp_path,
+):
+    (
+        scene_repository,
+        search_repository,
+        measurement_repository,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    source = scene_repository.get(spec.scene_revision_id)
+    applied = _applied_revision(
+        scene_repository,
+        source,
+        _candidate(page, candidate_ids[1]),
+    )
+    plan = build_measurement_plan(
+        scene_repository,
+        search_repository,
+        search_spec_id=spec.search_spec_id,
+        candidate_id=candidate_ids[1],
+        applied_scene_revision_id=applied.revision_id,
+    )
+    measurement_repository.save_measurement_plan(plan)
+    # Raw measured evidence already exists under the candidate's applied
+    # revision even though the plan was never marked measured.
+    _save_measurement(measurement_repository, applied, 'measurement:raw')
+
+    campaign = _campaign(spec, page, candidate_ids)
+
+    with pytest.raises(ValueError, match='qualifying measurement evidence'):
+        repository.save(campaign)
+
+
+def test_measurement_claiming_campaign_provenance_blocks_registration(tmp_path):
+    (
+        scene_repository,
         _search,
         measurement_repository,
         repository,
@@ -256,17 +580,121 @@ def test_campaign_cannot_be_registered_after_candidate_plan_is_measured(tmp_path
         candidate_ids,
     ) = _fixture(tmp_path)
     campaign = _campaign(spec, page, candidate_ids)
-    measured_plan = SimpleNamespace(
-        status='measured',
-        candidate_id=candidate_ids[0],
-    )
-    monkeypatch.setattr(
+    # A measurement imported with owned-room provenance already naming this
+    # campaign is qualifying evidence and must block late registration.
+    source = scene_repository.get(spec.scene_revision_id)
+    _save_measurement(
         measurement_repository,
-        'latest_measurement_plans',
-        lambda _search_spec_id: (measured_plan,),
+        source,
+        'measurement:claims-campaign',
+        provenance={
+            'validation_scope': 'owned_room',
+            'validation_campaign_id': campaign.campaign_id,
+        },
     )
 
-    with pytest.raises(ValueError, match='preregistered before candidate measurement'):
+    with pytest.raises(ValueError, match='qualifying measurement evidence'):
+        repository.save(campaign)
+
+
+def test_unrelated_measurement_does_not_block_campaign_registration(tmp_path):
+    (
+        scene_repository,
+        _search,
+        measurement_repository,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    source = scene_repository.get(spec.scene_revision_id)
+    # Measured evidence on the source revision without campaign provenance is
+    # not candidate-linked qualifying evidence for this campaign.
+    _save_measurement(
+        measurement_repository,
+        source,
+        'measurement:unrelated',
+    )
+    campaign = _campaign(spec, page, candidate_ids)
+
+    registration = repository.save(campaign)
+    assert repository.get_registration(campaign.campaign_id) == registration
+
+
+def test_campaign_built_before_measurement_is_rejected_when_saved_after(tmp_path):
+    (
+        scene_repository,
+        search_repository,
+        measurement_repository,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    # The campaign object is built first...
+    campaign = _campaign(spec, page, candidate_ids)
+    # ...but qualifying evidence commits before the campaign is registered.
+    source = scene_repository.get(spec.scene_revision_id)
+    applied = _applied_revision(
+        scene_repository,
+        source,
+        _candidate(page, candidate_ids[1]),
+    )
+    plan = build_measurement_plan(
+        scene_repository,
+        search_repository,
+        search_spec_id=spec.search_spec_id,
+        candidate_id=candidate_ids[1],
+        applied_scene_revision_id=applied.revision_id,
+    )
+    measurement_repository.save_measurement_plan(plan)
+    _save_measurement(measurement_repository, applied, 'measurement:raced')
+    measurement_repository.save_measurement_plan(
+        complete_measurement_plan(
+            plan,
+            measurement_repository,
+            ('measurement:raced',),
+        )
+    )
+
+    with pytest.raises(ValueError, match='qualifying measurement evidence'):
+        repository.save(campaign)
+
+
+def test_missing_registration_fails_closed(tmp_path):
+    (
+        _scene,
+        _search,
+        _measurement,
+        repository,
+        spec,
+        page,
+        candidate_ids,
+    ) = _fixture(tmp_path)
+    campaign = _campaign(spec, page, candidate_ids)
+    # Simulate a pre-authority row: campaign persisted with no registration.
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            '''INSERT INTO cad_validation_campaigns(
+                campaign_id, document_id, search_spec_id, model_id, model_version,
+                candidate_set_sha256, campaign_sha256, payload_json, created_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (
+                campaign.campaign_id,
+                campaign.document_id,
+                campaign.search_spec_id,
+                campaign.model_id,
+                campaign.model_version,
+                campaign.candidate_set_sha256,
+                campaign.campaign_sha256,
+                campaign.model_dump_json(),
+                campaign.created_at_utc,
+            ),
+        )
+
+    # No historical registration time is silently inferred.
+    assert repository.get_registration(campaign.campaign_id) is None
+    with pytest.raises(ValueError, match='registration authority missing/stale'):
         repository.save(campaign)
 
 

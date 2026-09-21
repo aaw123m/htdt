@@ -13,7 +13,11 @@ from .cad_measurement_quality import MeasurementCapabilityClaim
 from .cad_model_validation import CadModelValidationRecord
 from .cad_repository import SceneRevision
 from .cad_scene import Position3, scene_content_hash
-from .cad_validation_campaign import CadValidationCampaign
+from .cad_validation_campaign import (
+    CadValidationCampaign,
+    CadValidationCampaignRegistration,
+    exact_campaign_registration,
+)
 from .cad_validation_metrics import CadSensitivityCheck
 from .optimization_robustness import (
     RobustnessSpec,
@@ -445,6 +449,7 @@ def build_o90e_validation_case(
     nominal_revision: SceneRevision,
     perturbation_revision: SceneRevision,
     campaign: CadValidationCampaign,
+    campaign_registration: CadValidationCampaignRegistration,
     observable_id: str,
     receiver_entity_id: str,
     required_capability: MeasurementCapabilityClaim,
@@ -454,11 +459,17 @@ def build_o90e_validation_case(
     preregistered_at_utc: str,
     system_variant: O90ESystemVariantAuthorityRef | None = None,
 ) -> O90EValidationCase:
-    """Freeze a strict specialization of an existing O60 campaign before capture."""
+    """Freeze a strict specialization of an existing O60 campaign before capture.
 
+    The ordering gate uses the durable repository-attested
+    `campaign_registration.registered_at_utc`, never the caller-controlled
+    `campaign.created_at_utc`.
+    """
+
+    exact_campaign_registration(campaign, campaign_registration)
     preregistered_at = _aware_timestamp(preregistered_at_utc)
-    campaign_created_at = _aware_timestamp(campaign.created_at_utc)
-    if preregistered_at < campaign_created_at:
+    campaign_registered_at = _aware_timestamp(campaign_registration.registered_at_utc)
+    if preregistered_at < campaign_registered_at:
         raise ValueError('O90E case cannot predate its O60 preregistration campaign')
     axis = _axis_for_id(spec, axis_id)
     if not axis.parameter.endswith('_m'):

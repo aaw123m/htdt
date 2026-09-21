@@ -27,15 +27,29 @@ A campaign freezes:
 - candidates requiring repeated measurements and minimum repeat count;
 - candidate-separation pairs and repeatability reference candidate;
 - required applicability check codes;
-- creation timestamp and campaign identity SHA.
+- caller-claimed creation timestamp and campaign identity SHA.
 
 The repository regenerates the exact SearchSpec candidate set before saving and
 rejects unknown candidate ids or a changed candidate-set SHA.
 
-For every candidate in the campaign, a measured Measurement Plan must not
-already exist at campaign-save time. Planned-but-not-measured plans are allowed
-because they can be prepared before physical measurement. This prevents
-post-measurement split selection.
+The caller-claimed `created_at_utc` is campaign identity data only. Durable
+preregistration is attested by a `CadValidationCampaignRegistration` row the
+repository creates inside the same `BEGIN IMMEDIATE` write transaction as the
+campaign row, after proving that no qualifying candidate-linked measurement
+evidence already exists. Downstream capture-time and model-validation gates
+compare against `registered_at_utc` and the registration id/SHA, never the
+caller-supplied timestamp. A campaign row without a registration row fails
+closed; no historical registration time is silently inferred.
+
+For every candidate in the campaign, qualifying measured evidence must not
+already exist at campaign-commit time: no measured Measurement Plan for a
+campaign candidate, no measured capture under a candidate's applied scene
+revision, and no measurement already claiming the campaign through owned-room
+provenance. Planned-but-not-measured plans are allowed because they can be
+prepared before physical measurement. Because the evidence check and the
+insertion serialize inside one write transaction, a racing measurement
+completion versus campaign registration resolves deterministically: either the
+campaign commits first, or the registration fails.
 
 ## Readiness
 

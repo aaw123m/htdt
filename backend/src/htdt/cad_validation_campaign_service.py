@@ -23,7 +23,10 @@ from .cad_objectives import build_objective_evaluation
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_roomsim_results import roomsim_attempt_frequency_response
-from .cad_validation_campaign import CadValidationCampaign
+from .cad_validation_campaign import (
+    CadValidationCampaign,
+    CadValidationCampaignRegistration,
+)
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_metrics import CadApplicabilityCheck
 from .comparison import FrequencyResponse
@@ -165,10 +168,13 @@ class CadValidationCampaignService:
         self,
         campaign: CadValidationCampaign,
         plan,
+        registration: CadValidationCampaignRegistration,
     ):
-        campaign_time = _parse_aware_timestamp(campaign.created_at_utc)
+        campaign_time = _parse_aware_timestamp(registration.registered_at_utc)
         if campaign_time is None:
-            raise ValueError('campaign created_at_utc must be timezone-aware')
+            raise ValueError(
+                'campaign registration registered_at_utc must be timezone-aware'
+            )
         records = []
         reasons: list[str] = []
         for measurement_id in plan.measurement_ids:
@@ -253,6 +259,11 @@ class CadValidationCampaignService:
         campaign = self.campaign_repository.get(campaign_id)
         if campaign is None:
             raise KeyError(campaign_id)
+        registration = self.campaign_repository.get_registration(campaign_id)
+        if registration is None:
+            raise ValueError(
+                'validation campaign registration authority missing/stale'
+            )
         search_spec = self.validation_service.search_repository.get(
             campaign.search_spec_id
         )
@@ -296,7 +307,11 @@ class CadValidationCampaignService:
                     f'{assignment.candidate_id}: objective materialization requires '
                     'exactly one completed Measurement Plan'
                 )
-            records, reasons = self._validated_measurements(campaign, plans[0])
+            records, reasons = self._validated_measurements(
+                campaign,
+                plans[0],
+                registration,
+            )
             if reasons or not records:
                 detail = '; '.join(reasons) if reasons else 'measured evidence is missing'
                 raise ValueError(
@@ -366,6 +381,11 @@ class CadValidationCampaignService:
         campaign = self.campaign_repository.get(campaign_id)
         if campaign is None:
             raise KeyError(campaign_id)
+        registration = self.campaign_repository.get_registration(campaign_id)
+        if registration is None:
+            raise ValueError(
+                'validation campaign registration authority missing/stale'
+            )
 
         repeatability_required = {
             item.candidate_id: item
@@ -405,6 +425,7 @@ class CadValidationCampaignService:
                 records, measurement_reasons = self._validated_measurements(
                     campaign,
                     plan,
+                    registration,
                 )
                 reasons.extend(measurement_reasons)
                 measurement_ids = tuple(record.measurement_id for record in records)
@@ -502,6 +523,11 @@ class CadValidationCampaignService:
         campaign = self.campaign_repository.get(campaign_id)
         if campaign is None:
             raise KeyError(campaign_id)
+        registration = self.campaign_repository.get_registration(campaign_id)
+        if registration is None:
+            raise ValueError(
+                'validation campaign registration authority missing/stale'
+            )
         readiness = self.readiness(campaign_id)
         if not readiness.evidence_ready:
             reasons = list(readiness.missing_reasons)
@@ -596,6 +622,8 @@ class CadValidationCampaignService:
             candidate_set_sha256=campaign.candidate_set_sha256,
             campaign_id=campaign.campaign_id,
             campaign_sha256=campaign.campaign_sha256,
+            campaign_registration_id=registration.registration_id,
+            campaign_registration_sha256=registration.registration_sha256,
             model_id=campaign.model_id,
             model_version=campaign.model_version,
             evidence_scope='owned_room',

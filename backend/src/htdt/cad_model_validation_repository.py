@@ -356,6 +356,14 @@ class CadModelValidationRepository:
             raise ValueError('owned-room validation campaign does not exist')
         if campaign.campaign_sha256 != record.campaign_sha256:
             raise ValueError('owned-room validation campaign hash mismatch')
+        registration = campaign_repository.get_registration(record.campaign_id)
+        if registration is None:
+            raise ValueError('owned-room validation campaign registration is missing')
+        if (
+            record.campaign_registration_id != registration.registration_id
+            or record.campaign_registration_sha256 != registration.registration_sha256
+        ):
+            raise ValueError('owned-room validation campaign registration mismatch')
         if (
             campaign.document_id != record.document_id
             or campaign.search_spec_id != record.search_spec_id
@@ -509,9 +517,9 @@ class CadModelValidationRepository:
         if codes != set(campaign.required_applicability_codes):
             raise ValueError('campaign applicability checks do not match preregistration')
 
-        campaign_time = self._aware_timestamp(campaign.created_at_utc)
+        campaign_time = self._aware_timestamp(registration.registered_at_utc)
         if campaign_time is None:
-            raise ValueError('campaign timestamp must be timezone-aware')
+            raise ValueError('campaign registration timestamp must be timezone-aware')
         measurement_ids = {pair.measurement_id for pair in record.pairs}
         for check in record.repeatability_checks:
             measurement_ids.update(check.measurement_ids)

@@ -381,17 +381,25 @@ class ValidationControllerMixin:
             return
         try:
             readiness = self.campaign_service.readiness(campaign.campaign_id)
+            registration = self.campaign_repository.get_registration(
+                campaign.campaign_id
+            )
         except Exception as exc:
             label.setText(f'検証条件の準備状況を読み込めません · {exc}')
             return
         objective_text = ", ".join(
             _objective_label(value) for value in campaign.objective_ids
         )
+        registered_text = (
+            registration.registered_at_utc
+            if registration is not None
+            else '登録時刻なし'
+        )
         lines = [
             f'モデル {campaign.model_id} / {campaign.model_version}',
             f'帯域 {campaign.requested_band_hz[0]:g}–{campaign.requested_band_hz[1]:g} Hz · '
             f'指標 {objective_text}',
-            f'測定前に登録済み · {campaign.created_at_utc}',
+            f'測定前に登録済み · {registered_text}',
         ]
         for candidate_index, candidate in enumerate(readiness.candidates, start=1):
             state = '準備完了' if not candidate.missing_reasons else '不足'

@@ -252,6 +252,11 @@ class CadRobustnessValidationRepository:
         campaign = self.campaign_repository.get(o60_campaign_id)
         if campaign is None:
             raise ValueError('O90E preregistration requires an existing O60 campaign')
+        registration = self.campaign_repository.get_registration(o60_campaign_id)
+        if registration is None:
+            raise ValueError(
+                'O90E preregistration requires a durable O60 campaign registration'
+            )
 
         nominal_plan = self._latest_plan(
             search_spec_id=spec.search_spec_id,
@@ -293,6 +298,7 @@ class CadRobustnessValidationRepository:
             nominal_revision=nominal_revision,
             perturbation_revision=perturbation_revision,
             campaign=campaign,
+            campaign_registration=registration,
             observable_id=observable_id,
             receiver_entity_id=receiver_entity_id,
             required_capability=required_capability,
@@ -333,6 +339,9 @@ class CadRobustnessValidationRepository:
         campaign = self.campaign_repository.get(case.o60_campaign_id)
         if campaign is None or campaign.campaign_sha256 != case.o60_campaign_sha256:
             raise ValueError('O90E case O60 campaign binding mismatch')
+        registration = self.campaign_repository.get_registration(case.o60_campaign_id)
+        if registration is None:
+            raise ValueError('O90E case O60 campaign registration is missing')
 
         nominal_plan = self._plan_by_hash(
             search_spec_id=spec.search_spec_id,
@@ -373,6 +382,7 @@ class CadRobustnessValidationRepository:
             nominal_revision=nominal_revision,
             perturbation_revision=perturbation_revision,
             campaign=campaign,
+            campaign_registration=registration,
             observable_id=case.observable_id,
             receiver_entity_id=case.receiver_entity_id,
             required_capability=case.required_capability,
