@@ -4,7 +4,7 @@ from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Callable, Mapping, NamedTuple
+from typing import Any, Callable, Iterator, Mapping, NamedTuple
 
 from .cad_objective_authority import (
     DECLARED_ONLY_EVIDENCE_CLASSES,
@@ -21,8 +21,8 @@ from .cad_objective_models import (
     canonical_objective_json,
 )
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_search import generate_cad_candidates
-from .cad_search_models import CadCandidate, CadSearchSpec
+from .cad_search import iter_cad_candidate_pages
+from .cad_search_models import CadCandidate, CadCandidateSetPage, CadSearchSpec
 from .cad_search_repository import CadSearchRepository
 from .optimization_objectives import ObjectiveVector
 from .pareto import pareto_front
@@ -31,17 +31,17 @@ from .pareto import pareto_front
 class _CandidateSetScan:
     """Incremental replay memo for one SearchSpec's canonical candidate set.
 
-    Membership replay pages through ``generate_cad_candidates`` once per
+    Membership replay pages through ``iter_cad_candidate_pages`` once per
     SearchSpec; ``list_evaluations`` shares one scan across rows so a column
     of evaluations does not regenerate the set per row.
     """
 
-    __slots__ = ('candidate_set_sha256', 'members', 'next_offset', 'exhausted')
+    __slots__ = ('candidate_set_sha256', 'members', 'pages', 'exhausted')
 
-    def __init__(self) -> None:
+    def __init__(self, pages: Iterator[CadCandidateSetPage]) -> None:
         self.candidate_set_sha256: str | None = None
         self.members: dict[str, CadCandidate] = {}
-        self.next_offset = 0
+        self.pages = pages
         self.exhausted = False
 
 
@@ -241,7 +241,9 @@ class CadObjectiveRepository:
 
         scan = None if scans is None else scans.get(search_spec.search_spec_sha256)
         if scan is None:
-            scan = _CandidateSetScan()
+            scan = _CandidateSetScan(
+                iter_cad_candidate_pages(self.scene_repository, search_spec)
+            )
             if scans is not None:
                 scans[search_spec.search_spec_sha256] = scan
         candidate = scan.members.get(candidate_id)
@@ -249,27 +251,14 @@ class CadObjectiveRepository:
             assert scan.candidate_set_sha256 is not None
             return candidate, scan.candidate_set_sha256
 
-        page_limit = min(1000, search_spec.candidate_limit)
         while not scan.exhausted:
-            page = generate_cad_candidates(
-                self.scene_repository,
-                search_spec,
-                offset=scan.next_offset,
-                limit=page_limit,
-            )
-            if page.search_spec_sha256 != search_spec.search_spec_sha256:
-                raise ValueError('objective candidate replay lost SearchSpec authority')
-            if scan.candidate_set_sha256 is None:
-                scan.candidate_set_sha256 = page.candidate_set_sha256
-            elif page.candidate_set_sha256 != scan.candidate_set_sha256:
-                raise ValueError(
-                    'objective candidate-set identity changed between pages'
-                )
+            page = next(scan.pages, None)
+            if page is None:
+                scan.exhausted = True
+                break
+            scan.candidate_set_sha256 = page.candidate_set_sha256
             for item in page.candidates:
                 scan.members[item.candidate_id] = item
-            scan.next_offset = page.offset + len(page.candidates)
-            if not page.candidates or scan.next_offset >= page.feasible_candidate_count:
-                scan.exhausted = True
             candidate = scan.members.get(candidate_id)
             if candidate is not None:
                 return candidate, scan.candidate_set_sha256

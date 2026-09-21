@@ -25,7 +25,7 @@ from .cad_scene import (
 )
 from .cad_search import (
     candidate_preview_document,
-    generate_cad_candidates,
+    iter_cad_candidate_pages,
     search_spec_current_working,
 )
 from .cad_search_models import CadCandidate, CadSearchSpec
@@ -374,24 +374,14 @@ def _all_base_candidates(
     cancelled: Callable[[], bool] | None = None,
 ) -> tuple[CadCandidate, ...]:
     result: list[CadCandidate] = []
-    offset = 0
-    page_limit = min(500, base_spec.candidate_limit)
-    while True:
-        if cancelled is not None and cancelled():
-            raise RuntimeError('extended search generation cancelled')
-        page = generate_cad_candidates(
-            scene_repository,
-            base_spec,
-            offset=offset,
-            limit=page_limit,
-            cancelled=cancelled,
-        )
+    for page in iter_cad_candidate_pages(
+        scene_repository,
+        base_spec,
+        cancelled=cancelled,
+    ):
         if page.candidate_set_sha256 != expected_candidate_set_sha256:
             raise ValueError('extended search base candidate-set authority mismatch')
         result.extend(page.candidates)
-        offset += len(page.candidates)
-        if not page.candidates or offset >= page.feasible_candidate_count:
-            break
     if not result:
         raise ValueError('extended search base SearchSpec has no feasible candidates')
     return tuple(result)

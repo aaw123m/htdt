@@ -8,7 +8,7 @@ from .cad_adaptive_planner import (
 from .cad_adaptive_repository import CadAdaptivePlanRepository
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_objective_repository import CadObjectiveRepository
-from .cad_search import generate_cad_candidates
+from .cad_search import iter_cad_candidate_pages
 from .cad_search_repository import CadSearchRepository
 
 
@@ -78,25 +78,16 @@ class CadAdaptivePlannerService:
             raise ValueError('adaptive planner has no candidate evidence')
 
         candidate_map = {}
-        offset = 0
-        page_limit = min(1000, spec.candidate_limit)
         candidate_set_sha256 = None
-        while required_ids - set(candidate_map):
-            page = generate_cad_candidates(
-                self.search_repository.scene_repository,
-                spec,
-                offset=offset,
-                limit=page_limit,
-            )
-            if candidate_set_sha256 is None:
-                candidate_set_sha256 = page.candidate_set_sha256
-            elif page.candidate_set_sha256 != candidate_set_sha256:
-                raise ValueError('adaptive candidate-set identity changed between pages')
+        for page in iter_cad_candidate_pages(
+            self.search_repository.scene_repository,
+            spec,
+        ):
+            candidate_set_sha256 = page.candidate_set_sha256
             for candidate in page.candidates:
                 if candidate.candidate_id in required_ids:
                     candidate_map[candidate.candidate_id] = candidate
-            offset += len(page.candidates)
-            if not page.candidates or offset >= page.feasible_candidate_count:
+            if not required_ids - set(candidate_map):
                 break
 
         missing = required_ids - set(candidate_map)

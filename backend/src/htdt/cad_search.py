@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Iterator
 
 from .cad_constraint_models import CadConstraintSet
 from .cad_constraints import build_g10_constraint_request, scene_to_g10_context
@@ -20,7 +20,13 @@ from .cad_search_models import (
     search_timestamp_utc,
 )
 from .placement_constraints import validate_constraint_set_for_context
-from .search_space import GridAxis, SearchSpecCreate, generate_search_space, validate_search_spec
+from .search_space import (
+    MAX_SEARCH_PAGE_SIZE,
+    GridAxis,
+    SearchSpecCreate,
+    generate_search_space,
+    validate_search_spec,
+)
 
 
 def _constraint_engine_spec(
@@ -157,6 +163,51 @@ def generate_cad_candidates(
         limit=raw['limit'],
         candidates=candidates,
     )
+
+
+def iter_cad_candidate_pages(
+    scene_repository: SceneRepository,
+    spec: CadSearchSpec,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+) -> Iterator[CadCandidateSetPage]:
+    """Yield every page of one SearchSpec's canonical feasible candidate set.
+
+    ``generate_search_space`` never returns more than ``MAX_SEARCH_PAGE_SIZE``
+    candidates per call, so native authorities that must resolve the full set
+    paginate deterministically at ``min(MAX_SEARCH_PAGE_SIZE,
+    spec.candidate_limit)`` instead of choosing an unbounded page size that
+    breaches the generator contract.
+
+    Every yielded page is re-anchored to the same ``search_spec_sha256`` and
+    ``candidate_set_sha256``; if the regenerated set identity drifts between
+    pages the replay fails closed rather than mixing two enumerations. No
+    candidate is skipped or duplicated at page boundaries: offsets advance by
+    exactly the number of candidates each page returned, so the concatenation
+    of yielded pages equals the canonical feasible enumeration.
+    """
+
+    page_limit = min(MAX_SEARCH_PAGE_SIZE, spec.candidate_limit)
+    offset = 0
+    candidate_set_sha256: str | None = None
+    while True:
+        page = generate_cad_candidates(
+            scene_repository,
+            spec,
+            offset=offset,
+            limit=page_limit,
+            cancelled=cancelled,
+        )
+        if page.search_spec_sha256 != spec.search_spec_sha256:
+            raise ValueError('candidate page lost SearchSpec authority')
+        if candidate_set_sha256 is None:
+            candidate_set_sha256 = page.candidate_set_sha256
+        elif page.candidate_set_sha256 != candidate_set_sha256:
+            raise ValueError('candidate-set identity changed between pages')
+        yield page
+        offset += len(page.candidates)
+        if not page.candidates or offset >= page.feasible_candidate_count:
+            return
 
 
 def search_spec_current(

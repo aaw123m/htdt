@@ -14,6 +14,11 @@ from .placement_constraints import PlacementEvaluationRequest, evaluate_constrai
 
 SEARCH_SPACE_ALGORITHM_VERSION = 'search-space-grid-1'
 SYSTEM_MAX_RAW_CANDIDATES = 50_000
+# Single authority for the generation-page contract: one generate call never
+# returns more than this many candidates, so full-set consumers paginate at
+# min(MAX_SEARCH_PAGE_SIZE, candidate_limit) rather than assuming an unbounded
+# page.
+MAX_SEARCH_PAGE_SIZE = 500
 _AXES = ('x', 'y', 'z')
 
 
@@ -290,7 +295,7 @@ def generate_search_space(
 ) -> dict[str, Any]:
     if offset < 0:
         raise ValueError('offset must be >= 0')
-    if limit < 1 or limit > 500:
+    if limit < 1 or limit > MAX_SEARCH_PAGE_SIZE:
         raise ValueError('limit must be between 1 and 500')
     spec = StoredSearchSpec.model_validate(raw_search_spec)
     if spec.constraint_set_spec_sha256 != constraint_set_spec_sha256:

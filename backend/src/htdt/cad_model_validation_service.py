@@ -10,7 +10,7 @@ from .cad_model_validation import CadModelValidationRecord, EvidenceScope, build
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_roomsim_results import roomsim_attempt_frequency_response
-from .cad_search import generate_cad_candidates
+from .cad_search import iter_cad_candidate_pages
 from .cad_search_repository import CadSearchRepository
 from .cad_validation_metrics import (
     CadApplicabilityCheck,
@@ -178,24 +178,20 @@ class CadModelValidationService:
     def _candidate_positions(self, spec, candidate_ids: set[str], candidate_set_sha256: str):
         remaining = set(candidate_ids)
         found = {}
-        offset = 0
-        page_limit = min(1000, spec.candidate_limit)
+        pages = iter_cad_candidate_pages(
+            self.search_repository.scene_repository,
+            spec,
+        )
         while remaining:
-            page = generate_cad_candidates(
-                self.search_repository.scene_repository,
-                spec,
-                offset=offset,
-                limit=page_limit,
-            )
+            page = next(pages, None)
+            if page is None:
+                break
             if page.candidate_set_sha256 != candidate_set_sha256:
                 raise ValueError('validation build candidate-set hash mismatch')
             for candidate in page.candidates:
                 if candidate.candidate_id in remaining:
                     found[candidate.candidate_id] = candidate.positions
                     remaining.remove(candidate.candidate_id)
-            offset += len(page.candidates)
-            if not page.candidates or offset >= page.feasible_candidate_count:
-                break
         if remaining:
             raise ValueError(f'validation build candidates not in SearchSpec: {sorted(remaining)}')
         return found
