@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QSignalBlocker, Qt, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -73,8 +73,8 @@ from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
+from .native_worker import WORKER_CANCELLED
 
-from .optimization_task import _SearchTask
 
 class ExtendedSearchControllerMixin:
     def _refresh_extended_entities(self) -> None:
@@ -605,24 +605,19 @@ class ExtendedSearchControllerMixin:
         key: str,
         operation: Callable[[Event], object],
     ) -> None:
-        thread = QThread(self)
-        worker = _SearchTask(key, operation)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.completed.connect(self._extended_task_completed)
-        worker.completed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        self._extended_tasks[key] = (thread, worker)
-        thread.start()
+        if self._disposed:
+            return
+        self._extended_pool.start(
+            key,
+            operation,
+            self._extended_task_completed,
+        )
 
     def cancel_extended_generation(self) -> None:
         key = self._current_extended_task_id
         if key is None:
             return
-        record = self._extended_tasks.get(key)
-        if record is not None:
-            record[1].cancel()
+        self._extended_pool.cancel(key)
         self.statusBar().showMessage(
             'Extended候補生成をキャンセルしています…'
         )
@@ -634,14 +629,17 @@ class ExtendedSearchControllerMixin:
         result: object,
         error: object,
     ) -> None:
+        if self._disposed:
+            return
         task_id = str(key)
         authority = self._extended_task_spec_ids.pop(task_id, None)
-        self._extended_tasks.pop(task_id, None)
+        # The pool keeps the task record until QThread.finished so the worker
+        # stays busy-visible during the completed -> finished interval.
         if self._current_extended_task_id == task_id:
             self._current_extended_task_id = None
         self._refresh_search_binding_state()
 
-        if error == 'cancelled':
+        if error == WORKER_CANCELLED:
             self.statusBar().showMessage(
                 'Extended候補生成をキャンセルしました'
             )

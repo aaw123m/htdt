@@ -73,7 +73,6 @@ from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
 
-from .optimization_task import _SearchTask
 
 class MeasurementPlanControllerMixin:
     def create_measurement_plan_for_selected_candidate(self) -> None:

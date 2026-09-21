@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pyqtgraph as pg
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -36,6 +37,7 @@ from .measurement_workflow import (
     PendingMeasurementImport,
     RewReadSource,
 )
+from .native_worker import WORKER_CANCELLED, NativeWorkerPool
 from .ui_theme import (
     DARK_THEME,
     SemanticState,
@@ -154,24 +156,6 @@ def _page(title: str, subtitle: str) -> tuple[QScrollArea, QWidget, QVBoxLayout]
     return scroll, host, layout
 
 
-class _CallThread(QThread):
-    succeeded = Signal(object)
-    failed = Signal(str)
-
-    def __init__(self, call: Callable[[], object], parent: QWidget) -> None:
-        super().__init__(parent)
-        self._call = call
-
-    def run(self) -> None:
-        try:
-            result = self._call()
-        except Exception as exc:
-            self.failed.emit(str(exc))
-            return
-        if not self.isInterruptionRequested():
-            self.succeeded.emit(result)
-
-
 class MeasurementPageWorkspace(QWidget):
     """UX130 document-like measurement workspace mounted directly by the shell."""
 
@@ -183,7 +167,11 @@ class MeasurementPageWorkspace(QWidget):
         super().__init__(parent)
         self.controller = controller
         self.current_context_id = "import"
-        self._jobs: set[_CallThread] = set()
+        self._job_pool = NativeWorkerPool(self)
+        self._job_handlers: dict[
+            str, tuple[Callable[[object], None], str]
+        ] = {}
+        self._disposed = False
         self._rew_rows: list[dict[str, Any]] = []
         self._quality_views: tuple[MeasurementView, ...] = ()
         self._last_comparison: CadMeasurementComparison | None = None
@@ -929,21 +917,30 @@ class MeasurementPageWorkspace(QWidget):
         on_success: Callable[[object], None],
         error_prefix: str,
     ) -> None:
-        job = _CallThread(call, self)
-        self._jobs.add(job)
-        job.succeeded.connect(on_success)
-        job.failed.connect(
-            lambda message: self._set_notice(
-                f"{error_prefix} · {message}",
-                SemanticState.ERROR,
-            )
+        if self._disposed:
+            return
+        key = uuid4().hex
+        self._job_handlers[key] = (on_success, error_prefix)
+        self._job_pool.start(
+            key,
+            lambda _cancel_event: call(),
+            self._job_completed,
         )
-        job.finished.connect(lambda job=job: self._finish_job(job))
-        job.start()
 
-    def _finish_job(self, job: _CallThread) -> None:
-        self._jobs.discard(job)
-        job.deleteLater()
+    @Slot(object, object, object)
+    def _job_completed(self, key: object, result: object, error: object) -> None:
+        handler = self._job_handlers.pop(str(key), None)
+        if handler is None or self._disposed:
+            return
+        on_success, error_prefix = handler
+        if error is not None:
+            if error != WORKER_CANCELLED:
+                self._set_notice(
+                    f"{error_prefix} · {error}",
+                    SemanticState.ERROR,
+                )
+            return
+        on_success(result)
 
     def _set_notice(
         self,
@@ -955,16 +952,19 @@ class MeasurementPageWorkspace(QWidget):
         set_semantic_state(self.notice, state)
 
     def before_deactivate(self) -> tuple[bool, str | None]:
-        if any(job.isRunning() for job in self._jobs):
+        if self._job_pool.active_count:
             return False, "REWの読み込み処理が完了してから画面を切り替えてください"
         return True, None
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        for job in tuple(self._jobs):
-            job.requestInterruption()
-        for job in tuple(self._jobs):
-            if job.isRunning():
-                job.wait(2000)
+        self._disposed = True
+        report = self._job_pool.shutdown()
+        self._job_handlers.clear()
+        if not report.all_stopped:
+            self._set_notice(
+                "バックグラウンド処理の停止が遅延しています · 遅延結果は適用しません",
+                None,
+            )
         super().closeEvent(event)
 
 

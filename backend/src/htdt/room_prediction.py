@@ -27,6 +27,7 @@ from .cad_predictions import analyze_native_rectangular_geometry
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import acoustic_reference_position, scene_content_hash
 from .cad_search_models import constraint_workspace_snapshot
+from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .room_workspace import RoomWorkspaceController
 from .ui_theme import (
     SemanticState,
@@ -54,38 +55,6 @@ class RoomPredictionRunState:
     busy: bool
     message: str
     error: bool = False
-
-
-class _PredictionWorker(QObject):
-    completed = Signal(object, object, object)
-
-    def __init__(
-        self,
-        spec: RoomPredictionRunSpec,
-        operation: Callable[[RoomPredictionRunSpec, Event], tuple[CadPredictionResult, ...] | None],
-    ) -> None:
-        super().__init__()
-        self.spec = spec
-        self.operation = operation
-        self.cancel_event = Event()
-
-    def cancel(self) -> None:
-        self.cancel_event.set()
-
-    @Slot()
-    def run(self) -> None:
-        if self.cancel_event.is_set():
-            self.completed.emit(self.spec.token.job_id, None, "cancelled")
-            return
-        try:
-            result = self.operation(self.spec, self.cancel_event)
-        except Exception as exc:
-            self.completed.emit(self.spec.token.job_id, None, str(exc))
-            return
-        if self.cancel_event.is_set():
-            self.completed.emit(self.spec.token.job_id, None, "cancelled")
-        else:
-            self.completed.emit(self.spec.token.job_id, result, None)
 
 
 class RoomPredictionController(QObject):
@@ -120,14 +89,20 @@ class RoomPredictionController(QObject):
         self._operation = operation or self._analyze
         self._tokens: dict[str, PredictionJobToken] = {}
         self._specs: dict[str, RoomPredictionRunSpec] = {}
-        self._tasks: dict[str, tuple[QThread, _PredictionWorker]] = {}
+        self._pool = NativeWorkerPool(self)
         self._completion_states: dict[str, RoomPredictionRunState] = {}
         self._current_job_id: str | None = None
         self._selected_run_id: str | None = None
+        self._disposed = False
+
+    @property
+    def _tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:
+        """Live worker records owned by ``self._pool`` (kept for tests)."""
+        return self._pool.tasks
 
     @property
     def active_worker_count(self) -> int:
-        return sum(1 for thread, _worker in self._tasks.values() if thread.isRunning())
+        return self._pool.active_count
 
     @property
     def is_busy(self) -> bool:
@@ -223,6 +198,8 @@ class RoomPredictionController(QObject):
         max_mode_hz: float = 300.0,
         sound_speed_m_s: float = 343.0,
     ) -> bool:
+        if self._disposed:
+            return False
         if self.is_busy:
             self.stateChanged.emit(RoomPredictionRunState(True, "予測を実行中です"))
             return False
@@ -238,22 +215,16 @@ class RoomPredictionController(QObject):
             )
             return False
 
-        thread = QThread(self)
-        worker = _PredictionWorker(spec, self._operation)
-        worker.moveToThread(thread)
-        thread.setProperty("predictionJobId", spec.token.job_id)
-        thread.started.connect(worker.run)
-        worker.completed.connect(self._task_completed)
-        worker.completed.connect(thread.quit)
-        thread.finished.connect(self._thread_finished)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
         self._tokens[spec.token.job_id] = spec.token
         self._specs[spec.token.job_id] = spec
-        self._tasks[spec.token.job_id] = (thread, worker)
         self._current_job_id = spec.token.job_id
         self.stateChanged.emit(RoomPredictionRunState(True, "予測を計算しています…"))
-        thread.start()
+        self._pool.start(
+            spec.token.job_id,
+            lambda cancel_event: self._operation(spec, cancel_event),
+            self._task_completed,
+            on_finished=self._task_thread_finished,
+        )
         return True
 
     def cancel(self) -> bool:
@@ -261,11 +232,9 @@ class RoomPredictionController(QObject):
         if job_id is None:
             return False
         token = self._tokens.get(job_id)
-        task = self._tasks.get(job_id)
         if token is not None:
             self.job_guard.cancel(token)
-        if task is not None:
-            task[1].cancel()
+        self._pool.cancel(job_id)
         self._current_job_id = None
         self.stateChanged.emit(
             RoomPredictionRunState(
@@ -327,6 +296,8 @@ class RoomPredictionController(QObject):
 
     @Slot(object, object, object)
     def _task_completed(self, key: object, result: object, error: object) -> None:
+        if self._disposed:
+            return
         job_id = str(key)
         token = self._tokens.pop(job_id, None)
         spec = self._specs.pop(job_id, None)
@@ -340,7 +311,7 @@ class RoomPredictionController(QObject):
             return
 
         final_state: RoomPredictionRunState
-        if self.job_guard.is_cancelled(token) or error == "cancelled":
+        if self.job_guard.is_cancelled(token) or error == WORKER_CANCELLED:
             final_state = RoomPredictionRunState(False, "予測はキャンセルされました")
         elif error is not None:
             final_state = RoomPredictionRunState(
@@ -384,16 +355,10 @@ class RoomPredictionController(QObject):
             RoomPredictionRunState(True, "予測処理を終了しています…")
         )
 
-    @Slot()
-    def _thread_finished(self) -> None:
-        thread = self.sender()
-        if not isinstance(thread, QThread):
+    def _task_thread_finished(self, job_id: str) -> None:
+        """Emit the stashed final state once the worker thread has stopped."""
+        if self._disposed:
             return
-        raw_job_id = thread.property("predictionJobId")
-        if raw_job_id is None:
-            return
-        job_id = str(raw_job_id)
-        self._tasks.pop(job_id, None)
         final_state = self._completion_states.pop(
             job_id,
             RoomPredictionRunState(False, "予測処理を終了しました"),
@@ -443,16 +408,19 @@ class RoomPredictionController(QObject):
         return True, None
 
     def dispose(self) -> None:
+        self._disposed = True
         for token in tuple(self._tokens.values()):
             self.job_guard.cancel(token)
-        for thread, worker in tuple(self._tasks.values()):
-            worker.cancel()
-            thread.requestInterruption()
-            thread.quit()
-            thread.wait(1800)
+        report = self._pool.shutdown()
+        if not report.all_stopped:
+            self.stateChanged.emit(
+                RoomPredictionRunState(
+                    False,
+                    "予測処理の停止が遅延しています · 遅延結果は保存・適用しません",
+                )
+            )
         self._tokens.clear()
         self._specs.clear()
-        self._tasks.clear()
         self._completion_states.clear()
         self._current_job_id = None
 

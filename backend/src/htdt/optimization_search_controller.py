@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QSignalBlocker, Qt, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -72,8 +72,8 @@ from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
+from .native_worker import WORKER_CANCELLED
 
-from .optimization_task import _SearchTask
 
 def candidate_cloud_points(
     page: CadCandidateSetPage,
@@ -470,35 +470,33 @@ class SearchControllerMixin:
         )
 
     def _start_search_task(self, key: str, operation: Callable[[Event], object]) -> None:
-        thread = QThread(self)
-        worker = _SearchTask(key, operation)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.completed.connect(self._search_task_completed)
-        worker.completed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        self._search_tasks[key] = (thread, worker)
-        thread.start()
+        if self._disposed:
+            return
+        self._search_pool.start(
+            key,
+            operation,
+            self._search_task_completed,
+        )
 
     def cancel_search_generation(self) -> None:
         key = self._current_search_task_id
         if key is None:
             return
-        record = self._search_tasks.get(key)
-        if record is not None:
-            record[1].cancel()
+        self._search_pool.cancel(key)
         self.statusBar().showMessage('候補生成をキャンセルしています…')
 
     @Slot(object, object, object)
     def _search_task_completed(self, key: object, result: object, error: object) -> None:
+        if self._disposed:
+            return
         task_id = str(key)
         spec_id = self._search_task_spec_ids.pop(task_id, None)
-        self._search_tasks.pop(task_id, None)
+        # The pool keeps the task record until QThread.finished so the worker
+        # stays busy-visible during the completed -> finished interval.
         if self._current_search_task_id == task_id:
             self._current_search_task_id = None
 
-        if error == 'cancelled':
+        if error == WORKER_CANCELLED:
             self.statusBar().showMessage('候補生成をキャンセルしました')
             self._refresh_search_binding_state()
             return
