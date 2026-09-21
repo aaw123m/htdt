@@ -133,7 +133,6 @@ class OptimizationWorkflowController(
 
         self.search_repository = CadSearchRepository(repository)
         self.objective_repository = CadObjectiveRepository(repository, self.search_repository)
-        self.robustness_repository = CadRobustnessRepository(repository.path)
         self.measurement_repository = CadMeasurementRepository(repository)
         self.roomsim_repository = CadRoomSimRepository(repository, self.search_repository)
         self.validation_repository = CadModelValidationRepository(
@@ -161,6 +160,12 @@ class OptimizationWorkflowController(
         self.extended_repository = CadExtendedSearchRepository(
             self.search_repository,
             self.validation_repository,
+        )
+        self.robustness_repository = CadRobustnessRepository(
+            scene_repository=repository,
+            search_repository=self.search_repository,
+            objective_repository=self.objective_repository,
+            extended_search_repository=self.extended_repository,
         )
         self.adaptive_extended_repository = CadAdaptiveExtendedRepository(
             self.extended_repository,

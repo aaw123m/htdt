@@ -24,6 +24,7 @@ from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_measurements import measurement_record_for_revision
 from htdt.cad_model_validation import build_full_model_validation
 from htdt.cad_objective_models import CadObjectiveInputRef
+from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_repository import SceneRepository
 from htdt.cad_robustness_repository import CadRobustnessRepository
@@ -530,7 +531,16 @@ def _fixture(tmp_path):
         software_version='test',
         created_at_utc='2030-01-01T00:00:00+00:00',
     )
-    robustness_repository = CadRobustnessRepository(scene_repository.path)
+    objective_repository = CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+    )
+    objective_repository.save_evaluation(objective)
+    robustness_repository = CadRobustnessRepository(
+        scene_repository=scene_repository,
+        search_repository=search_repository,
+        objective_repository=objective_repository,
+    )
     robustness_repository.save_spec(spec)
 
     model_validation_repository = _ModelValidationRepository(scene_repository.path)

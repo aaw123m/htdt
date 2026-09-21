@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from htdt.cad_constraint_models import CadConstraintSet
+from htdt.cad_extended_search_repository import CadExtendedSearchRepository
 from htdt.cad_objective_models import CadObjectiveInputRef
+from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_repository import SceneRepository
 from htdt.cad_robustness_repository import CadRobustnessRepository
@@ -17,6 +21,7 @@ from htdt.cad_scene import (
 )
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadCandidate, CadSearchAxis
+from htdt.cad_search_repository import CadSearchRepository
 from htdt.optimization_objectives import (
     ObjectiveDefinition,
     ObjectiveMetric,
@@ -25,9 +30,13 @@ from htdt.optimization_objectives import (
 )
 from htdt.optimization_robustness import (
     PerturbationObjectiveResult,
+    PerturbationSample,
+    RobustnessEvaluation,
+    RobustnessSpec,
     UncertaintyAxis,
     build_local_stencil,
     build_robustness_spec,
+    canonical_robustness_sha256,
     evaluate_local_robustness,
 )
 
@@ -60,6 +69,31 @@ def _scene() -> SceneDocument:
     )
 
 
+def _authorities(tmp_path) -> SimpleNamespace:
+    """Wire the exact native authorities O90 persistence now requires."""
+
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    search_repository = CadSearchRepository(scene_repository)
+    objective_repository = CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+    )
+    robustness_repository = CadRobustnessRepository(
+        scene_repository=scene_repository,
+        search_repository=search_repository,
+        objective_repository=objective_repository,
+        extended_search_repository=CadExtendedSearchRepository(
+            search_repository
+        ),
+    )
+    return SimpleNamespace(
+        scene_repository=scene_repository,
+        search_repository=search_repository,
+        objective_repository=objective_repository,
+        robustness_repository=robustness_repository,
+    )
+
+
 def _fixture(tmp_path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     revision = scene_repository.save(_scene(), parent_revision_id=None).revision
@@ -79,6 +113,8 @@ def _fixture(tmp_path):
         candidate_limit=10,
         name='O90A exact candidate',
     )
+    search_repository = CadSearchRepository(scene_repository)
+    search_repository.save(search_spec)
     page = generate_cad_candidates(scene_repository, search_spec)
     candidate = page.candidates[0]
     prediction_ref = f'prediction:{candidate.candidate_id}'
@@ -113,6 +149,11 @@ def _fixture(tmp_path):
             ),
         ),
     )
+    objective_repository = CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+    )
+    objective_repository.save_evaluation(nominal)
     axes = (
         UncertaintyAxis(
             axis_id='speaker-x',
@@ -309,7 +350,7 @@ def test_o90a_persistence_round_trips_exact_provenance(tmp_path) -> None:
         evaluator=evaluator,
         created_at_utc='2026-09-19T00:01:00+00:00',
     )
-    repository = CadRobustnessRepository(tmp_path / 'robust.sqlite3')
+    repository = _authorities(tmp_path).robustness_repository
     repository.save_spec(spec)
     repository.save_samples(samples)
     repository.save_evaluations(evaluations)
@@ -322,6 +363,455 @@ def test_o90a_persistence_round_trips_exact_provenance(tmp_path) -> None:
         scene_revision_id=spec.scene_revision_id,
         candidate_id=spec.candidate_id,
     ) == (spec,)
+
+
+def _reforged_spec(spec: RobustnessSpec, **updates) -> RobustnessSpec:
+    """Return a self-hash-consistent spec carrying tampered fields."""
+
+    forged = spec.model_copy(update=updates)
+    digest = canonical_robustness_sha256(forged.identity_payload())
+    return RobustnessSpec.model_validate(
+        forged.model_copy(
+            update={
+                'robustness_spec_sha256': digest,
+                'robustness_spec_id': f'rob-{digest[:24]}',
+            }
+        ).model_dump(mode='python')
+    )
+
+
+def _reforged_sample(
+    sample: PerturbationSample,
+    **updates,
+) -> PerturbationSample:
+    """Return a self-hash-consistent sample carrying tampered fields."""
+
+    forged = sample.model_copy(update=updates)
+    digest = canonical_robustness_sha256(forged.identity_payload())
+    return PerturbationSample.model_validate(
+        forged.model_copy(update={'sample_sha256': digest}).model_dump(
+            mode='python'
+        )
+    )
+
+
+def _reforged_evaluation(
+    evaluation: RobustnessEvaluation,
+    **updates,
+) -> RobustnessEvaluation:
+    """Return a self-hash-consistent evaluation carrying tampered fields."""
+
+    forged = evaluation.model_copy(update=updates)
+    digest = canonical_robustness_sha256(forged.identity_payload())
+    return RobustnessEvaluation.model_validate(
+        forged.model_copy(
+            update={
+                'evaluation_sha256': digest,
+                'evaluation_id': f're-{digest[:24]}',
+            }
+        ).model_dump(mode='python')
+    )
+
+
+def test_o90_repository_rejects_forged_spec_authority_bindings(tmp_path) -> None:
+    _revision, _constraints, _search_spec, _nominal, spec = _fixture(tmp_path)
+    repository = _authorities(tmp_path).robustness_repository
+
+    missing_revision = _reforged_spec(spec, scene_revision_id='rev:missing')
+    with pytest.raises(
+        ValueError, match='SceneRevision authority does not exist'
+    ):
+        repository.save_spec(missing_revision)
+
+    stale_hash = _reforged_spec(spec, scene_content_hash='0' * 64)
+    with pytest.raises(ValueError, match='SceneRevision authority mismatch'):
+        repository.save_spec(stale_hash)
+
+    missing_search = _reforged_spec(spec, search_spec_id='search:missing')
+    with pytest.raises(ValueError, match='SearchSpec authority does not exist'):
+        repository.save_spec(missing_search)
+
+    stale_search = _reforged_spec(spec, search_spec_sha256='0' * 64)
+    with pytest.raises(ValueError, match='SearchSpec authority mismatch'):
+        repository.save_spec(stale_search)
+
+    missing_objective = _reforged_spec(
+        spec,
+        nominal_objective_evaluation_id='evaluation:missing',
+    )
+    with pytest.raises(
+        ValueError, match='nominal O30 evaluation does not exist'
+    ):
+        repository.save_spec(missing_objective)
+
+    stale_objective = _reforged_spec(
+        spec,
+        nominal_objective_evaluation_sha256='0' * 64,
+    )
+    with pytest.raises(
+        ValueError, match='nominal O30 evaluation authority mismatch'
+    ):
+        repository.save_spec(stale_objective)
+
+    foreign_prediction = _reforged_spec(
+        spec,
+        nominal_prediction_result_ref='prediction:external-forgery',
+    )
+    with pytest.raises(ValueError, match='prediction ref'):
+        repository.save_spec(foreign_prediction)
+
+    # The honest spec still persists and reads back.
+    assert repository.save_spec(spec) == spec
+    assert repository.get_spec(spec.robustness_spec_id) == spec
+
+
+def test_o90_repository_rejects_spec_bound_to_foreign_search(tmp_path) -> None:
+    revision, constraints, _search_spec, _nominal, spec = _fixture(tmp_path)
+    authorities = _authorities(tmp_path)
+
+    changed_revision = authorities.scene_repository.save(
+        _scene().model_copy(
+            update={
+                'room': RoomPrism(width_m=7.0, depth_m=4.0, height_m=2.4),
+            }
+        ),
+        parent_revision_id=revision.revision_id,
+    ).revision
+    foreign_spec, _ = build_cad_search_spec(
+        changed_revision,
+        constraints,
+        (
+            CadSearchAxis(
+                entity_id='speaker-fl',
+                axis='x',
+                min_m=1.0,
+                max_m=1.0,
+                step_m=0.1,
+            ),
+        ),
+        candidate_limit=10,
+        name='foreign search',
+    )
+    authorities.search_repository.save(foreign_spec)
+
+    forged = _reforged_spec(
+        spec,
+        search_spec_id=foreign_spec.search_spec_id,
+        search_spec_sha256=foreign_spec.search_spec_sha256,
+    )
+    with pytest.raises(ValueError, match='SearchSpec authority mismatch'):
+        authorities.robustness_repository.save_spec(forged)
+
+
+def test_o90_repository_rejects_spec_candidate_set_forgery(tmp_path) -> None:
+    revision, _constraints, search_spec, nominal, spec = _fixture(tmp_path)
+    repository = _authorities(tmp_path).robustness_repository
+
+    wrong_set = _reforged_spec(spec, candidate_set_sha256='0' * 64)
+    with pytest.raises(ValueError, match='candidate-set authority mismatch'):
+        repository.save_spec(wrong_set)
+
+    candidate = CadCandidate.model_validate_json(spec.candidate_payload_json)
+    shifted = candidate.model_copy(update={'feasible_index': 1})
+    forged = build_robustness_spec(
+        source_revision=revision,
+        search_spec=search_spec,
+        candidate=shifted,
+        candidate_set_sha256=spec.candidate_set_sha256,
+        nominal_objective=nominal,
+        nominal_prediction_result_ref=spec.nominal_prediction_result_ref,
+        model_id=spec.model_id,
+        model_version=spec.model_version,
+        prediction_provider_id=spec.prediction_provider_id,
+        fidelity=spec.fidelity,
+        axes=spec.axes,
+        software_version=spec.software_version,
+        created_at_utc='2026-09-19T00:40:00+00:00',
+    )
+    with pytest.raises(
+        ValueError, match='not the persisted candidate-set member'
+    ):
+        repository.save_spec(forged)
+
+
+def test_o90_repository_derived_spec_requires_persisted_parent(tmp_path) -> None:
+    from htdt.optimization_robustness_multidimensional import (
+        derive_multidimensional_robustness_spec,
+    )
+
+    _revision, _constraints, _search_spec, _nominal, base_spec = _fixture(
+        tmp_path
+    )
+    derived = derive_multidimensional_robustness_spec(
+        base_spec,
+        sample_count=5,
+        seed=21,
+        created_at_utc='2026-09-19T00:41:00+00:00',
+    )
+    repository = _authorities(tmp_path).robustness_repository
+
+    with pytest.raises(ValueError, match='persisted local parent'):
+        repository.save_spec(derived)
+
+    repository.save_spec(base_spec)
+    forged_parent = _reforged_spec(
+        derived,
+        parent_robustness_spec_sha256='0' * 64,
+    )
+    with pytest.raises(ValueError, match='parent hash mismatch'):
+        repository.save_spec(forged_parent)
+
+    assert repository.save_spec(derived) == derived
+    assert repository.get_spec(derived.robustness_spec_id) == derived
+    assert repository.list_specs_for_candidate(
+        document_id=derived.document_id,
+        scene_revision_id=derived.scene_revision_id,
+        candidate_id=derived.candidate_id,
+    ) == (base_spec, derived)
+
+
+def test_o90_repository_rejects_forged_and_off_schedule_samples(
+    tmp_path,
+) -> None:
+    revision, constraints, search_spec, nominal, spec = _fixture(tmp_path)
+    samples, _evaluations = evaluate_local_robustness(
+        source_revision=revision,
+        search_spec=search_spec,
+        spec=spec,
+        constraint_set=constraints,
+        nominal_objective=nominal,
+        evaluator=_o90b_linear_evaluator,
+        created_at_utc='2026-09-19T00:42:00+00:00',
+    )
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(spec)
+
+    target = samples[1]
+    assert target.step == 'minus'
+    assert target.axis_id is not None
+    off_schedule = _reforged_sample(
+        target,
+        step='plus',
+        parameter_deltas={
+            target.axis_id: -float(target.parameter_deltas[target.axis_id]),
+        },
+    )
+    with pytest.raises(ValueError, match='deterministic sampling plan'):
+        repository.save_sample(off_schedule)
+
+    fabricated_index = _reforged_sample(target, sample_index=99)
+    with pytest.raises(ValueError, match='deterministic sampling plan'):
+        repository.save_sample(fabricated_index)
+
+    tampered_hash = _reforged_sample(
+        target,
+        perturbed_scene_content_hash='0' * 64,
+    )
+    with pytest.raises(ValueError, match='deterministic scene evidence'):
+        repository.save_sample(tampered_hash)
+
+    flipped = _reforged_sample(
+        target,
+        feasible=False,
+        objective_vector=None,
+        prediction_result_ref=None,
+        failure_reason='hard_constraint_violation',
+    )
+    with pytest.raises(ValueError, match='deterministic scene evidence'):
+        repository.save_sample(flipped)
+
+    tampered_nominal = _reforged_sample(
+        samples[0],
+        prediction_result_ref='prediction:forged',
+    )
+    with pytest.raises(ValueError, match='nominal evidence ref'):
+        repository.save_sample(tampered_nominal)
+
+    repository.save_samples(samples)
+    assert repository.list_samples(spec.robustness_spec_id) == samples
+
+
+def test_o90_repository_rejects_evaluation_not_derived_from_evidence(
+    tmp_path,
+) -> None:
+    revision, constraints, search_spec, nominal, spec = _fixture(tmp_path)
+    samples, evaluations = evaluate_local_robustness(
+        source_revision=revision,
+        search_spec=search_spec,
+        spec=spec,
+        constraint_set=constraints,
+        nominal_objective=nominal,
+        evaluator=_o90b_linear_evaluator,
+        created_at_utc='2026-09-19T00:43:00+00:00',
+    )
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(spec)
+
+    repository.save_samples(samples[:2])
+    with pytest.raises(ValueError, match='deterministic local stencil'):
+        repository.save_evaluation(evaluations[0])
+
+    repository.save_samples(samples[2:])
+    forged = _reforged_evaluation(
+        evaluations[0],
+        sampled_worst_value=evaluations[0].sampled_worst_value + 0.5,
+    )
+    with pytest.raises(ValueError, match='does not reproduce'):
+        repository.save_evaluation(forged)
+
+    repository.save_evaluations(evaluations)
+    assert repository.list_evaluations(spec.robustness_spec_id) == evaluations
+
+
+def test_o90_repository_reads_fail_closed_after_direct_sqlite_tamper(
+    tmp_path,
+) -> None:
+    import sqlite3
+
+    revision, constraints, search_spec, nominal, spec = _fixture(tmp_path)
+    samples, evaluations = evaluate_local_robustness(
+        source_revision=revision,
+        search_spec=search_spec,
+        spec=spec,
+        constraint_set=constraints,
+        nominal_objective=nominal,
+        evaluator=_o90b_linear_evaluator,
+        created_at_utc='2026-09-19T00:44:00+00:00',
+    )
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(spec)
+    repository.save_samples(samples)
+    repository.save_evaluations(evaluations)
+    db_path = tmp_path / 'cad.sqlite3'
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE cad_robustness_specs SET model_id='forged-model' "
+            'WHERE robustness_spec_id=?',
+            (spec.robustness_spec_id,),
+        )
+    with pytest.raises(ValueError, match='row disagrees with its payload'):
+        repository.get_spec(spec.robustness_spec_id)
+    with pytest.raises(ValueError, match='row disagrees with its payload'):
+        repository.list_specs_for_candidate(
+            document_id=spec.document_id,
+            scene_revision_id=spec.scene_revision_id,
+            candidate_id=spec.candidate_id,
+        )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            'UPDATE cad_robustness_specs SET model_id=? '
+            'WHERE robustness_spec_id=?',
+            (spec.model_id, spec.robustness_spec_id),
+        )
+    assert repository.get_spec(spec.robustness_spec_id) == spec
+
+    forged_sample = _reforged_sample(
+        samples[1],
+        feasible=False,
+        objective_vector=None,
+        prediction_result_ref=None,
+        failure_reason='hard_constraint_violation',
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            'UPDATE cad_perturbation_samples SET payload_json=?, '
+            'sample_sha256=?, feasible=? WHERE sample_id=?',
+            (
+                forged_sample.model_dump_json(),
+                forged_sample.sample_sha256,
+                int(forged_sample.feasible),
+                forged_sample.sample_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='deterministic scene evidence'):
+        repository.list_samples(spec.robustness_spec_id)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            'UPDATE cad_perturbation_samples SET payload_json=?, '
+            'sample_sha256=?, feasible=? WHERE sample_id=?',
+            (
+                samples[1].model_dump_json(),
+                samples[1].sample_sha256,
+                int(samples[1].feasible),
+                samples[1].sample_id,
+            ),
+        )
+    assert repository.list_samples(spec.robustness_spec_id) == samples
+
+    forged_evaluation = _reforged_evaluation(
+        evaluations[0],
+        nominal_value=evaluations[0].nominal_value + 5.0,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            'UPDATE cad_robustness_evaluations SET payload_json=?, '
+            'evaluation_sha256=?, evaluation_id=? WHERE evaluation_id=?',
+            (
+                forged_evaluation.model_dump_json(),
+                forged_evaluation.evaluation_sha256,
+                forged_evaluation.evaluation_id,
+                evaluations[0].evaluation_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='does not reproduce'):
+        repository.list_evaluations(spec.robustness_spec_id)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            'UPDATE cad_robustness_evaluations SET payload_json=?, '
+            'evaluation_sha256=?, evaluation_id=? WHERE evaluation_id=?',
+            (
+                evaluations[0].model_dump_json(),
+                evaluations[0].evaluation_sha256,
+                evaluations[0].evaluation_id,
+                forged_evaluation.evaluation_id,
+            ),
+        )
+        connection.execute(
+            'DELETE FROM cad_perturbation_samples WHERE sample_id=?',
+            (samples[1].sample_id,),
+        )
+    with pytest.raises(ValueError, match='do not match'):
+        repository.list_evaluations(spec.robustness_spec_id)
+
+
+def test_o90_repository_round_trips_uncertainty_evidence(tmp_path) -> None:
+    from htdt.optimization_robustness_uncertainty import (
+        derive_uncertainty_robustness_spec,
+        evaluate_uncertainty_robustness,
+    )
+
+    revision, constraints, search_spec, nominal, base_spec = _fixture(tmp_path)
+    spec = derive_uncertainty_robustness_spec(
+        base_spec,
+        uncertainty_model=_o90b_distribution_model(base_spec),
+        sample_count=5,
+        seed=31,
+        created_at_utc='2026-09-19T00:45:00+00:00',
+    )
+    result = evaluate_uncertainty_robustness(
+        source_revision=revision,
+        search_spec=search_spec,
+        spec=spec,
+        constraint_set=constraints,
+        nominal_objective=nominal,
+        evaluator=_o90b_linear_evaluator,
+        created_at_utc='2026-09-19T00:46:00+00:00',
+    )
+    assert result.status == 'completed'
+
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(base_spec)
+    repository.save_spec(spec)
+    repository.save_samples(result.samples)
+    repository.save_evaluations(result.evaluations)
+
+    assert repository.get_spec(spec.robustness_spec_id) == spec
+    assert repository.list_samples(spec.robustness_spec_id) == result.samples
+    assert (
+        repository.list_evaluations(spec.robustness_spec_id)
+        == result.evaluations
+    )
 
 
 def test_o90b_multidimensional_sampling_is_reproducible_and_linked(tmp_path) -> None:
@@ -385,7 +875,6 @@ def test_o90b_keeps_infeasible_samples_builds_envelope_and_round_trips(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from htdt.cad_robustness_repository import CadRobustnessRepository
     from htdt.cad_search_models import CadCandidate
     from htdt.optimization_objectives import ObjectiveMetric, ObjectiveVector
     from htdt.optimization_robustness import (
@@ -492,7 +981,8 @@ def test_o90b_keeps_infeasible_samples_builds_envelope_and_round_trips(
     assert evaluation.probability_semantics is None
     assert evaluation.sampling_provenance_sha256 is not None
 
-    repository = CadRobustnessRepository(tmp_path / 'o90b.sqlite3')
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(base_spec)
     repository.save_spec(spec)
     repository.save_samples(samples)
     repository.save_evaluations(evaluations)
@@ -855,7 +1345,8 @@ def test_o90b_cancel_cache_resume_and_stale_reuse_protection(tmp_path) -> None:
         seed=77,
         created_at_utc='2026-09-19T00:17:00+00:00',
     )
-    repository = CadRobustnessRepository(tmp_path / 'o90b-resume.sqlite3')
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(base_spec)
     cancel_calls = {'count': 0}
 
     def cancel_after_one_perturbation() -> bool:
@@ -957,7 +1448,8 @@ def test_o90b_bounded_cancel_resume_reuses_pr149_samples(tmp_path) -> None:
         seed=91,
         created_at_utc='2026-09-19T00:21:00+00:00',
     )
-    repository = CadRobustnessRepository(tmp_path / 'o90b-bounded-resume.sqlite3')
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(base_spec)
     cancel_calls = {'count': 0}
 
     def cancel_after_one_perturbation() -> bool:
@@ -1192,7 +1684,8 @@ def test_o90b_stale_constraint_resume_leaves_cached_evidence_immutable(tmp_path)
         seed=512,
         created_at_utc='2026-09-19T00:32:00+00:00',
     )
-    repository = CadRobustnessRepository(tmp_path / 'stale-resume.sqlite3')
+    repository = _authorities(tmp_path).robustness_repository
+    repository.save_spec(base_spec)
     cancel_calls = {'count': 0}
 
     def cancel_after_one_perturbation() -> bool:
@@ -1246,7 +1739,13 @@ def test_cad_robustness_repository_closes_every_connection_without_gc(
         evaluator=_o90b_linear_evaluator,
         created_at_utc='2026-09-19T00:35:00+00:00',
     )
-    db_path = tmp_path / 'close.sqlite3'
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    search_repository = CadSearchRepository(scene_repository)
+    objective_repository = CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+    )
+    extended_repository = CadExtendedSearchRepository(search_repository)
     real_connect = CadRobustnessRepository._connect
     opened = []
 
@@ -1256,7 +1755,12 @@ def test_cad_robustness_repository_closes_every_connection_without_gc(
         return connection
 
     monkeypatch.setattr(CadRobustnessRepository, '_connect', tracked_connect)
-    repository = CadRobustnessRepository(db_path)
+    repository = CadRobustnessRepository(
+        scene_repository=scene_repository,
+        search_repository=search_repository,
+        objective_repository=objective_repository,
+        extended_search_repository=extended_repository,
+    )
     repository.save_spec(spec)
     repository.save_samples(samples)
     repository.save_evaluations(evaluations)
@@ -1272,17 +1776,13 @@ def test_cad_robustness_repository_closes_every_connection_without_gc(
     conflicting = spec.model_copy(
         update={'robustness_spec_sha256': '0' * 64},
     )
-    with pytest.raises(ValueError, match='immutable identity conflict'):
+    with pytest.raises(ValueError, match='identity hash mismatch'):
         repository.save_spec(conflicting)
 
     assert opened
     for connection in opened:
         with pytest.raises(sqlite3.ProgrammingError, match='closed'):
             connection.execute('SELECT 1')
-
-    renamed = tmp_path / 'close-renamed.sqlite3'
-    db_path.rename(renamed)
-    renamed.unlink()
 
 
 @pytest.mark.parametrize('case', ('future', 'invalid_metadata', 'unrelated'))
@@ -1321,9 +1821,21 @@ def test_cad_robustness_repository_rejects_incompatible_native_db_without_mutati
             connection.execute('CREATE TABLE unrelated(value TEXT NOT NULL)')
             connection.execute("INSERT INTO unrelated VALUES ('keep')")
 
+    def construct() -> CadRobustnessRepository:
+        scene_repository = SceneRepository(path)
+        search_repository = CadSearchRepository(scene_repository)
+        return CadRobustnessRepository(
+            scene_repository=scene_repository,
+            search_repository=search_repository,
+            objective_repository=CadObjectiveRepository(
+                scene_repository,
+                search_repository,
+            ),
+        )
+
     before = path.read_bytes()
     with pytest.raises(NativeSchemaError):
-        CadRobustnessRepository(path)
+        construct()
     assert path.read_bytes() == before
 
 
@@ -1334,8 +1846,20 @@ def test_cad_robustness_repository_uses_native_schema_authority_for_new_and_lega
 
     from htdt.cad_schema import NATIVE_SCHEMA_VERSION, read_native_schema_version
 
+    def construct(db_path):
+        scene_repository = SceneRepository(db_path)
+        search_repository = CadSearchRepository(scene_repository)
+        return CadRobustnessRepository(
+            scene_repository=scene_repository,
+            search_repository=search_repository,
+            objective_repository=CadObjectiveRepository(
+                scene_repository,
+                search_repository,
+            ),
+        )
+
     new_path = tmp_path / 'new-robust.sqlite3'
-    CadRobustnessRepository(new_path)
+    construct(new_path)
     assert read_native_schema_version(new_path) == NATIVE_SCHEMA_VERSION
 
     legacy_path = tmp_path / 'legacy-robust.sqlite3'
@@ -1350,7 +1874,7 @@ def test_cad_robustness_repository_uses_native_schema_authority_for_new_and_lega
             "('doc-1', 1, '2026-09-17T00:00:00+00:00', 'preserve')"
         )
 
-    CadRobustnessRepository(legacy_path)
+    construct(legacy_path)
     assert read_native_schema_version(legacy_path) == NATIVE_SCHEMA_VERSION
     with sqlite3.connect(legacy_path) as connection:
         assert connection.execute(
@@ -1500,12 +2024,13 @@ def test_o90a_maximize_sampled_worst_uses_low_side_and_round_trips(tmp_path) -> 
     assert evaluation.objective_definition is not None
     assert evaluation.objective_definition.definition_id == definition.definition_id
 
-    repository_path = tmp_path / 'maximize-o90.sqlite3'
-    repository = CadRobustnessRepository(repository_path)
+    authorities = _authorities(tmp_path)
+    authorities.objective_repository.save_evaluation(nominal)
+    repository = authorities.robustness_repository
     repository.save_spec(spec)
     repository.save_samples(samples)
     repository.save_evaluations(evaluations)
-    reopened = CadRobustnessRepository(repository_path)
+    reopened = _authorities(tmp_path).robustness_repository
     assert reopened.get_spec(spec.robustness_spec_id) == spec
     assert reopened.list_samples(spec.robustness_spec_id) == samples
     assert reopened.list_evaluations(spec.robustness_spec_id) == evaluations
