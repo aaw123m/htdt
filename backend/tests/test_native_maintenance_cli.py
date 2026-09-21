@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from htdt.cad_document import WorkingDocument
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, make_f1_scene
@@ -77,6 +79,43 @@ def test_synthetic_demo_cli_runs_before_qapplication(tmp_path: Path, monkeypatch
         SYNTHETIC_DEMO_DOCUMENT_ID
     )
     assert seeded is not None
+
+
+def test_backup_cli_rejects_destination_overlapping_live_database(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _repository, _first = _seed(data_dir)
+    database = data_dir / 'cad-scenes.sqlite3'
+    before = database.read_bytes()
+
+    monkeypatch.setattr(native_cad, 'QApplication', _forbid_qapplication)
+    with pytest.raises(ValueError, match='overlaps the live native database'):
+        native_cad.main([
+            '--data-dir', str(data_dir),
+            '--backup', str(database),
+        ])
+
+    assert database.read_bytes() == before
+
+
+def test_backup_cli_rejects_destination_inside_measurement_assets(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _repository, _first = _seed(data_dir)
+    destination = data_dir / 'measurement-assets' / 'cli.htdt-backup'
+
+    monkeypatch.setattr(native_cad, 'QApplication', _forbid_qapplication)
+    with pytest.raises(ValueError, match='measurement-assets'):
+        native_cad.main([
+            '--data-dir', str(data_dir),
+            '--backup', str(destination),
+        ])
+
+    assert not destination.exists()
 
 
 def test_native_cli_rejects_data_dir_already_in_use(

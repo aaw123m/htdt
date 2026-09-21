@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import closing
 from hashlib import sha256
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
@@ -229,3 +231,141 @@ def test_backup_validation_rejects_excessive_expanded_size(
 
     with pytest.raises(ValueError, match='expanded size exceeds limit'):
         validate_backup(archive)
+
+
+def test_backup_rejects_destination_equal_to_live_database(tmp_path: Path):
+    data_dir = tmp_path / 'data'
+    _repository, _first, _digest, _raw = _seed_data(data_dir)
+    database = data_dir / 'cad-scenes.sqlite3'
+    before = database.read_bytes()
+    names_before = {entry.name for entry in data_dir.iterdir()}
+
+    with pytest.raises(ValueError, match='overlaps the live native database'):
+        create_backup(data_dir, database)
+
+    assert database.read_bytes() == before
+    assert {entry.name for entry in data_dir.iterdir()} == names_before
+
+
+def test_backup_rejects_destination_aliasing_live_database_via_dotdot(tmp_path: Path):
+    data_dir = tmp_path / 'data'
+    _repository, _first, _digest, _raw = _seed_data(data_dir)
+    database = data_dir / 'cad-scenes.sqlite3'
+    before = database.read_bytes()
+
+    alias = data_dir / 'exports' / '..' / 'cad-scenes.sqlite3'
+    with pytest.raises(ValueError, match='overlaps the live native database'):
+        create_backup(data_dir, alias)
+
+    assert database.read_bytes() == before
+    assert not (data_dir / 'exports').exists()
+
+
+def test_backup_rejects_destination_aliasing_database_through_symlinked_directory(
+    tmp_path: Path,
+):
+    data_dir = tmp_path / 'data'
+    _repository, _first, _digest, _raw = _seed_data(data_dir)
+    link = tmp_path / 'data-link'
+    try:
+        link.symlink_to(data_dir, target_is_directory=True)
+    except OSError:
+        pytest.skip('directory symlinks are not supported on this platform')
+    database = data_dir / 'cad-scenes.sqlite3'
+    before = database.read_bytes()
+
+    with pytest.raises(ValueError, match='overlaps the live native database'):
+        create_backup(data_dir, link / 'cad-scenes.sqlite3')
+
+    assert database.read_bytes() == before
+
+
+def test_backup_rejects_destination_aliasing_assets_through_windows_junction(
+    tmp_path: Path,
+):
+    if os.name != 'nt':
+        pytest.skip('junction aliasing is Windows-specific')
+
+    data_dir = tmp_path / 'data'
+    _repository, _first, digest, raw = _seed_data(data_dir)
+    junction = tmp_path / 'assets-junction'
+    result = subprocess.run(
+        ['cmd.exe', '/c', 'mklink', '/J', str(junction), str(data_dir)],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not junction.exists():
+        pytest.skip('directory junctions are not supported in this environment')
+    asset = data_dir / 'measurement-assets' / digest
+
+    with pytest.raises(ValueError, match='measurement-assets'):
+        create_backup(data_dir, junction / 'measurement-assets' / digest)
+
+    assert asset.read_bytes() == raw
+
+
+def test_backup_rejects_destination_overlapping_managed_measurement_asset(
+    tmp_path: Path,
+):
+    data_dir = tmp_path / 'data'
+    _repository, _first, digest, raw = _seed_data(data_dir)
+    asset = data_dir / 'measurement-assets' / digest
+
+    with pytest.raises(ValueError, match='measurement-assets'):
+        create_backup(data_dir, asset)
+
+    assert asset.read_bytes() == raw
+
+
+def test_backup_rejects_new_destination_inside_measurement_assets_subtree(
+    tmp_path: Path,
+):
+    data_dir = tmp_path / 'data'
+    _repository, _first, _digest, _raw = _seed_data(data_dir)
+    nested = data_dir / 'measurement-assets' / 'exports' / 'nested.htdt-backup'
+
+    with pytest.raises(ValueError, match='measurement-assets'):
+        create_backup(data_dir, nested)
+
+    assert not (data_dir / 'measurement-assets' / 'exports').exists()
+
+
+def test_backup_rejects_hardlink_alias_of_managed_measurement_asset(tmp_path: Path):
+    data_dir = tmp_path / 'data'
+    _repository, _first, digest, raw = _seed_data(data_dir)
+    asset = data_dir / 'measurement-assets' / digest
+    alias = tmp_path / f'{digest}.htdt-backup'
+    try:
+        os.link(asset, alias)
+    except OSError:
+        pytest.skip('hard links are not supported on this platform')
+
+    with pytest.raises(ValueError, match='managed measurement asset'):
+        create_backup(data_dir, alias)
+
+    assert asset.read_bytes() == raw
+    assert alias.read_bytes() == raw
+
+
+def test_backup_allows_destination_inside_data_dir_outside_managed_data(
+    tmp_path: Path,
+):
+    data_dir = tmp_path / 'data'
+    _repository, _first, digest, raw = _seed_data(data_dir)
+    archive = data_dir / 'exports' / 'nested.htdt-backup'
+
+    manifest = create_backup(data_dir, archive)
+
+    assert validate_backup(archive) == manifest
+    assert (data_dir / 'measurement-assets' / digest).read_bytes() == raw
+
+
+def test_backup_rejects_destination_that_is_an_existing_directory(tmp_path: Path):
+    data_dir = tmp_path / 'data'
+    _repository, _first, _digest, _raw = _seed_data(data_dir)
+    directory = tmp_path / 'existing-dir'
+    directory.mkdir()
+
+    with pytest.raises(ValueError, match='is a directory'):
+        create_backup(data_dir, directory)
+
+    assert not list(directory.iterdir())
