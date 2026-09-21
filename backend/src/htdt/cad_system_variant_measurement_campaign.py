@@ -855,7 +855,6 @@ def complete_system_variant_measurement_campaign(
     *,
     scene_repository: SceneRepository,
     lifecycle_repository: CadSystemVariantLifecycleRepository,
-    measured_lifecycle_repository: CadSystemVariantMeasuredLifecycleRepository,
     campaign: SystemVariantMeasurementCampaign,
     registration: SystemVariantMeasurementCampaignRegistration,
     plans: Sequence[SystemVariantMeasurementPlan],
@@ -869,6 +868,14 @@ def complete_system_variant_measurement_campaign(
     tuple[SystemVariantMeasurementPlanCompletion, ...],
     SystemVariantMeasuredRecord,
 ]:
+    """Validate evidence and build the campaign completion artifacts.
+
+    Pure composition: it resolves every authority and returns the campaign
+    completion, the exact plan completions and the measured lifecycle record
+    without persisting anything. Durable completion goes through
+    `CadSystemVariantMeasurementCampaignRepository.complete_campaign`, which
+    commits all three under one BEGIN IMMEDIATE transaction.
+    """
     as_built = lifecycle_repository.get(campaign.as_built_record_id)
     if as_built is None or (
         as_built.record_sha256 != campaign.as_built_record_sha256
@@ -928,7 +935,6 @@ def complete_system_variant_measurement_campaign(
         bound_at_utc=completed_at_utc,
         notes=notes,
     )
-    measured_lifecycle_repository.save(measured)
 
     ordered_completions = tuple(sorted(
         completions,
@@ -970,6 +976,15 @@ class CadSystemVariantMeasurementCampaignRepository:
     measured evidence for the preregistered targets already exists. Completion
     gates therefore use `registered_at_utc` from the persisted registration,
     never the caller-supplied `preregistered_at_utc` planning metadata.
+
+    `complete_campaign` is the durable completion authority: it re-resolves
+    the persisted campaign/registration/plan authorities and validates every
+    artifact before the shared write transaction begins, then commits every
+    plan completion, the campaign completion and the measured lifecycle
+    record under one BEGIN IMMEDIATE transaction. A failure at any point
+    leaves no partial completion state, so a SystemVariant can never be
+    durable as measured without the preregistered campaign's persisted
+    completion evidence (or the reverse).
     """
 
     def __init__(
@@ -1369,6 +1384,18 @@ class CadSystemVariantMeasurementCampaignRepository:
         self,
         completion: SystemVariantMeasurementPlanCompletion,
     ) -> SystemVariantMeasurementPlanCompletion:
+        completion = self._validate_plan_completion(completion)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            return self._save_plan_completion_in_transaction(
+                connection,
+                completion,
+            )
+
+    def _validate_plan_completion(
+        self,
+        completion: SystemVariantMeasurementPlanCompletion,
+    ) -> SystemVariantMeasurementPlanCompletion:
         completion = SystemVariantMeasurementPlanCompletion.model_validate(
             completion.model_dump(mode='python')
         )
@@ -1405,35 +1432,49 @@ class CadSystemVariantMeasurementCampaignRepository:
         )
         if rebuilt != completion:
             raise ValueError('plan completion does not reproduce exactly')
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT payload_json FROM cad_system_variant_measurement_plan_completions '
-                'WHERE completion_id=?',
-                (completion.completion_id,),
-            ).fetchone()
-            if row is not None:
-                persisted = SystemVariantMeasurementPlanCompletion.model_validate_json(
-                    row['payload_json']
-                )
-                if persisted != completion:
-                    raise ValueError('plan completion id has different semantics')
-                return persisted
-            connection.execute(
-                """
-                INSERT INTO cad_system_variant_measurement_plan_completions(
-                    completion_id, completion_sha256, plan_id, campaign_id,
-                    payload_json, recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    completion.completion_id,
-                    completion.completion_sha256,
-                    completion.plan_ref.plan_id,
-                    completion.campaign_id,
-                    completion.model_dump_json(),
-                    completion.completed_at_utc,
-                ),
+        return completion
+
+    def _save_plan_completion_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        completion: SystemVariantMeasurementPlanCompletion,
+    ) -> SystemVariantMeasurementPlanCompletion:
+        """Persist one validated plan completion inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK and must have validated the
+        completion first; persisted rows were validated on commit. Used by
+        save_plan_completion and by complete_campaign, which commits every
+        plan completion together with the campaign completion and the
+        measured lifecycle record under one shared BEGIN IMMEDIATE.
+        """
+        row = connection.execute(
+            'SELECT payload_json FROM cad_system_variant_measurement_plan_completions '
+            'WHERE completion_id=?',
+            (completion.completion_id,),
+        ).fetchone()
+        if row is not None:
+            persisted = SystemVariantMeasurementPlanCompletion.model_validate_json(
+                row['payload_json']
             )
+            if persisted != completion:
+                raise ValueError('plan completion id has different semantics')
+            return persisted
+        connection.execute(
+            """
+            INSERT INTO cad_system_variant_measurement_plan_completions(
+                completion_id, completion_sha256, plan_id, campaign_id,
+                payload_json, recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                completion.completion_id,
+                completion.completion_sha256,
+                completion.plan_ref.plan_id,
+                completion.campaign_id,
+                completion.model_dump_json(),
+                completion.completed_at_utc,
+            ),
+        )
         return completion
 
     def get_plan_completion(
@@ -1457,6 +1498,29 @@ class CadSystemVariantMeasurementCampaignRepository:
         self,
         completion: SystemVariantMeasurementCampaignCompletion,
     ) -> SystemVariantMeasurementCampaignCompletion:
+        completion = self._validate_campaign_completion(completion)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            return self._save_campaign_completion_in_transaction(
+                connection,
+                completion,
+            )
+
+    def _validate_campaign_completion(
+        self,
+        completion: SystemVariantMeasurementCampaignCompletion,
+        *,
+        measured: SystemVariantMeasuredRecord | None = None,
+        plan_completions: Sequence[
+            SystemVariantMeasurementPlanCompletion
+        ] | None = None,
+    ) -> SystemVariantMeasurementCampaignCompletion:
+        """Reproduce campaign completion validity from exact authorities.
+
+        `measured`/`plan_completions` default to the persisted authorities;
+        complete_campaign passes the just-validated in-memory artifacts so the
+        same checks hold before they are committed in the shared transaction.
+        """
         completion = SystemVariantMeasurementCampaignCompletion.model_validate(
             completion.model_dump(mode='python')
         )
@@ -1474,9 +1538,10 @@ class CadSystemVariantMeasurementCampaignRepository:
             != registration.registration_sha256
         ):
             raise ValueError('campaign completion registration authority mismatch')
-        measured = self.measured_lifecycle_repository.get(
-            completion.measured_record_id
-        )
+        if measured is None:
+            measured = self.measured_lifecycle_repository.get(
+                completion.measured_record_id
+            )
         if measured is None or measured.record_sha256 != completion.measured_record_sha256:
             raise ValueError('campaign completion measured lifecycle missing/stale')
         if (
@@ -1485,20 +1550,29 @@ class CadSystemVariantMeasurementCampaignRepository:
             or measured.variant_sha256 != campaign.variant_sha256
         ):
             raise ValueError('campaign completion measured lifecycle authority mismatch')
-        plan_completions = []
+        by_id = (
+            None
+            if plan_completions is None
+            else {item.completion_id: item for item in plan_completions}
+        )
+        resolved: list[SystemVariantMeasurementPlanCompletion] = []
         for completion_id, expected_hash in zip(
             completion.plan_completion_ids,
             completion.plan_completion_sha256,
             strict=True,
         ):
-            item = self.get_plan_completion(completion_id)
+            item = (
+                self.get_plan_completion(completion_id)
+                if by_id is None
+                else by_id.get(completion_id)
+            )
             if item is None or item.completion_sha256 != expected_hash:
                 raise ValueError('campaign completion plan completion missing/stale')
             if item.campaign_id != campaign.campaign_id:
                 raise ValueError('campaign completion plan belongs to another campaign')
-            plan_completions.append(item)
+            resolved.append(item)
         expected_plan_ids = {ref.plan_id for ref in campaign.plan_refs}
-        actual_plan_ids = {item.plan_ref.plan_id for item in plan_completions}
+        actual_plan_ids = {item.plan_ref.plan_id for item in resolved}
         if actual_plan_ids != expected_plan_ids:
             raise ValueError('campaign completion does not cover exact plan set')
 
@@ -1506,37 +1580,51 @@ class CadSystemVariantMeasurementCampaignRepository:
         digest = _digest(payload)
         if digest != completion.completion_sha256:
             raise ValueError('campaign completion failed exact reconstruction')
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT payload_json FROM cad_system_variant_measurement_campaign_completions '
-                'WHERE campaign_id=?',
-                (completion.campaign_id,),
-            ).fetchone()
-            if row is not None:
-                persisted = SystemVariantMeasurementCampaignCompletion.model_validate_json(
-                    row['payload_json']
-                )
-                if persisted != completion:
-                    raise ValueError(
-                        'campaign already has different immutable completion evidence'
-                    )
-                return persisted
-            connection.execute(
-                """
-                INSERT INTO cad_system_variant_measurement_campaign_completions(
-                    completion_id, completion_sha256, campaign_id,
-                    measured_record_id, payload_json, recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    completion.completion_id,
-                    completion.completion_sha256,
-                    completion.campaign_id,
-                    completion.measured_record_id,
-                    completion.model_dump_json(),
-                    completion.completed_at_utc,
-                ),
+        return completion
+
+    def _save_campaign_completion_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        completion: SystemVariantMeasurementCampaignCompletion,
+    ) -> SystemVariantMeasurementCampaignCompletion:
+        """Persist one validated campaign completion inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK and must have validated the
+        completion first; persisted rows were validated on commit. Used by
+        save_campaign_completion and by complete_campaign, which commits the
+        campaign completion together with every plan completion and the
+        measured lifecycle record under one shared BEGIN IMMEDIATE.
+        """
+        row = connection.execute(
+            'SELECT payload_json FROM cad_system_variant_measurement_campaign_completions '
+            'WHERE campaign_id=?',
+            (completion.campaign_id,),
+        ).fetchone()
+        if row is not None:
+            persisted = SystemVariantMeasurementCampaignCompletion.model_validate_json(
+                row['payload_json']
             )
+            if persisted != completion:
+                raise ValueError(
+                    'campaign already has different immutable completion evidence'
+                )
+            return persisted
+        connection.execute(
+            """
+            INSERT INTO cad_system_variant_measurement_campaign_completions(
+                completion_id, completion_sha256, campaign_id,
+                measured_record_id, payload_json, recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                completion.completion_id,
+                completion.completion_sha256,
+                completion.campaign_id,
+                completion.measured_record_id,
+                completion.model_dump_json(),
+                completion.completed_at_utc,
+            ),
+        )
         return completion
 
     def get_campaign_completion(
@@ -1555,3 +1643,82 @@ class CadSystemVariantMeasurementCampaignRepository:
             row['payload_json']
         )
         return self.save_campaign_completion(completion)
+
+    def complete_campaign(
+        self,
+        *,
+        campaign: SystemVariantMeasurementCampaign,
+        assignments_by_plan: dict[str, dict[str, Sequence[str]]],
+        completed_at_utc: str,
+        notes: Sequence[str] = (),
+    ) -> tuple[
+        SystemVariantMeasurementCampaignCompletion,
+        tuple[SystemVariantMeasurementPlanCompletion, ...],
+        SystemVariantMeasuredRecord,
+    ]:
+        """Validate then atomically publish one campaign completion.
+
+        The persisted campaign, its durable registration and the persisted
+        plans are re-resolved and every artifact — plan completions, campaign
+        completion, measured lifecycle record — is validated before the
+        shared write transaction begins. All three then commit or roll back
+        together under one BEGIN IMMEDIATE over the shared native database,
+        so a fault at any validation/write boundary can never leave a
+        half-published completion: either the exact plan completions, the
+        campaign completion and the measured lifecycle record are all
+        durable, or none of them are.
+        """
+        campaign = SystemVariantMeasurementCampaign.model_validate(
+            campaign.model_dump(mode='python')
+        )
+        persisted = self.get_campaign(campaign.campaign_id)
+        if persisted is None or persisted != campaign:
+            raise ValueError(
+                'campaign completion requires the exact persisted campaign'
+            )
+        registration = self.get_campaign_registration(campaign.campaign_id)
+        if registration is None:
+            raise ValueError(
+                'measurement campaign registration authority missing/stale'
+            )
+        plans = self._campaign_plans(campaign)
+        completion, plan_completions, measured = (
+            complete_system_variant_measurement_campaign(
+                scene_repository=self.scene_repository,
+                lifecycle_repository=self.lifecycle_repository,
+                campaign=campaign,
+                registration=registration,
+                plans=plans,
+                assignments_by_plan=assignments_by_plan,
+                measurement_repository=self.measurement_repository,
+                quality_repository=self.quality_repository,
+                completed_at_utc=completed_at_utc,
+                notes=notes,
+            )
+        )
+        plan_completions = tuple(
+            self._validate_plan_completion(item) for item in plan_completions
+        )
+        measured = self.measured_lifecycle_repository._validate(measured)
+        completion = self._validate_campaign_completion(
+            completion,
+            measured=measured,
+            plan_completions=plan_completions,
+        )
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            persisted_plans = tuple(
+                self._save_plan_completion_in_transaction(connection, item)
+                for item in plan_completions
+            )
+            persisted_completion = self._save_campaign_completion_in_transaction(
+                connection,
+                completion,
+            )
+            persisted_measured = (
+                self.measured_lifecycle_repository._save_in_transaction(
+                    connection,
+                    measured,
+                )
+            )
+        return persisted_completion, persisted_plans, persisted_measured

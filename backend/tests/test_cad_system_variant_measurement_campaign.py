@@ -406,27 +406,15 @@ def test_campaign_completion_promotes_exact_measured_lifecycle_and_reopens(
     plan, campaign, registration = _plan_and_campaign(fx)
     measurement, _, _ = _save_evidence(fx)
 
-    completion, plan_completions, measured = (
-        complete_system_variant_measurement_campaign(
-            scene_repository=fx['scene'],
-            lifecycle_repository=fx['lifecycle'],
-            measured_lifecycle_repository=fx['measured'],
-            campaign=campaign,
-            registration=registration,
-            plans=(plan,),
-            assignments_by_plan={
-                plan.plan_id: {
-                    plan.targets[0].target_id: (measurement.measurement_id,)
-                }
-            },
-            measurement_repository=fx['measurements'],
-            quality_repository=fx['quality'],
-            completed_at_utc=COMPLETE_TIME,
-        )
+    completion, plan_completions, measured = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan={
+            plan.plan_id: {
+                plan.targets[0].target_id: (measurement.measurement_id,)
+            }
+        },
+        completed_at_utc=COMPLETE_TIME,
     )
-    for item in plan_completions:
-        fx['campaigns'].save_plan_completion(item)
-    fx['campaigns'].save_campaign_completion(completion)
 
     assert measured.variant_id == fx['variant'].variant_id
     states = {item.entity_id: item.state for item in measured.entity_lifecycle}
@@ -741,3 +729,211 @@ def test_plan_completion_requires_persisted_registration(tmp_path: Path) -> None
         fx['campaigns'].save_plan_completion(completion)
     with pytest.raises(ValueError, match='registration authority missing/stale'):
         fx['campaigns'].save_campaign(campaign)
+
+
+def _assignments(plan, measurement_id):
+    return {
+        plan.plan_id: {plan.targets[0].target_id: (measurement_id,)}
+    }
+
+
+def _completion_row_counts(path):
+    with closing(sqlite3.connect(path)) as connection:
+        return tuple(
+            connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+            for table in (
+                'cad_system_variant_measurement_plan_completions',
+                'cad_system_variant_measurement_campaign_completions',
+                'cad_system_variant_measured',
+            )
+        )
+
+
+def test_pure_completion_builder_persists_nothing(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+    measurement, _, _ = _save_evidence(fx)
+
+    completion, plan_completions, measured = (
+        complete_system_variant_measurement_campaign(
+            scene_repository=fx['scene'],
+            lifecycle_repository=fx['lifecycle'],
+            campaign=campaign,
+            registration=registration,
+            plans=(plan,),
+            assignments_by_plan=_assignments(plan, measurement.measurement_id),
+            measurement_repository=fx['measurements'],
+            quality_repository=fx['quality'],
+            completed_at_utc=COMPLETE_TIME,
+        )
+    )
+
+    # The builder only composes artifacts; nothing is durable until
+    # complete_campaign commits the single atomic write.
+    assert _completion_row_counts(fx['scene'].path) == (0, 0, 0)
+    assert fx['measured'].get(measured.record_id) is None
+    assert fx['campaigns'].get_campaign_completion(campaign.campaign_id) is None
+    for item in plan_completions:
+        assert fx['campaigns'].get_plan_completion(item.completion_id) is None
+    # Standalone completion persistence fails closed without the measured
+    # lifecycle record the completion references.
+    with pytest.raises(ValueError, match='measured lifecycle missing/stale'):
+        fx['campaigns'].save_campaign_completion(completion)
+
+
+@pytest.mark.parametrize(
+    'fault_target',
+    (
+        'validate_plan_completion',
+        'validate_measured',
+        'validate_campaign_completion',
+        'save_plan_completion_in_transaction',
+        'save_campaign_completion_in_transaction',
+        'save_measured_in_transaction',
+    ),
+)
+def test_complete_campaign_rolls_back_everything_on_fault(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_target: str,
+) -> None:
+    """A fault at any validation/write boundary leaves no partial state."""
+    fx = _fixture(tmp_path)
+    plan, campaign, _ = _plan_and_campaign(fx)
+    measurement, _, _ = _save_evidence(fx)
+
+    def boom(*args, **kwargs):
+        raise sqlite3.OperationalError('injected completion fault')
+
+    if fault_target == 'validate_plan_completion':
+        monkeypatch.setattr(fx['campaigns'], '_validate_plan_completion', boom)
+    elif fault_target == 'validate_measured':
+        monkeypatch.setattr(fx['measured'], '_validate', boom)
+    elif fault_target == 'validate_campaign_completion':
+        monkeypatch.setattr(
+            fx['campaigns'],
+            '_validate_campaign_completion',
+            boom,
+        )
+    elif fault_target == 'save_plan_completion_in_transaction':
+        monkeypatch.setattr(
+            fx['campaigns'],
+            '_save_plan_completion_in_transaction',
+            boom,
+        )
+    elif fault_target == 'save_campaign_completion_in_transaction':
+        monkeypatch.setattr(
+            fx['campaigns'],
+            '_save_campaign_completion_in_transaction',
+            boom,
+        )
+    else:
+        monkeypatch.setattr(fx['measured'], '_save_in_transaction', boom)
+
+    with pytest.raises(sqlite3.OperationalError, match='injected completion fault'):
+        fx['campaigns'].complete_campaign(
+            campaign=campaign,
+            assignments_by_plan=_assignments(plan, measurement.measurement_id),
+            completed_at_utc=COMPLETE_TIME,
+        )
+
+    # Neither the completion evidence nor the measured lifecycle promotion
+    # may be durable: the whole completion is one transaction.
+    assert _completion_row_counts(fx['scene'].path) == (0, 0, 0)
+    assert fx['measured'].list_for_as_built(fx['as_built'].record_id) == ()
+    assert fx['campaigns'].get_campaign_completion(campaign.campaign_id) is None
+
+    # A clean retry after the rolled-back attempt succeeds completely.
+    monkeypatch.undo()
+    completion, plan_completions, measured = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan=_assignments(plan, measurement.measurement_id),
+        completed_at_utc=COMPLETE_TIME,
+    )
+    assert _completion_row_counts(fx['scene'].path) == (1, 1, 1)
+    assert fx['measured'].get(measured.record_id) == measured
+    assert fx['campaigns'].get_campaign_completion(campaign.campaign_id) == completion
+    assert (
+        fx['campaigns'].get_plan_completion(plan_completions[0].completion_id)
+        == plan_completions[0]
+    )
+
+
+def test_complete_campaign_exact_retry_is_idempotent(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    plan, campaign, _ = _plan_and_campaign(fx)
+    measurement, _, _ = _save_evidence(fx)
+
+    first = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan=_assignments(plan, measurement.measurement_id),
+        completed_at_utc=COMPLETE_TIME,
+    )
+    second = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan=_assignments(plan, measurement.measurement_id),
+        completed_at_utc=COMPLETE_TIME,
+    )
+
+    assert second == first
+    assert _completion_row_counts(fx['scene'].path) == (1, 1, 1)
+    assert fx['measured'].list_for_as_built(fx['as_built'].record_id) == (
+        first[2],
+    )
+
+
+def test_complete_campaign_conflicting_completion_is_typed_and_atomic(
+    tmp_path: Path,
+) -> None:
+    """A different completion over the same campaign conflicts without writes."""
+    fx = _fixture(tmp_path)
+    plan, campaign, _ = _plan_and_campaign(fx)
+    measurement, _, _ = _save_evidence(fx)
+
+    first = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan=_assignments(plan, measurement.measurement_id),
+        completed_at_utc=COMPLETE_TIME,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='different immutable completion evidence',
+    ):
+        fx['campaigns'].complete_campaign(
+            campaign=campaign,
+            assignments_by_plan=_assignments(plan, measurement.measurement_id),
+            completed_at_utc='2026-09-20T00:07:00+00:00',
+        )
+
+    # The conflicting attempt's distinct plan completions and measured record
+    # rolled back with the rejected campaign completion row.
+    assert _completion_row_counts(fx['scene'].path) == (1, 1, 1)
+    assert (
+        fx['campaigns'].get_campaign_completion(campaign.campaign_id)
+        == first[0]
+    )
+    assert fx['measured'].list_for_as_built(fx['as_built'].record_id) == (
+        first[2],
+    )
+
+
+def test_complete_campaign_requires_persisted_campaign_and_registration(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan_only(fx)
+    _save_evidence(fx)
+    campaign = build_system_variant_measurement_campaign(
+        plans=(plan,),
+        purpose='completion without durable preregistration',
+        preregistered_at_utc=CAMPAIGN_TIME,
+    )
+
+    with pytest.raises(ValueError, match='exact persisted campaign'):
+        fx['campaigns'].complete_campaign(
+            campaign=campaign,
+            assignments_by_plan=_assignments(plan, 'measure-sl'),
+            completed_at_utc=COMPLETE_TIME,
+        )
+    assert _completion_row_counts(fx['scene'].path) == (0, 0, 0)
