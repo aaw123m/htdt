@@ -10,10 +10,15 @@ import pytest
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_model_validation import build_full_model_validation
 from htdt.cad_model_validation_repository import CadModelValidationRepository
-from htdt.cad_objective_models import CadObjectiveInputRef
+from htdt.cad_objective_authority import ResolvedObjectiveInput
+from htdt.cad_objective_models import (
+    CadObjectiveInputRef,
+    canonical_objective_sha256,
+)
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_repository import SceneRepository
+from htdt.cad_roomsim_results import roomsim_attempt_frequency_response
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
@@ -35,18 +40,45 @@ from htdt.cad_validation_metrics import (
     build_sensitivity_check,
 )
 from htdt.comparison import FrequencyResponse
-from htdt.optimization_objectives import ObjectiveMetric, ObjectiveVector
+from htdt.optimization_objectives import (
+    ObjectiveMetric,
+    ObjectiveVector,
+    ResponseObjectiveSpec,
+    target_response_objectives,
+)
 
 
-def _fr(offset: float) -> FrequencyResponse:
+def _fr(offset: float, tilt: float = 0.0) -> FrequencyResponse:
     return FrequencyResponse(
         frequency_hz=(20.0, 40.0, 80.0, 160.0),
-        level_db=(80.0 + offset, 81.0 + offset, 79.0 + offset, 80.0 + offset),
+        level_db=(
+            80.0 + offset,
+            81.0 + tilt + offset,
+            79.0 + offset,
+            80.0 + 0.5 * tilt + offset,
+        ),
     )
 
 
-def _response_json(offset: float) -> str:
-    response = _fr(offset)
+def _response_json(offset: float, tilt: float = 0.0) -> str:
+    response = _fr(offset, tilt)
+    return json.dumps({
+        'frequency_hz': list(response.frequency_hz),
+        'magnitude': list(response.level_db),
+    })
+
+
+def _tilted_fr(tilt: float) -> FrequencyResponse:
+    """Response whose shape (not just level offset) varies with ``tilt``."""
+
+    return FrequencyResponse(
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=(80.0, 81.0 + tilt, 79.0, 80.0 + 0.5 * tilt),
+    )
+
+
+def _tilted_response_json(tilt: float) -> str:
+    response = _tilted_fr(tilt)
     return json.dumps({
         'frequency_hz': list(response.frequency_hz),
         'magnitude': list(response.level_db),
@@ -73,7 +105,7 @@ class _RoomSimEvidence:
             candidate_id=candidate_id,
             status='completed',
             model_version='fixture-1',
-            response_json=_response_json(float(index) * 2.0),
+            response_json=_tilted_response_json(float(index) * 2.0),
         )
 
     def get_batch_spec(self, batch_run_id):
@@ -81,6 +113,8 @@ class _RoomSimEvidence:
             return None
         return SimpleNamespace(
             document_id=self.spec.document_id,
+            scene_revision_id=self.spec.scene_revision_id,
+            scene_content_hash=self.spec.scene_content_hash,
             search_spec_id=self.spec.search_spec_id,
             search_spec_sha256=self.spec.search_spec_sha256,
             candidate_set_sha256=self.candidate_set_sha256,
@@ -94,6 +128,38 @@ class _PreMeasurementEvidence:
 
     def latest_measurement_plans(self, search_spec_id):
         return ()
+
+
+def _measurement_fixture_resolver(measurement_repository):
+    """Resolve cad_measurement refs against the in-memory fixture evidence."""
+
+    def resolve(context, ref):
+        record = measurement_repository.get_measurement(ref.source_id)
+        dataset = measurement_repository.dataset_for_measurement(ref.source_id)
+        if record is None or dataset is None:
+            raise ValueError(
+                f'measured evidence does not exist: {ref.source_id}'
+            )
+        if record.document_id != context.evaluation.document_id:
+            raise ValueError('measured evidence belongs to a different document')
+        response = FrequencyResponse(
+            frequency_hz=tuple(
+                float(value) for value in dataset.frequency_hz
+            ),
+            level_db=tuple(float(value) for value in dataset.level_db),
+        )
+        return ResolvedObjectiveInput(
+            ref=ref,
+            source_sha256=canonical_objective_sha256(
+                {
+                    'frequency_hz': list(response.frequency_hz),
+                    'level_db': list(response.level_db),
+                }
+            ),
+            response=response,
+        )
+
+    return resolve
 
 
 class _MeasurementEvidence:
@@ -135,7 +201,7 @@ class _MeasurementEvidence:
             }, separators=(',', ':')),
             captured_at='2030-01-01T00:00:00+00:00',
         )
-        response = _fr(offset)
+        response = _tilted_fr(offset)
         self.datasets[measurement_id] = SimpleNamespace(
             frequency_hz=response.frequency_hz,
             level_db=response.level_db,
@@ -180,8 +246,6 @@ def _fixture(tmp_path):
     page = generate_cad_candidates(scene_repo, spec, limit=10)
     candidates = page.candidates[:3]
     candidate_ids = tuple(candidate.candidate_id for candidate in candidates)
-
-    objective_repo = CadObjectiveRepository(scene_repo, search_repo)
 
     campaign = build_validation_campaign(
         document_id=document.document_id,
@@ -234,58 +298,6 @@ def _fixture(tmp_path):
     )
     registration = campaign_repository.save(campaign)
 
-    objective_samples = []
-    for index, candidate in enumerate(candidates, start=1):
-        split = 'calibration' if index == 3 else 'holdout'
-        for evidence_class, value, prefix in (
-            ('predicted', float(index), 'pred-eval'),
-            ('measured', float(index) + 0.1, 'meas-eval'),
-        ):
-            vector = ObjectiveVector(
-                candidate_id=candidate.candidate_id,
-                metrics=(
-                    ObjectiveMetric(
-                        objective_id='response.shape_rms_db',
-                        value=value,
-                        unit='dB',
-                    ),
-                ),
-            )
-            evaluation = build_objective_evaluation(
-                revision,
-                spec,
-                candidate.candidate_id,
-                vector,
-                evaluation_spec=json.loads(campaign.objective_evaluation_spec_json),
-                input_refs=(
-                    CadObjectiveInputRef(
-                        evidence_class=evidence_class,
-                        source_kind='cad_measurement' if evidence_class == 'measured' else 'cad_roomsim_attempt',
-                        source_id=(
-                            f'meas:{candidate.candidate_id}'
-                            if evidence_class == 'measured'
-                            else f'pred:{candidate.candidate_id}'
-                        ),
-                    ),
-                ),
-            )
-            objective_repo.save_evaluation(evaluation)
-            if evidence_class == 'predicted':
-                predicted_id = evaluation.evaluation_id
-                predicted_value = value
-            else:
-                measured_id = evaluation.evaluation_id
-                objective_samples.append(CadObjectiveValidationSample(
-                    candidate_id=candidate.candidate_id,
-                    split=split,
-                    objective_id='response.shape_rms_db',
-                    unit='dB',
-                    predicted_evaluation_id=predicted_id,
-                    measured_evaluation_id=measured_id,
-                    predicted_value=predicted_value,
-                    measured_value=value,
-                ))
-
     measurement_repo = _MeasurementEvidence(
         scene_repo.path,
         document.document_id,
@@ -299,25 +311,139 @@ def _fixture(tmp_path):
         page.candidate_set_sha256,
         candidates,
     )
+    objective_repo = CadObjectiveRepository(
+        scene_repo,
+        search_repo,
+        roomsim_repository=roomsim_repo,
+        input_resolvers={
+            'cad_measurement': _measurement_fixture_resolver(
+                measurement_repo
+            ),
+        },
+    )
+
+    campaign_spec = json.loads(campaign.objective_evaluation_spec_json)
+    target_response = FrequencyResponse(
+        frequency_hz=tuple(
+            float(value)
+            for value in campaign_spec['target_response']['frequency_hz']
+        ),
+        level_db=tuple(
+            float(value)
+            for value in campaign_spec['target_response']['level_db']
+        ),
+    )
+    response_spec = ResponseObjectiveSpec(
+        low_hz=float(campaign_spec['response_band_hz'][0]),
+        high_hz=float(campaign_spec['response_band_hz'][1]),
+        reference_band_hz=(
+            None
+            if campaign_spec.get('reference_band_hz') is None
+            else tuple(
+                float(value)
+                for value in campaign_spec['reference_band_hz']
+            )
+        ),
+        excluded_bands=tuple(
+            (float(band[0]), float(band[1]))
+            for band in campaign_spec.get('excluded_bands') or ()
+        ),
+    )
+
+    def _campaign_vector(candidate_id: str, response: FrequencyResponse):
+        full = target_response_objectives(
+            candidate_id,
+            response,
+            target_response,
+            response_spec,
+            prefix='response',
+        )
+        return ObjectiveVector(
+            candidate_id=candidate_id,
+            metrics=tuple(
+                full.metric(objective_id)
+                for objective_id in campaign_spec['objectives']
+            ),
+        )
+
+    objective_samples = []
+    for index, candidate in enumerate(candidates, start=1):
+        split = 'calibration' if index == 3 else 'holdout'
+        for evidence_class, source_id in (
+            ('predicted', f'pred:{candidate.candidate_id}'),
+            ('measured', f'meas:{candidate.candidate_id}'),
+        ):
+            if evidence_class == 'predicted':
+                response = roomsim_attempt_frequency_response(
+                    roomsim_repo.get_attempt(source_id)
+                )
+            else:
+                dataset = measurement_repo.dataset_for_measurement(source_id)
+                response = FrequencyResponse(
+                    frequency_hz=tuple(
+                        float(value) for value in dataset.frequency_hz
+                    ),
+                    level_db=tuple(
+                        float(value) for value in dataset.level_db
+                    ),
+                )
+            vector = _campaign_vector(candidate.candidate_id, response)
+            evaluation = build_objective_evaluation(
+                revision,
+                spec,
+                candidate.candidate_id,
+                vector,
+                evaluation_spec=campaign_spec,
+                input_refs=(
+                    CadObjectiveInputRef(
+                        evidence_class=evidence_class,
+                        source_kind='cad_measurement' if evidence_class == 'measured' else 'cad_roomsim_attempt',
+                        source_id=source_id,
+                    ),
+                ),
+            )
+            objective_repo.save_evaluation(evaluation)
+            metric_value = float(vector.metric('response.shape_rms_db').value)
+            if evidence_class == 'predicted':
+                predicted_id = evaluation.evaluation_id
+                predicted_value = metric_value
+            else:
+                measured_id = evaluation.evaluation_id
+                objective_samples.append(CadObjectiveValidationSample(
+                    candidate_id=candidate.candidate_id,
+                    split=split,
+                    objective_id='response.shape_rms_db',
+                    unit='dB',
+                    predicted_evaluation_id=predicted_id,
+                    measured_evaluation_id=measured_id,
+                    predicted_value=predicted_value,
+                    measured_value=metric_value,
+                ))
 
     left_x = candidates[0].positions['fl']['x_m']
     right_x = candidates[1].positions['fl']['x_m']
+    sample_map = {
+        sample.candidate_id: sample for sample in objective_samples
+    }
     sensitivity = build_sensitivity_check(
         objective_id='response.shape_rms_db',
         unit='dB',
         candidate_a_id=candidate_ids[0],
         candidate_b_id=candidate_ids[1],
         placement_delta_m=abs(right_x - left_x),
-        predicted_a=1.0,
-        predicted_b=2.0,
-        measured_a=1.1,
-        measured_b=2.1,
+        predicted_a=sample_map[candidate_ids[0]].predicted_value,
+        predicted_b=sample_map[candidate_ids[1]].predicted_value,
+        measured_a=sample_map[candidate_ids[0]].measured_value,
+        measured_b=sample_map[candidate_ids[1]].measured_value,
         max_observed_sensitivity_per_m=6.0,
         max_model_error_per_m=1.0,
     )
     repeatability = build_repeatability_check(
         scene_revision_id=f'applied:{candidate_ids[0]}',
-        measurements=(('repeat:a:1', _fr(0.2)), ('repeat:a:2', _fr(0.3))),
+        measurements=(
+            ('repeat:a:1', _tilted_fr(0.2)),
+            ('repeat:a:2', _tilted_fr(0.3)),
+        ),
         low_hz=20.0,
         high_hz=160.0,
     )
@@ -326,8 +452,8 @@ def _fixture(tmp_path):
         candidate_b_id=candidate_ids[1],
         measurement_a_id=f'meas:{candidate_ids[0]}',
         measurement_b_id=f'meas:{candidate_ids[1]}',
-        response_a=_fr(0.2),
-        response_b=_fr(2.2),
+        response_a=_tilted_fr(0.2),
+        response_b=_tilted_fr(2.2),
         low_hz=20.0,
         high_hz=160.0,
         repeatability_floor_db=repeatability.rms_floor_db,
@@ -351,8 +477,8 @@ def _fixture(tmp_path):
                 'calibration' if index == 2 else 'holdout',
                 f'pred:{candidate_id}',
                 f'meas:{candidate_id}',
-                _fr(float(index) * 2.0),
-                _fr(float(index) * 2.0 + 0.2),
+                _tilted_fr(float(index) * 2.0),
+                _tilted_fr(float(index) * 2.0 + 0.2),
             )
             for index, candidate_id in enumerate(candidate_ids)
         ),

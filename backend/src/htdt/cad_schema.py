@@ -248,6 +248,8 @@ _LEGACY_TABLE_SIGNATURES = {
             ('evaluation_sha256', 'TEXT', 1, None, 0),
             ('payload_json', 'TEXT', 1, None, 0),
             ('created_at_utc', 'TEXT', 1, None, 0),
+            ('candidate_set_sha256', 'TEXT', 0, None, 0),
+            ('input_authorities_json', 'TEXT', 0, None, 0),
         ),
         foreign_keys=frozenset({
             ('scene_revision_id', 'scene_revisions', 'revision_id'),
@@ -256,6 +258,11 @@ _LEGACY_TABLE_SIGNATURES = {
         unique_sets=frozenset({
             frozenset({'evaluation_id'}),
         }),
+        # Authority attestation is appended lazily by
+        # CadObjectiveRepository._initialize: a pre-authority database may lack
+        # the columns but must match the signature exactly when they are
+        # present.
+        optional_columns=frozenset({'candidate_set_sha256', 'input_authorities_json'}),
     ),
     'cad_pareto_sets': _LegacyTableSignature(
         columns=(

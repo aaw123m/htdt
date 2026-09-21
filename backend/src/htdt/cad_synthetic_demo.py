@@ -21,6 +21,7 @@ from .cad_extended_search import (
 from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_measurement_loop import build_measurement_plan, complete_measurement_plan
 from .cad_measurement_models import CadFrequencyResponseDataset
+from .cad_measurement_quality import dataset_sha256
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurements import (
     HTDT_DECLARED_IMPORTER_VERSION,
@@ -50,6 +51,7 @@ from .cad_roomsim_results import (
     canonical_roomsim_result_json,
     canonical_roomsim_result_sha256,
     new_roomsim_attempt_id,
+    roomsim_attempt_frequency_response,
     roomsim_result_timestamp_utc,
 )
 from .cad_scene import (
@@ -69,7 +71,12 @@ from .cad_search import (
 from .cad_search_models import CadSearchAxis
 from .cad_search_repository import CadSearchRepository
 from .cad_validation_metrics import CadApplicabilityCheck
-from .optimization_objectives import ObjectiveMetric, ObjectiveVector
+from .comparison import FrequencyResponse
+from .optimization_objectives import (
+    ObjectiveVector,
+    ResponseObjectiveSpec,
+    target_response_objectives,
+)
 from .rew_roomsim_batch import ROOMSIM_MODEL_ID
 
 
@@ -131,6 +138,10 @@ def _scene() -> SceneDocument:
 
 def _response(index: int, *, measured_offset: float = 0.0) -> dict:
     base = 78.0 + float(index)
+    # A small per-index shape tilt gives every candidate a distinct
+    # evidence-derived response.shape_rms_db value, so downstream objective
+    # residuals and trend checks exercise real ordering instead of constants.
+    tilt = 0.3 * float(index)
     return {
         'source_name': 'Left',
         'mic_position': 'Main',
@@ -143,9 +154,9 @@ def _response(index: int, *, measured_offset: float = 0.0) -> dict:
         'frequency_hz': [20.0, 40.0, 80.0, 160.0],
         'magnitude': [
             base + measured_offset,
-            base + 1.0 + measured_offset,
+            base + 1.0 + tilt + measured_offset,
             base - 1.0 + measured_offset,
-            base + 0.5 + measured_offset,
+            base + 0.5 + 0.5 * tilt + measured_offset,
         ],
         'phase_deg': None,
     }
@@ -357,16 +368,51 @@ def seed_synthetic_optimization_demo(
         roomsim_repository.save_attempt(attempt)
         attempt_by_candidate[candidate.candidate_id] = attempt
 
+    measurement_repository = CadMeasurementRepository(scene_repository)
     objective_repository = CadObjectiveRepository(
         scene_repository,
         search_repository,
+        measurement_repository=measurement_repository,
+        roomsim_repository=roomsim_repository,
+    )
+    # O30 persistence replays this spec against the referenced evidence, so the
+    # synthetic fixture computes its vectors from the persisted attempts and
+    # measurement datasets instead of inventing values.
+    objective_spec = ResponseObjectiveSpec(
+        low_hz=20.0,
+        high_hz=160.0,
+        reference_band_hz=(20.0, 160.0),
+    )
+    target_response = FrequencyResponse(
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=(80.0, 81.0, 79.0, 80.0),
     )
     evaluation_spec = {
         'algorithm_version': 'objective-vector-1',
+        'objective_method': 'target_response',
         'objectives': ['response.shape_rms_db'],
         'response_band_hz': [20.0, 160.0],
+        'reference_band_hz': [20.0, 160.0],
+        'excluded_bands': [],
+        'target_response': {
+            'frequency_hz': list(target_response.frequency_hz),
+            'level_db': list(target_response.level_db),
+        },
         'synthetic_fixture': True,
     }
+
+    def _shape_vector(candidate_id: str, response: FrequencyResponse) -> ObjectiveVector:
+        full = target_response_objectives(
+            candidate_id,
+            response,
+            target_response,
+            objective_spec,
+        )
+        return ObjectiveVector(
+            candidate_id=candidate_id,
+            metrics=(full.metric('response.shape_rms_db'),),
+        )
+
     predicted_evaluation_by_candidate = {}
     for index, candidate in enumerate(candidates, start=1):
         attempt = attempt_by_candidate[candidate.candidate_id]
@@ -374,15 +420,9 @@ def seed_synthetic_optimization_demo(
             source,
             search_spec,
             candidate.candidate_id,
-            ObjectiveVector(
-                candidate_id=candidate.candidate_id,
-                metrics=(
-                    ObjectiveMetric(
-                        objective_id='response.shape_rms_db',
-                        value=float(index),
-                        unit='dB',
-                    ),
-                ),
+            _shape_vector(
+                candidate.candidate_id,
+                roomsim_attempt_frequency_response(attempt),
             ),
             evaluation_spec=evaluation_spec,
             input_refs=(
@@ -390,13 +430,12 @@ def seed_synthetic_optimization_demo(
                     evidence_class='predicted',
                     source_kind='cad_roomsim_attempt',
                     source_id=attempt.attempt_id,
+                    source_sha256=attempt.response_sha256,
                 ),
             ),
         )
         objective_repository.save_evaluation(evaluation)
         predicted_evaluation_by_candidate[candidate.candidate_id] = evaluation
-
-    measurement_repository = CadMeasurementRepository(scene_repository)
     measured_candidate_ids = tuple(
         candidate.candidate_id for candidate in candidates[:4]
     )
@@ -464,18 +503,18 @@ def seed_synthetic_optimization_demo(
         primary_measurement_by_candidate[candidate.candidate_id] = ids[0]
         measurement_ids_by_candidate[candidate.candidate_id] = tuple(ids)
 
+        primary_dataset = measurement_repository.dataset_for_measurement(ids[0])
+        if primary_dataset is None:
+            raise RuntimeError('synthetic fixture lost its measurement dataset')
         measured_evaluation = build_objective_evaluation(
             source,
             search_spec,
             candidate.candidate_id,
-            ObjectiveVector(
-                candidate_id=candidate.candidate_id,
-                metrics=(
-                    ObjectiveMetric(
-                        objective_id='response.shape_rms_db',
-                        value=float(index + 1) + 0.1,
-                        unit='dB',
-                    ),
+            _shape_vector(
+                candidate.candidate_id,
+                FrequencyResponse(
+                    frequency_hz=primary_dataset.frequency_hz,
+                    level_db=primary_dataset.level_db,
                 ),
             ),
             evaluation_spec=evaluation_spec,
@@ -484,6 +523,7 @@ def seed_synthetic_optimization_demo(
                     evidence_class='measured',
                     source_kind='cad_measurement',
                     source_id=ids[0],
+                    source_sha256=dataset_sha256(primary_dataset),
                 ),
             ),
         )

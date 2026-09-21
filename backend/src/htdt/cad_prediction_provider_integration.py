@@ -79,6 +79,7 @@ def provider_objective_input_ref(
         evidence_class='predicted',
         source_kind='r170a_prediction_provider',
         source_id=provider.provider_id,
+        source_sha256=provider.semantic_sha256,
     )
 
 

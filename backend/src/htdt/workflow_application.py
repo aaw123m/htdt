@@ -136,7 +136,12 @@ class WorkflowApplicationComposition:
         prediction_repository = CadPredictionRepository(self.repository)
         search_repository = CadSearchRepository(self.repository)
         roomsim_repository = CadRoomSimRepository(self.repository, search_repository)
-        objective_repository = CadObjectiveRepository(self.repository, search_repository)
+        objective_repository = CadObjectiveRepository(
+            self.repository,
+            search_repository,
+            measurement_repository=measurement_repository,
+            roomsim_repository=roomsim_repository,
+        )
         validation_repository = CadModelValidationRepository(
             search_repository,
             roomsim_repository,

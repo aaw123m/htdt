@@ -12,7 +12,8 @@ from htdt.cad_adaptive_repository import CadAdaptivePlanRepository
 from htdt.cad_adaptive_service import CadAdaptivePlannerService
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_model_validation import build_full_model_validation
-from htdt.cad_objective_models import CadObjectiveInputRef
+from htdt.cad_objective_authority import ResolvedObjectiveInput
+from htdt.cad_objective_models import CadObjectiveInputRef, canonical_objective_sha256
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_repository import SceneRepository
@@ -38,6 +39,37 @@ def _fr(offset: float) -> FrequencyResponse:
     return FrequencyResponse(
         frequency_hz=(20.0, 40.0, 80.0, 160.0),
         level_db=(80.0 + offset, 81.0 + offset, 79.0 + offset, 80.0 + offset),
+    )
+
+
+def _spec_metrics_evaluator(context):
+    """Evaluator-owned fixture: replay objective metrics from the versioned spec."""
+
+    metrics = context.spec.get('metrics')
+    if not isinstance(metrics, list) or not metrics:
+        raise ValueError('fixture metrics spec requires a non-empty metrics list')
+    return ObjectiveVector(
+        candidate_id=context.evaluation.candidate_id,
+        metrics=tuple(
+            ObjectiveMetric(
+                objective_id=str(entry['objective_id']),
+                value=float(entry['value']),
+                unit=str(entry['unit']),
+                direction=str(entry.get('direction', 'minimize')),
+            )
+            for entry in metrics
+        ),
+    )
+
+
+def _prediction_fixture_resolver(context, ref):
+    """Evaluator-owned fixture evidence pinned by exact source identity."""
+
+    return ResolvedObjectiveInput(
+        ref=ref,
+        source_sha256=canonical_objective_sha256(
+            {'source_kind': ref.source_kind, 'source_id': ref.source_id}
+        ),
     )
 
 
@@ -100,7 +132,12 @@ def _fixture(tmp_path, *, applicability_pass: bool = True):
     assert len(page.candidates) == 6
     candidate_ids = tuple(item.candidate_id for item in page.candidates)
 
-    objective_repository = CadObjectiveRepository(scene_repository, search_repository)
+    objective_repository = CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+        input_resolvers={'prediction_fixture': _prediction_fixture_resolver},
+        vector_evaluators={'fixture-metrics-1': _spec_metrics_evaluator},
+    )
     predicted_values = {}
     for index, candidate in enumerate(page.candidates):
         value = float(index + 1)
@@ -121,8 +158,16 @@ def _fixture(tmp_path, *, applicability_pass: bool = True):
             ),
             evaluation_spec={
                 'algorithm_version': 'objective-vector-1',
+                'objective_method': 'fixture-metrics-1',
                 'objectives': ['response.shape_rms_db'],
-                'response_band_hz': [20.0, 160.0],
+                'metrics': [
+                    {
+                        'objective_id': 'response.shape_rms_db',
+                        'value': value,
+                        'unit': 'dB',
+                        'direction': 'minimize',
+                    },
+                ],
             },
             input_refs=(
                 CadObjectiveInputRef(

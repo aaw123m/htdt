@@ -7,9 +7,11 @@ from types import SimpleNamespace
 import pytest
 
 from htdt.cad_constraint_models import CadConstraintSet
+from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_model_validation_service import CadModelValidationService
 from htdt.cad_objective_models import CadObjectiveInputRef, canonical_objective_sha256
 from htdt.cad_repository import SceneRepository
+from htdt.cad_roomsim_results import canonical_roomsim_result_sha256
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
@@ -194,16 +196,18 @@ def _fixture(tmp_path):
     for index, candidate_id in enumerate(candidate_ids):
         prediction_id = f'pred:{candidate_id}'
         frequency, predicted_levels = _response(float(index) * 2.0)
+        response_payload = {
+            'frequency_hz': list(frequency),
+            'magnitude': list(predicted_levels),
+        }
         attempts.append(SimpleNamespace(
             attempt_id=prediction_id,
             batch_run_id='batch',
             candidate_id=candidate_id,
             status='completed',
             model_version='fixture-1',
-            response_json=json.dumps({
-                'frequency_hz': list(frequency),
-                'magnitude': list(predicted_levels),
-            }),
+            response_json=json.dumps(response_payload),
+            response_sha256=canonical_roomsim_result_sha256(response_payload),
         ))
 
         measurement_ids = [f'meas:{candidate_id}:1']
@@ -213,6 +217,7 @@ def _fixture(tmp_path):
             _, measured_levels = _response(float(index) * 2.0 + 0.1 * (repeat_index + 1))
             measurements.records[measurement_id] = SimpleNamespace(
                 measurement_id=measurement_id,
+                document_id=document.document_id,
                 scene_revision_id=f'applied:{candidate_id}',
                 evidence_type='measured',
                 captured_at=f'2030-01-0{repeat_index + 1}T00:00:00+00:00',
@@ -221,9 +226,16 @@ def _fixture(tmp_path):
                     'validation_campaign_id': campaign.campaign_id,
                 }, separators=(',', ':')),
             )
-            measurements.datasets[measurement_id] = SimpleNamespace(
+            measurements.datasets[measurement_id] = CadFrequencyResponseDataset(
+                dataset_id=f'dataset:{measurement_id}',
+                measurement_id=measurement_id,
                 frequency_hz=frequency,
                 level_db=measured_levels,
+                phase_status='absent',
+                source_sha256=canonical_objective_sha256(
+                    {'measurement_id': measurement_id}
+                ),
+                importer_version='campaign-service-test-1',
             )
         plan_rows.append(SimpleNamespace(
             plan_id=f'plan:{candidate_id}',
