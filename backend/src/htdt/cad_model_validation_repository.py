@@ -8,9 +8,13 @@ import json
 import sqlite3
 
 from .cad_measurement_repository import CadMeasurementRepository
-from .cad_model_validation import CadModelValidationRecord
+from .cad_model_validation import (
+    CadModelValidationRecord,
+    recompute_residual_payload,
+)
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_roomsim_repository import CadRoomSimRepository
+from .cad_roomsim_results import roomsim_attempt_frequency_response
 from .cad_search import generate_cad_candidates
 from .cad_search_repository import CadSearchRepository
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
@@ -531,17 +535,17 @@ class CadModelValidationRepository:
                     'owned-room measurement does not match preregistered campaign provenance'
                 )
 
-    def save(self, record: CadModelValidationRecord) -> None:
-        if not isinstance(record, CadModelValidationRecord):
-            raise TypeError('record must be CadModelValidationRecord')
-        record = CadModelValidationRecord.model_validate(record.model_dump(mode='python'))
-        spec = self.search_repository.get(record.search_spec_id)
-        if spec is None:
-            raise ValueError('model validation SearchSpec does not exist')
-        if spec.document_id != record.document_id or spec.search_spec_sha256 != record.search_spec_sha256:
-            raise ValueError('model validation SearchSpec authority mismatch')
+    def _validate_residual_authority(self, record: CadModelValidationRecord, plans) -> None:
+        """Re-derive residual pairs and aggregate RMS from exact evidence.
 
-        plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
+        Each pair must reference a completed Room Simulator attempt and a
+        measured MeasurementPlan dataset. The persisted ``rms_difference_db``,
+        ``shape_rms_db``, ``calibration_rms_db``, ``holdout_rms_db`` and
+        ``residual_gate`` values are caller-supplied claims, so they are
+        recomputed here from the resolved prediction/measurement responses via
+        the canonical residual builder and must match exactly.
+        """
+        samples = []
         for pair in record.pairs:
             attempt = self.roomsim_repository.get_attempt(pair.prediction_source_id)
             if attempt is None or attempt.status != 'completed':
@@ -572,6 +576,47 @@ class CadModelValidationRepository:
                 candidate_set_sha256=record.candidate_set_sha256,
             ):
                 raise ValueError('validation measurement is not linked to the candidate Measurement Plan')
+            samples.append((
+                pair.candidate_id,
+                pair.split,
+                pair.prediction_source_id,
+                pair.measurement_id,
+                roomsim_attempt_frequency_response(attempt),
+                self._measurement_response(pair.measurement_id),
+            ))
+
+        expected = recompute_residual_payload(record, tuple(samples))
+        if (
+            expected['pairs'] != record.pairs
+            or expected['calibration_rms_db'] != record.calibration_rms_db
+            or expected['holdout_rms_db'] != record.holdout_rms_db
+            or expected['residual_gate'] != record.residual_gate
+        ):
+            raise ValueError(
+                'model validation residuals do not match prediction/measurement evidence'
+            )
+
+    def _validate_persisted_record(
+        self,
+        record: CadModelValidationRecord,
+    ) -> CadModelValidationRecord:
+        """Fail closed on a persisted record whose residuals drifted from evidence."""
+        plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
+        self._validate_residual_authority(record, plans)
+        return record
+
+    def save(self, record: CadModelValidationRecord) -> None:
+        if not isinstance(record, CadModelValidationRecord):
+            raise TypeError('record must be CadModelValidationRecord')
+        record = CadModelValidationRecord.model_validate(record.model_dump(mode='python'))
+        spec = self.search_repository.get(record.search_spec_id)
+        if spec is None:
+            raise ValueError('model validation SearchSpec does not exist')
+        if spec.document_id != record.document_id or spec.search_spec_sha256 != record.search_spec_sha256:
+            raise ValueError('model validation SearchSpec authority mismatch')
+
+        plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
+        self._validate_residual_authority(record, plans)
 
         self._validate_objective_samples(record)
         self._validate_sensitivity(record, spec)
@@ -604,7 +649,10 @@ class CadModelValidationRepository:
                 'SELECT payload_json FROM cad_model_validations WHERE validation_id=?',
                 (validation_id,),
             ).fetchone()
-        return None if row is None else CadModelValidationRecord.model_validate_json(row['payload_json'])
+        if row is None:
+            return None
+        record = CadModelValidationRecord.model_validate_json(row['payload_json'])
+        return self._validate_persisted_record(record)
 
     def latest_eligible_for_search_spec(
         self,
@@ -620,9 +668,12 @@ class CadModelValidationRepository:
         if row is None:
             return None
         record = CadModelValidationRecord.model_validate_json(row['payload_json'])
+        if record.recommendation_gate != 'eligible':
+            raise ValueError('eligible validation record payload is not eligible')
         if record.evidence_scope != 'owned_room':
             raise ValueError('eligible validation record is not owned-room evidence')
         plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
+        self._validate_residual_authority(record, plans)
         self._validate_campaign_binding(record, plans)
         return record
 
@@ -632,4 +683,10 @@ class CadModelValidationRepository:
                 'SELECT payload_json FROM cad_model_validations WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),
             ).fetchall()
-        return tuple(CadModelValidationRecord.model_validate_json(row['payload_json']) for row in rows)
+        records = tuple(
+            CadModelValidationRecord.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+        for record in records:
+            self._validate_persisted_record(record)
+        return records

@@ -386,6 +386,44 @@ def _residual_payload(
     }
 
 
+def recompute_residual_payload(
+    record: CadModelValidationRecord,
+    samples: tuple[
+        tuple[
+            str,
+            Literal['calibration', 'holdout'],
+            str,
+            str,
+            FrequencyResponse,
+            FrequencyResponse,
+        ],
+        ...,
+    ],
+) -> dict[str, Any]:
+    """Rebuild a record's residual fields from exact evidence responses.
+
+    This shares the canonical ``_residual_payload`` builder so persistence can
+    require persisted pair residuals, aggregate RMS values, and the residual
+    gate to equal the values derived from the referenced prediction and
+    measurement evidence.
+    """
+    return _residual_payload(
+        document_id=record.document_id,
+        search_spec_id=record.search_spec_id,
+        search_spec_sha256=record.search_spec_sha256,
+        candidate_set_sha256=record.candidate_set_sha256,
+        campaign_id=record.campaign_id,
+        campaign_sha256=record.campaign_sha256,
+        model_id=record.model_id,
+        model_version=record.model_version,
+        evidence_scope=record.evidence_scope,
+        samples=samples,
+        low_hz=record.requested_band_hz[0],
+        high_hz=record.requested_band_hz[1],
+        max_holdout_rms_db=record.max_holdout_rms_db,
+    )
+
+
 def _build_record(payload: dict[str, Any]) -> CadModelValidationRecord:
     reasons = _advanced_gate_reasons(
         evidence_scope=payload['evidence_scope'],
