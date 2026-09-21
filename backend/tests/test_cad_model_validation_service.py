@@ -8,6 +8,7 @@ from htdt.cad_model_validation_repository import CadModelValidationRepository
 from htdt.cad_model_validation_service import (
     CadModelValidationBuildSpec,
     CadModelValidationService,
+    CadValidationApplicabilitySpec,
     CadValidationCandidateBinding,
     CadValidationObjectiveBinding,
     CadValidationRepeatabilitySpec,
@@ -19,8 +20,11 @@ from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Siz
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
 from htdt.cad_search_repository import CadSearchRepository
-from htdt.cad_validation_metrics import CadApplicabilityCheck
 from htdt.optimization_objectives import ObjectiveMetric, ObjectiveVector
+
+
+def _binding_json() -> str:
+    return json.dumps({'geometry_mode': 'exact_rectangular'})
 
 
 def _response_payload(offset: float) -> str:
@@ -55,11 +59,16 @@ class _RoomSim:
         if batch_run_id != 'batch' or self.spec is None:
             return None
         return SimpleNamespace(
+            batch_run_id='batch',
             document_id=self.spec.document_id,
+            scene_revision_id=self.spec.scene_revision_id,
+            scene_content_hash=self.spec.scene_content_hash,
             search_spec_id=self.spec.search_spec_id,
             search_spec_sha256=self.spec.search_spec_sha256,
             candidate_set_sha256=self.candidate_set_sha256,
             model_id='rew-roomsim',
+            binding_json=_binding_json(),
+            batch_spec_sha256='b' * 64,
         )
 
 
@@ -80,11 +89,13 @@ class _Measurements:
                 self._add('repeat:2', revision_id, 0.3)
                 measurement_ids.extend(('repeat:1', 'repeat:2'))
             self.plans.append(SimpleNamespace(
+                plan_id=f'plan:{candidate_id}',
                 status='measured',
                 candidate_id=candidate_id,
                 candidate_set_sha256=candidate_set_sha256,
                 measurement_ids=tuple(measurement_ids),
                 applied_scene_revision_id=revision_id,
+                plan_sha256=f'{(index + 1):064x}',
             ))
 
     def _add(self, measurement_id, revision_id, offset):
@@ -93,6 +104,7 @@ class _Measurements:
             evidence_type='measured',
             document_id=self.document_id,
             scene_revision_id=revision_id,
+            routing_evidence='verified',
         )
         response = json.loads(_response_payload(offset))
         self.datasets[measurement_id] = SimpleNamespace(
@@ -183,8 +195,13 @@ def test_validation_service_builds_full_record_from_repository_evidence(tmp_path
     candidates = page.candidates[:3]
     candidate_ids = tuple(candidate.candidate_id for candidate in candidates)
 
-    roomsim = _RoomSim(scene_repo.path, candidates)
-    measurements = _Measurements(scene_repo.path, candidate_ids)
+    roomsim = _RoomSim(scene_repo.path, candidates, spec, page.candidate_set_sha256)
+    measurements = _Measurements(
+        scene_repo.path,
+        candidate_ids,
+        document.document_id,
+        page.candidate_set_sha256,
+    )
     objectives = _Objectives(scene_repo.path, candidate_ids)
     service = CadModelValidationService(search_repo, roomsim, measurements, objectives)
 
@@ -243,9 +260,9 @@ def test_validation_service_builds_full_record_from_repository_evidence(tmp_path
             ),
         ),
         applicability=(
-            CadApplicabilityCheck(code='geometry', passed=True, detail='supported'),
-            CadApplicabilityCheck(code='band', passed=True, detail='supported'),
-            CadApplicabilityCheck(code='routing', passed=True, detail='verified'),
+            CadValidationApplicabilitySpec(code='geometry', detail='supported'),
+            CadValidationApplicabilitySpec(code='band', detail='supported'),
+            CadValidationApplicabilitySpec(code='routing', detail='verified'),
         ),
     )
 
@@ -354,9 +371,9 @@ def test_service_built_record_persists_and_reopens_unchanged(tmp_path):
             ),
         ),
         applicability=(
-            CadApplicabilityCheck(code='geometry', passed=True, detail='supported'),
-            CadApplicabilityCheck(code='band', passed=True, detail='supported'),
-            CadApplicabilityCheck(code='routing', passed=True, detail='verified'),
+            CadValidationApplicabilitySpec(code='geometry', detail='supported'),
+            CadValidationApplicabilitySpec(code='band', detail='supported'),
+            CadValidationApplicabilitySpec(code='routing', detail='verified'),
         ),
     )
     record = service.build(build_spec)

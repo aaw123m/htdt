@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from math import sqrt
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_applicability import (
+    APPLICABILITY_MANUAL_EVALUATOR_ID,
+    AUTOMATED_EVALUATOR_BY_CODE,
+    CadApplicabilityAttestationRepository,
+    evaluate_applicability,
+    resolve_applicability_context,
+)
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation import CadModelValidationRecord, EvidenceScope, build_full_model_validation
 from .cad_objective_repository import CadObjectiveRepository
@@ -81,6 +89,31 @@ class CadValidationSeparationSpec(BaseModel):
     min_repeatability_multiple: float = Field(gt=0)
 
 
+class CadValidationApplicabilitySpec(BaseModel):
+    """One preregistered applicability code to evaluate for a validation record.
+
+    ``auto`` asks the evaluator registered for the code to derive the decision
+    from resolved scene/spec/batch/plan authority. ``manual`` binds a persisted
+    immutable :class:`CadApplicabilityAttestation` by id. Neither mode accepts a
+    caller-supplied pass/fail — the decision is always derived from authority.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    code: str = Field(min_length=1)
+    mode: Literal['auto', 'manual'] = 'auto'
+    attestation_id: str | None = Field(default=None, min_length=1)
+    detail: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode='after')
+    def valid_request(self) -> 'CadValidationApplicabilitySpec':
+        if self.mode == 'manual' and not self.attestation_id:
+            raise ValueError('manual applicability requires an attestation id')
+        if self.mode == 'auto' and self.attestation_id is not None:
+            raise ValueError('auto applicability must not claim an attestation')
+        return self
+
+
 class CadModelValidationBuildSpec(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -106,7 +139,7 @@ class CadModelValidationBuildSpec(BaseModel):
     sensitivity: tuple[CadValidationSensitivitySpec, ...] = ()
     repeatability: tuple[CadValidationRepeatabilitySpec, ...] = ()
     separation: tuple[CadValidationSeparationSpec, ...] = ()
-    applicability: tuple[CadApplicabilityCheck, ...] = ()
+    applicability: tuple[CadValidationApplicabilitySpec, ...] = ()
     trend_tolerance_by_objective: dict[str, float] = Field(default_factory=dict)
     trend_min_comparable_pairs: int = Field(default=1, ge=1)
     trend_min_agreement_ratio: float = Field(default=0.75, ge=0, le=1)
@@ -168,6 +201,9 @@ class CadModelValidationService:
         }
         if len(paths) != 1:
             raise ValueError('O60 validation service repositories must share one native CAD database')
+        self.applicability_attestations = CadApplicabilityAttestationRepository(
+            Path(search_repository.path)
+        )
 
     def _measurement_response(self, measurement_id: str) -> FrequencyResponse:
         dataset = self.measurement_repository.dataset_for_measurement(measurement_id)
@@ -213,6 +249,73 @@ class CadModelValidationService:
         if distance <= 0:
             raise ValueError('sensitivity candidate placement delta must be positive')
         return distance
+
+    @staticmethod
+    def _scoped_measurement_ids(build_spec: CadModelValidationBuildSpec) -> tuple[str, ...]:
+        ids = {binding.measurement_id for binding in build_spec.candidates}
+        for check in build_spec.repeatability:
+            ids.update(check.measurement_ids)
+        for check in build_spec.separation:
+            ids.update((check.measurement_a_id, check.measurement_b_id))
+        return tuple(sorted(ids))
+
+    def _derive_applicability_checks(
+        self,
+        spec,
+        build_spec: CadModelValidationBuildSpec,
+    ) -> tuple[CadApplicabilityCheck, ...]:
+        """Derive every requested applicability check from exact authority.
+
+        Automated codes are re-derived from the resolved SceneRevision /
+        SearchSpec / prediction-batch / Measurement Plan evidence; manual codes
+        resolve a persisted immutable attestation. A caller can never supply
+        the pass/fail decision directly.
+        """
+        if not build_spec.applicability:
+            return ()
+        context = resolve_applicability_context(
+            document_id=spec.document_id,
+            search_spec_id=spec.search_spec_id,
+            search_spec_sha256=spec.search_spec_sha256,
+            candidate_set_sha256=build_spec.candidate_set_sha256,
+            model_id=build_spec.model_id,
+            model_version=build_spec.model_version,
+            evidence_scope=build_spec.evidence_scope,
+            campaign_id=build_spec.campaign_id,
+            requested_band_hz=(float(build_spec.low_hz), float(build_spec.high_hz)),
+            pair_attempt_ids=tuple(
+                binding.prediction_attempt_id for binding in build_spec.candidates
+            ),
+            pair_measurement_ids=tuple(
+                binding.measurement_id for binding in build_spec.candidates
+            ),
+            scoped_measurement_ids=self._scoped_measurement_ids(build_spec),
+            search_repository=self.search_repository,
+            roomsim_repository=self.roomsim_repository,
+            measurement_repository=self.measurement_repository,
+            attestation_repository=self.applicability_attestations,
+        )
+        checks: list[CadApplicabilityCheck] = []
+        for request in build_spec.applicability:
+            if request.mode == 'manual':
+                evaluator_id = APPLICABILITY_MANUAL_EVALUATOR_ID
+                attestation_id = request.attestation_id
+            else:
+                evaluator_id = AUTOMATED_EVALUATOR_BY_CODE.get(request.code)
+                if evaluator_id is None:
+                    raise ValueError(
+                        'no automated applicability evaluator is registered '
+                        f'for code: {request.code}'
+                    )
+                attestation_id = None
+            checks.append(evaluate_applicability(
+                context,
+                code=request.code,
+                evaluator_id=evaluator_id,
+                detail=request.detail,
+                attestation_id=attestation_id,
+            ))
+        return tuple(checks)
 
     def build(self, build_spec: CadModelValidationBuildSpec) -> CadModelValidationRecord:
         spec = self.search_repository.get(build_spec.search_spec_id)
@@ -360,6 +463,8 @@ class CadModelValidationService:
                 min_repeatability_multiple=separation.min_repeatability_multiple,
             ))
 
+        applicability_checks = self._derive_applicability_checks(spec, build_spec)
+
         return build_full_model_validation(
             document_id=spec.document_id,
             search_spec_id=spec.search_spec_id,
@@ -376,7 +481,7 @@ class CadModelValidationService:
             sensitivity_checks=tuple(sensitivity_checks),
             repeatability_checks=tuple(repeatability_checks),
             separation_checks=tuple(separation_checks),
-            applicability_checks=build_spec.applicability,
+            applicability_checks=applicability_checks,
             low_hz=build_spec.low_hz,
             high_hz=build_spec.high_hz,
             max_holdout_rms_db=build_spec.max_holdout_rms_db,

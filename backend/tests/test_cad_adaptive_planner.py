@@ -22,8 +22,9 @@ from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_validation_metrics import (
-    CadApplicabilityCheck,
+    CadApplicabilityEvidenceRef,
     CadObjectiveValidationSample,
+    build_applicability_check,
     build_candidate_separation_check,
     build_repeatability_check,
     build_sensitivity_check,
@@ -70,6 +71,31 @@ def _prediction_fixture_resolver(context, ref):
         source_sha256=canonical_objective_sha256(
             {'source_kind': ref.source_kind, 'source_id': ref.source_id}
         ),
+    )
+
+
+def _manual_check(code: str, passed: bool, detail: str):
+    """Fixture attestation-bound check; these tests never hit a repository."""
+    return build_applicability_check(
+        code=code,
+        passed=passed,
+        evaluator_id='o60-applicability-manual',
+        evaluator_version='1',
+        subject={
+            'code': code,
+            'document_id': DOCUMENT_ID,
+            'scope': {},
+            'search_spec_id': 'synthetic-fixture-spec',
+            'search_spec_sha256': '7' * 64,
+        },
+        evidence_refs=(
+            CadApplicabilityEvidenceRef(
+                source_kind='o60_applicability_attestation',
+                source_id='o60-applicability-attestation:' + '8' * 64,
+                source_sha256='8' * 64,
+            ),
+        ),
+        detail=detail,
     )
 
 
@@ -263,21 +289,9 @@ def _fixture(tmp_path, *, applicability_pass: bool = True):
         repeatability_checks=(repeatability,),
         separation_checks=(separation,),
         applicability_checks=(
-            CadApplicabilityCheck(
-                code='geometry',
-                passed=applicability_pass,
-                detail='synthetic rectangular fixture',
-            ),
-            CadApplicabilityCheck(
-                code='band',
-                passed=True,
-                detail='synthetic 20-160 Hz fixture',
-            ),
-            CadApplicabilityCheck(
-                code='routing',
-                passed=True,
-                detail='synthetic routing fixture',
-            ),
+            _manual_check('geometry', applicability_pass, 'synthetic rectangular fixture'),
+            _manual_check('band', True, 'synthetic 20-160 Hz fixture'),
+            _manual_check('routing', True, 'synthetic routing fixture'),
         ),
         low_hz=20.0,
         high_hz=160.0,

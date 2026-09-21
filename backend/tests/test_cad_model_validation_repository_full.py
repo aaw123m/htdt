@@ -7,6 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from htdt.cad_applicability import (
+    AUTOMATED_EVALUATOR_BY_CODE,
+    evaluate_applicability,
+    resolve_applicability_context,
+)
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_model_validation import build_full_model_validation
 from htdt.cad_model_validation_repository import CadModelValidationRepository
@@ -33,7 +38,6 @@ from htdt.cad_validation_campaign import (
 )
 from htdt.cad_validation_campaign_repository import CadValidationCampaignRepository
 from htdt.cad_validation_metrics import (
-    CadApplicabilityCheck,
     CadObjectiveValidationSample,
     build_candidate_separation_check,
     build_repeatability_check,
@@ -112,6 +116,7 @@ class _RoomSimEvidence:
         if batch_run_id != 'batch':
             return None
         return SimpleNamespace(
+            batch_run_id='batch',
             document_id=self.spec.document_id,
             scene_revision_id=self.spec.scene_revision_id,
             scene_content_hash=self.spec.scene_content_hash,
@@ -119,6 +124,8 @@ class _RoomSimEvidence:
             search_spec_sha256=self.spec.search_spec_sha256,
             candidate_set_sha256=self.candidate_set_sha256,
             model_id='rew-roomsim',
+            binding_json=json.dumps({'geometry_mode': 'exact_rectangular'}),
+            batch_spec_sha256='cd' * 32,
         )
 
 
@@ -182,11 +189,15 @@ class _MeasurementEvidence:
                 self._add('repeat:a:2', revision_id, offsets[candidate_id] + 0.1, 'owned_room')
                 ids.extend(('repeat:a:1', 'repeat:a:2'))
             self.plans.append(SimpleNamespace(
+                plan_id=f'plan:{candidate_id}',
                 status='measured',
                 candidate_id=candidate_id,
                 candidate_set_sha256=candidate_set_sha256,
                 measurement_ids=tuple(ids),
                 applied_scene_revision_id=revision_id,
+                plan_sha256=sha256(
+                    f'plan:{candidate_id}'.encode()
+                ).hexdigest(),
             ))
 
     def _add(self, measurement_id, revision_id, offset, validation_scope):
@@ -195,6 +206,7 @@ class _MeasurementEvidence:
             evidence_type='measured',
             document_id=self.document_id,
             scene_revision_id=revision_id,
+            routing_evidence='verified',
             provenance_json=json.dumps({
                 'validation_scope': validation_scope,
                 'validation_campaign_id': self.campaign_id,
@@ -460,6 +472,45 @@ def _fixture(tmp_path):
         min_repeatability_multiple=2.0,
     )
 
+    applicability_context = resolve_applicability_context(
+        document_id=document.document_id,
+        search_spec_id=spec.search_spec_id,
+        search_spec_sha256=spec.search_spec_sha256,
+        candidate_set_sha256=page.candidate_set_sha256,
+        model_id='rew-roomsim',
+        model_version='fixture-1',
+        evidence_scope='owned_room',
+        campaign_id=campaign.campaign_id,
+        requested_band_hz=(20.0, 160.0),
+        pair_attempt_ids=tuple(
+            f'pred:{candidate_id}' for candidate_id in candidate_ids
+        ),
+        pair_measurement_ids=tuple(
+            f'meas:{candidate_id}' for candidate_id in candidate_ids
+        ),
+        scoped_measurement_ids=(
+            tuple(f'meas:{candidate_id}' for candidate_id in candidate_ids)
+            + ('repeat:a:1', 'repeat:a:2')
+        ),
+        search_repository=search_repo,
+        roomsim_repository=roomsim_repo,
+        measurement_repository=measurement_repo,
+    )
+    applicability_checks = tuple(
+        evaluate_applicability(
+            applicability_context,
+            code=code,
+            evaluator_id=AUTOMATED_EVALUATOR_BY_CODE[code],
+            detail=detail,
+        )
+        for code, detail in (
+            ('geometry', 'fixture supported'),
+            ('band', '20-160 Hz supported'),
+            ('routing', 'routing verified'),
+        )
+    )
+    assert all(check.passed for check in applicability_checks)
+
     record = build_full_model_validation(
         document_id=document.document_id,
         search_spec_id=spec.search_spec_id,
@@ -486,11 +537,7 @@ def _fixture(tmp_path):
         sensitivity_checks=(sensitivity,),
         repeatability_checks=(repeatability,),
         separation_checks=(separation,),
-        applicability_checks=(
-            CadApplicabilityCheck(code='geometry', passed=True, detail='fixture supported'),
-            CadApplicabilityCheck(code='band', passed=True, detail='20-160 Hz supported'),
-            CadApplicabilityCheck(code='routing', passed=True, detail='routing verified'),
-        ),
+        applicability_checks=applicability_checks,
         low_hz=20.0,
         high_hz=160.0,
         max_holdout_rms_db=1.0,

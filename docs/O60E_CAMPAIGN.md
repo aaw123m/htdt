@@ -109,9 +109,16 @@ Evidence selection is deterministic and fail-closed:
 - repeatability uses all measured evidence in the campaign candidate plan;
 - required applicability codes must be supplied exactly once when the record is
   built;
-- applicability checks are never auto-passed. The native UI exposes
-  `未確認/PASS/FAIL` for geometry, band and routing, and requires a written
-  confirmation detail for every PASS.
+- applicability checks are never auto-passed by caller claim. Each persisted
+  `CadApplicabilityCheck` binds the registered evaluator identity and version,
+  the canonical evaluated subject and typed `evidence_refs` sealed by
+  `decision_sha256`. Automated codes (`geometry`, `band`, `routing`) are
+  re-derived from the exact SceneRevision/SearchSpec/prediction-batch/
+  Measurement Plan authorities; `manual` codes bind a persisted immutable
+  `CadApplicabilityAttestation` (actor, timestamp, subject, evidence). The
+  repository replays every check at save and on authoritative reads, so a
+  fabricated or foreign PASS fails closed. The native UI exposes
+  `未確認/自動評価/手動証跡` for geometry, band and routing.
 
 A resulting owned-room ValidationRecord stores the campaign id and SHA. The
 validation repository independently rechecks the campaign, candidate split,

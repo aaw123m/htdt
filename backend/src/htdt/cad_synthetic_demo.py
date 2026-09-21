@@ -33,6 +33,7 @@ from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_model_validation_service import (
     CadModelValidationBuildSpec,
     CadModelValidationService,
+    CadValidationApplicabilitySpec,
     CadValidationCandidateBinding,
     CadValidationObjectiveBinding,
     CadValidationRepeatabilitySpec,
@@ -70,7 +71,6 @@ from .cad_search import (
 )
 from .cad_search_models import CadSearchAxis
 from .cad_search_repository import CadSearchRepository
-from .cad_validation_metrics import CadApplicabilityCheck
 from .comparison import FrequencyResponse
 from .optimization_objectives import (
     ObjectiveVector,
@@ -608,19 +608,16 @@ def seed_synthetic_optimization_demo(
                 ),
             ),
             applicability=(
-                CadApplicabilityCheck(
+                CadValidationApplicabilitySpec(
                     code='geometry',
-                    passed=True,
                     detail='synthetic exact rectangular fixture',
                 ),
-                CadApplicabilityCheck(
+                CadValidationApplicabilitySpec(
                     code='band',
-                    passed=True,
                     detail='synthetic 20-160 Hz fixture',
                 ),
-                CadApplicabilityCheck(
+                CadValidationApplicabilitySpec(
                     code='routing',
-                    passed=True,
                     detail='synthetic single-source routing fixture',
                 ),
             ),
