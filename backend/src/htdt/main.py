@@ -5,7 +5,7 @@ import hashlib
 from dataclasses import asdict
 from datetime import datetime
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import tempfile
 
 from fastapi import FastAPI, HTTPException, Query
@@ -76,6 +76,34 @@ def _comparison_warnings(a: dict, b: dict, confounder_count: int) -> list[str]:
     if confounder_count:
         warnings.append(f'{confounder_count} unclassified context difference(s) may confound the A/B comparison')
     return warnings
+
+
+def _resolve_frontend_path(frontend_root: Path, path: str) -> Path | None:
+    """Return the resolved file inside ``frontend_root`` for an SPA route path.
+
+    ``frontend_root`` must already be resolved. The decoded ``path`` parameter
+    may contain ``..`` segments, absolute paths, or Windows separators/drive
+    prefixes that would escape the static root, so containment is proven on
+    the resolved filesystem path before any file is served. Returns ``None``
+    when the path cannot be served safely from the static root.
+    """
+    if not path:
+        return None
+    # Backslashes are separators on Windows; normalize them so that
+    # traversal segments and drive/UNC prefixes cannot hide.
+    normalized = path.replace('\\', '/')
+    windows_path = PureWindowsPath(normalized)
+    if windows_path.drive or windows_path.is_absolute() or normalized.startswith('/'):
+        return None
+    if '..' in PurePosixPath(normalized).parts:
+        return None
+    try:
+        candidate = (frontend_root / normalized).resolve()
+        if not candidate.is_relative_to(frontend_root) or not candidate.is_file():
+            return None
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate
 
 
 def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = None) -> FastAPI:
@@ -606,16 +634,17 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     frontend_dist = Path(__file__).resolve().parents[3] / 'frontend' / 'dist'
     if frontend_dist.is_dir():
-        assets_dir = frontend_dist / 'assets'
+        frontend_root = frontend_dist.resolve()
+        assets_dir = frontend_root / 'assets'
         if assets_dir.is_dir():
             app.mount('/assets', StaticFiles(directory=assets_dir), name='assets')
 
         @app.get('/{path:path}', include_in_schema=False)
         def frontend(path: str) -> FileResponse:
-            candidate = frontend_dist / path
-            if path and candidate.is_file():
+            candidate = _resolve_frontend_path(frontend_root, path)
+            if candidate is not None:
                 return FileResponse(candidate)
-            return FileResponse(frontend_dist / 'index.html')
+            return FileResponse(frontend_root / 'index.html')
     else:
         @app.get('/', include_in_schema=False)
         def root() -> dict[str, str]:
