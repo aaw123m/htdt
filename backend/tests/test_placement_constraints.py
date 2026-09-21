@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from copy import deepcopy
 from pathlib import Path
 
@@ -197,22 +196,19 @@ def test_constraint_set_api_persists_immutable_spec_and_evaluates(tmp_path: Path
     assert fetched.status_code == 200
     assert fetched.json()['spec'] == record['spec']
 
-    backup = client.get('/api/backup')
-    assert backup.status_code == 200
-    with TestClient(create_app(tmp_path / 'restored')) as restored:
-        restored_response = restored.post('/api/restore', json={
-            'archive_base64': base64.b64encode(backup.content).decode('ascii'),
-        })
-        assert restored_response.status_code == 200, restored_response.text
-        restored_sets = restored.get(f"/api/projects/{project['id']}/constraint-sets").json()
-        restored_record = next(item for item in restored_sets if item['id'] == record['id'])
-        assert restored_record['spec'] == record['spec']
-        restored_evaluation = restored.post(
+    # The retired browser backup/restore endpoints are covered by
+    # test_browser_backup_retired.py; here a same-data-dir restart proves the
+    # persisted immutable spec still evaluates identically.
+    with TestClient(create_app(tmp_path)) as restarted:
+        restarted_sets = restarted.get(f"/api/projects/{project['id']}/constraint-sets").json()
+        restarted_record = next(item for item in restarted_sets if item['id'] == record['id'])
+        assert restarted_record['spec'] == record['spec']
+        restarted_evaluation = restarted.post(
             f"/api/projects/{project['id']}/constraint-sets/{record['id']}/evaluate",
             json={'positions': {'FL': {'x_m': 0.9, 'y_m': 1.1, 'z_m': 1.0}, 'FR': {'x_m': 3.1, 'y_m': 1.1, 'z_m': 1.0}}},
         )
-        assert restored_evaluation.status_code == 200
-        assert restored_evaluation.json()['feasible'] is True
+        assert restarted_evaluation.status_code == 200
+        assert restarted_evaluation.json()['feasible'] is True
 
 
 def test_pair_distance_can_use_envelope_clearance() -> None:

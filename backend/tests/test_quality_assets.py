@@ -3,8 +3,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from htdt.conditions import classify_differences, context_differences
 from htdt.database import SCHEMA_VERSION, Store
 
@@ -52,8 +50,9 @@ def test_schema_v1_is_migrated_to_current_schema(tmp_path: Path) -> None:
     assert {'asset_links', 'sessions'} <= tables
 
 
-def test_quality_duplicate_asset_attachment_and_restore(tmp_path: Path) -> None:
-    store = Store(tmp_path / 'data')
+def test_quality_duplicate_asset_attachment_persists_across_reopen(tmp_path: Path) -> None:
+    data_root = tmp_path / 'data'
+    store = Store(data_root)
     project = store.create_project('Room')
     context = store.create_context(project['id'], _context_payload(), None)
     raw = b'20 70\n40 71\n80 72\n160 73\n'
@@ -67,14 +66,12 @@ def test_quality_duplicate_asset_attachment_and_restore(tmp_path: Path) -> None:
     assert {row['quality_status'] for row in rows} == {'usable', 'warning'}
     attachment = store.attach_asset(project['id'], 'session.mdat', b'synthetic-mdat-fixture', 'mdat', 'Synthetic fixture', first['measurement_id'], context['id'])
     assert attachment['kind'] == 'mdat'
-    archive = store.backup_to(tmp_path / 'backup.zip')
-    restored = Store(tmp_path / 'restored')
-    restored.restore_from(archive)
-    assert len(restored.list_attachments(project['id'])) == 1
-    assert restored.integrity_problems() == []
+    reopened = Store(data_root)
+    assert len(reopened.list_attachments(project['id'])) == 1
+    assert reopened.integrity_problems() == []
 
 
-def test_backup_refuses_missing_asset(tmp_path: Path) -> None:
+def test_missing_asset_is_reported_by_integrity_check(tmp_path: Path) -> None:
     store = Store(tmp_path / 'data')
     project = store.create_project('Room')
     context = store.create_context(project['id'], _context_payload(), None)
@@ -82,9 +79,8 @@ def test_backup_refuses_missing_asset(tmp_path: Path) -> None:
     with store.connect() as db:
         relative = db.execute('SELECT relative_path FROM assets WHERE sha256 = ?', (imported['asset_sha256'],)).fetchone()[0]
     (store.root / relative).unlink()
-    assert store.integrity_problems()
-    with pytest.raises(ValueError, match='Backup refused'):
-        store.backup_to(tmp_path / 'broken.zip')
+    problems = store.integrity_problems()
+    assert any(problem.startswith('missing_asset:') for problem in problems)
 
 
 def test_context_diff_expected_and_confounder() -> None:

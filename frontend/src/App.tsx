@@ -534,19 +534,6 @@ export default function App() {
     }
   }
 
-  async function restore(file: File | null) {
-    if (!file) return
-    try {
-      const archive_base64 = await fileToBase64(file)
-      await api('/api/restore', { method: 'POST', body: JSON.stringify({ archive_base64 }) })
-      await reloadProjects()
-      if (projectId) await reloadProjectData(projectId)
-      notify('バックアップを復元しました')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '復元失敗')
-    }
-  }
-
   return (
     <main className="shell">
       <header className="hero">
@@ -578,8 +565,6 @@ export default function App() {
             <option value="">プロジェクトを選択</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
-          <a className="button-link" href="/api/backup">バックアップZIP</a>
-          <label className="button-link">復元ZIP<input hidden type="file" accept=".zip" onChange={(event) => void restore(event.target.files?.[0] ?? null)} /></label>
         </form>
       </section>
 

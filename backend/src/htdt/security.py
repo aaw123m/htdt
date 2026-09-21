@@ -10,7 +10,6 @@ from starlette.requests import ClientDisconnect
 from .ingress import IngressTooLargeError, read_stream_bounded
 from .limits import (
     MAX_ATTACHMENT_REQUEST_BODY_BYTES,
-    MAX_RESTORE_REQUEST_BODY_BYTES,
     MAX_REW_REQUEST_BODY_BYTES,
     MAX_SMALL_JSON_BODY_BYTES,
 )
@@ -59,8 +58,6 @@ def request_body_limit(path: str, method: str) -> int | None:
         return MAX_REW_REQUEST_BODY_BYTES
     if path.startswith('/api/projects/') and path.endswith('/attachments'):
         return MAX_ATTACHMENT_REQUEST_BODY_BYTES
-    if path == '/api/restore':
-        return MAX_RESTORE_REQUEST_BODY_BYTES
     return MAX_SMALL_JSON_BODY_BYTES
 
 
