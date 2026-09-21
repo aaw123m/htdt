@@ -51,7 +51,10 @@ class CadRobustnessValidationRepository:
     """Append-only O90E authority over existing O90/O60/N60 evidence.
 
     This repository deliberately does not own a second model-validation flag.
-    Every production decision re-resolves the exact existing authorities.
+    Every production decision re-resolves the exact existing authorities and,
+    on save and on every authoritative read, must reproduce the canonical
+    ``evaluate_decision(...)`` output over those authorities exactly; anything
+    less fails closed.
     """
 
     def __init__(
@@ -1293,11 +1296,51 @@ class CadRobustnessValidationRepository:
                             'O90E decision acquisition binding is stale or tampered'
                         )
 
+    def _require_canonical_decision(
+        self,
+        decision: O90EValidationDecision,
+    ) -> None:
+        """Re-run the canonical evaluator and require exact reproduction.
+
+        ``_validate_decision_bindings`` proves the referenced authorities
+        exist; it does not prove the stored payload is their canonical
+        interpretation. The trusted ``evaluate_decision(...)`` algorithm is
+        replayed here over the persisted RobustnessSpec, the exact persisted
+        case set, the exact O60 validation authority, and the stored
+        ``decided_at_utc``. Every caller-supplied field — assessment
+        axis/direction/delta, status and reasons, sensitivity evidence hash,
+        measurement refs with their embedded capability decision, prediction
+        refs, axis coverage, support state, and the production gate itself —
+        is recomputed by the canonical evaluator and must reproduce the
+        stored decision exactly. ``schema_version``/``authority_version``
+        are Literal-typed, so unknown evaluator versions already fail closed
+        at model validation; anything short of exact reproduction fails
+        closed here.
+        """
+        regenerated = self.evaluate_decision(
+            robustness_spec_id=decision.robustness_spec_id,
+            o60_validation_id=decision.o60_validation_id,
+            case_ids=tuple(item.case_id for item in decision.assessments),
+            decided_at_utc=decision.decided_at_utc,
+        )
+        if regenerated != decision:
+            raise ValueError(
+                'O90E decision does not match the canonical evaluation of '
+                'its resolved evidence'
+            )
+
     def save_decision(self, decision: O90EValidationDecision) -> None:
+        """Persist one canonical O90E production-gate decision.
+
+        The stored payload must be the exact output of the canonical
+        ``evaluate_decision(...)`` algorithm over the resolved authorities;
+        caller-supplied assessment/coverage/gate fields are never trusted.
+        """
         decision = O90EValidationDecision.model_validate(
             decision.model_dump(mode='python')
         )
         self._validate_decision_bindings(decision)
+        self._require_canonical_decision(decision)
         with closing(self._connect()) as connection, connection:
             if connection.execute(
                 'SELECT 1 FROM cad_robustness_validation_decisions WHERE decision_id=?',
@@ -1337,6 +1380,7 @@ class CadRobustnessValidationRepository:
             return None
         decision = O90EValidationDecision.model_validate_json(row['payload_json'])
         self._validate_decision_bindings(decision)
+        self._require_canonical_decision(decision)
         return decision
 
     def list_decisions(
@@ -1360,4 +1404,5 @@ class CadRobustnessValidationRepository:
         )
         for decision in decisions:
             self._validate_decision_bindings(decision)
+            self._require_canonical_decision(decision)
         return decisions
