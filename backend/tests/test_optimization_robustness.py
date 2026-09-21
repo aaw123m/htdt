@@ -1341,18 +1341,20 @@ def test_cad_robustness_repository_uses_native_schema_authority_for_new_and_lega
     legacy_path = tmp_path / 'legacy-robust.sqlite3'
     with sqlite3.connect(legacy_path) as connection:
         connection.execute(
-            'CREATE TABLE cad_legacy_evidence('
-            'id INTEGER PRIMARY KEY, payload TEXT NOT NULL)'
+            'CREATE TABLE cad_constraint_workspaces('
+            'document_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, '
+            'updated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL)'
         )
         connection.execute(
-            "INSERT INTO cad_legacy_evidence(id, payload) VALUES (1, 'preserve')"
+            "INSERT INTO cad_constraint_workspaces VALUES "
+            "('doc-1', 1, '2026-09-17T00:00:00+00:00', 'preserve')"
         )
 
     CadRobustnessRepository(legacy_path)
     assert read_native_schema_version(legacy_path) == NATIVE_SCHEMA_VERSION
     with sqlite3.connect(legacy_path) as connection:
         assert connection.execute(
-            'SELECT payload FROM cad_legacy_evidence WHERE id=1'
+            "SELECT payload_json FROM cad_constraint_workspaces WHERE document_id='doc-1'"
         ).fetchone() == ('preserve',)
         tables = {
             row[0]
