@@ -21,7 +21,12 @@ from htdt.cad_measurement_quality import (
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_model_validation import build_full_model_validation
 from htdt.cad_objective_models import CadObjectiveInputRef
 from htdt.cad_objective_repository import CadObjectiveRepository
@@ -641,23 +646,32 @@ def _fixture(tmp_path):
             routing_evidence='verified',
             captured_at=f'2030-01-01T01:0{index}:00+00:00',
             imported_at=f'2030-01-01T01:1{index}:00+00:00',
-            source_kind='rew_api',
+            source_kind='unknown',
             external_source_id=f'rew:{candidate_id}',
             provenance={
                 'validation_scope': 'owned_room',
                 'validation_campaign_id': campaign.campaign_id,
             },
         )
-        raw = f'o90e:{candidate_id}'.encode()
+        processing = {'fixture_raw': f'o90e:{candidate_id}'}
+        levels = tuple(_response(index * 0.1).level_db)
+        raw = declared_fr_raw(
+            frequency_hz=(20.0, 40.0, 80.0, 160.0),
+            level_db=levels,
+            phase_status='absent',
+            level_reference='spl',
+            processing=processing,
+        )
         dataset = CadFrequencyResponseDataset(
             dataset_id=f'dataset:{candidate_id}',
             measurement_id=measurement_id,
             frequency_hz=(20.0, 40.0, 80.0, 160.0),
-            level_db=tuple(_response(index * 0.1).level_db),
+            level_db=levels,
             phase_status='absent',
             level_reference='spl',
+            processing_json=canonical_json(processing),
             source_sha256=sha256(raw).hexdigest(),
-            importer_version='o90e-fixture-1',
+            importer_version=HTDT_DECLARED_IMPORTER_VERSION,
         )
         measurement_repository.save(
             record,
@@ -1210,7 +1224,9 @@ def test_o90e_raw_measurement_asset_tamper_rejected_on_reopen(tmp_path) -> None:
     asset_path = env.measurement_repository.assets_dir / dataset.source_sha256
     asset_path.write_bytes(b'tampered-o90e-raw-asset')
 
-    with pytest.raises(ValueError, match='raw measurement asset is missing or tampered'):
+    # The tampered asset fails the dataset's content-address verification
+    # before the decision layer even replays its own bindings.
+    with pytest.raises(ValueError, match='content does not match its content address'):
         env.validation_repository.get_decision(decision.decision_id)
 
 

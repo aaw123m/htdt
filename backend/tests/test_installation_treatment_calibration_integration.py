@@ -42,7 +42,12 @@ from htdt.cad_measurement_quality import (
     build_measurement_quality_profile,
     build_measurement_quality_report,
 )
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, SceneDocument, make_f1_scene
 from htdt.cad_system_variant import build_system_variant
@@ -285,7 +290,14 @@ def _treatment_authorities(revision, variant, geometry):
 
 
 def _measurement_authority(revision):
-    raw = b'installation-v3-calibration-measurement'
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 80.0, 1000.0, 20000.0),
+        level_db=(70.0, 71.0, 69.0, 68.0),
+        phase_deg=(0.0, 5.0, 10.0, 15.0),
+        phase_status='valid',
+        level_reference='spl',
+        processing={'fixture_raw': 'installation-v3-calibration-measurement'},
+    )
     measurement = measurement_record_for_revision(
         revision,
         'point-mlp',
@@ -296,7 +308,7 @@ def _measurement_authority(revision):
         radiation_scope='single',
         routing_evidence='verified',
         imported_at='2026-09-19T13:01:00+00:00',
-        source_kind='rew_api',
+        source_kind='unknown',
         external_source_id='rew-installation-v3',
     )
     dataset = CadFrequencyResponseDataset(
@@ -307,8 +319,11 @@ def _measurement_authority(revision):
         phase_deg=(0.0, 5.0, 10.0, 15.0),
         phase_status='valid',
         level_reference='spl',
+        processing_json=canonical_json({
+            'fixture_raw': 'installation-v3-calibration-measurement'
+        }),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='installation-v3-fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     evidence = CadMeasurementQualityEvidence(
         usable_frequency_band_hz=(20.0, 20000.0),

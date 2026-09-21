@@ -22,8 +22,12 @@ from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_measurement_loop import build_measurement_plan, complete_measurement_plan
 from .cad_measurement_models import CadFrequencyResponseDataset
 from .cad_measurement_repository import CadMeasurementRepository
-from .cad_measurements import canonical_json as canonical_measurement_json
-from .cad_measurements import measurement_record_for_revision
+from .cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json as canonical_measurement_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_model_validation_service import (
     CadModelValidationBuildSpec,
@@ -206,13 +210,25 @@ def _save_synthetic_measurement(
     offset: float,
 ) -> str:
     response = _response(index, measured_offset=offset)
-    raw_payload = {
+    processing = {
         'classification': 'htdt_synthetic_measurement_fixture',
         'evidence_scope': 'synthetic_fixture',
         'measurement_id': measurement_id,
-        'response': response,
+        'synthetic_fixture': True,
+        'physical_measurement': False,
     }
-    raw = canonical_measurement_json(raw_payload).encode('utf-8')
+    # Synthetic fixture evidence persists through the declared importer: the
+    # raw asset literally declares the samples, so the same verification that
+    # binds REW imports binds this fixture.
+    raw = declared_fr_raw(
+        frequency_hz=response['frequency_hz'],
+        level_db=response['magnitude'],
+        phase_deg=None,
+        phase_status='absent',
+        level_reference='synthetic_fixture',
+        smoothing='None',
+        processing=processing,
+    )
     digest = sha256(raw).hexdigest()
     record = measurement_record_for_revision(
         revision,
@@ -245,12 +261,9 @@ def _save_synthetic_measurement(
         phase_status='absent',
         level_reference='synthetic_fixture',
         smoothing='None',
-        processing_json=canonical_measurement_json({
-            'synthetic_fixture': True,
-            'physical_measurement': False,
-        }),
+        processing_json=canonical_measurement_json(processing),
         source_sha256=digest,
-        importer_version='htdt-synthetic-demo-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repository.save(
         record,

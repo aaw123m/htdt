@@ -28,6 +28,11 @@ from htdt.cad_measurement_loop import (
 )
 from htdt.cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from htdt.cad_measurement_repository import CadMeasurementRepository
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+)
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_objectives import build_pareto_set
 from htdt.cad_prediction_provider import (
@@ -716,7 +721,12 @@ def test_o50_plan_o60_residual_and_o70_bind_exact_provider_authority(
         spec.search_spec_id
     ) == (bound_plan,)
 
-    raw = b'r170a-o60-measurement'
+    raw = declared_fr_raw(
+        frequency_hz=(40.0, 80.0),
+        level_db=(94.0, 91.0),
+        phase_status='absent',
+        processing={'fixture_raw': 'r170a-o60-measurement'},
+    )
     measurement = CadMeasurementRecord(
         measurement_id='r170a-measurement',
         document_id=fixture.revision.document_id,
@@ -732,7 +742,7 @@ def test_o50_plan_o60_residual_and_o70_bind_exact_provider_authority(
         radiation_scope='single',
         routing_evidence='manual',
         imported_at='2026-09-20T08:45:00+00:00',
-        source_kind='rew_text',
+        source_kind='unknown',
     )
     dataset = CadFrequencyResponseDataset(
         dataset_id='r170a-dataset',
@@ -741,8 +751,9 @@ def test_o50_plan_o60_residual_and_o70_bind_exact_provider_authority(
         level_db=(94.0, 91.0),
         phase_deg=None,
         phase_status='absent',
+        processing_json=canonical_json({'fixture_raw': 'r170a-o60-measurement'}),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='r170a-test',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repository.save(
         measurement,

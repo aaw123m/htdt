@@ -24,7 +24,12 @@ from htdt.cad_measurement_quality import (
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_f1_scene
 
@@ -47,6 +52,18 @@ def _save_measurement(
     phase_deg: tuple[float, ...] | None = None,
     level_reference: str = 'unknown',
 ):
+    # The declared importer keeps fixture datasets honestly derived: the raw
+    # asset literally declares the persisted samples, with the caller's raw
+    # marker embedded so each measurement still gets a distinct asset.
+    processing = {'fixture_raw': raw.decode('utf-8')}
+    declared_raw = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0),
+        level_db=(70.0, 71.0, 69.0),
+        phase_deg=phase_deg,
+        phase_status=phase_status,
+        level_reference=level_reference,
+        processing=processing,
+    )
     record = measurement_record_for_revision(
         revision,
         'point-mlp',
@@ -57,7 +74,7 @@ def _save_measurement(
         radiation_scope='single',
         routing_evidence='verified',
         imported_at='2026-09-19T00:00:00+00:00',
-        source_kind='rew_api',
+        source_kind='unknown',
         external_source_id=f'rew-{measurement_id}',
     )
     dataset = CadFrequencyResponseDataset(
@@ -68,14 +85,15 @@ def _save_measurement(
         phase_deg=phase_deg,
         phase_status=phase_status,
         level_reference=level_reference,
-        source_sha256=sha256(raw).hexdigest(),
-        importer_version='fixture-1',
+        processing_json=canonical_json(processing),
+        source_sha256=sha256(declared_raw).hexdigest(),
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     repository.save(
         record,
         dataset,
         raw_filename=f'{measurement_id}.json',
-        raw_bytes=raw,
+        raw_bytes=declared_raw,
     )
     return record, dataset
 

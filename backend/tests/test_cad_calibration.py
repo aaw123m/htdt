@@ -36,7 +36,12 @@ from htdt.cad_measurement_quality import (
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, make_f1_scene
 from htdt.cad_system_variant import build_system_variant
@@ -91,7 +96,18 @@ def _save_measurement(
     *,
     phase: bool = False,
 ):
-    raw = f'raw-{measurement_id}'.encode()
+    # The declared importer keeps fixture datasets honestly derived: the raw
+    # asset literally declares the persisted samples, with the caller's raw
+    # marker embedded so each measurement still gets a distinct asset.
+    processing = {'fixture_raw': f'raw-{measurement_id}'}
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 80.0, 1000.0, 20000.0),
+        level_db=(70.0, 71.0, 69.0, 68.0),
+        phase_deg=(0.0, 5.0, 10.0, 15.0) if phase else None,
+        phase_status='valid' if phase else 'absent',
+        level_reference='spl',
+        processing=processing,
+    )
     record = measurement_record_for_revision(
         revision,
         'point-mlp',
@@ -102,7 +118,7 @@ def _save_measurement(
         radiation_scope='single',
         routing_evidence='verified',
         imported_at='2026-09-19T12:31:00+00:00',
-        source_kind='rew_api',
+        source_kind='unknown',
         external_source_id=f'rew-{measurement_id}',
     )
     dataset = CadFrequencyResponseDataset(
@@ -113,8 +129,9 @@ def _save_measurement(
         phase_deg=(0.0, 5.0, 10.0, 15.0) if phase else None,
         phase_status='valid' if phase else 'absent',
         level_reference='spl',
+        processing_json=canonical_json(processing),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='calibration-fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repository.save(
         record,

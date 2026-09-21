@@ -21,6 +21,11 @@ from htdt.cad_measurement_repository import (
     CadMeasurementRepository,
     MeasurementPlanConflictError,
 )
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import (
@@ -70,7 +75,11 @@ def test_measurement_plan_binds_candidate_to_exact_applied_revision(tmp_path):
     with pytest.raises(ValueError, match='identity hash mismatch'):
         measurement_repo.save_measurement_plan(tampered_plan)
     measurement_repo.save_measurement_plan(plan)
-    raw = b'o50-measured-fr'
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0),
+        level_db=(80.0, 81.0, 79.0),
+        phase_status='absent',
+    )
     record = CadMeasurementRecord(
         measurement_id='measurement-a',
         document_id=applied.document_id,
@@ -84,7 +93,7 @@ def test_measurement_plan_binds_candidate_to_exact_applied_revision(tmp_path):
         radiation_scope='single',
         routing_evidence='manual',
         imported_at='2026-09-18T00:00:00+00:00',
-        source_kind='rew_text',
+        source_kind='unknown',
     )
     dataset = CadFrequencyResponseDataset(
         dataset_id='dataset-a',
@@ -94,7 +103,7 @@ def test_measurement_plan_binds_candidate_to_exact_applied_revision(tmp_path):
         phase_deg=None,
         phase_status='absent',
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repo.save(record, dataset, raw_filename='fixture.txt', raw_bytes=raw)
     completed = complete_measurement_plan(plan, measurement_repo, (record.measurement_id,))
@@ -167,7 +176,12 @@ def _planned_plan(scene_repo, search_repo, spec, source):
 
 
 def _save_measured_evidence(measurement_repo, applied, measurement_id, dataset_id):
-    raw = f'{measurement_id}-fr'.encode()
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0),
+        level_db=(80.0, 81.0, 79.0),
+        phase_status='absent',
+        processing={'fixture_measurement_id': measurement_id},
+    )
     record = CadMeasurementRecord(
         measurement_id=measurement_id,
         document_id=applied.document_id,
@@ -181,7 +195,7 @@ def _save_measured_evidence(measurement_repo, applied, measurement_id, dataset_i
         radiation_scope='single',
         routing_evidence='manual',
         imported_at='2026-09-18T00:00:00+00:00',
-        source_kind='rew_text',
+        source_kind='unknown',
     )
     dataset = CadFrequencyResponseDataset(
         dataset_id=dataset_id,
@@ -190,8 +204,9 @@ def _save_measured_evidence(measurement_repo, applied, measurement_id, dataset_i
         level_db=(80.0, 81.0, 79.0),
         phase_deg=None,
         phase_status='absent',
+        processing_json=canonical_json({'fixture_measurement_id': measurement_id}),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repo.save(record, dataset, raw_filename=f'{measurement_id}.txt', raw_bytes=raw)
     return record

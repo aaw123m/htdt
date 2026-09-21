@@ -7,9 +7,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QDockWidget
 
+from hashlib import sha256
+
 from htdt.cad_document import WorkingDocument
+from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import normalize_rew_text
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    declared_fr_raw,
+    measurement_record_for_revision,
+    normalize_rew_text,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, make_f1_scene
 from htdt.measurement_page_workspace import (
@@ -102,27 +110,40 @@ def test_pending_assignment_fails_closed_if_saved_scene_changes(tmp_path: Path) 
 def test_quality_and_phase_capability_are_read_from_saved_record_and_dataset(tmp_path: Path) -> None:
     scene_repository, revision_a = _saved_f1(tmp_path)
     measurement_repository = CadMeasurementRepository(scene_repository)
-    raw = b"20 70 10\n40 71 20\n80 69 30\n"
-    record, dataset, filename, source = normalize_rew_text(
+    # Declared importer: the raw asset honestly declares valid phase data, so
+    # the persisted dataset's phase_status is authoritative rather than a
+    # post-normalization mutation that cannot rederive from the raw bytes.
+    source = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0),
+        level_db=(70.0, 71.0, 69.0),
+        phase_deg=(10.0, 20.0, 30.0),
+        phase_status="valid",
+    )
+    record = measurement_record_for_revision(
         revision_a,
         "point-mlp",
-        raw,
-        filename="phase.txt",
         evidence_type="measured",
         channel_role="center",
+        imported_at="2026-09-17T09:30:00+00:00",
+        source_kind="unknown",
+        quality_status="verified",
+        quality_reasons=("fixture-authority-reason",),
+        quality_source="fixture-authority",
     )
-    record = record.model_copy(
-        update={
-            "quality_status": "verified",
-            "quality_reasons": ("fixture-authority-reason",),
-            "quality_source": "fixture-authority",
-        }
+    dataset = CadFrequencyResponseDataset(
+        dataset_id=f"dataset-{record.measurement_id}",
+        measurement_id=record.measurement_id,
+        frequency_hz=(20.0, 40.0, 80.0),
+        level_db=(70.0, 71.0, 69.0),
+        phase_deg=(10.0, 20.0, 30.0),
+        phase_status="valid",
+        source_sha256=sha256(source).hexdigest(),
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
-    dataset = dataset.model_copy(update={"phase_status": "valid"})
     measurement_repository.save(
         record,
         dataset,
-        raw_filename=filename,
+        raw_filename="phase.json",
         raw_bytes=source,
     )
 

@@ -38,7 +38,12 @@ from htdt.cad_measurement_quality import (
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import build_cad_search_spec
@@ -398,7 +403,13 @@ def _fixture(tmp_path: Path):
     )
 
     measurement_repository = CadMeasurementRepository(scene_repository)
-    raw = b'issue174-measurement'
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 100.0, 1000.0, 20000.0),
+        level_db=(70.0, 71.0, 69.0, 68.0),
+        phase_status='absent',
+        level_reference='spl',
+        processing={'fixture_raw': 'issue174-measurement'},
+    )
     measurement = measurement_record_for_revision(
         revision,
         'point-mlp',
@@ -409,7 +420,7 @@ def _fixture(tmp_path: Path):
         radiation_scope='single',
         routing_evidence='verified',
         imported_at=NOW,
-        source_kind='rew_api',
+        source_kind='unknown',
         external_source_id='rew-174',
     )
     dataset = CadFrequencyResponseDataset(
@@ -420,8 +431,9 @@ def _fixture(tmp_path: Path):
         phase_deg=None,
         phase_status='absent',
         level_reference='spl',
+        processing_json=canonical_json({'fixture_raw': 'issue174-measurement'}),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='issue174-fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repository.save(
         measurement,
