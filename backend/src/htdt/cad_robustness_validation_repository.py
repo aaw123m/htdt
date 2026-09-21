@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
@@ -198,25 +197,15 @@ class CadRobustnessValidationRepository:
         return history[-1] if history else None
 
     def _raw_asset_valid(self, digest: str) -> bool:
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                '''
-                SELECT relative_path, size_bytes
-                FROM cad_measurement_assets
-                WHERE sha256=?
-                ''',
-                (digest,),
-            ).fetchone()
-        if row is None:
+        # The O90E evidence gate deliberately reuses the N60 managed
+        # raw-asset contract instead of implementing its own file checks:
+        # the asset row must resolve under the managed assets directory to a
+        # regular file of the stored size whose SHA-256 equals the digest.
+        try:
+            self.measurement_repository.validate_raw_asset(digest)
+        except (ValueError, OSError):
             return False
-        asset_path = self.path.parent / str(row['relative_path'])
-        if not asset_path.is_file():
-            return False
-        raw = asset_path.read_bytes()
-        return (
-            len(raw) == int(row['size_bytes'])
-            and sha256(raw).hexdigest() == digest
-        )
+        return True
 
     def _system_variant_ref(
         self,

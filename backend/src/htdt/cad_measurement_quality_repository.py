@@ -94,6 +94,13 @@ class CadMeasurementQualityRepository:
             raise ValueError('quality report dataset hash mismatch')
         if report.raw_asset_sha256 != dataset.source_sha256:
             raise ValueError('quality report raw asset hash mismatch')
+        # The report pins raw_asset_sha256 as its own evidence binding, so
+        # the quality gate resolves that exact managed asset through the
+        # shared contract (row, containment, regular file, size, SHA-256)
+        # rather than relying on the dataset read having checked it moments
+        # earlier — a raw asset lost between the two checks still fails
+        # closed.
+        self.measurement_repository.validate_raw_asset(report.raw_asset_sha256)
         if (
             report.document_id != measurement.document_id
             or report.scene_revision_id != measurement.scene_revision_id

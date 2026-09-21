@@ -1534,9 +1534,9 @@ def test_o90e_raw_measurement_asset_tamper_rejected_on_reopen(tmp_path) -> None:
     asset_path = env.measurement_repository.assets_dir / dataset.source_sha256
     asset_path.write_bytes(b'tampered-o90e-raw-asset')
 
-    # The tampered asset fails the dataset's content-address verification
-    # before the decision layer even replays its own bindings.
-    with pytest.raises(ValueError, match='content does not match its content address'):
+    # The tampered asset fails the managed raw-asset contract before the
+    # decision layer even replays its own bindings.
+    with pytest.raises(ValueError, match='size mismatch|SHA-256 mismatch'):
         env.validation_repository.get_decision(decision.decision_id)
 
 

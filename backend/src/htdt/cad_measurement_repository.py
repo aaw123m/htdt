@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import closing
 from array import array
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -26,10 +26,49 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import acoustic_reference_position, scene_content_hash
 from .cad_search_repository import CadSearchRepository
 from .comparison import ComparisonResult, FrequencyResponse, replay_comparison_result
+from .managed_assets import ManagedAssetError, verify_managed_asset
 
 
 class MeasurementPlanConflictError(ValueError):
     """A measurement-plan save violated the plan_id single-head lifecycle contract."""
+
+
+@dataclass(frozen=True)
+class VerifiedMeasurementAsset:
+    """A managed raw measurement asset that proved its full storage contract.
+
+    Produced by ``CadMeasurementRepository.validate_raw_asset*`` after the
+    ``cad_measurement_assets`` row keyed by the content-addressed digest was
+    resolved and the declared file passed the shared managed asset contract:
+    safe relative path contained under the managed assets directory, a
+    content-addressed leaf name, an existing regular file (never a symlink),
+    the stored size and a streamed SHA-256 equal to the digest.
+    """
+
+    sha256: str
+    filename: str
+    relative_path: str
+    size_bytes: int
+    path: Path
+
+
+@dataclass(frozen=True)
+class MeasurementEvidenceBundle:
+    """Authoritative raw-backed evidence for one persisted measurement.
+
+    ``dataset`` passed every authoritative read check — persisted semantic
+    hash, versioned transformation seal, the managed raw-asset contract and
+    the pinned importer replay — and ``raw_asset`` is the exact verified
+    content-addressed source the dataset rederives from. Consumers that
+    treat measurement data as production evidence (quality reports, O60
+    validation, calibration, O100G lifecycle, robustness decisions) resolve
+    through this bundle, or through the equally verified ``get_dataset`` /
+    ``dataset_for_measurement`` reads, instead of trusting a stored SHA.
+    """
+
+    measurement: CadMeasurementRecord
+    dataset: CadFrequencyResponseDataset
+    raw_asset: VerifiedMeasurementAsset
 
 
 def _pack(values: tuple[float, ...] | None) -> bytes | None:
@@ -619,16 +658,93 @@ class CadMeasurementRepository:
         }
         return CadMeasurementRecord.model_validate(payload)
 
-    def _verified_raw_asset(self, digest: str) -> bytes:
-        """Load the content-addressed raw asset, failing closed on tampering."""
+    def _asset_row_for_digest(self, digest: str) -> sqlite3.Row:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''SELECT sha256, filename, relative_path, size_bytes
+                   FROM cad_measurement_assets WHERE sha256=?''',
+                (digest,),
+            ).fetchone()
+        if row is None:
+            raise ManagedAssetError(
+                'measurement raw asset has no cad_measurement_assets row: '
+                f'{digest}'
+            )
+        return row
+
+    def validate_raw_asset(self, digest: str) -> VerifiedMeasurementAsset:
+        """Resolve and verify the managed raw asset registered under *digest*.
+
+        This is the authoritative runtime counterpart of the native backup
+        ``_validate_asset_contract``: the ``cad_measurement_assets`` row keyed
+        by the content-addressed SHA-256 must exist, declare a safe relative
+        path contained under this repository's managed assets directory with
+        the digest as its leaf name, and resolve to an existing regular file
+        (never a symlink) whose stored size and streamed SHA-256 match the
+        row. Any gap raises ``ManagedAssetError`` — a typed fail-closed
+        error, never a silent pass.
+        """
+        row = self._asset_row_for_digest(digest)
+        sha256_text = str(row['sha256'])
+        relative_path = str(row['relative_path'])
+        size_bytes = int(row['size_bytes'])
+        asset_path = verify_managed_asset(
+            data_dir=self.path.parent,
+            digest=sha256_text,
+            relative_path=relative_path,
+            size_bytes=size_bytes,
+            required_root=self.assets_dir,
+        )
+        # The runtime store is content-addressed: the declared path must
+        # name the digest as its leaf, so a row pointing at an alias or a
+        # foreign file fails even when its bytes happen to verify.
+        if asset_path.name != sha256_text:
+            raise ManagedAssetError(
+                'measurement asset path does not match its content address: '
+                f'{relative_path}'
+            )
+        return VerifiedMeasurementAsset(
+            sha256=sha256_text,
+            filename=str(row['filename']),
+            relative_path=relative_path.replace('\\', '/'),
+            size_bytes=size_bytes,
+            path=asset_path,
+        )
+
+    def validate_raw_asset_for_dataset(self, dataset_id: str) -> VerifiedMeasurementAsset:
+        """Resolve the exact verified raw asset backing one persisted dataset.
+
+        Looks up the ``cad_frequency_responses`` row, follows its
+        ``source_sha256`` to the managed asset row and enforces the full
+        contract via ``validate_raw_asset``. A missing dataset raises
+        ``KeyError``; a missing, misplaced or corrupted raw asset raises
+        ``ManagedAssetError``.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT source_sha256 FROM cad_frequency_responses WHERE dataset_id=?',
+                (dataset_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f'dataset not found: {dataset_id}')
+        return self.validate_raw_asset(str(row['source_sha256']))
+
+    def _read_verified_asset(self, asset: VerifiedMeasurementAsset) -> bytes:
+        """Read a verified asset's bytes with a TOCTOU content re-check.
+
+        The contract in ``validate_raw_asset`` already streamed the file's
+        SHA-256; re-hashing the bytes actually handed to the importer replay
+        closes the window where the file changed between verification and
+        read.
+        """
         try:
-            raw = self._read_asset(self._asset_path(digest))
+            raw = self._read_asset(asset.path)
         except FileNotFoundError as exc:
-            raise ValueError(
+            raise ManagedAssetError(
                 'measurement raw asset is unavailable for dataset verification'
             ) from exc
-        if sha256(raw).hexdigest() != digest:
-            raise ValueError(
+        if sha256(raw).hexdigest() != asset.sha256:
+            raise ManagedAssetError(
                 'measurement raw asset content does not match its content address'
             )
         return raw
@@ -649,21 +765,48 @@ class CadMeasurementRepository:
                 'measurement has no bound frequency-response dataset: '
                 f'{measurement_id}'
             )
-        digest = dataset.source_sha256
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                'SELECT size_bytes FROM cad_measurement_assets WHERE sha256=?',
-                (digest,),
-            ).fetchone()
-        if row is None:
-            raise ValueError('measurement raw asset registry entry is missing')
-        raw = self._verified_raw_asset(digest)
-        if len(raw) != int(row['size_bytes']):
-            raise ValueError(
+        asset = self.validate_raw_asset(dataset.source_sha256)
+        raw = self._read_verified_asset(asset)
+        if len(raw) != asset.size_bytes:
+            raise ManagedAssetError(
                 'measurement raw asset size does not match its registry entry'
             )
 
-    def _row_to_dataset(self, row: sqlite3.Row) -> CadFrequencyResponseDataset:
+    def get_evidence_bundle(self, measurement_id: str) -> MeasurementEvidenceBundle:
+        """Authoritative raw-backed evidence for one persisted measurement.
+
+        Returns the measurement record, its frequency-response dataset and
+        the verified raw asset in one pass. The dataset resolves through the
+        same authoritative read path as ``dataset_for_measurement`` —
+        persisted seals, the managed raw-asset contract and the pinned
+        importer replay — and the returned asset metadata (declared relative
+        path, size, verified filesystem path) lets evidence consumers bind
+        to the exact raw file without a second verification pass.
+        """
+        record = self.get_measurement(measurement_id)
+        if record is None:
+            raise KeyError(measurement_id)
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                f'{self._DATASET_SELECT} WHERE d.measurement_id=?',
+                (measurement_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError(
+                'measurement has no frequency-response dataset: '
+                f'{measurement_id}'
+            )
+        dataset, asset = self._dataset_and_asset(row)
+        return MeasurementEvidenceBundle(
+            measurement=record,
+            dataset=dataset,
+            raw_asset=asset,
+        )
+
+    def _dataset_and_asset(
+        self,
+        row: sqlite3.Row,
+    ) -> tuple[CadFrequencyResponseDataset, VerifiedMeasurementAsset]:
         """Authoritative read: re-verify the persisted import-transformation binding.
 
         The row must carry the persisted dataset semantic hash and the
@@ -673,6 +816,19 @@ class CadMeasurementRepository:
         written before the binding existed (NULL columns), rows whose seals
         were recomputed coherently over altered samples, and rows whose raw
         asset was removed or replaced all fail closed.
+
+        The raw asset itself is resolved through ``validate_raw_asset`` —
+        the same shared managed asset contract the native backup path
+        enforces — so an authoritative read proves the declared
+        ``cad_measurement_assets`` row still resolves to a contained regular
+        file of the stored size whose content hashes to ``source_sha256``,
+        not merely that some file happens to sit at the digest path. This
+        per-read verification is deliberate: N60 dataset reads are evidence
+        reads, and the repository convention since the import-transformation
+        binding is to fail closed on every authoritative read rather than
+        cache integrity state. ``get_evidence_bundle`` reuses the verified
+        asset produced here so evidence consumers pay for one verification
+        pass, not two.
         """
         dataset = CadFrequencyResponseDataset(
             dataset_id=row['dataset_id'],
@@ -711,12 +867,16 @@ class CadMeasurementRepository:
             if 'record_source_kind' in row.keys()
             else None
         )
+        asset = self.validate_raw_asset(dataset.source_sha256)
         verify_imported_dataset(
             dataset,
-            self._verified_raw_asset(dataset.source_sha256),
+            self._read_verified_asset(asset),
             source_kind=record_source_kind,
         )
-        return dataset
+        return dataset, asset
+
+    def _row_to_dataset(self, row: sqlite3.Row) -> CadFrequencyResponseDataset:
+        return self._dataset_and_asset(row)[0]
 
     @staticmethod
     def _row_to_comparison(row: sqlite3.Row) -> CadMeasurementComparison:

@@ -557,6 +557,11 @@ class CadSystemVariantMeasuredLifecycleRepository:
                 raise ValueError(
                     'measured lifecycle evidence exact identity mismatch'
                 )
+            # The persisted ref pins raw_asset_sha256 as its own evidence
+            # binding; resolve that exact managed asset through the shared
+            # raw-asset contract so a deleted/corrupted raw file fails the
+            # O100G gate even though the dataset read already verified it.
+            self.measurement_repository.validate_raw_asset(ref.raw_asset_sha256)
             evidence.append((measurement, dataset, report))
 
         rebuilt = build_system_variant_measured_record(

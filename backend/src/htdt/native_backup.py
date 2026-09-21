@@ -22,6 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from . import __version__
 from .build_info import get_build_info
 from .cad_schema import NativeSchemaError, check_native_schema_compatibility
+from .managed_assets import (
+    canonical_data_path as _canonical_data_path,
+    sha256_file as _sha256_file,
+    verify_managed_asset,
+)
 from .limits import (
     MAX_NATIVE_BACKUP_ARCHIVE_BYTES,
     MAX_NATIVE_BACKUP_COMPRESSION_RATIO,
@@ -63,14 +68,6 @@ def _canonical_json(value: Any) -> str:
 
 def _sha256_bytes(payload: bytes) -> str:
     return sha256(payload).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = sha256()
-    with path.open('rb') as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _utc_now() -> str:
@@ -161,16 +158,6 @@ def _safe_data_path(data_dir: Path, relative_path: str) -> Path:
     except ValueError as exc:
         raise ValueError(f'backup file escapes native data root: {relative_path}') from exc
     return target
-
-
-def _canonical_data_path(path: Path) -> Path:
-    """Canonical absolute path for managed-data identity comparisons.
-
-    resolve() follows symlinks and junctions and collapses dot segments even
-    for missing leaves; normcase() additionally folds case on case-insensitive
-    filesystems (Windows), so differently-spelled aliases compare equal.
-    """
-    return Path(os.path.normcase(str(path.expanduser().resolve())))
 
 
 def _same_file(first: Path, second: Path) -> bool:
@@ -277,21 +264,19 @@ def _validate_asset_contract(
     )
     seen_paths: set[str] = set()
     for digest, relative_path, size_bytes in asset_rows:
-        if len(digest) != 64 or any(char not in '0123456789abcdef' for char in digest):
-            raise ValueError(f'invalid measurement asset digest in database: {digest}')
         _safe_archive_path(relative_path)
         if relative_path in seen_paths:
             raise ValueError(f'duplicate measurement asset path in database: {relative_path}')
         seen_paths.add(relative_path)
-        asset_path = _safe_data_path(data_dir, relative_path)
-        if asset_path.is_symlink() or not asset_path.is_file():
-            raise ValueError(f'measurement asset is missing or not a regular file: {relative_path}')
-        actual_size = asset_path.stat().st_size
-        if actual_size != size_bytes:
-            raise ValueError(f'measurement asset size mismatch: {relative_path}')
-        actual_hash = _sha256_file(asset_path)
-        if actual_hash != digest:
-            raise ValueError(f'measurement asset SHA-256 mismatch: {relative_path}')
+        # The per-asset file contract (digest shape, containment, regular
+        # file, stored size, streamed SHA-256) is the same core check the
+        # N60 runtime measurement authority applies on evidence reads.
+        verify_managed_asset(
+            data_dir=data_dir,
+            digest=digest,
+            relative_path=relative_path,
+            size_bytes=size_bytes,
+        )
         if manifest is not None:
             entry = manifest_assets.get(relative_path)
             if entry is None:
@@ -326,13 +311,12 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
         )
     ]
     for digest, relative_path, size_bytes in _asset_rows(database_path):
-        asset_path = _safe_data_path(snapshot_root, relative_path)
-        if asset_path.is_symlink() or not asset_path.is_file():
-            raise ValueError(f'measurement asset is missing or not a regular file: {relative_path}')
-        if asset_path.stat().st_size != size_bytes:
-            raise ValueError(f'measurement asset size mismatch: {relative_path}')
-        if _sha256_file(asset_path) != digest:
-            raise ValueError(f'measurement asset SHA-256 mismatch: {relative_path}')
+        verify_managed_asset(
+            data_dir=snapshot_root,
+            digest=digest,
+            relative_path=relative_path,
+            size_bytes=size_bytes,
+        )
         entries.append(BackupFileEntry(
             path=relative_path,
             kind='measurement_asset',

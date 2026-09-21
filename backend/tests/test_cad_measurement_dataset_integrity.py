@@ -388,7 +388,7 @@ def test_tampered_raw_asset_content_fails_closed_on_read(tmp_path: Path) -> None
 
     (repository.assets_dir / dataset.source_sha256).write_bytes(b'tampered bytes')
 
-    with pytest.raises(ValueError, match='content does not match its content address'):
+    with pytest.raises(ValueError, match='size mismatch|SHA-256 mismatch'):
         repository.get_dataset(dataset.dataset_id)
 
 
@@ -399,7 +399,7 @@ def test_missing_raw_asset_fails_closed_on_read(tmp_path: Path) -> None:
 
     (repository.assets_dir / dataset.source_sha256).unlink()
 
-    with pytest.raises(ValueError, match='unavailable for dataset verification'):
+    with pytest.raises(ValueError, match='missing or not a regular file'):
         repository.get_dataset(dataset.dataset_id)
 
 
