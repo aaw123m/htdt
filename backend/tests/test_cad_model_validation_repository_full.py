@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from hashlib import sha256
 import json
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -43,6 +45,14 @@ def _fr(offset: float) -> FrequencyResponse:
     )
 
 
+def _response_json(offset: float) -> str:
+    response = _fr(offset)
+    return json.dumps({
+        'frequency_hz': list(response.frequency_hz),
+        'magnitude': list(response.level_db),
+    })
+
+
 class _RoomSimEvidence:
     def __init__(self, path, spec, candidate_set_sha256, candidates):
         self.path = path
@@ -56,12 +66,14 @@ class _RoomSimEvidence:
         candidate_id = attempt_id.removeprefix('pred:')
         if candidate_id not in self.candidates:
             return None
+        index = list(self.candidates).index(candidate_id)
         return SimpleNamespace(
             attempt_id=attempt_id,
             batch_run_id='batch',
             candidate_id=candidate_id,
             status='completed',
             model_version='fixture-1',
+            response_json=_response_json(float(index) * 2.0),
         )
 
     def get_batch_spec(self, batch_run_id):
@@ -366,6 +378,21 @@ def _fixture(tmp_path):
     return record, repository, measurement_repo
 
 
+def _rehashed(record, **updates):
+    """Return a copy of ``record`` with a recomputed identity hash."""
+    tampered = record.model_copy(update=updates)
+    digest = sha256(
+        json.dumps(
+            tampered.identity_payload(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        ).encode('utf-8')
+    ).hexdigest()
+    return tampered.model_copy(update={'validation_sha256': digest})
+
+
 def test_full_validation_repository_recomputes_cross_evidence_authority(tmp_path):
     record, repository, _measurement_repo = _fixture(tmp_path)
 
@@ -374,6 +401,48 @@ def test_full_validation_repository_recomputes_cross_evidence_authority(tmp_path
     assert record.recommendation_gate == 'eligible'
     assert repository.get(record.validation_id) == record
     assert repository.latest_eligible_for_search_spec(record.search_spec_id) == record
+
+
+def test_full_validation_repository_rejects_tampered_holdout_rms(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    assert record.holdout_rms_db is not None
+    tampered = _rehashed(
+        record,
+        holdout_rms_db=record.max_holdout_rms_db * 0.5,
+        residual_gate='pass',
+    )
+
+    with pytest.raises(ValueError, match='residuals do not match'):
+        repository.save(tampered)
+
+
+def test_full_validation_repository_rejects_tampered_pair_shape(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    pair = record.pairs[0].model_copy(update={'shape_rms_db': 0.01})
+    tampered = _rehashed(record, pairs=(pair,) + record.pairs[1:])
+
+    with pytest.raises(ValueError, match='residuals do not match'):
+        repository.save(tampered)
+
+
+def test_full_validation_read_fails_closed_on_tampered_payload(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+    assert repository.latest_eligible_for_search_spec(record.search_spec_id) == record
+
+    tampered = _rehashed(record, calibration_rms_db=0.01)
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_model_validations SET payload_json=? WHERE validation_id=?',
+            (tampered.model_dump_json(), record.validation_id),
+        )
+
+    with pytest.raises(ValueError, match='residuals do not match'):
+        repository.get(record.validation_id)
+    with pytest.raises(ValueError, match='residuals do not match'):
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+    with pytest.raises(ValueError, match='residuals do not match'):
+        repository.list_for_search_spec(record.search_spec_id)
 
 
 def test_owned_room_validation_rejects_unclassified_or_synthetic_measurement(tmp_path):
