@@ -1,4 +1,5 @@
 from contextlib import closing
+import logging
 from pathlib import Path
 import sqlite3
 
@@ -346,3 +347,173 @@ def test_legacy_view_state_schema_migrates_primary_selection(tmp_path: Path) -> 
     assert state is not None
     assert state.selected_id == 'speaker-fl'
     assert state.selected_ids == ('speaker-fl',)
+
+
+def _corrupt_view_state(
+    path: Path,
+    document_id: str,
+    *,
+    selected_id=...,  # sentinel: keep the stored value unless overridden
+    selected_ids_json: str | None = None,
+    hidden_ids_json: str | None = None,
+    locked_ids_json: str | None = None,
+) -> None:
+    """Overwrite one persisted editor_view_states row with malformed data."""
+    assignments: list[str] = []
+    values: list[object] = []
+    if selected_id is not ...:
+        assignments.append('selected_id=?')
+        values.append(selected_id)
+    for column, payload in (
+        ('selected_ids_json', selected_ids_json),
+        ('hidden_ids_json', hidden_ids_json),
+        ('locked_ids_json', locked_ids_json),
+    ):
+        if payload is not None:
+            assignments.append(f'{column}=?')
+            values.append(payload)
+    values.append(document_id)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            f"UPDATE editor_view_states SET {', '.join(assignments)} WHERE document_id=?",
+            values,
+        )
+
+
+def _view_state_row_count(path: Path, document_id: str) -> int:
+    with closing(sqlite3.connect(path)) as connection:
+        return connection.execute(
+            'SELECT COUNT(*) FROM editor_view_states WHERE document_id=?',
+            (document_id,),
+        ).fetchone()[0]
+
+
+@pytest.mark.parametrize(
+    'column',
+    ['selected_ids_json', 'hidden_ids_json', 'locked_ids_json'],
+)
+@pytest.mark.parametrize(
+    'payload',
+    [
+        '{corrupt',          # not JSON at all
+        '{"speaker-fl": 1}', # JSON object, not an array
+        '"speaker-fl"',      # JSON string: iterates into characters
+        '7',                 # JSON number
+        'null',              # JSON null
+        '[1, 2]',            # non-string members
+        '[["speaker-fl"]]',  # nested arrays
+    ],
+)
+def test_malformed_view_state_fails_soft_and_discards_row(
+    tmp_path: Path, caplog, column: str, payload: str
+) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_view_state(
+        first.document_id,
+        selected_id='speaker-fl',
+        selected_ids=('speaker-c', 'speaker-fl'),
+        hidden_ids={'speaker-fr'},
+        locked_ids={'speaker-c'},
+    )
+    _corrupt_view_state(repository.path, first.document_id, **{column: payload})
+
+    with caplog.at_level(logging.WARNING, logger='htdt.native'):
+        state = repository.view_state(first.document_id)
+
+    # Non-authoritative UI state resets instead of propagating the corruption.
+    assert state is None
+    assert _view_state_row_count(repository.path, first.document_id) == 0
+    assert any(
+        'editor view state' in record.message and first.document_id in record.message
+        for record in caplog.records
+    )
+    # The authoritative SceneRevision is byte/semantic unchanged.
+    latest = repository.latest(first.document_id)
+    assert latest is not None
+    assert latest.content_hash == first.content_hash
+    assert latest.document == first.document
+
+
+def test_view_state_rejects_absurdly_large_id_list(
+    tmp_path: Path, caplog, monkeypatch
+) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_view_state(
+        first.document_id,
+        selected_id='speaker-fl',
+        selected_ids=('speaker-fl',),
+        hidden_ids=set(),
+        locked_ids=set(),
+    )
+    monkeypatch.setattr('htdt.cad_repository.MAX_VIEW_STATE_ID_COUNT', 2)
+    _corrupt_view_state(
+        repository.path,
+        first.document_id,
+        hidden_ids_json='["a", "b", "c"]',
+    )
+
+    with caplog.at_level(logging.WARNING, logger='htdt.native'):
+        assert repository.view_state(first.document_id) is None
+    assert _view_state_row_count(repository.path, first.document_id) == 0
+
+
+def test_view_state_rejects_non_string_selected_id(tmp_path: Path, caplog) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_view_state(
+        first.document_id,
+        selected_id='speaker-fl',
+        hidden_ids=set(),
+        locked_ids=set(),
+    )
+    # A BLOB survives TEXT affinity and reads back as bytes, not str.
+    _corrupt_view_state(
+        repository.path, first.document_id, selected_id=sqlite3.Binary(b'\xff')
+    )
+
+    with caplog.at_level(logging.WARNING, logger='htdt.native'):
+        assert repository.view_state(first.document_id) is None
+    assert _view_state_row_count(repository.path, first.document_id) == 0
+
+
+def test_corrupt_view_state_is_replaced_by_next_persist(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_view_state(
+        first.document_id,
+        selected_id='speaker-fl',
+        hidden_ids=set(),
+        locked_ids=set(),
+    )
+    _corrupt_view_state(
+        repository.path, first.document_id, hidden_ids_json='{corrupt'
+    )
+    assert repository.view_state(first.document_id) is None
+
+    repository.save_view_state(
+        first.document_id,
+        selected_id='speaker-c',
+        hidden_ids={'speaker-fr'},
+        locked_ids=set(),
+    )
+    state = repository.view_state(first.document_id)
+    assert state is not None
+    assert state.selected_id == 'speaker-c'
+    assert state.hidden_ids == ('speaker-fr',)
+
+
+def test_authoritative_revision_still_fails_closed_on_corruption(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            "UPDATE scene_revisions SET payload_json='{corrupt' WHERE revision_id=?",
+            (first.revision_id,),
+        )
+
+    # Fail-soft is scoped to non-authoritative view state only: a corrupt
+    # SceneRevision payload must still raise instead of silently resetting.
+    with pytest.raises(ValueError):
+        repository.latest(first.document_id)
