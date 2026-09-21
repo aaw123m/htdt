@@ -127,6 +127,25 @@ def test_restore_wrapper_uses_native_pre_restore_backup_and_reopens_restored_dat
     assert (data_dir / 'measurement-assets' / digest).read_bytes() == raw
 
 
+def test_data_management_backend_rejects_backup_destination_overlapping_live_data(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _repository, _first, digest, raw = _seed_data(data_dir)
+    backend = DataManagementBackend(data_dir)
+    database = data_dir / 'cad-scenes.sqlite3'
+    asset = data_dir / 'measurement-assets' / digest
+    database_before = database.read_bytes()
+
+    with pytest.raises(ValueError, match='overlaps the live native database'):
+        backend.create_backup(database)
+    with pytest.raises(ValueError, match='measurement-assets'):
+        backend.create_backup(asset)
+
+    assert database.read_bytes() == database_before
+    assert asset.read_bytes() == raw
+
+
 def test_application_data_lifecycle_releases_old_handles_before_restore_and_rebuilds(
 ) -> None:
     events: list[str] = []

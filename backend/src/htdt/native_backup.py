@@ -127,6 +127,65 @@ def _safe_data_path(data_dir: Path, relative_path: str) -> Path:
     return target
 
 
+def _canonical_data_path(path: Path) -> Path:
+    """Canonical absolute path for managed-data identity comparisons.
+
+    resolve() follows symlinks and junctions and collapses dot segments even
+    for missing leaves; normcase() additionally folds case on case-insensitive
+    filesystems (Windows), so differently-spelled aliases compare equal.
+    """
+    return Path(os.path.normcase(str(path.expanduser().resolve())))
+
+
+def _same_file(first: Path, second: Path) -> bool:
+    """True when both paths identify the same existing filesystem object.
+
+    os.path.samefile() also matches hard-link aliases that path resolution
+    cannot detect; it raises OSError when either side does not exist.
+    """
+    try:
+        return os.path.samefile(first, second)
+    except OSError:
+        return False
+
+
+def _assert_safe_backup_destination(data_dir: Path, destination: Path) -> None:
+    """Reject a backup destination that overlaps live managed data.
+
+    create_backup() finishes with os.replace() at ``destination``, so a
+    destination resolving to the live database or into the managed
+    measurement-assets subtree would silently overwrite live data after
+    validation succeeds. All comparisons run on canonical paths before any
+    output is created.
+    """
+    source_database = _canonical_data_path(data_dir / DATABASE_NAME)
+    if destination == source_database or _same_file(destination, source_database):
+        raise ValueError(
+            f'backup destination overlaps the live native database: {destination}'
+        )
+    assets_root = _canonical_data_path(data_dir / 'measurement-assets')
+    if destination.is_relative_to(assets_root):
+        raise ValueError(
+            'backup destination is inside the managed measurement-assets '
+            f'directory: {destination}'
+        )
+    if destination.is_dir():
+        raise ValueError(f'backup destination is a directory: {destination}')
+    if not source_database.is_file():
+        return
+    try:
+        asset_rows = _asset_rows(source_database)
+    except sqlite3.DatabaseError as exc:
+        raise ValueError(f'native backup database is invalid: {exc}') from exc
+    for _digest, relative_path, _size_bytes in asset_rows:
+        asset_path = _canonical_data_path(_safe_data_path(data_dir, relative_path))
+        if destination == asset_path or _same_file(destination, asset_path):
+            raise ValueError(
+                'backup destination overlaps a managed measurement asset: '
+                f'{relative_path}'
+            )
+
+
 def _sqlite_health(path: Path) -> None:
     if not path.is_file():
         raise ValueError('native backup database is missing')
@@ -259,8 +318,9 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
 def create_backup(data_dir: Path, destination: Path) -> BackupManifest:
     """Create an atomic native-data backup without copying a live SQLite file directly."""
 
-    data_dir = Path(data_dir)
-    destination = Path(destination)
+    data_dir = _canonical_data_path(Path(data_dir))
+    destination = _canonical_data_path(Path(destination))
+    _assert_safe_backup_destination(data_dir, destination)
     source_database = data_dir / DATABASE_NAME
     destination.parent.mkdir(parents=True, exist_ok=True)
 
