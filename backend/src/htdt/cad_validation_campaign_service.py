@@ -7,6 +7,7 @@ from typing import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .cad_measurement_quality import dataset_sha256
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation import CadModelValidationRecord
 from .cad_model_validation_service import (
@@ -18,7 +19,10 @@ from .cad_model_validation_service import (
     CadValidationSensitivitySpec,
     CadValidationSeparationSpec,
 )
-from .cad_objective_models import CadObjectiveInputRef
+from .cad_objective_models import (
+    CadObjectiveInputRef,
+    canonical_objective_sha256,
+)
 from .cad_objectives import build_objective_evaluation
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_roomsim_repository import CadRoomSimRepository
@@ -326,6 +330,15 @@ class CadValidationCampaignService:
                     f'{assignment.candidate_id}: primary measurement has no frequency response'
                 )
 
+            attempt_response_sha = getattr(
+                attempts[0], 'response_sha256', None
+            )
+            if attempt_response_sha is None:
+                # Match the authority resolver fallback for attempts that only
+                # carry a canonical response payload.
+                attempt_response_sha = canonical_objective_sha256(
+                    json.loads(attempts[0].response_json)
+                )
             evidence = (
                 (
                     'predicted',
@@ -333,6 +346,7 @@ class CadValidationCampaignService:
                         evidence_class='predicted',
                         source_kind='cad_roomsim_attempt',
                         source_id=attempts[0].attempt_id,
+                        source_sha256=attempt_response_sha,
                     ),
                     roomsim_attempt_frequency_response(attempts[0]),
                 ),
@@ -342,6 +356,7 @@ class CadValidationCampaignService:
                         evidence_class='measured',
                         source_kind='cad_measurement',
                         source_id=measurement.measurement_id,
+                        source_sha256=dataset_sha256(dataset),
                     ),
                     FrequencyResponse(
                         frequency_hz=dataset.frequency_hz,

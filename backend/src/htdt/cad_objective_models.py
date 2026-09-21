@@ -35,11 +35,34 @@ def objective_timestamp_utc() -> str:
 
 
 class CadObjectiveInputRef(BaseModel):
+    """One declared O30 input authority.
+
+    ``source_sha256`` is the exact semantic hash the upstream evidence
+    authority exposes for the referenced record (e.g. a RoomSim attempt
+    response SHA-256, a measurement dataset SHA-256, or a provider semantic
+    SHA-256). Optional so refs can be declared before the source identity is
+    known, but when it is set the O30 authority replay must reproduce exactly
+    this hash — a ref that names a different persisted record fails closed.
+    ``hypothesis`` inputs are explicit caller-attested claims: they never
+    resolve to persisted evidence and therefore must not carry a semantic
+    hash.
+    """
+
     model_config = ConfigDict(frozen=True)
 
     evidence_class: Literal['measured', 'derived', 'predicted', 'hypothesis']
     source_kind: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
+    source_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_provenance(self) -> 'CadObjectiveInputRef':
+        if self.evidence_class == 'hypothesis' and self.source_sha256 is not None:
+            raise ValueError(
+                'hypothesis objective inputs are explicit claims and cannot '
+                'carry verified source authority'
+            )
+        return self
 
 
 class CadObjectiveEvaluation(BaseModel):
@@ -91,7 +114,13 @@ class CadObjectiveEvaluation(BaseModel):
             'search_spec_id': self.search_spec_id,
             'search_spec_sha256': self.search_spec_sha256,
             'candidate_id': self.candidate_id,
-            'input_refs': [ref.model_dump(mode='json') for ref in self.input_refs],
+            # ``exclude_none`` keeps the historical ref/hash shape for
+            # unpinned (legacy) refs while pinning exact source identity on
+            # new evidence-derived evaluations.
+            'input_refs': [
+                ref.model_dump(mode='json', exclude_none=True)
+                for ref in self.input_refs
+            ],
             'evaluation_spec': json.loads(self.evaluation_spec_json),
             'vector': self.vector.identity_payload(),
         }

@@ -6,7 +6,8 @@ import pytest
 
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_extended_search_repository import CadExtendedSearchRepository
-from htdt.cad_objective_models import CadObjectiveInputRef
+from htdt.cad_objective_authority import ResolvedObjectiveInput
+from htdt.cad_objective_models import CadObjectiveInputRef, canonical_objective_sha256
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_repository import SceneRepository
@@ -44,6 +45,59 @@ from htdt.optimization_robustness import (
 DOCUMENT_ID = 'o90a-fixture'
 
 
+def _spec_metrics_evaluator(context):
+    """Evaluator-owned fixture: replay objective metrics from the versioned spec."""
+
+    metrics = context.spec.get('metrics')
+    if not isinstance(metrics, list) or not metrics:
+        raise ValueError('fixture metrics spec requires a non-empty metrics list')
+    resolved = []
+    for entry in metrics:
+        definition = entry.get('definition')
+        resolved.append(
+            ObjectiveMetric(
+                objective_id=str(entry['objective_id']),
+                value=float(entry['value']),
+                unit=str(entry['unit']),
+                direction=str(entry.get('direction', 'minimize')),
+                definition=(
+                    ObjectiveDefinition.model_validate(definition)
+                    if isinstance(definition, dict)
+                    else definition
+                ),
+            )
+        )
+    return ObjectiveVector(
+        candidate_id=context.evaluation.candidate_id,
+        metrics=tuple(resolved),
+    )
+
+
+def _prediction_fixture_resolver(context, ref):
+    """Evaluator-owned fixture evidence pinned by exact source identity."""
+
+    return ResolvedObjectiveInput(
+        ref=ref,
+        source_sha256=canonical_objective_sha256(
+            {'source_kind': ref.source_kind, 'source_id': ref.source_id}
+        ),
+    )
+
+
+def _objective_repository(scene_repository, search_repository):
+    """O30 repository wired with the evaluator-owned fixture authorities."""
+
+    return CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+        input_resolvers={
+            'prediction_fixture': _prediction_fixture_resolver,
+            'fixture_prediction': _prediction_fixture_resolver,
+        },
+        vector_evaluators={'fixture-metrics-1': _spec_metrics_evaluator},
+    )
+
+
 def _scene() -> SceneDocument:
     return SceneDocument(
         document_id=DOCUMENT_ID,
@@ -74,7 +128,7 @@ def _authorities(tmp_path) -> SimpleNamespace:
 
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     search_repository = CadSearchRepository(scene_repository)
-    objective_repository = CadObjectiveRepository(
+    objective_repository = _objective_repository(
         scene_repository,
         search_repository,
     )
@@ -134,7 +188,16 @@ def _fixture(tmp_path):
         ),
         evaluation_spec={
             'algorithm_version': 'objective-vector-1',
+            'objective_method': 'fixture-metrics-1',
             'objectives': ['response.shape_rms_db'],
+            'metrics': [
+                {
+                    'objective_id': 'response.shape_rms_db',
+                    'value': 2.0,
+                    'unit': 'dB',
+                    'direction': 'minimize',
+                },
+            ],
         },
         input_refs=(
             CadObjectiveInputRef(
@@ -149,7 +212,7 @@ def _fixture(tmp_path):
             ),
         ),
     )
-    objective_repository = CadObjectiveRepository(
+    objective_repository = _objective_repository(
         scene_repository,
         search_repository,
     )
@@ -1741,7 +1804,7 @@ def test_cad_robustness_repository_closes_every_connection_without_gc(
     )
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     search_repository = CadSearchRepository(scene_repository)
-    objective_repository = CadObjectiveRepository(
+    objective_repository = _objective_repository(
         scene_repository,
         search_repository,
     )
@@ -1952,7 +2015,17 @@ def test_o90a_maximize_sampled_worst_uses_low_side_and_round_trips(tmp_path) -> 
         ),
         evaluation_spec={
             'algorithm_version': 'fixture-maximize-1',
+            'objective_method': 'fixture-metrics-1',
             'objectives': [definition.objective_id],
+            'metrics': [
+                {
+                    'objective_id': definition.objective_id,
+                    'value': 0.8,
+                    'unit': definition.unit,
+                    'direction': definition.direction,
+                    'definition': definition.model_dump(mode='json'),
+                },
+            ],
         },
         input_refs=(
             CadObjectiveInputRef(

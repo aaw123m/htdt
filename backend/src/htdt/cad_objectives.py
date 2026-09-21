@@ -28,6 +28,15 @@ def build_objective_evaluation(
     evaluation_spec: Any,
     input_refs: Sequence[CadObjectiveInputRef],
 ) -> CadObjectiveEvaluation:
+    """Assemble one immutable O30 evaluation payload.
+
+    This is the low-level assembler: it binds the evaluation to the exact
+    SceneRevision/SearchSpec and canonicalizes caller-supplied provenance.
+    It does not resolve candidate membership or evidence — that authority
+    replay runs inside ``CadObjectiveRepository.save_evaluation`` and on
+    every authoritative read (see ``cad_objective_authority``).
+    """
+
     if search_spec.document_id != revision.document_id:
         raise ValueError('objective SearchSpec belongs to another document')
     if search_spec.scene_revision_id != revision.revision_id:
@@ -52,7 +61,10 @@ def build_objective_evaluation(
         'search_spec_id': search_spec.search_spec_id,
         'search_spec_sha256': search_spec.search_spec_sha256,
         'candidate_id': candidate_id,
-        'input_refs': [ref.model_dump(mode='json') for ref in ordered_refs],
+        'input_refs': [
+            ref.model_dump(mode='json', exclude_none=True)
+            for ref in ordered_refs
+        ],
         'evaluation_spec': evaluation_spec,
         'vector': vector.identity_payload(),
     }

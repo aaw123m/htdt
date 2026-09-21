@@ -649,6 +649,7 @@ def test_o30_o40_objective_connection_persists_exact_provider_authority(
     objective_repository = CadObjectiveRepository(
         fixture.scene_repository,
         search_repository,
+        prediction_provider_repository=provider_repository,
     )
     objective_repository.save_evaluation(evaluation)
     binding, connection = build_provider_objective_connection(

@@ -97,9 +97,14 @@ class OptimizationWorkspaceWindow(
 
     def __init__(self, repository: SceneRepository, document_id: str = F1_DOCUMENT_ID) -> None:
         self.search_repository = CadSearchRepository(repository)
-        self.objective_repository = CadObjectiveRepository(repository, self.search_repository)
         self.measurement_repository = CadMeasurementRepository(repository)
         self.roomsim_repository = CadRoomSimRepository(repository, self.search_repository)
+        self.objective_repository = CadObjectiveRepository(
+            repository,
+            self.search_repository,
+            measurement_repository=self.measurement_repository,
+            roomsim_repository=self.roomsim_repository,
+        )
         self.validation_repository = CadModelValidationRepository(
             self.search_repository,
             self.roomsim_repository,

@@ -32,6 +32,7 @@ from htdt.cad_objective_models import CadObjectiveInputRef
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_repository import SceneRepository
+from htdt.cad_roomsim_results import roomsim_attempt_frequency_response
 from htdt.cad_robustness_repository import CadRobustnessRepository
 from htdt.cad_robustness_validation_repository import (
     CadRobustnessValidationRepository,
@@ -61,7 +62,12 @@ from htdt.cad_validation_metrics import (
     build_sensitivity_check,
 )
 from htdt.comparison import FrequencyResponse
-from htdt.optimization_objectives import ObjectiveMetric, ObjectiveVector
+from htdt.optimization_objectives import (
+    ObjectiveMetric,
+    ObjectiveVector,
+    ResponseObjectiveSpec,
+    target_response_objectives,
+)
 from htdt.optimization_robustness import UncertaintyAxis, build_robustness_spec
 from htdt.optimization_robustness_validation import (
     build_o90e_decision,
@@ -81,34 +87,45 @@ class _ModelValidationRepository:
 
 
 class _RoomSimRepository:
-    def __init__(self, path, *, spec, candidate_ids):
+    def __init__(
+        self,
+        path,
+        *,
+        search_spec,
+        candidate_set_sha256,
+        model_id,
+        model_version,
+        candidate_ids,
+    ):
         self.path = path
         self.batch = SimpleNamespace(
             batch_run_id='batch:o90e',
-            document_id=spec.document_id,
-            scene_revision_id=spec.scene_revision_id,
-            scene_content_hash=spec.scene_content_hash,
-            search_spec_id=spec.search_spec_id,
-            search_spec_sha256=spec.search_spec_sha256,
-            candidate_set_sha256=spec.candidate_set_sha256,
-            model_id=spec.model_id,
+            document_id=search_spec.document_id,
+            scene_revision_id=search_spec.scene_revision_id,
+            scene_content_hash=search_spec.scene_content_hash,
+            search_spec_id=search_spec.search_spec_id,
+            search_spec_sha256=search_spec.search_spec_sha256,
+            candidate_set_sha256=candidate_set_sha256,
+            model_id=model_id,
             adapter_version='fixture-adapter',
             binding_sha256=sha256(b'o90e-binding').hexdigest(),
             batch_spec_sha256=sha256(b'o90e-batch').hexdigest(),
         )
-        self.attempts = {
-            candidate_id: SimpleNamespace(
+        self.attempts = {}
+        for index, candidate_id in enumerate(candidate_ids):
+            response_json = _response_json(float(index) * 0.1)
+            self.attempts[candidate_id] = SimpleNamespace(
                 attempt_id=f'pred:{candidate_id}',
                 batch_run_id=self.batch.batch_run_id,
                 candidate_id=candidate_id,
                 status='completed',
-                model_version=spec.model_version,
+                model_version=model_version,
+                response_json=response_json,
+                response_sha256=sha256(response_json.encode()).hexdigest(),
                 attempt_sha256=sha256(
                     f'o90e-attempt:{candidate_id}'.encode()
                 ).hexdigest(),
             )
-            for candidate_id in candidate_ids
-        }
 
     def get_attempt(self, attempt_id):
         candidate_id = attempt_id.removeprefix('pred:')
@@ -149,6 +166,17 @@ def _response(offset: float) -> FrequencyResponse:
     return FrequencyResponse(
         frequency_hz=(20.0, 40.0, 80.0, 160.0),
         level_db=(70.0 + offset, 71.0 + offset, 69.0 + offset, 70.0 + offset),
+    )
+
+
+def _response_json(offset: float) -> str:
+    response = _response(offset)
+    return json.dumps(
+        {
+            'frequency_hz': list(response.frequency_hz),
+            'magnitude': list(response.level_db),
+        },
+        separators=(',', ':'),
     )
 
 
@@ -492,22 +520,67 @@ def _fixture(tmp_path):
     )
     registration = campaign_repository.save(campaign)
 
+    roomsim_repository = _RoomSimRepository(
+        scene_repository.path,
+        search_spec=search_spec,
+        candidate_set_sha256=page.candidate_set_sha256,
+        model_id='fixture-model',
+        model_version='fixture-1',
+        candidate_ids=tuple(
+            candidate.candidate_id
+            for candidate in (minus, nominal, plus, calibration)
+        ),
+    )
     prediction_id = f'pred:{nominal.candidate_id}'
+    campaign_spec = json.loads(campaign.objective_evaluation_spec_json)
+    predicted_response = roomsim_attempt_frequency_response(
+        roomsim_repository.get_attempt(prediction_id)
+    )
+    target_response = FrequencyResponse(
+        frequency_hz=tuple(
+            float(value)
+            for value in campaign_spec['target_response']['frequency_hz']
+        ),
+        level_db=tuple(
+            float(value)
+            for value in campaign_spec['target_response']['level_db']
+        ),
+    )
+    response_spec = ResponseObjectiveSpec(
+        low_hz=float(campaign_spec['response_band_hz'][0]),
+        high_hz=float(campaign_spec['response_band_hz'][1]),
+        reference_band_hz=(
+            None
+            if campaign_spec.get('reference_band_hz') is None
+            else tuple(
+                float(value)
+                for value in campaign_spec['reference_band_hz']
+            )
+        ),
+        excluded_bands=tuple(
+            (float(band[0]), float(band[1]))
+            for band in campaign_spec.get('excluded_bands') or ()
+        ),
+    )
+    full_vector = target_response_objectives(
+        nominal.candidate_id,
+        predicted_response,
+        target_response,
+        response_spec,
+        prefix='response',
+    )
     objective = build_objective_evaluation(
         source,
         search_spec,
         nominal.candidate_id,
         ObjectiveVector(
             candidate_id=nominal.candidate_id,
-            metrics=(
-                ObjectiveMetric(
-                    objective_id='response.shape_rms_db',
-                    value=2.0,
-                    unit='dB',
-                ),
+            metrics=tuple(
+                full_vector.metric(objective_id)
+                for objective_id in campaign_spec['objectives']
             ),
         ),
-        evaluation_spec=json.loads(campaign.objective_evaluation_spec_json),
+        evaluation_spec=campaign_spec,
         input_refs=(
             CadObjectiveInputRef(
                 evidence_class='derived',
@@ -549,6 +622,7 @@ def _fixture(tmp_path):
     objective_repository = CadObjectiveRepository(
         scene_repository,
         search_repository,
+        roomsim_repository=roomsim_repository,
     )
     objective_repository.save_evaluation(objective)
     robustness_repository = CadRobustnessRepository(
@@ -559,14 +633,6 @@ def _fixture(tmp_path):
     robustness_repository.save_spec(spec)
 
     model_validation_repository = _ModelValidationRepository(scene_repository.path)
-    roomsim_repository = _RoomSimRepository(
-        scene_repository.path,
-        spec=spec,
-        candidate_ids=tuple(
-            candidate.candidate_id
-            for candidate in (minus, nominal, plus, calibration)
-        ),
-    )
     validation_repository = CadRobustnessValidationRepository(
         robustness_repository=robustness_repository,
         model_validation_repository=model_validation_repository,
