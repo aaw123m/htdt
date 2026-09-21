@@ -1,5 +1,9 @@
 param(
-    [string]$OutputDir = ""
+    [string]$OutputDir = "",
+    # Interpreter that seeds the build venv. Defaults to the current `python`
+    # on PATH so callers (e.g. actions/setup-python in windows-release.yml)
+    # control the toolchain; the script never resolves the py launcher itself.
+    [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,15 +14,45 @@ if (-not $OutputDir) {
 $WorkRoot = Join-Path $RepoRoot ".tmp\n05-package"
 $BuildVenv = Join-Path $WorkRoot "venv"
 
+if (-not $PythonExe) {
+    $PythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+} elseif (-not (Test-Path $PythonExe)) {
+    # A bare command name (e.g. `-PythonExe python`) resolves through PATH too.
+    $Resolved = (Get-Command $PythonExe -ErrorAction SilentlyContinue).Source
+    if ($Resolved) {
+        $PythonExe = $Resolved
+    }
+}
+if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
+    throw "No Python interpreter found. Supply -PythonExe or put the pinned CPython 3.12 interpreter on PATH."
+}
+
+# The lock freezes a CPython 3.12 / Windows x64 wheel closure; refuse any other
+# toolchain instead of producing a subtly different environment.
+$InterpreterInfo = & $PythonExe -c "import platform, sys; print(platform.python_version()); print(sys.version_info[:2] == (3, 12)); print(platform.machine())"
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not query interpreter version via $PythonExe (exit code $LASTEXITCODE)"
+}
+$PythonVersion = $InterpreterInfo[0]
+if ($InterpreterInfo[1] -ne "True") {
+    throw "Build interpreter must be CPython 3.12.x (the locked wheel closure targets it); got $PythonVersion from $PythonExe"
+}
+if ($InterpreterInfo[2] -ne "AMD64") {
+    throw "Build interpreter must be Windows x64 (the locked wheel closure targets it); got architecture '$($InterpreterInfo[2])' from $PythonExe"
+}
+Write-Host "Build interpreter: $PythonExe ($PythonVersion)"
+
 try {
     if (Test-Path $WorkRoot) {
         Remove-Item -Recurse -Force $WorkRoot
     }
     New-Item -ItemType Directory -Force -Path $WorkRoot | Out-Null
-    py -3.12 -m venv $BuildVenv
+    & $PythonExe -m venv $BuildVenv
     $Python = Join-Path $BuildVenv "Scripts\python.exe"
     $LockFile = Join-Path $RepoRoot "backend\requirements-n05-windows.lock"
-    & $Python -m pip install --disable-pip-version-check -r $LockFile
+    # Hash-pinned lock: pip verifies the SHA-256 of every downloaded artifact,
+    # so the packaged closure is exactly the one recorded in the repository.
+    & $Python -m pip install --disable-pip-version-check --require-hashes -r $LockFile
     if ($LASTEXITCODE -ne 0) {
         throw "Locked dependency install failed with exit code $LASTEXITCODE"
     }
@@ -63,6 +97,10 @@ try {
         $CommitSha = $env:GITHUB_SHA
     }
     $LockSha256 = (Get-FileHash -Algorithm SHA256 $LockFile).Hash.ToLowerInvariant()
+    $PipVersion = (& $Python -c "import pip; print(pip.__version__)") | Select-Object -First 1
+    if ($LASTEXITCODE -ne 0) {
+        $PipVersion = $null
+    }
     $BuildInfoDir = Join-Path $WorkRoot "build-info"
     New-Item -ItemType Directory -Force -Path $BuildInfoDir | Out-Null
     $BuildInfoFile = Join-Path $BuildInfoDir "build_info.json"
@@ -73,6 +111,8 @@ try {
         dirty            = $Dirty
         source           = "packaged"
         lock_sha256      = $LockSha256
+        python_version   = $PythonVersion
+        pip_version      = $(if ($PipVersion) { $PipVersion } else { $null })
         generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
     } | ConvertTo-Json | Set-Content -Path $BuildInfoFile -Encoding utf8
 
