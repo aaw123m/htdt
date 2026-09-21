@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
 
 import pytest
 
 from htdt.cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard
+from htdt.cad_prediction_models import canonical_prediction_json, prediction_input_hash
 from htdt.cad_prediction_repository import CadPredictionRepository
 from htdt.cad_predictions import (
     RECTANGULAR_GEOMETRY_MODEL_ID,
@@ -158,6 +160,193 @@ def test_prediction_repository_round_trip_preserves_exact_revision_model_and_inp
     wrong_hash = results[0].model_copy(update={'scene_content_hash': '0' * 64})
     with pytest.raises(ValueError, match='content hash'):
         prediction_repository.save(wrong_hash)
+
+
+def _resigned(result, snapshot: dict):
+    """Fabricate a result whose recomputed input hash matches a forged snapshot."""
+
+    snapshot_json = canonical_prediction_json(snapshot)
+    return result.model_copy(
+        update={
+            'input_snapshot_json': snapshot_json,
+            'input_hash': prediction_input_hash(snapshot_json),
+        }
+    )
+
+
+def test_prediction_repository_rejects_fabricated_input_snapshot(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    result = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)[0]
+    honest_snapshot = json.loads(result.input_snapshot_json)
+
+    mutations = []
+
+    altered_room = json.loads(result.input_snapshot_json)
+    altered_room['room_frame']['width_m'] = 99.0
+    mutations.append(altered_room)
+
+    altered_receiver = json.loads(result.input_snapshot_json)
+    altered_receiver['receiver_position']['x_m'] = 11.0
+    mutations.append(altered_receiver)
+
+    omitted_speaker = json.loads(result.input_snapshot_json)
+    omitted_speaker['speakers'] = []
+    mutations.append(omitted_speaker)
+
+    added_speaker = json.loads(result.input_snapshot_json)
+    added_speaker['speakers'] = added_speaker['speakers'] + [
+        {
+            'entity_id': 'speaker-sub',
+            'speaker_role': 'SUB',
+            'acoustic_reference_position': {'x_m': 12.0, 'y_m': 21.0, 'z_m': 0.4},
+        }
+    ]
+    mutations.append(added_speaker)
+
+    altered_role = json.loads(result.input_snapshot_json)
+    altered_role['speakers'][0]['speaker_role'] = 'SUB'
+    mutations.append(altered_role)
+
+    altered_surface = json.loads(result.input_snapshot_json)
+    altered_surface['surface_identities']['left_x0'] = 'wall:forged'
+    mutations.append(altered_surface)
+
+    for snapshot in mutations:
+        assert snapshot != honest_snapshot
+        with pytest.raises(ValueError, match='canonical model request'):
+            prediction_repository.save(_resigned(result, snapshot))
+
+    assert prediction_repository.list_results(revision.document_id) == ()
+
+
+def test_prediction_repository_rejects_foreign_receiver_entity(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    result = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)[0]
+
+    wrong_receiver = json.loads(result.input_snapshot_json)
+    wrong_receiver['receiver_entity_id'] = 'speaker-fl'
+    with pytest.raises(ValueError, match='canonical model request'):
+        prediction_repository.save(_resigned(result, wrong_receiver))
+
+    unknown_receiver = json.loads(result.input_snapshot_json)
+    unknown_receiver['receiver_entity_id'] = 'ghost-receiver'
+    with pytest.raises(ValueError, match='not part of the source revision'):
+        prediction_repository.save(_resigned(result, unknown_receiver))
+
+
+def test_prediction_repository_rejects_parameters_outside_model_contract(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    result = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)[0]
+
+    invalid_parameters = (
+        {'max_mode_hz': 150.0},  # missing key
+        {'max_mode_hz': 150.0, 'sound_speed_m_s': 343.0, 'extra': 1},  # unexpected key
+        {'max_mode_hz': -150.0, 'sound_speed_m_s': 343.0},  # non-positive
+        {'max_mode_hz': 150.0, 'sound_speed_m_s': 0.0},  # non-positive
+        {'max_mode_hz': '150', 'sound_speed_m_s': 343.0},  # non-numeric
+        {'max_mode_hz': True, 'sound_speed_m_s': 343.0},  # bool is not a parameter
+        [150.0, 343.0],  # not an object
+    )
+    for parameters in invalid_parameters:
+        forged = result.model_copy(
+            update={'parameters_json': canonical_prediction_json(parameters)}
+        )
+        with pytest.raises(ValueError, match='rectangular model contract'):
+            prediction_repository.save(forged)
+
+    # A non-canonical spelling of valid values is not the pinned model request.
+    forged = result.model_copy(
+        update={'parameters_json': '{"max_mode_hz":150,"sound_speed_m_s":343.0}'}
+    )
+    with pytest.raises(ValueError, match='canonical model request'):
+        prediction_repository.save(forged)
+
+
+def test_prediction_repository_rejects_unsupported_model_version_and_compatibility(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    result = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)[0]
+
+    unknown_version = result.model_copy(update={'model_version': 'rect-room-geometry-0'})
+    with pytest.raises(ValueError, match='no registered input authority'):
+        prediction_repository.save(unknown_version)
+
+    unknown_model = result.model_copy(update={'model_id': 'htdt.unknown_model'})
+    with pytest.raises(ValueError, match='no registered input authority'):
+        prediction_repository.save(unknown_model)
+
+    # Geometry compatibility is input-derived; a claimed approximation for an
+    # exactly rectangular room cannot be the canonical classification.
+    forged = result.model_copy(update={'geometry_compatibility': 'rectangular_approximation'})
+    with pytest.raises(ValueError, match='canonical classification'):
+        prediction_repository.save(forged)
+
+
+def test_prediction_repository_reads_replay_canonical_input(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    for result in results:
+        prediction_repository.save(result)
+
+    assert prediction_repository.list_results(revision.document_id) == results
+
+    forged = json.loads(results[0].input_snapshot_json)
+    forged['receiver_position'] = {'x_m': 11.0, 'y_m': 21.0, 'z_m': 1.1}
+    forged_json = canonical_prediction_json(forged)
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET input_snapshot_json=?, input_hash=? '
+            'WHERE prediction_id=?',
+            (forged_json, prediction_input_hash(forged_json), results[0].prediction_id),
+        )
+
+    with pytest.raises(ValueError, match='canonical model request'):
+        prediction_repository.get(results[0].prediction_id)
+    with pytest.raises(ValueError, match='canonical model request'):
+        prediction_repository.list_results(revision.document_id)
+    with pytest.raises(ValueError, match='canonical model request'):
+        prediction_repository.list_run(results[0].run_id)
+
+
+def test_prediction_repository_reads_reject_coherent_row_rewrite(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    for result in results:
+        prediction_repository.save(result)
+
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET model_version=? WHERE prediction_id=?',
+            ('rect-room-geometry-0', results[0].prediction_id),
+        )
+    with pytest.raises(ValueError, match='no registered input authority'):
+        prediction_repository.get(results[0].prediction_id)
+
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET model_version=?, scene_content_hash=? '
+            'WHERE prediction_id=?',
+            (RECTANGULAR_GEOMETRY_MODEL_VERSION, '0' * 64, results[0].prediction_id),
+        )
+    with pytest.raises(ValueError, match='content hash'):
+        prediction_repository.get(results[0].prediction_id)
+
+
+def test_prediction_repository_round_trips_unsupported_room_result(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _l_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp')
+
+    for result in results:
+        prediction_repository.save(result)
+
+    assert prediction_repository.list_results(revision.document_id) == results
+    assert prediction_repository.list_run(results[0].run_id) == results
 
 
 def test_prediction_job_guard_rejects_superseded_cancelled_revision_and_constraint_stale_results(tmp_path: Path) -> None:
