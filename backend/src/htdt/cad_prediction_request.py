@@ -5,9 +5,11 @@ from dataclasses import dataclass
 import json
 from math import isfinite
 
+from .cad_prediction_models import CadPredictionResult
 from .cad_predictions import (
     RECTANGULAR_GEOMETRY_MODEL_ID,
     RECTANGULAR_GEOMETRY_MODEL_VERSION,
+    analyze_native_rectangular_geometry,
     rectangular_geometry_model_input,
 )
 from .cad_repository import SceneRevision
@@ -160,3 +162,86 @@ def verify_prediction_input(
     if geometry_compatibility != identity.geometry_compatibility:
         raise ValueError('prediction geometry compatibility is not the canonical classification')
     return identity
+
+
+def _replay_rectangular_geometry_run(
+    revision: SceneRevision,
+    parameters_json: str,
+    input_snapshot_json: str,
+    constraint_workspace_hash: str | None,
+) -> tuple[CadPredictionResult, ...]:
+    """Re-run the pinned rectangular model for one exact SceneRevision.
+
+    Parameters and the receiver identity are parsed through the same pinned
+    contract helpers the input replayer uses, then the analyzer re-derives
+    the whole run — modes, reflections, assumptions and warnings — so the
+    canonical output identity can be compared against a stored record.
+    """
+
+    max_mode_hz, sound_speed_m_s = _rectangular_geometry_parameters(parameters_json)
+    receiver_entity_id = _request_receiver_entity_id(input_snapshot_json)
+    try:
+        return analyze_native_rectangular_geometry(
+            revision,
+            receiver_entity_id,
+            max_mode_hz=max_mode_hz,
+            sound_speed_m_s=sound_speed_m_s,
+            constraint_workspace_hash=constraint_workspace_hash,
+        )
+    except KeyError as exc:
+        raise ValueError('prediction input receiver is not part of the source revision') from exc
+
+
+PredictionOutputReplay = Callable[
+    [SceneRevision, str, str, str | None],
+    tuple[CadPredictionResult, ...],
+]
+
+# Output side of the versioned prediction-model authority registry. Each
+# persisted (model_id, model_version) pair needs an explicit replayer that
+# re-runs the pinned model against the exact SceneRevision and returns the
+# canonical run. Versions without a registered replayer — including future
+# historical records — are non-authoritative: persistence fails closed
+# instead of trusting the stored payload.
+PREDICTION_OUTPUT_AUTHORITIES: dict[tuple[str, str], PredictionOutputReplay] = {
+    (
+        RECTANGULAR_GEOMETRY_MODEL_ID,
+        RECTANGULAR_GEOMETRY_MODEL_VERSION,
+    ): _replay_rectangular_geometry_run,
+}
+
+
+def verify_prediction_output(
+    revision: SceneRevision,
+    result: CadPredictionResult,
+) -> None:
+    """Require ``result`` to be the canonical output of the pinned model.
+
+    Re-runs the registered versioned output authority against the exact
+    source SceneRevision and the (already input-verified) canonical request,
+    then demands the stored ``result_sha256`` equal the semantic output
+    identity of the canonical result for the same ``result_kind``. A row
+    whose output was rewritten coherently — payload columns and a
+    self-consistent ``result_sha256`` together — still fails closed because
+    the hash must equal the *recomputed* canonical output, not merely the
+    stored columns.
+    """
+
+    replayer = PREDICTION_OUTPUT_AUTHORITIES.get((result.model_id, result.model_version))
+    if replayer is None:
+        raise ValueError(
+            'prediction model has no registered output authority: '
+            f'{result.model_id} {result.model_version}'
+        )
+    canonical_run = replayer(
+        revision,
+        result.parameters_json,
+        result.input_snapshot_json,
+        result.constraint_workspace_hash,
+    )
+    canonical = next(
+        (item for item in canonical_run if item.result_kind == result.result_kind),
+        None,
+    )
+    if canonical is None or canonical.result_sha256 != result.result_sha256:
+        raise ValueError('prediction result does not match the canonical model output')

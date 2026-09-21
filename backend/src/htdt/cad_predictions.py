@@ -13,6 +13,7 @@ from .cad_prediction_models import (
     PredictionGeometryCompatibility,
     canonical_prediction_json,
     prediction_input_hash,
+    prediction_result_sha256,
 )
 from .cad_repository import SceneRevision
 from .cad_scene import (
@@ -256,26 +257,35 @@ def _make_result(
     modes: tuple[CadPredictedRoomMode, ...] = (),
     reflections: tuple[CadPredictedReflection, ...] = (),
 ) -> CadPredictionResult:
+    fields = {
+        'prediction_id': str(uuid4()),
+        'run_id': run_id,
+        'document_id': revision.document_id,
+        'scene_revision_id': revision.revision_id,
+        'scene_content_hash': revision.content_hash,
+        'constraint_workspace_hash': constraint_workspace_hash,
+        'model_id': RECTANGULAR_GEOMETRY_MODEL_ID,
+        'model_version': RECTANGULAR_GEOMETRY_MODEL_VERSION,
+        'result_kind': result_kind,
+        'geometry_compatibility': compatibility,
+        'parameters_json': parameters_json,
+        'input_snapshot_json': input_snapshot_json,
+        'input_hash': prediction_input_hash(input_snapshot_json),
+        'submitted_at_utc': submitted_at_utc,
+        'completed_at_utc': completed_at_utc,
+        'assumptions': RECTANGULAR_GEOMETRY_ASSUMPTIONS,
+        'warnings': warnings,
+        'modes': modes,
+        'reflections': reflections,
+    }
+    # Seal the result with its versioned output identity: ``result_sha256``
+    # commits to every semantic field (and only those — storage ids and
+    # timestamps are excluded), so two honest runs of the same model input
+    # produce the same output identity.
+    provisional = CadPredictionResult.model_construct(result_sha256='0' * 64, **fields)
     return CadPredictionResult(
-        prediction_id=str(uuid4()),
-        run_id=run_id,
-        document_id=revision.document_id,
-        scene_revision_id=revision.revision_id,
-        scene_content_hash=revision.content_hash,
-        constraint_workspace_hash=constraint_workspace_hash,
-        model_id=RECTANGULAR_GEOMETRY_MODEL_ID,
-        model_version=RECTANGULAR_GEOMETRY_MODEL_VERSION,
-        result_kind=result_kind,
-        geometry_compatibility=compatibility,
-        parameters_json=parameters_json,
-        input_snapshot_json=input_snapshot_json,
-        input_hash=prediction_input_hash(input_snapshot_json),
-        submitted_at_utc=submitted_at_utc,
-        completed_at_utc=completed_at_utc,
-        assumptions=RECTANGULAR_GEOMETRY_ASSUMPTIONS,
-        warnings=warnings,
-        modes=modes,
-        reflections=reflections,
+        result_sha256=prediction_result_sha256(provisional.result_identity_payload()),
+        **fields,
     )
 
 

@@ -580,3 +580,23 @@ def test_check_native_schema_compatibility_accepts_genuine_legacy_db(
     _create_database(path, _LEGACY_DDL[0], _LEGACY_DDL[4])
 
     assert check_native_schema_compatibility(path) == 0
+
+
+def test_legacy_prediction_table_with_lazy_result_identity_column_is_adopted(
+    tmp_path: Path,
+) -> None:
+    """result_sha256 is an optional lazy-migration column on legacy rows."""
+    path = tmp_path / 'legacy-predictions.sqlite3'
+    _create_database(
+        path,
+        _LEGACY_DDL[0],  # scene_revisions (foreign-key target)
+        _LEGACY_DDL[15],  # cad_prediction_results without result_sha256
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'ALTER TABLE cad_prediction_results ADD COLUMN result_sha256 TEXT'
+        )
+
+    assert check_native_schema_compatibility(path) == 0
+    SceneRepository(path)
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION

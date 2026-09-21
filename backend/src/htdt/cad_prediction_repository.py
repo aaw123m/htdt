@@ -13,8 +13,9 @@ from .cad_prediction_models import (
     CadPredictedRoomMode,
     canonical_prediction_json,
     prediction_input_hash,
+    prediction_result_sha256,
 )
-from .cad_prediction_request import verify_prediction_input
+from .cad_prediction_request import verify_prediction_input, verify_prediction_output
 from .cad_repository import SceneRepository, SceneRevision
 
 
@@ -58,10 +59,23 @@ class CadPredictionRepository:
                     warnings_json TEXT NOT NULL,
                     modes_json TEXT NOT NULL,
                     reflections_json TEXT NOT NULL,
+                    result_sha256 TEXT,
                     FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id)
                 )
                 '''
             )
+            # Output-identity migration: rows written before result_sha256
+            # existed keep NULL and are non-authoritative — reads fail closed
+            # (``_row_to_result``) rather than silently fabricating a hash for
+            # output this version never attested.
+            columns = {
+                row['name']
+                for row in connection.execute('PRAGMA table_info(cad_prediction_results)')
+            }
+            if 'result_sha256' not in columns:
+                connection.execute(
+                    'ALTER TABLE cad_prediction_results ADD COLUMN result_sha256 TEXT'
+                )
             connection.execute(
                 'CREATE INDEX IF NOT EXISTS idx_prediction_document_seq '
                 'ON cad_prediction_results(document_id, seq DESC)'
@@ -101,7 +115,15 @@ class CadPredictionRepository:
         )
 
     def _validate_result(self, result: CadPredictionResult) -> None:
-        """Resolve the exact source revision and replay the canonical input.
+        """Resolve the exact source revision and replay the canonical input/output.
+
+        This is the single authoritative validation path shared by save and
+        read: it binds the record to its exact SceneRevision, replays the
+        canonical model input, re-verifies the stored ``result_sha256``
+        self-hash (guarding records built through ``model_copy``, which skips
+        model validators), and finally replays the pinned model output so a
+        coherently rewritten row — payload and self-consistent hash together
+        — still fails closed.
 
         This runs on a second connection through ``SceneRepository.get``, so
         callers must finish it BEFORE opening the write transaction: opening a
@@ -111,6 +133,9 @@ class CadPredictionRepository:
         if prediction_input_hash(result.input_snapshot_json) != result.input_hash:
             raise ValueError('prediction input hash mismatch')
         self._require_canonical_input(source, result)
+        if prediction_result_sha256(result.result_identity_payload()) != result.result_sha256:
+            raise ValueError('prediction result_sha256 does not match the result identity payload')
+        verify_prediction_output(source, result)
 
     # Fields that every record of one prediction run must share: the run binds
     # one document, one exact SceneRevision, one model identity and one
@@ -209,8 +234,8 @@ class CadPredictionRepository:
                 constraint_workspace_hash, model_id, model_version, result_kind,
                 geometry_compatibility, parameters_json, input_snapshot_json, input_hash,
                 submitted_at_utc, completed_at_utc, status, assumptions_json,
-                warnings_json, modes_json, reflections_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                warnings_json, modes_json, reflections_json, result_sha256
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 result.prediction_id,
@@ -235,6 +260,7 @@ class CadPredictionRepository:
                 canonical_prediction_json(
                     [reflection.model_dump(mode='json') for reflection in result.reflections]
                 ),
+                result.result_sha256,
             ),
         )
 
@@ -263,6 +289,15 @@ class CadPredictionRepository:
         return tuple(self._row_to_result(row) for row in rows)
 
     def _row_to_result(self, row: sqlite3.Row) -> CadPredictionResult:
+        if row['result_sha256'] is None:
+            # Backward-compatibility policy: records written before output
+            # identity existed never had their result payload attested, so
+            # they are non-authoritative and fail closed on read rather than
+            # acquiring a fabricated current hash.
+            raise ValueError(
+                'prediction result predates result_sha256 output identity '
+                'and is non-authoritative'
+            )
         modes = tuple(CadPredictedRoomMode.model_validate(item) for item in json.loads(row['modes_json']))
         reflections = tuple(
             CadPredictedReflection.model_validate(item) for item in json.loads(row['reflections_json'])
@@ -288,11 +323,12 @@ class CadPredictionRepository:
             warnings=tuple(json.loads(row['warnings_json'])),
             modes=modes,
             reflections=reflections,
+            result_sha256=row['result_sha256'],
         )
         # Reads are authoritative: a stored row must still replay to the
-        # canonical model input of its exact source SceneRevision, so a
-        # coherently rewritten row cannot survive by recomputing hashes.
-        self._require_canonical_input(self._source_revision(result), result)
+        # canonical model input and output of its exact source SceneRevision,
+        # so a coherently rewritten row cannot survive by recomputing hashes.
+        self._validate_result(result)
         return result
 
 
