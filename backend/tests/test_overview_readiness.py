@@ -51,7 +51,7 @@ class _SearchSource:
 class _ValidationSource:
     records: dict | None = None
 
-    def list_for_search_spec(self, search_spec_id: str) -> tuple:
+    def inspect_for_search_spec(self, search_spec_id: str) -> tuple:
         return (self.records or {}).get(search_spec_id, ())
 
 

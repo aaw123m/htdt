@@ -14,7 +14,10 @@ from htdt.cad_applicability import (
 )
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_model_validation import build_full_model_validation
-from htdt.cad_model_validation_repository import CadModelValidationRepository
+from htdt.cad_model_validation_repository import (
+    CadModelValidationIntegrityError,
+    CadModelValidationRepository,
+)
 from htdt.cad_objective_authority import ResolvedObjectiveInput
 from htdt.cad_objective_models import (
     CadObjectiveInputRef,
@@ -178,6 +181,9 @@ class _MeasurementEvidence:
         self.records = {}
         self.datasets = {}
         self.plans = []
+        # Simulates file-backed raw assets that can disappear or corrupt
+        # after the O60 record was saved.
+        self.missing_assets = set()
         offsets = {candidate_ids[0]: 0.2, candidate_ids[1]: 2.2, candidate_ids[2]: 4.2}
         for candidate_id in candidate_ids:
             measurement_id = f'meas:{candidate_id}'
@@ -224,6 +230,12 @@ class _MeasurementEvidence:
 
     def dataset_for_measurement(self, measurement_id):
         return self.datasets.get(measurement_id)
+
+    def verify_measurement_asset_authority(self, measurement_id):
+        if measurement_id in self.missing_assets or measurement_id not in self.datasets:
+            raise ValueError(
+                'measurement raw asset is unavailable for dataset verification'
+            )
 
     def list_measurement_plans(self, search_spec_id):
         return tuple(self.plans)
@@ -654,3 +666,166 @@ def test_owned_room_validation_rejects_foreign_registration_authority(tmp_path):
 
     with pytest.raises(ValueError, match='campaign registration mismatch'):
         repository.save(foreign)
+
+
+def test_eligible_read_fails_closed_when_raw_asset_disappears(tmp_path):
+    """A missing/corrupt file-backed raw asset makes the eligible read fail closed."""
+    record, repository, measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+    assert repository.latest_eligible_for_search_spec(record.search_spec_id) == record
+
+    measurement_repo.missing_assets.add(f'meas:{record.pairs[0].candidate_id}')
+
+    with pytest.raises(
+        CadModelValidationIntegrityError, match='raw asset'
+    ) as exc_info:
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+    assert exc_info.value.validation_id == record.validation_id
+    with pytest.raises(CadModelValidationIntegrityError, match='raw asset'):
+        repository.get(record.validation_id)
+    with pytest.raises(CadModelValidationIntegrityError, match='raw asset'):
+        repository.list_for_search_spec(record.search_spec_id)
+
+
+def test_eligible_read_fails_closed_when_roomsim_attempt_disappears(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    repository.roomsim_repository.candidates.clear()
+
+    with pytest.raises(
+        CadModelValidationIntegrityError, match='completed Room Simulator attempt'
+    ):
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+    with pytest.raises(
+        CadModelValidationIntegrityError, match='completed Room Simulator attempt'
+    ):
+        repository.get(record.validation_id)
+
+
+def test_eligible_read_fails_closed_when_roomsim_batch_disappears(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    original = repository.roomsim_repository.get_batch_spec
+    repository.roomsim_repository.get_batch_spec = lambda batch_run_id: None
+    try:
+        with pytest.raises(
+            CadModelValidationIntegrityError, match='prediction batch does not exist'
+        ):
+            repository.latest_eligible_for_search_spec(record.search_spec_id)
+    finally:
+        repository.roomsim_repository.get_batch_spec = original
+
+
+def test_eligible_read_fails_closed_when_o30_evaluation_disappears(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    sample = record.objective_samples[0]
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_objective_evaluations WHERE evaluation_id=?',
+            (sample.measured_evaluation_id,),
+        )
+
+    with pytest.raises(
+        CadModelValidationIntegrityError, match='unknown evaluation'
+    ):
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+    with pytest.raises(
+        CadModelValidationIntegrityError, match='unknown evaluation'
+    ):
+        repository.get(record.validation_id)
+
+
+def test_eligible_read_fails_closed_when_repeatability_evidence_breaks(tmp_path):
+    record, repository, measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    del measurement_repo.records['repeat:a:1']
+
+    with pytest.raises(
+        CadModelValidationIntegrityError,
+        match='repeatability evidence binding mismatch',
+    ):
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+
+
+def test_eligible_read_fails_closed_when_separation_measurement_disappears(tmp_path):
+    record, repository, measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    check = record.separation_checks[0]
+    del measurement_repo.records[check.measurement_b_id]
+
+    with pytest.raises(
+        CadModelValidationIntegrityError,
+        match='must reference measured evidence',
+    ):
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+
+
+def test_eligible_read_fails_closed_when_campaign_registration_disappears(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_validation_campaign_registrations WHERE campaign_id=?',
+            (record.campaign_id,),
+        )
+
+    with pytest.raises(
+        CadModelValidationIntegrityError,
+        match='campaign registration is missing',
+    ):
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+
+
+def test_eligible_read_fails_closed_when_measurement_plan_unlinks(tmp_path):
+    record, repository, measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    measurement_repo.plans.clear()
+
+    with pytest.raises(CadModelValidationIntegrityError, match='not linked'):
+        repository.latest_eligible_for_search_spec(record.search_spec_id)
+
+
+def test_stale_record_remains_inspectable_as_history(tmp_path):
+    """Stale rows are never reclassified or deleted: they stay inspectable
+    through the diagnostic views while every authority read fails closed."""
+    record, repository, measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+    measurement_repo.missing_assets.add(f'meas:{record.pairs[0].candidate_id}')
+
+    assert repository.inspect(record.validation_id) == record
+    assert repository.inspect_for_search_spec(record.search_spec_id) == (record,)
+
+    problems = repository.integrity_problems()
+    assert len(problems) == 1
+    assert record.validation_id in problems[0]
+    assert 'raw asset' in problems[0]
+    assert repository.integrity_problems(record.search_spec_id) == problems
+    assert repository.integrity_problems('other-search-spec') == []
+
+
+def test_integrity_scan_is_clean_for_intact_records(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    repository.save(record)
+
+    assert repository.integrity_problems() == []
+    assert repository.inspect(record.validation_id) == record
+    assert repository.inspect('missing-validation-id') is None
+
+
+def test_save_rejects_invalid_evidence_with_plain_value_error(tmp_path):
+    """Save keeps reporting caller input problems as plain ``ValueError``;
+    the typed integrity failure is reserved for persisted records."""
+    record, repository, measurement_repo = _fixture(tmp_path)
+    measurement_repo.missing_assets.add(f'meas:{record.pairs[0].candidate_id}')
+
+    with pytest.raises(ValueError, match='raw asset') as exc_info:
+        repository.save(record)
+    assert not isinstance(exc_info.value, CadModelValidationIntegrityError)

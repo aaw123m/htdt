@@ -32,6 +32,28 @@ from .cad_validation_metrics import (
 from .comparison import FrequencyResponse
 
 
+class CadModelValidationIntegrityError(ValueError):
+    """A persisted O60 record's exact evidence authority no longer replays.
+
+    Raised on authoritative reads when a record that was valid at save time
+    fails re-attestation because external or file-backed evidence has since
+    disappeared or changed — a removed Room Simulator attempt/batch, a
+    missing or corrupt raw measurement asset, a drifted O30 evaluation, or
+    a broken repeatability/separation/campaign/applicability binding. The
+    persisted row is never reclassified or deleted: it stays inspectable as
+    history through ``inspect``/``inspect_for_search_spec`` and
+    ``integrity_problems`` but can no longer authorize O70/O80 production
+    work.
+    """
+
+    def __init__(self, validation_id: str, detail: str) -> None:
+        self.validation_id = validation_id
+        super().__init__(
+            'persisted model validation '
+            f'{validation_id} failed evidence re-attestation: {detail}'
+        )
+
+
 class CadModelValidationRepository:
     """Immutable O60 validation storage with cross-evidence authority checks."""
 
@@ -317,9 +339,11 @@ class CadModelValidationRepository:
             if rebuilt != check:
                 raise ValueError('candidate separation check does not match measurement evidence')
 
-    def _validate_evidence_scope(self, record: CadModelValidationRecord) -> None:
-        if record.evidence_scope != 'owned_room':
-            return
+    def _evidence_measurement_ids(
+        self,
+        record: CadModelValidationRecord,
+    ) -> tuple[str, ...]:
+        """Every measurement whose exact evidence the record depends on."""
         measurement_ids = {pair.measurement_id for pair in record.pairs}
         for check in record.repeatability_checks:
             measurement_ids.update(check.measurement_ids)
@@ -334,7 +358,12 @@ class CadModelValidationRepository:
                         for ref in evaluation.input_refs
                         if ref.evidence_class == 'measured' and ref.source_kind == 'cad_measurement'
                     )
-        for measurement_id in sorted(measurement_ids):
+        return tuple(sorted(measurement_ids))
+
+    def _validate_evidence_scope(self, record: CadModelValidationRecord) -> None:
+        if record.evidence_scope != 'owned_room':
+            return
+        for measurement_id in self._evidence_measurement_ids(record):
             measurement = self.measurement_repository.get_measurement(measurement_id)
             if measurement is None:
                 raise ValueError(f'owned-room validation references unknown measurement: {measurement_id}')
@@ -679,38 +708,104 @@ class CadModelValidationRepository:
                     f'{check.code}'
                 )
 
-    def _validate_persisted_record(
+    def _validate_raw_asset_authority(self, record: CadModelValidationRecord) -> None:
+        """Fail closed when file-backed raw measurement evidence is unavailable.
+
+        Every measurement the record depends on — residual pairs,
+        repeatability/separation checks and measured O30 inputs — must still
+        resolve its bound frequency-response dataset. For the native
+        ``CadMeasurementRepository`` the dataset read itself re-verifies the
+        content-addressed raw asset hash and pinned importer replay, and
+        ``verify_measurement_asset_authority`` additionally re-checks the
+        raw-asset registry size; other evidence backends at minimum must
+        still resolve the bound dataset.
+        """
+        verify = getattr(
+            self.measurement_repository, 'verify_measurement_asset_authority', None
+        )
+        for measurement_id in self._evidence_measurement_ids(record):
+            if verify is not None:
+                verify(measurement_id)
+            elif (
+                self.measurement_repository.dataset_for_measurement(measurement_id)
+                is None
+            ):
+                raise ValueError(
+                    'validation measurement has no frequency response: '
+                    f'{measurement_id}'
+                )
+
+    def _validate_record(
         self,
         record: CadModelValidationRecord,
+        *,
+        production_read: bool = False,
     ) -> CadModelValidationRecord:
-        """Fail closed on a persisted record whose evidence drifted."""
-        plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
-        self._validate_residual_authority(record, plans)
-        spec = self.search_repository.get(record.search_spec_id)
-        if spec is None:
-            raise ValueError('model validation SearchSpec does not exist')
-        self._validate_applicability_authority(record, spec)
+        """Replay the complete save-time cross-evidence authority for *record*.
+
+        One shared authority path for save and every authoritative read so
+        the two cannot drift: SearchSpec authority, Room Simulator
+        attempt/batch existence and exact binding, residual response
+        reconstruction, O30 predicted/measured objective authority,
+        sensitivity, repeatability and candidate-separation reconstruction,
+        owned-room measurement provenance and campaign binding,
+        applicability authority, and raw measurement asset presence, size
+        and hash.
+
+        With ``production_read=True`` — a persisted record being
+        re-attested before it may authorize production work — any evidence
+        failure is raised as :class:`CadModelValidationIntegrityError` so a
+        formerly valid record whose evidence went stale is a typed
+        integrity failure rather than an ambiguous input error; the row
+        itself is never reclassified.
+        """
+        try:
+            spec = self.search_repository.get(record.search_spec_id)
+            if spec is None:
+                raise ValueError('model validation SearchSpec does not exist')
+            if (
+                spec.document_id != record.document_id
+                or spec.search_spec_sha256 != record.search_spec_sha256
+            ):
+                raise ValueError('model validation SearchSpec authority mismatch')
+            plans = self.measurement_repository.list_measurement_plans(
+                record.search_spec_id
+            )
+            self._validate_residual_authority(record, plans)
+            self._validate_objective_samples(record)
+            self._validate_sensitivity(record, spec)
+            self._validate_repeatability_and_separation(record, plans)
+            self._validate_evidence_scope(record)
+            self._validate_campaign_binding(record, plans)
+            self._validate_applicability_authority(record, spec)
+            self._validate_raw_asset_authority(record)
+        except CadModelValidationIntegrityError:
+            raise
+        except ValueError as exc:
+            if production_read:
+                raise CadModelValidationIntegrityError(
+                    record.validation_id,
+                    str(exc),
+                ) from exc
+            raise
         return record
+
+    @staticmethod
+    def _persisted_record(row: sqlite3.Row) -> CadModelValidationRecord:
+        """Deserialize a persisted payload, failing closed on a broken seal."""
+        try:
+            return CadModelValidationRecord.model_validate_json(row['payload_json'])
+        except ValueError as exc:
+            raise CadModelValidationIntegrityError(
+                str(row['validation_id']),
+                'persisted payload is not a sealed model validation record',
+            ) from exc
 
     def save(self, record: CadModelValidationRecord) -> None:
         if not isinstance(record, CadModelValidationRecord):
             raise TypeError('record must be CadModelValidationRecord')
         record = CadModelValidationRecord.model_validate(record.model_dump(mode='python'))
-        spec = self.search_repository.get(record.search_spec_id)
-        if spec is None:
-            raise ValueError('model validation SearchSpec does not exist')
-        if spec.document_id != record.document_id or spec.search_spec_sha256 != record.search_spec_sha256:
-            raise ValueError('model validation SearchSpec authority mismatch')
-
-        plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
-        self._validate_residual_authority(record, plans)
-
-        self._validate_objective_samples(record)
-        self._validate_sensitivity(record, spec)
-        self._validate_repeatability_and_separation(record, plans)
-        self._validate_evidence_scope(record)
-        self._validate_campaign_binding(record, plans)
-        self._validate_applicability_authority(record, spec)
+        self._validate_record(record)
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -732,53 +827,140 @@ class CadModelValidationRepository:
             )
 
     def get(self, validation_id: str) -> CadModelValidationRecord | None:
-        with closing(self._connect()) as connection, connection:
+        """Authoritative read: full save-time evidence re-attestation.
+
+        A persisted record whose exact source evidence disappeared or
+        changed since save fails closed with
+        :class:`CadModelValidationIntegrityError` instead of silently
+        serving stale authority. Use :meth:`inspect` for a diagnostic-only
+        view of stale or suspect history.
+        """
+        with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_model_validations WHERE validation_id=?',
+                'SELECT validation_id, payload_json FROM cad_model_validations '
+                'WHERE validation_id=?',
                 (validation_id,),
             ).fetchone()
         if row is None:
             return None
-        record = CadModelValidationRecord.model_validate_json(row['payload_json'])
-        return self._validate_persisted_record(record)
+        return self._validate_record(
+            self._persisted_record(row),
+            production_read=True,
+        )
+
+    def inspect(self, validation_id: str) -> CadModelValidationRecord | None:
+        """Return the persisted payload without evidence re-attestation.
+
+        Diagnostic/history view for stale or suspect records: the model is
+        payload-consistent (self-hash verified) but its external evidence
+        has NOT been re-attested, so the result must never authorize
+        O70/O80 production work.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT validation_id, payload_json FROM cad_model_validations '
+                'WHERE validation_id=?',
+                (validation_id,),
+            ).fetchone()
+        return None if row is None else self._persisted_record(row)
 
     def latest_eligible_for_search_spec(
         self,
         search_spec_id: str,
     ) -> CadModelValidationRecord | None:
-        with closing(self._connect()) as connection, connection:
+        """Authoritative O70-entry read: full evidence re-attestation.
+
+        The newest eligible record is re-validated through the same
+        ``_validate_record`` authority path used at save — including
+        file-backed raw asset presence/size/hash — so a record whose
+        evidence went stale after save fails closed with
+        :class:`CadModelValidationIntegrityError` instead of being
+        silently reclassified or skipped.
+        """
+        with closing(self._connect()) as connection:
             row = connection.execute(
-                "SELECT payload_json FROM cad_model_validations "
+                "SELECT validation_id, payload_json FROM cad_model_validations "
                 "WHERE search_spec_id=? AND recommendation_gate='eligible' "
                 "ORDER BY seq DESC LIMIT 1",
                 (search_spec_id,),
             ).fetchone()
         if row is None:
             return None
-        record = CadModelValidationRecord.model_validate_json(row['payload_json'])
+        record = self._persisted_record(row)
         if record.recommendation_gate != 'eligible':
-            raise ValueError('eligible validation record payload is not eligible')
+            raise CadModelValidationIntegrityError(
+                record.validation_id,
+                'eligible validation record payload is not eligible',
+            )
         if record.evidence_scope != 'owned_room':
-            raise ValueError('eligible validation record is not owned-room evidence')
-        plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
-        self._validate_residual_authority(record, plans)
-        self._validate_campaign_binding(record, plans)
-        spec = self.search_repository.get(record.search_spec_id)
-        if spec is None:
-            raise ValueError('eligible validation record SearchSpec does not exist')
-        self._validate_applicability_authority(record, spec)
-        return record
+            raise CadModelValidationIntegrityError(
+                record.validation_id,
+                'eligible validation record is not owned-room evidence',
+            )
+        return self._validate_record(record, production_read=True)
 
     def list_for_search_spec(self, search_spec_id: str) -> tuple[CadModelValidationRecord, ...]:
-        with closing(self._connect()) as connection, connection:
+        """Authoritative history: every record re-attested, fail closed.
+
+        A stale or tampered record raises
+        :class:`CadModelValidationIntegrityError`; use
+        :meth:`inspect_for_search_spec` to browse history without
+        re-attestation.
+        """
+        with closing(self._connect()) as connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_model_validations WHERE search_spec_id=? ORDER BY seq ASC',
+                'SELECT validation_id, payload_json FROM cad_model_validations '
+                'WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),
             ).fetchall()
-        records = tuple(
-            CadModelValidationRecord.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+        records = tuple(self._persisted_record(row) for row in rows)
         for record in records:
-            self._validate_persisted_record(record)
+            self._validate_record(record, production_read=True)
         return records
+
+    def inspect_for_search_spec(
+        self,
+        search_spec_id: str,
+    ) -> tuple[CadModelValidationRecord, ...]:
+        """History listing without evidence re-attestation (see :meth:`inspect`)."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT validation_id, payload_json FROM cad_model_validations '
+                'WHERE search_spec_id=? ORDER BY seq ASC',
+                (search_spec_id,),
+            ).fetchall()
+        return tuple(self._persisted_record(row) for row in rows)
+
+    def integrity_problems(self, search_spec_id: str | None = None) -> list[str]:
+        """Scan persisted O60 records and report evidence-integrity problems.
+
+        Native integrity scan: every persisted payload is deserialized
+        through the sealed model and re-attested through the same
+        ``_validate_record`` authority path used by save and the production
+        reads. Problems are reported as strings instead of raising so a
+        stale or tampered record stays inspectable; a clean scan returns an
+        empty list.
+        """
+        sql = (
+            'SELECT validation_id, payload_json FROM cad_model_validations'
+        )
+        params: tuple[str, ...] = ()
+        if search_spec_id is not None:
+            sql += ' WHERE search_spec_id=?'
+            params = (search_spec_id,)
+        sql += ' ORDER BY seq ASC'
+        with closing(self._connect()) as connection:
+            rows = connection.execute(sql, params).fetchall()
+        problems: list[str] = []
+        for row in rows:
+            validation_id = str(row['validation_id'])
+            try:
+                record = CadModelValidationRecord.model_validate_json(
+                    row['payload_json']
+                )
+                self._validate_record(record)
+            except ValueError as exc:
+                problems.append(
+                    f'model_validation_integrity:{validation_id}:{exc}'
+                )
+        return problems
