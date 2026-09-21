@@ -721,6 +721,39 @@ _ACTIVE_ADAPTERS: dict[tuple[str, str], DirectivityAssetAdapter] = {
 }
 
 
+def replay_directivity_import(
+    *,
+    source_bytes: bytes,
+    equipment_definition: EquipmentDefinition,
+    adapter_id: str,
+    adapter_version: str,
+) -> DirectivityDataset:
+    """Re-run a recorded adapter version against exact retained source bytes.
+
+    This is the audit/migration replay path: the pinned registry must still
+    resolve the exact ``(adapter_id, adapter_version)`` implementation that
+    produced a persisted dataset, so removed or never-registered versions
+    fail closed instead of silently approximating the transformation. The
+    replayed output is re-validated against the EquipmentDefinition binding,
+    so replay can never widen authority.
+    """
+
+    adapter = _ACTIVE_ADAPTERS.get((adapter_id, adapter_version))
+    if adapter is None:
+        raise ValueError(
+            'no supported directivity adapter implementation is registered '
+            f'for {adapter_id}@{adapter_version}'
+        )
+    dataset = adapter.parse(source_bytes, equipment_definition)
+    if (
+        dataset.adapter_id != adapter_id
+        or dataset.adapter_version != adapter_version
+    ):
+        raise ValueError('replayed directivity dataset adapter identity mismatch')
+    validate_directivity_dataset_binding(dataset, equipment_definition)
+    return dataset
+
+
 def _failed_result(
     *,
     state: Literal['UNSUPPORTED', 'REJECTED'],

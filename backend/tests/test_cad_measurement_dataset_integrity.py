@@ -422,7 +422,7 @@ def test_verify_measurement_asset_authority_fails_closed_on_missing_asset(
 
     (repository.assets_dir / dataset.source_sha256).unlink()
 
-    with pytest.raises(ValueError, match='unavailable for dataset verification'):
+    with pytest.raises(ValueError, match='missing or not a regular file'):
         repository.verify_measurement_asset_authority(record.measurement_id)
 
 
@@ -435,7 +435,7 @@ def test_verify_measurement_asset_authority_fails_closed_on_corrupt_asset(
 
     (repository.assets_dir / dataset.source_sha256).write_bytes(b'corrupt')
 
-    with pytest.raises(ValueError, match='content does not match its content address'):
+    with pytest.raises(ValueError, match='mismatch'):
         repository.verify_measurement_asset_authority(record.measurement_id)
 
 
@@ -452,7 +452,7 @@ def test_verify_measurement_asset_authority_fails_closed_on_size_drift(
             (dataset.source_sha256,),
         )
 
-    with pytest.raises(ValueError, match='size does not match its registry entry'):
+    with pytest.raises(ValueError, match='asset size mismatch'):
         repository.verify_measurement_asset_authority(record.measurement_id)
 
 
@@ -469,7 +469,7 @@ def test_verify_measurement_asset_authority_fails_closed_on_missing_registry_row
             (dataset.source_sha256,),
         )
 
-    with pytest.raises(ValueError, match='registry entry is missing'):
+    with pytest.raises(ValueError, match='has no cad_measurement_assets row'):
         repository.verify_measurement_asset_authority(record.measurement_id)
 
 

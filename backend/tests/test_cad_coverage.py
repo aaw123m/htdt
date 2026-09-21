@@ -18,10 +18,7 @@ from htdt.cad_coverage import (
 from htdt.cad_coverage_repository import CadCoverageRepository
 from htdt.cad_direct_level import SeatPopulation
 from htdt.cad_directivity import (
-    DirectivityCoordinateConvention,
-    DirectivityNormalization,
-    DirectivitySample,
-    build_directivity_dataset,
+    NORMALIZED_JSON_DIRECTIVITY_ADAPTER,
 )
 from htdt.cad_directivity_repository import CadDirectivityRepository
 from htdt.cad_equipment import (
@@ -72,10 +69,68 @@ def _provenance(source_hash: str) -> EquipmentDataProvenance:
 def _authority(
     *,
     definition_id: str = 'coverage-speaker',
-    source_hash: str = 'a' * 64,
     off_axis_500_db: float = -6.0,
     off_axis_1000_db: float = -12.0,
 ):
+    source_payload = {
+        'schema': 'htdt.normalized-directivity.v1',
+        'dataset_id': f'{definition_id}-directivity',
+        'version': '1',
+        'source_format': 'custom',
+        'evidence_kind': 'user_defined',
+        'source_name': 'O100D coverage deterministic fixture',
+        'source_version': '2026-09-19',
+        'source_reference': 'issue-169-focused-fixture',
+        'kind': 'magnitude_only',
+        'coordinate_convention': {
+            'angle_semantics': 'horizontal_vertical',
+            'horizontal_wrap': 'none',
+            'reference_axis': 'equipment_acoustic_reference_axis',
+            'azimuth_positive': 'left',
+            'elevation_positive': 'up',
+            'angle_unit': 'degree',
+        },
+        'normalization': {
+            'source_magnitude_unit': 'db',
+            'normalized_magnitude_unit': 'db',
+            'reference': 'on_axis_per_frequency',
+            'reference_level_db': None,
+            'conversion_version': 'pressure-amplitude-db20-v1',
+        },
+        'phase_reference': None,
+        'interpolation_method': 'linear',
+        'interpolation_implementation': 'htdt-grid-linear',
+        'interpolation_version': '1',
+        'frequencies_hz': [500.0, 1000.0],
+        'horizontal_angles_deg': [-60.0, 0.0, 60.0],
+        'vertical_angles_deg': [0.0],
+        'samples': [
+            {
+                'frequency_hz': frequency_hz,
+                'horizontal_angle_deg': horizontal_angle_deg,
+                'vertical_angle_deg': 0.0,
+                'magnitude': (
+                    0.0
+                    if horizontal_angle_deg == 0.0
+                    else (
+                        off_axis_500_db
+                        if frequency_hz == 500.0
+                        else off_axis_1000_db
+                    )
+                ),
+                'phase_deg': None,
+            }
+            for frequency_hz in (500.0, 1000.0)
+            for horizontal_angle_deg in (-60.0, 0.0, 60.0)
+        ],
+    }
+    source_bytes = json.dumps(
+        source_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+    source_hash = sha256(source_bytes).hexdigest()
     provenance = _provenance(source_hash)
     domain = DirectivityDomain(
         frequency=FrequencyDomain(
@@ -118,52 +173,11 @@ def _authority(
             interpolation=interpolation,
         ),
     )
-    samples = tuple(
-        DirectivitySample(
-            frequency_hz=frequency_hz,
-            horizontal_angle_deg=horizontal_angle_deg,
-            vertical_angle_deg=0.0,
-            magnitude_db=(
-                0.0
-                if horizontal_angle_deg == 0.0
-                else (
-                    off_axis_500_db
-                    if frequency_hz == 500.0
-                    else off_axis_1000_db
-                )
-            ),
-        )
-        for frequency_hz in (500.0, 1000.0)
-        for horizontal_angle_deg in (-60.0, 0.0, 60.0)
+    dataset = NORMALIZED_JSON_DIRECTIVITY_ADAPTER.parse(
+        source_bytes,
+        definition,
     )
-    dataset = build_directivity_dataset(
-        dataset_id=f'{definition_id}-directivity',
-        version='1',
-        definition=definition,
-        source_asset_sha256=source_hash,
-        source_format='custom',
-        parser_id='fixture-parser',
-        parser_version='1',
-        adapter_id='fixture-adapter',
-        adapter_version='1',
-        evidence_kind='user_defined',
-        source_provenance=provenance,
-        kind='magnitude_only',
-        coordinate_convention=DirectivityCoordinateConvention(
-            angle_semantics='horizontal_vertical',
-            horizontal_wrap='none',
-        ),
-        normalization=DirectivityNormalization(
-            source_magnitude_unit='db',
-            reference='on_axis_per_frequency',
-        ),
-        frequencies_hz=(500.0, 1000.0),
-        horizontal_angles_deg=(-60.0, 0.0, 60.0),
-        vertical_angles_deg=(0.0,),
-        samples=samples,
-        interpolation=interpolation,
-    )
-    return definition, dataset
+    return source_bytes, definition, dataset
 
 
 def _speaker(
@@ -246,9 +260,16 @@ def _persist_authority(
     directivity_repository: CadDirectivityRepository,
     definition,
     dataset,
+    source_bytes: bytes,
 ) -> None:
     equipment_repository.save_definition(definition)
-    directivity_repository.save_dataset(dataset)
+    directivity_repository.save_dataset(
+        dataset,
+        source_bytes=source_bytes,
+        source_filename=f'{definition.definition_id}.normalized.json',
+        media_type='application/json',
+        declared_schema='htdt.normalized-directivity.v1',
+    )
 
 
 def _binding(definition) -> EquipmentBindingRef:
@@ -328,12 +349,13 @@ def _fixture(tmp_path: Path):
         equipment_repository,
         directivity_repository,
     ) = _repositories(tmp_path)
-    definition, dataset = _authority()
+    source_bytes, definition, dataset = _authority()
     _persist_authority(
         equipment_repository,
         directivity_repository,
         definition,
         dataset,
+        source_bytes,
     )
     variant = _variant(
         variant_repository,
@@ -667,9 +689,8 @@ def test_negative_off_axis_loss_is_preserved_without_clamp(
         equipment_repository,
         directivity_repository,
     ) = _repositories(tmp_path)
-    definition, dataset = _authority(
+    source_bytes, definition, dataset = _authority(
         definition_id='strong-off-axis-speaker',
-        source_hash='b' * 64,
         off_axis_500_db=3.0,
         off_axis_1000_db=6.0,
     )
@@ -678,6 +699,7 @@ def test_negative_off_axis_loss_is_preserved_without_clamp(
         directivity_repository,
         definition,
         dataset,
+        source_bytes,
     )
     variant = _variant(
         variant_repository,
@@ -720,15 +742,15 @@ def test_exact_equipment_and_dataset_mismatch_are_rejected(
         variant,
         scenario,
     ) = _fixture(tmp_path)
-    other_definition, other_dataset = _authority(
+    other_bytes, other_definition, other_dataset = _authority(
         definition_id='other-coverage-speaker',
-        source_hash='c' * 64,
     )
     _persist_authority(
         equipment_repository,
         directivity_repository,
         other_definition,
         other_dataset,
+        other_bytes,
     )
 
     with pytest.raises(

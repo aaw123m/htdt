@@ -9,8 +9,6 @@ import json
 import os
 from pathlib import Path
 import sqlite3
-import tempfile
-import time
 from uuid import uuid4
 
 from .cad_measurement_models import (
@@ -26,7 +24,12 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import acoustic_reference_position, scene_content_hash
 from .cad_search_repository import CadSearchRepository
 from .comparison import ComparisonResult, FrequencyResponse, replay_comparison_result
-from .managed_assets import ManagedAssetError, verify_managed_asset
+from .managed_assets import (
+    MANAGED_ASSETS_DIRNAME,
+    ManagedAssetError,
+    ManagedAssetStore,
+    verify_managed_asset,
+)
 
 
 class MeasurementPlanConflictError(ValueError):
@@ -103,8 +106,8 @@ class CadMeasurementRepository:
         self.scene_repository = scene_repository
         self.search_repository = CadSearchRepository(scene_repository)
         self.path = scene_repository.path
-        self.assets_dir = Path(assets_dir) if assets_dir is not None else self.path.parent / 'measurement-assets'
-        self.assets_dir.mkdir(parents=True, exist_ok=True)
+        self.assets_dir = Path(assets_dir) if assets_dir is not None else self.path.parent / MANAGED_ASSETS_DIRNAME
+        self._asset_store = ManagedAssetStore(self.assets_dir)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -238,70 +241,7 @@ class CadMeasurementRepository:
         return revision
 
     def _asset_path(self, digest: str) -> Path:
-        return self.assets_dir / digest
-
-    @staticmethod
-    def _fsync_directory(directory: Path) -> None:
-        # Making the rename durable requires a directory fsync, which is
-        # only meaningful on POSIX filesystems.
-        if os.name != 'posix':
-            return
-        descriptor = os.open(directory, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-
-    @staticmethod
-    def _read_asset(target: Path, attempts: int = 100) -> bytes:
-        # A file being atomically replaced may briefly refuse reads on
-        # Windows while the previous handle is pending deletion.
-        for attempt in range(attempts):
-            try:
-                return target.read_bytes()
-            except PermissionError:
-                if attempt == attempts - 1:
-                    raise
-                time.sleep(0.01)
-        raise RuntimeError('unreachable')
-
-    def _install_asset(self, digest: str, raw_bytes: bytes) -> None:
-        """Durably install *raw_bytes* at the content-addressed digest path.
-
-        The payload is written to a unique temporary file in the same
-        filesystem, flushed, fsynced and verified before being atomically
-        renamed onto the digest path, so the final path never exposes a
-        partially written file. Only the private temporary file is removed
-        on failure; an already-installed digest path is never touched.
-        """
-        target = self._asset_path(digest)
-        descriptor, temp_name = tempfile.mkstemp(
-            dir=self.assets_dir, prefix='.asset-', suffix='.tmp'
-        )
-        temp = Path(temp_name)
-        try:
-            with os.fdopen(descriptor, 'wb') as handle:
-                handle.write(raw_bytes)
-                handle.flush()
-                os.fsync(handle.fileno())
-            persisted = temp.read_bytes()
-            if len(persisted) != len(raw_bytes) or sha256(persisted).hexdigest() != digest:
-                raise RuntimeError('measurement asset write verification failed')
-            try:
-                os.replace(temp, target)
-            except PermissionError:
-                # Windows can refuse a replace while a racing install holds
-                # the destination; an identical already-installed digest is a
-                # success, anything else means the install genuinely failed.
-                try:
-                    installed = self._read_asset(target) == raw_bytes
-                except OSError:
-                    installed = False
-                if not installed:
-                    raise
-            self._fsync_directory(self.assets_dir)
-        finally:
-            temp.unlink(missing_ok=True)
+        return self._asset_store.asset_path(digest)
 
     def save(
         self,
@@ -338,13 +278,9 @@ class CadMeasurementRepository:
             dataset_sha256=dataset_identity,
         )
         target = self._asset_path(digest)
-        if target.exists():
-            # An already-installed identical digest is a successful dedup hit;
-            # anything else at the path is corrupt or a genuine collision.
-            if self._read_asset(target) != raw_bytes:
-                raise ValueError('content-addressed measurement asset hash collision')
-        else:
-            self._install_asset(digest, raw_bytes)
+        # An already-installed identical digest is a successful dedup hit;
+        # anything else at the path is corrupt or a genuine collision.
+        self._asset_store.ensure_installed(digest, raw_bytes)
 
         # A failed transaction leaves the installed digest path in place: the
         # content-addressed file may already be referenced by another committed
@@ -738,7 +674,7 @@ class CadMeasurementRepository:
         read.
         """
         try:
-            raw = self._read_asset(asset.path)
+            raw = self._asset_store.read_file(asset.path)
         except FileNotFoundError as exc:
             raise ManagedAssetError(
                 'measurement raw asset is unavailable for dataset verification'
@@ -748,6 +684,16 @@ class CadMeasurementRepository:
                 'measurement raw asset content does not match its content address'
             )
         return raw
+
+    def _verified_raw_asset(self, digest: str) -> bytes:
+        """Load the content-addressed raw asset, failing closed on tampering."""
+        raw = self._asset_store.read_verified(digest)
+        if raw is None:
+            raise ValueError(
+                'measurement raw asset is unavailable for dataset verification'
+            )
+        return raw
+
 
     def verify_measurement_asset_authority(self, measurement_id: str) -> None:
         """Re-verify the file-backed raw asset bound to *measurement_id*.

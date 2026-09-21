@@ -351,7 +351,7 @@ def test_complex_evaluation_preserves_phase_capability() -> None:
 def test_save_reopen_preserves_dataset_and_evaluation_identity(
     tmp_path: Path,
 ) -> None:
-    _source, definition, dataset = _imported_dataset()
+    source_bytes, definition, dataset = _imported_dataset()
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     equipment_repository = CadEquipmentRepository(scene_repository)
     equipment_repository.save_definition(definition)
@@ -359,7 +359,13 @@ def test_save_reopen_preserves_dataset_and_evaluation_identity(
         scene_repository,
         equipment_repository,
     )
-    repository.save_dataset(dataset)
+    repository.save_dataset(
+        dataset,
+        source_bytes=source_bytes,
+        source_filename='fixture-dataset.normalized.json',
+        media_type='application/json',
+        declared_schema='htdt.normalized-directivity.v1',
+    )
 
     before = evaluate_directivity(
         dataset,

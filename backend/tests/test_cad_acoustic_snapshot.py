@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+import json
 from pathlib import Path
 import sqlite3
 
@@ -18,12 +20,7 @@ from htdt.cad_acoustic_snapshot_repository import (
     AcousticSnapshotAuthorityResolvers,
     CadAcousticSnapshotRepository,
 )
-from htdt.cad_directivity import (
-    DirectivityCoordinateConvention,
-    DirectivityNormalization,
-    DirectivitySample,
-    build_directivity_dataset,
-)
+from htdt.cad_directivity import NORMALIZED_JSON_DIRECTIVITY_ADAPTER
 from htdt.cad_directivity_repository import CadDirectivityRepository
 from htdt.cad_equipment import (
     AngleDomain,
@@ -224,10 +221,72 @@ def _provenance(source_hash: str, name: str) -> EquipmentDataProvenance:
     )
 
 
-def _definition(definition_id: str, *, tier: str, hash_char: str):
-    source_hash = hash_char * 64
+def _persisted_directivity(definition_id: str, kind: str):
+    """Build real imported source bytes, a bound definition and the parsed
+    dataset so persistence verifies and replays the exact source."""
+    source_payload = {
+        'schema': 'htdt.normalized-directivity.v1',
+        'dataset_id': f'{definition_id}-dataset',
+        'version': '1',
+        'source_format': 'custom',
+        'evidence_kind': 'measured',
+        'source_name': definition_id,
+        'source_version': '1',
+        'source_reference': f'{definition_id}-fixture',
+        'kind': kind,
+        'coordinate_convention': {
+            'angle_semantics': 'horizontal_vertical',
+            'horizontal_wrap': 'none',
+            'reference_axis': 'equipment_acoustic_reference_axis',
+            'azimuth_positive': 'left',
+            'elevation_positive': 'up',
+            'angle_unit': 'degree',
+        },
+        'normalization': {
+            'source_magnitude_unit': 'db',
+            'normalized_magnitude_unit': 'db',
+            'reference': 'on_axis_per_frequency',
+            'reference_level_db': None,
+            'conversion_version': 'pressure-amplitude-db20-v1',
+        },
+        'phase_reference': (
+            'acoustic_reference_point/source-t0'
+            if kind == 'complex'
+            else None
+        ),
+        'interpolation_method': 'linear',
+        'interpolation_implementation': 'snapshot-fixture-linear',
+        'interpolation_version': '1',
+        'frequencies_hz': [500.0, 1000.0],
+        'horizontal_angles_deg': [-30.0, 0.0, 30.0],
+        'vertical_angles_deg': [0.0],
+        'samples': [
+            {
+                'frequency_hz': frequency_hz,
+                'horizontal_angle_deg': horizontal_angle_deg,
+                'vertical_angle_deg': 0.0,
+                'magnitude': (
+                    0.0 if horizontal_angle_deg == 0.0 else -6.0
+                ),
+                'phase_deg': (
+                    horizontal_angle_deg / 3.0
+                    if kind == 'complex'
+                    else None
+                ),
+            }
+            for frequency_hz in (500.0, 1000.0)
+            for horizontal_angle_deg in (-30.0, 0.0, 30.0)
+        ],
+    }
+    source_bytes = json.dumps(
+        source_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+    source_hash = sha256(source_bytes).hexdigest()
     provenance = _provenance(source_hash, definition_id)
-    return build_equipment_definition(
+    definition = build_equipment_definition(
         definition_id=definition_id,
         version='1',
         identity_kind='user_defined',
@@ -236,7 +295,7 @@ def _definition(definition_id: str, *, tier: str, hash_char: str):
         cabinet_envelope_m=Size3(x_m=0.2, y_m=0.25, z_m=0.35),
         acoustic_reference_point_m=Offset3(x_m=0.0, y_m=0.1, z_m=0.0),
         directivity=DirectivityCapability(
-            tier=tier,
+            tier=kind,
             data_format='custom',
             provenance=provenance,
             data_asset_sha256=source_hash,
@@ -247,67 +306,19 @@ def _definition(definition_id: str, *, tier: str, hash_char: str):
                 implementation_version='1',
                 provenance=provenance,
             ),
-            coherent_phase=(tier == 'complex'),
+            coherent_phase=(kind == 'complex'),
             phase_reference=(
                 'acoustic_reference_point/source-t0'
-                if tier == 'complex'
+                if kind == 'complex'
                 else None
             ),
         ),
     )
-
-
-def _dataset(definition, *, kind: str):
-    samples = []
-    for frequency_hz in (500.0, 1000.0):
-        for horizontal_angle_deg in (-30.0, 0.0, 30.0):
-            samples.append(
-                DirectivitySample(
-                    frequency_hz=frequency_hz,
-                    horizontal_angle_deg=horizontal_angle_deg,
-                    vertical_angle_deg=0.0,
-                    magnitude_db=(
-                        0.0 if horizontal_angle_deg == 0.0 else -6.0
-                    ),
-                    phase_deg=(
-                        horizontal_angle_deg / 3.0
-                        if kind == 'complex'
-                        else None
-                    ),
-                )
-            )
-    return build_directivity_dataset(
-        dataset_id=f'{definition.definition_id}-dataset',
-        version='1',
-        definition=definition,
-        source_asset_sha256=definition.directivity.data_asset_sha256,
-        source_format='custom',
-        parser_id='snapshot-fixture-parser',
-        parser_version='1',
-        adapter_id='snapshot-fixture-adapter',
-        adapter_version='1',
-        evidence_kind='measured',
-        source_provenance=definition.directivity.provenance,
-        kind=kind,
-        coordinate_convention=DirectivityCoordinateConvention(
-            angle_semantics='horizontal_vertical',
-            horizontal_wrap='none',
-        ),
-        normalization=DirectivityNormalization(
-            source_magnitude_unit='db',
-            reference='on_axis_per_frequency',
-        ),
-        frequencies_hz=(500.0, 1000.0),
-        horizontal_angles_deg=(-30.0, 0.0, 30.0),
-        vertical_angles_deg=(0.0,),
-        samples=tuple(samples),
-        interpolation=definition.directivity.interpolation,
-        phase_reference=(
-            definition.directivity.phase_reference
-            if kind == 'complex'
-            else None
-        ),
+    dataset = NORMALIZED_JSON_DIRECTIVITY_ADAPTER.parse(
+        source_bytes,
+        definition,
     )
+    return source_bytes, definition, dataset
 
 
 def _semantic_geometry():
@@ -416,28 +427,32 @@ def _fixture(
     )
     r120_repository = R120GeometryCompilerRepository(scene_repository)
 
-    magnitude_definition = _definition(
-        'fixture-magnitude',
-        tier='magnitude_only',
-        hash_char='a',
-    )
-    complex_definition = _definition(
-        'fixture-complex',
-        tier='complex',
-        hash_char='b',
-    )
+    (
+        magnitude_bytes,
+        magnitude_definition,
+        magnitude_dataset,
+    ) = _persisted_directivity('fixture-magnitude', 'magnitude_only')
+    (
+        complex_bytes,
+        complex_definition,
+        complex_dataset,
+    ) = _persisted_directivity('fixture-complex', 'complex')
     equipment_repository.save_definition(magnitude_definition)
     equipment_repository.save_definition(complex_definition)
-    magnitude_dataset = _dataset(
-        magnitude_definition,
-        kind='magnitude_only',
+    directivity_repository.save_dataset(
+        magnitude_dataset,
+        source_bytes=magnitude_bytes,
+        source_filename='fixture-magnitude.normalized.json',
+        media_type='application/json',
+        declared_schema='htdt.normalized-directivity.v1',
     )
-    complex_dataset = _dataset(
-        complex_definition,
-        kind='complex',
+    directivity_repository.save_dataset(
+        complex_dataset,
+        source_bytes=complex_bytes,
+        source_filename='fixture-complex.normalized.json',
+        media_type='application/json',
+        declared_schema='htdt.normalized-directivity.v1',
     )
-    directivity_repository.save_dataset(magnitude_dataset)
-    directivity_repository.save_dataset(complex_dataset)
 
     variant = build_system_variant(
         baseline=revision,
