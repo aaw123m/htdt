@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from contextlib import closing
 from datetime import datetime, timezone
 import json
@@ -69,6 +70,13 @@ class CadPredictionRepository:
                 'CREATE INDEX IF NOT EXISTS idx_prediction_run_seq '
                 'ON cad_prediction_results(run_id, seq ASC)'
             )
+            # One run occupies each (run_id, result_kind) slot exactly once:
+            # the run-level write authority enforces it deterministically and
+            # this index is the stored backstop for it.
+            connection.execute(
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_run_result_kind '
+                'ON cad_prediction_results(run_id, result_kind)'
+            )
 
     def _source_revision(self, result: CadPredictionResult) -> SceneRevision:
         source = self.scene_repository.get(result.scene_revision_id)
@@ -92,48 +100,143 @@ class CadPredictionRepository:
             geometry_compatibility=result.geometry_compatibility,
         )
 
-    def save(self, result: CadPredictionResult) -> None:
+    def _validate_result(self, result: CadPredictionResult) -> None:
+        """Resolve the exact source revision and replay the canonical input.
+
+        This runs on a second connection through ``SceneRepository.get``, so
+        callers must finish it BEFORE opening the write transaction: opening a
+        nested connection while BEGIN IMMEDIATE is held can deadlock the write.
+        """
         source = self._source_revision(result)
         if prediction_input_hash(result.input_snapshot_json) != result.input_hash:
             raise ValueError('prediction input hash mismatch')
         self._require_canonical_input(source, result)
 
+    # Fields that every record of one prediction run must share: the run binds
+    # one document, one exact SceneRevision, one model identity and one
+    # canonical model input.
+    _RUN_IDENTITY_FIELDS = (
+        'document_id',
+        'scene_revision_id',
+        'scene_content_hash',
+        'constraint_workspace_hash',
+        'model_id',
+        'model_version',
+        'parameters_json',
+        'input_snapshot_json',
+        'input_hash',
+        'geometry_compatibility',
+    )
+
+    def save(self, result: CadPredictionResult) -> None:
+        """Persist one result through the run authority as a single-record run."""
+        self.save_run((result,))
+
+    def save_run(
+        self,
+        results: Iterable[CadPredictionResult],
+    ) -> tuple[CadPredictionResult, ...]:
+        """Atomically persist every result record of one prediction run.
+
+        A rectangular prediction run is a tuple of CadPredictionResult records
+        sharing one ``run_id`` — ``geometry_modes`` plus
+        ``geometry_reflections``. Every record is validated before the write
+        transaction begins (``_validate_result`` resolves revisions on a second
+        connection, which must not run while BEGIN IMMEDIATE is held), then all
+        inserts commit or roll back together: a mid-commit failure can never
+        leave a partially persisted run for ``list_run`` to expose.
+
+        The batch contract is enforced deterministically before any write: the
+        run must share one ``run_id`` and one document/revision/model/input
+        identity, and may not repeat a ``prediction_id`` or ``result_kind``.
+        Persisted duplicates are rejected inside the write transaction as well,
+        so the ``(run_id, result_kind)`` slot of a committed run cannot be
+        occupied twice even by a racing writer.
+        """
+        items = tuple(results)
+        if not items:
+            raise ValueError('prediction run requires at least one result')
+        if any(not isinstance(item, CadPredictionResult) for item in items):
+            raise ValueError('prediction run results must be CadPredictionResult records')
+        first = items[0]
+        if any(item.run_id != first.run_id for item in items):
+            raise ValueError('prediction run results must share one run_id')
+        for field in self._RUN_IDENTITY_FIELDS:
+            if any(getattr(item, field) != getattr(first, field) for item in items):
+                raise ValueError(f'prediction run results disagree on {field}')
+        if len({item.prediction_id for item in items}) != len(items):
+            raise ValueError('prediction run contains duplicate prediction identities')
+        if len({item.result_kind for item in items}) != len(items):
+            raise ValueError('prediction run contains duplicate result kinds')
+        for item in items:
+            self._validate_result(item)
+
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                INSERT INTO cad_prediction_results(
-                    prediction_id, run_id, document_id, scene_revision_id, scene_content_hash,
-                    constraint_workspace_hash, model_id, model_version, result_kind,
-                    geometry_compatibility, parameters_json, input_snapshot_json, input_hash,
-                    submitted_at_utc, completed_at_utc, status, assumptions_json,
-                    warnings_json, modes_json, reflections_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''',
-                (
-                    result.prediction_id,
-                    result.run_id,
-                    result.document_id,
-                    result.scene_revision_id,
-                    result.scene_content_hash,
-                    result.constraint_workspace_hash,
-                    result.model_id,
-                    result.model_version,
-                    result.result_kind,
-                    result.geometry_compatibility,
-                    result.parameters_json,
-                    result.input_snapshot_json,
-                    result.input_hash,
-                    result.submitted_at_utc,
-                    result.completed_at_utc,
-                    result.status,
-                    canonical_prediction_json(list(result.assumptions)),
-                    canonical_prediction_json(list(result.warnings)),
-                    canonical_prediction_json([mode.model_dump(mode='json') for mode in result.modes]),
-                    canonical_prediction_json(
-                        [reflection.model_dump(mode='json') for reflection in result.reflections]
-                    ),
+            connection.execute('BEGIN IMMEDIATE')
+            for item in items:
+                self._save_result_in_transaction(connection, item)
+        return items
+
+    def _save_result_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        result: CadPredictionResult,
+    ) -> None:
+        """Insert one validated result inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK and must have validated the
+        record first. The duplicate checks run under the held BEGIN IMMEDIATE
+        so a racing writer cannot interleave a second row for the same
+        prediction identity or the same (run_id, result_kind) slot.
+        """
+        row = connection.execute(
+            'SELECT prediction_id FROM cad_prediction_results WHERE prediction_id=?',
+            (result.prediction_id,),
+        ).fetchone()
+        if row is not None:
+            raise ValueError('duplicate prediction result identity')
+        row = connection.execute(
+            'SELECT prediction_id FROM cad_prediction_results '
+            'WHERE run_id=? AND result_kind=?',
+            (result.run_id, result.result_kind),
+        ).fetchone()
+        if row is not None:
+            raise ValueError('prediction run already contains this result kind')
+        connection.execute(
+            '''
+            INSERT INTO cad_prediction_results(
+                prediction_id, run_id, document_id, scene_revision_id, scene_content_hash,
+                constraint_workspace_hash, model_id, model_version, result_kind,
+                geometry_compatibility, parameters_json, input_snapshot_json, input_hash,
+                submitted_at_utc, completed_at_utc, status, assumptions_json,
+                warnings_json, modes_json, reflections_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                result.prediction_id,
+                result.run_id,
+                result.document_id,
+                result.scene_revision_id,
+                result.scene_content_hash,
+                result.constraint_workspace_hash,
+                result.model_id,
+                result.model_version,
+                result.result_kind,
+                result.geometry_compatibility,
+                result.parameters_json,
+                result.input_snapshot_json,
+                result.input_hash,
+                result.submitted_at_utc,
+                result.completed_at_utc,
+                result.status,
+                canonical_prediction_json(list(result.assumptions)),
+                canonical_prediction_json(list(result.warnings)),
+                canonical_prediction_json([mode.model_dump(mode='json') for mode in result.modes]),
+                canonical_prediction_json(
+                    [reflection.model_dump(mode='json') for reflection in result.reflections]
                 ),
-            )
+            ),
+        )
 
     def get(self, prediction_id: str) -> CadPredictionResult | None:
         with closing(self._connect()) as connection, connection:

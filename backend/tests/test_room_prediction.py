@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
 from threading import Event
+
+import pytest
 
 from htdt.cad_constraint_models import CadConstraintSet, CadPairDistanceConstraint
 from htdt.cad_constraint_repository import CadConstraintRepository
+from htdt.cad_prediction_repository import CadPredictionRepository
 from htdt.cad_scene import F1_DOCUMENT_ID, acoustic_reference_position
 from htdt.room_prediction import RoomPredictionController
 from htdt.room_workspace import RoomWorkspaceController
@@ -138,4 +142,84 @@ def test_room_prediction_remains_busy_until_worker_thread_finishes(tmp_path) -> 
     assert reason is not None and "予測" in reason
 
     prediction._tasks.clear()
+    prediction.dispose()
+
+
+def test_room_prediction_persists_run_through_single_atomic_save(tmp_path, monkeypatch) -> None:
+    _repository, _room, prediction, receiver = _controller(tmp_path)
+
+    spec = prediction.prepare_run(receiver)
+    results = prediction._analyze(spec, Event())
+    assert results is not None
+
+    calls = []
+    original = prediction.prediction_repository.save_run
+
+    def recording_save_run(items):
+        calls.append(tuple(items))
+        return original(items)
+
+    monkeypatch.setattr(prediction.prediction_repository, 'save_run', recording_save_run)
+
+    assert prediction.accept_results(spec, results) == results
+    assert calls == [results]
+    assert prediction.prediction_repository.list_run(results[0].run_id) == results
+
+    prediction.dispose()
+
+
+def test_room_prediction_second_result_failure_leaves_no_partial_run(tmp_path, monkeypatch) -> None:
+    _repository, _room, prediction, receiver = _controller(tmp_path)
+
+    spec = prediction.prepare_run(receiver)
+    results = prediction._analyze(spec, Event())
+    assert results is not None
+
+    original = CadPredictionRepository._save_result_in_transaction
+    attempts = []
+
+    def fail_on_second_insert(self, connection, result):
+        attempts.append(result.prediction_id)
+        if len(attempts) == 2:
+            raise sqlite3.OperationalError('injected mid-commit failure')
+        return original(self, connection, result)
+
+    monkeypatch.setattr(
+        CadPredictionRepository, '_save_result_in_transaction', fail_on_second_insert
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match='injected mid-commit'):
+        prediction.accept_results(spec, results)
+
+    assert len(attempts) == 2
+    assert prediction.prediction_repository.list_run(results[0].run_id) == ()
+    assert prediction.prediction_repository.list_results(F1_DOCUMENT_ID) == ()
+
+    prediction.dispose()
+
+
+def test_room_prediction_reports_persistence_failure_as_error_state(tmp_path, monkeypatch) -> None:
+    _repository, _room, prediction, receiver = _controller(tmp_path)
+
+    spec = prediction.prepare_run(receiver)
+    results = prediction._analyze(spec, Event())
+    assert results is not None
+
+    def failing_save_run(items):
+        raise sqlite3.OperationalError('disk image is malformed')
+
+    monkeypatch.setattr(prediction.prediction_repository, 'save_run', failing_save_run)
+
+    states = []
+    prediction.stateChanged.connect(states.append)
+    prediction._tokens[spec.token.job_id] = spec.token
+    prediction._specs[spec.token.job_id] = spec
+    prediction._task_completed(spec.token.job_id, results, None)
+    prediction._task_thread_finished(spec.token.job_id)
+
+    assert prediction.prediction_repository.list_run(results[0].run_id) == ()
+    assert states
+    assert states[-1].error is True
+    assert '保存できませんでした' in states[-1].message
+
     prediction.dispose()

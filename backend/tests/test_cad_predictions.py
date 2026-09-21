@@ -414,3 +414,160 @@ def test_prediction_job_guard_rejects_superseded_cancelled_revision_and_constrai
     assert not guard.can_apply(third, stale_constraint)
     assert not guard.can_apply(third, other_document)
     assert guard.can_apply(third, active)
+
+
+def test_prediction_repository_save_run_commits_whole_run_atomically(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+
+    persisted = prediction_repository.save_run(results)
+
+    assert persisted == results
+    assert prediction_repository.list_results(revision.document_id) == results
+    assert prediction_repository.list_run(results[0].run_id) == results
+    assert prediction_repository.get(results[0].prediction_id) == results[0]
+    assert prediction_repository.get(results[1].prediction_id) == results[1]
+
+
+def test_prediction_repository_save_run_rolls_back_when_second_result_fails_mid_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+
+    original = CadPredictionRepository._save_result_in_transaction
+    attempts: list[str] = []
+
+    def fail_on_second_insert(self, connection, result) -> None:
+        attempts.append(result.prediction_id)
+        if len(attempts) == 2:
+            raise sqlite3.OperationalError('injected mid-commit failure')
+        return original(self, connection, result)
+
+    monkeypatch.setattr(
+        CadPredictionRepository,
+        '_save_result_in_transaction',
+        fail_on_second_insert,
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match='injected mid-commit'):
+        prediction_repository.save_run(results)
+
+    # Both inserts ran under one transaction, so the committed first result is
+    # rolled back with the failed second one: list_run cannot expose a partial run.
+    assert attempts == [results[0].prediction_id, results[1].prediction_id]
+    assert prediction_repository.list_run(results[0].run_id) == ()
+    assert prediction_repository.list_results(revision.document_id) == ()
+    assert prediction_repository.get(results[0].prediction_id) is None
+
+
+def test_prediction_repository_save_run_rolls_back_on_committed_identity_conflict(
+    tmp_path: Path,
+) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    committed = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    prediction_repository.save_run(committed)
+
+    pending = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    hijacked = (
+        pending[0],
+        pending[1].model_copy(update={'prediction_id': committed[0].prediction_id}),
+    )
+
+    with pytest.raises(ValueError, match='duplicate prediction result identity'):
+        prediction_repository.save_run(hijacked)
+
+    # The first insert of the conflicting run rolled back; the earlier run is intact.
+    assert prediction_repository.list_run(pending[0].run_id) == ()
+    assert prediction_repository.list_run(committed[0].run_id) == committed
+
+
+def test_prediction_repository_save_run_rejects_batch_contract_violations(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    other_input_run = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=300.0)
+
+    with pytest.raises(ValueError, match='at least one result'):
+        prediction_repository.save_run(())
+    with pytest.raises(ValueError, match='CadPredictionResult'):
+        prediction_repository.save_run((results[0], object()))
+    with pytest.raises(ValueError, match='share one run_id'):
+        prediction_repository.save_run((results[0], other_input_run[1]))
+
+    foreign_input = other_input_run[1].model_copy(update={'run_id': results[0].run_id})
+    with pytest.raises(ValueError, match='disagree on parameters_json'):
+        prediction_repository.save_run((results[0], foreign_input))
+
+    repeated_kind = results[0].model_copy(update={'prediction_id': 'second-modes-result'})
+    with pytest.raises(ValueError, match='duplicate result kinds'):
+        prediction_repository.save_run((results[0], repeated_kind))
+
+    repeated_identity = results[1].model_copy(update={'prediction_id': results[0].prediction_id})
+    with pytest.raises(ValueError, match='duplicate prediction identities'):
+        prediction_repository.save_run((results[0], repeated_identity))
+
+    assert prediction_repository.list_results(revision.document_id) == ()
+
+
+def test_prediction_repository_save_run_rejects_run_whose_source_revision_is_missing(
+    tmp_path: Path,
+) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    orphaned = tuple(
+        item.model_copy(update={'scene_revision_id': 'missing-revision'}) for item in results
+    )
+
+    with pytest.raises(ValueError, match='does not exist'):
+        prediction_repository.save_run(orphaned)
+
+    assert prediction_repository.list_results(revision.document_id) == ()
+
+
+def test_prediction_repository_rejects_repeated_result_kind_for_committed_run(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    prediction_repository.save_run(results)
+
+    intruder = results[0].model_copy(update={'prediction_id': 'late-duplicate-modes'})
+    with pytest.raises(ValueError, match='already contains this result kind'):
+        prediction_repository.save(intruder)
+
+    assert prediction_repository.list_run(results[0].run_id) == results
+
+
+def test_prediction_run_result_kind_slot_is_unique_in_storage(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    prediction_repository.save_run(results)
+
+    with sqlite3.connect(prediction_repository.path) as connection:
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                '''
+                INSERT INTO cad_prediction_results(
+                    prediction_id, run_id, document_id, scene_revision_id, scene_content_hash,
+                    constraint_workspace_hash, model_id, model_version, result_kind,
+                    geometry_compatibility, parameters_json, input_snapshot_json, input_hash,
+                    submitted_at_utc, completed_at_utc, status, assumptions_json,
+                    warnings_json, modes_json, reflections_json
+                )
+                SELECT 'smuggled-modes', run_id, document_id, scene_revision_id,
+                    scene_content_hash, constraint_workspace_hash, model_id, model_version,
+                    result_kind, geometry_compatibility, parameters_json, input_snapshot_json,
+                    input_hash, submitted_at_utc, completed_at_utc, status, assumptions_json,
+                    warnings_json, modes_json, reflections_json
+                FROM cad_prediction_results WHERE prediction_id=?
+                ''',
+                (results[0].prediction_id,),
+            )
+
+    assert prediction_repository.list_run(results[0].run_id) == results
