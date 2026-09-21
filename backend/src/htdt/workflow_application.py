@@ -110,7 +110,7 @@ class WorkflowApplicationComposition:
 
         backend = DataManagementBackend(self.data_dir)
         lifecycle = ApplicationDataLifecycle(
-            freeze_mutations=self.shell.freeze_data_mutations,
+            freeze_mutations=self._freeze_data_mutations,
             release_data_handles=self._release_data_handles,
             reopen_data_handles=self._reopen_data_handles,
             thaw_mutations=self._thaw_data_mutations,
@@ -545,8 +545,15 @@ class WorkflowApplicationComposition:
     def _reopen_data_handles(self) -> None:
         self.repository = SceneRepository(self.repository_path)
 
+    def _freeze_data_mutations(self) -> None:
+        # Gate the command authority first so QShortcut activations and command
+        # palette entries fail closed while shell widgets are being disabled.
+        self.registry.freeze_data_mutations()
+        self.shell.freeze_data_mutations()
+
     def _thaw_data_mutations(self) -> None:
         self.shell.thaw_data_mutations()
+        self.registry.thaw_data_mutations()
         if self.shell.router.current_workspace_id is None:
             if not self.shell.navigate(WorkspaceId.OVERVIEW):
                 raise RuntimeError("復元後の概要画面を再構築できませんでした")

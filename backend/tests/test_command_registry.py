@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from htdt.command_registry import (
+    DATA_MUTATIONS_FROZEN_REASON,
     CommandAvailability,
     CommandDefinition,
     CommandRegistry,
@@ -164,3 +165,96 @@ def test_focus_safe_shortcuts_do_not_fire_in_text_input() -> None:
     assert command_shortcut_allowed(scene, text_input_focused=True) is False
     assert command_shortcut_allowed(save, text_input_focused=True) is True
     assert command_shortcut_allowed(scene, text_input_focused=False) is True
+
+
+def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
+    definitions = {item.command_id: item for item in default_command_definitions()}
+
+    read_only = {
+        command_id
+        for command_id, definition in definitions.items()
+        if not definition.mutates_managed_data
+    }
+
+    assert read_only == {
+        'navigation.overview',
+        'navigation.room',
+        'navigation.measurements',
+        'navigation.optimization',
+        'room.view.fit_selection',
+        'room.view.fit_all',
+    }
+    assert definitions['project.save'].mutates_managed_data is True
+    assert definitions['edit.undo'].mutates_managed_data is True
+    assert definitions['room.draw'].mutates_managed_data is True
+    assert CommandDefinition(command_id='custom', display_name='任意').mutates_managed_data is True
+
+
+def test_data_mutation_freeze_fails_closed_over_enabled_workspace_availability() -> None:
+    calls: list[str] = []
+    registry = _registry_with_defaults()
+    registry.bind(
+        'project.save',
+        execute=lambda: calls.append('save'),
+        availability=CommandAvailability.available,
+    )
+
+    assert registry.data_mutations_frozen is False
+    assert registry.execute('project.save') is True
+    assert calls == ['save']
+
+    registry.freeze_data_mutations()
+
+    assert registry.data_mutations_frozen is True
+    availability = registry.availability('project.save')
+    assert availability.enabled is False
+    assert availability.disabled_reason == DATA_MUTATIONS_FROZEN_REASON
+    assert registry.execute('project.save') is False
+    assert calls == ['save']
+
+    registry.thaw_data_mutations()
+
+    assert registry.data_mutations_frozen is False
+    assert registry.availability('project.save').enabled is True
+    assert registry.execute('project.save') is True
+    assert calls == ['save', 'save']
+
+
+def test_data_mutation_freeze_keeps_read_only_commands_available() -> None:
+    calls: list[str] = []
+    navigated: list[WorkspaceDeepLink] = []
+    registry = _registry_with_defaults()
+    registry.set_deep_link_handler(lambda target: navigated.append(target))
+    registry.bind(
+        'room.view.fit_all',
+        execute=lambda: calls.append('fit-all'),
+        availability=CommandAvailability.available,
+    )
+
+    registry.freeze_data_mutations()
+
+    assert registry.availability('navigation.room').enabled is True
+    assert registry.execute('navigation.room') is True
+    assert navigated == [WorkspaceDeepLink(WorkspaceId.ROOM)]
+    assert registry.availability('room.view.fit_all').enabled is True
+    assert registry.execute('room.view.fit_all') is True
+    assert calls == ['fit-all']
+
+
+def test_data_mutation_freeze_reason_surfaces_in_search_results() -> None:
+    registry = _registry_with_defaults()
+    registry.bind(
+        'project.save',
+        execute=lambda: None,
+        availability=CommandAvailability.available,
+    )
+
+    registry.freeze_data_mutations()
+
+    result = next(
+        item
+        for item in registry.search('保存')
+        if item.definition.command_id == 'project.save'
+    )
+    assert result.availability.enabled is False
+    assert result.availability.disabled_reason == DATA_MUTATIONS_FROZEN_REASON
