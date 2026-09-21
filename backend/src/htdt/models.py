@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .geometry import polygon_covers_xy, validate_polygon_in_reference_box
-from .limits import MAX_ATTACHMENT_BASE64_CHARS, MAX_BACKUP_BASE64_CHARS, MAX_REW_TEXT_BASE64_CHARS
+from .limits import MAX_ATTACHMENT_BASE64_CHARS, MAX_REW_TEXT_BASE64_CHARS
 
 
 EvidenceType = Literal['measured', 'derived', 'predicted', 'unknown']
@@ -223,7 +223,3 @@ class ComparisonCreate(BaseModel):
             if self.reference_high_hz <= self.reference_low_hz:
                 raise ValueError('reference_high_hz must be greater than reference_low_hz')
         return self
-
-
-class BackupRestoreRequest(BaseModel):
-    archive_base64: str = Field(min_length=1, max_length=MAX_BACKUP_BASE64_CHARS)

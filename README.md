@@ -113,6 +113,8 @@ native `cad-scenes.sqlite3` は中央schema versionを持ちます。0.1.0以前
 
 restoreはarchive/member/総展開量/member数を上限付きで検証し、各memberをstreaming SHA-256検証してからstagingします。
 
+この `.htdt-backup` authorityのみがサポート対象です。legacy browser backend (`python -m htdt` / `htdt.server:app`) の `GET /api/backup`・`POST /api/restore` は廃止され、常に `410 Gone` を返します。これらはhash未検証manifestと上限のないZIP展開を持つ独立したbackup経路だったため、native authorityへ一本化しました。
+
 ## CAD / analysis architecture
 
 HTDTの中心は、数値フォームを先に埋める方式ではなく、同一Sceneを3D空間として直接操作するeditorです。

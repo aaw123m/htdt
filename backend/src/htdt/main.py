@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 from dataclasses import asdict
-from datetime import datetime
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
-import tempfile
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -20,7 +17,7 @@ from .conditions import classify_differences, context_differences
 from .database import SCHEMA_VERSION, Store
 from .features import FeatureDetectionError, detect_frequency_features, match_geometry_candidates
 from .geometry import room_geometry_payload
-from .models import AttachmentCreate, BackupRestoreRequest, ComparisonCreate, ContextCreate, ImportPreviewRequest, MeasurementImportRequest, ProjectCreate, RewApiSnapshotImportRequest, SessionCreate
+from .models import AttachmentCreate, ComparisonCreate, ContextCreate, ImportPreviewRequest, MeasurementImportRequest, ProjectCreate, RewApiSnapshotImportRequest, SessionCreate
 from .placement_constraints import ConstraintSetCreate, PlacementEvaluationRequest, evaluate_constraint_set, validate_constraint_set_for_context
 from .readiness import evaluate_measurement_readiness
 from .search_space import SearchSpecCreate, generate_search_space, validate_search_spec
@@ -36,6 +33,20 @@ class HealthResponse(BaseModel):
     rew_required: bool
     measurement_hardware_required: bool
     schema_version: int
+
+
+# The legacy browser backup/restore contract is retired (issue #332): it was a
+# second, weaker backup authority beside the native .htdt-backup format, lacked
+# archive/member extraction bounds and asset-hash verification, and its GET
+# endpoint created state-changing archives outside the unsafe-method Origin
+# policy. The routes stay registered so callers receive an explicit 410 Gone
+# pointing at the supported authority instead of a bare 404.
+BROWSER_BACKUP_RETIRED_DETAIL = (
+    'The legacy browser backup/restore endpoints are retired. The supported '
+    'backup authority is the native .htdt-backup archive: use the HTDT native '
+    "application's data management or `HTDT.exe --backup/--restore` "
+    '(`python -m htdt.native_cad --backup/--restore`).'
+)
 
 
 def _default_data_dir() -> Path:
@@ -605,32 +616,13 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except ComparisonError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get('/api/backup')
-    def create_backup() -> FileResponse:
-        stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-        archive = store.root / 'backups' / f'htdt-backup-{stamp}.zip'
-        try:
-            store.backup_to(archive)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return FileResponse(archive, filename=archive.name, media_type='application/zip')
+    @app.get('/api/backup', deprecated=True)
+    def retired_browser_backup() -> None:
+        raise HTTPException(status_code=410, detail=BROWSER_BACKUP_RETIRED_DETAIL)
 
-    @app.post('/api/restore')
-    def restore_backup(request: BackupRestoreRequest) -> dict[str, str]:
-        try:
-            raw = base64.b64decode(request.archive_base64, validate=True)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail='Invalid base64 payload') from exc
-        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False, dir=store.root) as temp:
-            temp.write(raw)
-            archive = Path(temp.name)
-        try:
-            store.restore_from(archive)
-        except (ValueError, OSError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        finally:
-            archive.unlink(missing_ok=True)
-        return {'status': 'restored'}
+    @app.post('/api/restore', deprecated=True)
+    def retired_browser_restore() -> None:
+        raise HTTPException(status_code=410, detail=BROWSER_BACKUP_RETIRED_DETAIL)
 
     frontend_dist = Path(__file__).resolve().parents[3] / 'frontend' / 'dist'
     if frontend_dist.is_dir():

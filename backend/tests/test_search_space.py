@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -214,7 +213,7 @@ def _create_api_fixture(client: TestClient) -> tuple[dict, dict, dict]:
     return project, context, constraint_response.json()
 
 
-def test_search_spec_api_preview_persist_generate_and_restore(tmp_path: Path) -> None:
+def test_search_spec_api_preview_persist_generate_and_restart(tmp_path: Path) -> None:
     app = create_app(tmp_path / 'source')
     client = TestClient(app)
     project, context, constraint_set = _create_api_fixture(client)
@@ -244,14 +243,13 @@ def test_search_spec_api_preview_persist_generate_and_restore(tmp_path: Path) ->
     assert first.json()['feasible_candidate_count'] == 5
     assert first.json()['search_spec_sha256'] == record['spec_sha256']
 
-    backup = client.get('/api/backup')
-    assert backup.status_code == 200
-    restored_client = TestClient(create_app(tmp_path / 'restored'))
-    restored = restored_client.post('/api/restore', json={'archive_base64': base64.b64encode(backup.content).decode('ascii')})
-    assert restored.status_code == 200, restored.text
-    restored_generate = restored_client.post(f"/api/projects/{project['id']}/search-specs/{record['id']}/generate")
-    assert restored_generate.status_code == 200, restored_generate.text
-    assert restored_generate.json() == first.json()
+    # The retired browser backup/restore endpoints are covered by
+    # test_browser_backup_retired.py; here a same-data-dir restart proves the
+    # persisted spec regenerates identical deterministic output.
+    restarted_client = TestClient(create_app(tmp_path / 'source'))
+    restarted_generate = restarted_client.post(f"/api/projects/{project['id']}/search-specs/{record['id']}/generate")
+    assert restarted_generate.status_code == 200, restarted_generate.text
+    assert restarted_generate.json() == first.json()
 
 
 def test_corrupted_search_spec_is_reported_and_generation_is_blocked(tmp_path: Path) -> None:

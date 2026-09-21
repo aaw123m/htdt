@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 
 from htdt.limits import (
     MAX_ATTACHMENT_REQUEST_BODY_BYTES,
-    MAX_RESTORE_REQUEST_BODY_BYTES,
     MAX_REW_REQUEST_BODY_BYTES,
     MAX_SMALL_JSON_BODY_BYTES,
 )
@@ -116,7 +115,9 @@ def test_endpoint_specific_body_limits() -> None:
     assert request_body_limit('/api/import/preview', 'POST') == MAX_REW_REQUEST_BODY_BYTES
     assert request_body_limit('/api/projects/p1/measurements', 'POST') == MAX_REW_REQUEST_BODY_BYTES
     assert request_body_limit('/api/projects/p1/attachments', 'POST') == MAX_ATTACHMENT_REQUEST_BODY_BYTES
-    assert request_body_limit('/api/restore', 'POST') == MAX_RESTORE_REQUEST_BODY_BYTES
+    # The retired /api/restore endpoint gets no dedicated allowance: it falls
+    # under the strict default bound like every other small JSON write.
+    assert request_body_limit('/api/restore', 'POST') == MAX_SMALL_JSON_BODY_BYTES
     assert request_body_limit('/api/projects', 'POST') == MAX_SMALL_JSON_BODY_BYTES
     assert request_body_limit('/api/projects', 'GET') is None
 

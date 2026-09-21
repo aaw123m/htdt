@@ -35,7 +35,7 @@ def _fr(levels: tuple[float, ...]) -> bytes:
     return ('\n'.join(f'{frequency} {level}' for frequency, level in zip(frequencies, levels, strict=True)) + '\n').encode()
 
 
-def test_m10_synthetic_workflow_survives_restart_backup_and_restore(tmp_path: Path) -> None:
+def test_m10_synthetic_workflow_survives_restart(tmp_path: Path) -> None:
     data_root = tmp_path / 'primary'
     app = create_app(data_root)
     with TestClient(app) as client:
@@ -122,12 +122,10 @@ def test_m10_synthetic_workflow_survives_restart_backup_and_restore(tmp_path: Pa
         assert moved['dataset_id'] in report_response.text
         assert '<svg' in report_response.text
 
-        backup_response = client.get('/api/backup')
-        assert backup_response.status_code == 200
-        backup_bytes = backup_response.content
-        assert backup_bytes.startswith(b'PK')
-
-    # Simulate application restart against the same data directory.
+    # Simulate application restart against the same data directory. The retired
+    # browser backup/restore endpoints are covered by
+    # test_browser_backup_retired.py; the supported .htdt-backup authority is
+    # covered by test_native_backup.py.
     with TestClient(create_app(data_root)) as restarted:
         projects = restarted.get('/api/projects').json()
         assert [item['id'] for item in projects] == [project['id']]
@@ -135,26 +133,12 @@ def test_m10_synthetic_workflow_survives_restart_backup_and_restore(tmp_path: Pa
         assert saved_comparisons[0]['id'] == comparison['id']
         assert saved_comparisons[0]['result']['shape_rms_db'] == comparison['result']['shape_rms_db']
         assert restarted.get('/api/integrity').json() == {'status': 'ok', 'problems': []}
-
-    # Restore the backup into a separate data directory, then verify history and raw attachments.
-    restored_root = tmp_path / 'restored'
-    with TestClient(create_app(restored_root)) as restored:
-        restore_response = restored.post('/api/restore', json={'archive_base64': _b64(backup_bytes)})
-        assert restore_response.status_code == 200, restore_response.text
-        assert restore_response.json() == {'status': 'restored'}
-
-        restored_projects = restored.get('/api/projects').json()
-        assert restored_projects[0]['id'] == project['id']
-        restored_contexts = restored.get(f"/api/projects/{project['id']}/contexts").json()
-        assert {item['revision_number'] for item in restored_contexts} == {1, 2}
-        restored_measurements = restored.get(f"/api/projects/{project['id']}/measurements").json()
-        assert {item['dataset_id'] for item in restored_measurements} == {
+        restarted_measurements = restarted.get(f"/api/projects/{project['id']}/measurements").json()
+        assert {item['dataset_id'] for item in restarted_measurements} == {
             baseline['dataset_id'], repeat['dataset_id'], moved['dataset_id']
         }
-        restored_attachments = restored.get(f"/api/projects/{project['id']}/attachments").json()
-        restored_attachment = next(item for item in restored_attachments if item['id'] == attachment['id'])
-        assert restored_attachment['asset_sha256'] == attachment['asset_sha256']
-        restored_comparisons = restored.get(f"/api/projects/{project['id']}/comparisons").json()
-        assert restored_comparisons[0]['id'] == comparison['id']
-        assert restored_comparisons[0]['result'] == comparison['result']
-        assert restored.get('/api/integrity').json() == {'status': 'ok', 'problems': []}
+        restarted_attachments = restarted.get(f"/api/projects/{project['id']}/attachments").json()
+        restarted_attachment = next(item for item in restarted_attachments if item['id'] == attachment['id'])
+        assert restarted_attachment['asset_sha256'] == attachment['asset_sha256']
+        restarted_contexts = restarted.get(f"/api/projects/{project['id']}/contexts").json()
+        assert {item['revision_number'] for item in restarted_contexts} == {1, 2}

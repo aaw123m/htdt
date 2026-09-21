@@ -8,12 +8,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import sqlite3
-import tempfile
 from typing import Any, Iterator
 from uuid import uuid4
-import zipfile
 
 from .comparison import FrequencyResponse
 from .rew_api import RewFrequencyResponseSnapshot
@@ -23,7 +20,6 @@ from .rew_parser import parse_rew_frequency_response
 SCHEMA_VERSION = 5
 REW_API_SNAPSHOT_FORMAT = 'htdt-rew-api-frequency-response-snapshot-1'
 REW_API_ADAPTER_VERSION = 'rew-api-snapshot-1'
-SUPPORTED_BACKUP_SCHEMA_VERSIONS = {1, 2, 3, 4, 5}
 
 
 def utc_now() -> str:
@@ -633,76 +629,6 @@ class Store:
         finally:
             connection.close()
         return problems
-
-    def backup_to(self, archive_path: Path) -> Path:
-        problems = self.integrity_problems()
-        if problems:
-            raise ValueError('Backup refused: ' + '; '.join(problems))
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=self.root) as temp_dir_name:
-            snapshot_db = Path(temp_dir_name) / 'htdt.sqlite3'
-            destination = sqlite3.connect(snapshot_db)
-            try:
-                with self.connect() as source:
-                    source.backup(destination)
-            finally:
-                destination.close()
-            manifest = {'schema_version': SCHEMA_VERSION, 'created_at': utc_now()}
-            with zipfile.ZipFile(archive_path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-                archive.write(snapshot_db, 'htdt.sqlite3')
-                archive.writestr('manifest.json', json.dumps(manifest, sort_keys=True))
-                for asset in self.assets_dir.iterdir():
-                    if asset.is_file():
-                        archive.write(asset, f'assets/{asset.name}')
-        return archive_path
-
-    def restore_from(self, archive_path: Path) -> None:
-        with tempfile.TemporaryDirectory(dir=self.root) as staging_name:
-            staging = Path(staging_name)
-            with zipfile.ZipFile(archive_path, 'r') as archive:
-                names = set(archive.namelist())
-                if 'manifest.json' not in names or 'htdt.sqlite3' not in names:
-                    raise ValueError('Invalid HTDT backup')
-                manifest = json.loads(archive.read('manifest.json'))
-                backup_schema = int(manifest.get('schema_version', -1))
-                if backup_schema not in SUPPORTED_BACKUP_SCHEMA_VERSIONS:
-                    raise ValueError('Unsupported backup schema version')
-                for member in archive.infolist():
-                    member_path = Path(member.filename)
-                    if member_path.is_absolute() or '..' in member_path.parts:
-                        raise ValueError('Unsafe backup path')
-                archive.extractall(staging)
-            restored_db = staging / 'htdt.sqlite3'
-            validation_db = sqlite3.connect(restored_db)
-            try:
-                version = validation_db.execute("SELECT value FROM metadata WHERE key = 'schema_version'").fetchone()
-                if version is None or int(version[0]) != backup_schema:
-                    raise ValueError('Backup database schema mismatch')
-            finally:
-                validation_db.close()
-            staged_problems = self.integrity_problems(base_root=staging, db_path=restored_db)
-            if staged_problems:
-                raise ValueError('Backup integrity failure: ' + '; '.join(staged_problems))
-            replacement_assets, old_assets, old_db = staging / 'assets', self.root / 'assets.old', self.root / 'htdt.sqlite3.old'
-            if old_assets.exists(): shutil.rmtree(old_assets)
-            if old_db.exists(): old_db.unlink()
-            if self.assets_dir.exists(): os.replace(self.assets_dir, old_assets)
-            if self.db_path.exists(): os.replace(self.db_path, old_db)
-            try:
-                if replacement_assets.exists(): shutil.copytree(replacement_assets, self.assets_dir)
-                else: self.assets_dir.mkdir()
-                os.replace(restored_db, self.db_path)
-                self._initialise()
-                post_problems = self.integrity_problems()
-                if post_problems: raise ValueError('Restored data failed integrity check: ' + '; '.join(post_problems))
-                shutil.rmtree(old_assets, ignore_errors=True)
-                old_db.unlink(missing_ok=True)
-            except Exception:
-                shutil.rmtree(self.assets_dir, ignore_errors=True)
-                self.db_path.unlink(missing_ok=True)
-                if old_assets.exists(): os.replace(old_assets, self.assets_dir)
-                if old_db.exists(): os.replace(old_db, self.db_path)
-                raise
 
     @staticmethod
     def decode_base64(raw_base64: str) -> bytes:
