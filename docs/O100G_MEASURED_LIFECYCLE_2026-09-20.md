@@ -14,8 +14,10 @@ The chain is:
 immutable SystemVariant
 → SystemVariantApplication
 → SystemVariantAsBuiltRecord
+→ SystemVariantMeasurementPlan / SystemVariantMeasurementCampaign (preregistered)
 → exact CadMeasurementRecord / CadFrequencyResponseDataset
 → exact CadMeasurementQualityReport
+→ SystemVariantMeasurementCampaignCompletion
 → SystemVariantMeasuredRecord
 ```
 
@@ -102,6 +104,25 @@ Only `CadMeasurementRecord.evidence_type='measured'` can be bound.
 
 Derived, predicted or unknown records cannot promote measured lifecycle evidence.
 
+## Campaign-bound promotion
+
+Generic measurement and quality evidence alone cannot create a lifecycle
+`measured` state. A `SystemVariantMeasuredRecord` binds the exact
+preregistered `SystemVariantMeasurementCampaign` identity/hash and the
+durable `SystemVariantMeasurementCampaignRegistration` identity/hash into
+its semantic hash, so every record proves which campaign authorized it.
+
+`CadSystemVariantMeasuredLifecycleRepository` has no standalone public
+save path. The only durable promotion is
+`CadSystemVariantMeasurementCampaignRepository.complete_campaign`, which
+commits the plan completions, the exact campaign completion and the
+measured lifecycle record inside one shared transaction — the campaign
+completion row must already exist in that transaction before the measured
+row is written. Save/reopen fail closed: reads re-resolve the persisted
+campaign/registration authorities and the persisted campaign completion
+that references the record, so an entity can never present `measured`
+state without re-resolvable campaign provenance.
+
 ## Persistence / reopen
 
 `CadSystemVariantMeasuredLifecycleRepository` stores append-only measured records.
@@ -109,6 +130,8 @@ Derived, predicted or unknown records cannot promote measured lifecycle evidence
 Save/reopen re-resolves:
 
 - exact SystemVariantAsBuiltRecord;
+- exact preregistered campaign and durable campaign registration;
+- the persisted campaign completion that authorized promotion;
 - exact as-built SceneRevision;
 - every measurement;
 - every dataset;
