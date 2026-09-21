@@ -769,61 +769,76 @@ class CadMultiFidelityExecutionRepository:
     ) -> MultiFidelityExecutionCacheEntry:
         entry = self._validate_cache_entry(entry)
         with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                """
-                SELECT payload_json
-                FROM cad_r140_execution_cache
-                WHERE cache_entry_id=?
-                """,
-                (entry.cache_entry_id,),
-            ).fetchone()
-            if row is not None:
-                persisted = MultiFidelityExecutionCacheEntry.model_validate_json(
-                    row['payload_json']
-                )
-                if persisted != entry:
-                    raise ValueError(
-                        'R140 cache entry id exists with different semantics'
-                    )
-                return self._validate_cache_entry(persisted)
-            existing_input = connection.execute(
-                """
-                SELECT payload_json
-                FROM cad_r140_execution_cache
-                WHERE execution_input_sha256=?
-                """,
-                (entry.execution_input_sha256,),
-            ).fetchone()
-            if existing_input is not None:
-                persisted = MultiFidelityExecutionCacheEntry.model_validate_json(
-                    existing_input['payload_json']
-                )
-                if persisted != entry:
-                    raise ValueError(
-                        'R140 exact execution input already has a different '
-                        'completed cache authority'
-                    )
-                return self._validate_cache_entry(persisted)
-            connection.execute(
-                """
-                INSERT INTO cad_r140_execution_cache(
-                    cache_entry_id,
-                    semantic_sha256,
-                    execution_input_sha256,
-                    task_id,
-                    payload_json,
-                    recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    entry.cache_entry_id,
-                    entry.semantic_sha256,
-                    entry.execution_input_sha256,
-                    entry.task_id,
-                    entry.model_dump_json(),
-                    _utc_now(),
-                ),
+            connection.execute('BEGIN IMMEDIATE')
+            return self._save_cache_entry_in_transaction(connection, entry)
+
+    def _save_cache_entry_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        entry: MultiFidelityExecutionCacheEntry,
+    ) -> MultiFidelityExecutionCacheEntry:
+        """Persist one validated cache entry inside the caller's transaction.
+
+        Used by save_cache_entry and by the R140 executor repository's atomic
+        success publication, which commits result/cache/attempt over the same
+        native database. The caller owns BEGIN/COMMIT/ROLLBACK and must have
+        validated the entry first; persisted rows were validated on commit.
+        """
+        row = connection.execute(
+            """
+            SELECT payload_json
+            FROM cad_r140_execution_cache
+            WHERE cache_entry_id=?
+            """,
+            (entry.cache_entry_id,),
+        ).fetchone()
+        if row is not None:
+            persisted = MultiFidelityExecutionCacheEntry.model_validate_json(
+                row['payload_json']
             )
+            if persisted != entry:
+                raise ValueError(
+                    'R140 cache entry id exists with different semantics'
+                )
+            return persisted
+        existing_input = connection.execute(
+            """
+            SELECT payload_json
+            FROM cad_r140_execution_cache
+            WHERE execution_input_sha256=?
+            """,
+            (entry.execution_input_sha256,),
+        ).fetchone()
+        if existing_input is not None:
+            persisted = MultiFidelityExecutionCacheEntry.model_validate_json(
+                existing_input['payload_json']
+            )
+            if persisted != entry:
+                raise ValueError(
+                    'R140 exact execution input already has a different '
+                    'completed cache authority'
+                )
+            return persisted
+        connection.execute(
+            """
+            INSERT INTO cad_r140_execution_cache(
+                cache_entry_id,
+                semantic_sha256,
+                execution_input_sha256,
+                task_id,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry.cache_entry_id,
+                entry.semantic_sha256,
+                entry.execution_input_sha256,
+                entry.task_id,
+                entry.model_dump_json(),
+                _utc_now(),
+            ),
+        )
         return entry
 
     def reusable_cache(

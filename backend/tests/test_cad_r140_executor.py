@@ -17,6 +17,7 @@ from htdt.cad_multifidelity import (
 from htdt.cad_multifidelity_execution import (
     CadMultiFidelityExecutionRepository,
     ExecutionCapacityAuthority,
+    build_multifidelity_execution_cache_entry,
     build_multifidelity_execution_schedule,
     build_multifidelity_execution_task,
 )
@@ -31,6 +32,7 @@ from htdt.cad_r140_executor import (
     ExecutionWorkerOutput,
     ResourceAdmissionError,
     ResourceQuantity,
+    build_execution_task_result,
 )
 from htdt.cad_repository import SceneRepository
 
@@ -540,3 +542,395 @@ def test_shutdown_cleanup_is_idempotent_and_releases_database(tmp_path: Path) ->
     moved = Path(str(fx.scene.path) + '.moved')
     Path(fx.scene.path).rename(moved)
     moved.rename(fx.scene.path)
+
+
+def _row_counts(path: Path) -> dict[str, int]:
+    with closing(sqlite3.connect(path)) as connection:
+        return {
+            table: connection.execute(
+                f'SELECT COUNT(*) FROM {table}'
+            ).fetchone()[0]
+            for table in (
+                'cad_r140_execution_results',
+                'cad_r140_execution_cache',
+                'cad_r140_execution_attempts',
+            )
+        }
+
+
+def _failed_publication_counts() -> dict[str, int]:
+    return {
+        'cad_r140_execution_results': 0,
+        'cad_r140_execution_cache': 0,
+        'cad_r140_execution_attempts': 1,
+    }
+
+
+def test_unresolvable_worker_authorities_publish_no_success_rows(
+    tmp_path: Path,
+) -> None:
+    fx = Fixture(tmp_path, candidate_count=1)
+    task, _ = fx.add_task(0)
+    schedule = fx.schedule(cpu_capacity=1)
+
+    class PhantomRefWorker:
+        def __call__(self, task, context) -> ExecutionWorkerOutput:
+            return ExecutionWorkerOutput(
+                result_authority_ref=_ref(
+                    'synthetic_execution_result',
+                    'phantom-result',
+                    '0',
+                ),
+                execution_provenance_ref=_ref(
+                    'synthetic_execution_provenance',
+                    'phantom-provenance',
+                    '1',
+                ),
+            )
+
+    with BoundedR140Executor(
+        execution_repository=fx.execution,
+        runtime_repository=fx.runtime,
+        worker_port=PhantomRefWorker(),
+        max_workers=1,
+    ) as executor:
+        summary = executor.run_schedule(schedule)
+
+    assert len(summary.failed) == 1
+    attempt = summary.failed[0]
+    assert attempt.state == 'FAILED'
+    assert attempt.execution_result is None
+    assert attempt.telemetry.exit_condition == 'result_publication_failure'
+    assert (
+        'exact external authority does not exist'
+        in attempt.telemetry.failure_reason
+    )
+    assert _row_counts(fx.scene.path) == _failed_publication_counts()
+    assert fx.execution.reusable_cache(task) is None
+    persisted = fx.runtime.list_attempts(task.task_id)
+    assert [item.state for item in persisted] == ['FAILED']
+    assert persisted[0].execution_result is None
+
+
+def test_tampered_worker_authority_publishes_no_success_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fx = Fixture(tmp_path, candidate_count=1)
+    task, _ = fx.add_task(0)
+    schedule = fx.schedule(cpu_capacity=1)
+
+    original_resolve = fx.execution.external_authority_resolver
+
+    def tampered_resolve(ref: MultiFidelityAuthorityRef):
+        resolved = original_resolve(ref)
+        if (
+            resolved is not None
+            and ref.authority_kind == 'synthetic_execution_result'
+        ):
+            return resolved.model_copy(update={'authority_version': 'forged'})
+        return resolved
+
+    monkeypatch.setattr(
+        fx.execution,
+        'external_authority_resolver',
+        tampered_resolve,
+    )
+
+    with BoundedR140Executor(
+        execution_repository=fx.execution,
+        runtime_repository=fx.runtime,
+        worker_port=DeterministicSyntheticWorker(register_ref=fx.register),
+        max_workers=1,
+    ) as executor:
+        summary = executor.run_schedule(schedule)
+
+    assert len(summary.failed) == 1
+    attempt = summary.failed[0]
+    assert attempt.telemetry.exit_condition == 'result_publication_failure'
+    assert (
+        'exact external authority mismatch'
+        in attempt.telemetry.failure_reason
+    )
+    assert _row_counts(fx.scene.path) == _failed_publication_counts()
+    assert fx.execution.reusable_cache(task) is None
+
+
+@pytest.mark.parametrize(
+    'fault_target',
+    (
+        'validate_cache_entry',
+        'save_result_in_transaction',
+        'save_cache_entry_in_transaction',
+        'save_attempt_in_transaction',
+    ),
+)
+def test_success_publish_rolls_back_everything_on_fault(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault_target: str,
+) -> None:
+    """Fault at any validation/write boundary leaves no partial success rows."""
+    fx = Fixture(tmp_path, candidate_count=1)
+    task, _ = fx.add_task(0)
+    schedule = fx.schedule(cpu_capacity=1)
+
+    def boom(*args, **kwargs):
+        raise sqlite3.OperationalError('injected publication fault')
+
+    if fault_target == 'validate_cache_entry':
+        monkeypatch.setattr(fx.execution, '_validate_cache_entry', boom)
+    elif fault_target == 'save_result_in_transaction':
+        monkeypatch.setattr(fx.runtime, '_save_result_in_transaction', boom)
+    elif fault_target == 'save_cache_entry_in_transaction':
+        monkeypatch.setattr(
+            fx.execution,
+            '_save_cache_entry_in_transaction',
+            boom,
+        )
+    else:
+        original = fx.runtime._save_attempt_in_transaction
+        fired = False
+
+        def fail_once(connection, record):
+            nonlocal fired
+            if not fired:
+                fired = True
+                raise sqlite3.OperationalError('injected publication fault')
+            return original(connection, record)
+
+        # The executor retries the attempt write through save_attempt after the
+        # rolled-back publication; only the atomic transaction call fails.
+        monkeypatch.setattr(
+            fx.runtime,
+            '_save_attempt_in_transaction',
+            fail_once,
+        )
+
+    with BoundedR140Executor(
+        execution_repository=fx.execution,
+        runtime_repository=fx.runtime,
+        worker_port=DeterministicSyntheticWorker(register_ref=fx.register),
+        max_workers=1,
+    ) as executor:
+        summary = executor.run_schedule(schedule)
+
+    assert len(summary.failed) == 1
+    attempt = summary.failed[0]
+    assert attempt.state == 'FAILED'
+    assert attempt.execution_result is None
+    assert attempt.telemetry.exit_condition == 'result_publication_failure'
+    assert 'injected publication fault' in attempt.telemetry.failure_reason
+    assert _row_counts(fx.scene.path) == _failed_publication_counts()
+    assert fx.execution.reusable_cache(task) is None
+    assert [
+        item.state for item in fx.runtime.list_attempts(task.task_id)
+    ] == ['FAILED']
+
+
+def test_reopen_rejects_result_when_external_authority_is_dropped(
+    tmp_path: Path,
+) -> None:
+    fx = Fixture(tmp_path, candidate_count=1)
+    task, _ = fx.add_task(0)
+    schedule = fx.schedule(cpu_capacity=1)
+
+    with BoundedR140Executor(
+        execution_repository=fx.execution,
+        runtime_repository=fx.runtime,
+        worker_port=DeterministicSyntheticWorker(register_ref=fx.register),
+        max_workers=1,
+    ) as executor:
+        summary = executor.run_schedule(schedule)
+
+    assert len(summary.succeeded) == 1
+    result = summary.succeeded[0].execution_result
+    assert result is not None
+    assert fx.runtime.get_result(result.execution_result_id) == result
+    assert (
+        fx.runtime.list_attempts(task.task_id)[0].execution_result == result
+    )
+
+    fx.authorities.pop(result.result_authority_ref.key())
+    with pytest.raises(
+        ValueError,
+        match='execution result exact external authority does not exist',
+    ):
+        fx.runtime.get_result(result.execution_result_id)
+    with pytest.raises(
+        ValueError,
+        match='execution result exact external authority does not exist',
+    ):
+        fx.runtime.list_attempts(task.task_id)
+
+    fx.register(result.result_authority_ref)
+    fx.authorities.pop(result.execution_provenance_ref.key())
+    with pytest.raises(
+        ValueError,
+        match='execution provenance exact external authority does not exist',
+    ):
+        fx.runtime.get_result(result.execution_result_id)
+    with pytest.raises(
+        ValueError,
+        match='execution provenance exact external authority does not exist',
+    ):
+        fx.runtime.list_attempts(task.task_id)
+
+
+def test_commit_success_requires_coherent_succeeded_triple(
+    tmp_path: Path,
+) -> None:
+    fx = Fixture(tmp_path, candidate_count=2)
+    task_a, _ = fx.add_task(0)
+    task_b, _ = fx.add_task(1)
+    schedule = fx.schedule(cpu_capacity=2)
+
+    worker = DeterministicSyntheticWorker(
+        fail_task_ids=(task_b.task_id,),
+        register_ref=fx.register,
+    )
+    with BoundedR140Executor(
+        execution_repository=fx.execution,
+        runtime_repository=fx.runtime,
+        worker_port=worker,
+        max_workers=2,
+    ) as executor:
+        summary = executor.run_schedule(schedule)
+
+    success = next(
+        item for item in summary.attempts if item.state == 'SUCCEEDED'
+    )
+    failed = next(item for item in summary.attempts if item.state == 'FAILED')
+    result = success.execution_result
+    assert result is not None
+    real_cache = fx.execution.reusable_cache(task_a)
+    assert real_cache is not None
+
+    before = _row_counts(fx.scene.path)
+
+    # A non-SUCCEEDED attempt cannot publish success artifacts.
+    with pytest.raises(
+        ValueError,
+        match='R140 success publication requires a SUCCEEDED attempt',
+    ):
+        fx.runtime.commit_success(
+            result=result,
+            cache_entry=real_cache,
+            attempt=failed,
+        )
+
+    # The cache entry must match the committed result exactly.
+    mismatched_cache = build_multifidelity_execution_cache_entry(
+        task=task_b,
+        result_authority_ref=result.result_authority_ref,
+        execution_provenance_ref=result.execution_provenance_ref,
+        completed_at_utc='2026-09-20T00:00:00+00:00',
+    )
+    with pytest.raises(
+        ValueError,
+        match='R140 success cache entry does not match the committed result',
+    ):
+        fx.runtime.commit_success(
+            result=result,
+            cache_entry=mismatched_cache,
+            attempt=success,
+        )
+
+    # The attempt must embed exactly the co-committed result.
+    other_output = ExecutionWorkerOutput(
+        result_authority_ref=_ref(
+            'synthetic_execution_result',
+            'other-result',
+            'c',
+        ),
+        execution_provenance_ref=_ref(
+            'synthetic_execution_provenance',
+            'other-provenance',
+            'd',
+        ),
+    )
+    fx.register(other_output.result_authority_ref)
+    fx.register(other_output.execution_provenance_ref)
+    other_result = build_execution_task_result(
+        task=task_a,
+        output=other_output,
+    )
+    other_cache = build_multifidelity_execution_cache_entry(
+        task=task_a,
+        result_authority_ref=other_result.result_authority_ref,
+        execution_provenance_ref=other_result.execution_provenance_ref,
+        completed_at_utc='2026-09-20T00:00:00+00:00',
+    )
+    with pytest.raises(
+        ValueError,
+        match='does not match the co-committed result',
+    ):
+        fx.runtime.commit_success(
+            result=other_result,
+            cache_entry=other_cache,
+            attempt=success,
+        )
+    assert _row_counts(fx.scene.path) == before
+
+    # Re-committing the identical triple is idempotent.
+    again = fx.runtime.commit_success(
+        result=result,
+        cache_entry=real_cache,
+        attempt=success,
+    )
+    assert again == success
+    assert _row_counts(fx.scene.path) == before
+
+
+def test_save_result_resolves_external_authorities_before_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fx = Fixture(tmp_path, candidate_count=1)
+    task, _ = fx.add_task(0)
+    output = ExecutionWorkerOutput(
+        result_authority_ref=_ref(
+            'synthetic_execution_result',
+            'untracked-result',
+            '0',
+        ),
+        execution_provenance_ref=_ref(
+            'synthetic_execution_provenance',
+            'untracked-provenance',
+            '1',
+        ),
+    )
+    result = build_execution_task_result(task=task, output=output)
+
+    with pytest.raises(
+        ValueError,
+        match='execution result exact external authority does not exist',
+    ):
+        fx.runtime.save_result(result)
+
+    fx.register(output.result_authority_ref)
+    fx.register(output.execution_provenance_ref)
+    original_resolve = fx.execution.external_authority_resolver
+
+    def tampered_resolve(ref: MultiFidelityAuthorityRef):
+        resolved = original_resolve(ref)
+        if (
+            resolved is not None
+            and ref.authority_kind == 'synthetic_execution_result'
+        ):
+            return resolved.model_copy(update={'authority_version': 'forged'})
+        return resolved
+
+    monkeypatch.setattr(
+        fx.execution,
+        'external_authority_resolver',
+        tampered_resolve,
+    )
+    with pytest.raises(
+        ValueError,
+        match='execution result exact external authority mismatch',
+    ):
+        fx.runtime.save_result(result)
+
+    assert _row_counts(fx.scene.path)['cad_r140_execution_results'] == 0
+    assert fx.runtime.get_result(result.execution_result_id) is None
