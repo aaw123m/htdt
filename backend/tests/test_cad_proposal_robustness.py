@@ -13,7 +13,9 @@ from htdt.cad_constraint_models import (
 from htdt.cad_proposal_robustness import (
     CadProposalRobustnessRepository,
     ProposalObjectiveEvidenceBinding,
+    ProposalObjectiveResultAuthority,
     ProposalPerturbationObjectiveResult,
+    ProposalPerturbationSample,
     build_proposal_robustness_spec,
     derive_proposal_multidimensional_robustness_spec,
     evaluate_proposal_local_robustness,
@@ -58,6 +60,7 @@ from htdt.optimization_objectives import (
 from htdt.optimization_robustness import (
     LinkedPerturbationGroup,
     UncertaintyAxis,
+    canonical_robustness_sha256,
 )
 
 
@@ -711,3 +714,230 @@ def test_proposal_multidimensional_save_reopen_requires_parent_and_exact_results
         match='external authority does not exist',
     ):
         reopened.list_samples(child.robustness_spec_id)
+
+
+def _repository(fx, refs, *, result_authorities=None):
+    resolvers = {'fixture_prediction': refs.get}
+    result_resolvers = None
+    if result_authorities is not None:
+        result_resolvers = {
+            'fixture_prediction': lambda binding: result_authorities.get(
+                (
+                    binding.result_ref.authority_id,
+                    binding.objective_id,
+                )
+            )
+        }
+    return CadProposalRobustnessRepository(
+        scene_repository=fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        topology_repository=fx['topology_repository'],
+        bundle_resolver=_BundleResolver(
+            fx['scene_repository'].path,
+            fx['bundle'],
+        ),
+        external_resolvers=resolvers,
+        objective_result_resolvers=result_resolvers,
+    )
+
+
+def _rehash(
+    sample: ProposalPerturbationSample,
+    **updates,
+) -> ProposalPerturbationSample:
+    payload = sample.identity_payload()
+    payload.update(updates)
+    return ProposalPerturbationSample(
+        **payload,
+        sample_sha256=canonical_robustness_sha256(payload),
+        created_at_utc=sample.created_at_utc,
+    )
+
+
+def _result_authorities(
+    spec,
+    samples,
+) -> dict[tuple[str, str], ProposalObjectiveResultAuthority]:
+    authorities: dict[tuple[str, str], ProposalObjectiveResultAuthority] = {}
+    for sample in samples:
+        if sample.objective_vector is None or sample.step == 'nominal':
+            continue
+        for binding in sample.objective_evidence:
+            authority = ProposalObjectiveResultAuthority(
+                result_ref=binding.result_ref,
+                robustness_spec_id=spec.robustness_spec_id,
+                robustness_spec_sha256=spec.robustness_spec_sha256,
+                sample_id=sample.sample_id,
+                perturbed_scene_content_hash=(
+                    sample.perturbed_scene_content_hash
+                ),
+                metric=sample.objective_vector.metric(binding.objective_id),
+            )
+            authorities[
+                (binding.result_ref.authority_id, binding.objective_id)
+            ] = authority
+    return authorities
+
+
+def test_proposal_sample_persistence_replays_canonical_perturbation(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    refs, samples, evaluations = _execute(fx)
+    repository = _repository(fx, refs)
+    repository.save_spec(fx['spec'])
+
+    infeasible = next(item for item in samples if not item.feasible)
+    scored = next(
+        item
+        for item in samples
+        if item.objective_vector is not None and item.step != 'nominal'
+    )
+
+    with pytest.raises(ValueError, match='perturbed.*evidence'):
+        repository.save_sample(_rehash(infeasible, feasible=True))
+    with pytest.raises(ValueError, match='perturbed.*evidence'):
+        repository.save_sample(
+            _rehash(infeasible, o80_rejection_ids=[])
+        )
+    with pytest.raises(ValueError, match='perturbed.*evidence'):
+        repository.save_sample(
+            _rehash(scored, perturbed_scene_content_hash='0' * 64)
+        )
+    with pytest.raises(ValueError, match='perturbed.*evidence'):
+        repository.save_sample(_rehash(scored, g10_results=[]))
+    with pytest.raises(ValueError, match='perturbed.*evidence'):
+        repository.save_sample(
+            _rehash(
+                infeasible,
+                domain_rejection_ids=['__uncertainty_bound__:speaker-x:max'],
+            )
+        )
+    with pytest.raises(ValueError, match='failure_reason'):
+        repository.save_sample(
+            _rehash(infeasible, failure_reason='fabricated')
+        )
+
+    repository.save_samples(samples)
+    repository.save_evaluations(evaluations)
+    assert (
+        repository.list_samples(fx['spec'].robustness_spec_id) == samples
+    )
+
+
+def test_proposal_sample_rejects_nominal_vector_drift(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    refs, samples, _evaluations = _execute(fx)
+    repository = _repository(fx, refs)
+    repository.save_spec(fx['spec'])
+
+    nominal = next(item for item in samples if item.step == 'nominal')
+    vector_payload = nominal.objective_vector.identity_payload()
+    vector_payload['metrics'][0]['value'] = 9.75
+    with pytest.raises(ValueError, match='nominal.*differs from exact bundle'):
+        repository.save_sample(
+            _rehash(nominal, objective_vector=vector_payload)
+        )
+
+
+def test_proposal_sample_rejects_objective_result_reuse_and_drift(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    refs, samples, _evaluations = _execute(fx)
+    repository = _repository(fx, refs)
+    repository.save_spec(fx['spec'])
+    repository.save_samples(samples)
+
+    scored = [
+        item
+        for item in samples
+        if item.objective_vector is not None and item.step != 'nominal'
+    ]
+    donor, target = scored[0], scored[1]
+    donor_ref = donor.objective_evidence[0].result_ref
+
+    forged_evidence = [
+        ProposalObjectiveEvidenceBinding(
+            objective_id=OBJECTIVE_ID,
+            result_ref=donor_ref,
+        ).model_dump(mode='json')
+    ]
+    with pytest.raises(ValueError, match='objective result authority'):
+        repository.save_sample(
+            _rehash(target, objective_evidence=forged_evidence)
+        )
+
+    vector_payload = target.objective_vector.identity_payload()
+    vector_payload['metrics'][0]['value'] += 5.0
+    with pytest.raises(ValueError, match='objective result authority'):
+        repository.save_sample(
+            _rehash(target, objective_vector=vector_payload)
+        )
+
+
+def test_proposal_sample_typed_result_resolver_replays_objective_output(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    refs, samples, evaluations = _execute(fx)
+    authorities = _result_authorities(fx['spec'], samples)
+    repository = _repository(
+        fx,
+        refs,
+        result_authorities=authorities,
+    )
+    repository.save_spec(fx['spec'])
+    repository.save_samples(samples)
+    repository.save_evaluations(evaluations)
+
+    assert (
+        repository.list_samples(fx['spec'].robustness_spec_id) == samples
+    )
+    assert (
+        repository.list_evaluations(fx['spec'].robustness_spec_id)
+        == evaluations
+    )
+
+    scored = next(
+        item
+        for item in samples
+        if item.objective_vector is not None and item.step != 'nominal'
+    )
+    binding = scored.objective_evidence[0]
+    key = (binding.result_ref.authority_id, binding.objective_id)
+    stale = authorities[key]
+    authorities[key] = stale.model_copy(
+        update={'sample_id': 'rp:other-sample'}
+    )
+    with pytest.raises(ValueError, match='objective result authority'):
+        repository.list_samples(fx['spec'].robustness_spec_id)
+
+
+def test_proposal_multidimensional_sample_replays_perturbed_scene(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    parent, child, refs, samples, evaluations = _execute_multidimensional(fx)
+    repository = _repository(fx, refs)
+    repository.save_spec(parent)
+    repository.save_spec(child)
+
+    scored = next(
+        item
+        for item in samples
+        if item.objective_vector is not None and item.step != 'nominal'
+    )
+    with pytest.raises(ValueError, match='perturbed.*evidence'):
+        repository.save_sample(
+            _rehash(scored, perturbed_scene_content_hash='1' * 64)
+        )
+    with pytest.raises(ValueError, match='perturbed.*evidence'):
+        repository.save_sample(
+            _rehash(scored, domain_rejection_ids=['fake:domain'])
+        )
+
+    repository.save_samples(samples)
+    assert repository.list_samples(child.robustness_spec_id) == samples
