@@ -185,6 +185,101 @@ def test_pool_rejects_new_work_after_shutdown() -> None:
     pool.deleteLater()
 
 
+def test_lingering_worker_stays_alive_until_thread_finishes() -> None:
+    """A detached worker must keep its Python-owned C++ object alive until
+    its thread finishes — the completion it finally emits must still land."""
+    _app()
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    started = Event()
+    completions: list[tuple[object, object, object]] = []
+
+    def stubborn(_cancel_event: Event) -> str:
+        started.set()
+        time.sleep(0.4)  # ignores cancellation past the shutdown budget
+        return "late-result"
+
+    thread, worker = pool.start("linger", stubborn)
+    # A test-local slot survives _release_task: only the owner callback is
+    # disconnected on detach, so this still proves the worker object lives.
+    worker.completed.connect(lambda *args: completions.append(args))
+    assert _pump_until(lambda: started.is_set())
+
+    report = pool.shutdown()
+    assert report.lingering_keys == ("linger",)
+    assert lingering_thread_count() == baseline + 1
+
+    assert thread.wait(5000) is True
+    assert _pump_until(lambda: lingering_thread_count() == baseline)
+    _app().processEvents()
+    # Cancellation was requested, so the late completion reports cancelled —
+    # the point is that the moved-to-thread object was still alive to emit it.
+    assert completions == [("linger", None, WORKER_CANCELLED)]
+    pool.deleteLater()
+
+
+def test_restarting_a_busy_key_detaches_the_previous_task() -> None:
+    """Reusing a task key while the old thread runs must not orphan the old
+    worker's last Python reference — it is detached into module ownership."""
+    _app()
+    pool = NativeWorkerPool(shutdown_timeout_ms=50)
+    baseline = lingering_thread_count()
+    first_started = Event()
+    second_started = Event()
+
+    def stubborn(_cancel_event: Event) -> None:
+        first_started.set()
+        time.sleep(0.4)
+
+    def quick(cancel_event: Event) -> None:
+        second_started.set()
+        cancel_event.wait(5.0)
+
+    old_thread, _old_worker = pool.start("dup", stubborn)
+    assert _pump_until(lambda: first_started.is_set())
+
+    pool.start("dup", quick)
+    assert lingering_thread_count() == baseline + 1
+    new_thread, _new_worker = pool.tasks["dup"]
+    assert new_thread is not old_thread
+    assert old_thread.isRunning() is True
+
+    assert _pump_until(lambda: second_started.is_set())
+    pool.shutdown(timeout_ms=500)
+    # The detached thread was never quit() directly — its event loop exits
+    # when the queued ``completed -> thread.quit`` is delivered, which needs
+    # the main event loop to keep pumping.
+    assert _pump_until(lambda: old_thread.isFinished())
+    assert old_thread.wait(5000) is True
+    assert _pump_until(lambda: lingering_thread_count() == baseline)
+    pool.deleteLater()
+
+
+def test_repeated_cancel_shutdown_cycles_do_not_corrupt_teardown() -> None:
+    """Regression for the Windows native crash seen in CI: repeated
+    cooperative-cancel + bounded-shutdown cycles over pooled QThreads.
+    The crash (fatal abort/access violation in Qt teardown) was bisected to
+    deferred deletion of the moved-to-thread worker during ``finished``;
+    the pool now releases workers through Python ownership instead."""
+    app = _app()
+    for index in range(120):
+        pool = NativeWorkerPool(shutdown_timeout_ms=150)
+        op_started = Event()
+
+        def watching(cancel_event: Event) -> None:
+            op_started.set()
+            cancel_event.wait(5.0)
+
+        pool.start(f"stress-{index}", watching)
+        assert _pump_until(op_started.is_set)
+        assert pool.cancel(f"stress-{index}") is True
+        pool.shutdown(timeout_ms=500)
+        del pool
+        if index % 10 == 0:
+            app.processEvents()
+    app.processEvents()
+
+
 def _prediction_controller(tmp_path: Path, operation):
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
     room = RoomWorkspaceController(repository, F1_DOCUMENT_ID)

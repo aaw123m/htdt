@@ -82,12 +82,15 @@ class WorkerShutdownReport:
 
 
 # Threads that outlive an owner's shutdown budget are re-owned here so a
-# disposed window/controller never destroys a still-running QThread. Entries
-# are released when the thread finally emits ``finished``. Python and SQLite
-# work is never force-terminated: QThread.terminate() can leave the GIL,
-# SQLite transactions and native solver state corrupt, so detaching is the
-# only safe fallback and is therefore deliberate rather than accidental.
-_LINGERING_THREADS: set[QThread] = set()
+# disposed window/controller never destroys a still-running QThread. The map
+# also pins each worker's Python reference until ``finished`` fires: a moved-
+# to-thread object must never be deleted while its thread still runs, so the
+# C++ object is owned by Python (never ``deleteLater`` — see ``start``) and is
+# only released once the thread has actually finished. Python and SQLite work
+# is never force-terminated: QThread.terminate() can leave the GIL, SQLite
+# transactions and native solver state corrupt, so detaching is the only safe
+# fallback and is therefore deliberate rather than accidental.
+_LINGERING_THREADS: dict[QThread, NativeWorker] = {}
 
 
 def lingering_thread_count() -> int:
@@ -96,7 +99,7 @@ def lingering_thread_count() -> int:
 
 
 def _release_lingering(thread: QThread) -> None:
-    _LINGERING_THREADS.discard(thread)
+    _LINGERING_THREADS.pop(thread, None)
 
 
 class NativeWorkerPool(QObject):
@@ -164,6 +167,11 @@ class NativeWorkerPool(QObject):
         """Create, wire and start one worker thread owned by this pool."""
         if self._shutdown_requested:
             raise RuntimeError("worker pool is shut down")
+        if key in self._tasks:
+            # A previous task with this key is still tracked. Its thread may
+            # not have finished yet, so the worker must not lose its last
+            # Python reference — detach it into module ownership first.
+            self._detach(key)
         thread = QThread(self)
         worker = NativeWorker(key, operation)
         worker.moveToThread(thread)
@@ -172,7 +180,12 @@ class NativeWorkerPool(QObject):
         if on_completed is not None:
             worker.completed.connect(on_completed)
         worker.completed.connect(thread.quit)
-        thread.finished.connect(worker.deleteLater)
+        # NOTE: the worker is deliberately never connected to deleteLater.
+        # Deleting a moved-to-thread QObject while its QThread emits
+        # ``finished`` races the native thread teardown (PySide6 on Windows:
+        # sporadic access violation / abort). Python ownership keeps the C++
+        # object alive via ``_tasks``/``_LINGERING_THREADS`` until the thread
+        # has finished, then the reference drops on the owner thread.
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._thread_finished)
         self._tasks[key] = (thread, worker)
@@ -204,8 +217,9 @@ class NativeWorkerPool(QObject):
         remaining part of ``timeout_ms`` (default ``shutdown_timeout_ms``)
         to finish. A thread still running afterwards is detached to module
         ownership and surfaced through ``WorkerShutdownReport.lingering_keys``;
-        its ``finished -> deleteLater`` wiring stays connected so it cleans
-        itself up whenever the callable returns.
+        its ``finished -> thread.deleteLater`` wiring stays connected and the
+        worker stays referenced at module scope, so the pair cleans itself up
+        whenever the callable returns.
         """
         self._shutdown_requested = True
         budget = (
@@ -256,14 +270,16 @@ class NativeWorkerPool(QObject):
         record = self._tasks.get(key)
         if record is None:
             return
-        thread, _worker = record
+        thread, worker = record
+        # Pin the worker first: dropping the task record must never release
+        # the last Python reference while the thread may still be running.
+        _LINGERING_THREADS[thread] = worker
         self._release_task(key)
-        _LINGERING_THREADS.add(thread)
         thread.setParent(None)
         thread.finished.connect(lambda: _release_lingering(thread))
         if not thread.isRunning():
             # Finished between the shutdown check and the reparent.
-            _LINGERING_THREADS.discard(thread)
+            _LINGERING_THREADS.pop(thread, None)
 
     @Slot()
     def _detach_all(self) -> None:
@@ -281,6 +297,11 @@ class NativeWorkerPool(QObject):
             return
         key = thread.property("htdtWorkerKey")
         if key is None:
+            return
+        record = self._tasks.get(str(key))
+        if record is not None and record[0] != thread:
+            # Stale ``finished`` for a task whose key was already reused;
+            # the detached thread must not drop the new task's record.
             return
         self._tasks.pop(str(key), None)
         callbacks = self._callbacks.pop(str(key), None)
