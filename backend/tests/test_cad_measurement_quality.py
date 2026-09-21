@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import closing
 from hashlib import sha256
 from pathlib import Path
+import sqlite3
 
 import pytest
 from pydantic import ValidationError
@@ -10,11 +12,15 @@ from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
     QUALITY_ALGORITHM_SHA256,
     CadAcquisitionContextBinding,
+    CadMeasurementQualityCheck,
     CadMeasurementQualityEvidence,
+    CadMeasurementQualityReport,
+    _hash,
     build_measurement_lineage,
     build_measurement_quality_profile,
     build_measurement_quality_report,
     gate_measurement_claim,
+    replay_measurement_quality_report,
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
@@ -72,6 +78,31 @@ def _save_measurement(
         raw_bytes=raw,
     )
     return record, dataset
+
+
+def _rehashed(report: CadMeasurementQualityReport) -> CadMeasurementQualityReport:
+    """Recompute report_sha256 so a tampered payload stays self-consistent."""
+    return report.model_copy(
+        update={'report_sha256': _hash(report.identity_payload())}
+    )
+
+
+def _rewrite_report_row(path: Path, report: CadMeasurementQualityReport) -> None:
+    """Overwrite a persisted report row directly, bypassing save-time validation."""
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            '''
+            UPDATE cad_measurement_quality_reports
+            SET report_sha256=?, profile_sha256=?, payload_json=?
+            WHERE report_id=?
+            ''',
+            (
+                report.report_sha256,
+                report.profile.profile_sha256,
+                report.model_dump_json(),
+                report.report_id,
+            ),
+        )
 
 
 def test_fr_only_quality_keeps_magnitude_and_does_not_invent_missing_evidence(tmp_path: Path) -> None:
@@ -519,3 +550,180 @@ def test_profile_change_and_retake_preserve_old_reports_and_do_not_reassign_camp
     # Retake lineage is independent of preregistered O50/O60 calibration/holdout plans:
     # no measurement-plan or campaign row is created or rewritten as a side effect.
     assert measurement_repository.list_measurement_plans('not-a-search') == ()
+
+
+def test_persisted_report_decisions_are_replayed_on_read(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(
+        measurement_repository,
+        revision,
+        'read-replay',
+        raw=b'read-replay',
+    )
+    report = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(clipping_detected=False, snr_db=30.0),
+        profile=build_measurement_quality_profile(minimum_snr_db=20.0),
+        report_id='report-read-replay',
+        created_at_utc='2026-09-19T00:10:00+00:00',
+    )
+    quality_repository.save_report(report)
+    assert quality_repository.get_report(report.report_id) == report
+    assert quality_repository.list_reports(record.measurement_id) == (report,)
+    assert quality_repository.latest_report(record.measurement_id) == report
+
+    # A coherently rehashed payload can keep every binding/hash valid while
+    # upgrading persisted checks, capability decisions and retake guidance;
+    # reads must rerun the pinned algorithm instead of trusting the payload.
+    tampered = _rehashed(report.model_copy(update={
+        'clipping': CadMeasurementQualityCheck(
+            status='FAIL',
+            reason='forged clipping failure',
+        ),
+        'capabilities': tuple(
+            item.model_copy(update={'decision': 'ALLOWED'})
+            if item.claim == 'calibrated_response'
+            else item
+            for item in report.capabilities
+        ),
+        'retake_recommendation': 'NOT_NEEDED',
+        'retake_reasons': (),
+    }))
+    _rewrite_report_row(quality_repository.path, tampered)
+
+    with pytest.raises(ValueError, match='canonical quality algorithm output'):
+        quality_repository.get_report(report.report_id)
+    with pytest.raises(ValueError, match='canonical quality algorithm output'):
+        quality_repository.list_reports(record.measurement_id)
+    with pytest.raises(ValueError, match='canonical quality algorithm output'):
+        quality_repository.latest_report(record.measurement_id)
+
+    # Honest reports bound to other measurements remain readable.
+    other_record, other_dataset = _save_measurement(
+        measurement_repository,
+        revision,
+        'read-replay-honest',
+        raw=b'read-replay-honest',
+    )
+    honest = build_measurement_quality_report(
+        measurement=other_record,
+        dataset=other_dataset,
+        evidence=CadMeasurementQualityEvidence(),
+        profile=build_measurement_quality_profile(),
+        report_id='report-read-replay-honest',
+        created_at_utc='2026-09-19T00:11:00+00:00',
+    )
+    quality_repository.save_report(honest)
+    assert quality_repository.get_report(honest.report_id) == honest
+    assert quality_repository.latest_report(other_record.measurement_id) == honest
+
+
+def test_persisted_report_algorithm_identity_is_dispatched_on_read(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(
+        measurement_repository,
+        revision,
+        'algorithm-identity',
+        raw=b'algorithm-identity',
+    )
+    report = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(),
+        profile=build_measurement_quality_profile(),
+        report_id='report-algorithm-identity',
+        created_at_utc='2026-09-19T00:12:00+00:00',
+    )
+    quality_repository.save_report(report)
+
+    # A valid historical report replays through explicit version support.
+    assert replay_measurement_quality_report(
+        report,
+        measurement=record,
+        dataset=dataset,
+    ) == report
+
+    unknown_version = _rehashed(report.model_copy(update={
+        'algorithm_version': 'measurement-quality-0',
+    }))
+    _rewrite_report_row(quality_repository.path, unknown_version)
+    with pytest.raises(ValueError, match='algorithm version is not replayable'):
+        quality_repository.get_report(report.report_id)
+    with pytest.raises(ValueError, match='algorithm version is not replayable'):
+        quality_repository.latest_report(record.measurement_id)
+
+    forged_algorithm_hash = _rehashed(report.model_copy(update={
+        'algorithm_sha256': 'f' * 64,
+    }))
+    _rewrite_report_row(quality_repository.path, forged_algorithm_hash)
+    with pytest.raises(ValueError, match='algorithm hash mismatch'):
+        quality_repository.get_report(report.report_id)
+    with pytest.raises(ValueError, match='algorithm hash mismatch'):
+        quality_repository.list_reports(record.measurement_id)
+
+    _rewrite_report_row(quality_repository.path, report)
+    assert quality_repository.get_report(report.report_id) == report
+
+
+def test_persisted_report_fails_closed_when_bound_evidence_is_deleted(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    first, _first_dataset = _save_measurement(
+        measurement_repository,
+        revision,
+        'repeat-source',
+        raw=b'repeat-source',
+    )
+    record, dataset = _save_measurement(
+        measurement_repository,
+        revision,
+        'repeat-target',
+        raw=b'repeat-target',
+    )
+    report = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(
+            repeat_measurement_ids=(first.measurement_id, record.measurement_id),
+            repeatability_rms_db=0.5,
+        ),
+        profile=build_measurement_quality_profile(maximum_repeatability_rms_db=1.0),
+        report_id='report-deleted-evidence',
+        created_at_utc='2026-09-19T00:13:00+00:00',
+    )
+    quality_repository.save_report(report)
+    assert quality_repository.get_report(report.report_id) == report
+    assert report.repeatability.status == 'PASS'
+    assert report.capability('repeatability').decision == 'ALLOWED'
+
+    # Deleting a bound repeat measurement fails closed: the persisted
+    # repeatability capability can no longer be replayed against evidence.
+    with closing(sqlite3.connect(quality_repository.path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_measurements WHERE measurement_id=?',
+            (first.measurement_id,),
+        )
+    with pytest.raises(ValueError, match='unknown repeat measurement'):
+        quality_repository.get_report(report.report_id)
+    with pytest.raises(ValueError, match='unknown repeat measurement'):
+        quality_repository.latest_report(record.measurement_id)
+
+    # Deleting the bound dataset also fails closed on every authoritative read.
+    with closing(sqlite3.connect(quality_repository.path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_frequency_responses WHERE dataset_id=?',
+            (dataset.dataset_id,),
+        )
+    with pytest.raises(ValueError, match='unknown dataset'):
+        quality_repository.get_report(report.report_id)
+    with pytest.raises(ValueError, match='unknown dataset'):
+        quality_repository.list_reports(record.measurement_id)
+
+    # Deleting the bound measurement itself fails closed as well.
+    with closing(sqlite3.connect(quality_repository.path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_measurements WHERE measurement_id=?',
+            (record.measurement_id,),
+        )
+    with pytest.raises(ValueError, match='unknown measurement'):
+        quality_repository.get_report(report.report_id)
