@@ -153,6 +153,8 @@ Do not add a new `QDockWidget` for this feature. The final view belongs in the U
 
 The existing `SingleInstanceGuard` remains the cross-process authority for the data directory. The in-process lifecycle freezes GUI mutation while backup/restore is active. The controller does not create a second filesystem-lock format.
 
+The guard's authority is an exclusive OS byte-range lock on `.instance.lock` inside the data directory (`msvcrt.locking` on Windows, `flock` elsewhere), so exclusion follows the filesystem path rather than the Windows session: holders in other sessions (RDP, fast user switching) contend on the same lock, and on shared filesystems that honor byte-range locking (SMB) the exclusion extends across machines. A filesystem that cannot honor the lock raises OSError and the launch fails closed. The OS owns the lock and releases it on process termination; the lock file is never deleted and the owner metadata stored after the locked byte is advisory diagnostics only, so stale files or metadata can never brick a data directory.
+
 A backup can use SQLite's existing consistent snapshot behavior, but GUI mutations are still frozen for the operation so measurement asset copying cannot race user edits.
 
 ## Tests

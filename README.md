@@ -107,7 +107,7 @@ python -m htdt.native_cad --restore "D:\Backups\home-theater.htdt-backup"
 
 backupはlive SQLite fileの単純copyではなくSQLite backup APIでconsistent snapshotを作り、N60 measurement raw assetsもSHA-256で検証してarchiveへ含めます。restoreはarchive traversal、manifest/hash、SQLite integrity/foreign key、asset hashを全検証してからstagingし、現在dataをpre-restore backupへ退避して置換します。
 
-native GUI / backup / restore / synthetic seedはdata directory単位のOS lockを共有します。同じuser-data directoryを別プロセスが使用中の場合は起動・maintenance処理を開始せずfailします。
+native GUI / backup / restore / synthetic seedはdata directory単位のOS lockを共有します。同じuser-data directoryを別プロセスが使用中の場合は起動・maintenance処理を開始せずfailします。lock権限はdata directory内 `.instance.lock` のbyte-range lock（Windowsでは `msvcrt.locking`、POSIXでは `flock`）です。filesystem基準で排他するため、別Windows session（RDP・fast user switching）や、byte-range lockに対応したshared filesystem（SMB等）経由の別machineからの同時利用も排除します。lockはOSが保有しprocess終了時に解放されるため、残存したlock fileやmetadataでdata directoryが永続的にlockされることはありません。byte-range lock非対応のfilesystemでは取得がfailし、fail-closedで起動を拒否します。
 
 native `cad-scenes.sqlite3` は中央schema versionを持ちます。0.1.0以前のpre-versioned native DBはintegrity/foreign-key検証後にbaseline v1へadoptし、このアプリより新しいschemaはdowngradeせずfail-closedで拒否します。
 

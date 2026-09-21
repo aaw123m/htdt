@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import ctypes
-from ctypes import wintypes
-import hashlib
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import socket
 import time
 from typing import BinaryIO
 from urllib.error import HTTPError, URLError
@@ -14,7 +13,7 @@ from urllib.request import Request, urlopen
 
 
 APP_ID = 'home-theater-digital-twin'
-ERROR_ALREADY_EXISTS = 183
+LOCK_FILENAME = '.instance.lock'
 
 
 def default_data_dir() -> Path:
@@ -24,17 +23,54 @@ def default_data_dir() -> Path:
     return Path.home() / '.home-theater-digital-twin'
 
 
-def _instance_key(root: Path) -> str:
-    normalized = str(root.expanduser().resolve()).casefold().encode('utf-8')
-    return hashlib.sha256(normalized).hexdigest()[:20]
+def _lock_first_byte(file: BinaryIO) -> None:
+    """Exclusively lock byte 0 of ``file`` without blocking.
+
+    Raises OSError when another process holds the lock (or the filesystem
+    cannot honor byte-range locking), so callers can fail closed.
+    """
+    file.seek(0)
+    if os.name == 'nt':
+        import msvcrt
+
+        msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock_first_byte(file: BinaryIO) -> None:
+    file.seek(0)
+    if os.name == 'nt':
+        import msvcrt
+
+        msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(file.fileno(), fcntl.LOCK_UN)
 
 
 class SingleInstanceGuard:
-    """OS-level lock scoped to one HTDT data directory."""
+    """OS-level lock scoped to one HTDT data directory.
+
+    The lock authority is an exclusive byte-range lock on byte 0 of
+    ``<root>/.instance.lock`` (``msvcrt.locking`` on Windows, ``flock``
+    elsewhere), so exclusion follows the data directory itself rather than the
+    current Windows session. On Windows the lock is machine-wide across
+    sessions, and on shared filesystems that honor byte-range locking (SMB)
+    it extends across machines; filesystems that cannot honor it raise
+    OSError and acquisition fails closed.
+
+    The lock is owned by the OS-held file handle and is released on process
+    termination, so a crashed holder can never leave the directory locked.
+    The lock file is never deleted: owner metadata written after the locked
+    byte is advisory diagnostics only and never gates acquisition.
+    """
 
     def __init__(self, root: Path) -> None:
         self.root = root
-        self._handle: int | None = None
         self._file: BinaryIO | None = None
         self._acquired = False
 
@@ -42,56 +78,63 @@ class SingleInstanceGuard:
         if self._acquired:
             return True
         self.root.mkdir(parents=True, exist_ok=True)
-        if os.name == 'nt':
-            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-            create_mutex = kernel32.CreateMutexW
-            create_mutex.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
-            create_mutex.restype = wintypes.HANDLE
-            close_handle = kernel32.CloseHandle
-            close_handle.argtypes = [wintypes.HANDLE]
-            close_handle.restype = wintypes.BOOL
-
-            ctypes.set_last_error(0)
-            handle = create_mutex(None, False, f'Local\\HTDT-{_instance_key(self.root)}')
-            if not handle:
-                raise OSError(ctypes.get_last_error(), 'CreateMutexW failed')
-            if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
-                close_handle(handle)
-                return False
-            self._handle = int(handle)
-            self._acquired = True
-            return True
-
-        import fcntl
-
-        lock_path = self.root / '.instance.lock'
-        file = lock_path.open('a+b')
+        fd = os.open(self.root / LOCK_FILENAME, os.O_RDWR | os.O_CREAT, 0o600)
+        file = os.fdopen(fd, 'r+b', buffering=0)
         try:
-            fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_first_byte(file)
         except OSError:
             file.close()
             return False
         self._file = file
         self._acquired = True
+        self._write_metadata()
         return True
+
+    def _write_metadata(self) -> None:
+        """Record advisory owner details after the locked byte.
+
+        Byte 0 stays reserved for the OS lock so contenders can read this
+        JSON payload without touching the locked range. Failures are ignored:
+        the byte-range lock alone is the authority.
+        """
+        file = self._file
+        if file is None:
+            return
+        payload = json.dumps({
+            'app_id': APP_ID,
+            'pid': os.getpid(),
+            'host': socket.gethostname(),
+            'acquired_at': datetime.now(timezone.utc).isoformat(),
+        }, sort_keys=True).encode('utf-8')
+        try:
+            file.seek(0, os.SEEK_END)
+            if file.tell() < 1:
+                file.seek(0)
+                file.write(b'L')
+            file.truncate(1)
+            file.seek(1)
+            file.write(payload)
+            file.flush()
+            os.fsync(file.fileno())
+        except OSError:
+            pass
 
     def release(self) -> None:
         if not self._acquired:
             return
-        if os.name == 'nt' and self._handle is not None:
-            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-            close_handle = kernel32.CloseHandle
-            close_handle.argtypes = [wintypes.HANDLE]
-            close_handle.restype = wintypes.BOOL
-            close_handle(wintypes.HANDLE(self._handle))
-            self._handle = None
-        elif self._file is not None:
-            import fcntl
-
-            fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
-            self._file.close()
-            self._file = None
+        file = self._file
+        self._file = None
         self._acquired = False
+        if file is None:
+            return
+        try:
+            file.truncate(1)  # drop advisory owner metadata while still holding the lock
+        except OSError:
+            pass
+        try:
+            _unlock_first_byte(file)
+        finally:
+            file.close()
 
     def __enter__(self) -> 'SingleInstanceGuard':
         if not self.acquire():
@@ -100,6 +143,27 @@ class SingleInstanceGuard:
 
     def __exit__(self, *args: object) -> None:
         self.release()
+
+
+def read_lock_metadata(root: Path) -> dict[str, object] | None:
+    """Read advisory owner metadata from a data directory lock file.
+
+    Returns None when no metadata is present or readable. The result is
+    diagnostic-only: it reflects the last recorded holder and must never be
+    treated as proof the directory is still locked.
+    """
+    try:
+        fd = os.open(root / LOCK_FILENAME, os.O_RDONLY)
+    except OSError:
+        return None
+    try:
+        with os.fdopen(fd, 'rb', buffering=0) as file:
+            file.seek(1)
+            raw = file.read()
+        payload = json.loads(raw.decode('utf-8'))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 @dataclass(frozen=True)
