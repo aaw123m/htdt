@@ -28,6 +28,10 @@ class MeasurementJobApplyContext:
     document_id: str
     scene_revision_id: str
     scene_content_hash: str
+    # ``None`` marks a constraint-independent read; a constraint-bound token
+    # only applies while the constraint workspace hash is unchanged (the same
+    # stale-result contract as PredictionJobApplyContext).
+    constraint_workspace_hash: str | None = None
 
 
 class MeasurementJobGuard:
@@ -78,6 +82,8 @@ class MeasurementJobGuard:
         if token.job_id in self._cancelled:
             return False
         if self._latest_by_operation.get(token.operation_key) != token.job_id:
+            return False
+        if context.constraint_workspace_hash != token.constraint_workspace_hash:
             return False
         return (
             context.document_id == token.document_id

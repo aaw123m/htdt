@@ -41,7 +41,7 @@ from .cad_robustness_repository import CadRobustnessRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_scene import scene_content_hash
 from .cad_search import search_spec_current_working
-from .cad_search_models import CadCandidateSetPage
+from .cad_search_models import CadCandidateSetPage, constraint_workspace_snapshot
 from .cad_search_repository import CadSearchRepository
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
@@ -521,6 +521,7 @@ class OptimizationWorkflowController(
             provisional,
             external_source_id=external_id,
             query={"unit": "SPL", "ppo": None, "smoothing": None},
+            constraint_workspace_hash=self._constraint_workspace_hash(),
         )
         self._rew_tokens[token.job_id] = token
         evidence = evidence_type_override or "unknown"
@@ -589,7 +590,7 @@ class OptimizationWorkflowController(
         context = self._current_job_apply_context()
         if context is None or not self.rew_job_guard.can_apply(token, context):
             self.statusChanged.emit(
-                "REWの遅延結果は現在の配置へ適用しません · 部屋の保存状態が変更されています"
+                "REWの遅延結果は現在の配置へ適用しません · 部屋の保存状態または制約が変更されています"
             )
             return
         revision = self.repository.get(token.scene_revision_id)
@@ -622,6 +623,11 @@ class OptimizationWorkflowController(
         self.refresh_validation_campaigns()
         self.statusChanged.emit("REW測定を保存しました")
 
+    def _constraint_workspace_hash(self) -> str:
+        """Digest of the constraint workspace a delayed REW read is bound to."""
+        _snapshot, digest = constraint_workspace_snapshot(self.constraint_set)
+        return digest
+
     def _current_job_apply_context(self) -> MeasurementJobApplyContext | None:
         if self.working.source_revision_id is None:
             return None
@@ -629,6 +635,7 @@ class OptimizationWorkflowController(
             document_id=self.document_id,
             scene_revision_id=self.working.source_revision_id,
             scene_content_hash=scene_content_hash(self.working.committed_document),
+            constraint_workspace_hash=self._constraint_workspace_hash(),
         )
 
     def _rew_task_finished(self, key: str) -> None:

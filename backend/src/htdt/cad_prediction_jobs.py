@@ -26,6 +26,9 @@ class PredictionJobApplyContext:
     document_id: str
     scene_revision_id: str
     scene_content_hash: str
+    # ``None`` marks a constraint-independent job; a constraint-bound token
+    # only applies while the constraint workspace hash is unchanged (the same
+    # stale-result contract as MeasurementJobApplyContext).
     constraint_workspace_hash: str | None = None
 
 
