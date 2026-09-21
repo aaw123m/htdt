@@ -1154,3 +1154,325 @@ def test_persisted_spec_row_replays_canonical_authority_on_read(
     finally:
         connection.close()
     assert reopened.get_spec(spec.search_id) == spec
+
+
+def _canonical_candidate_page(
+    repository: CadTopologySearchRepository,
+    spec,
+    *,
+    offset: int = 0,
+    limit: int = 500,
+):
+    """Regenerate the authoritative page from persisted upstream authorities."""
+
+    baseline = repository.scene_repository.get(spec.baseline_revision_id)
+    template = repository.variant_repository.get_variant(spec.template_variant_id)
+    return generate_topology_placement_candidates(
+        baseline=baseline,
+        template_variant=template,
+        spec=spec,
+        offset=offset,
+        limit=limit,
+    )
+
+
+def _forged_candidate(candidate, **field_updates):
+    """Return a self-consistent non-member: mutated payload, recomputed ID."""
+
+    updates = dict(field_updates)
+    payload = candidate.identity_payload()
+    for key in (
+        'positions',
+        'aim_yaw_deg',
+        'aim_pitch_deg',
+        'body_yaw_deg',
+        'o10_candidate_id',
+    ):
+        if key in updates:
+            payload[key] = updates[key]
+    forged_sha = topology_search._digest(payload)
+    updates['candidate_sha256'] = forged_sha
+    updates['candidate_id'] = 'tpc-' + forged_sha[:20]
+    return candidate.model_copy(update=updates)
+
+
+def test_candidate_page_requires_canonical_regeneration(tmp_path: Path) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+
+    # The honest generated page saves idempotently and reopens unchanged.
+    repository.save_candidate_page(page)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+    assert repository.get_candidate(candidate.candidate_id) == candidate
+    assert repository.list_candidates(spec.search_id) == page.candidates
+
+    reopened = CadTopologySearchRepository(
+        CadSystemVariantRepository(SceneRepository(repository.path))
+    )
+    assert reopened.get_candidate(candidate.candidate_id) == candidate
+    assert reopened.list_candidates(spec.search_id) == page.candidates
+
+    # A windowed page of the same deterministic set also persists.
+    window = _canonical_candidate_page(repository, spec, offset=1, limit=1)
+    reopened.save_candidate_page(window)
+    assert reopened.get_candidate(window.candidates[0].candidate_id) == (
+        window.candidates[0]
+    )
+
+
+def test_candidate_page_rejects_fabricated_results(tmp_path: Path) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    candidate = page.candidates[0]
+
+    # Arbitrary positions with a correctly recomputed candidate SHA are
+    # rejected: the generator would not emit them.
+    forged_positions = {
+        entity_id: dict(position)
+        for entity_id, position in candidate.positions.items()
+    }
+    forged_positions['sl']['x_m'] += 0.05
+    forged_member = _forged_candidate(candidate, positions=forged_positions)
+    with pytest.raises(ValueError, match='canonical regeneration'):
+        repository.save_candidate_page(
+            page.model_copy(update={'candidates': (forged_member,)})
+        )
+    assert repository.get_candidate(forged_member.candidate_id) is None
+
+    # A valid candidate paired with a fabricated candidate-set SHA fails.
+    with pytest.raises(ValueError, match='canonical regeneration'):
+        repository.save_candidate_page(
+            page.model_copy(update={
+                'candidate_set_sha256': topology_search._digest(['fabricated']),
+            })
+        )
+
+    # Wrong feasible indices keep valid self-hashes but break the canonical
+    # contiguous window before persistence.
+    misindexed = page.model_copy(update={
+        'candidates': tuple(
+            item.model_copy(update={
+                'feasible_index': item.feasible_index + 1,
+            })
+            for item in page.candidates
+        ),
+    })
+    with pytest.raises(ValueError, match='not contiguous'):
+        repository.save_candidate_page(misindexed)
+
+    # Count metadata inconsistent with the declared accounting is rejected.
+    for field, value in (
+        ('raw_candidate_count', page.raw_candidate_count + 1),
+        ('feasible_candidate_count', page.feasible_candidate_count + 1),
+        ('rejected_candidate_count', page.rejected_candidate_count + 1),
+        ('duplicate_candidate_count', page.duplicate_candidate_count + 1),
+    ):
+        with pytest.raises(ValueError, match='counts are inconsistent'):
+            repository.save_candidate_page(
+                page.model_copy(update={field: value})
+            )
+    # Rejection metadata that stays self-consistent still fails the replay.
+    with pytest.raises(ValueError, match='canonical regeneration'):
+        repository.save_candidate_page(
+            page.model_copy(update={
+                'rejection_counts': {**page.rejection_counts, 'ghost': 1},
+            })
+        )
+
+    # A page that misstates its window is not canonical either.
+    shifted = _canonical_candidate_page(repository, spec, offset=1, limit=1)
+    if shifted.candidates:
+        with pytest.raises(ValueError, match='not contiguous'):
+            repository.save_candidate_page(
+                shifted.model_copy(update={'offset': 0})
+            )
+
+    assert repository.list_candidates(spec.search_id) == ()
+
+
+def test_candidate_page_requires_persisted_spec_authority(tmp_path: Path) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+
+    # The spec row itself must exist before any candidate page persists.
+    empty_repository = CadTopologySearchRepository(
+        CadSystemVariantRepository(SceneRepository(tmp_path / 'empty.sqlite3'))
+    )
+    with pytest.raises(ValueError, match='must be persisted before candidates'):
+        empty_repository.save_candidate_page(page)
+
+    # A page naming another persisted search fails on the hash check.
+    topology = repository.get_topology_spec(spec.topology_search_id)
+    other_spec = build_topology_placement_search_spec(
+        baseline=repository.scene_repository.get(spec.baseline_revision_id),
+        template_variant=repository.variant_repository.get_variant(
+            spec.template_variant_id
+        ),
+        topology_spec=topology,
+        topology_option_id=spec.topology_option_id,
+        placement_specs=(
+            spec.placement_specs[0].model_copy(update={'min_z_m': 1.3}),
+            *spec.placement_specs[1:],
+        ),
+        constraint_set=CadConstraintSet(
+            document_id=DOCUMENT_ID,
+            constraints=(),
+        ),
+        linked_rules=spec.linked_rules,
+        candidate_limit=spec.candidate_limit,
+        created_at_utc=NOW,
+    )
+    assert other_spec.search_id != spec.search_id
+    repository.save_spec(other_spec)
+    mismatched = page.model_copy(update={'search_id': other_spec.search_id})
+    with pytest.raises(ValueError, match='mixes search authority'):
+        repository.save_candidate_page(mismatched)
+
+
+def test_persisted_candidate_row_replays_membership_on_read(
+    tmp_path: Path,
+) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+
+    child = topology_candidate_to_system_variant(
+        baseline=repository.scene_repository.get(spec.baseline_revision_id),
+        template_variant=repository.variant_repository.get_variant(
+            spec.template_variant_id
+        ),
+        spec=spec,
+        candidate=candidate,
+        created_at_utc='2026-09-19T00:02:00+00:00',
+    )
+    repository.save_candidate_variant(candidate.candidate_id, child)
+    assert repository.variant_for_candidate(candidate.candidate_id) == child
+
+    # A fabricated but self-consistent row inserted directly into the table
+    # is not a persisted membership record: reads and promotion fail closed.
+    forged_positions = {
+        entity_id: dict(position)
+        for entity_id, position in candidate.positions.items()
+    }
+    forged_positions['sl']['x_m'] += 0.05
+    forged = _forged_candidate(candidate, positions=forged_positions)
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO cad_topology_placement_candidates(
+                candidate_id, candidate_sha256, search_id,
+                candidate_set_sha256, feasible_index, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                forged.candidate_id,
+                forged.candidate_sha256,
+                forged.search_id,
+                page.candidate_set_sha256,
+                candidate.feasible_index,
+                forged.model_dump_json(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(ValueError, match='exact deterministic search member'):
+        repository.get_candidate(forged.candidate_id)
+    with pytest.raises(ValueError, match='exact deterministic search member'):
+        repository.list_candidates(spec.search_id)
+    with pytest.raises(ValueError, match='exact deterministic search member'):
+        repository.save_candidate_variant(forged.candidate_id, child)
+    with pytest.raises(ValueError, match='exact deterministic search member'):
+        repository.comparison_ref(forged.candidate_id)
+
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            'DELETE FROM cad_topology_placement_candidates WHERE candidate_id=?',
+            (forged.candidate_id,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    assert repository.get_candidate(candidate.candidate_id) == candidate
+
+    # A row whose stored candidate-set digest drifts from the regenerated
+    # set is not authoritative even when the payload itself is genuine.
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            'UPDATE cad_topology_placement_candidates '
+            'SET candidate_set_sha256=? WHERE candidate_id=?',
+            (topology_search._digest(['fabricated']), candidate.candidate_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(ValueError, match='candidate-set authority mismatch'):
+        repository.get_candidate(candidate.candidate_id)
+    with pytest.raises(ValueError, match='candidate-set authority mismatch'):
+        repository.save_candidate_variant(candidate.candidate_id, child)
+
+    # Indexed columns that disagree with the payload fail closed first.
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            'UPDATE cad_topology_placement_candidates '
+            'SET candidate_set_sha256=?, feasible_index=? WHERE candidate_id=?',
+            (
+                page.candidate_set_sha256,
+                candidate.feasible_index + 1,
+                candidate.candidate_id,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(ValueError, match='row disagrees with its payload'):
+        repository.get_candidate(candidate.candidate_id)
+
+    # A candidate row whose spec authority disappeared fails closed.
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            'UPDATE cad_topology_placement_candidates '
+            'SET feasible_index=? WHERE candidate_id=?',
+            (candidate.feasible_index, candidate.candidate_id),
+        )
+        connection.execute(
+            'DELETE FROM cad_topology_candidate_variants WHERE candidate_id=?',
+            (candidate.candidate_id,),
+        )
+        connection.execute(
+            'DELETE FROM cad_topology_placement_candidates WHERE search_id=?',
+            (spec.search_id,),
+        )
+        connection.execute(
+            'DELETE FROM cad_topology_search_specs WHERE search_id=?',
+            (spec.search_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO cad_topology_placement_candidates(
+                candidate_id, candidate_sha256, search_id,
+                candidate_set_sha256, feasible_index, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                candidate.candidate_id,
+                candidate.candidate_sha256,
+                candidate.search_id,
+                page.candidate_set_sha256,
+                candidate.feasible_index,
+                candidate.model_dump_json(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(ValueError, match='search spec is missing'):
+        repository.get_candidate(candidate.candidate_id)
