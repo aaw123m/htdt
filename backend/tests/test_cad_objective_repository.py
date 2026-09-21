@@ -11,8 +11,12 @@ from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import dataset_sha256
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import canonical_json as canonical_measurement_json
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json as canonical_measurement_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_objective_authority import ResolvedObjectiveInput
 from htdt.cad_objective_models import (
     CadObjectiveEvaluation,
@@ -271,14 +275,17 @@ def _save_measurement(
     tilt: float = 0.0,
 ) -> CadFrequencyResponseDataset:
     response = _fr(offset, tilt)
-    raw_payload = {
-        'measurement_id': measurement_id,
-        'response': {
-            'frequency_hz': list(response.frequency_hz),
-            'level_db': list(response.level_db),
-        },
-    }
-    raw = canonical_measurement_json(raw_payload).encode('utf-8')
+    processing = {'measurement_id': measurement_id}
+    # The declared importer keeps fixture datasets honestly derived: the raw
+    # asset literally declares the persisted samples, so measurement save-time
+    # rederivation authority accepts them exactly.
+    raw = declared_fr_raw(
+        frequency_hz=response.frequency_hz,
+        level_db=response.level_db,
+        phase_status='absent',
+        level_reference='synthetic_fixture',
+        processing=processing,
+    )
     record = measurement_record_for_revision(
         revision,
         'listener-main',
@@ -304,10 +311,10 @@ def _save_measurement(
         phase_deg=None,
         phase_status='absent',
         level_reference='synthetic_fixture',
-        smoothing='None',
-        processing_json='{}',
+        smoothing=None,
+        processing_json=canonical_measurement_json(processing),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='objective-repository-test-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repository.save(
         record,
