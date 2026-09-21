@@ -9,13 +9,16 @@ from htdt.acoustic_benchmark import (
 )
 from htdt.cad_acoustic_treatment import (
     TreatmentAcousticModel,
+    TreatmentAcousticModelSubject,
     TreatmentCoverage,
     TreatmentDimensions,
+    TreatmentEvidenceSubject,
     TreatmentFrequencyBand,
     TreatmentLayer,
     TreatmentProvenance,
     TreatmentUncertainty,
     build_acoustic_treatment_definition,
+    build_treatment_evidence_authority,
     build_treatment_placement,
     revise_treatment_placement,
 )
@@ -65,18 +68,7 @@ def _external(name: str, token: str) -> ExactExternalAuthorityRef:
     )
 
 
-def _provenance() -> TreatmentProvenance:
-    return TreatmentProvenance(
-        source_kind='measurement',
-        source_id='treatment-boundary-fixture',
-        source_version='1',
-        source_sha256='1' * 64,
-        reference='Issue #171 x #101 boundary overlay fixture',
-    )
-
-
-def _model(kind: str) -> TreatmentAcousticModel | None:
-    provenance = _provenance()
+def _model_material(kind: str) -> AcousticMaterial | None:
     material: AcousticMaterial
     if kind == 'none':
         return None
@@ -149,41 +141,84 @@ def _model(kind: str) -> TreatmentAcousticModel | None:
         )
     else:
         raise ValueError(kind)
-    return TreatmentAcousticModel(
-        model_id=f'fixture-{kind}-model',
-        model_version='1',
-        evidence_basis='measured',
-        valid_frequency_band=TreatmentFrequencyBand(min_hz=80.0, max_hz=4000.0),
-        uncertainty=TreatmentUncertainty(
-            kind='quantified',
-            value=0.05,
-            unit='fixture',
-            note='fixture uncertainty',
-        ),
-        provenance=provenance,
-        material=material,
-    )
+    return material
 
 
 def _definition(kind: str, suffix: str = ''):
-    return build_acoustic_treatment_definition(
-        definition_id=f'treatment-{kind}{suffix}',
+    definition_id = f'treatment-{kind}{suffix}'
+    dimensions = TreatmentDimensions(width_m=1.0, height_m=1.0, thickness_m=0.1)
+    layers = (
+        TreatmentLayer(
+            layer_id='core',
+            material_name='fixture core',
+            thickness_m=0.1,
+            density_kg_m3=48.0,
+        ),
+    )
+    material = _model_material(kind)
+    band = TreatmentFrequencyBand(min_hz=80.0, max_hz=4000.0)
+    uncertainty = TreatmentUncertainty(
+        kind='quantified',
+        value=0.05,
+        unit='fixture',
+        note='fixture uncertainty',
+    )
+    model_subject = (
+        None
+        if material is None
+        else TreatmentAcousticModelSubject(
+            model_id=f'fixture-{kind}-model',
+            model_version='1',
+            evidence_basis='measured',
+            valid_frequency_band=band,
+            uncertainty=uncertainty,
+            material=material,
+        )
+    )
+    evidence = build_treatment_evidence_authority(
+        source_kind='measurement',
+        source_id='treatment-boundary-fixture',
+        source_version='1',
+        source_sha256='1' * 64,
+        reference='Issue #171 x #101 boundary overlay fixture',
+        extraction_id='fixture-extraction',
+        extraction_version='1',
+        subject=TreatmentEvidenceSubject(
+            definition_id=definition_id,
+            definition_version='1.0',
+            treatment_type='porous_absorber',
+            dimensions=dimensions,
+            air_gap_m=0.05,
+            layers=layers,
+            acoustic_model=model_subject,
+        ),
+    )
+    provenance = evidence.as_provenance()
+    acoustic_model = (
+        None
+        if material is None
+        else TreatmentAcousticModel(
+            model_id=f'fixture-{kind}-model',
+            model_version='1',
+            evidence_basis='measured',
+            valid_frequency_band=band,
+            uncertainty=uncertainty,
+            provenance=provenance,
+            material=material,
+        )
+    )
+    definition = build_acoustic_treatment_definition(
+        definition_id=definition_id,
         version='1.0',
         name=f'{kind} treatment {suffix}',
         treatment_type='porous_absorber',
-        provenance=_provenance(),
-        dimensions=TreatmentDimensions(width_m=1.0, height_m=1.0, thickness_m=0.1),
+        provenance=provenance,
+        dimensions=dimensions,
         air_gap_m=0.05,
-        layers=(
-            TreatmentLayer(
-                layer_id='core',
-                material_name='fixture core',
-                thickness_m=0.1,
-                density_kg_m3=48.0,
-            ),
-        ),
-        acoustic_model=_model(kind),
+        layers=layers,
+        acoustic_model=acoustic_model,
     )
+    return definition, (evidence,)
 
 
 def _fixture(tmp_path: Path):
@@ -259,6 +294,9 @@ def _input(
 ):
     treatment_repository = fixture['treatment_repository']
     revision = fixture['revision']
+    definition, evidence = definition
+    for item in evidence:
+        treatment_repository.save_evidence(item)
     definition = treatment_repository.save_definition(definition)
     proposed = build_treatment_placement(
         definition=definition,

@@ -10,8 +10,9 @@ from htdt.cad_acoustic_treatment import (
     AcousticTreatmentPlacement,
     TreatmentCoverage,
     TreatmentDimensions,
-    TreatmentProvenance,
+    TreatmentEvidenceSubject,
     build_acoustic_treatment_definition,
+    build_treatment_evidence_authority,
     build_treatment_placement,
     revise_treatment_placement,
     semantic_surface_host_authority_sha256,
@@ -44,24 +45,37 @@ def _canonical_digest(payload: object) -> str:
 
 
 def _definition():
-    return build_acoustic_treatment_definition(
+    dimensions = TreatmentDimensions(
+        width_m=0.6,
+        height_m=1.2,
+        thickness_m=0.1,
+    )
+    evidence = build_treatment_evidence_authority(
+        source_kind='user_defined',
+        source_id='surface-binding-fixture',
+        source_version='1',
+        reference='Issue #171 x #167 exact binding fixture',
+        extraction_id='manual-declaration',
+        extraction_version='1',
+        subject=TreatmentEvidenceSubject(
+            definition_id='surface-bound-porous',
+            definition_version='1.0',
+            treatment_type='porous_absorber',
+            dimensions=dimensions,
+            air_gap_m=0.0,
+            layers=(),
+        ),
+    )
+    definition = build_acoustic_treatment_definition(
         definition_id='surface-bound-porous',
         version='1.0',
         name='Surface-bound porous fixture',
         treatment_type='porous_absorber',
-        provenance=TreatmentProvenance(
-            source_kind='user_defined',
-            source_id='surface-binding-fixture',
-            source_version='1',
-            reference='Issue #171 x #167 exact binding fixture',
-        ),
-        dimensions=TreatmentDimensions(
-            width_m=0.6,
-            height_m=1.2,
-            thickness_m=0.1,
-        ),
+        provenance=evidence.as_provenance(),
+        dimensions=dimensions,
         layers=(),
     )
+    return definition, (evidence,)
 
 
 def _mesh():
@@ -150,7 +164,10 @@ def _fixture(tmp_path: Path):
         scene_repository,
         variant_repository,
     )
-    definition = treatment_repository.save_definition(_definition())
+    definition, evidence = _definition()
+    for item in evidence:
+        treatment_repository.save_evidence(item)
+    definition = treatment_repository.save_definition(definition)
     return (
         scene_repository,
         treatment_repository,

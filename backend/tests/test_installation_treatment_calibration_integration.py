@@ -9,12 +9,14 @@ import pytest
 from htdt.acoustic_benchmark import AcousticMaterial, GeometricAcousticBand
 from htdt.cad_acoustic_treatment import (
     TreatmentAcousticModel,
+    TreatmentAcousticModelSubject,
     TreatmentCoverage,
     TreatmentDimensions,
+    TreatmentEvidenceSubject,
     TreatmentFrequencyBand,
-    TreatmentProvenance,
     TreatmentUncertainty,
     build_acoustic_treatment_definition,
+    build_treatment_evidence_authority,
     build_treatment_placement,
     evaluate_treatment_surface_binding,
     revise_treatment_placement,
@@ -129,58 +131,94 @@ f 2 3 4
 
 
 def _treatment_definition():
-    model_provenance = TreatmentProvenance(
+    definition_id = 'panel-600x1200'
+    version = '1'
+    dimensions = TreatmentDimensions(
+        width_m=0.6,
+        height_m=1.2,
+        thickness_m=0.1,
+    )
+    material = AcousticMaterial(
+        material_id='panel-material',
+        provenance='fixture measured material',
+        version='1',
+        wave_model='rigid',
+        geometric_model='banded',
+        geometric_bands=(
+            GeometricAcousticBand(
+                center_hz=1000.0,
+                absorption=0.8,
+                scattering=0.1,
+            ),
+        ),
+    )
+    band = TreatmentFrequencyBand(min_hz=100.0, max_hz=10000.0)
+    uncertainty = TreatmentUncertainty(
+        kind='quantified',
+        value=0.05,
+        unit='absorption_coefficient',
+        note='fixture uncertainty',
+    )
+    model_subject = TreatmentAcousticModelSubject(
+        model_id='panel-model',
+        model_version='1',
+        evidence_basis='measured',
+        valid_frequency_band=band,
+        uncertainty=uncertainty,
+        material=material,
+    )
+    definition_evidence = build_treatment_evidence_authority(
+        source_kind='manufacturer',
+        source_id='panel-datasheet',
+        source_version='2026.1',
+        source_sha256='b' * 64,
+        reference='fixture product definition',
+        extraction_id='fixture-datasheet-extraction',
+        extraction_version='1',
+        subject=TreatmentEvidenceSubject(
+            definition_id=definition_id,
+            definition_version=version,
+            treatment_type='porous_absorber',
+            dimensions=dimensions,
+            air_gap_m=0.05,
+            layers=(),
+        ),
+    )
+    model_evidence = build_treatment_evidence_authority(
         source_kind='measurement',
         source_id='panel-measurement',
         source_version='1',
         source_sha256='a' * 64,
         reference='fixture acoustic model',
+        extraction_id='fixture-measurement-extraction',
+        extraction_version='1',
+        subject=TreatmentEvidenceSubject(
+            definition_id=definition_id,
+            definition_version=version,
+            treatment_type='porous_absorber',
+            dimensions=dimensions,
+            air_gap_m=0.05,
+            layers=(),
+            acoustic_model=model_subject,
+        ),
     )
     return build_acoustic_treatment_definition(
-        definition_id='panel-600x1200',
-        version='1',
+        definition_id=definition_id,
+        version=version,
         name='600 x 1200 panel',
         treatment_type='porous_absorber',
-        provenance=TreatmentProvenance(
-            source_kind='manufacturer',
-            source_id='panel-datasheet',
-            source_version='2026.1',
-            source_sha256='b' * 64,
-            reference='fixture product definition',
-        ),
-        dimensions=TreatmentDimensions(
-            width_m=0.6,
-            height_m=1.2,
-            thickness_m=0.1,
-        ),
+        provenance=definition_evidence.as_provenance(),
+        dimensions=dimensions,
         air_gap_m=0.05,
         layers=(),
         acoustic_model=TreatmentAcousticModel(
             model_id='panel-model',
             model_version='1',
             evidence_basis='measured',
-            valid_frequency_band=TreatmentFrequencyBand(min_hz=100.0, max_hz=10000.0),
-            uncertainty=TreatmentUncertainty(
-                kind='quantified',
-                value=0.05,
-                unit='absorption_coefficient',
-                note='fixture uncertainty',
-            ),
-            provenance=model_provenance,
-            material=AcousticMaterial(
-                material_id='panel-material',
-                provenance='fixture measured material',
-                version='1',
-                wave_model='rigid',
-                geometric_model='banded',
-                geometric_bands=(
-                    GeometricAcousticBand(
-                        center_hz=1000.0,
-                        absorption=0.8,
-                        scattering=0.1,
-                    ),
-                ),
-            ),
+            valid_frequency_band=band,
+            uncertainty=uncertainty,
+            provenance=model_evidence.as_provenance(),
+            material=material,
         ),
     )
 

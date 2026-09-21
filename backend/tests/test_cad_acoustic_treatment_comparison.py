@@ -7,9 +7,11 @@ import pytest
 from htdt.cad_acoustic_treatment import (
     TreatmentCoverage,
     TreatmentDimensions,
+    TreatmentEvidenceSubject,
     TreatmentLayer,
-    TreatmentProvenance,
+    TreatmentPhysicalParameters,
     build_acoustic_treatment_definition,
+    build_treatment_evidence_authority,
     build_treatment_placement,
 )
 from htdt.cad_acoustic_treatment_comparison import (
@@ -61,30 +63,45 @@ def _fixture(tmp_path: Path):
         scene_repository,
         variant_repository,
     )
+    dimensions = TreatmentDimensions(
+        width_m=0.6,
+        height_m=1.2,
+        thickness_m=0.1,
+    )
+    layers = (
+        TreatmentLayer(
+            layer_id='core',
+            material_name='porous core',
+            thickness_m=0.1,
+            density_kg_m3=48.0,
+        ),
+    )
+    evidence = build_treatment_evidence_authority(
+        source_kind='user_defined',
+        source_id='comparison-panel',
+        source_version='1',
+        extraction_id='manual-declaration',
+        extraction_version='1',
+        subject=TreatmentEvidenceSubject(
+            definition_id='comparison-panel',
+            definition_version='1',
+            treatment_type='porous_absorber',
+            dimensions=dimensions,
+            air_gap_m=0.0,
+            layers=layers,
+            parameters=TreatmentPhysicalParameters(),
+        ),
+    )
     definition = build_acoustic_treatment_definition(
         definition_id='comparison-panel',
         version='1',
         name='Comparison panel',
         treatment_type='porous_absorber',
-        provenance=TreatmentProvenance(
-            source_kind='user_defined',
-            source_id='comparison-panel',
-            source_version='1',
-        ),
-        dimensions=TreatmentDimensions(
-            width_m=0.6,
-            height_m=1.2,
-            thickness_m=0.1,
-        ),
-        layers=(
-            TreatmentLayer(
-                layer_id='core',
-                material_name='porous core',
-                thickness_m=0.1,
-                density_kg_m3=48.0,
-            ),
-        ),
+        provenance=evidence.as_provenance(),
+        dimensions=dimensions,
+        layers=layers,
     )
+    treatment_repository.save_evidence(evidence)
     treatment_repository.save_definition(definition)
     placement_a = build_treatment_placement(
         definition=definition,
