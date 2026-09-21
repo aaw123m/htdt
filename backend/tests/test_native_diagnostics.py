@@ -196,6 +196,9 @@ class _FakeApplication:
     def setWindowIcon(self, _icon) -> None:  # noqa: N802 - Qt API surface
         pass
 
+    def setApplicationVersion(self, _version: str) -> None:  # noqa: N802 - Qt API surface
+        pass
+
     def exec(self) -> int:
         return self.exit_code
 
