@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +16,7 @@ from htdt.cad_scene import (
     SceneDocument,
     SceneEntity,
     Size3,
+    scene_content_hash,
 )
 from htdt.cad_system_variant import (
     ChannelRoleBinding,
@@ -29,7 +32,10 @@ from htdt.cad_video_geometry import (
     ScreenGeometryBinding,
     SeatGeometryBinding,
     SightlineSample,
+    VideoGeometryEvaluation,
     VideoGeometryPolicy,
+    VideoGeometryRequest,
+    _digest,
     build_projector_specification,
     build_video_geometry_request,
     evaluate_video_geometry,
@@ -196,6 +202,132 @@ def _request(specification):
     )
 
 
+def _raised_rear_variant(baseline):
+    raised_rear = _seat('seat-rear', y_m=3.4, z_m=1.1)
+    riser = SceneEntity(
+        entity_id='riser-rear',
+        kind='riser',
+        name='Rear Riser',
+        position=Position3(x_m=3.0, y_m=3.4, z_m=0.3),
+        size_m=Size3(x_m=2.0, y_m=1.4, z_m=0.6),
+    )
+    return build_system_variant(
+        baseline=baseline,
+        name='Raised rear row and projector adjustment',
+        role_bindings=(ChannelRoleBinding(role_id='C', display_name='Center'),),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='projector-adjustment',
+                entity=_projector(y_m=4.1),
+            ),
+            ProposedEntitySpec(
+                spec_id='rear-seat-riser-placement',
+                entity=raised_rear,
+            ),
+            ProposedEntitySpec(
+                spec_id='rear-riser',
+                entity=riser,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+
+
+def _request_with_riser(
+    request: VideoGeometryRequest,
+    specification,
+) -> VideoGeometryRequest:
+    updated = request.model_copy(
+        update={
+            'seats': tuple(
+                item.model_copy(update={'riser_entity_id': 'riser-rear'})
+                if item.entity_id == 'seat-rear'
+                else item
+                for item in request.seats
+            )
+        }
+    )
+    return build_video_geometry_request(
+        projector_entity_id=updated.projector_entity_id,
+        projector_specification=specification,
+        screen=updated.screen,
+        seats=updated.seats,
+        policy=updated.policy,
+        collision_entity_ids=updated.collision_entity_ids,
+    )
+
+
+def _persisted_baseline_evaluation(tmp_path: Path):
+    scene_repository, baseline = _baseline(tmp_path)
+    specification = _projector_spec()
+    evaluation = evaluate_video_geometry(
+        baseline=baseline,
+        variant=None,
+        projector_specification=specification,
+        request=_request(specification),
+    )
+    repository = CadVideoGeometryRepository(scene_repository)
+    repository.save_projector_specification(specification)
+    repository.save_evaluation(evaluation)
+    return scene_repository, repository, baseline, evaluation
+
+
+def _persisted_variant_evaluation(tmp_path: Path):
+    scene_repository, baseline = _baseline(tmp_path)
+    specification = _projector_spec()
+    variant = _raised_rear_variant(baseline)
+    evaluation = evaluate_video_geometry(
+        baseline=baseline,
+        variant=variant,
+        projector_specification=specification,
+        request=_request_with_riser(_request(specification), specification),
+    )
+    variant_repository = CadSystemVariantRepository(scene_repository)
+    variant_repository.save_variant(variant)
+    repository = CadVideoGeometryRepository(scene_repository, variant_repository)
+    repository.save_projector_specification(specification)
+    repository.save_evaluation(evaluation)
+    return scene_repository, repository, baseline, variant, evaluation
+
+
+def _rehashed_evaluation(
+    evaluation: VideoGeometryEvaluation,
+    **updates,
+) -> VideoGeometryEvaluation:
+    """Coherently recompute the self hash/id of a modified evaluation."""
+    candidate = evaluation.model_copy(update=updates)
+    digest = _digest(candidate.identity_payload())
+    return VideoGeometryEvaluation.model_validate(
+        candidate.model_copy(
+            update={
+                'evaluation_sha256': digest,
+                'evaluation_id': 'vge-' + digest[:24],
+            }
+        ).model_dump(mode='python')
+    )
+
+
+def _replace_persisted_evaluation(
+    path: Path,
+    evaluation_id: str,
+    persisted: VideoGeometryEvaluation,
+) -> None:
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_video_geometry_evaluations
+            SET evaluation_id=?, evaluation_sha256=?, payload_json=?
+            WHERE evaluation_id=?
+            """,
+            (
+                persisted.evaluation_id,
+                persisted.evaluation_sha256,
+                persisted.model_dump_json(),
+                evaluation_id,
+            ),
+        )
+
+
 def test_projector_specification_identity_and_user_defined_source_are_explicit() -> None:
     first = _projector_spec()
     second = _projector_spec()
@@ -274,53 +406,8 @@ def test_system_variant_can_raise_rear_row_on_riser_and_replace_projector_withou
     specification = _projector_spec()
     request = _request(specification)
 
-    raised_rear = _seat('seat-rear', y_m=3.4, z_m=1.1)
-    riser = SceneEntity(
-        entity_id='riser-rear',
-        kind='riser',
-        name='Rear Riser',
-        position=Position3(x_m=3.0, y_m=3.4, z_m=0.3),
-        size_m=Size3(x_m=2.0, y_m=1.4, z_m=0.6),
-    )
-    variant = build_system_variant(
-        baseline=baseline,
-        name='Raised rear row and projector adjustment',
-        role_bindings=(ChannelRoleBinding(role_id='C', display_name='Center'),),
-        proposed_entities=(
-            ProposedEntitySpec(
-                spec_id='projector-adjustment',
-                entity=_projector(y_m=4.1),
-            ),
-            ProposedEntitySpec(
-                spec_id='rear-seat-riser-placement',
-                entity=raised_rear,
-            ),
-            ProposedEntitySpec(
-                spec_id='rear-riser',
-                entity=riser,
-            ),
-        ),
-        created_at_utc=NOW,
-    )
-
-    request_with_riser = request.model_copy(
-        update={
-            'seats': tuple(
-                item.model_copy(update={'riser_entity_id': 'riser-rear'})
-                if item.entity_id == 'seat-rear'
-                else item
-                for item in request.seats
-            )
-        }
-    )
-    request_with_riser = build_video_geometry_request(
-        projector_entity_id=request_with_riser.projector_entity_id,
-        projector_specification=specification,
-        screen=request_with_riser.screen,
-        seats=request_with_riser.seats,
-        policy=request_with_riser.policy,
-        collision_entity_ids=request_with_riser.collision_entity_ids,
-    )
+    variant = _raised_rear_variant(baseline)
+    request_with_riser = _request_with_riser(request, specification)
 
     evaluation = evaluate_video_geometry(
         baseline=baseline,
@@ -404,3 +491,154 @@ def test_non_physical_proposed_entity_is_rejected() -> None:
                 position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
             ),
         )
+
+
+def test_read_apis_replay_persisted_evaluation_and_reject_coherent_tampering(
+    tmp_path: Path,
+) -> None:
+    scene_repository, repository, baseline, evaluation = (
+        _persisted_baseline_evaluation(tmp_path)
+    )
+    assert repository.get_evaluation(evaluation.evaluation_id) == evaluation
+    assert repository.list_evaluations_for_revision(baseline.revision_id) == (
+        evaluation,
+    )
+
+    tampered = _rehashed_evaluation(
+        evaluation,
+        projection=evaluation.projection.model_copy(
+            update={'throw_ratio': evaluation.projection.throw_ratio + 0.5}
+        ),
+    )
+    assert tampered.evaluation_id != evaluation.evaluation_id
+    _replace_persisted_evaluation(
+        scene_repository.path,
+        evaluation.evaluation_id,
+        tampered,
+    )
+
+    assert repository.get_evaluation(evaluation.evaluation_id) is None
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.get_evaluation(tampered.evaluation_id)
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.list_evaluations_for_revision(baseline.revision_id)
+
+
+def test_variant_bound_read_apis_replay_and_reject_coherent_tampering(
+    tmp_path: Path,
+) -> None:
+    scene_repository, repository, baseline, variant, evaluation = (
+        _persisted_variant_evaluation(tmp_path)
+    )
+    assert repository.get_evaluation(evaluation.evaluation_id) == evaluation
+    assert repository.list_evaluations_for_revision(baseline.revision_id) == (
+        evaluation,
+    )
+    assert repository.list_evaluations_for_variant(variant.variant_id) == (
+        evaluation,
+    )
+
+    tampered = _rehashed_evaluation(evaluation, geometry_status='FAIL')
+    _replace_persisted_evaluation(
+        scene_repository.path,
+        evaluation.evaluation_id,
+        tampered,
+    )
+
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.get_evaluation(tampered.evaluation_id)
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.list_evaluations_for_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.list_evaluations_for_revision(baseline.revision_id)
+
+
+def test_read_apis_fail_closed_when_projector_specification_disappears(
+    tmp_path: Path,
+) -> None:
+    scene_repository, repository, baseline, evaluation = (
+        _persisted_baseline_evaluation(tmp_path)
+    )
+    with closing(sqlite3.connect(scene_repository.path)) as connection, connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute('DELETE FROM cad_projector_specifications')
+
+    with pytest.raises(ValueError, match='unpersisted projector specification'):
+        repository.get_evaluation(evaluation.evaluation_id)
+    with pytest.raises(ValueError, match='unpersisted projector specification'):
+        repository.list_evaluations_for_revision(baseline.revision_id)
+
+
+def test_read_apis_fail_closed_when_scene_revision_authority_changes(
+    tmp_path: Path,
+) -> None:
+    scene_repository, repository, baseline, evaluation = (
+        _persisted_baseline_evaluation(tmp_path)
+    )
+    mutated = _scene().model_copy(
+        update={'room': RoomPrism(width_m=7.0, depth_m=5.0, height_m=3.0)}
+    )
+    with closing(sqlite3.connect(scene_repository.path)) as connection, connection:
+        connection.execute(
+            """
+            UPDATE scene_revisions
+            SET payload_json=?, content_hash=?
+            WHERE revision_id=?
+            """,
+            (
+                mutated.model_dump_json(),
+                scene_content_hash(mutated),
+                baseline.revision_id,
+            ),
+        )
+
+    with pytest.raises(ValueError, match='SceneRevision authority mismatch'):
+        repository.get_evaluation(evaluation.evaluation_id)
+    with pytest.raises(ValueError, match='SceneRevision authority mismatch'):
+        repository.list_evaluations_for_revision(baseline.revision_id)
+
+
+def test_read_apis_fail_closed_when_system_variant_authority_changes(
+    tmp_path: Path,
+) -> None:
+    scene_repository, repository, baseline, variant, evaluation = (
+        _persisted_variant_evaluation(tmp_path)
+    )
+    with closing(sqlite3.connect(scene_repository.path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_system_variants WHERE variant_id=?',
+            (variant.variant_id,),
+        )
+
+    with pytest.raises(ValueError, match='SystemVariant does not exist'):
+        repository.get_evaluation(evaluation.evaluation_id)
+    with pytest.raises(ValueError, match='SystemVariant does not exist'):
+        repository.list_evaluations_for_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='SystemVariant does not exist'):
+        repository.list_evaluations_for_revision(baseline.revision_id)
+
+
+def test_read_apis_fail_closed_when_system_variant_hash_mismatches(
+    tmp_path: Path,
+) -> None:
+    scene_repository, repository, baseline, variant, evaluation = (
+        _persisted_variant_evaluation(tmp_path)
+    )
+    tampered = _rehashed_evaluation(
+        evaluation,
+        target=evaluation.target.model_copy(
+            update={'system_variant_sha256': '0' * 64}
+        ),
+    )
+    _replace_persisted_evaluation(
+        scene_repository.path,
+        evaluation.evaluation_id,
+        tampered,
+    )
+
+    with pytest.raises(ValueError, match='SystemVariant hash mismatch'):
+        repository.get_evaluation(tampered.evaluation_id)
+    with pytest.raises(ValueError, match='SystemVariant hash mismatch'):
+        repository.list_evaluations_for_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='SystemVariant hash mismatch'):
+        repository.list_evaluations_for_revision(baseline.revision_id)
