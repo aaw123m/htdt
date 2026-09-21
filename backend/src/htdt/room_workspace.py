@@ -35,6 +35,7 @@ from .cad_scene import (
     make_f1_scene,
     quaternion_from_euler_deg,
 )
+from .command_palette import flush_focused_text_editor, focused_text_editor
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .theater_document import TheaterWorkingDocument
 from .ui_theme import (
@@ -755,6 +756,7 @@ class RoomWorkspace(QWidget):
         self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
         self._proposed_variant_id: str | None = None
         self._proposed_selected_id: str | None = None
+        self._pending_editor_rejected = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1015,7 +1017,37 @@ class RoomWorkspace(QWidget):
                 refresh()
         self._render()
 
+    def has_focused_text_editor(self) -> bool:
+        """True while a text/numeric field inside this workspace owns focus."""
+
+        return focused_text_editor(self) is not None
+
+    def commit_pending_editor(self) -> bool:
+        """Flush a pending inspector/geometry edit into the WorkingDocument.
+
+        project.save is a GLOBAL shortcut: Ctrl+S arrives while a field still
+        owns focus, before ``editingFinished`` commits the visible value. This
+        boundary forces that commit (reusing the field's own commit handler) so
+        the saved revision reflects what the user sees. Returns False when the
+        pending value was rejected, so Save can refuse instead of persisting a
+        revision that silently omits the visible edit.
+        """
+
+        self._pending_editor_rejected = False
+        flush_focused_text_editor(self)
+        rejected = self._pending_editor_rejected
+        self._pending_editor_rejected = False
+        return not rejected
+
+    def mark_pending_editor_rejected(self) -> None:
+        """Record that a pending-editor commit was refused during a flush."""
+
+        self._pending_editor_rejected = True
+
     def save(self) -> bool:
+        if not self.commit_pending_editor():
+            self._set_status("入力中の値を確定できないため保存できません", error=True)
+            return False
         created = self.controller.save()
         self._refresh()
         self._set_status("保存しました" if created else "変更はありません")
@@ -1104,6 +1136,7 @@ class RoomWorkspace(QWidget):
                 speaker_role=role,
             )
         except (EditStateError, ValueError) as exc:
+            self._pending_editor_rejected = True
             self._refresh_inspector()
             self._set_status(str(exc), error=True)
             return

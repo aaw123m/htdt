@@ -37,6 +37,40 @@ def is_text_input_widget(widget: QWidget | None) -> bool:
     return False
 
 
+def focused_text_editor(root: QWidget) -> QWidget | None:
+    """Return the focused text/numeric editor contained by ``root``, if any."""
+
+    focused = QApplication.focusWidget()
+    if (
+        focused is None
+        or not root.isAncestorOf(focused)
+        or not is_text_input_widget(focused)
+    ):
+        return None
+    return focused
+
+
+def flush_focused_text_editor(root: QWidget) -> QWidget | None:
+    """Synchronously commit the focused editor under ``root`` via focus transfer.
+
+    GLOBAL shortcuts such as Ctrl+S fire while a QLineEdit/QAbstractSpinBox still
+    owns focus — before ``editingFinished`` can deliver the pending value to the
+    document authority. Clearing focus runs the widget's validation and emits
+    ``editingFinished`` synchronously, so the existing commit handler (and its
+    revert behavior for rejected values) applies before the command executes.
+    Focus is restored afterwards so the user can keep editing. Returns the
+    flushed editor, or None when no text input owned by ``root`` was focused.
+    """
+
+    focused = focused_text_editor(root)
+    if focused is None:
+        return None
+    focused.clearFocus()
+    if focused.isEnabled():
+        focused.setFocus(Qt.FocusReason.OtherFocusReason)
+    return focused
+
+
 class CommandShortcutBinder(QObject):
     """Bind registry shortcuts without stealing scene/document keys from text editors."""
 

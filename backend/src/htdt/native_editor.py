@@ -44,6 +44,7 @@ from .cad_scene import (
     rotate_orientation_world,
 )
 from .cad_snap import SnapCandidate, SnapSelector, generate_snap_candidates, snap_angle_deg, snap_position_axis
+from .command_palette import flush_focused_text_editor, focused_text_editor
 
 ROLE = int(Qt.ItemDataRole.UserRole)
 AXIS_NAMES: tuple[Literal['x', 'y', 'z'], ...] = ('x', 'y', 'z')
@@ -230,6 +231,11 @@ class NativeEditorWindow(QMainWindow):
             toolbar.addAction(self._action(label, None, callback))
 
         self._load_or_seed()
+        app = QApplication.instance()
+        if app is not None:
+            # Save must stay reachable while an inspector field holds a pending
+            # edit (Ctrl+S arrives before editingFinished commits the value).
+            app.focusChanged.connect(lambda _old, _new: self._update_actions())
 
     def _action(self, label: str, shortcut: QKeySequence.StandardKey | None, callback) -> QAction:
         action = QAction(label, self)
@@ -1002,12 +1008,30 @@ class NativeEditorWindow(QMainWindow):
         self._persist_view_state()
         self._rebuild()
 
+    def has_focused_text_editor(self) -> bool:
+        """True while an inspector/room text or numeric field inside this window owns focus."""
+
+        return focused_text_editor(self) is not None
+
+    def commit_pending_editor(self) -> None:
+        """Commit the focused inspector/room field so Save stores its visible value.
+
+        Ctrl+S arrives while the field still owns focus — before editingFinished
+        delivers the pending value to the WorkingDocument. A synchronous focus
+        transfer runs the field's commit handler first; invalid input reverts via
+        the field's existing commit handler instead of silently saving the stale
+        document value.
+        """
+
+        flush_focused_text_editor(self)
+
     def save(self) -> None:
         if self.working is None or self.recovery_candidate is not None:
             return
         if self.working.has_preview:
             self.statusBar().showMessage('Finish or cancel the active transform before Save')
             return
+        self.commit_pending_editor()
         try:
             result = self.repository.save(
                 self.working.committed_document,
@@ -1088,7 +1112,11 @@ class NativeEditorWindow(QMainWindow):
         recovery_block = self.recovery_candidate is not None
         selected = self.selected_id is not None
         locked = bool(selected and self.view_state.is_locked(self.selected_id))
-        self.save_action.setEnabled(not recovery_block and not self.working.has_preview and self.working.is_dirty)
+        self.save_action.setEnabled(
+            not recovery_block
+            and not self.working.has_preview
+            and (self.working.is_dirty or self.has_focused_text_editor())
+        )
         self.undo_action.setEnabled(not recovery_block and (self.working.can_undo or self.working.has_preview))
         self.redo_action.setEnabled(not recovery_block and self.working.can_redo and not self.working.has_preview)
         self.delete_action.setEnabled(not recovery_block and selected and not locked and not self.working.has_preview)
