@@ -9,10 +9,12 @@ from typing import Any, Mapping, Protocol
 from urllib.parse import quote
 from urllib.request import Request
 
+from .ingress import IngressTooLargeError, read_response_bounded
 from .rew_api import (
     ROOMSIM_ADAPTER_VERSION,
     RewApiClient,
     RewApiError,
+    RewApiResponseTooLarge,
     RewApiUnavailable,
     RewRoomSimFrequencyResponse,
     RewRoomSimSnapshot,
@@ -95,7 +97,13 @@ class RewRoomSimControlClient(RewApiClient):
         )
         try:
             with self._opener(request, timeout=self.timeout_s) as response:
-                raw = response.read()
+                raw = read_response_bounded(
+                    response,
+                    self.max_response_bytes,
+                    label='REW API response',
+                )
+        except IngressTooLargeError as exc:
+            raise RewApiResponseTooLarge(str(exc)) from exc
         except (OSError, TimeoutError) as exc:
             raise RewApiUnavailable(str(exc)) from exc
         if not raw:

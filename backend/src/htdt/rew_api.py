@@ -10,6 +10,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
+from .ingress import IngressTooLargeError, read_response_bounded
+from .limits import MAX_REW_API_RESPONSE_BYTES, MAX_REW_ARRAY_SAMPLES, max_base64_chars
+
 
 DEFAULT_REW_API_URL = 'http://127.0.0.1:4735'
 ROOMSIM_ADAPTER_VERSION = 'rew-roomsim-readonly-1'
@@ -21,6 +24,15 @@ class RewApiError(RuntimeError):
 
 class RewApiUnavailable(RewApiError):
     pass
+
+
+class RewApiResponseTooLarge(RewApiError, IngressTooLargeError):
+    """Oversized REW API payload rejected before unbounded allocation.
+
+    Shares the ingress resource-safety policy (htdt.limits) with native file
+    import and the legacy browser transport while remaining a RewApiError so
+    existing availability/error handling keeps working.
+    """
 
 
 @dataclass(frozen=True)
@@ -97,13 +109,23 @@ def validate_rew_api_url(base_url: str) -> str:
     return f'http://{parsed.hostname}:{port or 4735}'
 
 
-def decode_rew_float_array(encoded: str) -> tuple[float, ...]:
+def decode_rew_float_array(encoded: str, *, max_samples: int = MAX_REW_ARRAY_SAMPLES) -> tuple[float, ...]:
+    if max_samples < 0:
+        raise ValueError('max_samples must be non-negative')
+    if len(encoded) > max_base64_chars(4 * max_samples):
+        raise RewApiResponseTooLarge(
+            f'REW float array exceeds the {max_samples}-sample limit'
+        )
     try:
         raw = base64.b64decode(encoded, validate=True)
     except ValueError as exc:
         raise RewApiError('Invalid Base64 array from REW') from exc
     if len(raw) % 4 != 0:
         raise RewApiError('REW float array byte length is not divisible by four')
+    if len(raw) // 4 > max_samples:
+        raise RewApiResponseTooLarge(
+            f'REW float array exceeds the {max_samples}-sample limit'
+        )
     if not raw:
         return ()
     values = tuple(struct.unpack(f'>{len(raw) // 4}f', raw))
@@ -226,10 +248,14 @@ class RewApiClient:
         *,
         timeout_s: float = 1.5,
         opener: Callable[..., Any] = urlopen,
+        max_response_bytes: int = MAX_REW_API_RESPONSE_BYTES,
     ) -> None:
         self.base_url = validate_rew_api_url(base_url)
+        if max_response_bytes < 0:
+            raise ValueError('max_response_bytes must be non-negative')
         self.timeout_s = timeout_s
         self._opener = opener
+        self.max_response_bytes = max_response_bytes
 
     def _get_json(self, path: str, query: dict[str, str | int | float | bool] | None = None) -> Any:
         url = f'{self.base_url}{path}'
@@ -238,7 +264,13 @@ class RewApiClient:
         request = Request(url, headers={'Accept': 'application/json'}, method='GET')
         try:
             with self._opener(request, timeout=self.timeout_s) as response:
-                raw = response.read()
+                raw = read_response_bounded(
+                    response,
+                    self.max_response_bytes,
+                    label='REW API response',
+                )
+        except IngressTooLargeError as exc:
+            raise RewApiResponseTooLarge(str(exc)) from exc
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             raise RewApiUnavailable(str(exc)) from exc
         try:

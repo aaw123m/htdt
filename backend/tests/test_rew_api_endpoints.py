@@ -21,8 +21,8 @@ class FakeResponse:
     def __exit__(self, *args: object) -> None:
         return None
 
-    def read(self) -> bytes:
-        return self.raw
+    def read(self, amt: int = -1) -> bytes:
+        return self.raw if amt is None or amt < 0 else self.raw[:amt]
 
 
 def encode(values: list[float]) -> str:
