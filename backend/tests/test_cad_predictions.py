@@ -5,9 +5,15 @@ from pathlib import Path
 import sqlite3
 
 import pytest
+from pydantic import ValidationError
 
 from htdt.cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard
-from htdt.cad_prediction_models import canonical_prediction_json, prediction_input_hash
+from htdt.cad_prediction_models import (
+    CadPredictionResult,
+    canonical_prediction_json,
+    prediction_input_hash,
+    prediction_result_sha256,
+)
 from htdt.cad_prediction_repository import CadPredictionRepository
 from htdt.cad_predictions import (
     RECTANGULAR_GEOMETRY_MODEL_ID,
@@ -174,6 +180,22 @@ def _resigned(result, snapshot: dict):
     )
 
 
+def _resigned_result(result, **updates):
+    """Coherently re-sign a result after mutating semantic fields.
+
+    ``model_copy`` skips model validators, so this produces the row shape a
+    coherent rewrite would store: payload columns plus a self-consistent
+    ``result_sha256`` over the mutated identity payload.
+    """
+
+    forged = result.model_copy(update=updates)
+    return forged.model_copy(
+        update={
+            'result_sha256': prediction_result_sha256(forged.result_identity_payload())
+        }
+    )
+
+
 def test_prediction_repository_rejects_fabricated_input_snapshot(tmp_path: Path) -> None:
     scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
     prediction_repository = CadPredictionRepository(scene_repository)
@@ -297,11 +319,25 @@ def test_prediction_repository_reads_replay_canonical_input(tmp_path: Path) -> N
     forged = json.loads(results[0].input_snapshot_json)
     forged['receiver_position'] = {'x_m': 11.0, 'y_m': 21.0, 'z_m': 1.1}
     forged_json = canonical_prediction_json(forged)
+    # Forge every column the rewrite touches — input snapshot, input hash and
+    # a self-consistent result_sha256 — so the read can only fail on the
+    # canonical input replay, proving even a fully coherent row rewrite is
+    # non-authoritative.
+    forged_result = _resigned_result(
+        results[0],
+        input_snapshot_json=forged_json,
+        input_hash=prediction_input_hash(forged_json),
+    )
     with sqlite3.connect(prediction_repository.path) as connection:
         connection.execute(
-            'UPDATE cad_prediction_results SET input_snapshot_json=?, input_hash=? '
-            'WHERE prediction_id=?',
-            (forged_json, prediction_input_hash(forged_json), results[0].prediction_id),
+            'UPDATE cad_prediction_results SET input_snapshot_json=?, input_hash=?, '
+            'result_sha256=? WHERE prediction_id=?',
+            (
+                forged_json,
+                prediction_input_hash(forged_json),
+                forged_result.result_sha256,
+                results[0].prediction_id,
+            ),
         )
 
     with pytest.raises(ValueError, match='canonical model request'):
@@ -319,22 +355,374 @@ def test_prediction_repository_reads_reject_coherent_row_rewrite(tmp_path: Path)
     for result in results:
         prediction_repository.save(result)
 
+    forged_version = _resigned_result(results[0], model_version='rect-room-geometry-0')
     with sqlite3.connect(prediction_repository.path) as connection:
         connection.execute(
-            'UPDATE cad_prediction_results SET model_version=? WHERE prediction_id=?',
-            ('rect-room-geometry-0', results[0].prediction_id),
+            'UPDATE cad_prediction_results SET model_version=?, result_sha256=? '
+            'WHERE prediction_id=?',
+            (
+                'rect-room-geometry-0',
+                forged_version.result_sha256,
+                results[0].prediction_id,
+            ),
         )
     with pytest.raises(ValueError, match='no registered input authority'):
         prediction_repository.get(results[0].prediction_id)
 
+    forged_hash = _resigned_result(results[0], scene_content_hash='0' * 64)
     with sqlite3.connect(prediction_repository.path) as connection:
         connection.execute(
-            'UPDATE cad_prediction_results SET model_version=?, scene_content_hash=? '
-            'WHERE prediction_id=?',
-            (RECTANGULAR_GEOMETRY_MODEL_VERSION, '0' * 64, results[0].prediction_id),
+            'UPDATE cad_prediction_results SET model_version=?, scene_content_hash=?, '
+            'result_sha256=? WHERE prediction_id=?',
+            (
+                RECTANGULAR_GEOMETRY_MODEL_VERSION,
+                '0' * 64,
+                forged_hash.result_sha256,
+                results[0].prediction_id,
+            ),
         )
     with pytest.raises(ValueError, match='content hash'):
         prediction_repository.get(results[0].prediction_id)
+
+
+def test_prediction_result_sha256_is_deterministic_across_runs(tmp_path: Path) -> None:
+    _, revision = _saved(tmp_path, _shifted_rect_scene())
+
+    first = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    second = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+
+    # Storage identities differ per run but the semantic output identity is
+    # deterministic: same model input -> same result_sha256.
+    assert first[0].prediction_id != second[0].prediction_id
+    assert first[0].run_id != second[0].run_id
+    assert first[0].result_sha256 == second[0].result_sha256
+    assert first[1].result_sha256 == second[1].result_sha256
+    assert first[0].result_sha256 != first[1].result_sha256
+    assert first[0].result_sha256 == prediction_result_sha256(
+        first[0].result_identity_payload()
+    )
+
+
+def test_prediction_result_identity_fields_are_immutable_and_self_checked(tmp_path: Path) -> None:
+    _, revision = _saved(tmp_path, _shifted_rect_scene())
+    result = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)[0]
+
+    with pytest.raises(ValidationError):
+        result.result_sha256 = '0' * 64
+    with pytest.raises(ValidationError):
+        result.input_hash = '0' * 64
+    with pytest.raises(ValidationError):
+        result.modes = ()
+
+    # Revalidating a payload whose semantic fields drifted from the stored
+    # self-hash fails closed at the model boundary.
+    tampered = result.model_copy(update={'warnings': result.warnings + ('forged_warning',)})
+    with pytest.raises(ValidationError, match='result_sha256'):
+        CadPredictionResult(**tampered.model_dump())
+
+
+def test_prediction_repository_rejects_tampered_result_payload_on_save(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    modes_result = analyze_native_rectangular_geometry(
+        revision, 'point-mlp', max_mode_hz=150.0
+    )[0]
+
+    tampered_mode = modes_result.modes[0].model_copy(update={'frequency_hz': 999.5})
+    tampered_modes = (tampered_mode,) + modes_result.modes[1:]
+
+    # A stale result_sha256 no longer commits to the submitted payload.
+    stale = modes_result.model_copy(update={'modes': tampered_modes})
+    with pytest.raises(ValueError, match='result_sha256'):
+        prediction_repository.save(stale)
+
+    # Re-signing the tampered payload still fails: the hash must equal the
+    # canonical model output, not merely the submitted payload.
+    forged_modes = _resigned_result(modes_result, modes=tampered_modes)
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.save(forged_modes)
+
+    forged_warnings = _resigned_result(
+        modes_result, warnings=modes_result.warnings + ('forged_warning',)
+    )
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.save(forged_warnings)
+
+    forged_assumptions = _resigned_result(modes_result, assumptions=())
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.save(forged_assumptions)
+
+    assert prediction_repository.list_results(revision.document_id) == ()
+
+
+def test_prediction_repository_reads_reject_tampered_result_payload(tmp_path: Path) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    prediction_repository.save_run(results)
+    modes_result, reflections_result = results
+
+    tampered_mode = modes_result.modes[0].model_copy(update={'frequency_hz': 999.5})
+    forged = _resigned_result(modes_result, modes=(tampered_mode,) + modes_result.modes[1:])
+    forged_modes_json = canonical_prediction_json(
+        [item.model_dump(mode='json') for item in forged.modes]
+    )
+
+    # Incoherent rewrite: payload column changed, stored hash left stale.
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET modes_json=? WHERE prediction_id=?',
+            (forged_modes_json, modes_result.prediction_id),
+        )
+    with pytest.raises(ValueError, match='result_sha256'):
+        prediction_repository.get(modes_result.prediction_id)
+    with pytest.raises(ValueError, match='result_sha256'):
+        prediction_repository.list_results(revision.document_id)
+    with pytest.raises(ValueError, match='result_sha256'):
+        prediction_repository.list_run(modes_result.run_id)
+
+    # Coherent rewrite — payload and a self-consistent result_sha256 — still
+    # fails the canonical output replay on every read path.
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET result_sha256=? WHERE prediction_id=?',
+            (forged.result_sha256, modes_result.prediction_id),
+        )
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.get(modes_result.prediction_id)
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.list_results(revision.document_id)
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.list_run(modes_result.run_id)
+
+    # Per-result identity is independent: the untampered reflections record
+    # of the same run still round-trips with its original result SHA.
+    assert prediction_repository.get(reflections_result.prediction_id) == reflections_result
+
+
+def test_prediction_repository_reads_reject_tampered_reflections_and_warnings(
+    tmp_path: Path,
+) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    prediction_repository.save_run(results)
+    modes_result, reflections_result = results
+
+    forged_reflection = _resigned_result(
+        reflections_result,
+        reflections=(
+            reflections_result.reflections[0].model_copy(
+                update={'excess_delay_ms': reflections_result.reflections[0].excess_delay_ms + 1.0}
+            ),
+        )
+        + reflections_result.reflections[1:],
+    )
+    forged_reflections_json = canonical_prediction_json(
+        [item.model_dump(mode='json') for item in forged_reflection.reflections]
+    )
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET reflections_json=?, result_sha256=? '
+            'WHERE prediction_id=?',
+            (
+                forged_reflections_json,
+                forged_reflection.result_sha256,
+                reflections_result.prediction_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.get(reflections_result.prediction_id)
+
+    forged_warnings = _resigned_result(
+        modes_result, warnings=modes_result.warnings + ('forged_warning',)
+    )
+    forged_warnings_json = canonical_prediction_json(list(forged_warnings.warnings))
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET warnings_json=?, result_sha256=? '
+            'WHERE prediction_id=?',
+            (
+                forged_warnings_json,
+                forged_warnings.result_sha256,
+                modes_result.prediction_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.get(modes_result.prediction_id)
+
+
+def test_prediction_repository_reads_fail_closed_on_pre_identity_rows(tmp_path: Path) -> None:
+    """Rows written before output identity existed are non-authoritative."""
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    prediction_repository.save_run(results)
+
+    # The migration keeps existing rows at result_sha256=NULL rather than
+    # fabricating a hash for output this version never attested.
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_prediction_results SET result_sha256=NULL WHERE prediction_id=?',
+            (results[0].prediction_id,),
+        )
+    with pytest.raises(ValueError, match='predates result_sha256'):
+        prediction_repository.get(results[0].prediction_id)
+    with pytest.raises(ValueError, match='predates result_sha256'):
+        prediction_repository.list_results(revision.document_id)
+    with pytest.raises(ValueError, match='predates result_sha256'):
+        prediction_repository.list_run(results[0].run_id)
+
+    assert prediction_repository.get(results[1].prediction_id) == results[1]
+
+
+def test_prediction_repository_reads_fail_closed_when_source_revision_unbound(
+    tmp_path: Path,
+) -> None:
+    """Read re-resolves the exact source SceneRevision binding like save."""
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+    prediction_repository.save_run(results)
+
+    forged_revision = _resigned_result(results[0], scene_revision_id='ghost-revision')
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute(
+            'UPDATE cad_prediction_results SET scene_revision_id=?, result_sha256=? '
+            'WHERE prediction_id=?',
+            (
+                'ghost-revision',
+                forged_revision.result_sha256,
+                results[0].prediction_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='does not exist'):
+        prediction_repository.get(results[0].prediction_id)
+
+    forged_document = _resigned_result(results[0], document_id='other-document')
+    with sqlite3.connect(prediction_repository.path) as connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute(
+            'UPDATE cad_prediction_results SET scene_revision_id=?, document_id=?, '
+            'result_sha256=? WHERE prediction_id=?',
+            (
+                revision.revision_id,
+                'other-document',
+                forged_document.result_sha256,
+                results[0].prediction_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='belongs to another document'):
+        prediction_repository.get(results[0].prediction_id)
+
+
+def test_prediction_repository_adopts_legacy_table_without_result_identity(
+    tmp_path: Path,
+) -> None:
+    """The lazy migration appends result_sha256 and leaves old rows NULL."""
+    path = tmp_path / 'legacy.sqlite3'
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            '''CREATE TABLE scene_revisions (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                revision_id TEXT NOT NULL UNIQUE,
+                document_id TEXT NOT NULL,
+                parent_revision_id TEXT,
+                created_at_utc TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
+            )'''
+        )
+        # The cad_prediction_results shape pre-versioning releases produced:
+        # no result_sha256 column at all.
+        connection.execute(
+            '''CREATE TABLE cad_prediction_results (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                prediction_id TEXT NOT NULL UNIQUE,
+                run_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                scene_revision_id TEXT NOT NULL,
+                scene_content_hash TEXT NOT NULL,
+                constraint_workspace_hash TEXT,
+                model_id TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                result_kind TEXT NOT NULL,
+                geometry_compatibility TEXT NOT NULL,
+                parameters_json TEXT NOT NULL,
+                input_snapshot_json TEXT NOT NULL,
+                input_hash TEXT NOT NULL,
+                submitted_at_utc TEXT NOT NULL,
+                completed_at_utc TEXT NOT NULL,
+                status TEXT NOT NULL,
+                assumptions_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                modes_json TEXT NOT NULL,
+                reflections_json TEXT NOT NULL,
+                FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id)
+            )'''
+        )
+        connection.execute(
+            "INSERT INTO scene_revisions(revision_id, document_id, parent_revision_id, "
+            "created_at_utc, content_hash, payload_json) "
+            "VALUES ('rev-1', 'doc-1', NULL, '2026-09-17T00:00:00+00:00', 'hash', '{}')"
+        )
+        connection.execute(
+            "INSERT INTO cad_prediction_results("
+            "prediction_id, run_id, document_id, scene_revision_id, scene_content_hash, "
+            "constraint_workspace_hash, model_id, model_version, result_kind, "
+            "geometry_compatibility, parameters_json, input_snapshot_json, input_hash, "
+            "submitted_at_utc, completed_at_utc, status, assumptions_json, warnings_json, "
+            "modes_json, reflections_json) "
+            "VALUES ('legacy-pred', 'legacy-run', 'doc-1', 'rev-1', 'hash', NULL, "
+            "'htdt.rectangular_geometry', 'rect-room-geometry-1', 'geometry_modes', "
+            "'exact_for_model_geometry', '{}', '{}', 'deadbeef', 'ts', 'ts', 'completed', "
+            "'[]', '[]', '[]', '[]')"
+        )
+
+    scene_repository = SceneRepository(path)
+    prediction_repository = CadPredictionRepository(scene_repository)
+
+    with sqlite3.connect(path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute('PRAGMA table_info(cad_prediction_results)')
+        }
+        stored_hash = connection.execute(
+            'SELECT result_sha256 FROM cad_prediction_results WHERE prediction_id=?',
+            ('legacy-pred',),
+        ).fetchone()[0]
+    assert 'result_sha256' in columns
+    assert stored_hash is None
+
+    with pytest.raises(ValueError, match='predates result_sha256'):
+        prediction_repository.get('legacy-pred')
+
+
+def test_prediction_repository_save_run_verifies_per_result_identity_and_completeness(
+    tmp_path: Path,
+) -> None:
+    scene_repository, revision = _saved(tmp_path, _shifted_rect_scene())
+    prediction_repository = CadPredictionRepository(scene_repository)
+    results = analyze_native_rectangular_geometry(revision, 'point-mlp', max_mode_hz=150.0)
+
+    # A fabricated second record — coherent self-hash, wrong canonical output —
+    # rolls the whole run back atomically alongside the honest first record.
+    fabricated_second = _resigned_result(
+        results[1], warnings=results[1].warnings + ('fabricated',)
+    )
+    with pytest.raises(ValueError, match='canonical model output'):
+        prediction_repository.save_run((results[0], fabricated_second))
+    assert prediction_repository.list_run(results[0].run_id) == ()
+    assert prediction_repository.get(results[0].prediction_id) is None
+
+    # The honest run verifies per-result identity and persists completely.
+    persisted = prediction_repository.save_run(results)
+    assert persisted == results
+    assert {item.result_sha256 for item in prediction_repository.list_run(results[0].run_id)} == {
+        item.result_sha256 for item in results
+    }
 
 
 def test_prediction_repository_round_trips_unsupported_room_result(tmp_path: Path) -> None:

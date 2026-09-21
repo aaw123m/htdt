@@ -34,6 +34,13 @@ def prediction_input_hash(input_snapshot_json: str) -> str:
     return sha256(input_snapshot_json.encode('utf-8')).hexdigest()
 
 
+def prediction_result_sha256(result_identity_payload: object) -> str:
+    """SHA-256 over the canonical versioned prediction-result identity payload."""
+    return sha256(
+        canonical_prediction_json(result_identity_payload).encode('utf-8')
+    ).hexdigest()
+
+
 class CadPredictedRoomMode(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -114,6 +121,41 @@ class CadPredictionResult(BaseModel):
     modes: tuple[CadPredictedRoomMode, ...] = ()
     reflections: tuple[CadPredictedReflection, ...] = ()
 
+    result_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    def result_identity_payload(self) -> dict[str, object]:
+        """Versioned semantic identity of the complete prediction output.
+
+        Covers every field that affects interpretation of the stored result:
+        the source binding (document, exact SceneRevision and content hash,
+        and the constraint workspace the run was issued under), the pinned
+        model identity, the canonical request (``parameters_json`` and the
+        exact ``input_hash`` committing to ``input_snapshot_json``), result
+        kind, geometry classification, status, assumptions/warnings and the
+        result-kind payload itself. Only non-semantic storage identities and
+        timestamps (``prediction_id``, ``run_id``, ``submitted_at_utc``,
+        ``completed_at_utc``) are excluded, so re-running the same model on
+        the same input yields the same ``result_sha256``.
+        """
+        return {
+            'result_identity_version': 1,
+            'document_id': self.document_id,
+            'scene_revision_id': self.scene_revision_id,
+            'scene_content_hash': self.scene_content_hash,
+            'constraint_workspace_hash': self.constraint_workspace_hash,
+            'model_id': self.model_id,
+            'model_version': self.model_version,
+            'result_kind': self.result_kind,
+            'geometry_compatibility': self.geometry_compatibility,
+            'parameters_json': self.parameters_json,
+            'input_hash': self.input_hash,
+            'status': self.status,
+            'assumptions': list(self.assumptions),
+            'warnings': list(self.warnings),
+            'modes': [item.model_dump(mode='json') for item in self.modes],
+            'reflections': [item.model_dump(mode='json') for item in self.reflections],
+        }
+
     @model_validator(mode='after')
     def valid_result(self) -> 'CadPredictionResult':
         for field_name, raw in (
@@ -140,4 +182,6 @@ class CadPredictionResult(BaseModel):
             raise ValueError('scalar_field payload is stored separately from geometry payloads')
         if self.geometry_compatibility == 'unsupported' and (self.modes or self.reflections):
             raise ValueError('unsupported model geometry must not publish prediction payloads')
+        if self.result_sha256 != prediction_result_sha256(self.result_identity_payload()):
+            raise ValueError('result_sha256 does not match the canonical result identity payload')
         return self
