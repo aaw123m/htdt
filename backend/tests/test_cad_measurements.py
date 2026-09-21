@@ -303,3 +303,44 @@ def test_job_guard_rejects_cancelled_superseded_and_stale_results(tmp_path: Path
     assert not guard.can_apply(third, stale_revision)
     assert not guard.can_apply(third, other_document)
     assert guard.can_apply(third, active_a)
+
+
+def test_job_guard_rejects_stale_constraint_workspace(tmp_path: Path) -> None:
+    _, revision = _saved_f1(tmp_path)
+    measurement = measurement_record_for_revision(
+        revision,
+        'point-mlp',
+        source_kind='rew_api',
+        external_source_id='rew-1',
+        imported_at='2026-09-17T09:30:00+00:00',
+    )
+    guard = MeasurementJobGuard()
+    token = guard.submit(
+        measurement,
+        external_source_id='rew-1',
+        query={'unit': 'SPL'},
+        constraint_workspace_hash='1' * 64,
+    )
+
+    matching = MeasurementJobApplyContext(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        constraint_workspace_hash='1' * 64,
+    )
+    stale_constraint = MeasurementJobApplyContext(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        constraint_workspace_hash='2' * 64,
+    )
+    unbound_context = MeasurementJobApplyContext(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+    )
+
+    assert guard.can_apply(token, matching)
+    assert not guard.can_apply(token, stale_constraint)
+    # A constraint-bound token must not apply where the workspace is unverified.
+    assert not guard.can_apply(token, unbound_context)

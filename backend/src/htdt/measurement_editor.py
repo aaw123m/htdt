@@ -37,6 +37,7 @@ from .cad_scene import (
     domain_to_render,
     scene_content_hash,
 )
+from .cad_search_models import constraint_workspace_snapshot
 from .comparison import FrequencyResponse, compare_frequency_responses
 from .constraint_editor import ConstraintEditorWindow
 from .ingress import read_file_bounded
@@ -540,6 +541,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             provisional,
             external_source_id=str(external_id),
             query={'unit': 'SPL', 'ppo': None, 'smoothing': None},
+            constraint_workspace_hash=self._constraint_workspace_hash(),
         )
         self._rew_tokens[token.job_id] = token
         evidence_type = (
@@ -625,7 +627,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             return
         context = self._current_job_apply_context()
         if context is None or not self.rew_job_guard.can_apply(token, context):
-            self.statusBar().showMessage('REW遅延結果は現在の配置へ適用しません · revision/documentが変更されています')
+            self.statusBar().showMessage('REW遅延結果は現在の配置へ適用しません · revision/document/制約が変更されています')
             return
         revision = self.repository.get(token.scene_revision_id)
         if revision is None:
@@ -654,6 +656,18 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self._rebuild()
         self.statusBar().showMessage(f'REW測定を保存しました · revision {record.scene_revision_id[:8]}')
 
+    def _constraint_workspace_hash(self) -> str | None:
+        """Digest of the constraint workspace a delayed REW read is bound to.
+
+        ``None`` means no constraint workspace is loaded, so the read stays
+        constraint-independent (matching PredictionJobGuard semantics).
+        """
+        constraint_set = getattr(self, 'constraint_set', None)
+        if constraint_set is None:
+            return None
+        _snapshot, digest = constraint_workspace_snapshot(constraint_set)
+        return digest
+
     def _current_job_apply_context(self) -> MeasurementJobApplyContext | None:
         if self.working is None or self.working.source_revision_id is None:
             return None
@@ -661,6 +675,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             document_id=self.document_id,
             scene_revision_id=self.working.source_revision_id,
             scene_content_hash=scene_content_hash(self.working.committed_document),
+            constraint_workspace_hash=self._constraint_workspace_hash(),
         )
 
     def _rew_task_finished(self, key: str) -> None:
