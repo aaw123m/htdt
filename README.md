@@ -187,6 +187,7 @@ native stable releaseのcorrectnessはfrontend buildへ依存しません。
 | [IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | **実装順・milestone・受入条件の正本** |
 | [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) | main / branch / accepted gate / 未検証の実装事実 |
 | [N90_ACCEPTANCE_2026-09-18.md](docs/N90_ACCEPTANCE_2026-09-18.md) | stable 0.1.0 / A15 Windows受入 |
+| [RELEASING.md](docs/RELEASING.md) | canonical version source, build identity, release manifest |
 | [CAD_EDITOR_SPEC.md](docs/CAD_EDITOR_SPEC.md) | Scene、操作、保存、座標、wall/opening、非同期契約 |
 | [CAD_EDITOR_ACCEPTANCE.md](docs/CAD_EDITOR_ACCEPTANCE.md) | fixture、DPI/性能、A01〜A15 |
 | [UI_DESIGN.md](docs/UI_DESIGN.md) | native CADの画面・mouse/keyboard設計 |

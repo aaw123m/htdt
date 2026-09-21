@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "home-theater-digital-twin"
-version = "0.1.0"
+# The package version is derived from htdt.__version__ (see
+# src/htdt/__init__.py), which is the single canonical version source.
+dynamic = ["version"]
 description = "Local measurement and configuration workspace for a home theater digital twin"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -30,6 +32,12 @@ dev = [
 package = [
   "pyinstaller==6.22.3",
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {attr = "htdt.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
