@@ -141,8 +141,19 @@ class NativeDiagnostics:
     def log_session_start(self, mode: str) -> None:
         self.logger.info('htdt session start: mode=%s %s', mode, self.identity.describe())
 
-    def log_lock_contention(self) -> None:
-        self.logger.warning('data directory is already in use by another process: %s', self.data_dir)
+    def log_lock_contention(self, holder: dict[str, object] | None = None) -> None:
+        detail = ''
+        if holder:
+            detail = ' (holder: pid=%s host=%s acquired_at=%s)' % (
+                holder.get('pid'),
+                holder.get('host'),
+                holder.get('acquired_at'),
+            )
+        self.logger.warning(
+            'data directory is already in use by another process: %s%s',
+            self.data_dir,
+            detail,
+        )
 
     def log_startup_failure(self, exc: BaseException) -> None:
         self.logger.critical(

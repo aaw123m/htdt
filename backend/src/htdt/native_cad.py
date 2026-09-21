@@ -27,7 +27,7 @@ from .native_diagnostics import (
 from .native_editor import default_data_dir
 from .optimization_workspace import OptimizationWorkspaceWindow
 from .prediction_workspace import PredictionWorkspaceWindow
-from .runtime_instance import SingleInstanceGuard
+from .runtime_instance import SingleInstanceGuard, read_lock_metadata
 from .theater_workflow import TheaterWorkflowWindow
 from .ui_theme import apply_dark_theme
 from .workflow_application import build_workflow_application
@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
 
     guard = SingleInstanceGuard(args.data_dir)
     if not guard.acquire():
-        diagnostics.log_lock_contention()
+        diagnostics.log_lock_contention(read_lock_metadata(args.data_dir))
         write_stderr(
             "HTDT data directory is already in use by another process: "
             f"{args.data_dir}"
