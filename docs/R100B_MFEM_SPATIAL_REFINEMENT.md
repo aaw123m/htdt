@@ -64,3 +64,15 @@ An experiment PASS is not production adoption. `production_solver_selected=false
 ## Evidence status
 
 Authoritative numerical evidence is produced only by `.github/workflows/r100b-mfem-spatial-refinement.yml`. The final run id, artifact id/digest, refinement metrics, resources, readiness before/after, and final decision are appended after the successful authoritative workflow completes.
+
+## Authoritative result
+
+The authoritative GitHub Actions run was `35546506102` (job `106173302135`) at implementation head `fae8fbc5647cdae0f9fe6a3192d2c61e6968f95a`. Artifact `10616154340` has digest `sha256:faab6d2d373c348f0a279faa1f50e433ad0d0353614720f4fde73e99c56ee644`; deterministic report identity is `580a1e6a1bcc227ad960b6a54bc982f7b306757a0058f193ba17be20216a3690`.
+
+All three predeclared numerical levels completed without retry: h0 = 1 element / 27 DOFs, h1 = 8 / 125, h2 = 64 / 729. Mass/stiffness nnz are 729 / 729, 4913 / 4913, and 35937 / 35937. Every level executed exactly 95996 internal GL2 steps. Total solve times were 2.2196305 s, 7.5214398 s, and 77.3274416 s; peak RSS was 77.890625 MiB, 79.890625 MiB, and 96.1796875 MiB. Maximum checked internal-step residuals remained below 4.4e-15.
+
+Adjacent complex RMS changed from h0→h1 = 634.3778133296515 absolute / 1.1124181783263547 relative to h1→h2 = 2051.501589723451 / 1.0371906979821301. Against the finest h2 representation, h0 error is 1997.3399296377147 / 1.009807843243144 and h1 error is 2051.501589723451 / 1.0371906979821295, so current R100A monotonic convergence fails. The final h1→h2 values also exceed the current R100A 0.02 absolute / 0.02 relative tolerance by orders of magnitude.
+
+Resource evidence is fail-closed. The three numerical solves themselves remain within the predeclared 300 s per-refinement ceiling, but the full pinned MFEM candidate build took 878.4277483 s versus the current R100A compile budget; therefore resource suitability is BLOCKED. This does not erase the separate numerical FAIL evidence.
+
+Decision separation: workflow execution PASS; spatial numerical convergence FAIL; current R100A fixture tolerance FAIL; resource suitability BLOCKED; typed evidence admissibility PASS; candidate-wide readiness NO_GO before and after; production solver selection false; overall experiment outcome FAIL. The exact current-authority record is persisted in `benchmarks/acoustics/evidence/r100b_mfem_spatial_refinement_2026-09-21.json` and in the production-adoption evidence ledger.
