@@ -63,7 +63,7 @@ class SearchReadSource(Protocol):
 
 
 class ValidationReadSource(Protocol):
-    def list_for_search_spec(
+    def inspect_for_search_spec(
         self,
         search_spec_id: str,
     ) -> tuple[CadModelValidationRecord, ...]: ...
@@ -379,7 +379,13 @@ class OverviewReadinessService:
         )
         if not specs:
             return None
-        records = self._validation_source.list_for_search_spec(specs[-1].search_spec_id)
+        # Advisory display only: stale history must stay browsable, so the
+        # readiness overview uses the non-authoritative inspect view. Any
+        # production authorization still goes through the repository's
+        # re-attesting reads and fails closed on stale evidence.
+        records = self._validation_source.inspect_for_search_spec(
+            specs[-1].search_spec_id
+        )
         return records[-1] if records else None
 
     @staticmethod

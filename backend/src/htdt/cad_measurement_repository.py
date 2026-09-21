@@ -633,6 +633,36 @@ class CadMeasurementRepository:
             )
         return raw
 
+    def verify_measurement_asset_authority(self, measurement_id: str) -> None:
+        """Re-verify the file-backed raw asset bound to *measurement_id*.
+
+        Authoritative production reads must not trust the measurement row
+        alone: the bound dataset row is re-attested (semantic hash,
+        transformation seal and pinned importer replay over the
+        content-addressed raw bytes), then the raw-asset registry entry is
+        checked for presence and exact size against the verified bytes. A
+        missing or corrupt asset fails closed.
+        """
+        dataset = self.dataset_for_measurement(measurement_id)
+        if dataset is None:
+            raise ValueError(
+                'measurement has no bound frequency-response dataset: '
+                f'{measurement_id}'
+            )
+        digest = dataset.source_sha256
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT size_bytes FROM cad_measurement_assets WHERE sha256=?',
+                (digest,),
+            ).fetchone()
+        if row is None:
+            raise ValueError('measurement raw asset registry entry is missing')
+        raw = self._verified_raw_asset(digest)
+        if len(raw) != int(row['size_bytes']):
+            raise ValueError(
+                'measurement raw asset size does not match its registry entry'
+            )
+
     def _row_to_dataset(self, row: sqlite3.Row) -> CadFrequencyResponseDataset:
         """Authoritative read: re-verify the persisted import-transformation binding.
 

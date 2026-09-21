@@ -12,6 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'backend' / 'src'))
 
+from htdt.cad_model_validation_repository import CadModelValidationIntegrityError
 from htdt.rew_api import RewApiClient, RewApiError
 
 from audit_o60_owned_room import DATABASE_NAME, _build_repositories, _readonly_snapshot
@@ -66,12 +67,21 @@ def inventory(data_dir: Path) -> dict[str, object]:
                 continue
             registration = campaign_repository.get_registration(campaign_id)
             readiness = campaign_service.readiness(campaign_id)
-            validations = validation_repository.list_for_search_spec(
+            # Read-only inventory: payload fields come from the
+            # non-authoritative history view so stale records stay
+            # inspectable; a stale current O70 entry is reported, not
+            # silently hidden.
+            validations = validation_repository.inspect_for_search_spec(
                 campaign.search_spec_id
             )
-            current_eligible = validation_repository.latest_eligible_for_search_spec(
-                campaign.search_spec_id
-            )
+            stale_o70_entry: str | None = None
+            try:
+                current_eligible = validation_repository.latest_eligible_for_search_spec(
+                    campaign.search_spec_id
+                )
+            except CadModelValidationIntegrityError as exc:
+                current_eligible = None
+                stale_o70_entry = f'{exc.validation_id}: {exc}'
             campaigns.append({
                 'campaign_id': campaign.campaign_id,
                 'campaign_sha256': campaign.campaign_sha256,
@@ -119,6 +129,7 @@ def inventory(data_dir: Path) -> dict[str, object]:
                     or current_eligible.campaign_id != campaign.campaign_id
                     else current_eligible.validation_id
                 ),
+                'stale_o70_entry': stale_o70_entry,
             })
         report['campaigns'] = campaigns
     return report

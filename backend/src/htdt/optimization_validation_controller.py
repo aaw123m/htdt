@@ -575,7 +575,7 @@ class ValidationControllerMixin:
         if spec_id is None:
             return
         try:
-            records = self.validation_repository.list_for_search_spec(spec_id)
+            records = self.validation_repository.inspect_for_search_spec(spec_id)
         except Exception as exc:
             self.statusBar().showMessage(f'検証結果を読み込めません · {exc}')
             return
@@ -609,7 +609,7 @@ class ValidationControllerMixin:
         if not isinstance(validation_id, str):
             label.setText('検証結果が未選択です')
             return
-        record = self.validation_repository.get(validation_id)
+        record = self.validation_repository.inspect(validation_id)
         if record is None:
             label.setText('検証結果が見つかりません')
             return

@@ -403,6 +403,85 @@ def test_missing_raw_asset_fails_closed_on_read(tmp_path: Path) -> None:
         repository.get_dataset(dataset.dataset_id)
 
 
+def test_verify_measurement_asset_authority_accepts_intact_asset(
+    tmp_path: Path,
+) -> None:
+    revision, repository = _repositories(tmp_path)
+    record, dataset, filename, raw = _rew_text_evidence(revision)
+    repository.save(record, dataset, raw_filename=filename, raw_bytes=raw)
+
+    repository.verify_measurement_asset_authority(record.measurement_id)
+
+
+def test_verify_measurement_asset_authority_fails_closed_on_missing_asset(
+    tmp_path: Path,
+) -> None:
+    revision, repository = _repositories(tmp_path)
+    record, dataset, filename, raw = _rew_text_evidence(revision)
+    repository.save(record, dataset, raw_filename=filename, raw_bytes=raw)
+
+    (repository.assets_dir / dataset.source_sha256).unlink()
+
+    with pytest.raises(ValueError, match='unavailable for dataset verification'):
+        repository.verify_measurement_asset_authority(record.measurement_id)
+
+
+def test_verify_measurement_asset_authority_fails_closed_on_corrupt_asset(
+    tmp_path: Path,
+) -> None:
+    revision, repository = _repositories(tmp_path)
+    record, dataset, filename, raw = _rew_text_evidence(revision)
+    repository.save(record, dataset, raw_filename=filename, raw_bytes=raw)
+
+    (repository.assets_dir / dataset.source_sha256).write_bytes(b'corrupt')
+
+    with pytest.raises(ValueError, match='content does not match its content address'):
+        repository.verify_measurement_asset_authority(record.measurement_id)
+
+
+def test_verify_measurement_asset_authority_fails_closed_on_size_drift(
+    tmp_path: Path,
+) -> None:
+    revision, repository = _repositories(tmp_path)
+    record, dataset, filename, raw = _rew_text_evidence(revision)
+    repository.save(record, dataset, raw_filename=filename, raw_bytes=raw)
+
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            'UPDATE cad_measurement_assets SET size_bytes=size_bytes+1 WHERE sha256=?',
+            (dataset.source_sha256,),
+        )
+
+    with pytest.raises(ValueError, match='size does not match its registry entry'):
+        repository.verify_measurement_asset_authority(record.measurement_id)
+
+
+def test_verify_measurement_asset_authority_fails_closed_on_missing_registry_row(
+    tmp_path: Path,
+) -> None:
+    revision, repository = _repositories(tmp_path)
+    record, dataset, filename, raw = _rew_text_evidence(revision)
+    repository.save(record, dataset, raw_filename=filename, raw_bytes=raw)
+
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_measurement_assets WHERE sha256=?',
+            (dataset.source_sha256,),
+        )
+
+    with pytest.raises(ValueError, match='registry entry is missing'):
+        repository.verify_measurement_asset_authority(record.measurement_id)
+
+
+def test_verify_measurement_asset_authority_fails_closed_on_unknown_measurement(
+    tmp_path: Path,
+) -> None:
+    _revision, repository = _repositories(tmp_path)
+
+    with pytest.raises(ValueError, match='no bound frequency-response dataset'):
+        repository.verify_measurement_asset_authority('unknown-measurement')
+
+
 def test_pre_binding_row_without_persisted_identity_is_non_authoritative(
     tmp_path: Path,
 ) -> None:

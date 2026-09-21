@@ -162,9 +162,14 @@ def audit(
             )
 
         readiness = campaign_service.readiness(campaign_id)
+        # The listing is payload-only campaign filtering, so it uses the
+        # non-authoritative history view: a stale record from another
+        # campaign must not abort this audit. The selected record is always
+        # re-attested below — either by latest_eligible_for_search_spec or
+        # by the save/get replay on the snapshot.
         validations = tuple(
             record
-            for record in validation_repository.list_for_search_spec(
+            for record in validation_repository.inspect_for_search_spec(
                 campaign.search_spec_id
             )
             if record.campaign_id == campaign_id
@@ -269,6 +274,11 @@ def audit(
             'recommendation_gate': record.recommendation_gate,
             'gate_reasons': list(record.gate_reasons),
             'audit_gate_reasons': list(gate_reasons),
+            # Native integrity scan over every persisted O60 record in the
+            # SearchSpec through the shared _validate_record authority path.
+            'integrity_problems': validation_repository.integrity_problems(
+                campaign.search_spec_id
+            ),
             'source_database_readonly': True,
             'full_save_authority_replayed_on_snapshot': True,
             'passed': passed,
