@@ -9,6 +9,7 @@ from .cad_document import EditStateError, WorkingDocument
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import Position3, SceneDocument, scene_content_hash
 from .cad_search_models import (
+    CAD_SEARCH_SCHEMA_VERSION,
     CadCandidate,
     CadCandidateSetPage,
     CadSearchAxis,
@@ -84,18 +85,8 @@ def build_cad_search_spec(
         constraint_set_spec_sha256=engine_sha,
     )
     ordered_axes = tuple(CadSearchAxis.model_validate(item) for item in o10_spec['axes'])
-    identity = {
-        'schema_version': 1,
-        'document_id': revision.document_id,
-        'scene_revision_id': revision.revision_id,
-        'scene_content_hash': revision.content_hash,
-        'constraint_workspace_hash': constraint_workspace_hash,
-        'algorithm': 'deterministic_grid',
-        'algorithm_version': 'search-space-grid-1',
-        'axes': [item.model_dump(mode='json') for item in ordered_axes],
-        'candidate_limit': candidate_limit,
-    }
-    spec = CadSearchSpec(
+    provisional = CadSearchSpec.model_construct(
+        schema_version=CAD_SEARCH_SCHEMA_VERSION,
         search_spec_id=new_search_spec_id(),
         document_id=revision.document_id,
         scene_revision_id=revision.revision_id,
@@ -107,11 +98,100 @@ def build_cad_search_spec(
         axes=ordered_axes,
         candidate_limit=candidate_limit,
         o10_spec_json=canonical_search_json(o10_spec),
-        search_spec_sha256=canonical_search_sha256(identity),
+        search_spec_sha256='0' * 64,
         name=name.strip() if name and name.strip() else None,
         created_at_utc=search_timestamp_utc(),
     )
+    spec = CadSearchSpec(
+        **provisional.model_dump(exclude={'search_spec_sha256'}),
+        search_spec_sha256=canonical_search_sha256(provisional.identity_payload()),
+    )
     return spec, estimate
+
+
+def require_search_spec_authority(
+    revision: SceneRevision,
+    spec: CadSearchSpec,
+) -> tuple[dict, dict]:
+    """Replay the pinned SearchSpec compiler over declared native authority.
+
+    The model validator alone cannot prove that the executable payloads are
+    the canonical compilation of the spec's scene/constraint authority: a
+    coherently rehashed row with altered ``o10_spec_json`` or
+    ``constraint_engine_spec_json`` still validates. This shared validator
+    resolves the exact SceneRevision binding, rechecks the constraint
+    snapshot hash, then recompiles the G10 constraint-engine spec and the
+    O10 search spec from the declared inputs and requires byte-exact
+    canonical equality. It returns the replayed ``(engine_spec, o10_spec)``
+    so callers execute the canonical payloads instead of trusting stored
+    JSON. Used identically on save, on every authoritative repository read,
+    and before candidate generation.
+    """
+
+    if revision.document_id != spec.document_id:
+        raise ValueError('SearchSpec source revision belongs to another document')
+    if revision.revision_id != spec.scene_revision_id:
+        raise ValueError('SearchSpec source revision id mismatch')
+    if revision.content_hash != spec.scene_content_hash:
+        raise ValueError('SearchSpec source content hash mismatch')
+
+    constraint_snapshot = CadConstraintSet.model_validate(
+        json.loads(spec.constraint_snapshot_json)
+    )
+    _, snapshot_hash = constraint_workspace_snapshot(constraint_snapshot)
+    if snapshot_hash != spec.constraint_workspace_hash:
+        raise ValueError('SearchSpec constraint snapshot hash mismatch')
+    if constraint_snapshot.document_id != spec.document_id:
+        raise ValueError('SearchSpec constraint snapshot belongs to another document')
+
+    engine_spec, engine_sha = _constraint_engine_spec(
+        revision,
+        constraint_snapshot,
+        (axis.entity_id for axis in spec.axes),
+    )
+    if canonical_search_json(engine_spec) != spec.constraint_engine_spec_json:
+        raise ValueError(
+            'SearchSpec constraint engine spec is not the canonical '
+            'compilation of its declared authority'
+        )
+    if engine_sha != spec.constraint_engine_spec_sha256:
+        raise ValueError(
+            'SearchSpec constraint engine spec hash is not the canonical '
+            'compilation of its declared authority'
+        )
+
+    synthetic_constraint_id = f'cad-constraints:{spec.constraint_workspace_hash[:20]}'
+    context = scene_to_g10_context(revision.document)
+    request = SearchSpecCreate(
+        constraint_set_id=synthetic_constraint_id,
+        axes=[
+            GridAxis.model_validate(item.model_dump(mode='json'))
+            for item in spec.axes
+        ],
+        candidate_limit=spec.candidate_limit,
+    )
+    o10_spec, _estimate = validate_search_spec(
+        request,
+        context,
+        context_id=f'cad-revision:{revision.revision_id}',
+        constraint_set_id=synthetic_constraint_id,
+        constraint_set_spec=engine_spec,
+        constraint_set_spec_sha256=engine_sha,
+    )
+    if canonical_search_json(o10_spec) != spec.o10_spec_json:
+        raise ValueError(
+            'SearchSpec o10 spec is not the canonical compilation of its '
+            'declared authority'
+        )
+    ordered_axes = tuple(
+        CadSearchAxis.model_validate(item) for item in o10_spec['axes']
+    )
+    if ordered_axes != spec.axes:
+        raise ValueError(
+            'SearchSpec axes are not the canonical compilation of its '
+            'declared authority'
+        )
+    return engine_spec, o10_spec
 
 
 def generate_cad_candidates(
@@ -125,23 +205,12 @@ def generate_cad_candidates(
     source = scene_repository.get(spec.scene_revision_id)
     if source is None:
         raise ValueError('SearchSpec source revision no longer exists')
-    if source.document_id != spec.document_id:
-        raise ValueError('SearchSpec source revision belongs to another document')
-    if source.content_hash != spec.scene_content_hash:
-        raise ValueError('SearchSpec source content hash mismatch')
-
-    constraint_snapshot = CadConstraintSet.model_validate(json.loads(spec.constraint_snapshot_json))
-    _, snapshot_hash = constraint_workspace_snapshot(constraint_snapshot)
-    if snapshot_hash != spec.constraint_workspace_hash:
-        raise ValueError('SearchSpec constraint snapshot hash mismatch')
-    if constraint_snapshot.document_id != spec.document_id:
-        raise ValueError('SearchSpec constraint snapshot belongs to another document')
+    engine_spec, o10_spec = require_search_spec_authority(source, spec)
 
     context = scene_to_g10_context(source.document)
-    engine_spec = json.loads(spec.constraint_engine_spec_json)
     raw = generate_search_space(
         context,
-        json.loads(spec.o10_spec_json),
+        o10_spec,
         search_spec_sha256=spec.search_spec_sha256,
         constraint_set_spec=engine_spec,
         constraint_set_spec_sha256=spec.constraint_engine_spec_sha256,

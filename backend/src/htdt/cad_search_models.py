@@ -12,7 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_constraint_models import CadConstraintSet
 
 
-CAD_SEARCH_SCHEMA_VERSION = 1
+# Schema v2 binds the executable O10/constraint-engine payloads into
+# search_spec_sha256; persisted v1 specs are a prior schema version and fail
+# closed on read instead of silently reinterpreting their hashes.
+CAD_SEARCH_SCHEMA_VERSION = 2
 CAD_SEARCH_ALGORITHM_VERSION = 'search-space-grid-1'
 
 
@@ -52,7 +55,7 @@ class CadSearchAxis(BaseModel):
 class CadSearchSpec(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal[1] = CAD_SEARCH_SCHEMA_VERSION
+    schema_version: Literal[2] = CAD_SEARCH_SCHEMA_VERSION
     search_spec_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     scene_revision_id: str = Field(min_length=1)
@@ -75,6 +78,13 @@ class CadSearchSpec(BaseModel):
         axis_keys = [(item.entity_id, item.axis) for item in self.axes]
         if len(axis_keys) != len(set(axis_keys)):
             raise ValueError('search axes must be unique by entity_id + axis')
+        for label, payload_json in (
+            ('constraint snapshot', self.constraint_snapshot_json),
+            ('constraint engine spec', self.constraint_engine_spec_json),
+            ('o10 spec', self.o10_spec_json),
+        ):
+            if canonical_search_json(json.loads(payload_json)) != payload_json:
+                raise ValueError(f'{label} must be canonical JSON')
         if canonical_search_sha256(json.loads(self.constraint_snapshot_json)) != self.constraint_workspace_hash:
             raise ValueError('constraint workspace hash mismatch')
         if canonical_search_sha256(json.loads(self.constraint_engine_spec_json)) != self.constraint_engine_spec_sha256:
@@ -90,6 +100,8 @@ class CadSearchSpec(BaseModel):
             'scene_revision_id': self.scene_revision_id,
             'scene_content_hash': self.scene_content_hash,
             'constraint_workspace_hash': self.constraint_workspace_hash,
+            'constraint_engine_spec_sha256': self.constraint_engine_spec_sha256,
+            'o10_spec': json.loads(self.o10_spec_json),
             'algorithm': self.algorithm,
             'algorithm_version': self.algorithm_version,
             'axes': [item.model_dump(mode='json') for item in self.axes],

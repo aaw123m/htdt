@@ -23,6 +23,7 @@ from htdt.cad_scene import (
     make_polygon_room,
 )
 from htdt.cad_search_models import (
+    CAD_SEARCH_SCHEMA_VERSION,
     CadCandidate,
     CadSearchAxis,
     CadSearchSpec,
@@ -82,18 +83,8 @@ def _spec(revision) -> CadSearchSpec:
         max_m=12.0,
         step_m=0.5,
     )
-    identity = {
-        'schema_version': 1,
-        'document_id': revision.document_id,
-        'scene_revision_id': revision.revision_id,
-        'scene_content_hash': revision.content_hash,
-        'constraint_workspace_hash': snapshot_hash,
-        'algorithm': 'deterministic_grid',
-        'algorithm_version': 'search-space-grid-1',
-        'axes': [axis.model_dump(mode='json')],
-        'candidate_limit': 10,
-    }
-    return CadSearchSpec(
+    provisional = CadSearchSpec.model_construct(
+        schema_version=CAD_SEARCH_SCHEMA_VERSION,
         search_spec_id='roomsim-search',
         document_id=revision.document_id,
         scene_revision_id=revision.revision_id,
@@ -105,8 +96,12 @@ def _spec(revision) -> CadSearchSpec:
         axes=(axis,),
         candidate_limit=10,
         o10_spec_json='{}',
-        search_spec_sha256=canonical_search_sha256(identity),
+        search_spec_sha256='0' * 64,
         created_at_utc='2026-09-18T00:00:00+00:00',
+    )
+    return CadSearchSpec(
+        **provisional.model_dump(exclude={'search_spec_sha256'}),
+        search_spec_sha256=canonical_search_sha256(provisional.identity_payload()),
     )
 
 
