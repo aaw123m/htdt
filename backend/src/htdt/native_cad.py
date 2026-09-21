@@ -7,7 +7,7 @@ import sys
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from . import __version__
+from .build_info import version_string
 from .cad_composition import CadEditorWindow
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
@@ -77,6 +77,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
     try:
         app = QApplication([sys.argv[0]])
+        app.setApplicationVersion(version_string())
         icon_path = _packaged_application_icon()
         if icon_path is not None:
             app.setWindowIcon(QIcon(str(icon_path)))
@@ -132,7 +133,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="seed an explicitly synthetic O10-O80 development demo and exit",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    # Reports the display version ("<version>+g<sha>[.dirty]") so a packaged
+    # binary identifies the exact source build it was produced from. This is
+    # the same version recorded in installer AppVersion and backup manifests.
+    parser.add_argument("--version", action="version", version=f"%(prog)s {version_string()}")
     args = parser.parse_args(argv)
 
     if args.backup is not None:

@@ -7,6 +7,7 @@ on:
       - "backend/**"
       - "scripts/build-native.ps1"
       - "scripts/build-installer.ps1"
+      - "scripts/Get-HtdtVersion.ps1"
       - "scripts/native_entry.py"
       - "scripts/prepare_branding_assets.py"
       - "scripts/validate_backup_pc_migration_windows.py"
@@ -133,6 +134,54 @@ jobs:
             -PackageDir "$env:RUNNER_TEMP\htdt-package\HTDT" `
             -OutputDir "$env:RUNNER_TEMP\htdt-installer"
 
+      - name: Verify release identity
+        shell: pwsh
+        run: |
+          # Canonical application version (single source: htdt.__version__).
+          $canonical = & .\scripts\Get-HtdtVersion.ps1
+
+          # The packaged executable reports its version from this manifest
+          # (bundled via --add-data htdt_build), so it is the exe's own
+          # reported identity even though the windowed exe emits no stdout.
+          $buildInfoPath = Join-Path $env:RUNNER_TEMP "htdt-package\HTDT\_internal\htdt_build\build_info.json"
+          if (-not (Test-Path $buildInfoPath)) {
+            throw "Packaged build info missing: $buildInfoPath"
+          }
+          $buildInfo = Get-Content $buildInfoPath -Raw | ConvertFrom-Json
+          if ($buildInfo.version -ne $canonical) {
+            throw "Packaged version '$($buildInfo.version)' diverges from canonical htdt.__version__ '$canonical'"
+          }
+          $headSha = (& git rev-parse HEAD).Trim()
+          if ($buildInfo.commit_sha -ne $headSha) {
+            throw "Packaged commit '$($buildInfo.commit_sha)' does not match checked-out source '$headSha'"
+          }
+
+          $expectedDisplay = "$canonical+g$($buildInfo.commit_sha.Substring(0, 8))"
+          if ($buildInfo.dirty) { $expectedDisplay = "$expectedDisplay.dirty" }
+          $installer = Get-ChildItem "$env:RUNNER_TEMP\htdt-installer\HTDT-Setup-*.exe" |
+            Select-Object -First 1
+          if (-not $installer) { throw "Installer artifact missing" }
+          if ($installer.Name -ne "HTDT-Setup-$expectedDisplay.exe") {
+            throw "Installer '$($installer.Name)' does not match executable-reported version '$expectedDisplay'"
+          }
+
+          $manifestPath = Join-Path $env:RUNNER_TEMP "htdt-installer\HTDT-Setup-$expectedDisplay.manifest.json"
+          if (-not (Test-Path $manifestPath)) { throw "Release manifest missing: $manifestPath" }
+          $release = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          if ($release.application_version -ne $canonical -or
+              $release.display_version -ne $expectedDisplay -or
+              $release.commit_sha -ne $headSha) {
+            throw "Release manifest identity does not match the packaged build"
+          }
+          $installerHash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($release.installer.sha256 -ne $installerHash) {
+            throw "Release manifest installer SHA-256 mismatch"
+          }
+          $lockHash = (Get-FileHash "backend\requirements-n05-windows.lock" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($release.lock_file.sha256 -ne $lockHash) {
+            throw "Release manifest lock-file SHA-256 mismatch"
+          }
+
       - name: Smoke install and uninstall without deleting user data
         shell: pwsh
         run: |
@@ -192,5 +241,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HTDT-windows-installer
-          path: ${{ runner.temp }}\htdt-installer\HTDT-Setup-*.exe
+          path: |
+            ${{ runner.temp }}\htdt-installer\HTDT-Setup-*.exe
+            ${{ runner.temp }}\htdt-installer\HTDT-Setup-*.manifest.json
           if-no-files-found: error

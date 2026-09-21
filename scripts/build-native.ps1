@@ -41,6 +41,41 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "HTDT package install failed with exit code $LASTEXITCODE"
     }
+
+    # Embed the exact build/source identity in the package so the packaged
+    # executable, the installer and backup manifests all report the same
+    # display version ("<version>+g<sha8>[.dirty]"). The canonical version is
+    # htdt.__version__; the commit SHA comes from the checked-out source.
+    $AppVersion = & (Join-Path $PSScriptRoot "Get-HtdtVersion.ps1")
+    $CommitSha = ""
+    $Dirty = $false
+    if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $RepoRoot ".git"))) {
+        $CommitSha = & git -C $RepoRoot rev-parse HEAD 2>$null | Select-Object -First 1
+        if ($LASTEXITCODE -ne 0) {
+            $CommitSha = ""
+        }
+        if ($CommitSha) {
+            $Status = & git -C $RepoRoot status --porcelain 2>$null
+            $Dirty = ($LASTEXITCODE -eq 0) -and [bool]$Status
+        }
+    }
+    if (-not $CommitSha -and $env:GITHUB_SHA) {
+        $CommitSha = $env:GITHUB_SHA
+    }
+    $LockSha256 = (Get-FileHash -Algorithm SHA256 $LockFile).Hash.ToLowerInvariant()
+    $BuildInfoDir = Join-Path $WorkRoot "build-info"
+    New-Item -ItemType Directory -Force -Path $BuildInfoDir | Out-Null
+    $BuildInfoFile = Join-Path $BuildInfoDir "build_info.json"
+    [ordered]@{
+        version          = $AppVersion
+        commit_sha       = $(if ($CommitSha) { $CommitSha } else { $null })
+        build_id         = $(if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { $null })
+        dirty            = $Dirty
+        source           = "packaged"
+        lock_sha256      = $LockSha256
+        generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
+    } | ConvertTo-Json | Set-Content -Path $BuildInfoFile -Encoding utf8
+
     & $Python -m PyInstaller `
         --noconfirm `
         --clean `
@@ -49,6 +84,7 @@ try {
         --name HTDT `
         --icon $ExecutableIcon `
         --add-data "$RuntimeIcon;htdt_branding" `
+        --add-data "$BuildInfoFile;htdt_build" `
         --paths "$RepoRoot\backend\src" `
         --collect-all pyvista `
         --collect-all pyvistaqt `

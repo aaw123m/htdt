@@ -17,6 +17,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import __version__
+from .build_info import get_build_info
 from .cad_schema import NativeSchemaError, check_native_schema_compatibility
 from .limits import (
     MAX_NATIVE_BACKUP_ARCHIVE_BYTES,
@@ -68,6 +69,18 @@ class BackupFileEntry(BaseModel):
     sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 
+class BackupBuildInfo(BaseModel):
+    """Provenance of the application build that produced a backup."""
+
+    model_config = ConfigDict(frozen=True)
+
+    display_version: str = Field(min_length=1)
+    commit_sha: str | None = None
+    build_id: str | None = None
+    dirty: bool = False
+    source: str = Field(min_length=1)
+
+
 class BackupManifest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -76,6 +89,9 @@ class BackupManifest(BaseModel):
     created_at_utc: str = Field(min_length=1)
     files: tuple[BackupFileEntry, ...] = Field(min_length=1)
     manifest_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    # Optional so schema-1 backups written before build provenance existed
+    # still validate; it is folded into the identity hash only when present.
+    build: BackupBuildInfo | None = None
 
     @model_validator(mode='after')
     def valid_manifest(self) -> 'BackupManifest':
@@ -92,12 +108,15 @@ class BackupManifest(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'schema_version': self.schema_version,
             'application_version': self.application_version,
             'created_at_utc': self.created_at_utc,
             'files': [entry.model_dump(mode='json') for entry in self.files],
         }
+        if self.build is not None:
+            payload['build'] = self.build.model_dump(mode='json', exclude_none=True)
+        return payload
 
 
 def _manifest_hash(payload: dict[str, Any]) -> str:
@@ -303,11 +322,20 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
             size_bytes=size_bytes,
             sha256=digest,
         ))
+    info = get_build_info()
+    build = BackupBuildInfo(
+        display_version=info.display_version,
+        commit_sha=info.commit_sha,
+        build_id=info.build_id,
+        dirty=info.dirty,
+        source=info.source,
+    )
     payload = {
         'schema_version': BACKUP_SCHEMA_VERSION,
         'application_version': __version__,
         'created_at_utc': _utc_now(),
         'files': [entry.model_dump(mode='json') for entry in entries],
+        'build': build.model_dump(mode='json', exclude_none=True),
     }
     return BackupManifest(
         **payload,

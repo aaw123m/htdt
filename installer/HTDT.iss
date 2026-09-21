@@ -1,5 +1,8 @@
+// AppVersion is normally passed by scripts/build-installer.ps1 as the display
+// version "<canonical>+g<sha8>[.dirty]"; this fallback tracks the canonical
+// version in backend/src/htdt/__init__.py for direct ISCC invocations.
 #ifndef AppVersion
-  #define AppVersion "0.1.0.dev0"
+  #define AppVersion "0.2.0.dev0"
 #endif
 
 #ifndef SourceDir
