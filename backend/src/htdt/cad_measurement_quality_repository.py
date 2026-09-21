@@ -4,12 +4,13 @@ from contextlib import closing
 from pathlib import Path
 import sqlite3
 
+from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_quality import (
     CadMeasurementLineageRecord,
     CadMeasurementQualityReport,
-    build_measurement_quality_report,
     dataset_sha256,
     measurement_sha256,
+    replay_measurement_quality_report,
 )
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_schema import check_native_schema_compatibility
@@ -69,7 +70,10 @@ class CadMeasurementQualityRepository:
                 '''
             )
 
-    def _validate_report_bindings(self, report: CadMeasurementQualityReport) -> None:
+    def _validate_report_bindings(
+        self,
+        report: CadMeasurementQualityReport,
+    ) -> tuple[CadMeasurementRecord, CadFrequencyResponseDataset]:
         measurement = self.measurement_repository.get_measurement(report.measurement_id)
         if measurement is None:
             raise ValueError(f'quality report references unknown measurement: {report.measurement_id}')
@@ -108,17 +112,14 @@ class CadMeasurementQualityRepository:
                 or repeat.radiation_scope != measurement.radiation_scope
             ):
                 raise ValueError('repeatability measurement binding mismatch')
+        return measurement, dataset
 
     def _validate_current_report(self, report: CadMeasurementQualityReport) -> None:
-        self._validate_report_bindings(report)
-        rebuilt = build_measurement_quality_report(
-            measurement=self.measurement_repository.get_measurement(report.measurement_id),
-            dataset=self.measurement_repository.get_dataset(report.dataset_id),
-            evidence=report.evidence,
-            profile=report.profile,
-            acquisition_context=report.acquisition_context,
-            report_id=report.report_id,
-            created_at_utc=report.created_at_utc,
+        measurement, dataset = self._validate_report_bindings(report)
+        rebuilt = replay_measurement_quality_report(
+            report,
+            measurement=measurement,
+            dataset=dataset,
         )
         if rebuilt != report:
             raise ValueError('quality report does not match canonical quality algorithm output')
@@ -161,7 +162,7 @@ class CadMeasurementQualityRepository:
         if row is None:
             return None
         report = CadMeasurementQualityReport.model_validate_json(row['payload_json'])
-        self._validate_report_bindings(report)
+        self._validate_current_report(report)
         return report
 
     def list_reports(self, measurement_id: str) -> tuple[CadMeasurementQualityReport, ...]:
@@ -181,7 +182,7 @@ class CadMeasurementQualityRepository:
             for row in rows
         )
         for report in reports:
-            self._validate_report_bindings(report)
+            self._validate_current_report(report)
         return reports
 
     def latest_report(self, measurement_id: str) -> CadMeasurementQualityReport | None:

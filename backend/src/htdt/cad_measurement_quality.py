@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -767,6 +768,51 @@ def build_measurement_quality_report(
         report_sha256=_hash(provisional.identity_payload()),
     )
 
+
+# Explicit versioned replay support: every algorithm version that can produce
+# persisted reports keeps its pinned identity hash and builder here so
+# historical reports stay replayable. Reports pinned to an identity that is not
+# registered fail closed instead of silently trusting payload-only decisions.
+QualityReportReplay = Callable[..., CadMeasurementQualityReport]
+
+_QUALITY_REPORT_REPLAY: dict[str, tuple[str, QualityReportReplay]] = {
+    QUALITY_ALGORITHM_VERSION: (
+        QUALITY_ALGORITHM_SHA256,
+        build_measurement_quality_report,
+    ),
+}
+
+
+def replay_measurement_quality_report(
+    report: CadMeasurementQualityReport,
+    *,
+    measurement: CadMeasurementRecord,
+    dataset: CadFrequencyResponseDataset,
+) -> CadMeasurementQualityReport:
+    """Rerun the report's pinned algorithm/profile against bound evidence.
+
+    Authoritative reads replay the canonical algorithm registered for the
+    report's (algorithm_version, algorithm_sha256) identity so persisted
+    capability decisions are never trusted on payload alone.
+    """
+    replay = _QUALITY_REPORT_REPLAY.get(report.algorithm_version)
+    if replay is None:
+        raise ValueError(
+            'quality report algorithm version is not replayable: '
+            f'{report.algorithm_version}'
+        )
+    algorithm_sha256, builder = replay
+    if report.algorithm_sha256 != algorithm_sha256:
+        raise ValueError('quality report algorithm hash mismatch')
+    return builder(
+        measurement=measurement,
+        dataset=dataset,
+        evidence=report.evidence,
+        profile=report.profile,
+        acquisition_context=report.acquisition_context,
+        report_id=report.report_id,
+        created_at_utc=report.created_at_utc,
+    )
 
 
 def gate_measurement_claim(
