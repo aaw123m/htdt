@@ -1072,6 +1072,7 @@ def test_application_read_rejects_unreproduced_applied_revision(
             }
         ),
         parent_revision_id=baseline.revision_id,
+        allow_branch=True,
     ).revision
 
     _rewrite_application_row(
