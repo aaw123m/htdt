@@ -4,6 +4,7 @@ from contextlib import closing
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
+import threading
 
 import pytest
 from pydantic import ValidationError
@@ -22,7 +23,10 @@ from htdt.cad_measurement_quality import (
     gate_measurement_claim,
     replay_measurement_quality_report,
 )
-from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
+from htdt.cad_measurement_quality_repository import (
+    CadMeasurementQualityRepository,
+    MeasurementLineageConflictError,
+)
 from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_measurements import (
     HTDT_DECLARED_IMPORTER_VERSION,
@@ -120,6 +124,37 @@ def _rewrite_report_row(path: Path, report: CadMeasurementQualityReport) -> None
                 report.model_dump_json(),
                 report.report_id,
             ),
+        )
+
+
+def _insert_lineage_row(path: Path, lineage) -> None:
+    """Persist a lineage row directly, bypassing save-time chain validation."""
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            '''
+            INSERT INTO cad_measurement_lineage(
+                lineage_id, document_id, measurement_id, supersedes_measurement_id,
+                selected_measurement_id, lineage_sha256, created_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                lineage.lineage_id,
+                lineage.document_id,
+                lineage.measurement_id,
+                lineage.supersedes_measurement_id,
+                lineage.selected_measurement_id,
+                lineage.lineage_sha256,
+                lineage.created_at_utc,
+                lineage.model_dump_json(),
+            ),
+        )
+
+
+def _delete_lineage_row(path: Path, lineage_id: str) -> None:
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_measurement_lineage WHERE lineage_id=?',
+            (lineage_id,),
         )
 
 
@@ -745,3 +780,347 @@ def test_persisted_report_fails_closed_when_bound_evidence_is_deleted(tmp_path: 
         )
     with pytest.raises(ValueError, match='unknown measurement'):
         quality_repository.get_report(report.report_id)
+
+
+def _retake(
+    revision,
+    *,
+    measurement_id: str,
+    supersedes_measurement_id: str,
+    selected_measurement_id: str,
+    lineage_id: str,
+    created_at_utc: str,
+    reason: str = 'explicit retake',
+):
+    return build_measurement_lineage(
+        document_id=revision.document_id,
+        measurement_id=measurement_id,
+        supersedes_measurement_id=supersedes_measurement_id,
+        selected_measurement_id=selected_measurement_id,
+        reason=reason,
+        lineage_id=lineage_id,
+        created_at_utc=created_at_utc,
+    )
+
+
+def test_retake_lineage_rejects_stale_head_forks_and_cycles(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    first, _ = _save_measurement(
+        measurement_repository, revision, 'chain-first', raw=b'chain-first'
+    )
+    second, _ = _save_measurement(
+        measurement_repository, revision, 'chain-second', raw=b'chain-second'
+    )
+    third, _ = _save_measurement(
+        measurement_repository, revision, 'chain-third', raw=b'chain-third'
+    )
+    fourth, _ = _save_measurement(
+        measurement_repository, revision, 'chain-fourth', raw=b'chain-fourth'
+    )
+
+    ab = _retake(
+        revision,
+        measurement_id=second.measurement_id,
+        supersedes_measurement_id=first.measurement_id,
+        selected_measurement_id=second.measurement_id,
+        lineage_id='retake-a-b',
+        created_at_utc='2026-09-19T00:20:00+00:00',
+    )
+    quality_repository.save_lineage(ab)
+
+    # A competing retake claiming the same superseded measurement is a
+    # stale-head fork: first was already superseded by second.
+    fork = _retake(
+        revision,
+        measurement_id=third.measurement_id,
+        supersedes_measurement_id=first.measurement_id,
+        selected_measurement_id=third.measurement_id,
+        lineage_id='retake-a-c-fork',
+        created_at_utc='2026-09-19T00:21:00+00:00',
+        reason='competing retake of the same head',
+    )
+    with pytest.raises(MeasurementLineageConflictError, match='current lineage head'):
+        quality_repository.save_lineage(fork)
+
+    # Reusing the retake side as a new supersession edge back over its own
+    # successor closes a cycle (first superseding second after second already
+    # superseded first).
+    cycle = _retake(
+        revision,
+        measurement_id=first.measurement_id,
+        supersedes_measurement_id=second.measurement_id,
+        selected_measurement_id=first.measurement_id,
+        lineage_id='retake-b-a-cycle',
+        created_at_utc='2026-09-19T00:22:00+00:00',
+        reason='cycle back over the retake',
+    )
+    with pytest.raises(MeasurementLineageConflictError, match='cycle'):
+        quality_repository.save_lineage(cycle)
+
+    # A measurement that already superseded a predecessor cannot claim a
+    # second one; that would merge two chains into one node.
+    merge = _retake(
+        revision,
+        measurement_id=second.measurement_id,
+        supersedes_measurement_id=fourth.measurement_id,
+        selected_measurement_id=second.measurement_id,
+        lineage_id='retake-d-b-merge',
+        created_at_utc='2026-09-19T00:23:00+00:00',
+        reason='second predecessor claim',
+    )
+    with pytest.raises(MeasurementLineageConflictError, match='at most one predecessor'):
+        quality_repository.save_lineage(merge)
+
+    # Extending the current head stays valid: first -> second -> third.
+    bc = _retake(
+        revision,
+        measurement_id=third.measurement_id,
+        supersedes_measurement_id=second.measurement_id,
+        selected_measurement_id=third.measurement_id,
+        lineage_id='retake-b-c',
+        created_at_utc='2026-09-19T00:24:00+00:00',
+    )
+    quality_repository.save_lineage(bc)
+    assert quality_repository.list_lineage(revision.document_id) == (ab, bc)
+    assert (
+        quality_repository.selected_measurement_for_lineage(first.measurement_id)
+        == third.measurement_id
+    )
+
+    # The validated chain and its selection reopen unchanged.
+    reopened = CadMeasurementQualityRepository(measurement_repository)
+    assert reopened.list_lineage(revision.document_id) == (ab, bc)
+    assert (
+        reopened.selected_measurement_for_lineage(first.measurement_id)
+        == third.measurement_id
+    )
+    assert (
+        reopened.selected_measurement_for_lineage(fourth.measurement_id)
+        == fourth.measurement_id
+    )
+
+
+def test_retake_lineage_concurrent_supersession_single_winner(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    base, _ = _save_measurement(
+        measurement_repository, revision, 'race-base', raw=b'race-base'
+    )
+    contender_a, _ = _save_measurement(
+        measurement_repository, revision, 'race-a', raw=b'race-a'
+    )
+    contender_b, _ = _save_measurement(
+        measurement_repository, revision, 'race-b', raw=b'race-b'
+    )
+    retake_a = _retake(
+        revision,
+        measurement_id=contender_a.measurement_id,
+        supersedes_measurement_id=base.measurement_id,
+        selected_measurement_id=contender_a.measurement_id,
+        lineage_id='race-retake-a',
+        created_at_utc='2026-09-19T00:30:00+00:00',
+    )
+    retake_b = _retake(
+        revision,
+        measurement_id=contender_b.measurement_id,
+        supersedes_measurement_id=base.measurement_id,
+        selected_measurement_id=contender_b.measurement_id,
+        lineage_id='race-retake-b',
+        created_at_utc='2026-09-19T00:30:01+00:00',
+    )
+
+    barrier = threading.Barrier(2)
+    outcomes: dict[str, str] = {}
+
+    def attempt(key, record) -> None:
+        barrier.wait(timeout=10)
+        try:
+            quality_repository.save_lineage(record)
+            outcomes[key] = 'saved'
+        except MeasurementLineageConflictError:
+            outcomes[key] = 'conflict'
+
+    threads = (
+        threading.Thread(target=attempt, args=('a', retake_a)),
+        threading.Thread(target=attempt, args=('b', retake_b)),
+    )
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    # Two retakes of one current head cannot both become authoritative.
+    assert sorted(outcomes.values()) == ['conflict', 'saved']
+    winner = contender_a if outcomes['a'] == 'saved' else contender_b
+    assert (
+        quality_repository.selected_measurement_for_lineage(base.measurement_id)
+        == winner.measurement_id
+    )
+
+
+def test_selected_measurement_resolves_from_validated_chain_head(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    first, _ = _save_measurement(
+        measurement_repository, revision, 'select-first', raw=b'select-first'
+    )
+    second, _ = _save_measurement(
+        measurement_repository, revision, 'select-second', raw=b'select-second'
+    )
+    third, _ = _save_measurement(
+        measurement_repository, revision, 'select-third', raw=b'select-third'
+    )
+
+    ab = _retake(
+        revision,
+        measurement_id=second.measurement_id,
+        supersedes_measurement_id=first.measurement_id,
+        selected_measurement_id=second.measurement_id,
+        lineage_id='select-a-b',
+        created_at_utc='2026-09-19T00:40:00+00:00',
+    )
+    quality_repository.save_lineage(ab)
+    # The head record may deliberately keep the superseded side selected;
+    # selection is a per-node decision on the chain, not an ordering artifact.
+    bc = _retake(
+        revision,
+        measurement_id=third.measurement_id,
+        supersedes_measurement_id=second.measurement_id,
+        selected_measurement_id=second.measurement_id,
+        lineage_id='select-b-c',
+        created_at_utc='2026-09-19T00:41:00+00:00',
+        reason='retake taken but prior evidence kept selected',
+    )
+    quality_repository.save_lineage(bc)
+
+    for member in (first, second, third):
+        assert (
+            quality_repository.selected_measurement_for_lineage(member.measurement_id)
+            == second.measurement_id
+        )
+
+
+def test_selected_measurement_is_topology_derived_not_insertion_order(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    first, _ = _save_measurement(
+        measurement_repository, revision, 'order-first', raw=b'order-first'
+    )
+    second, _ = _save_measurement(
+        measurement_repository, revision, 'order-second', raw=b'order-second'
+    )
+    third, _ = _save_measurement(
+        measurement_repository, revision, 'order-third', raw=b'order-third'
+    )
+
+    # Persist a topologically valid first -> second -> third chain whose rows
+    # sit in the table in non-chain order (only reachable past save_lineage,
+    # e.g. a restored/imported database). Selection must follow the chain
+    # head's record, never the last row by seq.
+    head_edge = _retake(
+        revision,
+        measurement_id=third.measurement_id,
+        supersedes_measurement_id=second.measurement_id,
+        selected_measurement_id=third.measurement_id,
+        lineage_id='order-b-c',
+        created_at_utc='2026-09-19T00:50:00+00:00',
+    )
+    root_edge = _retake(
+        revision,
+        measurement_id=second.measurement_id,
+        supersedes_measurement_id=first.measurement_id,
+        selected_measurement_id=first.measurement_id,
+        lineage_id='order-a-b',
+        created_at_utc='2026-09-19T00:49:00+00:00',
+    )
+    _insert_lineage_row(quality_repository.path, head_edge)
+    _insert_lineage_row(quality_repository.path, root_edge)
+
+    assert quality_repository.list_lineage(revision.document_id) == (head_edge, root_edge)
+    for member in (first, second, third):
+        assert (
+            quality_repository.selected_measurement_for_lineage(member.measurement_id)
+            == third.measurement_id
+        )
+
+
+def test_persisted_lineage_corruption_surfaces_on_reads(tmp_path: Path) -> None:
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    first, _ = _save_measurement(
+        measurement_repository, revision, 'corrupt-first', raw=b'corrupt-first'
+    )
+    second, _ = _save_measurement(
+        measurement_repository, revision, 'corrupt-second', raw=b'corrupt-second'
+    )
+    third, _ = _save_measurement(
+        measurement_repository, revision, 'corrupt-third', raw=b'corrupt-third'
+    )
+
+    honest = _retake(
+        revision,
+        measurement_id=second.measurement_id,
+        supersedes_measurement_id=first.measurement_id,
+        selected_measurement_id=second.measurement_id,
+        lineage_id='corrupt-a-b',
+        created_at_utc='2026-09-19T01:00:00+00:00',
+    )
+    quality_repository.save_lineage(honest)
+
+    # A fork persisted before the contract existed (or injected past
+    # save_lineage) is detected instead of silently winning by insert order.
+    fork = _retake(
+        revision,
+        measurement_id=third.measurement_id,
+        supersedes_measurement_id=first.measurement_id,
+        selected_measurement_id=third.measurement_id,
+        lineage_id='corrupt-a-c',
+        created_at_utc='2026-09-19T01:01:00+00:00',
+    )
+    _insert_lineage_row(quality_repository.path, fork)
+    with pytest.raises(ValueError, match='superseded more than once'):
+        quality_repository.list_lineage(revision.document_id)
+    with pytest.raises(ValueError, match='superseded more than once'):
+        quality_repository.selected_measurement_for_lineage(first.measurement_id)
+    _delete_lineage_row(quality_repository.path, fork.lineage_id)
+
+    # A persisted cycle is surfaced the same way.
+    cycle = _retake(
+        revision,
+        measurement_id=first.measurement_id,
+        supersedes_measurement_id=second.measurement_id,
+        selected_measurement_id=first.measurement_id,
+        lineage_id='corrupt-b-a',
+        created_at_utc='2026-09-19T01:02:00+00:00',
+    )
+    _insert_lineage_row(quality_repository.path, cycle)
+    with pytest.raises(ValueError, match='cycle'):
+        quality_repository.list_lineage(revision.document_id)
+    with pytest.raises(ValueError, match='cycle'):
+        quality_repository.selected_measurement_for_lineage(first.measurement_id)
+    _delete_lineage_row(quality_repository.path, cycle.lineage_id)
+
+    # A stored column that disagrees with its payload fails closed.
+    with closing(sqlite3.connect(quality_repository.path)) as connection, connection:
+        connection.execute(
+            'UPDATE cad_measurement_lineage SET selected_measurement_id=? WHERE lineage_id=?',
+            (first.measurement_id, honest.lineage_id),
+        )
+    with pytest.raises(ValueError, match='disagrees with its payload'):
+        quality_repository.list_lineage(revision.document_id)
+    with closing(sqlite3.connect(quality_repository.path)) as connection, connection:
+        connection.execute(
+            'UPDATE cad_measurement_lineage SET selected_measurement_id=? WHERE lineage_id=?',
+            (honest.selected_measurement_id, honest.lineage_id),
+        )
+
+    # A lineage row whose bound measurement disappeared is dead evidence.
+    with closing(sqlite3.connect(quality_repository.path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_measurements WHERE measurement_id=?',
+            (first.measurement_id,),
+        )
+    with pytest.raises(ValueError, match='unknown measurement evidence'):
+        quality_repository.list_lineage(revision.document_id)
+
+    # Honest chains in a clean repository still resolve normally.
+    _delete_lineage_row(quality_repository.path, honest.lineage_id)
+    assert quality_repository.list_lineage(revision.document_id) == ()
+
+

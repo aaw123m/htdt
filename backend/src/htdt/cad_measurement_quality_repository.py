@@ -16,6 +16,10 @@ from .cad_measurement_repository import CadMeasurementRepository
 from .cad_schema import check_native_schema_compatibility
 
 
+class MeasurementLineageConflictError(ValueError):
+    """A retake-lineage save violated the single-head supersession contract."""
+
+
 class CadMeasurementQualityRepository:
     """Append-only quality and retake evidence over the native N60 measurement authority."""
 
@@ -67,6 +71,8 @@ class CadMeasurementQualityRepository:
                     ON cad_measurement_lineage(document_id, seq ASC);
                 CREATE INDEX IF NOT EXISTS idx_measurement_lineage_measurement
                     ON cad_measurement_lineage(measurement_id, seq ASC);
+                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_supersedes
+                    ON cad_measurement_lineage(supersedes_measurement_id, seq ASC);
                 '''
             )
 
@@ -189,7 +195,7 @@ class CadMeasurementQualityRepository:
         reports = self.list_reports(measurement_id)
         return reports[-1] if reports else None
 
-    def save_lineage(self, lineage: CadMeasurementLineageRecord) -> None:
+    def _validate_lineage_bindings(self, lineage: CadMeasurementLineageRecord) -> None:
         current = self.measurement_repository.get_measurement(lineage.measurement_id)
         previous = self.measurement_repository.get_measurement(lineage.supersedes_measurement_id)
         selected = self.measurement_repository.get_measurement(lineage.selected_measurement_id)
@@ -210,13 +216,82 @@ class CadMeasurementQualityRepository:
         ):
             raise ValueError('retake must preserve the measurement binding it supersedes')
 
+    def save_lineage(self, lineage: CadMeasurementLineageRecord) -> None:
+        """Append one retake record extending the single head of its chain.
+
+        The retake history of one measurement binding is an append-only chain
+        of ``supersedes_measurement_id -> measurement_id`` edges whose
+        topology is enforced under one ``BEGIN IMMEDIATE`` transaction:
+
+        - the superseded measurement must be the current head of its chain —
+          a measurement may be superseded at most once, so a second retake
+          claiming the same predecessor is rejected as a stale-head fork;
+        - the retake measurement must carry no existing lineage edge — it may
+          not already supersede a predecessor (which would merge two chains)
+          nor already be superseded (which would close a cycle, e.g. B -> A
+          after A -> B), so every chain stays a simple path from root to head;
+        - ``selected_measurement_id`` stays a per-record decision between the
+          two sides of the retake, resolved authoritatively from the chain
+          head on read rather than by insertion order.
+
+        Two writers racing to retake the same head cannot both advance it:
+        the head check runs inside the write transaction, so the loser sees
+        the moved head and fails with ``MeasurementLineageConflictError``.
+        The record's measurement bindings are revalidated on every save
+        before the lock is taken, so the builder remains a convenience and
+        not the only integrity boundary.
+        """
+        self._validate_lineage_bindings(lineage)
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
+            # BEGIN IMMEDIATE holds the write lock across the duplicate
+            # recheck, the head/topology checks and the insert: concurrent
+            # writers cannot both observe the same head.
+            connection.execute('BEGIN IMMEDIATE')
             if connection.execute(
                 'SELECT 1 FROM cad_measurement_lineage WHERE lineage_id=?',
                 (lineage.lineage_id,),
             ).fetchone() is not None:
                 raise ValueError(f'measurement lineage already exists: {lineage.lineage_id}')
+            prior_child = connection.execute(
+                '''
+                SELECT measurement_id
+                FROM cad_measurement_lineage
+                WHERE supersedes_measurement_id=?
+                ''',
+                (lineage.supersedes_measurement_id,),
+            ).fetchone()
+            if prior_child is not None:
+                raise MeasurementLineageConflictError(
+                    f'measurement lineage {lineage.lineage_id} rejected: '
+                    f'{lineage.supersedes_measurement_id} is already superseded by '
+                    f'{prior_child["measurement_id"]}; a retake must supersede the '
+                    'current lineage head'
+                )
+            bound = connection.execute(
+                '''
+                SELECT measurement_id, supersedes_measurement_id
+                FROM cad_measurement_lineage
+                WHERE measurement_id=? OR supersedes_measurement_id=?
+                ''',
+                (lineage.measurement_id, lineage.measurement_id),
+            ).fetchone()
+            if bound is not None:
+                if bound['measurement_id'] == lineage.measurement_id:
+                    reason = (
+                        f'already records a retake superseding '
+                        f'{bound["supersedes_measurement_id"]}; a measurement may '
+                        'supersede at most one predecessor'
+                    )
+                else:
+                    reason = (
+                        'is already superseded; reusing it as a retake would '
+                        'merge chains or close a lineage cycle'
+                    )
+                raise MeasurementLineageConflictError(
+                    f'measurement lineage {lineage.lineage_id} rejected: '
+                    f'{lineage.measurement_id} {reason}'
+                )
             connection.execute(
                 '''
                 INSERT INTO cad_measurement_lineage(
@@ -237,48 +312,94 @@ class CadMeasurementQualityRepository:
             )
 
     def list_lineage(self, document_id: str) -> tuple[CadMeasurementLineageRecord, ...]:
+        """Return the document's retake history as validated single-head chains.
+
+        Rows are replayed in insertion order; every stored column must agree
+        with its payload and every record must still bind to its exact
+        measurement evidence. Each measurement may supersede at most one
+        predecessor and be superseded at most once, so valid history is a set
+        of disjoint ``root -> head`` paths. A persisted fork, merge or cycle —
+        rows written before the topology contract existed or injected past
+        ``save_lineage`` — is surfaced as ``ValueError`` rather than silently
+        relying on insertion order.
+        """
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 '''
-                SELECT payload_json
+                SELECT *
                 FROM cad_measurement_lineage
                 WHERE document_id=?
                 ORDER BY seq ASC
                 ''',
                 (document_id,),
             ).fetchall()
-        return tuple(
-            CadMeasurementLineageRecord.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+        records: list[CadMeasurementLineageRecord] = []
+        children: dict[str, CadMeasurementLineageRecord] = {}
+        parents: dict[str, CadMeasurementLineageRecord] = {}
+        for row in rows:
+            record = CadMeasurementLineageRecord.model_validate_json(row['payload_json'])
+            if (
+                row['lineage_id'] != record.lineage_id
+                or row['document_id'] != record.document_id
+                or row['measurement_id'] != record.measurement_id
+                or row['supersedes_measurement_id'] != record.supersedes_measurement_id
+                or row['selected_measurement_id'] != record.selected_measurement_id
+                or row['lineage_sha256'] != record.lineage_sha256
+                or row['created_at_utc'] != record.created_at_utc
+            ):
+                raise ValueError(
+                    'persisted measurement lineage row disagrees with its payload'
+                )
+            self._validate_lineage_bindings(record)
+            if record.supersedes_measurement_id in children:
+                raise ValueError(
+                    'measurement lineage history is not a single-head chain: '
+                    f'{record.supersedes_measurement_id} is superseded more than once'
+                )
+            if record.measurement_id in parents:
+                raise ValueError(
+                    'measurement lineage history is not a single-head chain: '
+                    f'{record.measurement_id} supersedes more than one predecessor'
+                )
+            children[record.supersedes_measurement_id] = record
+            parents[record.measurement_id] = record
+            records.append(record)
+        # With at most one edge in each direction every component is a simple
+        # path that must terminate at an un-superseded head; a component that
+        # never reaches one is a persisted cycle.
+        for record in records:
+            seen = {record.supersedes_measurement_id}
+            node = record.measurement_id
+            while node in children:
+                if node in seen:
+                    raise ValueError(
+                        'measurement lineage history is not a single-head chain: '
+                        f'supersession cycle reaches {node} again'
+                    )
+                seen.add(node)
+                node = children[node].measurement_id
+        return tuple(records)
 
     def selected_measurement_for_lineage(self, measurement_id: str) -> str:
+        """Resolve the selected evidence for the retake chain holding *measurement_id*.
+
+        The selection is derived from validated topology, not insertion order:
+        ``list_lineage`` proves the component is a single-head chain, the head
+        is the unique measurement that was never superseded, and the record
+        that produced the head declares the current selection (a retake may
+        deliberately keep the superseded side selected). A measurement with
+        no lineage resolves to itself.
+        """
         measurement = self.measurement_repository.get_measurement(measurement_id)
         if measurement is None:
             raise KeyError(measurement_id)
         events = self.list_lineage(measurement.document_id)
-        connected = {measurement_id}
-        changed = True
-        while changed:
-            changed = False
-            for event in events:
-                if (
-                    event.measurement_id in connected
-                    or event.supersedes_measurement_id in connected
-                ):
-                    before = len(connected)
-                    connected.add(event.measurement_id)
-                    connected.add(event.supersedes_measurement_id)
-                    changed = changed or len(connected) != before
-        relevant = [
-            event
-            for event in events
-            if (
-                event.measurement_id in connected
-                and event.supersedes_measurement_id in connected
-            )
-        ]
-        if not relevant:
+        children = {event.supersedes_measurement_id: event for event in events}
+        parents = {event.measurement_id: event for event in events}
+        if measurement_id not in children and measurement_id not in parents:
             return measurement_id
-        return relevant[-1].selected_measurement_id
+        head = measurement_id
+        while head in children:
+            head = children[head].measurement_id
+        return parents[head].selected_measurement_id

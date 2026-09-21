@@ -97,6 +97,8 @@ A retake remains a separate native Measurement with its own Dataset/raw asset. `
 
 The repository requires old/new measurements to retain the same document, SceneRevision/content hash, measurement entity/position, channel role, source-speaker IDs, and radiation scope. It never deletes or overwrites the prior Measurement, Dataset, raw asset, or quality report.
 
+Retake records form a single-head chain per measurement binding, enforced under `BEGIN IMMEDIATE`: the superseded measurement must be the current head (each measurement is superseded at most once, so competing retakes of the same head are rejected as stale), and the retake measurement must carry no existing lineage edge (no merges, no cycles). Reads replay the persisted rows as validated chains — payload/column disagreement, dead measurement bindings, forks, and cycles raise `ValueError` — and `selected_measurement_for_lineage` resolves the selection declared by the chain head's record instead of trusting insertion order.
+
 The lineage repository does not update O50 MeasurementPlan or O60 campaign/calibration/holdout assignments. Reassignment, if desired, remains an explicit operation in those existing authorities.
 
 ## Persistence
