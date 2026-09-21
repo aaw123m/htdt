@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
+import sqlite3
+
 from pathlib import Path
 
 import pytest
+
+import htdt.cad_topology_search as topology_search
 
 from htdt.cad_constraint_models import (
     CadConstraintPoint2D,
@@ -410,8 +415,6 @@ def test_302_to_502_pair_search_is_reproducible_and_persistable(
 
     # A self-consistent hash is not enough: conversion must accept only an exact
     # member of the deterministic O10/O100B search grid.
-    import htdt.cad_topology_search as topology_search
-
     forged_aim = dict(candidate.aim_yaw_deg)
     forged_aim['sl'] = 5.0
     forged_payload = candidate.identity_payload()
@@ -895,3 +898,259 @@ def test_topology_search_spec_reuses_o100a_add_remove_replace_diff(
         ('replace', 'fr', 'FR', False),
         ('add', 'sl', 'SL', True),
     ]
+
+
+def _persisted_placement_spec(tmp_path: Path):
+    """Persist baseline, template, topology space, and an honest O100B spec."""
+
+    scene_repository, baseline = _baseline(tmp_path)
+    template = build_system_variant(
+        baseline=baseline,
+        name='Proposed surround pair template',
+        role_bindings=_roles_with_surround_pair(),
+        proposed_entities=(
+            _proposal('sl', 'SL', 0.8),
+            _proposal('sr', 'SR', 5.2),
+        ),
+        created_at_utc=NOW,
+    )
+    variant_repository = CadSystemVariantRepository(scene_repository)
+    variant_repository.save_variant(template)
+    topology = build_topology_search_spec(
+        baseline=baseline,
+        template_variants=(template,),
+        optional_role_ids=('SL', 'SR'),
+        created_at_utc=NOW,
+    )
+    placements = (
+        ProposedPlacementSpec(
+            entity_id='sl',
+            role_id='SL',
+            zone_id='left-side-wall',
+            allowed_region=_region(0.5, 1.4, 2.4, 3.4),
+            min_z_m=1.2,
+            max_z_m=1.4,
+            xyz_axes=(
+                CadSearchAxis(
+                    entity_id='sl',
+                    axis='x',
+                    min_m=0.8,
+                    max_m=1.0,
+                    step_m=0.2,
+                ),
+                CadSearchAxis(
+                    entity_id='sl',
+                    axis='y',
+                    min_m=2.8,
+                    max_m=3.0,
+                    step_m=0.2,
+                ),
+            ),
+        ),
+        ProposedPlacementSpec(
+            entity_id='sr',
+            role_id='SR',
+            zone_id='right-side-wall',
+            allowed_region=_region(4.6, 5.5, 2.4, 3.4),
+            min_z_m=1.2,
+            max_z_m=1.4,
+        ),
+    )
+    links = (
+        LinkedPlacementRule(
+            constraint_id='surround-mirror-x',
+            master_entity_id='sl',
+            slave_entity_id='sr',
+            relation='mirror_x',
+            mirror_axis_x_m=3.0,
+        ),
+        LinkedPlacementRule(
+            constraint_id='surround-equal-y',
+            master_entity_id='sl',
+            slave_entity_id='sr',
+            relation='equal_y',
+        ),
+    )
+    spec = build_topology_placement_search_spec(
+        baseline=baseline,
+        template_variant=template,
+        topology_spec=topology,
+        topology_option_id=topology.options[0].option_id,
+        placement_specs=placements,
+        constraint_set=CadConstraintSet(
+            document_id=DOCUMENT_ID,
+            constraints=(),
+        ),
+        linked_rules=links,
+        candidate_limit=200,
+        created_at_utc=NOW,
+    )
+    repository = CadTopologySearchRepository(variant_repository)
+    repository.save_topology_spec(topology)
+    repository.save_spec(spec)
+    return repository, spec
+
+
+def _rebound_spec(spec, **updates):
+    """Retimestamp a spec so tampered payloads keep self-consistent hashes."""
+
+    tampered = spec.model_copy(update=updates)
+    search_sha = topology_search._digest(tampered.identity_payload())
+    return tampered.model_copy(update={
+        'search_sha256': search_sha,
+        'search_id': 'tps-' + search_sha[:20],
+    })
+
+
+def test_save_spec_rejects_noncanonical_execution_payloads(tmp_path: Path) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+
+    # The canonical compiler output saves idempotently and reopens unchanged.
+    repository.save_spec(spec)
+    assert repository.get_spec(spec.search_id) == spec
+    assert repository.list_specs(spec.document_id) == (spec,)
+
+    # A coherently rewritten G10 spec (recomputed hashes) is rejected.
+    g10_spec = json.loads(spec.g10_constraint_spec_json)
+    g10_spec['constraints'] = [
+        item
+        for item in g10_spec['constraints']
+        if item.get('kind') != 'allowed_region'
+    ]
+    with pytest.raises(ValueError, match='canonical compilation'):
+        repository.save_spec(_rebound_spec(
+            spec,
+            g10_constraint_spec_json=topology_search._canonical(g10_spec),
+            g10_constraint_spec_sha256=topology_search._digest(g10_spec),
+        ))
+
+    # A coherently rewritten O10 axis payload is rejected.
+    o10_spec = json.loads(spec.o10_search_spec_json)
+    o10_spec['axes'][0]['max_m'] += 0.2
+    with pytest.raises(ValueError, match='canonical compilation'):
+        repository.save_spec(_rebound_spec(
+            spec,
+            o10_search_spec_json=topology_search._canonical(o10_spec),
+        ))
+
+    # A coherently rewritten O10 linked-derivation payload is rejected.
+    o10_spec = json.loads(spec.o10_search_spec_json)
+    o10_spec['linked_derivations'] = []
+    with pytest.raises(ValueError, match='canonical compilation'):
+        repository.save_spec(_rebound_spec(
+            spec,
+            o10_search_spec_json=topology_search._canonical(o10_spec),
+        ))
+
+    # Derived counts that disagree with canonical compilation are rejected.
+    with pytest.raises(ValueError, match='canonical compilation'):
+        repository.save_spec(_rebound_spec(
+            spec,
+            o10_raw_candidate_count=spec.o10_raw_candidate_count + 1,
+        ))
+    with pytest.raises(ValueError, match='canonical compilation'):
+        repository.save_spec(_rebound_spec(
+            spec,
+            orientation_combination_count=spec.orientation_combination_count + 1,
+        ))
+
+    # A snapshot that does not end with the canonical placement-derived
+    # constraints is rejected before compilation can even replay.
+    snapshot = json.loads(spec.constraint_snapshot_json)
+    snapshot['constraints'] = [
+        item
+        for item in snapshot['constraints']
+        if item.get('kind') != 'allowed_region'
+    ]
+    with pytest.raises(ValueError, match='placement-derived constraints'):
+        repository.save_spec(_rebound_spec(
+            spec,
+            constraint_snapshot_json=topology_search._canonical(snapshot),
+            constraint_snapshot_sha256=topology_search._digest(snapshot),
+        ))
+
+    # Placement authority that resolves to no proposed entity fails closed.
+    moved = spec.placement_specs[0].model_copy(update={'entity_id': 'ghost'})
+    with pytest.raises(ValueError):
+        repository.save_spec(_rebound_spec(
+            spec,
+            placement_specs=(moved, spec.placement_specs[1]),
+        ))
+
+    # Missing persisted authority fails closed.
+    empty_repository = CadTopologySearchRepository(
+        CadSystemVariantRepository(SceneRepository(tmp_path / 'other.sqlite3'))
+    )
+    with pytest.raises(ValueError, match='baseline SceneRevision does not exist'):
+        empty_repository.save_spec(spec)
+
+
+def test_persisted_spec_row_replays_canonical_authority_on_read(
+    tmp_path: Path,
+) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+
+    # After restart the canonical spec still proves its executable semantics.
+    reopened = CadTopologySearchRepository(
+        CadSystemVariantRepository(SceneRepository(repository.path))
+    )
+    assert reopened.get_spec(spec.search_id) == spec
+    assert reopened.list_specs(spec.document_id) == (spec,)
+
+    # A coherently rewritten stored payload fails closed on read.
+    o10_spec = json.loads(spec.o10_search_spec_json)
+    o10_spec['axes'][0]['step_m'] *= 2.0
+    tampered = _rebound_spec(
+        spec,
+        o10_search_spec_json=topology_search._canonical(o10_spec),
+    )
+
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            'UPDATE cad_topology_search_specs SET payload_json=? '
+            'WHERE search_id=?',
+            (tampered.model_dump_json(), spec.search_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    # Indexed columns that disagree with the payload fail closed first.
+    with pytest.raises(ValueError, match='row disagrees with its payload'):
+        reopened.get_spec(spec.search_id)
+
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            'UPDATE cad_topology_search_specs '
+            'SET search_id=?, search_sha256=? WHERE search_id=?',
+            (tampered.search_id, tampered.search_sha256, spec.search_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    # A self-consistent but non-canonical payload fails the replay.
+    with pytest.raises(ValueError, match='canonical compilation'):
+        reopened.get_spec(tampered.search_id)
+    with pytest.raises(ValueError, match='canonical compilation'):
+        reopened.list_specs(spec.document_id)
+
+    # Restoring the canonical row makes the authoritative read succeed again.
+    connection = sqlite3.connect(repository.path)
+    try:
+        connection.execute(
+            'UPDATE cad_topology_search_specs '
+            'SET search_id=?, search_sha256=?, payload_json=? WHERE search_id=?',
+            (
+                spec.search_id,
+                spec.search_sha256,
+                spec.model_dump_json(),
+                tampered.search_id,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    assert reopened.get_spec(spec.search_id) == spec

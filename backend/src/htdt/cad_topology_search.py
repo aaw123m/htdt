@@ -13,6 +13,7 @@ from .cad_constraint_models import (
     CadConstraintPoint2D,
     CadConstraintSet,
     CadExclusionRegionConstraint,
+    CadPlacementConstraint,
 )
 from .cad_constraints import build_g10_constraint_request, scene_to_g10_context
 from .cad_extended_search import (
@@ -369,11 +370,12 @@ def _height_constraint_id(item: ProposedPlacementSpec) -> str:
     })[:20]
 
 
-def _effective_constraint_set(
-    base: CadConstraintSet,
+def _placement_constraint_additions(
     placement_specs: Sequence[ProposedPlacementSpec],
-) -> CadConstraintSet:
-    additions = [
+) -> tuple[CadPlacementConstraint, ...]:
+    """Deterministic zone/exclusion constraints derived from placement specs."""
+
+    additions: list[CadPlacementConstraint] = [
         CadAllowedRegionConstraint(
             constraint_id=_zone_constraint_id(item),
             name=f'O100B {item.role_id} installation zone {item.zone_id}',
@@ -396,9 +398,52 @@ def _effective_constraint_set(
             )
             for region in item.exclusion_regions
         )
+    return tuple(additions)
+
+
+def _effective_constraint_set(
+    base: CadConstraintSet,
+    placement_specs: Sequence[ProposedPlacementSpec],
+) -> CadConstraintSet:
     return CadConstraintSet(
         document_id=base.document_id,
-        constraints=tuple(base.constraints) + tuple(additions),
+        constraints=tuple(base.constraints)
+        + _placement_constraint_additions(placement_specs),
+    )
+
+
+def declared_base_constraint_set(
+    spec: TopologyPlacementSearchSpec,
+) -> CadConstraintSet:
+    """Recover the declared base CadConstraintSet behind an O100B search spec.
+
+    The embedded constraint snapshot is the canonical effective set: the
+    caller-declared base constraints followed by the deterministic
+    placement-derived zone/exclusion additions. Replaying
+    build_topology_placement_search_spec requires the base half, so it is
+    recovered by stripping exactly those canonical additions. A snapshot
+    that does not end with them is not the product of the pinned compiler
+    and fails closed.
+    """
+
+    try:
+        effective = CadConstraintSet.model_validate(
+            json.loads(spec.constraint_snapshot_json)
+        )
+    except ValueError as exc:
+        raise ValueError(
+            'topology placement constraint snapshot is not a CadConstraintSet'
+        ) from exc
+    additions = _placement_constraint_additions(spec.placement_specs)
+    constraints = tuple(effective.constraints)
+    if constraints[len(constraints) - len(additions):] != additions:
+        raise ValueError(
+            'topology placement constraint snapshot lacks the canonical '
+            'placement-derived constraints'
+        )
+    return CadConstraintSet(
+        document_id=effective.document_id,
+        constraints=constraints[: len(constraints) - len(additions)],
     )
 
 
