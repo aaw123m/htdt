@@ -61,14 +61,9 @@ from htdt.cad_prediction_provider import (
     CadPredictionProviderRepository,
     build_r130_low_band_prediction_provider,
 )
-from htdt.cad_scene import Direction3, Position3
-from htdt.cad_search_models import (
-    CadSearchAxis,
-    CadSearchSpec,
-    canonical_search_json,
-    canonical_search_sha256,
-    constraint_workspace_snapshot,
-)
+from htdt.cad_scene import Direction3, Position3, RoomPrism
+from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
+from htdt.cad_search_models import CadSearchAxis
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_wave_excitation import (
     ComplexVolumeVelocitySample,
@@ -281,6 +276,7 @@ def _build_bundle(
         root / 'r130-fixture',
         root / 'unused-pffdtd-upstream',
         fixture_id=f'r170b-{root.name}',
+        room=RoomPrism(width_m=6.0, depth_m=4.0, height_m=3.0),
     )
     candidate, _ = fixture['executor'].compile_input(
         dispatch_binding_id=fixture['dispatch'].binding_id,
@@ -460,11 +456,6 @@ def _search_fixture(bundle):
         document_id=revision.document_id,
         constraints=(),
     )
-    constraint_snapshot_json, constraint_workspace_hash = (
-        constraint_workspace_snapshot(constraint_set)
-    )
-    engine_spec = {}
-    engine_sha = canonical_search_sha256(engine_spec)
     axis = CadSearchAxis(
         entity_id='speaker-source',
         axis='x',
@@ -472,36 +463,22 @@ def _search_fixture(bundle):
         max_m=2.0,
         step_m=1.0,
     )
-    identity = {
-        'schema_version': 1,
-        'document_id': revision.document_id,
-        'scene_revision_id': revision.revision_id,
-        'scene_content_hash': revision.content_hash,
-        'constraint_workspace_hash': constraint_workspace_hash,
-        'algorithm': 'deterministic_grid',
-        'algorithm_version': 'search-space-grid-1',
-        'axes': [axis.model_dump(mode='json')],
-        'candidate_limit': 10,
-    }
-    spec = CadSearchSpec(
-        search_spec_id='r170b-objective-search-fixture',
-        document_id=revision.document_id,
-        scene_revision_id=revision.revision_id,
-        scene_content_hash=revision.content_hash,
-        constraint_workspace_hash=constraint_workspace_hash,
-        constraint_snapshot_json=constraint_snapshot_json,
-        constraint_engine_spec_json=canonical_search_json(engine_spec),
-        constraint_engine_spec_sha256=engine_sha,
-        axes=(axis,),
+    spec, _estimate = build_cad_search_spec(
+        revision,
+        constraint_set,
+        (axis,),
         candidate_limit=10,
-        o10_spec_json='{}',
-        search_spec_sha256=canonical_search_sha256(identity),
         name='r170b objective-only integration fixture',
-        created_at_utc='2026-09-21T00:00:00+00:00',
     )
     search_repository = CadSearchRepository(fixture['scene_repository'])
     search_repository.save(spec)
-    return spec, search_repository, 'candidate:r170b-objective-fixture'
+    page = generate_cad_candidates(
+        fixture['scene_repository'],
+        spec,
+        limit=10,
+    )
+    assert page.candidates, 'objective fixture SearchSpec must produce candidates'
+    return spec, search_repository, page.candidates[0].candidate_id
 
 
 def test_exact_identity_absolute_pressure_db_phase_and_phasor_conversion(
@@ -825,6 +802,7 @@ def test_o30_exact_binding_and_o40_regression_without_algorithm_change(
     objective_repository = CadObjectiveRepository(
         bundle['fixture']['scene_repository'],
         search_repository,
+        hybrid_provider_repository=bundle['hybrid_repository'],
     )
     objective_repository.save_evaluation(evaluation)
     connection = build_hybrid_provider_objective_connection(

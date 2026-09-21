@@ -71,6 +71,7 @@ class CadObjectiveRepository:
         measurement_repository: Any = None,
         roomsim_repository: Any = None,
         prediction_provider_repository: Any = None,
+        hybrid_provider_repository: Any = None,
         input_resolvers: Mapping[
             str,
             Callable[[ObjectiveAuthorityContext, CadObjectiveInputRef], ResolvedObjectiveInput],
@@ -91,6 +92,7 @@ class CadObjectiveRepository:
             ('measurement', measurement_repository),
             ('roomsim', roomsim_repository),
             ('prediction provider', prediction_provider_repository),
+            ('hybrid prediction provider', hybrid_provider_repository),
         ):
             if repository is not None and Path(repository.path) != self.path:
                 raise ValueError(
@@ -99,6 +101,7 @@ class CadObjectiveRepository:
         self._measurement_repository = measurement_repository
         self._roomsim_repository = roomsim_repository
         self.prediction_provider_repository = prediction_provider_repository
+        self.hybrid_provider_repository = hybrid_provider_repository
         self._input_resolvers = {
             **OBJECTIVE_INPUT_RESOLVERS,
             **dict(input_resolvers or {}),
@@ -359,6 +362,11 @@ class CadObjectiveRepository:
             prediction_provider_repository=(
                 self.prediction_provider_repository
                 if 'r170a_prediction_provider' in input_kinds
+                else None
+            ),
+            hybrid_provider_repository=(
+                self.hybrid_provider_repository
+                if 'r170b_hybrid_prediction_provider' in input_kinds
                 else None
             ),
             spec=spec_payload,
