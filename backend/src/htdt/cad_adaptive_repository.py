@@ -10,7 +10,7 @@ from .cad_adaptive_planner import (
     production_validation_ready,
 )
 from .cad_model_validation_repository import CadModelValidationRepository
-from .cad_search import generate_cad_candidates
+from .cad_search import iter_cad_candidate_pages
 from .cad_search_repository import CadSearchRepository
 
 
@@ -60,20 +60,14 @@ class CadAdaptivePlanRepository:
     def _validate_candidate_authority(self, plan: CadAdaptivePlan, spec) -> None:
         wanted = {proposal.candidate_id for proposal in plan.proposals}
         found: set[str] = set()
-        offset = 0
-        page_limit = min(1000, spec.candidate_limit)
-        seen_hash: str | None = None
+        pages = iter_cad_candidate_pages(
+            self.search_repository.scene_repository,
+            spec,
+        )
         while wanted - found:
-            page = generate_cad_candidates(
-                self.search_repository.scene_repository,
-                spec,
-                offset=offset,
-                limit=page_limit,
-            )
-            if seen_hash is None:
-                seen_hash = page.candidate_set_sha256
-            elif page.candidate_set_sha256 != seen_hash:
-                raise ValueError('adaptive candidate-set identity changed between pages')
+            page = next(pages, None)
+            if page is None:
+                break
             if page.candidate_set_sha256 != plan.candidate_set_sha256:
                 raise ValueError('adaptive candidate-set hash no longer matches SearchSpec')
             found.update(
@@ -81,9 +75,6 @@ class CadAdaptivePlanRepository:
                 for candidate in page.candidates
                 if candidate.candidate_id in wanted
             )
-            offset += len(page.candidates)
-            if not page.candidates or offset >= page.feasible_candidate_count:
-                break
         missing = wanted - found
         if missing:
             raise ValueError(

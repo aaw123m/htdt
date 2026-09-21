@@ -8,7 +8,7 @@ import sqlite3
 
 from .cad_measurement_loop import CadMeasurementPlan
 from .cad_measurement_repository import CadMeasurementRepository
-from .cad_search import generate_cad_candidates
+from .cad_search import iter_cad_candidate_pages
 from .cad_search_repository import CadSearchRepository
 from .cad_validation_campaign import (
     CadValidationCampaign,
@@ -106,24 +106,13 @@ class CadValidationCampaignRepository:
             raise ValueError('validation campaign SearchSpec hash mismatch')
 
         ids: set[str] = set()
-        offset = 0
-        page_limit = min(1000, spec.candidate_limit)
         expected_set_sha: str | None = None
-        while True:
-            page = generate_cad_candidates(
-                self.search_repository.scene_repository,
-                spec,
-                offset=offset,
-                limit=page_limit,
-            )
-            if expected_set_sha is None:
-                expected_set_sha = page.candidate_set_sha256
-            elif page.candidate_set_sha256 != expected_set_sha:
-                raise ValueError('regenerated candidate-set identity changed between pages')
+        for page in iter_cad_candidate_pages(
+            self.search_repository.scene_repository,
+            spec,
+        ):
+            expected_set_sha = page.candidate_set_sha256
             ids.update(candidate.candidate_id for candidate in page.candidates)
-            offset += len(page.candidates)
-            if not page.candidates or offset >= page.feasible_candidate_count:
-                break
 
         if expected_set_sha is None or expected_set_sha != campaign.candidate_set_sha256:
             raise ValueError('validation campaign candidate-set hash mismatch')

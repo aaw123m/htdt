@@ -20,7 +20,12 @@ from .geometry import room_geometry_payload
 from .models import AttachmentCreate, ComparisonCreate, ContextCreate, ImportPreviewRequest, MeasurementImportRequest, ProjectCreate, RewApiSnapshotImportRequest, SessionCreate
 from .placement_constraints import ConstraintSetCreate, PlacementEvaluationRequest, evaluate_constraint_set, validate_constraint_set_for_context
 from .readiness import evaluate_measurement_readiness
-from .search_space import SearchSpecCreate, generate_search_space, validate_search_spec
+from .search_space import (
+    MAX_SEARCH_PAGE_SIZE,
+    SearchSpecCreate,
+    generate_search_space,
+    validate_search_spec,
+)
 from .report import build_report_payload, render_report_html
 from .rew_api import DEFAULT_REW_API_URL, RewApiClient, RewApiError, RewApiUnavailable
 from .rew_parser import RewParseError, parse_rew_frequency_response
@@ -338,7 +343,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
     def generate_search_candidates(
         project_id: str, search_spec_id: str,
         offset: int = Query(default=0, ge=0),
-        limit: int = Query(default=100, ge=1, le=500),
+        limit: int = Query(default=100, ge=1, le=MAX_SEARCH_PAGE_SIZE),
     ) -> dict:
         record = store.get_search_spec(project_id, search_spec_id)
         if record is None:

@@ -46,6 +46,7 @@ from .placement_constraints import (
     validate_constraint_set_for_context,
 )
 from .search_space import (
+    MAX_SEARCH_PAGE_SIZE,
     GridAxis,
     LinkedDerivation,
     SearchSpecCreate,
@@ -868,7 +869,7 @@ def _all_o10_candidates(
     raw_g10_spec = _o10_prefilter_constraint_spec(spec)
     raw_g10_sha = _digest(raw_g10_spec)
     raw_o10_spec['constraint_set_spec_sha256'] = raw_g10_sha
-    page_limit = 500
+    page_limit = MAX_SEARCH_PAGE_SIZE
     first = generate_search_space(
         context,
         raw_o10_spec,

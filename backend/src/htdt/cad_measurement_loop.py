@@ -12,7 +12,7 @@ from .cad_objective_models import CadObjectiveInputRef
 from .cad_prediction_provider import PredictionProviderBinding
 from .cad_repository import SceneRepository
 from .cad_search_repository import CadSearchRepository
-from .cad_search import candidate_preview_document, generate_cad_candidates
+from .cad_search import candidate_preview_document, iter_cad_candidate_pages
 from .cad_scene import scene_content_hash
 
 
@@ -86,21 +86,10 @@ def _hash(value: object) -> str:
 
 
 def _resolve_candidate(scene_repository: SceneRepository, spec, candidate_id: str):
-    offset = 0
-    page_limit = min(1000, spec.candidate_limit)
-    candidate_set_sha256 = None
-    while True:
-        page = generate_cad_candidates(scene_repository, spec, offset=offset, limit=page_limit)
-        if candidate_set_sha256 is None:
-            candidate_set_sha256 = page.candidate_set_sha256
-        elif candidate_set_sha256 != page.candidate_set_sha256:
-            raise ValueError('candidate-set identity changed while resolving measurement plan')
+    for page in iter_cad_candidate_pages(scene_repository, spec):
         for candidate in page.candidates:
             if candidate.candidate_id == candidate_id:
                 return candidate, page.candidate_set_sha256
-        offset += len(page.candidates)
-        if not page.candidates or offset >= page.feasible_candidate_count:
-            break
     raise ValueError('candidate does not belong to SearchSpec candidate set')
 
 
