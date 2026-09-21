@@ -112,6 +112,14 @@ def _record(*, evidence_scope: str, reverse_measured: bool = False):
         evidence_scope=evidence_scope,
         campaign_id='campaign-fixture' if evidence_scope == 'owned_room' else None,
         campaign_sha256='3' * 64 if evidence_scope == 'owned_room' else None,
+        campaign_registration_id=(
+            'o60-validation-campaign-registration:' + '4' * 64
+            if evidence_scope == 'owned_room'
+            else None
+        ),
+        campaign_registration_sha256=(
+            '5' * 64 if evidence_scope == 'owned_room' else None
+        ),
         trend_min_agreement_ratio=0.75,
     )
 

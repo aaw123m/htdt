@@ -64,6 +64,7 @@ def inventory(data_dir: Path) -> dict[str, object]:
             campaign = campaign_repository.get(campaign_id)
             if campaign is None:
                 continue
+            registration = campaign_repository.get_registration(campaign_id)
             readiness = campaign_service.readiness(campaign_id)
             validations = validation_repository.list_for_search_spec(
                 campaign.search_spec_id
@@ -75,6 +76,12 @@ def inventory(data_dir: Path) -> dict[str, object]:
                 'campaign_id': campaign.campaign_id,
                 'campaign_sha256': campaign.campaign_sha256,
                 'created_at_utc': campaign.created_at_utc,
+                'registered_at_utc': (
+                    None if registration is None else registration.registered_at_utc
+                ),
+                'registration_id': (
+                    None if registration is None else registration.registration_id
+                ),
                 'document_id': campaign.document_id,
                 'search_spec_id': campaign.search_spec_id,
                 'search_spec_sha256': campaign.search_spec_sha256,

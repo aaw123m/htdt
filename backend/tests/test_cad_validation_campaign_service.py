@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from types import SimpleNamespace
+
+import pytest
 
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_model_validation_service import CadModelValidationService
@@ -299,8 +302,28 @@ def test_campaign_readiness_and_build_use_preregistered_evidence(tmp_path):
 
     assert record.campaign_id == campaign.campaign_id
     assert record.campaign_sha256 == campaign.campaign_sha256
+    registration = service.campaign_repository.get_registration(campaign.campaign_id)
+    assert record.campaign_registration_id == registration.registration_id
+    assert record.campaign_registration_sha256 == registration.registration_sha256
     assert record.recommendation_gate == 'eligible'
     assert {pair.split for pair in record.pairs} == {'calibration', 'holdout'}
+
+
+def test_campaign_readiness_fails_closed_without_registration(tmp_path):
+    campaign, service, _measurements, _candidate_ids = _fixture(tmp_path)
+    # Simulate a pre-authority campaign row: no durable registration exists.
+    with sqlite3.connect(service.campaign_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_validation_campaign_registrations WHERE campaign_id=?',
+            (campaign.campaign_id,),
+        )
+
+    with pytest.raises(ValueError, match='registration authority'):
+        service.readiness(campaign.campaign_id)
+    with pytest.raises(ValueError, match='registration authority'):
+        service.build_validation_record(campaign.campaign_id, ())
+    with pytest.raises(ValueError, match='registration authority'):
+        service.materialize_objective_evidence(campaign.campaign_id)
 
 
 def test_campaign_readiness_rejects_measurement_captured_before_preregistration(tmp_path):

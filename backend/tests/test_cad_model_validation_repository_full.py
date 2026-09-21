@@ -232,7 +232,7 @@ def _fixture(tmp_path):
         search_repo,
         _PreMeasurementEvidence(scene_repo.path),
     )
-    campaign_repository.save(campaign)
+    registration = campaign_repository.save(campaign)
 
     objective_samples = []
     for index, candidate in enumerate(candidates, start=1):
@@ -341,6 +341,8 @@ def _fixture(tmp_path):
         candidate_set_sha256=page.candidate_set_sha256,
         campaign_id=campaign.campaign_id,
         campaign_sha256=campaign.campaign_sha256,
+        campaign_registration_id=registration.registration_id,
+        campaign_registration_sha256=registration.registration_sha256,
         model_id='rew-roomsim',
         model_version='fixture-1',
         response_samples=tuple(
@@ -452,3 +454,30 @@ def test_owned_room_validation_rejects_unclassified_or_synthetic_measurement(tmp
 
     with pytest.raises(ValueError, match='validation_scope=owned_room'):
         repository.save(record)
+
+
+def test_owned_room_validation_requires_persisted_campaign_registration(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_validation_campaign_registrations WHERE campaign_id=?',
+            (record.campaign_id,),
+        )
+
+    with pytest.raises(ValueError, match='campaign registration is missing'):
+        repository.save(record)
+
+
+def test_owned_room_validation_rejects_foreign_registration_authority(tmp_path):
+    record, repository, _measurement_repo = _fixture(tmp_path)
+    foreign = _rehashed(
+        record,
+        campaign_registration_id=(
+            'o60-validation-campaign-registration:' + '9' * 64
+        ),
+        campaign_registration_sha256='9' * 64,
+    )
+
+    with pytest.raises(ValueError, match='campaign registration mismatch'):
+        repository.save(foreign)

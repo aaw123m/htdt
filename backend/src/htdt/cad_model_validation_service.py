@@ -88,6 +88,14 @@ class CadModelValidationBuildSpec(BaseModel):
     candidate_set_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     campaign_id: str | None = Field(default=None, min_length=1)
     campaign_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    campaign_registration_id: str | None = Field(
+        default=None,
+        pattern=r'^o60-validation-campaign-registration:[0-9a-f]{64}$',
+    )
+    campaign_registration_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
     model_id: str = Field(min_length=1)
     model_version: str = Field(min_length=1)
     evidence_scope: EvidenceScope
@@ -107,11 +115,24 @@ class CadModelValidationBuildSpec(BaseModel):
     def valid_build_spec(self) -> 'CadModelValidationBuildSpec':
         if self.high_hz <= self.low_hz:
             raise ValueError('validation band is invalid')
+        registration_fields = (
+            self.campaign_registration_id,
+            self.campaign_registration_sha256,
+        )
         if self.evidence_scope == 'owned_room':
             if self.campaign_id is None or self.campaign_sha256 is None:
                 raise ValueError('owned-room build spec requires a validation campaign')
-        elif self.campaign_id is not None or self.campaign_sha256 is not None:
-            raise ValueError('synthetic build spec must not claim a validation campaign')
+            if any(field is None for field in registration_fields):
+                raise ValueError(
+                    'owned-room build spec requires a durable campaign registration'
+                )
+        else:
+            if self.campaign_id is not None or self.campaign_sha256 is not None:
+                raise ValueError('synthetic build spec must not claim a validation campaign')
+            if any(field is not None for field in registration_fields):
+                raise ValueError(
+                    'synthetic build spec must not claim a campaign registration'
+                )
         candidate_ids = [candidate.candidate_id for candidate in self.candidates]
         if len(candidate_ids) != len(set(candidate_ids)):
             raise ValueError('validation candidate bindings must be unique')
@@ -346,6 +367,8 @@ class CadModelValidationService:
             candidate_set_sha256=build_spec.candidate_set_sha256,
             campaign_id=build_spec.campaign_id,
             campaign_sha256=build_spec.campaign_sha256,
+            campaign_registration_id=build_spec.campaign_registration_id,
+            campaign_registration_sha256=build_spec.campaign_registration_sha256,
             model_id=build_spec.model_id,
             model_version=build_spec.model_version,
             response_samples=tuple(response_samples),

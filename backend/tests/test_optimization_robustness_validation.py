@@ -347,6 +347,16 @@ def _build_o60_record(
         campaign_sha256=(
             env.campaign.campaign_sha256 if evidence_scope == 'owned_room' else None
         ),
+        campaign_registration_id=(
+            env.registration.registration_id
+            if evidence_scope == 'owned_room'
+            else None
+        ),
+        campaign_registration_sha256=(
+            env.registration.registration_sha256
+            if evidence_scope == 'owned_room'
+            else None
+        ),
     )
     return record
 
@@ -474,7 +484,7 @@ def _fixture(tmp_path):
         search_repository,
         measurement_repository,
     )
-    campaign_repository.save(campaign)
+    registration = campaign_repository.save(campaign)
 
     prediction_id = f'pred:{nominal.candidate_id}'
     objective = build_objective_evaluation(
@@ -589,6 +599,7 @@ def _fixture(tmp_path):
         quality_repository=quality_repository,
         campaign_repository=campaign_repository,
         campaign=campaign,
+        registration=registration,
         robustness_repository=robustness_repository,
         model_validation_repository=model_validation_repository,
         roomsim_repository=roomsim_repository,
@@ -715,6 +726,7 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             nominal_revision=env.applied[env.nominal.candidate_id],
             perturbation_revision=env.applied[env.minus.candidate_id],
             campaign=env.campaign,
+            campaign_registration=env.registration,
             observable_id='response.shape_rms_db',
             receiver_entity_id='listener-main',
             required_capability='magnitude_response',
@@ -750,6 +762,7 @@ def test_o90e_wrong_spec_candidate_scene_and_observable_are_rejected(tmp_path) -
             nominal_revision=env.applied[env.minus.candidate_id],
             perturbation_revision=env.applied[env.nominal.candidate_id],
             campaign=env.campaign,
+            campaign_registration=env.registration,
             observable_id='response.shape_rms_db',
             receiver_entity_id='listener-main',
             required_capability='magnitude_response',
@@ -1083,6 +1096,7 @@ def test_o90e_posthoc_backdated_prospective_case_is_rejected(tmp_path) -> None:
         nominal_revision=env.applied[env.nominal.candidate_id],
         perturbation_revision=env.applied[env.minus.candidate_id],
         campaign=env.campaign,
+        campaign_registration=env.registration,
         observable_id='response.shape_rms_db',
         receiver_entity_id='listener-main',
         required_capability='magnitude_response',

@@ -155,6 +155,11 @@ def audit(
         campaign = campaign_repository.get(campaign_id)
         if campaign is None:
             raise AssertionError(f'campaign does not exist: {campaign_id}')
+        registration = campaign_repository.get_registration(campaign_id)
+        if registration is None:
+            raise AssertionError(
+                f'campaign has no durable registration: {campaign_id}'
+            )
 
         readiness = campaign_service.readiness(campaign_id)
         validations = tuple(
@@ -220,6 +225,9 @@ def audit(
             'model_id': campaign.model_id,
             'model_version': campaign.model_version,
             'campaign_created_at_utc': campaign.created_at_utc,
+            'campaign_registered_at_utc': registration.registered_at_utc,
+            'campaign_registration_id': registration.registration_id,
+            'campaign_registration_sha256': registration.registration_sha256,
             'candidate_count': len(campaign.candidates),
             'candidates': _candidate_report(readiness),
             'readiness_missing_reasons': list(readiness.missing_reasons),
