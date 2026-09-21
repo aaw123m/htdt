@@ -72,12 +72,18 @@ the preregistered production gate.
 
 An already captured measurement is not retroactively made prospective by an
 O60 campaign alone. The repository assigns the O90E preregistration timestamp
-at case creation, rather than accepting a caller-supplied production timestamp.
-It is prospective O90E evidence only when the exact O90E case was saved while
-both exact MeasurementPlans were still planned and can later be reopened
-through those original planned-plan hashes. Initial persistence also rechecks
-the current plan history, so a caller cannot reconstruct an old planned snapshot
-after measurement completion and backdate it into prospective evidence.
+inside the commit transaction, rather than accepting a caller-supplied
+production timestamp. It is prospective O90E evidence only when the exact
+O90E case was saved while both exact MeasurementPlans were still planned and
+can later be reopened through those original planned-plan hashes. The
+planned-head gate and the case insert commit under one ``BEGIN IMMEDIATE``
+transaction: the exact latest head of each plan id is re-resolved under the
+write lock and must still be the planned snapshot the case binds, and any
+measured evidence already captured under a target plan's applied revision
+fails the commit, so a racing measurement completion cannot interleave
+between the check and the durable registration. A caller therefore cannot
+reconstruct an old planned snapshot after measurement completion and
+backdate it into prospective evidence.
 Creating a new O90E case after capture is retrospective, even when the
 measurement belongs to an earlier O60 campaign.
 
