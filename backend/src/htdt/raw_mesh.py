@@ -6,7 +6,7 @@ from hashlib import sha256
 import json
 from math import floor, isfinite, sqrt
 import struct
-from typing import Literal
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -197,6 +197,45 @@ def serialize_raw_visual_mesh(mesh: RawVisualMesh) -> str:
 
 def deserialize_raw_visual_mesh(payload: str) -> RawVisualMesh:
     return RawVisualMesh.model_validate(json.loads(payload))
+
+
+def serialize_raw_visual_mesh_reference(mesh: RawVisualMesh) -> dict[str, Any]:
+    """Compact persisted form of a RawVisualMesh.
+
+    The mesh is reduced to its identity and provenance; the original asset
+    bytes are expected to live once in the canonical content-addressed blob
+    store under ``provenance.original_asset_sha256`` instead of being embedded
+    again as Base64 JSON.
+    """
+
+    return {
+        'mesh_id': mesh.mesh_id,
+        'provenance': mesh.provenance.model_dump(mode='json'),
+    }
+
+
+def rehydrate_raw_visual_mesh(
+    record: Mapping[str, Any],
+    asset: bytes,
+) -> RawVisualMesh:
+    """Rebuild a RawVisualMesh from a reference record plus canonical bytes.
+
+    The deterministic importer is re-run so the returned mesh is identical to
+    the originally imported snapshot; identity and provenance are re-verified
+    against the persisted record.
+    """
+
+    provenance = RawMeshImportProvenance.model_validate(record.get('provenance'))
+    mesh = import_raw_visual_mesh(
+        asset,
+        source_name=provenance.source_name,
+        format_hint=provenance.asset_format,
+    )
+    if mesh.mesh_id != record.get('mesh_id') or mesh.provenance != provenance:
+        raise RawMeshImportError(
+            'content-addressed raw mesh record does not match the canonical asset'
+        )
+    return mesh
 
 
 def serialize_raw_mesh_diagnostics(result: RawMeshDiagnosticResult) -> str:

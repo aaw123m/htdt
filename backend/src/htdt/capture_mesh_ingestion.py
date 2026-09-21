@@ -11,6 +11,8 @@ from htdt.raw_mesh import RawVisualMesh, import_raw_visual_mesh
 
 
 CAPTURE_MESH_BINDING_DOMAIN = 'htdt.capture.raw-visual-mesh-binding.v1'
+CAPTURE_MESH_BINDING_RECORD_SCHEMA = 'htdt.capture.raw-visual-mesh-binding-record'
+CAPTURE_MESH_BINDING_RECORD_VERSION = '2.0.0'
 
 
 class CaptureMeshIngestionError(ValueError):
@@ -149,6 +151,54 @@ def adapt_capture_mesh_handoff(
         handoff=typed,
         raw_mesh=mesh,
     )
+
+
+def serialize_mesh_binding_record(binding: CaptureRawVisualMeshBinding) -> str:
+    """Compact persisted form of a capture mesh binding.
+
+    The record keeps the binding identity and the validated handoff. The
+    decoded mesh is rebuilt on read from the canonical content-addressed
+    source bytes (keyed by ``handoff.geometry_sha256``) instead of embedding
+    the raw asset again as Base64 plus expanded vertex/face arrays.
+    """
+
+    return _canonical_json(
+        {
+            'schema': CAPTURE_MESH_BINDING_RECORD_SCHEMA,
+            'schema_version': CAPTURE_MESH_BINDING_RECORD_VERSION,
+            'binding_id': binding.binding_id,
+            'handoff': binding.handoff.model_dump(mode='json', by_alias=True),
+        }
+    )
+
+
+def parse_mesh_binding_record(
+    payload: str,
+) -> tuple[str, CaptureMeshHandoff] | None:
+    """Decode a compact persisted binding record.
+
+    Returns ``(binding_id, handoff)`` for the compact representation, or None
+    when the payload is a legacy fully-serialized CaptureRawVisualMeshBinding
+    (which embeds ``raw_mesh`` and must be validated directly).
+    """
+
+    data = json.loads(payload)
+    if not isinstance(data, dict) or 'raw_mesh' in data:
+        return None
+    if data.get('schema') != CAPTURE_MESH_BINDING_RECORD_SCHEMA:
+        raise CaptureMeshIngestionError(
+            'capture mesh binding record has an unknown schema'
+        )
+    if data.get('schema_version') != CAPTURE_MESH_BINDING_RECORD_VERSION:
+        raise CaptureMeshIngestionError(
+            'capture mesh binding record has an unsupported version'
+        )
+    binding_id = data.get('binding_id')
+    if not isinstance(binding_id, str):
+        raise CaptureMeshIngestionError(
+            'capture mesh binding record is missing binding_id'
+        )
+    return binding_id, CaptureMeshHandoff.model_validate(data['handoff'])
 
 
 def _binding_id(handoff_id: str, raw_mesh_semantic_hash: str) -> str:
