@@ -3,12 +3,15 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 import sqlite3
+import threading
 from types import SimpleNamespace
 
 import pytest
 
+import htdt.cad_robustness_validation_repository as validation_repository_module
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_measurement_loop import (
+    bind_measurement_plan_prediction,
     build_measurement_plan,
     complete_measurement_plan,
 )
@@ -395,7 +398,64 @@ def _build_o60_record(
     return record
 
 
-def _fixture(tmp_path):
+def _capture_measurement(
+    env,
+    revision,
+    measurement_id: str,
+    *,
+    captured_at: str = '2030-01-01T01:30:00+00:00',
+    imported_at: str = '2030-01-01T01:31:00+00:00',
+    external_source_id: str | None = None,
+    processing: dict | None = None,
+    levels: tuple[float, ...] = (70.0, 71.0, 69.0, 70.0),
+):
+    record = measurement_record_for_revision(
+        revision,
+        'listener-main',
+        measurement_id=measurement_id,
+        evidence_type='measured',
+        channel_role='front_left',
+        source_speaker_ids=('speaker-fl',),
+        radiation_scope='single',
+        routing_evidence='verified',
+        captured_at=captured_at,
+        imported_at=imported_at,
+        source_kind='unknown',
+        external_source_id=external_source_id,
+        provenance={
+            'validation_scope': 'owned_room',
+            'validation_campaign_id': env.campaign.campaign_id,
+        },
+    )
+    processing = processing or {'fixture_raw': measurement_id}
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=levels,
+        phase_status='absent',
+        level_reference='spl',
+        processing=processing,
+    )
+    dataset = CadFrequencyResponseDataset(
+        dataset_id=f'dataset:{measurement_id}',
+        measurement_id=measurement_id,
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=levels,
+        phase_status='absent',
+        level_reference='spl',
+        processing_json=canonical_json(processing),
+        source_sha256=sha256(raw).hexdigest(),
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
+    )
+    env.measurement_repository.save(
+        record,
+        dataset,
+        raw_filename=f'{measurement_id}.json',
+        raw_bytes=raw,
+    )
+    return record
+
+
+def _fixture(tmp_path, *, measured: bool = True):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     source = scene_repository.save(_scene(), parent_revision_id=None).revision
     search_repository = CadSearchRepository(scene_repository)
@@ -697,67 +757,36 @@ def _fixture(tmp_path):
         measurement_ids={},
     )
 
-    for index, candidate in enumerate((minus, nominal, plus, calibration), start=1):
-        candidate_id = candidate.candidate_id
-        measurement_id = f'measurement:{candidate_id}'
-        revision = applied[candidate_id]
-        record = measurement_record_for_revision(
-            revision,
-            'listener-main',
-            measurement_id=measurement_id,
-            evidence_type='measured',
-            channel_role='front_left',
-            source_speaker_ids=('speaker-fl',),
-            radiation_scope='single',
-            routing_evidence='verified',
-            captured_at=f'2030-01-01T01:0{index}:00+00:00',
-            imported_at=f'2030-01-01T01:1{index}:00+00:00',
-            source_kind='unknown',
-            external_source_id=f'rew:{candidate_id}',
-            provenance={
-                'validation_scope': 'owned_room',
-                'validation_campaign_id': campaign.campaign_id,
-            },
-        )
-        processing = {'fixture_raw': f'o90e:{candidate_id}'}
-        levels = tuple(_response(index * 0.1).level_db)
-        raw = declared_fr_raw(
-            frequency_hz=(20.0, 40.0, 80.0, 160.0),
-            level_db=levels,
-            phase_status='absent',
-            level_reference='spl',
-            processing=processing,
-        )
-        dataset = CadFrequencyResponseDataset(
-            dataset_id=f'dataset:{candidate_id}',
-            measurement_id=measurement_id,
-            frequency_hz=(20.0, 40.0, 80.0, 160.0),
-            level_db=levels,
-            phase_status='absent',
-            level_reference='spl',
-            processing_json=canonical_json(processing),
-            source_sha256=sha256(raw).hexdigest(),
-            importer_version=HTDT_DECLARED_IMPORTER_VERSION,
-        )
-        measurement_repository.save(
-            record,
-            dataset,
-            raw_filename=f'{candidate_id}.json',
-            raw_bytes=raw,
-        )
-        completed = complete_measurement_plan(
-            planned[candidate_id],
-            measurement_repository,
-            (measurement_id,),
-        )
-        measurement_repository.save_measurement_plan(completed)
-        env.measurement_ids[candidate_id] = measurement_id
-        _save_quality(env, measurement_id)
+    if measured:
+        for index, candidate in enumerate(
+            (minus, nominal, plus, calibration), start=1
+        ):
+            candidate_id = candidate.candidate_id
+            measurement_id = f'measurement:{candidate_id}'
+            revision = applied[candidate_id]
+            _capture_measurement(
+                env,
+                revision,
+                measurement_id,
+                captured_at=f'2030-01-01T01:0{index}:00+00:00',
+                imported_at=f'2030-01-01T01:1{index}:00+00:00',
+                external_source_id=f'rew:{candidate_id}',
+                processing={'fixture_raw': f'o90e:{candidate_id}'},
+                levels=tuple(_response(index * 0.1).level_db),
+            )
+            completed = complete_measurement_plan(
+                planned[candidate_id],
+                measurement_repository,
+                (measurement_id,),
+            )
+            measurement_repository.save_measurement_plan(completed)
+            env.measurement_ids[candidate_id] = measurement_id
+            _save_quality(env, measurement_id)
 
-    record = _build_o60_record(env)
-    assert record.recommendation_gate == 'eligible'
-    env.model_validation_repository.record = record
-    env.o60_record = record
+        record = _build_o60_record(env)
+        assert record.recommendation_gate == 'eligible'
+        env.model_validation_repository.record = record
+        env.o60_record = record
     return env
 
 
@@ -1317,3 +1346,234 @@ def test_o90e_tamper_rejected_on_reopen(tmp_path) -> None:
 
     with pytest.raises(ValueError, match='semantic hash mismatch'):
         env.validation_repository.get_decision(decision.decision_id)
+
+
+def _minus_case_kwargs(env) -> dict:
+    return dict(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        axis_id='speaker-x',
+        direction='minus',
+        nominal_measurement_plan_id=env.planned[env.nominal.candidate_id].plan_id,
+        perturbation_measurement_plan_id=env.planned[env.minus.candidate_id].plan_id,
+        o60_campaign_id=env.campaign.campaign_id,
+        observable_id='response.shape_rms_db',
+        receiver_entity_id='listener-main',
+        required_capability='magnitude_response',
+        channel_role='front_left',
+        source_speaker_ids=('speaker-fl',),
+        radiation_scope='single',
+    )
+
+
+def _complete_plan(env, candidate, measurement_id: str) -> None:
+    _capture_measurement(
+        env,
+        env.applied[candidate.candidate_id],
+        measurement_id,
+    )
+    env.measurement_repository.save_measurement_plan(
+        complete_measurement_plan(
+            env.planned[candidate.candidate_id],
+            env.measurement_repository,
+            (measurement_id,),
+        )
+    )
+
+
+def _plan_head(env, plan_id: str):
+    return next(
+        plan
+        for plan in env.measurement_repository.latest_measurement_plans(
+            env.spec.search_spec_id
+        )
+        if plan.plan_id == plan_id
+    )
+
+
+def test_o90e_registration_fails_closed_when_completion_commits_mid_registration(
+    tmp_path, monkeypatch
+) -> None:
+    env = _fixture(tmp_path, measured=False)
+    repository = env.validation_repository
+    real_connect = repository._connect
+    injected = []
+
+    def raced_connect():
+        if not injected:
+            # The completion commits between the registration's planned-state
+            # resolution and the transaction that inserts the case.
+            injected.append(True)
+            _complete_plan(env, env.nominal, 'measurement:nominal-raced')
+        return real_connect()
+
+    monkeypatch.setattr(repository, '_connect', raced_connect)
+
+    with pytest.raises(ValueError, match='before measurement completion'):
+        repository.preregister_case(**_minus_case_kwargs(env))
+
+    # The measured head stays valid; no additional case row was committed.
+    assert (
+        _plan_head(env, env.planned[env.nominal.candidate_id].plan_id).status
+        == 'measured'
+    )
+    assert {
+        case.case_id
+        for case in repository.list_cases(env.spec.robustness_spec_id)
+    } == {env.minus_case.case_id, env.plus_case.case_id}
+
+
+def test_o90e_prospective_case_rejects_superseded_planned_head(tmp_path) -> None:
+    env = _fixture(tmp_path, measured=False)
+    nominal_plan = env.planned[env.nominal.candidate_id]
+    case = build_o90e_validation_case(
+        spec=env.spec,
+        axis_id='speaker-x',
+        direction='minus',
+        nominal_plan=nominal_plan,
+        perturbation_plan=env.planned[env.minus.candidate_id],
+        nominal_revision=env.applied[env.nominal.candidate_id],
+        perturbation_revision=env.applied[env.minus.candidate_id],
+        campaign=env.campaign,
+        campaign_registration=env.registration,
+        observable_id='response.shape_rms_db',
+        receiver_entity_id='listener-main',
+        required_capability='magnitude_response',
+        channel_role='front_left',
+        source_speaker_ids=('speaker-fl',),
+        radiation_scope='single',
+        preregistered_at_utc='2030-01-01T00:30:00+00:00',
+    )
+    assert case.preregistration_status == 'prospective'
+
+    # The head advances to a NEW planned version after the case was built:
+    # the older row stays 'planned' in history but is no longer the head.
+    binding = SimpleNamespace(
+        consumer_kind='O50_MEASUREMENT_PLAN',
+        consumer_id=nominal_plan.plan_id,
+        required_observables=('frequency_response_magnitude',),
+        binding_id='r170a-provider-binding:' + ('a' * 64),
+        semantic_sha256='b' * 64,
+    )
+    env.measurement_repository.save_measurement_plan(
+        bind_measurement_plan_prediction(nominal_plan, binding)
+    )
+
+    with pytest.raises(ValueError, match='no longer the current planned head'):
+        env.validation_repository.save_case(case)
+
+    # A fresh registration still resolves and binds the current planned head.
+    rebound = env.validation_repository.preregister_case(**_minus_case_kwargs(env))
+    assert rebound.preregistration_status == 'prospective'
+    assert rebound.nominal_preregistered_plan_sha256 != (
+        case.nominal_preregistered_plan_sha256
+    )
+
+
+def test_o90e_preregistration_fails_closed_on_qualifying_evidence_before_completion(
+    tmp_path,
+) -> None:
+    env = _fixture(tmp_path, measured=False)
+    # Measured evidence already exists under the nominal plan's applied
+    # revision even though the plan head is still 'planned'.
+    _capture_measurement(
+        env,
+        env.applied[env.nominal.candidate_id],
+        'measurement:early-o90e',
+    )
+
+    with pytest.raises(ValueError, match='qualifying measurement evidence'):
+        env.validation_repository.preregister_case(**_minus_case_kwargs(env))
+
+    assert (
+        _plan_head(env, env.planned[env.nominal.candidate_id].plan_id).status
+        == 'planned'
+    )
+    assert {
+        case.case_id
+        for case in env.validation_repository.list_cases(env.spec.robustness_spec_id)
+    } == {env.minus_case.case_id, env.plus_case.case_id}
+
+
+def test_o90e_case_commits_before_racing_measurement_completion(
+    tmp_path, monkeypatch
+) -> None:
+    env = _fixture(tmp_path, measured=False)
+    repository = env.validation_repository
+    barrier = threading.Barrier(2)
+    real_utc_now = validation_repository_module._utc_now
+    entered = []
+
+    def gated_utc_now():
+        if not entered:
+            # The completer reaches its own write while this registration
+            # holds the BEGIN IMMEDIATE lock, so it can only commit after us.
+            entered.append(True)
+            barrier.wait(timeout=30)
+        return real_utc_now()
+
+    monkeypatch.setattr(validation_repository_module, '_utc_now', gated_utc_now)
+
+    results: list[object] = []
+
+    def completer() -> None:
+        barrier.wait(timeout=30)
+        try:
+            _complete_plan(env, env.nominal, 'measurement:nominal-after-case')
+            results.append('measured')
+        except Exception as exc:  # noqa: BLE001 - collect for assertion
+            results.append(exc)
+
+    thread = threading.Thread(target=completer)
+    thread.start()
+    case = repository.preregister_case(**_minus_case_kwargs(env))
+    thread.join(timeout=60)
+    assert not thread.is_alive()
+
+    assert case.preregistration_status == 'prospective'
+    assert repository.get_case(case.case_id) == case
+    # Registration committed first; the racing completion remains valid and
+    # lands as the measured head afterwards.
+    assert results == ['measured']
+    head = _plan_head(env, env.planned[env.nominal.candidate_id].plan_id)
+    assert head.status == 'measured'
+    assert head.measurement_ids == ('measurement:nominal-after-case',)
+
+
+def test_o90e_concurrent_identical_preregistrations_commit_once(
+    tmp_path, monkeypatch
+) -> None:
+    env = _fixture(tmp_path, measured=False)
+    # Both threads build the identical case: only one commit can win.
+    monkeypatch.setattr(
+        validation_repository_module,
+        '_utc_now',
+        lambda: '2030-01-01T00:40:00+00:00',
+    )
+    barrier = threading.Barrier(2)
+    results: list[object] = []
+
+    def worker() -> None:
+        barrier.wait(timeout=30)
+        try:
+            results.append(
+                env.validation_repository.preregister_case(
+                    **_minus_case_kwargs(env)
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - collect for assertion
+            results.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+        assert not thread.is_alive()
+
+    committed = [item for item in results if not isinstance(item, Exception)]
+    failures = [item for item in results if isinstance(item, Exception)]
+    assert len(committed) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], ValueError)
+    assert 'already exists' in str(failures[0])
+    assert env.validation_repository.get_case(committed[0].case_id) == committed[0]

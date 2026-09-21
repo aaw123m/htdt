@@ -42,6 +42,11 @@ from .optimization_robustness_validation import (
 )
 
 
+def _utc_now() -> str:
+    """Repository commit clock; the only source of durable registration time."""
+    return datetime.now(timezone.utc).isoformat()
+
+
 class CadRobustnessValidationRepository:
     """Append-only O90E authority over existing O90/O60/N60 evidence.
 
@@ -248,6 +253,15 @@ class CadRobustnessValidationRepository:
         source_speaker_ids: Sequence[str],
         radiation_scope: str,
     ) -> O90EValidationCase:
+        """Resolve and durably register one O90E validation case.
+
+        The durable ``preregistered_at_utc`` is repository-generated inside
+        the same ``BEGIN IMMEDIATE`` write transaction that re-verifies the
+        preregistered plan heads and inserts the case row, so a prospective
+        case can never commit after a racing measurement completion and its
+        timestamp can never claim a durable registration that has not
+        committed yet.
+        """
         spec = self._spec(robustness_spec_id)
         campaign = self.campaign_repository.get(o60_campaign_id)
         if campaign is None:
@@ -289,30 +303,50 @@ class CadRobustnessValidationRepository:
                 'O90E nominal/perturbation SystemVariant lineage mismatch'
             )
 
-        case = build_o90e_validation_case(
-            spec=spec,
-            axis_id=axis_id,
-            direction=direction,
-            nominal_plan=nominal_plan,
-            perturbation_plan=perturbation_plan,
-            nominal_revision=nominal_revision,
-            perturbation_revision=perturbation_revision,
-            campaign=campaign,
-            campaign_registration=registration,
-            observable_id=observable_id,
-            receiver_entity_id=receiver_entity_id,
-            required_capability=required_capability,
-            channel_role=channel_role,
-            source_speaker_ids=source_speaker_ids,
-            radiation_scope=radiation_scope,
-            preregistered_at_utc=datetime.now(timezone.utc).isoformat(),
-            system_variant=nominal_variant,
-        )
-        self.save_case(case)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            case = build_o90e_validation_case(
+                spec=spec,
+                axis_id=axis_id,
+                direction=direction,
+                nominal_plan=nominal_plan,
+                perturbation_plan=perturbation_plan,
+                nominal_revision=nominal_revision,
+                perturbation_revision=perturbation_revision,
+                campaign=campaign,
+                campaign_registration=registration,
+                observable_id=observable_id,
+                receiver_entity_id=receiver_entity_id,
+                required_capability=required_capability,
+                channel_role=channel_role,
+                source_speaker_ids=source_speaker_ids,
+                radiation_scope=radiation_scope,
+                preregistered_at_utc=_utc_now(),
+                system_variant=nominal_variant,
+            )
+            # Re-validate the case against the frozen committed state inside
+            # the write transaction; the pre-resolved spec is passed through
+            # because the robustness repository's schema gate takes its own
+            # write lock on connect.
+            self._validate_case_bindings(case, spec=spec)
+            if case.preregistration_status == 'prospective':
+                self._require_prospective_plan_state(
+                    connection,
+                    search_spec_id=spec.search_spec_id,
+                    case=case,
+                )
+            self._insert_case(connection, case)
+            connection.commit()
         return case
 
-    def _validate_case_bindings(self, case: O90EValidationCase) -> None:
-        spec = self._spec(case.robustness_spec_id)
+    def _validate_case_bindings(
+        self,
+        case: O90EValidationCase,
+        *,
+        spec: RobustnessSpec | None = None,
+    ) -> None:
+        if spec is None:
+            spec = self._spec(case.robustness_spec_id)
         if spec.robustness_spec_sha256 != case.robustness_spec_sha256:
             raise ValueError('O90E case RobustnessSpec hash mismatch')
         if (
@@ -395,53 +429,139 @@ class CadRobustnessValidationRepository:
         if rebuilt != case:
             raise ValueError('O90E case no longer matches exact preregistered authority')
 
+    def _plan_head(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        search_spec_id: str,
+        plan_id: str,
+    ) -> CadMeasurementPlan | None:
+        """Latest persisted version of one plan, read on the write connection."""
+        row = connection.execute(
+            'SELECT status, plan_sha256, payload_json FROM cad_measurement_plans '
+            'WHERE plan_id=? AND search_spec_id=? ORDER BY seq DESC LIMIT 1',
+            (plan_id, search_spec_id),
+        ).fetchone()
+        if row is None:
+            return None
+        plan = CadMeasurementPlan.model_validate_json(row['payload_json'])
+        if (
+            plan.plan_id != plan_id
+            or plan.search_spec_id != search_spec_id
+            or plan.status != row['status']
+            or plan.plan_sha256 != row['plan_sha256']
+        ):
+            raise ValueError(
+                'persisted measurement plan head disagrees with its payload'
+            )
+        return plan
+
+    def _require_prospective_plan_state(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        search_spec_id: str,
+        case: O90EValidationCase,
+    ) -> None:
+        """Re-resolve the exact plan heads under the write lock.
+
+        A prospective case may only commit while both preregistered plan
+        snapshots are still the exact planned heads of their plan_id
+        lifecycles and no measured evidence already exists under their
+        applied revisions. Running inside the same ``BEGIN IMMEDIATE``
+        transaction as the case insert makes the gate and the durable
+        registration atomic: a measurement completion that commits first is
+        seen here, and one that commits after could not have influenced the
+        check.
+        """
+        for plan_id, plan_sha256 in (
+            (
+                case.nominal_measurement_plan_id,
+                case.nominal_preregistered_plan_sha256,
+            ),
+            (
+                case.perturbation_measurement_plan_id,
+                case.perturbation_preregistered_plan_sha256,
+            ),
+        ):
+            head = self._plan_head(
+                connection,
+                search_spec_id=search_spec_id,
+                plan_id=plan_id,
+            )
+            if head is None or head.status != 'planned':
+                raise ValueError(
+                    'prospective O90E case must be persisted before '
+                    'measurement completion'
+                )
+            if head.plan_sha256 != plan_sha256:
+                raise ValueError(
+                    'O90E preregistered MeasurementPlan is no longer the '
+                    'current planned head'
+                )
+            blocker = connection.execute(
+                'SELECT measurement_id FROM cad_measurements '
+                "WHERE document_id=? AND evidence_type='measured' "
+                'AND scene_revision_id=? LIMIT 1',
+                (head.document_id, head.applied_scene_revision_id),
+            ).fetchone()
+            if blocker is not None:
+                raise ValueError(
+                    'prospective O90E case cannot register over existing '
+                    'qualifying measurement evidence'
+                )
+
+    def _insert_case(
+        self,
+        connection: sqlite3.Connection,
+        case: O90EValidationCase,
+    ) -> None:
+        if connection.execute(
+            'SELECT 1 FROM cad_robustness_validation_cases WHERE case_id=?',
+            (case.case_id,),
+        ).fetchone() is not None:
+            raise ValueError(f'O90E validation case already exists: {case.case_id}')
+        connection.execute(
+            '''
+            INSERT INTO cad_robustness_validation_cases(
+                case_id, robustness_spec_id, candidate_id, axis_id, direction,
+                case_sha256, preregistration_status, preregistered_at_utc,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                case.case_id,
+                case.robustness_spec_id,
+                case.candidate_id,
+                case.axis_id,
+                case.direction,
+                case.case_sha256,
+                case.preregistration_status,
+                case.preregistered_at_utc,
+                case.model_dump_json(),
+            ),
+        )
+
     def save_case(self, case: O90EValidationCase) -> None:
+        """Persist one fully-bound O90E validation case.
+
+        For a prospective case the planned-head gate and the insert share
+        one ``BEGIN IMMEDIATE`` transaction, so a measurement completion
+        cannot commit between the check and the durable registration.
+        """
         case = O90EValidationCase.model_validate(case.model_dump(mode='python'))
         self._validate_case_bindings(case)
-        if case.preregistration_status == 'prospective':
-            nominal_latest = self._latest_plan(
-                search_spec_id=self._spec(case.robustness_spec_id).search_spec_id,
-                plan_id=case.nominal_measurement_plan_id,
-            )
-            perturbation_latest = self._latest_plan(
-                search_spec_id=self._spec(case.robustness_spec_id).search_spec_id,
-                plan_id=case.perturbation_measurement_plan_id,
-            )
-            if (
-                nominal_latest is None
-                or perturbation_latest is None
-                or nominal_latest.status != 'planned'
-                or perturbation_latest.status != 'planned'
-            ):
-                raise ValueError(
-                    'prospective O90E case must be persisted before measurement completion'
-                )
+        search_spec_id = self._spec(case.robustness_spec_id).search_spec_id
         with closing(self._connect()) as connection, connection:
-            if connection.execute(
-                'SELECT 1 FROM cad_robustness_validation_cases WHERE case_id=?',
-                (case.case_id,),
-            ).fetchone() is not None:
-                raise ValueError(f'O90E validation case already exists: {case.case_id}')
-            connection.execute(
-                '''
-                INSERT INTO cad_robustness_validation_cases(
-                    case_id, robustness_spec_id, candidate_id, axis_id, direction,
-                    case_sha256, preregistration_status, preregistered_at_utc,
-                    payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''',
-                (
-                    case.case_id,
-                    case.robustness_spec_id,
-                    case.candidate_id,
-                    case.axis_id,
-                    case.direction,
-                    case.case_sha256,
-                    case.preregistration_status,
-                    case.preregistered_at_utc,
-                    case.model_dump_json(),
-                ),
-            )
+            connection.execute('BEGIN IMMEDIATE')
+            if case.preregistration_status == 'prospective':
+                self._require_prospective_plan_state(
+                    connection,
+                    search_spec_id=search_spec_id,
+                    case=case,
+                )
+            self._insert_case(connection, case)
+            connection.commit()
 
     def get_case(self, case_id: str) -> O90EValidationCase | None:
         check_native_schema_compatibility(self.path)
