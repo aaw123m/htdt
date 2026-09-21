@@ -143,7 +143,17 @@ class CadObjectiveRepository:
             ).fetchall()
         return tuple(CadObjectiveEvaluation.model_validate_json(row['payload_json']) for row in rows)
 
-    def save_pareto_set(self, pareto_set: CadParetoSet) -> None:
+    def _require_pareto_authority(self, pareto_set: CadParetoSet) -> None:
+        """Replay the exact authority one Pareto set is bound to.
+
+        Revalidates the SceneRevision/SearchSpec binding, reloads every
+        referenced O30 evaluation through the evaluation read path,
+        verifies exact evaluation SHA/candidate/binding, and requires the
+        canonical recomputed front to equal the submitted result. Missing
+        or mismatched authority fails closed; used by both save-time
+        validation and authoritative reads.
+        """
+
         self._validate_binding(
             pareto_set.document_id,
             pareto_set.scene_revision_id,
@@ -157,6 +167,8 @@ class CadObjectiveRepository:
             evaluation = self.get_evaluation(ref.evaluation_id)
             if evaluation is None:
                 raise ValueError(f'Pareto objective evaluation does not exist: {ref.evaluation_id}')
+            if evaluation.evaluation_id != ref.evaluation_id:
+                raise ValueError('Pareto objective evaluation id mismatch')
             if evaluation.evaluation_sha256 != ref.evaluation_sha256:
                 raise ValueError('Pareto objective evaluation hash mismatch')
             if evaluation.candidate_id != ref.candidate_id:
@@ -177,6 +189,27 @@ class CadObjectiveRepository:
         )
         if expected != pareto_set.result:
             raise ValueError('Pareto result does not match referenced objective evaluations')
+
+    def _validated_pareto_set(self, row: sqlite3.Row) -> CadParetoSet:
+        """Deserialize one persisted Pareto row and replay its exact authority."""
+
+        pareto_set = CadParetoSet.model_validate_json(row['payload_json'])
+        if (
+            row['pareto_set_id'] != pareto_set.pareto_set_id
+            or row['document_id'] != pareto_set.document_id
+            or row['scene_revision_id'] != pareto_set.scene_revision_id
+            or row['scene_content_hash'] != pareto_set.scene_content_hash
+            or row['search_spec_id'] != pareto_set.search_spec_id
+            or row['search_spec_sha256'] != pareto_set.search_spec_sha256
+            or row['pareto_sha256'] != pareto_set.pareto_sha256
+            or row['created_at_utc'] != pareto_set.created_at_utc
+        ):
+            raise ValueError('persisted CadParetoSet row disagrees with its payload')
+        self._require_pareto_authority(pareto_set)
+        return pareto_set
+
+    def save_pareto_set(self, pareto_set: CadParetoSet) -> None:
+        self._require_pareto_authority(pareto_set)
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -201,19 +234,19 @@ class CadObjectiveRepository:
     def find_pareto_set_by_sha(self, search_spec_id: str, pareto_sha256: str) -> CadParetoSet | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_pareto_sets WHERE search_spec_id=? AND pareto_sha256=? '
+                'SELECT * FROM cad_pareto_sets WHERE search_spec_id=? AND pareto_sha256=? '
                 'ORDER BY seq DESC LIMIT 1',
                 (search_spec_id, pareto_sha256),
             ).fetchone()
-        return None if row is None else CadParetoSet.model_validate_json(row['payload_json'])
+        return None if row is None else self._validated_pareto_set(row)
 
     def get_pareto_set(self, pareto_set_id: str) -> CadParetoSet | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_pareto_sets WHERE pareto_set_id=?',
+                'SELECT * FROM cad_pareto_sets WHERE pareto_set_id=?',
                 (pareto_set_id,),
             ).fetchone()
-        return None if row is None else CadParetoSet.model_validate_json(row['payload_json'])
+        return None if row is None else self._validated_pareto_set(row)
 
     def latest_evaluations_by_candidate(
         self,
@@ -232,7 +265,7 @@ class CadObjectiveRepository:
     def list_pareto_sets(self, search_spec_id: str) -> tuple[CadParetoSet, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_pareto_sets WHERE search_spec_id=? ORDER BY seq ASC',
+                'SELECT * FROM cad_pareto_sets WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),
             ).fetchall()
-        return tuple(CadParetoSet.model_validate_json(row['payload_json']) for row in rows)
+        return tuple(self._validated_pareto_set(row) for row in rows)
