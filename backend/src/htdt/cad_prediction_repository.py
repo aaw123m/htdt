@@ -13,7 +13,8 @@ from .cad_prediction_models import (
     canonical_prediction_json,
     prediction_input_hash,
 )
-from .cad_repository import SceneRepository
+from .cad_prediction_request import verify_prediction_input
+from .cad_repository import SceneRepository, SceneRevision
 
 
 class CadPredictionRepository:
@@ -69,7 +70,7 @@ class CadPredictionRepository:
                 'ON cad_prediction_results(run_id, seq ASC)'
             )
 
-    def save(self, result: CadPredictionResult) -> None:
+    def _source_revision(self, result: CadPredictionResult) -> SceneRevision:
         source = self.scene_repository.get(result.scene_revision_id)
         if source is None:
             raise ValueError('prediction source revision does not exist')
@@ -77,8 +78,25 @@ class CadPredictionRepository:
             raise ValueError('prediction source revision belongs to another document')
         if source.content_hash != result.scene_content_hash:
             raise ValueError('prediction source content hash does not match revision')
+        return source
+
+    @staticmethod
+    def _require_canonical_input(source: SceneRevision, result: CadPredictionResult) -> None:
+        verify_prediction_input(
+            source,
+            model_id=result.model_id,
+            model_version=result.model_version,
+            parameters_json=result.parameters_json,
+            input_snapshot_json=result.input_snapshot_json,
+            input_hash=result.input_hash,
+            geometry_compatibility=result.geometry_compatibility,
+        )
+
+    def save(self, result: CadPredictionResult) -> None:
+        source = self._source_revision(result)
         if prediction_input_hash(result.input_snapshot_json) != result.input_hash:
             raise ValueError('prediction input hash mismatch')
+        self._require_canonical_input(source, result)
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -146,7 +164,7 @@ class CadPredictionRepository:
         reflections = tuple(
             CadPredictedReflection.model_validate(item) for item in json.loads(row['reflections_json'])
         )
-        return CadPredictionResult(
+        result = CadPredictionResult(
             prediction_id=row['prediction_id'],
             run_id=row['run_id'],
             document_id=row['document_id'],
@@ -168,6 +186,11 @@ class CadPredictionRepository:
             modes=modes,
             reflections=reflections,
         )
+        # Reads are authoritative: a stored row must still replay to the
+        # canonical model input of its exact source SceneRevision, so a
+        # coherently rewritten row cannot survive by recomputing hashes.
+        self._require_canonical_input(self._source_revision(result), result)
+        return result
 
 
 def prediction_timestamp_utc() -> str:
