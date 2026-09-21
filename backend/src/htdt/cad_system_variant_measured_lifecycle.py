@@ -499,46 +499,62 @@ class CadSystemVariantMeasuredLifecycleRepository:
     ) -> SystemVariantMeasuredRecord:
         record = self._validate(record)
         with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                """
-                SELECT payload_json
-                FROM cad_system_variant_measured
-                WHERE record_id=?
-                """,
-                (record.record_id,),
-            ).fetchone()
-            if row is not None:
-                persisted = SystemVariantMeasuredRecord.model_validate_json(
-                    row['payload_json']
-                )
-                if persisted != record:
-                    raise ValueError(
-                        'SystemVariantMeasuredRecord id exists with different semantics'
-                    )
-                return self._validate(persisted)
+            connection.execute('BEGIN IMMEDIATE')
+            return self._save_in_transaction(connection, record)
 
-            connection.execute(
-                """
-                INSERT INTO cad_system_variant_measured(
-                    record_id,
-                    record_sha256,
-                    as_built_record_id,
-                    variant_id,
-                    as_built_revision_id,
-                    payload_json,
-                    recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.record_id,
-                    record.record_sha256,
-                    record.as_built_record_id,
-                    record.variant_id,
-                    record.as_built_revision_id,
-                    record.model_dump_json(),
-                    record.bound_at_utc,
-                ),
+    def _save_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        record: SystemVariantMeasuredRecord,
+    ) -> SystemVariantMeasuredRecord:
+        """Persist one validated measured record inside the caller's transaction.
+
+        Used by save and by the O100G measurement campaign repository's atomic
+        campaign completion, which commits plan completions, the campaign
+        completion and this measured lifecycle record over the same native
+        database. The caller owns BEGIN/COMMIT/ROLLBACK and must have
+        validated the record first; persisted rows were validated on commit.
+        """
+        row = connection.execute(
+            """
+            SELECT payload_json
+            FROM cad_system_variant_measured
+            WHERE record_id=?
+            """,
+            (record.record_id,),
+        ).fetchone()
+        if row is not None:
+            persisted = SystemVariantMeasuredRecord.model_validate_json(
+                row['payload_json']
             )
+            if persisted != record:
+                raise ValueError(
+                    'SystemVariantMeasuredRecord id exists with different semantics'
+                )
+            return persisted
+
+        connection.execute(
+            """
+            INSERT INTO cad_system_variant_measured(
+                record_id,
+                record_sha256,
+                as_built_record_id,
+                variant_id,
+                as_built_revision_id,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.record_id,
+                record.record_sha256,
+                record.as_built_record_id,
+                record.variant_id,
+                record.as_built_revision_id,
+                record.model_dump_json(),
+                record.bound_at_utc,
+            ),
+        )
         return record
 
     def get(
