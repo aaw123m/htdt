@@ -5,7 +5,9 @@ from urllib.parse import urlsplit
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
+from starlette.requests import ClientDisconnect
 
+from .ingress import IngressTooLargeError, read_stream_bounded
 from .limits import (
     MAX_ATTACHMENT_REQUEST_BODY_BYTES,
     MAX_RESTORE_REQUEST_BODY_BYTES,
@@ -98,5 +100,18 @@ def install_local_request_boundary(app: object, *, allow_testserver: bool = Fals
                 return JSONResponse({'detail': 'Invalid Content-Length'}, status_code=400)
             if content_length is not None and content_length > body_limit:
                 return JSONResponse({'detail': f'Request body exceeds {body_limit} bytes'}, status_code=413)
+            # Content-Length is only a fast-path preflight: a chunked or absent
+            # declaration still delivers a byte stream, so the body is bounded
+            # on the bytes actually received. When it fits, the buffered body is
+            # cached like Request.body() does so BaseHTTPMiddleware replays it to
+            # the downstream handler exactly once.
+            try:
+                request._body = await read_stream_bounded(
+                    request.stream(), body_limit, label='request body'
+                )
+            except IngressTooLargeError:
+                return JSONResponse({'detail': f'Request body exceeds {body_limit} bytes'}, status_code=413)
+            except ClientDisconnect:
+                return JSONResponse({'detail': 'Client disconnected'}, status_code=400)
 
         return await call_next(request)
