@@ -23,6 +23,7 @@ from .cad_measurement_quality import (
 from .cad_repository import SceneRevision
 from .cad_scene import Position3
 from .cad_system_variant import SystemVariant
+from .csv_export import csv_safe_row
 
 
 CALIBRATION_PLAN_SCHEMA_VERSION = 1
@@ -890,9 +891,16 @@ def read_generic_biquad_json(text: str) -> CadCalibrationExportSnapshot:
 
 
 def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
+    """Render a human/spreadsheet-facing CSV export of exported biquad settings.
+
+    Every row is routed through :func:`csv_safe_row` so channel/output/filter
+    identifiers are neutralized against spreadsheet formula interpretation
+    (see ``htdt.csv_export`` for the single-quote escaping convention).
+    """
+
     buffer = io.StringIO(newline='')
     writer = csv.writer(buffer, lineterminator='\n')
-    writer.writerow([
+    writer.writerow(csv_safe_row([
         'channel_id',
         'role_id',
         'physical_output_id',
@@ -910,10 +918,10 @@ def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
         'b2',
         'a1',
         'a2',
-    ])
+    ]))
     for channel in snapshot.channels:
         if not channel.peq:
-            writer.writerow([
+            writer.writerow(csv_safe_row([
                 channel.channel_id,
                 channel.role_id,
                 channel.physical_output_id,
@@ -931,10 +939,10 @@ def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
                 '',
                 '',
                 '',
-            ])
+            ]))
             continue
         for index, item in enumerate(channel.peq):
-            writer.writerow([
+            writer.writerow(csv_safe_row([
                 channel.channel_id,
                 channel.role_id,
                 channel.physical_output_id,
@@ -948,7 +956,7 @@ def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
                 item.q,
                 item.gain_db,
                 *item.coefficients,
-            ])
+            ]))
     return buffer.getvalue()
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 from hashlib import sha256
+import io
 import json
 from pathlib import Path
 
@@ -583,3 +585,47 @@ def test_quality_report_hash_mismatch_is_rejected_on_persistence(tmp_path: Path)
 
     with pytest.raises(ValueError, match='MeasurementQualityReport hash mismatch'):
         calibration.save_plan(tampered)
+
+
+def test_generic_biquad_csv_neutralizes_formula_prefixed_identifiers(tmp_path: Path) -> None:
+    revision, variant, measurements, quality, _variants, _calibration = _repositories(tmp_path)
+    measurement, dataset = _save_measurement(measurements, revision, 'injection')
+    report = _save_quality(quality, measurement, dataset, report_id='quality-injection')
+    plan = _plan(revision, variant, measurement, dataset, report, _channel(peq=(_peq(),)))
+    snapshot = build_generic_biquad_export(
+        plan,
+        export_id='export-injection',
+        created_at_utc='2026-09-19T12:37:00+00:00',
+    )
+    channel = snapshot.channels[0]
+    dangerous = snapshot.model_copy(update={
+        'channels': (
+            channel.model_copy(update={
+                'channel_id': '=cmd|"/c calc"!A0',
+                'role_id': '@role',
+                'physical_output_id': '\t=out-fl',
+                'peq': (
+                    channel.peq[0].model_copy(update={'filter_id': '=evil-filter'}),
+                ),
+            }),
+        ),
+    })
+
+    csv_text = render_generic_biquad_csv(dangerous)
+    rows = [row for row in csv.reader(io.StringIO(csv_text)) if row]
+    assert rows[0] == [
+        'channel_id', 'role_id', 'physical_output_id', 'channel_gain_db',
+        'delay_s', 'polarity', 'filter_index', 'filter_id', 'filter_type',
+        'frequency_hz', 'q', 'filter_gain_db', 'b0', 'b1', 'b2', 'a1', 'a2',
+    ]
+    data = rows[1]
+    assert data[0] == '\'=cmd|"/c calc"!A0'
+    assert data[1] == "'@role"
+    assert data[2] == "'\t=out-fl"
+    assert data[7] == "'=evil-filter"
+    assert data[8] == 'peaking'
+    # Numeric cells remain plain parseable literals.
+    assert float(data[3]) == channel.gain_db
+    for cell in data:
+        candidate = cell.lstrip()
+        assert not candidate or candidate[0] not in ('=', '+', '@')
