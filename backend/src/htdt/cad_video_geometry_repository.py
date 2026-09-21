@@ -216,13 +216,10 @@ class CadVideoGeometryRepository:
             )
         return reproduced
 
-    def save_evaluation(
+    def _specification_for(
         self,
         evaluation: VideoGeometryEvaluation,
-    ) -> VideoGeometryEvaluation:
-        evaluation = VideoGeometryEvaluation.model_validate(
-            evaluation.model_dump(mode='python')
-        )
+    ) -> ProjectorSpecification:
         specification = self.get_projector_specification_by_hash(
             evaluation.projector_specification_sha256
         )
@@ -230,7 +227,29 @@ class CadVideoGeometryRepository:
             raise ValueError(
                 'video geometry evaluation references an unpersisted projector specification'
             )
-        reproduced = self._reproduce_evaluation(evaluation, specification)
+        return specification
+
+    def _replay_persisted_evaluation(
+        self,
+        payload_json: str,
+    ) -> VideoGeometryEvaluation:
+        evaluation = VideoGeometryEvaluation.model_validate_json(payload_json)
+        return self._reproduce_evaluation(
+            evaluation,
+            self._specification_for(evaluation),
+        )
+
+    def save_evaluation(
+        self,
+        evaluation: VideoGeometryEvaluation,
+    ) -> VideoGeometryEvaluation:
+        evaluation = VideoGeometryEvaluation.model_validate(
+            evaluation.model_dump(mode='python')
+        )
+        reproduced = self._reproduce_evaluation(
+            evaluation,
+            self._specification_for(evaluation),
+        )
 
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
@@ -289,11 +308,9 @@ class CadVideoGeometryRepository:
                 """,
                 (evaluation_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else VideoGeometryEvaluation.model_validate_json(row['payload_json'])
-        )
+        if row is None:
+            return None
+        return self._replay_persisted_evaluation(row['payload_json'])
 
     def list_evaluations_for_revision(
         self,
@@ -310,7 +327,7 @@ class CadVideoGeometryRepository:
                 (scene_revision_id,),
             ).fetchall()
         return tuple(
-            VideoGeometryEvaluation.model_validate_json(row['payload_json'])
+            self._replay_persisted_evaluation(row['payload_json'])
             for row in rows
         )
 
@@ -329,6 +346,6 @@ class CadVideoGeometryRepository:
                 (system_variant_id,),
             ).fetchall()
         return tuple(
-            VideoGeometryEvaluation.model_validate_json(row['payload_json'])
+            self._replay_persisted_evaluation(row['payload_json'])
             for row in rows
         )
