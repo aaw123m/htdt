@@ -11,6 +11,7 @@ from htdt.acoustic_benchmark import (
 )
 from htdt.cad_acoustic_snapshot import (
     AcousticSceneSnapshot,
+    _digest,
     build_acoustic_prediction_request,
     build_acoustic_scene_snapshot,
 )
@@ -889,3 +890,78 @@ def test_blocked_treatment_result_never_becomes_available_input(
     assert by_domain['geometric'].status == 'AVAILABLE'
     assert snapshot.readiness.wave_boundary_ready is False
     assert snapshot.readiness.geometric_boundary_ready is True
+
+
+def _forged_snapshot(snapshot, **updates) -> AcousticSceneSnapshot:
+    """Self-consistent forgery: claimed semantics with a recomputed identity."""
+    forged = snapshot.model_copy(update=updates)
+    digest = _digest(forged.semantic_payload())
+    return AcousticSceneSnapshot.model_validate(
+        {
+            **forged.model_dump(mode='python'),
+            'semantic_sha256': digest,
+            'snapshot_id': f'acoustic-scene-snapshot:{digest}',
+        }
+    )
+
+
+def test_incomplete_treatment_composition_cannot_claim_boundary_ready(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    blocked_wave, _item = _compile_result(
+        fx,
+        kind='geometric',
+        instance_id='panel-forged-ready',
+        target_domain='wave',
+    )
+    _persist_result(fx, blocked_wave)
+    snapshot = _snapshot(fx, blocked_wave)
+    binding = snapshot.treatment_boundary_bindings[0]
+
+    assert binding.status == 'BLOCKED_WAVE_MODEL_UNAVAILABLE'
+    assert binding.composition_id is None
+    assert snapshot.readiness.wave_boundary_ready is False
+    assert snapshot.readiness.geometric_boundary_ready is False
+    assert (
+        'treatment_wave_boundary_blocked_wave_model_unavailable'
+        in snapshot.unresolved_conditions
+    )
+
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        r120_repository=fx['r120_repository'],
+        treatment_boundary_repository=fx['overlay_repository'],
+        authority_resolvers=_authority_resolvers(snapshot),
+    )
+    repository.save_snapshot(snapshot)
+    assert repository.get_snapshot(snapshot.snapshot_id) == snapshot
+
+    # A persisted BLOCKED binding cannot be rewritten into a boundary-READY
+    # claim, even with a self-consistent recomputed snapshot identity.
+    forged_ready = _forged_snapshot(
+        snapshot,
+        readiness=snapshot.readiness.model_copy(
+            update={'wave_boundary_ready': True}
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        repository.save_snapshot(forged_ready)
+
+    forged_clean = _forged_snapshot(
+        snapshot,
+        unresolved_conditions=tuple(
+            condition
+            for condition in snapshot.unresolved_conditions
+            if not condition.startswith('treatment_')
+        ),
+    )
+    assert forged_clean.unresolved_conditions != snapshot.unresolved_conditions
+    with pytest.raises(
+        ValueError,
+        match='unresolved conditions do not reproduce from exact authorities',
+    ):
+        repository.save_snapshot(forged_clean)
