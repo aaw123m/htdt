@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -9,22 +10,41 @@ from .cad_schema import check_native_schema_compatibility
 from .cad_standards import (
     StandardsEvaluation,
     StandardsProfile,
+    StandardsSourceAuthority,
     evaluate_standards_profile,
+    validate_criterion_source_authority,
 )
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .r120_geometry_compiler import ExactExternalAuthorityRef
+
+
+SourceAuthorityResolver = Callable[
+    [ExactExternalAuthorityRef],
+    StandardsSourceAuthority | None,
+]
 
 
 class CadStandardsRepository:
-    """Append-only standards profiles/evaluations bound to existing scene authorities."""
+    """Append-only standards profiles/evaluations bound to existing scene authorities.
+
+    Published criterion sources are exact retained authorities: every criterion
+    carrying ``source.authority_ref`` is re-resolved at the persistence boundary
+    and must reproduce the retained extraction exactly. ``published`` profiles
+    additionally require that binding on every criterion; an opaque citation
+    string alone is not treated as proof of source provenance.
+    """
 
     def __init__(
         self,
         scene_repository: SceneRepository,
         system_variant_repository: CadSystemVariantRepository | None = None,
+        *,
+        source_authority_resolver: SourceAuthorityResolver | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.system_variant_repository = system_variant_repository
+        self.source_authority_resolver = source_authority_resolver
         self.path = Path(scene_repository.path)
         check_native_schema_compatibility(self.path)
         self._initialize()
@@ -40,6 +60,14 @@ class CadStandardsRepository:
         with closing(self._connect()) as connection, connection:
             connection.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS cad_standards_source_authorities (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    authority_id TEXT NOT NULL UNIQUE,
+                    authority_version TEXT NOT NULL,
+                    semantic_hash_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS cad_standards_profiles (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
                     profile_id TEXT NOT NULL,
@@ -78,6 +106,144 @@ class CadStandardsRepository:
                 """
             )
 
+    def save_source_authority(
+        self,
+        authority: StandardsSourceAuthority,
+    ) -> StandardsSourceAuthority:
+        """Retain an exact source-document authority for audit/re-resolution."""
+
+        authority = StandardsSourceAuthority.model_validate(
+            authority.model_dump(mode='python')
+        )
+        existing = self.get_source_authority(authority.authority_id)
+        if existing is not None:
+            if existing.semantic_hash_sha256 != authority.semantic_hash_sha256:
+                raise ValueError(
+                    'StandardsSourceAuthority id exists with different semantics'
+                )
+            return existing
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO cad_standards_source_authorities(
+                    authority_id, authority_version,
+                    semantic_hash_sha256, payload_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    authority.authority_id,
+                    authority.authority_version,
+                    authority.semantic_hash_sha256,
+                    authority.model_dump_json(),
+                ),
+            )
+        return authority
+
+    def get_source_authority(
+        self,
+        authority_id: str,
+    ) -> StandardsSourceAuthority | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_standards_source_authorities '
+                'WHERE authority_id=?',
+                (authority_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StandardsSourceAuthority.model_validate_json(row['payload_json'])
+
+    def list_source_authorities(self) -> tuple[StandardsSourceAuthority, ...]:
+        """Return every retained source authority in insertion order."""
+
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_standards_source_authorities '
+                'ORDER BY seq ASC'
+            ).fetchall()
+        return tuple(
+            StandardsSourceAuthority.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def resolve_source_authority(
+        self,
+        ref: ExactExternalAuthorityRef,
+    ) -> StandardsSourceAuthority | None:
+        """Resolve a typed ref against the retained store with exact identity."""
+
+        authority = self.get_source_authority(ref.authority_id)
+        if (
+            authority is None
+            or authority.authority_version != ref.authority_version
+            or authority.semantic_hash_sha256 != ref.semantic_hash_sha256
+        ):
+            return None
+        return authority
+
+    def _resolve_source_authority(
+        self,
+        ref: ExactExternalAuthorityRef,
+        *,
+        criterion_id: str,
+    ) -> StandardsSourceAuthority:
+        resolved = None
+        if self.source_authority_resolver is not None:
+            candidate = self.source_authority_resolver(ref)
+            if candidate is not None:
+                resolved = StandardsSourceAuthority.model_validate(
+                    candidate.model_dump(mode='python')
+                )
+        if resolved is None:
+            resolved = self.get_source_authority(ref.authority_id)
+        if resolved is None:
+            raise ValueError(
+                f'criterion {criterion_id} source authority does not exist'
+            )
+        if (
+            resolved.authority_id != ref.authority_id
+            or resolved.authority_version != ref.authority_version
+            or resolved.semantic_hash_sha256 != ref.semantic_hash_sha256
+        ):
+            raise ValueError(
+                f'criterion {criterion_id} source authority mismatch'
+            )
+        # Pin the resolved authority so historical profile versions remain
+        # auditable after the external resolver changes or disappears.
+        self.save_source_authority(resolved)
+        return resolved
+
+    def _validate_profile_provenance(
+        self,
+        profile: StandardsProfile,
+    ) -> StandardsProfile:
+        for criterion in profile.criteria:
+            source = criterion.source
+            if profile.profile_kind == 'published' and (
+                source.authority_ref is None
+                or source.extraction_id is None
+                or source.content_kind is None
+            ):
+                raise ValueError(
+                    f'published criterion {criterion.criterion_id} requires an '
+                    'exact source authority, extraction identity, and explicit '
+                    'content kind'
+                )
+            if source.authority_ref is None:
+                continue
+            authority = self._resolve_source_authority(
+                source.authority_ref,
+                criterion_id=criterion.criterion_id,
+            )
+            try:
+                validate_criterion_source_authority(criterion, authority)
+            except ValueError as exc:
+                raise ValueError(
+                    f'criterion {criterion.criterion_id} source provenance '
+                    f'rejected: {exc}'
+                ) from exc
+        return profile
+
     def save_profile(self, profile: StandardsProfile) -> StandardsProfile:
         profile = StandardsProfile.model_validate(profile.model_dump(mode='python'))
         existing = self.get_profile(profile.profile_id, profile.version)
@@ -85,6 +251,8 @@ class CadStandardsRepository:
             if existing.profile_semantic_hash != profile.profile_semantic_hash:
                 raise ValueError('StandardsProfile version is immutable')
             return existing
+
+        self._validate_profile_provenance(profile)
 
         with closing(self._connect()) as connection, connection:
             connection.execute(

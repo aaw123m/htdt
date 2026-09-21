@@ -247,10 +247,10 @@ def test_missing_source_is_rejected_and_measured_requirement_fails_closed() -> N
 def test_published_boundaries_and_angle_wrap_are_explicit() -> None:
     rp22_profiles = tuple(rp22_spatial_profile(level) for level in range(1, 5))
     assert tuple(profile.version for profile in rp22_profiles) == (
-        '1.2-2023-09',
-        '1.2-2023-09',
-        '1.2-2023-09',
-        '1.2-2023-09',
+        '1.2-2023-09-prov1',
+        '1.2-2023-09-prov1',
+        '1.2-2023-09-prov1',
+        '1.2-2023-09-prov1',
     )
     level3_upfiring = next(
         criterion
@@ -367,7 +367,7 @@ def test_published_boundaries_and_angle_wrap_are_explicit() -> None:
 
 
     auro = auro3d_home_v12_profile()
-    assert auro.version == 'rev12-2024-05-16'
+    assert auro.version == 'rev12-2024-05-16-prov1'
     assert auro.profile_id in {
         profile.profile_id for profile in builtin_standards_profiles()
     }

@@ -8,12 +8,17 @@ from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .r120_geometry_compiler import ExactExternalAuthorityRef
+
 
 STANDARDS_PROFILE_SCHEMA_VERSION = 1
 STANDARDS_PROFILE_AUTHORITY_VERSION = 'standards-profile-1'
 STANDARDS_EVALUATION_SCHEMA_VERSION = 1
 STANDARDS_EVALUATION_AUTHORITY_VERSION = 'standards-evaluation-1'
 STANDARDS_EVALUATOR_VERSION = 'standards-evaluator-1'
+STANDARDS_SOURCE_AUTHORITY_ID_PREFIX = 'standards-source-authority'
+STANDARDS_SOURCE_AUTHORITY_VERSION = '1'
+STANDARDS_EXTRACTION_NORMALIZATION_VERSION = 'standards-extraction-1'
 
 ComplianceStatus = Literal['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE']
 EvidenceBasis = Literal['predicted', 'measured']
@@ -21,6 +26,7 @@ EvidenceRequirement = Literal['none', 'predicted_or_measured', 'measured']
 ComparisonOperator = Literal['min', 'max', 'range', 'equals']
 AngleWrap = Literal['none', 'signed_180', 'unsigned_360']
 ProfileKind = Literal['published', 'user_defined']
+SourceContentKind = Literal['normative', 'guidance', 'policy_transform']
 ObservedScalar = float | int | bool | str
 
 
@@ -60,6 +66,15 @@ def _decimal(value: object) -> Decimal:
 
 
 class CriterionSource(BaseModel):
+    """Citation plus, where claimed, an exact retained source-authority binding.
+
+    ``publisher``/``document_title``/``document_version``/``reference`` remain the
+    human-facing citation. ``authority_ref`` and ``extraction_id`` bind the source
+    to one exact extraction record inside a retained ``StandardsSourceAuthority``;
+    they must be supplied together so a claimed authority always names the exact
+    extraction identity rather than a free-form document hint alone.
+    """
+
     model_config = ConfigDict(frozen=True)
 
     publisher: str = Field(min_length=1)
@@ -68,6 +83,18 @@ class CriterionSource(BaseModel):
     reference: str = Field(min_length=1)
     source_uri: str | None = Field(default=None, min_length=1)
     note: str | None = Field(default=None, min_length=1)
+    content_kind: SourceContentKind | None = None
+    authority_ref: ExactExternalAuthorityRef | None = None
+    extraction_id: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode='after')
+    def valid_source(self) -> 'CriterionSource':
+        if (self.authority_ref is None) != (self.extraction_id is None):
+            raise ValueError(
+                'criterion source authority ref and extraction id must be '
+                'supplied together'
+            )
+        return self
 
 
 class CriterionRule(BaseModel):
@@ -124,6 +151,133 @@ class CriterionRule(BaseModel):
         return self
 
 
+class CriterionSourceExtraction(BaseModel):
+    """One exact normalized extraction bound to a source-document location.
+
+    ``rule``/``quantity``/``unit`` are the retained normalized structured data a
+    published criterion must reproduce exactly; ``excerpt`` optionally retains a
+    verbatim quote where licensing permits. ``content_kind`` distinguishes
+    normative source text, guidance/recommendation, and HTDT/user policy
+    transformation.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    extraction_id: str = Field(min_length=1)
+    reference: str = Field(min_length=1)
+    content_kind: SourceContentKind
+    quantity: str = Field(min_length=1)
+    unit: str = Field(min_length=1)
+    rule: CriterionRule
+    excerpt: str | None = Field(default=None, min_length=1)
+    note: str | None = Field(default=None, min_length=1)
+
+
+class StandardsSourceAuthority(BaseModel):
+    """Content-addressed source-document authority retained for published criteria.
+
+    Where source bytes cannot be bundled, ``document_sha256``/``source_uri``
+    record the verified external identity and ``extractions`` carry the exact
+    field/rule provenance each published criterion must match. ``authority_id``
+    and ``semantic_hash_sha256`` are derived from the semantic payload, so any
+    change to the document identity or an extraction is a different authority.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    authority_id: str = Field(
+        pattern=rf'^{STANDARDS_SOURCE_AUTHORITY_ID_PREFIX}:[0-9a-f]{{64}}$'
+    )
+    authority_version: Literal['1'] = STANDARDS_SOURCE_AUTHORITY_VERSION
+    publisher: str = Field(min_length=1)
+    document_title: str = Field(min_length=1)
+    document_version: str = Field(min_length=1)
+    source_uri: str | None = Field(default=None, min_length=1)
+    document_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
+    normalization_version: str = Field(min_length=1)
+    extractions: tuple[CriterionSourceExtraction, ...] = Field(min_length=1)
+    note: str | None = Field(default=None, min_length=1)
+    semantic_hash_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_authority(self) -> 'StandardsSourceAuthority':
+        extraction_ids = [item.extraction_id for item in self.extractions]
+        if len(extraction_ids) != len(set(extraction_ids)):
+            raise ValueError('source authority extraction ids must be unique')
+        expected = _digest(self.semantic_payload())
+        if self.semantic_hash_sha256 != expected:
+            raise ValueError('StandardsSourceAuthority semantic hash mismatch')
+        expected_id = f'{STANDARDS_SOURCE_AUTHORITY_ID_PREFIX}:{expected}'
+        if self.authority_id != expected_id:
+            raise ValueError('StandardsSourceAuthority id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode='json',
+            exclude={'authority_id', 'semantic_hash_sha256'},
+        )
+
+    def ref(self) -> ExactExternalAuthorityRef:
+        return ExactExternalAuthorityRef(
+            authority_id=self.authority_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_hash_sha256,
+        )
+
+    def extraction(self, extraction_id: str) -> CriterionSourceExtraction | None:
+        return next(
+            (
+                item
+                for item in self.extractions
+                if item.extraction_id == extraction_id
+            ),
+            None,
+        )
+
+
+def build_standards_source_authority(
+    *,
+    publisher: str,
+    document_title: str,
+    document_version: str,
+    extractions: Sequence[CriterionSourceExtraction],
+    source_uri: str | None = None,
+    document_sha256: str | None = None,
+    normalization_version: str = STANDARDS_EXTRACTION_NORMALIZATION_VERSION,
+    note: str | None = None,
+) -> StandardsSourceAuthority:
+    payload = {
+        'authority_version': STANDARDS_SOURCE_AUTHORITY_VERSION,
+        'publisher': publisher,
+        'document_title': document_title,
+        'document_version': document_version,
+        'source_uri': source_uri,
+        'document_sha256': document_sha256,
+        'normalization_version': normalization_version,
+        'extractions': [
+            item.model_dump(mode='json') for item in extractions
+        ],
+        'note': note,
+    }
+    digest = _digest(payload)
+    return StandardsSourceAuthority(
+        authority_id=f'{STANDARDS_SOURCE_AUTHORITY_ID_PREFIX}:{digest}',
+        publisher=publisher,
+        document_title=document_title,
+        document_version=document_version,
+        source_uri=source_uri,
+        document_sha256=document_sha256,
+        normalization_version=normalization_version,
+        extractions=tuple(extractions),
+        note=note,
+        semantic_hash_sha256=digest,
+    )
+
+
 class CriterionDefinition(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -162,6 +316,57 @@ class CriterionDefinition(BaseModel):
             if any(not value for value in values):
                 raise ValueError(f'criterion {label} must not contain empty values')
         return self
+
+
+def validate_criterion_source_authority(
+    criterion: CriterionDefinition,
+    authority: StandardsSourceAuthority,
+) -> CriterionSourceExtraction:
+    """Verify a criterion is exactly backed by one retained source extraction.
+
+    The claimed authority reference, citation identity, extraction identity, and
+    the encoded quantity/unit/rule/content kind must all reproduce the retained
+    authority exactly; anything else is fabricated or dangling provenance.
+    """
+
+    source = criterion.source
+    ref = source.authority_ref
+    if ref is None or source.extraction_id is None:
+        raise ValueError('criterion does not carry an exact source authority')
+    if (
+        ref.authority_id != authority.authority_id
+        or ref.authority_version != authority.authority_version
+        or ref.semantic_hash_sha256 != authority.semantic_hash_sha256
+    ):
+        raise ValueError('criterion source authority reference mismatch')
+    if (
+        authority.publisher != source.publisher
+        or authority.document_title != source.document_title
+        or authority.document_version != source.document_version
+    ):
+        raise ValueError(
+            'criterion source citation does not match the authority document'
+        )
+    extraction = authority.extraction(source.extraction_id)
+    if extraction is None:
+        raise ValueError('criterion source extraction is not in the authority')
+    if extraction.reference != source.reference:
+        raise ValueError(
+            'criterion source reference does not match the extraction'
+        )
+    if source.content_kind is None:
+        raise ValueError('criterion source must declare an explicit content kind')
+    if extraction.content_kind != source.content_kind:
+        raise ValueError(
+            'criterion source content kind does not match the extraction'
+        )
+    if extraction.quantity != criterion.quantity:
+        raise ValueError('criterion quantity is not backed by the extraction')
+    if extraction.unit != criterion.unit:
+        raise ValueError('criterion unit is not backed by the extraction')
+    if extraction.rule != criterion.rule:
+        raise ValueError('criterion rule is not backed by the extraction')
+    return extraction
 
 
 class StandardsProfile(BaseModel):
