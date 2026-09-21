@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from contextlib import closing
+from hashlib import sha256
+import json
 from math import log10
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -9,6 +13,7 @@ from htdt.cad_amplifier_headroom import (
     AmplifierChannelCountCondition,
     AmplifierLoadDomain,
     ElectricalValue,
+    PlaybackChainEvaluation,
     PlaybackRouting,
     SimultaneousChannelCondition,
     amplifier_headroom_objective_vector,
@@ -928,3 +933,146 @@ def test_append_only_save_reopen_revalidates_exact_authorities(
     assert reopened.list_evaluations_for_variant(variant.variant_id) == (
         evaluation,
     )
+
+
+def _forged_playback_chain_evaluation(
+    evaluation: PlaybackChainEvaluation,
+    mutate,
+) -> PlaybackChainEvaluation:
+    """Return a self-hash-valid evaluation carrying fabricated results."""
+
+    payload = evaluation.model_dump(mode='json')
+    mutate(payload)
+    identity = {
+        key: value
+        for key, value in payload.items()
+        if key not in ('evaluation_id', 'evaluation_sha256')
+    }
+    digest = sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        ).encode('utf-8')
+    ).hexdigest()
+    payload['evaluation_id'] = f'amp-headroom-{digest[:24]}'
+    payload['evaluation_sha256'] = digest
+    return PlaybackChainEvaluation.model_validate(payload)
+
+
+def test_fabricated_self_hashed_evaluation_is_rejected_on_save_and_read(
+    tmp_path: Path,
+) -> None:
+    (
+        _database,
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    definition = _equipment()
+    variant = _persist_variant(
+        variant_repository=variant_repository,
+        equipment_repository=equipment_repository,
+        revision=revision,
+        definition=definition,
+        name='Forgery variant',
+    )
+    load = _load(definition)
+    amplifier = _amplifier()
+    scenario = _scenario(
+        revision=revision,
+        variant=variant,
+        definition=definition,
+        amplifier=amplifier,
+        load=load,
+    )
+    evaluation = _evaluate(
+        revision,
+        variant,
+        definition,
+        amplifier,
+        load,
+        scenario,
+    )
+    repository = CadAmplifierHeadroomRepository(
+        scene_repository,
+        variant_repository,
+        equipment_repository,
+    )
+    repository.save_amplifier_capability(amplifier)
+    repository.save_speaker_load(load)
+    repository.save_scenario(scenario)
+
+    def fabricate_margin(payload: dict) -> None:
+        margin = dict(payload['continuous_electrical_margin'])
+        margin['value'] = float(margin['value']) + 2.0
+        payload['continuous_electrical_margin'] = margin
+
+    def fabricate_limiter(payload: dict) -> None:
+        payload['continuous_limiter'] = 'speaker'
+
+    forged_margin = _forged_playback_chain_evaluation(
+        evaluation,
+        fabricate_margin,
+    )
+    forged_limiter = _forged_playback_chain_evaluation(
+        evaluation,
+        fabricate_limiter,
+    )
+    assert forged_margin.evaluation_sha256 != evaluation.evaluation_sha256
+    assert forged_margin.continuous_electrical_margin.value == pytest.approx(
+        float(evaluation.continuous_electrical_margin.value) + 2.0
+    )
+    assert forged_limiter.continuous_limiter == 'speaker'
+
+    for forged in (forged_margin, forged_limiter):
+        with pytest.raises(
+            ValueError,
+            match='playback-chain evaluation does not match evaluator authority',
+        ):
+            repository.save_evaluation(forged)
+
+    repository.save_evaluation(evaluation)
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_playback_chain_evaluations
+            SET evaluation_id=?, evaluation_sha256=?, payload_json=?
+            WHERE evaluation_id=?
+            """,
+            (
+                forged_margin.evaluation_id,
+                forged_margin.evaluation_sha256,
+                forged_margin.model_dump_json(),
+                evaluation.evaluation_id,
+            ),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match='playback-chain evaluation does not match evaluator authority',
+    ):
+        repository.get_evaluation(forged_margin.evaluation_id)
+    with pytest.raises(
+        ValueError,
+        match='playback-chain evaluation does not match evaluator authority',
+    ):
+        repository.list_evaluations_for_variant(variant.variant_id)
+    # TopologyComparison resolves headroom evidence exclusively through
+    # resolve_evaluation_exact; the tampered row must fail closed there too.
+    with pytest.raises(
+        ValueError,
+        match='playback-chain evaluation does not match evaluator authority',
+    ):
+        repository.resolve_evaluation_exact(
+            forged_margin.evaluation_id,
+            evaluation_sha256=forged_margin.evaluation_sha256,
+            document_id=scenario.document_id,
+            scene_revision_id=scenario.scene_revision_id,
+            scene_content_hash=scenario.scene_content_hash,
+            variant_id=scenario.variant_id,
+            variant_sha256=scenario.variant_sha256,
+        )

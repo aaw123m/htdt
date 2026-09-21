@@ -1,23 +1,56 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+from typing import NamedTuple
 
 from .cad_amplifier_headroom import (
+    PLAYBACK_CHAIN_EVALUATION_VERSION,
     AmplifierOutputCapability,
     PlaybackChainEvaluation,
     PlaybackChainScenario,
     SpeakerElectricalLoadAuthority,
+    evaluate_playback_chain,
 )
+from .cad_equipment import EquipmentDefinition
 from .cad_equipment_repository import CadEquipmentRepository
-from .cad_repository import SceneRepository
+from .cad_repository import SceneRepository, SceneRevision
 from .cad_schema import ensure_native_schema
+from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
+PlaybackChainEvaluator = Callable[..., PlaybackChainEvaluation]
+
+# Canonical evaluator registry pinned by the authority_version recorded on the
+# evaluation model; a recorded version without a pinned evaluator fails closed.
+PLAYBACK_CHAIN_EVALUATORS: dict[str, PlaybackChainEvaluator] = {
+    PLAYBACK_CHAIN_EVALUATION_VERSION: evaluate_playback_chain,
+}
+
+
+class ResolvedPlaybackChainAuthorities(NamedTuple):
+    """Exact persisted authorities a playback-chain scenario/evaluation binds."""
+
+    revision: SceneRevision
+    variant: SystemVariant
+    equipment_definition: EquipmentDefinition
+    amplifier_capability: AmplifierOutputCapability
+    speaker_load: SpeakerElectricalLoadAuthority | None
+
+
 class CadAmplifierHeadroomRepository:
-    """Append-only O100D amplifier/electrical headroom authority persistence."""
+    """Append-only O100D amplifier/electrical headroom authority persistence.
+
+    Persisted evaluations are never trusted as self-hashed payloads: every
+    save and every authoritative read re-resolves the exact persisted
+    scenario, SceneRevision, SystemVariant, source EquipmentDefinition,
+    amplifier capability, optional speaker load authority and equipment
+    binding, replays the pinned canonical evaluator from those authorities,
+    and requires exact equality with the stored evaluation.
+    """
 
     def __init__(
         self,
@@ -294,10 +327,10 @@ class CadAmplifierHeadroomRepository:
             )
         )
 
-    def _validate_scenario_binding(
+    def _resolve_scenario_authorities(
         self,
         scenario: PlaybackChainScenario,
-    ) -> None:
+    ) -> ResolvedPlaybackChainAuthorities:
         revision = self.scene_repository.get(scenario.scene_revision_id)
         if revision is None:
             raise ValueError('playback-chain source SceneRevision does not exist')
@@ -369,7 +402,13 @@ class CadAmplifierHeadroomRepository:
                 or scenario.speaker_load_resistance_ohm is not None
             ):
                 raise ValueError('playback-chain carries incomplete speaker load semantics')
-            return
+            return ResolvedPlaybackChainAuthorities(
+                revision=revision,
+                variant=variant,
+                equipment_definition=definition,
+                amplifier_capability=amplifier,
+                speaker_load=None,
+            )
 
         load = self.get_speaker_load_by_hash(
             scenario.speaker_load.semantic_sha256
@@ -392,6 +431,13 @@ class CadAmplifierHeadroomRepository:
             ) > 1e-12
         ):
             raise ValueError('playback-chain speaker load authority mismatch')
+        return ResolvedPlaybackChainAuthorities(
+            revision=revision,
+            variant=variant,
+            equipment_definition=definition,
+            amplifier_capability=amplifier,
+            speaker_load=load,
+        )
 
     def save_scenario(
         self,
@@ -400,7 +446,7 @@ class CadAmplifierHeadroomRepository:
         scenario = PlaybackChainScenario.model_validate(
             scenario.model_dump(mode='python')
         )
-        self._validate_scenario_binding(scenario)
+        self._resolve_scenario_authorities(scenario)
 
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
@@ -447,10 +493,10 @@ class CadAmplifierHeadroomRepository:
             )
         return scenario
 
-    def get_scenario(
+    def _persisted_scenario(
         self,
         scenario_id: str,
-    ) -> PlaybackChainScenario | None:
+    ) -> tuple[PlaybackChainScenario, ResolvedPlaybackChainAuthorities] | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
@@ -463,8 +509,14 @@ class CadAmplifierHeadroomRepository:
         if row is None:
             return None
         scenario = PlaybackChainScenario.model_validate_json(row['payload_json'])
-        self._validate_scenario_binding(scenario)
-        return scenario
+        return scenario, self._resolve_scenario_authorities(scenario)
+
+    def get_scenario(
+        self,
+        scenario_id: str,
+    ) -> PlaybackChainScenario | None:
+        resolved = self._persisted_scenario(scenario_id)
+        return None if resolved is None else resolved[0]
 
     def list_scenarios_for_variant(
         self,
@@ -485,8 +537,39 @@ class CadAmplifierHeadroomRepository:
             for row in rows
         )
         for scenario in scenarios:
-            self._validate_scenario_binding(scenario)
+            self._resolve_scenario_authorities(scenario)
         return scenarios
+
+    def _validate_evaluation_binding(
+        self,
+        evaluation: PlaybackChainEvaluation,
+    ) -> None:
+        resolved = self._persisted_scenario(evaluation.scenario.scenario_id)
+        if resolved is None:
+            raise ValueError(
+                'playback-chain evaluation references an unpersisted scenario'
+            )
+        scenario, authorities = resolved
+        if scenario != evaluation.scenario:
+            raise ValueError('playback-chain evaluation scenario authority mismatch')
+
+        evaluator = PLAYBACK_CHAIN_EVALUATORS.get(evaluation.authority_version)
+        if evaluator is None:
+            raise ValueError(
+                'playback-chain evaluator authority version is not pinned'
+            )
+        regenerated = evaluator(
+            revision=authorities.revision,
+            variant=authorities.variant,
+            equipment_definition=authorities.equipment_definition,
+            amplifier_capability=authorities.amplifier_capability,
+            speaker_load=authorities.speaker_load,
+            scenario=scenario,
+        )
+        if regenerated != evaluation:
+            raise ValueError(
+                'playback-chain evaluation does not match evaluator authority'
+            )
 
     def save_evaluation(
         self,
@@ -495,13 +578,7 @@ class CadAmplifierHeadroomRepository:
         evaluation = PlaybackChainEvaluation.model_validate(
             evaluation.model_dump(mode='python')
         )
-        scenario = self.get_scenario(evaluation.scenario.scenario_id)
-        if scenario is None:
-            raise ValueError(
-                'playback-chain evaluation references an unpersisted scenario'
-            )
-        if scenario != evaluation.scenario:
-            raise ValueError('playback-chain evaluation scenario authority mismatch')
+        self._validate_evaluation_binding(evaluation)
 
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
@@ -556,9 +633,7 @@ class CadAmplifierHeadroomRepository:
         evaluation = PlaybackChainEvaluation.model_validate_json(
             row['payload_json']
         )
-        scenario = self.get_scenario(evaluation.scenario.scenario_id)
-        if scenario != evaluation.scenario:
-            raise ValueError('persisted playback-chain evaluation scenario mismatch')
+        self._validate_evaluation_binding(evaluation)
         return evaluation
 
     def resolve_evaluation_exact(
@@ -619,9 +694,5 @@ class CadAmplifierHeadroomRepository:
             for row in rows
         )
         for evaluation in evaluations:
-            scenario = self.get_scenario(evaluation.scenario.scenario_id)
-            if scenario != evaluation.scenario:
-                raise ValueError(
-                    'persisted playback-chain evaluation scenario mismatch'
-                )
+            self._validate_evaluation_binding(evaluation)
         return evaluations

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 import sqlite3
 
-from .cad_coverage import CoverageEvaluation, CoverageEvaluationScenario
+from .cad_coverage import (
+    COVERAGE_AUTHORITY_VERSION,
+    CoverageEvaluation,
+    CoverageEvaluationScenario,
+    evaluate_coverage,
+)
 from .cad_directivity import validate_directivity_dataset_binding
 from .cad_directivity_repository import CadDirectivityRepository
 from .cad_equipment_repository import CadEquipmentRepository
@@ -13,8 +19,25 @@ from .cad_schema import ensure_native_schema
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
+CoverageEvaluator = Callable[..., CoverageEvaluation]
+
+# Canonical evaluator registry pinned by the authority_version recorded on the
+# evaluation model; a recorded version without a pinned evaluator fails closed.
+COVERAGE_EVALUATORS: dict[str, CoverageEvaluator] = {
+    COVERAGE_AUTHORITY_VERSION: evaluate_coverage,
+}
+
+
 class CadCoverageRepository:
-    """Append-only O100D coverage scenario and evaluation storage."""
+    """Append-only O100D coverage scenario and evaluation storage.
+
+    Persisted evaluations are never trusted as self-hashed payloads: every
+    save and every authoritative read re-resolves the exact scenario,
+    SceneRevision, SystemVariant, EquipmentDefinition, DirectivityDataset and
+    persisted equipment binding, replays the pinned canonical evaluator from
+    those authorities, and requires exact equality with the stored
+    evaluation.
+    """
 
     def __init__(
         self,
@@ -286,6 +309,23 @@ class CadCoverageRepository:
             or binding.equipment_definition_sha256 != definition.semantic_sha256
         ):
             raise ValueError('coverage persisted equipment binding mismatch')
+
+        evaluator = COVERAGE_EVALUATORS.get(evaluation.authority_version)
+        if evaluator is None:
+            raise ValueError(
+                'coverage evaluator authority version is not pinned'
+            )
+        regenerated = evaluator(
+            revision=revision,
+            variant=variant,
+            equipment_definition=definition,
+            directivity_dataset=dataset,
+            scenario=scenario,
+        )
+        if regenerated != evaluation:
+            raise ValueError(
+                'coverage evaluation does not match evaluator authority'
+            )
 
     def save_evaluation(
         self,

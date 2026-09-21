@@ -1,18 +1,40 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 import sqlite3
 
-from .cad_direct_level import DirectLevelEvaluation, PlaybackExcitationScenario
+from .cad_direct_level import (
+    DIRECT_LEVEL_AUTHORITY_VERSION,
+    DirectLevelEvaluation,
+    PlaybackExcitationScenario,
+    evaluate_direct_level,
+)
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
+DirectLevelEvaluator = Callable[..., DirectLevelEvaluation]
+
+# Canonical evaluator registry pinned by the authority_version recorded on the
+# evaluation model; a recorded version without a pinned evaluator fails closed.
+DIRECT_LEVEL_EVALUATORS: dict[str, DirectLevelEvaluator] = {
+    DIRECT_LEVEL_AUTHORITY_VERSION: evaluate_direct_level,
+}
+
+
 class CadDirectLevelRepository:
-    """Append-only O100D direct/equipment-derived scenario and evaluation storage."""
+    """Append-only O100D direct/equipment-derived scenario and evaluation storage.
+
+    Persisted evaluations are never trusted as self-hashed payloads: every
+    save and every authoritative read re-resolves the exact scenario,
+    SceneRevision, SystemVariant, EquipmentDefinition and persisted equipment
+    binding, replays the pinned canonical evaluator from those authorities,
+    and requires exact equality with the stored evaluation.
+    """
 
     def __init__(
         self,
@@ -215,6 +237,22 @@ class CadDirectLevelRepository:
         ):
             raise ValueError('direct-level persisted equipment binding mismatch')
 
+        evaluator = DIRECT_LEVEL_EVALUATORS.get(evaluation.authority_version)
+        if evaluator is None:
+            raise ValueError(
+                'direct-level evaluator authority version is not pinned'
+            )
+        regenerated = evaluator(
+            revision=revision,
+            variant=variant,
+            equipment_definition=definition,
+            scenario=scenario,
+        )
+        if regenerated != evaluation:
+            raise ValueError(
+                'direct-level evaluation does not match evaluator authority'
+            )
+
     def save_evaluation(
         self,
         evaluation: DirectLevelEvaluation,
@@ -276,11 +314,13 @@ class CadDirectLevelRepository:
                 """,
                 (evaluation_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else DirectLevelEvaluation.model_validate_json(row['payload_json'])
+        if row is None:
+            return None
+        evaluation = DirectLevelEvaluation.model_validate_json(
+            row['payload_json']
         )
+        self._validate_evaluation_binding(evaluation)
+        return evaluation
 
     def list_evaluations_for_variant(
         self,
@@ -296,10 +336,13 @@ class CadDirectLevelRepository:
                 """,
                 (variant_id,),
             ).fetchall()
-        return tuple(
+        evaluations = tuple(
             DirectLevelEvaluation.model_validate_json(row['payload_json'])
             for row in rows
         )
+        for evaluation in evaluations:
+            self._validate_evaluation_binding(evaluation)
+        return evaluations
 
     def list_evaluations_for_scenario(
         self,
@@ -315,7 +358,10 @@ class CadDirectLevelRepository:
                 """,
                 (scenario_id,),
             ).fetchall()
-        return tuple(
+        evaluations = tuple(
             DirectLevelEvaluation.model_validate_json(row['payload_json'])
             for row in rows
         )
+        for evaluation in evaluations:
+            self._validate_evaluation_binding(evaluation)
+        return evaluations

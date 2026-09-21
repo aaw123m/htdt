@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from contextlib import closing
+from hashlib import sha256
+import json
 from math import log10
 from pathlib import Path
+import sqlite3
 
 import pytest
 
 from htdt.cad_direct_level import (
+    DirectLevelEvaluation,
     DirectLevelFrequencyBand,
     ReferenceInputCondition,
     SeatPopulation,
@@ -603,3 +608,113 @@ def test_direct_level_scenario_and_evaluation_round_trip(
     assert reopened.list_evaluations_for_scenario(scenario.scenario_id) == (
         evaluation,
     )
+
+
+def _forged_direct_level_evaluation(
+    evaluation: DirectLevelEvaluation,
+) -> DirectLevelEvaluation:
+    """Return a self-hash-valid evaluation carrying a fabricated seat value."""
+
+    payload = evaluation.model_dump(mode='json')
+    seat_results = [dict(item) for item in payload['seat_results']]
+    first = dict(seat_results[0])
+    direct_level = dict(first['direct_level'])
+    direct_level['value'] = float(direct_level['value']) + 6.0
+    first['direct_level'] = direct_level
+    seat_results[0] = first
+    payload['seat_results'] = seat_results
+    identity = {
+        key: value
+        for key, value in payload.items()
+        if key not in ('evaluation_id', 'evaluation_sha256')
+    }
+    digest = sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        ).encode('utf-8')
+    ).hexdigest()
+    payload['evaluation_id'] = f'o100d-{digest[:24]}'
+    payload['evaluation_sha256'] = digest
+    return DirectLevelEvaluation.model_validate(payload)
+
+
+def test_fabricated_self_hashed_evaluation_is_rejected_on_save_and_read(
+    tmp_path: Path,
+) -> None:
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    definition = _equipment(
+        definition_id='fixture-forged-speaker',
+        source_hash='a' * 64,
+    )
+    variant = _persist_variant(
+        variant_repository,
+        equipment_repository,
+        revision,
+        definition,
+    )
+    scenario = _scenario()
+    evaluation = evaluate_direct_level(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        scenario=scenario,
+    )
+    repository = CadDirectLevelRepository(
+        scene_repository,
+        variant_repository,
+        equipment_repository,
+    )
+    repository.save_scenario(scenario)
+
+    forged = _forged_direct_level_evaluation(evaluation)
+    assert forged.evaluation_sha256 != evaluation.evaluation_sha256
+    assert forged.seat_results[0].direct_level.value == pytest.approx(
+        float(evaluation.seat_results[0].direct_level.value) + 6.0
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='direct-level evaluation does not match evaluator authority',
+    ):
+        repository.save_evaluation(forged)
+
+    repository.save_evaluation(evaluation)
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_direct_level_evaluations
+            SET evaluation_id=?, evaluation_sha256=?, payload_json=?
+            WHERE evaluation_id=?
+            """,
+            (
+                forged.evaluation_id,
+                forged.evaluation_sha256,
+                forged.model_dump_json(),
+                evaluation.evaluation_id,
+            ),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match='direct-level evaluation does not match evaluator authority',
+    ):
+        repository.get_evaluation(forged.evaluation_id)
+    with pytest.raises(
+        ValueError,
+        match='direct-level evaluation does not match evaluator authority',
+    ):
+        repository.list_evaluations_for_variant(variant.variant_id)
+    with pytest.raises(
+        ValueError,
+        match='direct-level evaluation does not match evaluator authority',
+    ):
+        repository.list_evaluations_for_scenario(scenario.scenario_id)
