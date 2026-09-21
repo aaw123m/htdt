@@ -1,0 +1,220 @@
+from __future__ import annotations
+
+import os
+import threading
+import time
+from pathlib import Path
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+
+from htdt.cad_repository import SceneRepository
+from htdt.command_palette import CommandPalette, CommandShortcutBinder
+from htdt.command_registry import (
+    DATA_MUTATIONS_FROZEN_REASON,
+    CommandAvailability,
+)
+from htdt.workflow_application import WorkflowApplicationComposition
+from htdt.workflow_navigation import WorkspaceId
+
+
+def _app() -> QApplication:
+    return QApplication.instance() or QApplication([])
+
+
+def _composition(tmp_path: Path) -> WorkflowApplicationComposition:
+    repository = SceneRepository(tmp_path / "data" / "cad-scenes.sqlite3")
+    return WorkflowApplicationComposition(repository, "document-1")
+
+
+def _palette_item(palette: CommandPalette, command_id: str):
+    for row in range(palette.results_list.count()):
+        item = palette.results_list.item(row)
+        if item.data(Qt.ItemDataRole.UserRole) == command_id:
+            return item
+    raise AssertionError(f"{command_id} not found in palette results")
+
+
+def test_backup_freeze_blocks_mutating_commands_via_shortcut_and_palette(
+    tmp_path: Path,
+) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+    registry = composition.registry
+    lifecycle = composition.data_management_controller.lifecycle
+
+    events: list[str] = []
+    registry.bind(
+        "project.save",
+        execute=lambda: events.append("save"),
+        availability=CommandAvailability.available,
+    )
+    registry.bind(
+        "room.view.fit_all",
+        execute=lambda: events.append("fit-all"),
+        availability=CommandAvailability.available,
+    )
+    binder = CommandShortcutBinder(
+        composition.shell,
+        registry,
+        command_ids=("project.save", "room.view.fit_all"),
+    )
+    shortcuts = {command_id: shortcut for command_id, shortcut in binder._shortcuts}
+
+    # The Ctrl+S executor is reachable before the data operation starts.
+    shortcuts["project.save"].activated.emit()
+    app.processEvents()
+    assert events == ["save"]
+
+    lifecycle.begin_backup()
+
+    assert registry.data_mutations_frozen
+    assert composition.shell.rail.isEnabled() is False
+
+    availability = registry.availability("project.save")
+    assert availability.enabled is False
+    assert availability.disabled_reason == DATA_MUTATIONS_FROZEN_REASON
+
+    # A GLOBAL shortcut activation still routes through the registry, which now
+    # fails closed even though the workspace-local provider reports enabled.
+    shortcuts["project.save"].activated.emit()
+    app.processEvents()
+    assert registry.execute("project.save") is False
+    assert events == ["save"]
+
+    # Read-only commands keep working while mutations are frozen.
+    shortcuts["room.view.fit_all"].activated.emit()
+    app.processEvents()
+    assert events == ["save", "fit-all"]
+
+    # The palette surfaces the data-operation reason and refuses activation.
+    palette = composition.command_palette.palette
+    palette.refresh_results("保存")
+    item = _palette_item(palette, "project.save")
+    assert DATA_MUTATIONS_FROZEN_REASON in item.text()
+    palette.results_list.setCurrentItem(item)
+    palette.activate_current()
+    assert events == ["save", "fit-all"]
+    assert DATA_MUTATIONS_FROZEN_REASON in palette.detail_label.text()
+
+    lifecycle.finish_backup()
+
+    assert registry.data_mutations_frozen is False
+    assert composition.shell.rail.isEnabled() is True
+    assert registry.availability("project.save").enabled is True
+    shortcuts["project.save"].activated.emit()
+    app.processEvents()
+    assert events == ["save", "fit-all", "save"]
+
+    binder.deleteLater()
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_in_progress_backup_holds_the_freeze_until_the_worker_completes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+    registry = composition.registry
+    controller = composition.data_management_controller
+
+    events: list[str] = []
+    registry.bind(
+        "project.save",
+        execute=lambda: events.append("save"),
+        availability=CommandAvailability.available,
+    )
+    binder = CommandShortcutBinder(
+        composition.shell,
+        registry,
+        command_ids=("project.save",),
+    )
+    save_shortcut = next(
+        shortcut
+        for command_id, shortcut in binder._shortcuts
+        if command_id == "project.save"
+    )
+
+    release_worker = threading.Event()
+    real_create_backup = controller.backend.create_backup
+
+    def gated_create_backup(destination: Path):
+        release_worker.wait(timeout=15)
+        return real_create_backup(destination)
+
+    monkeypatch.setattr(
+        controller.backend,
+        "create_backup",
+        gated_create_backup,
+    )
+
+    backup_results: list[object] = []
+    controller.backup_created.connect(backup_results.append)
+    failures: list[object] = []
+    controller.operation_failed.connect(failures.append)
+    backup_path = tmp_path / "portable.htdt-backup"
+
+    try:
+        controller.create_backup(backup_path)
+
+        # begin_backup() runs synchronously; the worker is still parked.
+        assert controller.is_busy
+        assert registry.data_mutations_frozen
+        assert registry.availability("project.save").enabled is False
+        assert registry.execute("project.save") is False
+        save_shortcut.activated.emit()
+        app.processEvents()
+        assert events == []
+    finally:
+        release_worker.set()
+
+    deadline = time.monotonic() + 15
+    while controller.is_busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+
+    assert not controller.is_busy
+    assert backup_results, f"backup_created signal never fired: {failures}"
+    assert backup_path.is_file()
+    assert registry.data_mutations_frozen is False
+    assert registry.availability("project.save").enabled is True
+
+    save_shortcut.activated.emit()
+    app.processEvents()
+    assert events == ["save"]
+
+    binder.deleteLater()
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_restore_freeze_disposes_and_rebuilds_data_workspaces(
+    tmp_path: Path,
+) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+    registry = composition.registry
+    lifecycle = composition.data_management_controller.lifecycle
+
+    lifecycle.begin_restore()
+
+    assert registry.data_mutations_frozen
+    assert composition.shell.router.current_workspace_id is None
+    assert composition.shell.router.mount(WorkspaceId.OVERVIEW) is None
+
+    lifecycle.resume_after_restore_attempt()
+
+    assert registry.data_mutations_frozen is False
+    assert composition.shell.rail.isEnabled() is True
+    assert composition.shell.current_workspace_id is WorkspaceId.OVERVIEW
+    assert composition.shell.router.mount(WorkspaceId.OVERVIEW) is not None
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()

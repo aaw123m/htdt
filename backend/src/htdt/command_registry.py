@@ -34,6 +34,10 @@ class CommandDefinition:
     shortcut_behavior: ShortcutBehavior = ShortcutBehavior.FOCUS_SAFE
     keywords: tuple[str, ...] = ()
     deep_link: WorkspaceDeepLink | None = None
+    # Fail closed: commands are treated as mutating managed data unless they are
+    # explicitly declared read-only (navigation, camera fit). The data-management
+    # freeze gate blocks every mutating command regardless of local availability.
+    mutates_managed_data: bool = True
 
     def __post_init__(self) -> None:
         if not self.command_id or self.command_id.strip() != self.command_id:
@@ -98,10 +102,30 @@ def command_shortcut_allowed(
     return definition.shortcut_behavior == ShortcutBehavior.GLOBAL
 
 
+DATA_MUTATIONS_FROZEN_REASON = 'データ処理中はデータを変更できません'
+
+
 class CommandRegistry:
     def __init__(self, *, deep_link_handler: DeepLinkHandler | None = None) -> None:
         self._commands: dict[str, _RegisteredCommand] = {}
         self._deep_link_handler = deep_link_handler
+        self._data_mutations_frozen = False
+
+    @property
+    def data_mutations_frozen(self) -> bool:
+        return self._data_mutations_frozen
+
+    def freeze_data_mutations(self) -> None:
+        """Fail closed for mutation-class commands until thaw_data_mutations().
+
+        Workspace-local availability providers keep their own semantics; while a
+        data-management operation (backup/restore) is in progress the freeze gate
+        wins so shortcuts, palette entries and menus cannot reach executors.
+        """
+        self._data_mutations_frozen = True
+
+    def thaw_data_mutations(self) -> None:
+        self._data_mutations_frozen = False
 
     def set_deep_link_handler(self, handler: DeepLinkHandler | None) -> None:
         self._deep_link_handler = handler
@@ -146,6 +170,8 @@ class CommandRegistry:
 
     def availability(self, command_id: str) -> CommandAvailability:
         command = self._commands[command_id]
+        if self._data_mutations_frozen and command.definition.mutates_managed_data:
+            return CommandAvailability.unavailable(DATA_MUTATIONS_FROZEN_REASON)
         if command.availability is not None:
             result = command.availability()
             if not result.enabled:
@@ -275,6 +301,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             keywords=('overview', 'ホーム', 'ダッシュボード'),
             deep_link=WorkspaceDeepLink(WorkspaceId.OVERVIEW),
             shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
         ),
         CommandDefinition(
             command_id='navigation.room',
@@ -283,6 +310,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             keywords=('room', '3D', 'CAD'),
             deep_link=WorkspaceDeepLink(WorkspaceId.ROOM),
             shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
         ),
         CommandDefinition(
             command_id='navigation.measurements',
@@ -291,6 +319,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             keywords=('measurement', 'REW', '実測'),
             deep_link=WorkspaceDeepLink(WorkspaceId.MEASUREMENT),
             shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
         ),
         CommandDefinition(
             command_id='navigation.optimization',
@@ -299,6 +328,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             keywords=('optimize', 'optimization', '候補'),
             deep_link=WorkspaceDeepLink(WorkspaceId.OPTIMIZATION),
             shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
         ),
         CommandDefinition(
             command_id='project.save',
@@ -348,6 +378,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             shortcut='F',
             shortcut_behavior=ShortcutBehavior.FOCUS_SAFE,
             keywords=('fit selection', 'frame selection', '選択へ移動'),
+            mutates_managed_data=False,
         ),
         CommandDefinition(
             command_id='room.view.fit_all',
@@ -356,6 +387,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             shortcut='Home',
             shortcut_behavior=ShortcutBehavior.FOCUS_SAFE,
             keywords=('fit all', 'frame all', '全体に合わせる'),
+            mutates_managed_data=False,
         ),
         CommandDefinition(
             command_id='room.edit.cancel',
