@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from hashlib import sha256
+import json
 from pathlib import Path
 import sqlite3
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -21,12 +24,16 @@ from htdt.cad_system_variant import (
     EntityLifecycleBinding,
     ProposalEvidenceRef,
     ProposedEntitySpec,
+    SystemVariant,
     VariantProvenanceItem,
     apply_system_variant_to_working_document,
     build_system_variant,
     materialize_system_variant,
 )
-from htdt.cad_system_variant_repository import CadSystemVariantRepository
+from htdt.cad_system_variant_repository import (
+    CadSystemVariantRepository,
+    SystemVariantApplication,
+)
 from htdt.cad_system_variant_lifecycle import (
     CadSystemVariantLifecycleRepository,
     build_system_variant_as_built_record,
@@ -570,3 +577,510 @@ def test_as_built_promotion_rejects_missing_proposed_entity(tmp_path: Path) -> N
             confirmed_by='installer-fixture',
             confirmed_at_utc='2026-09-20T00:10:00+00:00',
         )
+
+
+def _identity_digest(value: Any) -> str:
+    return sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        ).encode('utf-8')
+    ).hexdigest()
+
+
+def _saved_502_variant(tmp_path: Path):
+    scene_repository, baseline = _baseline(tmp_path)
+    repository = CadSystemVariantRepository(scene_repository)
+    variant = build_system_variant(
+        baseline=baseline,
+        name='Proposed 5.0.2',
+        role_bindings=_roles('FL', 'C', 'FR', 'TFL', 'TFR', 'SL', 'SR'),
+        proposed_entities=(
+            _proposal('sl', 'SL', 0.6),
+            _proposal('sr', 'SR', 5.4),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_variant(variant)
+    return scene_repository, repository, baseline, variant
+
+
+def _rewrite_variant_row(
+    scene_repository: SceneRepository,
+    variant: SystemVariant,
+    **updates: Any,
+) -> SystemVariant:
+    """Coherently rewrite one persisted variant row; its hash stays valid."""
+
+    tampered = variant.model_copy(update=updates)
+    tampered = tampered.model_copy(
+        update={'variant_sha256': _identity_digest(tampered.identity_payload())}
+    )
+    tampered = SystemVariant.model_validate(tampered.model_dump(mode='python'))
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            '''
+            UPDATE cad_system_variants SET
+                document_id=?, baseline_revision_id=?, baseline_content_hash=?,
+                parent_variant_id=?, variant_sha256=?, payload_json=?,
+                created_at_utc=?
+            WHERE variant_id=?
+            ''',
+            (
+                tampered.document_id,
+                tampered.baseline_revision_id,
+                tampered.baseline_content_hash,
+                tampered.parent_variant_id,
+                tampered.variant_sha256,
+                tampered.model_dump_json(),
+                tampered.created_at_utc,
+                tampered.variant_id,
+            ),
+        )
+    return tampered
+
+
+def _rewrite_application_row(
+    scene_repository: SceneRepository,
+    application: SystemVariantApplication,
+    **updates: Any,
+) -> SystemVariantApplication:
+    """Coherently rewrite one persisted application row; its hash stays valid."""
+
+    tampered = application.model_copy(update=updates)
+    tampered = tampered.model_copy(
+        update={
+            'application_sha256': _identity_digest(tampered.identity_payload())
+        }
+    )
+    tampered = SystemVariantApplication.model_validate(
+        tampered.model_dump(mode='python')
+    )
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            '''
+            UPDATE cad_system_variant_applications SET
+                variant_id=?, document_id=?, baseline_revision_id=?,
+                applied_revision_id=?, application_sha256=?, payload_json=?,
+                selected_at_utc=?
+            WHERE application_id=?
+            ''',
+            (
+                tampered.variant_id,
+                tampered.document_id,
+                tampered.baseline_revision_id,
+                tampered.applied_revision_id,
+                tampered.application_sha256,
+                tampered.model_dump_json(),
+                tampered.selected_at_utc,
+                tampered.application_id,
+            ),
+        )
+    return tampered
+
+
+def test_variant_read_rejects_missing_baseline_revision(tmp_path: Path) -> None:
+    scene_repository, repository, baseline, variant = _saved_502_variant(tmp_path)
+
+    # Direct tamper simulates an authority that cannot be re-resolved after
+    # reopen. SQLite foreign keys are intentionally not enabled on this raw
+    # connection.
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM scene_revisions WHERE revision_id=?',
+            (baseline.revision_id,),
+        )
+
+    with pytest.raises(
+        ValueError, match='baseline SceneRevision does not exist'
+    ):
+        repository.get_variant(variant.variant_id)
+    with pytest.raises(
+        ValueError, match='baseline SceneRevision does not exist'
+    ):
+        repository.list_variants(DOCUMENT_ID)
+
+
+def test_variant_read_rejects_coherently_rewritten_baseline(tmp_path: Path) -> None:
+    scene_repository, repository, _baseline_revision, variant = (
+        _saved_502_variant(tmp_path)
+    )
+    _rewrite_variant_row(
+        scene_repository,
+        variant,
+        baseline_content_hash='f' * 64,
+    )
+
+    with pytest.raises(ValueError, match='baseline authority mismatch'):
+        repository.get_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='baseline authority mismatch'):
+        repository.list_variants(DOCUMENT_ID)
+
+
+def test_variant_read_rejects_row_payload_divergence(tmp_path: Path) -> None:
+    scene_repository, repository, _baseline_revision, variant = (
+        _saved_502_variant(tmp_path)
+    )
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_system_variants SET baseline_content_hash=? '
+            'WHERE variant_id=?',
+            ('0' * 64, variant.variant_id),
+        )
+
+    with pytest.raises(ValueError, match='row disagrees with its payload'):
+        repository.get_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='row disagrees with its payload'):
+        repository.list_variants(DOCUMENT_ID)
+
+
+def test_variant_read_rejects_payload_that_no_longer_materializes(
+    tmp_path: Path,
+) -> None:
+    scene_repository, repository, _baseline_revision, variant = (
+        _saved_502_variant(tmp_path)
+    )
+    moved = variant.proposed_entities[0].model_copy(
+        update={'entity': _speaker('sl', 'SL', 0.9, 3.0, 1.3)}
+    )
+    _rewrite_variant_row(
+        scene_repository,
+        variant,
+        proposed_entities=(moved,) + variant.proposed_entities[1:],
+    )
+
+    with pytest.raises(
+        ValueError, match='does not match exact variant diff'
+    ):
+        repository.get_variant(variant.variant_id)
+
+
+def test_variant_read_rejects_dangling_parent_variant(tmp_path: Path) -> None:
+    scene_repository, repository, baseline, parent = _saved_502_variant(tmp_path)
+    child = build_system_variant(
+        baseline=baseline,
+        name='Child proposal',
+        role_bindings=_roles('FL', 'C', 'FR', 'TFL', 'TFR', 'SL', 'SR', 'SBL'),
+        proposed_entities=(_proposal('sbl', 'SBL', 1.9),),
+        parent_variant_id=parent.variant_id,
+        created_at_utc=NOW,
+    )
+    repository.save_variant(child)
+    assert repository.get_variant(child.variant_id) == child
+
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_system_variants WHERE variant_id=?',
+            (parent.variant_id,),
+        )
+
+    assert repository.get_variant(parent.variant_id) is None
+    with pytest.raises(ValueError, match='parent variant does not exist'):
+        repository.get_variant(child.variant_id)
+    with pytest.raises(ValueError, match='parent variant does not exist'):
+        repository.list_variants(DOCUMENT_ID)
+
+
+def test_variant_read_rejects_parent_from_another_document(tmp_path: Path) -> None:
+    scene_repository, repository, _baseline_revision, variant = (
+        _saved_502_variant(tmp_path)
+    )
+    other_baseline = scene_repository.save(
+        _scene_302().model_copy(update={'document_id': 'o100a-other-document'}),
+        parent_revision_id=None,
+    ).revision
+    other_variant = build_system_variant(
+        baseline=other_baseline,
+        name='Other document proposal',
+        role_bindings=_roles('FL', 'C', 'FR', 'TFL', 'TFR', 'SL', 'SR'),
+        proposed_entities=(
+            _proposal('sl', 'SL', 0.6),
+            _proposal('sr', 'SR', 5.4),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_variant(other_variant)
+
+    _rewrite_variant_row(
+        scene_repository,
+        variant,
+        parent_variant_id=other_variant.variant_id,
+    )
+    with pytest.raises(ValueError, match='parent belongs to another document'):
+        repository.get_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='parent belongs to another document'):
+        repository.list_variants(DOCUMENT_ID)
+
+
+def test_variant_read_rejects_cyclical_parent_lineage(tmp_path: Path) -> None:
+    scene_repository, repository, baseline, parent = _saved_502_variant(tmp_path)
+    child = build_system_variant(
+        baseline=baseline,
+        name='Child proposal',
+        role_bindings=_roles('FL', 'C', 'FR', 'TFL', 'TFR', 'SL', 'SR', 'SBL'),
+        proposed_entities=(_proposal('sbl', 'SBL', 1.9),),
+        parent_variant_id=parent.variant_id,
+        created_at_utc=NOW,
+    )
+    repository.save_variant(child)
+
+    # Coherently rewrite the parent so its lineage points back at its child.
+    _rewrite_variant_row(
+        scene_repository,
+        parent,
+        parent_variant_id=child.variant_id,
+    )
+    with pytest.raises(
+        ValueError, match='parent lineage contains a cycle'
+    ):
+        repository.get_variant(parent.variant_id)
+    with pytest.raises(
+        ValueError, match='parent lineage contains a cycle'
+    ):
+        repository.get_variant(child.variant_id)
+
+
+def test_application_reads_replay_full_authority_unchanged(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    assert (
+        variant_repository.get_application(application.application_id)
+        == application
+    )
+    assert (
+        variant_repository.application_for_variant(variant.variant_id)
+        == application
+    )
+    assert (
+        variant_repository.application_for_revision(applied.revision_id)
+        == application
+    )
+    assert variant_repository.get_variant(variant.variant_id) == variant
+    assert variant_repository.list_variants(DOCUMENT_ID) == (variant,)
+    assert (
+        variant_repository.proposal_lineage_for_revision(applied.revision_id)
+        == (application, variant)
+    )
+    assert (
+        variant_repository.comparison_ref(variant.variant_id).applied_revision_id
+        == applied.revision_id
+    )
+
+    reopened_scene = SceneRepository(scene_repository.path)
+    reopened = CadSystemVariantRepository(reopened_scene)
+    assert reopened.get_variant(variant.variant_id) == variant
+    assert reopened.list_variants(DOCUMENT_ID) == (variant,)
+    assert reopened.get_application(application.application_id) == application
+    assert reopened.application_for_revision(applied.revision_id) == application
+
+
+def test_application_read_rejects_dangling_variant(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM cad_system_variants WHERE variant_id=?',
+            (variant.variant_id,),
+        )
+
+    with pytest.raises(ValueError, match='references missing variant'):
+        variant_repository.get_application(application.application_id)
+    with pytest.raises(ValueError, match='references missing variant'):
+        variant_repository.application_for_variant(variant.variant_id)
+    with pytest.raises(ValueError, match='references missing variant'):
+        variant_repository.proposal_lineage_for_revision(applied.revision_id)
+
+
+def test_application_read_rejects_dangling_applied_revision(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM scene_revisions WHERE revision_id=?',
+            (applied.revision_id,),
+        )
+
+    with pytest.raises(
+        ValueError, match='applied SceneRevision does not exist'
+    ):
+        variant_repository.get_application(application.application_id)
+    with pytest.raises(
+        ValueError, match='applied SceneRevision does not exist'
+    ):
+        variant_repository.application_for_variant(variant.variant_id)
+    with pytest.raises(
+        ValueError, match='applied SceneRevision does not exist'
+    ):
+        variant_repository.application_for_revision(applied.revision_id)
+
+
+def test_application_read_rejects_dangling_baseline_revision(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        _applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'DELETE FROM scene_revisions WHERE revision_id=?',
+            (application.baseline_revision_id,),
+        )
+
+    with pytest.raises(
+        ValueError, match='baseline SceneRevision does not exist'
+    ):
+        variant_repository.get_application(application.application_id)
+    with pytest.raises(
+        ValueError, match='baseline SceneRevision does not exist'
+    ):
+        variant_repository.application_for_variant(variant.variant_id)
+
+
+def test_application_read_rejects_row_payload_divergence(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        _variant,
+        application,
+        _applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_system_variant_applications SET document_id=? '
+            'WHERE application_id=?',
+            ('other-document', application.application_id),
+        )
+
+    with pytest.raises(ValueError, match='row disagrees with its payload'):
+        variant_repository.get_application(application.application_id)
+
+
+def test_application_read_rejects_foreign_variant_hash(tmp_path: Path) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        _variant,
+        application,
+        _applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    _rewrite_application_row(
+        scene_repository,
+        application,
+        variant_sha256='0' * 64,
+    )
+    with pytest.raises(ValueError, match='variant authority mismatch'):
+        variant_repository.get_application(application.application_id)
+
+
+def test_application_read_rejects_applied_revision_with_wrong_parent(
+    tmp_path: Path,
+) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        _variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    descendant = scene_repository.save(
+        applied.document.model_copy(
+            update={
+                'entities': tuple(
+                    entity.model_copy(
+                        update={
+                            'position': entity.position.model_copy(
+                                update={'x_m': 0.72}
+                            )
+                        }
+                    )
+                    if entity.entity_id == 'sl'
+                    else entity
+                    for entity in applied.document.entities
+                )
+            }
+        ),
+        parent_revision_id=applied.revision_id,
+    ).revision
+
+    _rewrite_application_row(
+        scene_repository,
+        application,
+        applied_revision_id=descendant.revision_id,
+        applied_content_hash=descendant.content_hash,
+    )
+    with pytest.raises(
+        ValueError, match='applied SceneRevision mismatch'
+    ):
+        variant_repository.get_application(application.application_id)
+
+
+def test_application_read_rejects_unreproduced_applied_revision(
+    tmp_path: Path,
+) -> None:
+    (
+        scene_repository,
+        variant_repository,
+        _variant,
+        application,
+        _applied,
+    ) = _applied_502_fixture(tmp_path)
+    baseline = scene_repository.get(application.baseline_revision_id)
+    assert baseline is not None
+
+    sibling = scene_repository.save(
+        baseline.document.model_copy(
+            update={
+                'entities': tuple(
+                    entity.model_copy(
+                        update={
+                            'position': entity.position.model_copy(
+                                update={'x_m': 1.31}
+                            )
+                        }
+                    )
+                    if entity.entity_id == 'fl'
+                    else entity
+                    for entity in baseline.document.entities
+                )
+            }
+        ),
+        parent_revision_id=baseline.revision_id,
+    ).revision
+
+    _rewrite_application_row(
+        scene_repository,
+        application,
+        applied_revision_id=sibling.revision_id,
+        applied_content_hash=sibling.content_hash,
+    )
+    with pytest.raises(
+        ValueError, match='does not reproduce the applied SceneRevision'
+    ):
+        variant_repository.get_application(application.application_id)
