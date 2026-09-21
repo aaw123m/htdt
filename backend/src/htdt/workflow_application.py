@@ -279,7 +279,10 @@ class WorkflowApplicationComposition:
                 "project.save",
                 execute=workspace.save,
                 availability=lambda: _available(
-                    workspace.controller.is_dirty
+                    (
+                        workspace.controller.is_dirty
+                        or workspace.has_focused_text_editor()
+                    )
                     and workspace.controller.recovery_candidate is None
                     and not workspace.controller.working.has_preview,
                     "保存する変更がありません",

@@ -360,6 +360,7 @@ class RoomGeometryPanel(QFrame):
         try:
             changed = bool(operation())
         except (ValueError, WallTopologyError) as exc:
+            self.geometry.workspace.mark_pending_editor_rejected()
             self.notice.setText(str(exc))
             set_semantic_state(self.notice, SemanticState.ERROR)
             self.refresh()
