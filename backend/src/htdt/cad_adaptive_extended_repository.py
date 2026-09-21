@@ -7,6 +7,7 @@ import sqlite3
 from .cad_adaptive_extended import (
     CadAdaptiveExtendedObservation,
     CadAdaptiveExtendedPlan,
+    build_adaptive_extended_plan,
 )
 from .cad_adaptive_planner import (
     development_validation_ready,
@@ -253,10 +254,18 @@ class CadAdaptiveExtendedRepository:
             for row in rows
         )
 
-    def save_plan(self, plan: CadAdaptiveExtendedPlan) -> None:
-        plan = CadAdaptiveExtendedPlan.model_validate(
-            plan.model_dump(mode='python')
-        )
+    def _require_plan_authority(self, plan: CadAdaptiveExtendedPlan) -> None:
+        """Replay the exact O80/O60/observation authority one plan binds to.
+
+        Revalidates the base/extended SearchSpec and capability binding, the
+        referenced O60 ValidationRecord and its current scope gate, and the
+        regenerated extended candidate set; resolves the current single-head
+        observation chains; then reruns build_adaptive_extended_plan over the
+        persisted algorithm inputs and requires the submitted plan to be that
+        exact canonical output. Superseded, stale, or caller-fabricated
+        evidence fails closed. Shared by save-time validation and every
+        authoritative plan read.
+        """
         spec, base, capability = self._authority(plan.extended_search_id)
         if (
             plan.document_id != base.document_id
@@ -338,15 +347,42 @@ class CadAdaptiveExtendedRepository:
                 + ', '.join(sorted(missing))
             )
 
-        observations = self.list_observations(plan.extended_search_id)
-        available_hashes = {
+        observations = self.current_observations(plan.extended_search_id)
+        current_hashes = {
             observation.observation_sha256 for observation in observations
         }
-        missing_hashes = set(plan.observation_sha256s) - available_hashes
-        if missing_hashes:
+        stale_hashes = set(plan.observation_sha256s) - current_hashes
+        if stale_hashes:
             raise ValueError(
-                'adaptive extended plan observation authority is incomplete'
+                'adaptive extended plan observation authority is not current'
             )
+
+        expected = build_adaptive_extended_plan(
+            base_spec=base,
+            base_candidate_set_sha256=spec.base_candidate_set_sha256,
+            extended_spec=spec,
+            extended_candidate_set_sha256=candidate_set_sha256,
+            capability_id=capability.capability_id,
+            capability_sha256=capability.capability_sha256,
+            extended_model_id=capability.model_id,
+            extended_model_version=capability.model_version,
+            validation=validation,
+            candidates=candidates,
+            observations=observations,
+            execution_scope=plan.execution_scope,
+            length_scale_normalized=plan.length_scale_normalized,
+            proposal_limit=plan.proposal_limit,
+        )
+        if expected.adaptive_extended_sha256 != plan.adaptive_extended_sha256:
+            raise ValueError(
+                'adaptive extended plan does not match canonical planner replay'
+            )
+
+    def save_plan(self, plan: CadAdaptiveExtendedPlan) -> None:
+        plan = CadAdaptiveExtendedPlan.model_validate(
+            plan.model_dump(mode='python')
+        )
+        self._require_plan_authority(plan)
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -370,18 +406,33 @@ class CadAdaptiveExtendedRepository:
                 ),
             )
 
+    def _validated_plan(self, row: sqlite3.Row) -> CadAdaptiveExtendedPlan:
+        """Deserialize one persisted plan row and replay its exact authority."""
+
+        plan = CadAdaptiveExtendedPlan.model_validate_json(row['payload_json'])
+        if (
+            row['plan_id'] != plan.plan_id
+            or row['document_id'] != plan.document_id
+            or row['extended_search_id'] != plan.extended_search_id
+            or row['validation_id'] != plan.validation_id
+            or row['execution_scope'] != plan.execution_scope
+            or row['selected_candidate_id'] != plan.selected_candidate_id
+            or row['adaptive_extended_sha256'] != plan.adaptive_extended_sha256
+            or row['created_at_utc'] != plan.created_at_utc
+        ):
+            raise ValueError(
+                'persisted adaptive extended plan row disagrees with its payload'
+            )
+        self._require_plan_authority(plan)
+        return plan
+
     def get_plan(self, plan_id: str) -> CadAdaptiveExtendedPlan | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_adaptive_extended_plans '
-                'WHERE plan_id=?',
+                'SELECT * FROM cad_adaptive_extended_plans WHERE plan_id=?',
                 (plan_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else CadAdaptiveExtendedPlan.model_validate_json(row['payload_json'])
-        )
+        return None if row is None else self._validated_plan(row)
 
     def find_plan_by_sha(
         self,
@@ -390,16 +441,12 @@ class CadAdaptiveExtendedRepository:
     ) -> CadAdaptiveExtendedPlan | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_adaptive_extended_plans '
+                'SELECT * FROM cad_adaptive_extended_plans '
                 'WHERE extended_search_id=? AND adaptive_extended_sha256=? '
                 'ORDER BY seq DESC LIMIT 1',
                 (extended_search_id, adaptive_extended_sha256),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else CadAdaptiveExtendedPlan.model_validate_json(row['payload_json'])
-        )
+        return None if row is None else self._validated_plan(row)
 
     def list_plans(
         self,
@@ -407,11 +454,8 @@ class CadAdaptiveExtendedRepository:
     ) -> tuple[CadAdaptiveExtendedPlan, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_adaptive_extended_plans '
+                'SELECT * FROM cad_adaptive_extended_plans '
                 'WHERE extended_search_id=? ORDER BY seq ASC',
                 (extended_search_id,),
             ).fetchall()
-        return tuple(
-            CadAdaptiveExtendedPlan.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+        return tuple(self._validated_plan(row) for row in rows)

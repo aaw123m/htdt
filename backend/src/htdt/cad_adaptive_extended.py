@@ -324,6 +324,7 @@ class CadAdaptiveExtendedPlan(BaseModel):
     excluded_measured_candidate_ids: tuple[str, ...] = Field(min_length=1)
     candidate_pool_count: int = Field(ge=1)
     length_scale_normalized: float = Field(gt=0.0)
+    proposal_limit: int = Field(ge=1)
     seed: int = 0
     acquisition_function: Literal[
         'max_normalized_residual_uncertainty'
@@ -367,6 +368,8 @@ class CadAdaptiveExtendedPlan(BaseModel):
             raise ValueError('adaptive extended proposal objective ordering mismatch')
         if not isfinite(float(self.length_scale_normalized)):
             raise ValueError('adaptive extended length scale must be finite')
+        if len(self.proposals) > self.proposal_limit:
+            raise ValueError('adaptive extended proposals exceed proposal limit')
         if self.adaptive_extended_sha256 != _digest(self.identity_payload()):
             raise ValueError('adaptive extended plan identity hash mismatch')
         return self
@@ -400,6 +403,7 @@ class CadAdaptiveExtendedPlan(BaseModel):
             ),
             'candidate_pool_count': self.candidate_pool_count,
             'length_scale_normalized': self.length_scale_normalized,
+            'proposal_limit': self.proposal_limit,
             'seed': self.seed,
             'acquisition_function': self.acquisition_function,
             'algorithm_version': self.algorithm_version,
@@ -626,6 +630,7 @@ def build_adaptive_extended_plan(
         excluded_measured_candidate_ids=measured_ids,
         candidate_pool_count=candidate_pool_count,
         length_scale_normalized=float(length_scale_normalized),
+        proposal_limit=int(proposal_limit),
         seed=0,
         acquisition_function='max_normalized_residual_uncertainty',
         algorithm_version=ADAPTIVE_EXTENDED_ALGORITHM_VERSION,
