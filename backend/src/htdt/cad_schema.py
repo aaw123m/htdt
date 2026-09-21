@@ -733,6 +733,15 @@ def ensure_native_schema(path: Path) -> int:
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Resolve any interrupted managed-data restore before sqlite3.connect can
+    # create a fresh database at this path: a pending restore journal or
+    # rollback sibling means the live data directory is mid-swap, and seeding
+    # a new database here would silently discard that fact. Recovery either
+    # restores a consistent generation or raises. Deferred import because
+    # native_backup depends on this module for compatibility checks.
+    from .native_backup import recover_interrupted_restore
+
+    recover_interrupted_restore(path.parent)
     try:
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute('PRAGMA foreign_keys=ON')

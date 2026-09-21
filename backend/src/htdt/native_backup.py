@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath
 import shutil
 import sqlite3
 import stat
 import tempfile
+import time
 from typing import Any, Literal
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
@@ -32,6 +35,20 @@ from .limits import (
 BACKUP_SCHEMA_VERSION = 1
 DATABASE_NAME = 'cad-scenes.sqlite3'
 MANIFEST_NAME = 'manifest.json'
+MEASUREMENT_ASSETS_NAME = 'measurement-assets'
+
+# An in-flight restore keeps a durable journal inside its rollback directory
+# (``.<data-dir>-restore-rollback-<id>`` next to the managed data directory).
+# The journal is written and fsynced before any live file is moved and its
+# ``phase`` is advanced as the swap progresses, so a process or OS crash at
+# any swap boundary leaves enough state for the next launch to finish the
+# swap deterministically or restore the pre-swap generation.
+RESTORE_JOURNAL_NAME = 'restore-journal.json'
+RESTORE_JOURNAL_KIND = 'htdt-restore-journal'
+RESTORE_JOURNAL_SCHEMA_VERSION = 1
+RESTORE_ROLLBACK_SUFFIX = '-restore-rollback-'
+
+_LOGGER = logging.getLogger('htdt.native')
 
 
 def _canonical_json(value: Any) -> str:
@@ -182,7 +199,7 @@ def _assert_safe_backup_destination(data_dir: Path, destination: Path) -> None:
         raise ValueError(
             f'backup destination overlaps the live native database: {destination}'
         )
-    assets_root = _canonical_data_path(data_dir / 'measurement-assets')
+    assets_root = _canonical_data_path(data_dir / MEASUREMENT_ASSETS_NAME)
     if destination.is_relative_to(assets_root):
         raise ValueError(
             'backup destination is inside the managed measurement-assets '
@@ -346,6 +363,11 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
 def create_backup(data_dir: Path, destination: Path) -> BackupManifest:
     """Create an atomic native-data backup without copying a live SQLite file directly."""
 
+    recover_interrupted_restore(Path(data_dir))
+    return _create_backup(data_dir, destination)
+
+
+def _create_backup(data_dir: Path, destination: Path) -> BackupManifest:
     data_dir = _canonical_data_path(Path(data_dir))
     destination = _canonical_data_path(Path(destination))
     _assert_safe_backup_destination(data_dir, destination)
@@ -519,9 +541,481 @@ def _remove_managed_data(data_dir: Path) -> None:
     database = data_dir / DATABASE_NAME
     if database.exists():
         database.unlink()
-    assets = data_dir / 'measurement-assets'
+    assets = data_dir / MEASUREMENT_ASSETS_NAME
     if assets.exists():
         shutil.rmtree(assets)
+
+
+class RestoreRecoveryError(RuntimeError):
+    """An interrupted restore swap could not be resolved to a valid state."""
+
+
+RestoreRecoveryAction = Literal[
+    'completed',
+    'rolled_back',
+    'restored_from_archive',
+    'orphan_removed',
+    'orphan_preserved',
+    'skipped',
+]
+
+
+@dataclass(frozen=True)
+class RestoreRecoveryEvent:
+    """How one interrupted managed-data restore was resolved at recovery."""
+
+    action: RestoreRecoveryAction
+    data_dir: Path
+    rollback_dir: Path
+    detail: str
+
+
+def _fsync_directory(directory: Path) -> None:
+    # Making directory entries durable requires a directory fsync, which is
+    # only meaningful on POSIX filesystems (same convention as the atomic
+    # asset installer in cad_measurement_repository).
+    if os.name != 'posix':
+        return
+    descriptor = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _replace_durable(source: Path, target: Path, *, attempts: int = 50) -> None:
+    # Windows can transiently refuse a replace while antivirus or a dying
+    # process still holds the destination; retry briefly like the #305
+    # content-addressed asset installer instead of failing outright.
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.01)
+
+
+def _remove_path_quiet(path: Path, *, attempts: int = 50) -> None:
+    for attempt in range(attempts):
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                return
+            time.sleep(0.01)
+        except OSError:
+            return
+
+
+def _discard_dir_quiet(path: Path) -> None:
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
+
+
+def _remove_rollback_artifacts(rollback_root: Path) -> None:
+    """Best-effort removal that deletes the journal last.
+
+    If removal itself is interrupted, the remnant still contains the journal
+    (or is empty), so the next recovery pass can explain and finish it —
+    unlike a data-bearing rollback tree with no marker.
+    """
+    try:
+        children = sorted(rollback_root.iterdir())
+    except OSError:
+        return
+    journal_path = rollback_root / RESTORE_JOURNAL_NAME
+    for child in children:
+        if child == journal_path:
+            continue
+        _remove_path_quiet(child)
+    _remove_path_quiet(journal_path)
+    try:
+        rollback_root.rmdir()
+    except OSError:
+        shutil.rmtree(rollback_root, ignore_errors=True)
+
+
+def _write_restore_journal(rollback_root: Path, journal: dict[str, Any]) -> Path:
+    journal_path = rollback_root / RESTORE_JOURNAL_NAME
+    temp_path = rollback_root / f'.{RESTORE_JOURNAL_NAME}.{uuid4().hex}.tmp'
+    with temp_path.open('wb') as handle:
+        handle.write(_canonical_json(journal).encode('utf-8'))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp_path, journal_path)
+    _fsync_directory(rollback_root)
+    return journal_path
+
+
+def _journal_phase(rollback_root: Path, journal: dict[str, Any], phase: str) -> None:
+    journal['phase'] = phase
+    journal['updated_at_utc'] = _utc_now()
+    _write_restore_journal(rollback_root, journal)
+
+
+def _read_restore_journal(journal_path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(journal_path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get('kind') != RESTORE_JOURNAL_KIND:
+        return None
+    if payload.get('schema_version') != RESTORE_JOURNAL_SCHEMA_VERSION:
+        return None
+    return payload
+
+
+def _report_recovery(
+    action: RestoreRecoveryAction,
+    data_dir: Path,
+    rollback_root: Path,
+    detail: str,
+) -> RestoreRecoveryEvent:
+    _LOGGER.warning(
+        'interrupted restore recovered: action=%s data_dir=%s rollback=%s detail=%s',
+        action,
+        data_dir,
+        rollback_root,
+        detail,
+    )
+    return RestoreRecoveryEvent(
+        action=action,
+        data_dir=data_dir,
+        rollback_dir=rollback_root,
+        detail=detail,
+    )
+
+
+def _evacuate_into(path: Path, rollback_root: Path) -> Path:
+    """Move *path* into the rollback directory without overwriting payload.
+
+    The pre-restore copy already held by the rollback directory keeps its
+    canonical name; later or foreign occupants are parked under a
+    ``.superseded-<n>`` suffix so nothing is silently destroyed.
+    """
+    target = rollback_root / path.name
+    if target.exists():
+        suffix = 0
+        while (rollback_root / f'{path.name}.superseded-{suffix}').exists():
+            suffix += 1
+        target = rollback_root / f'{path.name}.superseded-{suffix}'
+    _replace_durable(path, target)
+    return target
+
+
+def _live_assets_match(
+    data_dir: Path,
+    live_assets: Path,
+    asset_entries: tuple[BackupFileEntry, ...],
+) -> bool:
+    """True when live assets are exactly the restored generation.
+
+    Every manifest asset must resolve to a file with the recorded size and
+    SHA-256, and the managed assets directory must not carry extra files —
+    a mix of generations is not the validated restored state.
+    """
+    if not live_assets.is_dir():
+        return not asset_entries
+    expected: set[Path] = set()
+    for entry in asset_entries:
+        target = _safe_data_path(data_dir, entry.path)
+        if target.is_symlink() or not target.is_file():
+            return False
+        if target.stat().st_size != entry.size_bytes:
+            return False
+        if _sha256_file(target) != entry.sha256:
+            return False
+        try:
+            target.relative_to(live_assets)
+        except ValueError:
+            continue
+        expected.add(target)
+    extras = {
+        candidate
+        for candidate in live_assets.rglob('*')
+        if (candidate.is_file() or candidate.is_symlink()) and candidate not in expected
+    }
+    return not extras
+
+
+def _complete_restore_swap(
+    data_dir: Path,
+    rollback_root: Path,
+    stage_root: Path,
+    manifest: BackupManifest,
+) -> None:
+    """Finish an interrupted swap so the validated restored state is live."""
+    database_entry = next(
+        entry for entry in manifest.files if entry.kind == 'database'
+    )
+    restored_sha = database_entry.sha256
+    asset_entries = tuple(
+        entry for entry in manifest.files if entry.kind == 'measurement_asset'
+    )
+
+    live_database = data_dir / DATABASE_NAME
+    live_assets = data_dir / MEASUREMENT_ASSETS_NAME
+    staged_database = stage_root / DATABASE_NAME
+    staged_assets = stage_root / MEASUREMENT_ASSETS_NAME
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    if live_database.exists():
+        if not live_database.is_file() or _sha256_file(live_database) != restored_sha:
+            _evacuate_into(live_database, rollback_root)
+    if not live_database.exists():
+        if not staged_database.is_file():
+            raise RestoreRecoveryError(
+                'staged database is missing; cannot complete the swap'
+            )
+        _replace_durable(staged_database, live_database)
+
+    if live_assets.exists() and (
+        not live_assets.is_dir()
+        or not _live_assets_match(data_dir, live_assets, asset_entries)
+    ):
+        _evacuate_into(live_assets, rollback_root)
+    if not live_assets.exists():
+        if staged_assets.is_dir():
+            _replace_durable(staged_assets, live_assets)
+        elif asset_entries:
+            raise RestoreRecoveryError(
+                'staged measurement assets are missing; cannot complete the swap'
+            )
+        else:
+            live_assets.mkdir(parents=True, exist_ok=True)
+
+    _sqlite_health(live_database)
+    _validate_asset_contract(
+        data_dir=data_dir,
+        database_path=live_database,
+        manifest=manifest,
+    )
+    _fsync_directory(data_dir)
+
+
+def _rollback_restore_swap(data_dir: Path, rollback_root: Path) -> None:
+    """Restore the pre-swap live generation preserved in the rollback dir."""
+    live_database = data_dir / DATABASE_NAME
+    live_assets = data_dir / MEASUREMENT_ASSETS_NAME
+    rollback_database = rollback_root / DATABASE_NAME
+    rollback_assets = rollback_root / MEASUREMENT_ASSETS_NAME
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Whatever the interrupted swap left live is not the pre-restore
+    # generation; park it inside the rollback dir so nothing is destroyed.
+    if live_database.exists():
+        _evacuate_into(live_database, rollback_root)
+    if live_assets.exists():
+        _evacuate_into(live_assets, rollback_root)
+    if rollback_database.exists():
+        _replace_durable(rollback_database, live_database)
+    if rollback_assets.exists():
+        _replace_durable(rollback_assets, live_assets)
+    if not live_database.is_file():
+        raise RestoreRecoveryError(
+            'no restorable database remains live or in the rollback directory'
+        )
+    _sqlite_health(live_database)
+    _validate_asset_contract(
+        data_dir=data_dir,
+        database_path=live_database,
+    )
+    _fsync_directory(data_dir)
+
+
+def _live_state_is_valid(data_dir: Path) -> bool:
+    try:
+        _sqlite_health(data_dir / DATABASE_NAME)
+        _validate_asset_contract(
+            data_dir=data_dir,
+            database_path=data_dir / DATABASE_NAME,
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _recover_orphan_rollback(data_dir: Path, rollback_root: Path) -> RestoreRecoveryEvent:
+    """Resolve a rollback directory that has no readable journal."""
+    try:
+        payload: list[Path] | None = [
+            child
+            for child in sorted(rollback_root.iterdir())
+            if child.name != RESTORE_JOURNAL_NAME
+        ]
+    except OSError:
+        payload = None
+    if _live_state_is_valid(data_dir):
+        if payload == []:
+            _remove_rollback_artifacts(rollback_root)
+            return _report_recovery(
+                'orphan_removed',
+                data_dir,
+                rollback_root,
+                'empty rollback remnant removed',
+            )
+        # Live data is valid, so the swap this remnant belonged to had
+        # effectively finished — but without a journal the directory's
+        # contents cannot be proven redundant, so keep them for inspection.
+        return _report_recovery(
+            'orphan_preserved',
+            data_dir,
+            rollback_root,
+            'rollback directory without a readable journal was kept',
+        )
+    try:
+        _rollback_restore_swap(data_dir, rollback_root)
+    except Exception as exc:
+        raise RestoreRecoveryError(
+            'interrupted restore could not be recovered and no fresh database '
+            f'was created; rollback data is preserved at {rollback_root}: {exc}'
+        ) from exc
+    _remove_rollback_artifacts(rollback_root)
+    return _report_recovery(
+        'rolled_back',
+        data_dir,
+        rollback_root,
+        'pre-restore state recovered from an unjournaled rollback directory',
+    )
+
+
+def _recover_journaled_swap(
+    data_dir: Path,
+    rollback_root: Path,
+    journal: dict[str, Any],
+) -> RestoreRecoveryEvent:
+    try:
+        manifest = BackupManifest.model_validate(journal.get('restored_manifest'))
+        stage_root = Path(str(journal.get('stage_dir')))
+        recorded_data_dir = _canonical_data_path(Path(str(journal.get('data_dir'))))
+        recorded_rollback = _canonical_data_path(Path(str(journal.get('rollback_dir'))))
+    except Exception:
+        return _recover_orphan_rollback(data_dir, rollback_root)
+
+    if recorded_data_dir != data_dir or recorded_rollback != _canonical_data_path(rollback_root):
+        return _report_recovery(
+            'skipped',
+            data_dir,
+            rollback_root,
+            'journal identity does not match this data directory; left untouched',
+        )
+
+    phase = str(journal.get('phase'))
+    pre_backup_raw = journal.get('pre_restore_backup')
+    pre_backup = Path(str(pre_backup_raw)) if pre_backup_raw else None
+    failures: list[str] = []
+
+    try:
+        _complete_restore_swap(data_dir, rollback_root, stage_root, manifest)
+    except Exception as exc:
+        failures.append(f'complete swap failed: {exc}')
+    else:
+        _remove_rollback_artifacts(rollback_root)
+        _discard_dir_quiet(stage_root)
+        return _report_recovery(
+            'completed',
+            data_dir,
+            rollback_root,
+            f'validated restored state completed (phase={phase})',
+        )
+
+    try:
+        _rollback_restore_swap(data_dir, rollback_root)
+    except Exception as exc:
+        failures.append(f'rollback failed: {exc}')
+    else:
+        _remove_rollback_artifacts(rollback_root)
+        _discard_dir_quiet(stage_root)
+        return _report_recovery(
+            'rolled_back',
+            data_dir,
+            rollback_root,
+            f'pre-restore state restored (phase={phase})',
+        )
+
+    if pre_backup is not None and pre_backup.is_file():
+        try:
+            validate_backup(pre_backup)
+            # Live remnants are neither the restored nor the pre-restore
+            # generation; park them inside the rollback directory so the
+            # archive restore sees an empty live directory and does not try
+            # to snapshot a broken live state.
+            live_database = data_dir / DATABASE_NAME
+            live_assets = data_dir / MEASUREMENT_ASSETS_NAME
+            if live_database.exists():
+                _evacuate_into(live_database, rollback_root)
+            if live_assets.exists():
+                _evacuate_into(live_assets, rollback_root)
+            _restore_backup(data_dir, pre_backup, pre_restore_backup=None)
+        except Exception as exc:
+            failures.append(f'pre-restore archive restore failed: {exc}')
+        else:
+            _remove_rollback_artifacts(rollback_root)
+            _discard_dir_quiet(stage_root)
+            return _report_recovery(
+                'restored_from_archive',
+                data_dir,
+                rollback_root,
+                f'pre-restore archive {pre_backup} re-applied (phase={phase})',
+            )
+
+    raise RestoreRecoveryError(
+        'interrupted restore could not be recovered and no fresh database was '
+        f'created; rollback data is preserved at {rollback_root}'
+        + (f' and the pre-restore archive at {pre_backup}' if pre_backup else '')
+        + ('; ' + '; '.join(failures) if failures else '')
+    )
+
+
+def _recover_rollback_dir(data_dir: Path, rollback_root: Path) -> RestoreRecoveryEvent:
+    journal = _read_restore_journal(rollback_root / RESTORE_JOURNAL_NAME)
+    if journal is None:
+        return _recover_orphan_rollback(data_dir, rollback_root)
+    return _recover_journaled_swap(data_dir, rollback_root, journal)
+
+
+def recover_interrupted_restore(data_dir: Path) -> list[RestoreRecoveryEvent]:
+    """Resolve interrupted managed-data restore swaps for *data_dir*.
+
+    Every ``.<data-dir>-restore-rollback-*`` sibling directory is inspected:
+    journaled directories are deterministically completed to the validated
+    restored state or rolled back to the preserved pre-restore state, while
+    unjournaled remnants are recovered only when live data is invalid. When
+    no valid state can be produced a RestoreRecoveryError is raised so the
+    caller never opens or seeds a database over ambiguous managed data.
+    """
+    data_dir = _canonical_data_path(Path(data_dir))
+    parent = data_dir.parent
+    events: list[RestoreRecoveryEvent] = []
+    if not parent.is_dir():
+        return events
+    prefix = f'.{data_dir.name}{RESTORE_ROLLBACK_SUFFIX}'
+    try:
+        candidates = sorted(parent.iterdir())
+    except OSError:
+        return events
+    for candidate in candidates:
+        if not candidate.is_dir() or not candidate.name.startswith(prefix):
+            continue
+        events.append(_recover_rollback_dir(data_dir, candidate))
+    if events:
+        _fsync_directory(parent)
+    return events
 
 
 def restore_backup(
@@ -532,6 +1026,16 @@ def restore_backup(
 ) -> tuple[BackupManifest, Path | None]:
     """Restore validated managed native data with rollback if the live swap fails."""
 
+    recover_interrupted_restore(Path(data_dir))
+    return _restore_backup(data_dir, backup_path, pre_restore_backup=pre_restore_backup)
+
+
+def _restore_backup(
+    data_dir: Path,
+    backup_path: Path,
+    *,
+    pre_restore_backup: Path | None,
+) -> tuple[BackupManifest, Path | None]:
     data_dir = Path(data_dir)
     backup_path = Path(backup_path)
     parent = data_dir.parent
@@ -553,32 +1057,55 @@ def restore_backup(
                     f'{uuid4().hex[:8]}.htdt-backup'
                 )
             )
-            create_backup(data_dir, pre_backup)
+            _create_backup(data_dir, pre_backup)
 
-        rollback_root = parent / f'.{data_dir.name}-restore-rollback-{uuid4().hex}'
+        rollback_root = parent / f'.{data_dir.name}{RESTORE_ROLLBACK_SUFFIX}{uuid4().hex}'
         rollback_root.mkdir(parents=False, exist_ok=False)
+        journal_time = _utc_now()
+        journal: dict[str, Any] = {
+            'kind': RESTORE_JOURNAL_KIND,
+            'schema_version': RESTORE_JOURNAL_SCHEMA_VERSION,
+            'restore_id': rollback_root.name.rsplit(RESTORE_ROLLBACK_SUFFIX, 1)[-1],
+            'phase': 'prepared',
+            'created_at_utc': journal_time,
+            'updated_at_utc': journal_time,
+            'data_dir': str(_canonical_data_path(data_dir)),
+            'rollback_dir': str(_canonical_data_path(rollback_root)),
+            'stage_dir': str(_canonical_data_path(stage_root)),
+            'pre_restore_backup': (
+                str(_canonical_data_path(pre_backup)) if pre_backup is not None else None
+            ),
+            'restored_manifest': manifest.model_dump(mode='json'),
+        }
+        # The durable intent record lands before any live byte moves, so a
+        # crash at any later boundary is discoverable and recoverable.
+        _write_restore_journal(rollback_root, journal)
+        _fsync_directory(parent)
+
         moved_database = False
         moved_assets = False
         try:
             data_dir.mkdir(parents=True, exist_ok=True)
             live_database = data_dir / DATABASE_NAME
-            live_assets = data_dir / 'measurement-assets'
+            live_assets = data_dir / MEASUREMENT_ASSETS_NAME
             rollback_database = rollback_root / DATABASE_NAME
-            rollback_assets = rollback_root / 'measurement-assets'
+            rollback_assets = rollback_root / MEASUREMENT_ASSETS_NAME
 
             if live_database.exists():
-                os.replace(live_database, rollback_database)
+                _replace_durable(live_database, rollback_database)
                 moved_database = True
             if live_assets.exists():
-                os.replace(live_assets, rollback_assets)
+                _replace_durable(live_assets, rollback_assets)
                 moved_assets = True
+            _journal_phase(rollback_root, journal, 'live_evacuated')
 
-            os.replace(stage_root / DATABASE_NAME, live_database)
-            staged_assets = stage_root / 'measurement-assets'
+            _replace_durable(stage_root / DATABASE_NAME, live_database)
+            staged_assets = stage_root / MEASUREMENT_ASSETS_NAME
             if staged_assets.exists():
-                os.replace(staged_assets, live_assets)
+                _replace_durable(staged_assets, live_assets)
             else:
                 live_assets.mkdir(parents=True, exist_ok=True)
+            _journal_phase(rollback_root, journal, 'restored')
 
             _sqlite_health(live_database)
             _validate_asset_contract(
@@ -586,19 +1113,21 @@ def restore_backup(
                 database_path=live_database,
                 manifest=manifest,
             )
+            _journal_phase(rollback_root, journal, 'validated')
+            _fsync_directory(data_dir)
         except Exception as restore_error:
             rollback_error: Exception | None = None
             try:
                 _remove_managed_data(data_dir)
                 if moved_database and (rollback_root / DATABASE_NAME).exists():
-                    os.replace(rollback_root / DATABASE_NAME, data_dir / DATABASE_NAME)
-                if moved_assets and (rollback_root / 'measurement-assets').exists():
-                    os.replace(rollback_root / 'measurement-assets', data_dir / 'measurement-assets')
+                    _replace_durable(rollback_root / DATABASE_NAME, data_dir / DATABASE_NAME)
+                if moved_assets and (rollback_root / MEASUREMENT_ASSETS_NAME).exists():
+                    _replace_durable(rollback_root / MEASUREMENT_ASSETS_NAME, data_dir / MEASUREMENT_ASSETS_NAME)
             except Exception as exc:
                 rollback_error = exc
 
             if rollback_error is None:
-                shutil.rmtree(rollback_root, ignore_errors=True)
+                _remove_rollback_artifacts(rollback_root)
                 raise
 
             raise RuntimeError(
@@ -606,5 +1135,5 @@ def restore_backup(
                 f'original managed data is retained at {rollback_root}: {rollback_error}'
             ) from restore_error
         else:
-            shutil.rmtree(rollback_root, ignore_errors=True)
+            _remove_rollback_artifacts(rollback_root)
         return manifest, pre_backup
