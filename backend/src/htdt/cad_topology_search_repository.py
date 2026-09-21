@@ -13,6 +13,8 @@ from .cad_topology_search import (
     TopologyPlacementCandidate,
     TopologyPlacementCandidateSetPage,
     TopologyPlacementSearchSpec,
+    build_topology_placement_search_spec,
+    declared_base_constraint_set,
 )
 
 
@@ -243,10 +245,21 @@ class CadTopologySearchRepository:
             else TopologySearchSpec.model_validate_json(row['payload_json'])
         )
 
-    def save_spec(self, spec: TopologyPlacementSearchSpec) -> None:
-        spec = TopologyPlacementSearchSpec.model_validate(
-            spec.model_dump(mode='python')
-        )
+    def _require_placement_spec_authority(
+        self,
+        spec: TopologyPlacementSearchSpec,
+    ) -> None:
+        """Recompile the embedded O100B execution payloads from exact inputs.
+
+        Resolves the baseline SceneRevision, the persisted TopologySearchSpec
+        and option, and the template SystemVariant; recovers the declared
+        base CadConstraintSet from the embedded snapshot; then reruns the
+        pinned build_topology_placement_search_spec compiler over the
+        declared placement inputs and requires the submitted spec to be that
+        exact canonical compilation. Tampered or non-canonical payloads fail
+        closed; used by both save-time validation and authoritative reads.
+        """
+
         baseline = self.scene_repository.get(spec.baseline_revision_id)
         if baseline is None:
             raise ValueError('topology search baseline SceneRevision does not exist')
@@ -280,6 +293,29 @@ class CadTopologySearchRepository:
         if template.variant_sha256 != spec.template_variant_sha256:
             raise ValueError('topology search template SystemVariant hash mismatch')
 
+        expected = build_topology_placement_search_spec(
+            baseline=baseline,
+            template_variant=template,
+            topology_spec=topology,
+            topology_option_id=spec.topology_option_id,
+            placement_specs=spec.placement_specs,
+            constraint_set=declared_base_constraint_set(spec),
+            linked_rules=spec.linked_rules,
+            candidate_limit=spec.candidate_limit,
+            created_at_utc=spec.created_at_utc,
+        )
+        if expected != spec:
+            raise ValueError(
+                'topology placement search spec is not the canonical '
+                'compilation of its declared placement authority'
+            )
+
+    def save_spec(self, spec: TopologyPlacementSearchSpec) -> None:
+        spec = TopologyPlacementSearchSpec.model_validate(
+            spec.model_dump(mode='python')
+        )
+        self._require_placement_spec_authority(spec)
+
         existing = self.get_spec(spec.search_id)
         if existing is not None:
             if existing != spec:
@@ -308,32 +344,44 @@ class CadTopologySearchRepository:
                 ),
             )
 
+    def _validated_spec(self, row: sqlite3.Row) -> TopologyPlacementSearchSpec:
+        """Deserialize one persisted spec row and replay its exact authority."""
+
+        spec = TopologyPlacementSearchSpec.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['search_id'] != spec.search_id
+            or row['search_sha256'] != spec.search_sha256
+            or row['document_id'] != spec.document_id
+            or row['baseline_revision_id'] != spec.baseline_revision_id
+            or row['template_variant_id'] != spec.template_variant_id
+            or row['topology_search_id'] != spec.topology_search_id
+            or row['topology_option_id'] != spec.topology_option_id
+            or row['created_at_utc'] != spec.created_at_utc
+        ):
+            raise ValueError(
+                'persisted topology placement search row disagrees with its payload'
+            )
+        self._require_placement_spec_authority(spec)
+        return spec
+
     def get_spec(self, search_id: str) -> TopologyPlacementSearchSpec | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_topology_search_specs '
-                'WHERE search_id=?',
+                'SELECT * FROM cad_topology_search_specs WHERE search_id=?',
                 (search_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else TopologyPlacementSearchSpec.model_validate_json(
-                row['payload_json']
-            )
-        )
+        return None if row is None else self._validated_spec(row)
 
     def list_specs(self, document_id: str) -> tuple[TopologyPlacementSearchSpec, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_topology_search_specs '
+                'SELECT * FROM cad_topology_search_specs '
                 'WHERE document_id=? ORDER BY seq ASC',
                 (document_id,),
             ).fetchall()
-        return tuple(
-            TopologyPlacementSearchSpec.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+        return tuple(self._validated_spec(row) for row in rows)
 
     def save_candidate_page(
         self,
