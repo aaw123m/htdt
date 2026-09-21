@@ -36,6 +36,10 @@ class CadMeasurementPlan(BaseModel):
         default=None,
         pattern=r'^[0-9a-f]{64}$',
     )
+    # Exact persisted predecessor this version claims; None marks a first-ever
+    # version. Omitted from the identity payload when unset so legacy payloads
+    # keep their original plan_sha256.
+    supersedes_plan_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     plan_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
@@ -71,6 +75,8 @@ class CadMeasurementPlan(BaseModel):
             payload['prediction_provider_binding_sha256'] = (
                 self.prediction_provider_binding_sha256
             )
+        if self.supersedes_plan_sha256 is not None:
+            payload['supersedes_plan_sha256'] = self.supersedes_plan_sha256
         return payload
 
 
@@ -144,10 +150,14 @@ def bind_measurement_plan_prediction(
     payload = plan.identity_payload()
     payload['prediction_provider_binding_id'] = binding.binding_id
     payload['prediction_provider_binding_sha256'] = binding.semantic_sha256
+    # A binding update is a new planned version that must supersede the exact
+    # plan snapshot it was derived from.
+    payload['supersedes_plan_sha256'] = plan.plan_sha256
     base = plan.model_dump(
         exclude={
             'prediction_provider_binding_id',
             'prediction_provider_binding_sha256',
+            'supersedes_plan_sha256',
             'plan_sha256',
         }
     )
@@ -155,6 +165,7 @@ def bind_measurement_plan_prediction(
         **base,
         prediction_provider_binding_id=binding.binding_id,
         prediction_provider_binding_sha256=binding.semantic_sha256,
+        supersedes_plan_sha256=plan.plan_sha256,
         plan_sha256=_hash(payload),
     )
 
@@ -178,11 +189,17 @@ def complete_measurement_plan(plan: CadMeasurementPlan, measurement_repository: 
     payload = plan.identity_payload()
     payload['status'] = 'measured'
     payload['measurement_ids'] = list(measurement_ids)
-    base = plan.model_dump(exclude={'status', 'measurement_ids', 'plan_sha256'})
+    # Completion is a lifecycle transition of the exact claimed head, so two
+    # completions built from the same planned snapshot can never both persist.
+    payload['supersedes_plan_sha256'] = plan.plan_sha256
+    base = plan.model_dump(
+        exclude={'status', 'measurement_ids', 'supersedes_plan_sha256', 'plan_sha256'}
+    )
     return CadMeasurementPlan(
         **base,
         status='measured',
         measurement_ids=measurement_ids,
+        supersedes_plan_sha256=plan.plan_sha256,
         plan_sha256=_hash(payload),
     )
 

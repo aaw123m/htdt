@@ -708,6 +708,9 @@ def test_o50_plan_o60_residual_and_o70_bind_exact_provider_authority(
     assert bound_plan.prediction_provider_binding_id == plan_binding.binding_id
 
     measurement_repository = CadMeasurementRepository(fixture.scene_repository)
+    # The bound plan supersedes the unbound snapshot, so the lifecycle head can
+    # only advance once the claimed predecessor is itself persisted.
+    measurement_repository.save_measurement_plan(plan)
     measurement_repository.save_measurement_plan(bound_plan)
     assert measurement_repository.latest_measurement_plans(
         spec.search_spec_id

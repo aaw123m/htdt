@@ -22,8 +22,13 @@ from .cad_measurement_models import (
 )
 from .cad_measurement_quality import dataset_sha256
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_scene import acoustic_reference_position
+from .cad_scene import acoustic_reference_position, scene_content_hash
+from .cad_search_repository import CadSearchRepository
 from .comparison import ComparisonResult, FrequencyResponse, replay_comparison_result
+
+
+class MeasurementPlanConflictError(ValueError):
+    """A measurement-plan save violated the plan_id single-head lifecycle contract."""
 
 
 def _pack(values: tuple[float, ...] | None) -> bytes | None:
@@ -56,6 +61,7 @@ class CadMeasurementRepository:
 
     def __init__(self, scene_repository: SceneRepository, assets_dir: Path | None = None) -> None:
         self.scene_repository = scene_repository
+        self.search_repository = CadSearchRepository(scene_repository)
         self.path = scene_repository.path
         self.assets_dir = Path(assets_dir) if assets_dir is not None else self.path.parent / 'measurement-assets'
         self.assets_dir.mkdir(parents=True, exist_ok=True)
@@ -593,14 +599,93 @@ class CadMeasurementRepository:
         })
 
 
+    # Fields that identify the plan's subject; they are fixed for the whole
+    # lifecycle of one plan_id. Only status, measurement_ids and the optional
+    # prediction-provider binding may change between persisted versions.
+    _PLAN_LINEAGE_FIELDS = (
+        'document_id',
+        'search_spec_id',
+        'search_spec_sha256',
+        'candidate_id',
+        'candidate_set_sha256',
+        'applied_scene_revision_id',
+        'applied_scene_content_hash',
+    )
+
+    @classmethod
+    def _plan_chain_violation(cls, head, plan) -> str | None:
+        """Return why *plan* cannot extend persisted *head*, or None when valid."""
+        if head.status == 'measured':
+            return 'the plan is already measured; a measured head is terminal'
+        if (
+            plan.supersedes_plan_sha256 is not None
+            and plan.supersedes_plan_sha256 != head.plan_sha256
+        ):
+            return (
+                f'claims predecessor {plan.supersedes_plan_sha256} '
+                f'but the persisted head is {head.plan_sha256}'
+            )
+        for field in cls._PLAN_LINEAGE_FIELDS:
+            if getattr(plan, field) != getattr(head, field):
+                return f'changes {field}, which is immutable across the plan lifecycle'
+        if plan.status == 'measured' and (
+            plan.prediction_provider_binding_id != head.prediction_provider_binding_id
+            or plan.prediction_provider_binding_sha256 != head.prediction_provider_binding_sha256
+        ):
+            return 'measured transition must preserve the head prediction-provider binding'
+        return None
+
     def save_measurement_plan(self, plan) -> None:
-        from .cad_measurement_loop import CadMeasurementPlan
+        """Append one immutable plan version as the single head of its plan_id lifecycle.
+
+        The persisted history of one ``plan_id`` is an append-only state
+        machine enforced under one ``BEGIN IMMEDIATE`` transaction:
+
+        - the first version must be ``planned`` and claim no predecessor;
+        - a later ``planned`` version (e.g. a prediction-provider binding
+          update) must claim the current head via ``supersedes_plan_sha256``;
+        - ``planned -> measured`` is the only completion transition and keeps
+          the head's prediction-provider binding;
+        - a measured head is terminal.
+
+        Two writers building on the same head cannot both advance it: the head
+        check runs inside the write transaction, so the loser sees the moved
+        head and fails with ``MeasurementPlanConflictError``. The plan's
+        upstream authority (persisted SearchSpec SHA, candidate membership and
+        candidate-set SHA, candidate -> applied SceneRevision materialization)
+        is revalidated on every save, so the builder remains a convenience and
+        not the only integrity boundary.
+        """
+        from .cad_measurement_loop import CadMeasurementPlan, _resolve_candidate
+        from .cad_search import candidate_preview_document
         if not isinstance(plan, CadMeasurementPlan):
             raise TypeError('plan must be CadMeasurementPlan')
         plan = CadMeasurementPlan.model_validate(plan.model_dump(mode='python'))
+        spec = self.search_repository.get(plan.search_spec_id)
+        if spec is None:
+            raise ValueError('measurement plan SearchSpec does not exist')
+        if spec.document_id != plan.document_id or spec.search_spec_sha256 != plan.search_spec_sha256:
+            raise ValueError('measurement plan SearchSpec authority mismatch')
+        source = self.scene_repository.get(spec.scene_revision_id)
+        if (
+            source is None
+            or source.document_id != spec.document_id
+            or source.content_hash != spec.scene_content_hash
+        ):
+            raise ValueError('measurement plan SearchSpec source revision authority is unavailable or changed')
+        candidate, candidate_set_sha256 = _resolve_candidate(
+            self.scene_repository, spec, plan.candidate_id
+        )
+        if candidate_set_sha256 != plan.candidate_set_sha256:
+            raise ValueError('measurement plan candidate-set hash mismatch')
         revision = self.scene_repository.get(plan.applied_scene_revision_id)
         if revision is None or revision.document_id != plan.document_id or revision.content_hash != plan.applied_scene_content_hash:
             raise ValueError('measurement plan applied revision binding mismatch')
+        if revision.parent_revision_id != source.revision_id:
+            raise ValueError('measurement plan applied revision must directly descend from the SearchSpec source revision')
+        expected = candidate_preview_document(source.document, candidate)
+        if scene_content_hash(expected) != revision.content_hash:
+            raise ValueError('measurement plan applied revision does not exactly match the selected candidate placement')
         if plan.status == 'measured':
             for measurement_id in plan.measurement_ids:
                 record = self.get_measurement(measurement_id)
@@ -615,6 +700,36 @@ class CadMeasurementRepository:
                 if record.evidence_type != 'measured':
                     raise ValueError('measurement plan may only contain measured evidence')
         with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            head_row = connection.execute(
+                'SELECT plan_sha256, payload_json FROM cad_measurement_plans '
+                'WHERE plan_id=? ORDER BY seq DESC LIMIT 1',
+                (plan.plan_id,),
+            ).fetchone()
+            if head_row is None:
+                if plan.status != 'planned':
+                    raise MeasurementPlanConflictError(
+                        f'first measurement plan version for plan_id {plan.plan_id} must be planned'
+                    )
+                if plan.supersedes_plan_sha256 is not None:
+                    raise MeasurementPlanConflictError(
+                        f'first measurement plan version for plan_id {plan.plan_id} '
+                        'must not claim a predecessor that was never persisted'
+                    )
+            else:
+                head = CadMeasurementPlan.model_validate_json(head_row['payload_json'])
+                if head_row['plan_sha256'] != head.plan_sha256:
+                    raise ValueError('persisted measurement plan head disagrees with its payload')
+                if plan.supersedes_plan_sha256 is None:
+                    raise MeasurementPlanConflictError(
+                        f'measurement plan {plan.plan_id} already has a persisted head; '
+                        'a new version must claim it via supersedes_plan_sha256'
+                    )
+                violation = self._plan_chain_violation(head, plan)
+                if violation is not None:
+                    raise MeasurementPlanConflictError(
+                        f'measurement plan {plan.plan_id} rejected: {violation}'
+                    )
             connection.execute(
                 '''INSERT INTO cad_measurement_plans(
                     plan_id, document_id, search_spec_id, candidate_id,
@@ -623,17 +738,63 @@ class CadMeasurementRepository:
                 (plan.plan_id, plan.document_id, plan.search_spec_id, plan.candidate_id,
                  plan.applied_scene_revision_id, plan.status, plan.plan_sha256, plan.model_dump_json()),
             )
+            connection.commit()
 
     def list_measurement_plans(self, search_spec_id: str):
+        """Return the persisted plan history as validated single-head chains.
+
+        Rows are replayed in insertion order per ``plan_id``; each chain must
+        start with an unclaimed ``planned`` version and every successor must
+        extend its predecessor (explicitly via ``supersedes_plan_sha256``, or
+        implicitly for rows persisted before predecessor tracking existed).
+        A pre-existing fork, a measured-first root or history continuing past
+        a measured terminal is surfaced as ``ValueError`` rather than guessed.
+        """
         from .cad_measurement_loop import CadMeasurementPlan
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_measurement_plans WHERE search_spec_id=? ORDER BY seq ASC',
+                'SELECT * FROM cad_measurement_plans WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),
             ).fetchall()
-        return tuple(CadMeasurementPlan.model_validate_json(row['payload_json']) for row in rows)
+        plans = []
+        heads: dict[str, CadMeasurementPlan] = {}
+        for row in rows:
+            plan = CadMeasurementPlan.model_validate_json(row['payload_json'])
+            if (
+                row['plan_id'] != plan.plan_id
+                or row['document_id'] != plan.document_id
+                or row['search_spec_id'] != plan.search_spec_id
+                or row['candidate_id'] != plan.candidate_id
+                or row['applied_scene_revision_id'] != plan.applied_scene_revision_id
+                or row['status'] != plan.status
+                or row['plan_sha256'] != plan.plan_sha256
+            ):
+                raise ValueError('persisted measurement plan row disagrees with its payload')
+            head = heads.get(plan.plan_id)
+            if head is None:
+                if plan.status != 'planned':
+                    raise ValueError(
+                        f'measurement plan history for {plan.plan_id} '
+                        'does not start with a planned version'
+                    )
+                if plan.supersedes_plan_sha256 is not None:
+                    raise ValueError(
+                        f'measurement plan history for {plan.plan_id} '
+                        'starts with a predecessor claim that was never persisted'
+                    )
+            else:
+                violation = self._plan_chain_violation(head, plan)
+                if violation is not None:
+                    raise ValueError(
+                        f'measurement plan history for {plan.plan_id} '
+                        f'is not a single chain: {violation}'
+                    )
+            heads[plan.plan_id] = plan
+            plans.append(plan)
+        return tuple(plans)
 
     def latest_measurement_plans(self, search_spec_id: str):
+        """Current head of each plan_id's validated single-chain history."""
         history = self.list_measurement_plans(search_spec_id)
         order: list[str] = []
         latest = {}

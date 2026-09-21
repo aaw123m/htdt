@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-from hashlib import sha256
 from pathlib import Path
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -10,10 +8,16 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication
 
 from htdt.cad_constraint_models import CadConstraintSet, CadWallClearanceConstraint
-from htdt.cad_measurement_loop import CadMeasurementPlan
+from htdt.cad_measurement_loop import CadMeasurementPlan, build_measurement_plan
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import F1_DOCUMENT_ID
-from htdt.cad_search_models import constraint_workspace_snapshot
+from htdt.cad_search import (
+    build_cad_search_spec,
+    candidate_preview_document,
+    generate_cad_candidates,
+)
+from htdt.cad_search_models import CadSearchAxis, constraint_workspace_snapshot
+from htdt.cad_search_repository import CadSearchRepository
 from htdt.measurement_editor import MeasurementEditorWindow
 from htdt.optimization_workflow_controller import OptimizationWorkflowController
 
@@ -37,22 +41,34 @@ def _constraint_set(document_id: str) -> CadConstraintSet:
     )
 
 
-def _planned_measurement_plan(revision, *, plan_id: str = 'plan-1') -> CadMeasurementPlan:
-    payload = {
-        'document_id': revision.document_id,
-        'search_spec_id': 'spec-1',
-        'search_spec_sha256': 'a' * 64,
-        'candidate_id': 'cand-1',
-        'candidate_set_sha256': 'b' * 64,
-        'applied_scene_revision_id': revision.revision_id,
-        'applied_scene_content_hash': revision.content_hash,
-        'status': 'planned',
-        'measurement_ids': [],
-    }
-    digest = sha256(
-        json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
-    ).hexdigest()
-    return CadMeasurementPlan(plan_id=plan_id, plan_sha256=digest, **payload)
+def _planned_measurement_plan(
+    repository: SceneRepository,
+    revision,
+) -> CadMeasurementPlan:
+    # The repository revalidates the plan's upstream authority at save time, so
+    # the fixture needs a real persisted SearchSpec, member candidate and the
+    # exact applied candidate materialization.
+    constraints = CadConstraintSet(document_id=revision.document_id, constraints=())
+    spec, _ = build_cad_search_spec(
+        revision,
+        constraints,
+        (CadSearchAxis(entity_id='speaker-fl', axis='x', min_m=1.0, max_m=2.0, step_m=0.5),),
+        candidate_limit=10,
+    )
+    search_repository = CadSearchRepository(repository)
+    search_repository.save(spec)
+    candidate = generate_cad_candidates(repository, spec).candidates[0]
+    applied = repository.save(
+        candidate_preview_document(revision.document, candidate),
+        parent_revision_id=revision.revision_id,
+    ).revision
+    return build_measurement_plan(
+        repository,
+        search_repository,
+        search_spec_id=spec.search_spec_id,
+        candidate_id=candidate.candidate_id,
+        applied_scene_revision_id=applied.revision_id,
+    )
 
 
 def test_editor_rew_read_binds_current_constraint_workspace(tmp_path: Path, monkeypatch) -> None:
@@ -92,7 +108,11 @@ def test_optimization_rew_read_binds_current_constraint_workspace(tmp_path: Path
     revision = repository.latest(F1_DOCUMENT_ID)
     assert revision is not None
 
-    plan = _planned_measurement_plan(revision)
+    # Applying the candidate persists a new head revision; reloading the clean
+    # working document rebinds the job context to it, matching the real
+    # apply-candidate -> record-plan flow.
+    plan = _planned_measurement_plan(repository, revision)
+    assert controller.scene.reload_if_clean()
     controller.measurement_repository.save_measurement_plan(plan)
     controller.search_selected_spec_id = plan.search_spec_id
     controller.refresh_measurement_plans()
