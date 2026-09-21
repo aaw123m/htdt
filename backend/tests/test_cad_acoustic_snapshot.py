@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
 from htdt.cad_acoustic_snapshot import (
+    ReceiverMeasurementAuthority,
     SnapshotEnvironmentAuthorityRef,
     build_acoustic_prediction_request,
     build_acoustic_scene_snapshot,
     receiver_binding_from_scene,
 )
-from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
+from htdt.cad_acoustic_snapshot_repository import (
+    AcousticSnapshotAuthorityResolvers,
+    CadAcousticSnapshotRepository,
+)
 from htdt.cad_directivity import (
     DirectivityCoordinateConvention,
     DirectivityNormalization,
@@ -87,6 +92,115 @@ def _ref(name: str, char: str) -> ExactExternalAuthorityRef:
         authority_id=name,
         authority_version='fixture-v1',
         semantic_hash_sha256=char * 64,
+    )
+
+
+def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
+    return (
+        ref.authority_id,
+        ref.authority_version,
+        ref.semantic_hash_sha256,
+    )
+
+
+def _snapshot_authority_resolvers(
+    snapshot,
+    *,
+    preflight_graph=None,
+) -> AcousticSnapshotAuthorityResolvers:
+    """Honest registry resolving every external authority a snapshot claims."""
+    external: dict[tuple[str, str, str], ExactExternalAuthorityRef] = {}
+    for ref in (
+        snapshot.acoustic_region_authority_ref,
+        snapshot.portal_authority_ref,
+        snapshot.boundary_termination_authority_ref,
+    ):
+        if ref is not None:
+            external[_ref_key(ref)] = ref
+    for surface in snapshot.surface_boundary_configuration:
+        for ref in (
+            surface.material_authority,
+            surface.boundary_physics_authority,
+        ):
+            if ref is not None:
+                external[_ref_key(ref)] = ref
+    for binding in snapshot.treatment_boundary_bindings:
+        for ref in (
+            binding.base_material_authority,
+            binding.base_boundary_physics_authority,
+            *binding.selected_treatment_material_authorities,
+        ):
+            if ref is not None:
+                external[_ref_key(ref)] = ref
+
+    environment = snapshot.environment
+    domain = snapshot.valid_frequency_domain
+    domain_ref = snapshot.valid_frequency_domain_authority_ref
+    measurements = {
+        _ref_key(receiver.measurement_authority_ref): receiver
+        for receiver in snapshot.receivers
+        if receiver.measurement_authority_ref is not None
+    }
+    preflight_ref = snapshot.geometric_acoustics_topology_preflight_ref
+
+    def resolve_external(ref: ExactExternalAuthorityRef):
+        return external.get(_ref_key(ref))
+
+    def resolve_environment(ref: ExactExternalAuthorityRef):
+        if environment is None or ref != environment.authority:
+            return None
+        return environment
+
+    def resolve_sound_speed(ref: ExactExternalAuthorityRef):
+        if (
+            environment is None
+            or ref != environment.sound_speed_source_authority
+        ):
+            return None
+        return environment.sound_speed_m_s
+
+    def resolve_temperature(ref: ExactExternalAuthorityRef):
+        if (
+            environment is None
+            or ref != environment.temperature_source_authority
+        ):
+            return None
+        return environment.temperature_c
+
+    def resolve_measurement(ref: ExactExternalAuthorityRef):
+        receiver = measurements.get(_ref_key(ref))
+        if receiver is None:
+            return None
+        return ReceiverMeasurementAuthority(
+            authority_ref=ref,
+            entity_id=receiver.entity_id,
+            world_position=receiver.world_position,
+            orientation=receiver.orientation,
+        )
+
+    def resolve_domain(ref: ExactExternalAuthorityRef):
+        if domain_ref is None or ref != domain_ref:
+            return None
+        return domain
+
+    def resolve_preflight(ref: ExactExternalAuthorityRef):
+        if (
+            preflight_graph is None
+            or preflight_ref is None
+            or ref != preflight_ref
+            or preflight_graph.as_external_ref() != ref
+        ):
+            return None
+        return preflight_graph
+
+    return AcousticSnapshotAuthorityResolvers(
+        environment=resolve_environment,
+        sound_speed_source=resolve_sound_speed,
+        temperature_source=resolve_temperature,
+        receiver_measurement=resolve_measurement,
+        valid_frequency_domain=resolve_domain,
+        geometric_topology_preflight=resolve_preflight,
+        external_authority=resolve_external,
     )
 
 
@@ -757,11 +871,13 @@ def test_save_reopen_reresolves_scene_variant_r120_and_r110_authorities(
         variant_repository=fx['variant_repository'],
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     saved = repository.save_snapshot(fx['snapshot'])
 
     reopened = CadAcousticSnapshotRepository(
-        SceneRepository(fx['scene_repository'].path)
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     ).get_snapshot(saved.snapshot_id)
 
     assert reopened == saved
@@ -833,6 +949,7 @@ def test_acoustic_prediction_request_is_append_only_and_exact_snapshot_bound(
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -847,6 +964,7 @@ def test_acoustic_prediction_request_is_append_only_and_exact_snapshot_bound(
     reopened = CadAcousticSnapshotRepository(
         SceneRepository(fx['scene_repository'].path),
         fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     ).get_prediction_request(request.request_id)
 
     assert reopened == request
@@ -1173,6 +1291,7 @@ def _persisted_geometric_dispatch(tmp_path: Path):
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     snapshot_repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1235,6 +1354,9 @@ def test_solver_dispatch_repository_save_reopen_recomputes_exact_authorities(
         reopened_scene,
         external_authority_resolver=persisted['resolver'],
         fidelity_policy_resolver=persisted['fidelity_resolver'],
+        snapshot_authority_resolvers=_snapshot_authority_resolvers(
+            fx['snapshot']
+        ),
     )
 
     adapter = persisted['adapter']
@@ -1291,6 +1413,9 @@ def test_solver_dispatch_reopen_fails_closed_when_configuration_authority_stales
         SceneRepository(persisted['fixture']['scene_repository'].path),
         external_authority_resolver=persisted['resolver'],
         fidelity_policy_resolver=persisted['fidelity_resolver'],
+        snapshot_authority_resolvers=_snapshot_authority_resolvers(
+            persisted['fixture']['snapshot']
+        ),
     )
     with pytest.raises(
         ValueError,
@@ -1308,6 +1433,7 @@ def test_prediction_request_persistence_requires_fidelity_policy_resolver(
         variant_repository=fx['variant_repository'],
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     resolverless.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1331,6 +1457,7 @@ def test_prediction_request_persistence_requires_fidelity_policy_resolver(
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     resolved.save_prediction_request(request)
 
@@ -1352,6 +1479,7 @@ def test_prediction_request_rejects_unresolvable_fidelity_policy(
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1383,6 +1511,7 @@ def test_prediction_request_rejects_mismatched_fidelity_authority(
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         fidelity_policy_resolver=lambda ref: mismatched,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1417,6 +1546,7 @@ def test_prediction_request_rejects_inapplicable_fidelity_policy(
                 maximum_hz=900.0,
             )
         )[1],
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1456,6 +1586,7 @@ def test_prediction_request_reopen_detects_disappeared_fidelity_authority(
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1471,6 +1602,7 @@ def test_prediction_request_reopen_detects_disappeared_fidelity_authority(
     reopened = CadAcousticSnapshotRepository(
         SceneRepository(fx['scene_repository'].path),
         fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     with pytest.raises(
         ValueError,
@@ -1492,6 +1624,7 @@ def test_solver_dispatch_rejects_unresolvable_fidelity_policy(
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         fidelity_policy_resolver=snapshot_fidelity_resolver,
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     snapshot_repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1549,6 +1682,9 @@ def test_solver_dispatch_reopen_detects_disappeared_fidelity_authority(
         SceneRepository(persisted['fixture']['scene_repository'].path),
         external_authority_resolver=persisted['resolver'],
         fidelity_policy_resolver=persisted['fidelity_resolver'],
+        snapshot_authority_resolvers=_snapshot_authority_resolvers(
+            persisted['fixture']['snapshot']
+        ),
     )
     with pytest.raises(
         ValueError,
@@ -1738,3 +1874,354 @@ def test_ready_dispatch_solver_input_proves_resolved_fidelity_authority(
     )
     assert other_binding.binding_id != binding.binding_id
 
+
+
+def _snapshot_repository(fx, resolvers) -> CadAcousticSnapshotRepository:
+    return CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        authority_resolvers=resolvers,
+    )
+
+
+def test_snapshot_save_requires_typed_external_authority_resolvers(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+    )
+    with pytest.raises(
+        ValueError,
+        match='environment authority requires a typed environment resolver',
+    ):
+        repository.save_snapshot(fx['snapshot'])
+
+
+def test_snapshot_read_rejects_dangling_and_stale_environment_authorities(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    _snapshot_repository(fx, resolvers).save_snapshot(snapshot)
+
+    environment = snapshot.environment
+    assert environment is not None
+
+    reopened_missing = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers._replace(
+            environment=lambda ref: None
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='environment exact external authority does not exist',
+    ):
+        reopened_missing.get_snapshot(snapshot.snapshot_id)
+
+    stale_environment = SnapshotEnvironmentAuthorityRef(
+        authority=environment.authority,
+        sound_speed_m_s=999.0,
+        sound_speed_source_authority=environment.sound_speed_source_authority,
+    )
+    reopened_stale = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers._replace(
+            environment=lambda ref: stale_environment
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='environment exact external authority mismatch',
+    ):
+        reopened_stale.get_snapshot(snapshot.snapshot_id)
+
+
+def test_snapshot_read_rejects_missing_and_inconsistent_sound_speed_source(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    _snapshot_repository(fx, resolvers).save_snapshot(snapshot)
+    environment = snapshot.environment
+    assert environment is not None
+
+    missing = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers._replace(
+            sound_speed_source=lambda ref: None
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='sound speed source exact external authority does not exist',
+    ):
+        missing.get_snapshot(snapshot.snapshot_id)
+
+    inconsistent = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers._replace(
+            sound_speed_source=lambda ref: environment.sound_speed_m_s + 1.0
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='sound speed value does not reproduce from exact source authority',
+    ):
+        inconsistent.get_snapshot(snapshot.snapshot_id)
+
+
+def test_snapshot_read_reresolves_valid_frequency_domain_authority(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    _snapshot_repository(fx, resolvers).save_snapshot(snapshot)
+
+    missing = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers._replace(
+            valid_frequency_domain=lambda ref: None
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='valid frequency domain exact external authority does not exist',
+    ):
+        missing.get_snapshot(snapshot.snapshot_id)
+
+    mismatched = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers._replace(
+            valid_frequency_domain=lambda ref: FrequencyDomain(
+                minimum_hz=600.0,
+                maximum_hz=900.0,
+            )
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='valid frequency domain does not reproduce from exact authority',
+    ):
+        mismatched.get_snapshot(snapshot.snapshot_id)
+
+
+def test_snapshot_read_rejects_dangling_and_mismatched_material_authority(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    _snapshot_repository(fx, resolvers).save_snapshot(snapshot)
+
+    material_ref = snapshot.surface_boundary_configuration[0].material_authority
+    assert material_ref is not None
+    external = resolvers.external_authority
+    assert external is not None
+
+    dangling = resolvers._replace(
+        external_authority=lambda ref: (
+            None if ref == material_ref else external(ref)
+        )
+    )
+    with pytest.raises(
+        ValueError,
+        match='surface material exact external authority does not exist',
+    ):
+        CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path),
+            authority_resolvers=dangling,
+        ).get_snapshot(snapshot.snapshot_id)
+
+    mismatched = resolvers._replace(
+        external_authority=lambda ref: (
+            _ref('attacker-material', '7')
+            if ref == material_ref
+            else external(ref)
+        )
+    )
+    with pytest.raises(
+        ValueError,
+        match='surface material exact external authority mismatch',
+    ):
+        CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path),
+            authority_resolvers=mismatched,
+        ).get_snapshot(snapshot.snapshot_id)
+
+
+def test_snapshot_read_rejects_dangling_boundary_physics_authority(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    _snapshot_repository(fx, resolvers).save_snapshot(snapshot)
+
+    boundary_ref = snapshot.surface_boundary_configuration[0].boundary_physics_authority
+    assert boundary_ref is not None
+    external = resolvers.external_authority
+    assert external is not None
+
+    dangling = resolvers._replace(
+        external_authority=lambda ref: (
+            None if ref == boundary_ref else external(ref)
+        )
+    )
+    with pytest.raises(
+        ValueError,
+        match='surface boundary physics exact external authority does not exist',
+    ):
+        CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path),
+            authority_resolvers=dangling,
+        ).get_snapshot(snapshot.snapshot_id)
+
+
+def _measured_receiver_snapshot(fx):
+    measurement_ref = _ref('fixture-receiver-measurement', '7')
+    receiver = receiver_binding_from_scene(
+        scene_revision=fx['revision'],
+        system_variant=fx['variant'],
+        entity_id='receiver-mlp',
+        requested_output_capabilities=('complex_pressure',),
+        measurement_authority_ref=measurement_ref,
+    )
+    snapshot = build_acoustic_scene_snapshot(
+        scene_revision=fx['revision'],
+        system_variant=fx['variant'],
+        compiled_geometry=fx['compiled'],
+        source_models=(fx['magnitude_source'], fx['complex_source']),
+        receivers=(receiver,),
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('complex_pressure',),
+        environment=fx['snapshot'].environment,
+        valid_frequency_domain=fx['snapshot'].valid_frequency_domain,
+        valid_frequency_domain_authority_ref=(
+            fx['snapshot'].valid_frequency_domain_authority_ref
+        ),
+    )
+    return snapshot, receiver, measurement_ref
+
+
+def test_explicit_receiver_measurement_authority_binds_exact_pose(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot, receiver, _measurement_ref = _measured_receiver_snapshot(fx)
+    assert (
+        receiver.acoustic_reference_semantics
+        == 'explicit_measurement_authority'
+    )
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    _snapshot_repository(fx, resolvers).save_snapshot(snapshot)
+
+    reopened = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers,
+    )
+    assert reopened.get_snapshot(snapshot.snapshot_id) == snapshot
+
+    dangling = resolvers._replace(
+        receiver_measurement=lambda ref: None
+    )
+    with pytest.raises(
+        ValueError,
+        match='receiver measurement exact external authority does not exist',
+    ):
+        CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path),
+            authority_resolvers=dangling,
+        ).get_snapshot(snapshot.snapshot_id)
+
+    wrong_pose = resolvers._replace(
+        receiver_measurement=lambda ref: ReceiverMeasurementAuthority(
+            authority_ref=ref,
+            entity_id=receiver.entity_id,
+            world_position=Position3(x_m=9.0, y_m=9.0, z_m=9.0),
+        )
+    )
+    with pytest.raises(
+        ValueError,
+        match='receiver measurement authority does not bind the exact '
+        'receiver position/context',
+    ):
+        CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path),
+            authority_resolvers=wrong_pose,
+        ).get_snapshot(snapshot.snapshot_id)
+
+
+def test_persisted_snapshot_payload_identity_is_verified_on_read(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    other = build_acoustic_scene_snapshot(
+        scene_revision=fx['revision'],
+        system_variant=fx['variant'],
+        compiled_geometry=fx['compiled'],
+        source_models=(fx['magnitude_source'], fx['complex_source']),
+        receivers=fx['receivers'],
+        requested_frequency_domain=snapshot.requested_frequency_domain,
+        requested_observables=snapshot.requested_observables,
+        environment=_environment('7'),
+        valid_frequency_domain=snapshot.valid_frequency_domain,
+        valid_frequency_domain_authority_ref=(
+            snapshot.valid_frequency_domain_authority_ref
+        ),
+    )
+    assert other.snapshot_id != snapshot.snapshot_id
+
+    repository = _snapshot_repository(
+        fx,
+        _snapshot_authority_resolvers(snapshot),
+    )
+    repository.save_snapshot(snapshot)
+
+    connection = sqlite3.connect(fx['scene_repository'].path)
+    try:
+        connection.execute(
+            'UPDATE cad_acoustic_scene_snapshots SET payload_json=? '
+            'WHERE snapshot_id=?',
+            (other.model_dump_json(), snapshot.snapshot_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        ValueError,
+        match='persisted AcousticSceneSnapshot payload identity mismatch',
+    ):
+        repository.get_snapshot(snapshot.snapshot_id)
+
+
+def test_snapshot_read_repeats_save_side_authority_resolution(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    repository = _snapshot_repository(fx, resolvers)
+    repository.save_snapshot(snapshot)
+    assert repository.get_snapshot(snapshot.snapshot_id) == snapshot
+
+    reopened = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=AcousticSnapshotAuthorityResolvers(),
+    )
+    with pytest.raises(
+        ValueError,
+        match='requires a typed',
+    ):
+        reopened.get_snapshot(snapshot.snapshot_id)

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
+from typing import NamedTuple
 
 from .cad_acoustic_snapshot import (
     AcousticPredictionRequest,
     AcousticSceneSnapshot,
+    ReceiverMeasurementAuthority,
+    SnapshotEnvironmentAuthorityRef,
     SurfaceBoundaryConfiguration,
     TreatmentBoundaryOverlaySnapshotRef,
+    _derive_readiness,
+    _derive_unresolved_conditions,
+    _require_geometric_topology_preflight_authority,
+    _snapshot_schema_version,
     source_binding_from_r110,
 )
 from .cad_acoustic_solver_adapter import (
@@ -17,6 +25,8 @@ from .cad_acoustic_solver_adapter import (
     NumericalFidelityPolicyResolver,
     numerical_fidelity_policy_request_reasons,
 )
+from .cad_equipment import FrequencyDomain
+from .cad_geometric_acoustics_portal import GeometricPortalGraph
 from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_repository import SceneRepository
 from .cad_scene import acoustic_reference_position
@@ -24,16 +34,82 @@ from .cad_schema import ensure_native_schema
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_wave_excitation import CadWaveExcitationRepository
+from .r120_geometry_compiler import (
+    ExactExternalAuthorityRef,
+    R120CompiledGeometry,
+)
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from .treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
+
+
+SnapshotEnvironmentResolver = Callable[
+    [ExactExternalAuthorityRef],
+    SnapshotEnvironmentAuthorityRef | None,
+]
+SnapshotScalarAuthorityResolver = Callable[
+    [ExactExternalAuthorityRef],
+    float | None,
+]
+SnapshotReceiverMeasurementResolver = Callable[
+    [ExactExternalAuthorityRef],
+    ReceiverMeasurementAuthority | None,
+]
+SnapshotFrequencyDomainResolver = Callable[
+    [ExactExternalAuthorityRef],
+    FrequencyDomain | None,
+]
+SnapshotTopologyPreflightResolver = Callable[
+    [ExactExternalAuthorityRef],
+    GeometricPortalGraph | None,
+]
+SnapshotExternalAuthorityResolver = Callable[
+    [ExactExternalAuthorityRef],
+    ExactExternalAuthorityRef | None,
+]
+
+
+class AcousticSnapshotAuthorityResolvers(NamedTuple):
+    """Typed external-authority resolver registry for AcousticSceneSnapshot.
+
+    Each resolver maps an exact authority ref carried by a snapshot to the
+    canonical external record (or attested value) it still resolves to,
+    returning None when the authority does not exist. A snapshot carrying a
+    ref category without a configured resolver fails closed on save and on
+    every authoritative read; an opaque ref never opens readiness.
+    """
+
+    environment: SnapshotEnvironmentResolver | None = None
+    sound_speed_source: SnapshotScalarAuthorityResolver | None = None
+    temperature_source: SnapshotScalarAuthorityResolver | None = None
+    receiver_measurement: SnapshotReceiverMeasurementResolver | None = None
+    valid_frequency_domain: SnapshotFrequencyDomainResolver | None = None
+    geometric_topology_preflight: SnapshotTopologyPreflightResolver | None = None
+    external_authority: SnapshotExternalAuthorityResolver | None = None
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
+    return (
+        ref.authority_id,
+        ref.authority_version,
+        ref.semantic_hash_sha256,
+    )
+
+
 class CadAcousticSnapshotRepository:
-    """Append-only exact AcousticSceneSnapshot and request persistence."""
+    """Append-only exact AcousticSceneSnapshot and request persistence.
+
+    External environment, receiver-measurement, frequency-domain, topology
+    preflight and surface material/boundary authorities are exact external
+    inputs. They are re-resolved through the caller-provided
+    ``authority_resolvers`` registry on every save and every authoritative
+    read; an opaque stored hash alone is not treated as proof that the
+    external authority still exists with the same semantics. Snapshots
+    carrying such refs fail closed when the matching resolver is missing.
+    """
 
     def __init__(
         self,
@@ -45,8 +121,14 @@ class CadAcousticSnapshotRepository:
         treatment_boundary_repository: TreatmentBoundaryOverlayRepository | None = None,
         wave_excitation_repository: CadWaveExcitationRepository | None = None,
         fidelity_policy_resolver: NumericalFidelityPolicyResolver | None = None,
+        authority_resolvers: AcousticSnapshotAuthorityResolvers | None = None,
     ) -> None:
         self.scene_repository = scene_repository
+        self.authority_resolvers = (
+            authority_resolvers
+            if authority_resolvers is not None
+            else AcousticSnapshotAuthorityResolvers()
+        )
         self.variant_repository = (
             variant_repository
             if variant_repository is not None
@@ -510,8 +592,373 @@ class CadAcousticSnapshotRepository:
                 raise ValueError(
                     'AcousticSceneSnapshot receiver orientation mismatch'
                 )
+            expected_semantics = (
+                'explicit_measurement_authority'
+                if receiver.measurement_authority_ref is not None
+                else 'scene_acoustic_reference_position'
+            )
+            if receiver.acoustic_reference_semantics != expected_semantics:
+                raise ValueError(
+                    'AcousticSceneSnapshot receiver reference semantics do not '
+                    'reproduce canonical materialization'
+                )
+
+        self._resolve_snapshot_external_authorities(
+            snapshot,
+            compiled=compiled,
+        )
+
+        expected_schema_version = _snapshot_schema_version(
+            compiled=compiled,
+            treatment_bindings=snapshot.treatment_boundary_bindings,
+            wave_excitation_bindings=snapshot.wave_source_excitation_bindings,
+            geometric_acoustics_topology_preflight_ref=(
+                snapshot.geometric_acoustics_topology_preflight_ref
+            ),
+        )
+        if snapshot.schema_version != expected_schema_version:
+            raise ValueError(
+                'AcousticSceneSnapshot schema version does not reproduce '
+                'from exact authorities'
+            )
+        expected_readiness = _derive_readiness(
+            compiled=compiled,
+            sources=snapshot.sources,
+            receivers=snapshot.receivers,
+            environment=snapshot.environment,
+            requested_observables=snapshot.requested_observables,
+            treatment_bindings=snapshot.treatment_boundary_bindings,
+            wave_excitation_bindings=snapshot.wave_source_excitation_bindings,
+            requested_frequency_domain=snapshot.requested_frequency_domain,
+            schema_version=snapshot.schema_version,
+            geometric_acoustics_topology_preflight_ref=(
+                snapshot.geometric_acoustics_topology_preflight_ref
+            ),
+        )
+        if snapshot.readiness != expected_readiness:
+            raise ValueError(
+                'AcousticSceneSnapshot readiness does not reproduce from '
+                'exact authorities'
+            )
+        expected_unresolved = _derive_unresolved_conditions(
+            compiled=compiled,
+            sources=snapshot.sources,
+            receivers=snapshot.receivers,
+            environment=snapshot.environment,
+            readiness=expected_readiness,
+            valid_frequency_domain=snapshot.valid_frequency_domain,
+            requested_frequency_domain=snapshot.requested_frequency_domain,
+            treatment_bindings=snapshot.treatment_boundary_bindings,
+            wave_excitation_bindings=snapshot.wave_source_excitation_bindings,
+        )
+        if snapshot.unresolved_conditions != expected_unresolved:
+            raise ValueError(
+                'AcousticSceneSnapshot unresolved conditions do not '
+                'reproduce from exact authorities'
+            )
+
+        # Canonical materialization ordering: the snapshot builder sorts each
+        # binding family; a persisted snapshot must reproduce that exact order.
+        if snapshot.sources != tuple(
+            sorted(
+                snapshot.sources,
+                key=lambda item: (
+                    item.source_entity_id,
+                    item.r110_compiled_source_sha256,
+                ),
+            )
+        ):
+            raise ValueError(
+                'AcousticSceneSnapshot sources do not reproduce canonical '
+                'materialization order'
+            )
+        if snapshot.receivers != tuple(
+            sorted(snapshot.receivers, key=lambda item: item.receiver_id)
+        ):
+            raise ValueError(
+                'AcousticSceneSnapshot receivers do not reproduce canonical '
+                'materialization order'
+            )
+        if snapshot.wave_source_excitation_bindings != tuple(
+            sorted(
+                snapshot.wave_source_excitation_bindings,
+                key=lambda item: (
+                    item.source_entity_id,
+                    item.semantic_sha256,
+                ),
+            )
+        ):
+            raise ValueError(
+                'AcousticSceneSnapshot wave excitation bindings do not '
+                'reproduce canonical materialization order'
+            )
+        if snapshot.treatment_boundary_bindings != tuple(
+            sorted(
+                snapshot.treatment_boundary_bindings,
+                key=lambda item: (
+                    item.host_surface_id,
+                    item.target_domain,
+                    item.status,
+                    item.composition_hash_sha256 or '',
+                ),
+            )
+        ):
+            raise ValueError(
+                'AcousticSceneSnapshot treatment bindings do not reproduce '
+                'canonical materialization order'
+            )
 
         return snapshot
+
+    def _resolve_snapshot_external_authorities(
+        self,
+        snapshot: AcousticSceneSnapshot,
+        *,
+        compiled: R120CompiledGeometry,
+    ) -> None:
+        resolvers = self.authority_resolvers
+        environment = snapshot.environment
+        if environment is not None:
+            if resolvers.environment is None:
+                raise ValueError(
+                    'AcousticSceneSnapshot environment authority requires a '
+                    'typed environment resolver'
+                )
+            resolved_environment = resolvers.environment(environment.authority)
+            if resolved_environment is None:
+                raise ValueError(
+                    'environment exact external authority does not exist'
+                )
+            resolved_environment = SnapshotEnvironmentAuthorityRef.model_validate(
+                resolved_environment.model_dump(mode='python')
+            )
+            if resolved_environment != environment:
+                raise ValueError(
+                    'environment exact external authority mismatch'
+                )
+            if environment.sound_speed_source_authority is not None:
+                if resolvers.sound_speed_source is None:
+                    raise ValueError(
+                        'AcousticSceneSnapshot sound speed source authority '
+                        'requires a typed sound speed resolver'
+                    )
+                sound_speed = resolvers.sound_speed_source(
+                    environment.sound_speed_source_authority
+                )
+                if sound_speed is None:
+                    raise ValueError(
+                        'sound speed source exact external authority '
+                        'does not exist'
+                    )
+                if float(sound_speed) != environment.sound_speed_m_s:
+                    raise ValueError(
+                        'sound speed value does not reproduce from exact '
+                        'source authority'
+                    )
+            if environment.temperature_source_authority is not None:
+                if resolvers.temperature_source is None:
+                    raise ValueError(
+                        'AcousticSceneSnapshot temperature source authority '
+                        'requires a typed temperature resolver'
+                    )
+                temperature = resolvers.temperature_source(
+                    environment.temperature_source_authority
+                )
+                if temperature is None:
+                    raise ValueError(
+                        'temperature source exact external authority '
+                        'does not exist'
+                    )
+                if float(temperature) != environment.temperature_c:
+                    raise ValueError(
+                        'temperature value does not reproduce from exact '
+                        'source authority'
+                    )
+
+        for receiver in snapshot.receivers:
+            measurement_ref = receiver.measurement_authority_ref
+            if measurement_ref is None:
+                continue
+            if resolvers.receiver_measurement is None:
+                raise ValueError(
+                    'AcousticSceneSnapshot explicit receiver measurement '
+                    'authority requires a typed receiver measurement resolver'
+                )
+            measurement = resolvers.receiver_measurement(measurement_ref)
+            if measurement is None:
+                raise ValueError(
+                    'receiver measurement exact external authority '
+                    'does not exist'
+                )
+            measurement = ReceiverMeasurementAuthority.model_validate(
+                measurement.model_dump(mode='python')
+            )
+            if (
+                measurement.authority_ref != measurement_ref
+                or measurement.entity_id != receiver.entity_id
+                or measurement.world_position != receiver.world_position
+                or (
+                    receiver.orientation is not None
+                    and measurement.orientation != receiver.orientation
+                )
+            ):
+                raise ValueError(
+                    'receiver measurement authority does not bind the exact '
+                    'receiver position/context'
+                )
+
+        domain_ref = snapshot.valid_frequency_domain_authority_ref
+        if domain_ref is not None:
+            if resolvers.valid_frequency_domain is None:
+                raise ValueError(
+                    'AcousticSceneSnapshot valid frequency domain authority '
+                    'requires a typed frequency domain resolver'
+                )
+            resolved_domain = resolvers.valid_frequency_domain(domain_ref)
+            if resolved_domain is None:
+                raise ValueError(
+                    'valid frequency domain exact external authority '
+                    'does not exist'
+                )
+            resolved_domain = FrequencyDomain.model_validate(
+                resolved_domain.model_dump(mode='python')
+            )
+            if resolved_domain != snapshot.valid_frequency_domain:
+                raise ValueError(
+                    'valid frequency domain does not reproduce from exact '
+                    'authority'
+                )
+
+        preflight_ref = snapshot.geometric_acoustics_topology_preflight_ref
+        if preflight_ref is not None:
+            if resolvers.geometric_topology_preflight is None:
+                raise ValueError(
+                    'AcousticSceneSnapshot geometric topology preflight '
+                    'authority requires a typed preflight resolver'
+                )
+            resolved_preflight = resolvers.geometric_topology_preflight(
+                preflight_ref
+            )
+            if resolved_preflight is None:
+                raise ValueError(
+                    'geometric topology preflight exact external authority '
+                    'does not exist'
+                )
+            resolved_preflight = GeometricPortalGraph.model_validate(
+                resolved_preflight.model_dump(mode='python')
+            )
+            if resolved_preflight.as_external_ref() != preflight_ref:
+                raise ValueError(
+                    'geometric topology preflight exact external authority '
+                    'mismatch'
+                )
+            _require_geometric_topology_preflight_authority(
+                preflight_ref=preflight_ref,
+                compiled=compiled,
+                requested_observables=snapshot.requested_observables,
+            )
+            region_ref = snapshot.acoustic_region_authority_ref
+            portal_ref = snapshot.portal_authority_ref
+            if region_ref is None or portal_ref is None:
+                raise ValueError(
+                    'geometric topology preflight requires exact R120 '
+                    'region/portal authorities'
+                )
+            if (
+                resolved_preflight.r120_compiled_geometry_id
+                != snapshot.r120_compiled_geometry_id
+                or resolved_preflight.r120_compiled_geometry_sha256
+                != snapshot.r120_compiled_geometry_sha256
+                or resolved_preflight.region_authority_id
+                != region_ref.authority_id
+                or resolved_preflight.region_authority_sha256
+                != region_ref.semantic_hash_sha256
+                or resolved_preflight.portal_authority_id
+                != portal_ref.authority_id
+                or resolved_preflight.portal_authority_sha256
+                != portal_ref.semantic_hash_sha256
+            ):
+                raise ValueError(
+                    'geometric topology preflight record does not bind the '
+                    'exact snapshot geometry authorities'
+                )
+
+        external_refs: dict[
+            tuple[str, str, str],
+            tuple[ExactExternalAuthorityRef, str],
+        ] = {}
+        for ref, label in (
+            (snapshot.acoustic_region_authority_ref, 'acoustic region'),
+            (snapshot.portal_authority_ref, 'portal'),
+            (
+                snapshot.boundary_termination_authority_ref,
+                'boundary termination',
+            ),
+        ):
+            if ref is not None:
+                external_refs.setdefault(_ref_key(ref), (ref, label))
+        for surface in snapshot.surface_boundary_configuration:
+            if surface.material_authority is not None:
+                external_refs.setdefault(
+                    _ref_key(surface.material_authority),
+                    (surface.material_authority, 'surface material'),
+                )
+            if surface.boundary_physics_authority is not None:
+                external_refs.setdefault(
+                    _ref_key(surface.boundary_physics_authority),
+                    (
+                        surface.boundary_physics_authority,
+                        'surface boundary physics',
+                    ),
+                )
+        for binding in snapshot.treatment_boundary_bindings:
+            if binding.base_material_authority is not None:
+                external_refs.setdefault(
+                    _ref_key(binding.base_material_authority),
+                    (
+                        binding.base_material_authority,
+                        'treatment base material',
+                    ),
+                )
+            if binding.base_boundary_physics_authority is not None:
+                external_refs.setdefault(
+                    _ref_key(binding.base_boundary_physics_authority),
+                    (
+                        binding.base_boundary_physics_authority,
+                        'treatment base boundary physics',
+                    ),
+                )
+            for material_ref in binding.selected_treatment_material_authorities:
+                external_refs.setdefault(
+                    _ref_key(material_ref),
+                    (material_ref, 'selected treatment material'),
+                )
+        for ref, label in external_refs.values():
+            self._resolve_external_authority_ref(ref, label=label)
+
+    def _resolve_external_authority_ref(
+        self,
+        ref: ExactExternalAuthorityRef,
+        *,
+        label: str,
+    ) -> ExactExternalAuthorityRef:
+        resolver = self.authority_resolvers.external_authority
+        if resolver is None:
+            raise ValueError(
+                f'AcousticSceneSnapshot {label} authority requires a typed '
+                'external authority resolver'
+            )
+        resolved = resolver(ref)
+        if resolved is None:
+            raise ValueError(
+                f'{label} exact external authority does not exist'
+            )
+        resolved = ExactExternalAuthorityRef.model_validate(
+            resolved.model_dump(mode='python')
+        )
+        if resolved != ref:
+            raise ValueError(f'{label} exact external authority mismatch')
+        return resolved
 
     def save_snapshot(
         self,
@@ -604,7 +1051,7 @@ class CadAcousticSnapshotRepository:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
-                SELECT payload_json
+                SELECT snapshot_id, semantic_sha256, payload_json
                 FROM cad_acoustic_scene_snapshots
                 WHERE snapshot_id=?
                 """,
@@ -615,6 +1062,13 @@ class CadAcousticSnapshotRepository:
         snapshot = AcousticSceneSnapshot.model_validate_json(
             row['payload_json']
         )
+        if (
+            snapshot.snapshot_id != row['snapshot_id']
+            or snapshot.semantic_sha256 != row['semantic_sha256']
+        ):
+            raise ValueError(
+                'persisted AcousticSceneSnapshot payload identity mismatch'
+            )
         return self._validate_snapshot(snapshot)
 
     def get_snapshot_by_hash(
@@ -624,7 +1078,7 @@ class CadAcousticSnapshotRepository:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
-                SELECT payload_json
+                SELECT snapshot_id, semantic_sha256, payload_json
                 FROM cad_acoustic_scene_snapshots
                 WHERE semantic_sha256=?
                 """,
@@ -635,6 +1089,13 @@ class CadAcousticSnapshotRepository:
         snapshot = AcousticSceneSnapshot.model_validate_json(
             row['payload_json']
         )
+        if (
+            snapshot.snapshot_id != row['snapshot_id']
+            or snapshot.semantic_sha256 != row['semantic_sha256']
+        ):
+            raise ValueError(
+                'persisted AcousticSceneSnapshot payload identity mismatch'
+            )
         return self._validate_snapshot(snapshot)
 
     def _resolve_fidelity_policy(

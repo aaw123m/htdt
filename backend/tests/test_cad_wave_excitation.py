@@ -10,7 +10,10 @@ from htdt.cad_acoustic_snapshot import (
     build_acoustic_scene_snapshot,
     receiver_binding_from_scene,
 )
-from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
+from htdt.cad_acoustic_snapshot_repository import (
+    AcousticSnapshotAuthorityResolvers,
+    CadAcousticSnapshotRepository,
+)
 from htdt.cad_acoustic_solver_adapter import (
     AcousticNumericalFidelityPolicy,
     bind_prediction_request_to_solver_adapter,
@@ -87,6 +90,62 @@ def _ref(name: str, char: str) -> ExactExternalAuthorityRef:
         authority_id=name,
         authority_version='fixture-v1',
         semantic_hash_sha256=char * 64,
+    )
+
+
+def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
+    return (
+        ref.authority_id,
+        ref.authority_version,
+        ref.semantic_hash_sha256,
+    )
+
+
+def _snapshot_authority_resolvers(
+    snapshot,
+) -> AcousticSnapshotAuthorityResolvers:
+    """Honest registry resolving every external authority a snapshot claims."""
+    external: dict[tuple[str, str, str], ExactExternalAuthorityRef] = {}
+    for ref in (
+        snapshot.acoustic_region_authority_ref,
+        snapshot.portal_authority_ref,
+        snapshot.boundary_termination_authority_ref,
+    ):
+        if ref is not None:
+            external[_ref_key(ref)] = ref
+    for surface in snapshot.surface_boundary_configuration:
+        for ref in (
+            surface.material_authority,
+            surface.boundary_physics_authority,
+        ):
+            if ref is not None:
+                external[_ref_key(ref)] = ref
+    environment = snapshot.environment
+    domain_ref = snapshot.valid_frequency_domain_authority_ref
+    return AcousticSnapshotAuthorityResolvers(
+        environment=(
+            lambda ref: environment
+            if environment is not None and ref == environment.authority
+            else None
+        ),
+        sound_speed_source=(
+            lambda ref: environment.sound_speed_m_s
+            if environment is not None
+            and ref == environment.sound_speed_source_authority
+            else None
+        ),
+        temperature_source=(
+            lambda ref: environment.temperature_c
+            if environment is not None
+            and ref == environment.temperature_source_authority
+            else None
+        ),
+        valid_frequency_domain=(
+            lambda ref: snapshot.valid_frequency_domain
+            if domain_ref is not None and ref == domain_ref
+            else None
+        ),
+        external_authority=lambda ref: external.get(_ref_key(ref)),
     )
 
 
@@ -468,13 +527,43 @@ def test_wave_excitation_snapshot_save_reopen_reresolves_binding(
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
         wave_excitation_repository=fx['wave_repository'],
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     )
     repository.save_snapshot(fx['snapshot'])
 
     reopened = CadAcousticSnapshotRepository(
-        SceneRepository(fx['scene_repository'].path)
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=_snapshot_authority_resolvers(fx['snapshot']),
     ).get_snapshot(fx['snapshot'].snapshot_id)
 
     assert reopened == fx['snapshot']
     assert reopened is not None
     assert reopened.wave_source_excitation_bindings == (fx['binding'],)
+
+
+def test_ready_snapshot_fails_closed_without_authority_resolvers(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    assert snapshot.readiness.requested_observable_ready
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        wave_excitation_repository=fx['wave_repository'],
+    )
+    with pytest.raises(ValueError, match='requires a typed'):
+        repository.save_snapshot(snapshot)
+
+    honest = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        wave_excitation_repository=fx['wave_repository'],
+        authority_resolvers=_snapshot_authority_resolvers(snapshot),
+    )
+    honest.save_snapshot(snapshot)
+    assert honest.get_snapshot(snapshot.snapshot_id) == snapshot

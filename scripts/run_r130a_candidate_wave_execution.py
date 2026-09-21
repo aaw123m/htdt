@@ -28,7 +28,10 @@ from htdt.cad_acoustic_snapshot import (
     build_acoustic_scene_snapshot,
     receiver_binding_from_scene,
 )
-from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
+from htdt.cad_acoustic_snapshot_repository import (
+    AcousticSnapshotAuthorityResolvers,
+    CadAcousticSnapshotRepository,
+)
 from htdt.cad_acoustic_solver_adapter import (
     AcousticNumericalFidelityPolicy,
     bind_prediction_request_to_solver_adapter,
@@ -837,6 +840,55 @@ def _fixture(
             else None
         )
 
+    def _resolved_payload(ref: ExactExternalAuthorityRef):
+        if store.resolve(ref) is None:
+            return None
+        return store.read_payload(ref)
+
+    def _resolve_scalar_authority(
+        ref: ExactExternalAuthorityRef,
+        *,
+        quantity: str,
+    ) -> float | None:
+        payload = _resolved_payload(ref)
+        if not isinstance(payload, dict) or payload.get('quantity') != quantity:
+            return None
+        return float(payload['value'])
+
+    def _resolve_frequency_domain(
+        ref: ExactExternalAuthorityRef,
+    ) -> FrequencyDomain | None:
+        payload = _resolved_payload(ref)
+        if (
+            not isinstance(payload, dict)
+            or 'minimum_hz' not in payload
+            or 'maximum_hz' not in payload
+        ):
+            return None
+        return FrequencyDomain(
+            minimum_hz=float(payload['minimum_hz']),
+            maximum_hz=float(payload['maximum_hz']),
+        )
+
+    snapshot_authority_resolvers = AcousticSnapshotAuthorityResolvers(
+        environment=lambda ref: (
+            environment
+            if ref == environment.authority
+            and _resolved_payload(ref) is not None
+            else None
+        ),
+        sound_speed_source=lambda ref: _resolve_scalar_authority(
+            ref,
+            quantity='sound_speed_m_s',
+        ),
+        temperature_source=lambda ref: _resolve_scalar_authority(
+            ref,
+            quantity='temperature_c',
+        ),
+        valid_frequency_domain=_resolve_frequency_domain,
+        external_authority=store.resolve,
+    )
+
     snapshot_repository = CadAcousticSnapshotRepository(
         scene_repository,
         variant_repository=variant_repository,
@@ -844,6 +896,7 @@ def _fixture(
         r120_repository=r120_repository,
         wave_excitation_repository=wave_repository,
         fidelity_policy_resolver=fidelity_policy_resolver,
+        authority_resolvers=snapshot_authority_resolvers,
     )
     snapshot_repository.save_snapshot(snapshot)
 
@@ -1026,6 +1079,7 @@ def _fixture(
         'fidelity_ref': fidelity_ref,
         'fidelity_policy': fidelity_policy,
         'fidelity_policy_resolver': fidelity_policy_resolver,
+        'snapshot_authority_resolvers': snapshot_authority_resolvers,
         'boundary_mode': boundary_mode,
         'impedance_material_ref': impedance_material_ref,
         'impedance_boundary_ref': impedance_boundary_ref,
@@ -1242,6 +1296,7 @@ def _verify_reopen_and_tamper(
         r120_repository=reopened_r120,
         wave_excitation_repository=reopened_wave,
         fidelity_policy_resolver=fixture['fidelity_policy_resolver'],
+        authority_resolvers=fixture['snapshot_authority_resolvers'],
     )
     reopened_dispatch = CadAcousticSolverDispatchRepository(
         reopened_scene,

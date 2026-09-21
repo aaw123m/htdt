@@ -14,7 +14,10 @@ from htdt.cad_acoustic_snapshot import (
     build_acoustic_scene_snapshot,
     receiver_binding_from_scene,
 )
-from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
+from htdt.cad_acoustic_snapshot_repository import (
+    AcousticSnapshotAuthorityResolvers,
+    CadAcousticSnapshotRepository,
+)
 from htdt.cad_acoustic_solver_adapter import (
     AcousticNumericalFidelityPolicy,
     bind_prediction_request_to_solver_adapter,
@@ -226,6 +229,73 @@ def _ref(name: str, seed: str) -> ExactExternalAuthorityRef:
         authority_id=name,
         authority_version='fixture-v1',
         semantic_hash_sha256=sha256(seed.encode('utf-8')).hexdigest(),
+    )
+
+
+def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
+    return (
+        ref.authority_id,
+        ref.authority_version,
+        ref.semantic_hash_sha256,
+    )
+
+
+def _snapshot_authority_resolvers(
+    snapshot,
+    *,
+    preflight_graph=None,
+) -> AcousticSnapshotAuthorityResolvers:
+    """Honest registry resolving every external authority a snapshot claims."""
+    external: dict[tuple[str, str, str], ExactExternalAuthorityRef] = {}
+    for ref in (
+        snapshot.acoustic_region_authority_ref,
+        snapshot.portal_authority_ref,
+        snapshot.boundary_termination_authority_ref,
+    ):
+        if ref is not None:
+            external[_ref_key(ref)] = ref
+    for surface in snapshot.surface_boundary_configuration:
+        for ref in (
+            surface.material_authority,
+            surface.boundary_physics_authority,
+        ):
+            if ref is not None:
+                external[_ref_key(ref)] = ref
+    environment = snapshot.environment
+    domain_ref = snapshot.valid_frequency_domain_authority_ref
+    preflight_ref = snapshot.geometric_acoustics_topology_preflight_ref
+    return AcousticSnapshotAuthorityResolvers(
+        environment=(
+            lambda ref: environment
+            if environment is not None and ref == environment.authority
+            else None
+        ),
+        sound_speed_source=(
+            lambda ref: environment.sound_speed_m_s
+            if environment is not None
+            and ref == environment.sound_speed_source_authority
+            else None
+        ),
+        temperature_source=(
+            lambda ref: environment.temperature_c
+            if environment is not None
+            and ref == environment.temperature_source_authority
+            else None
+        ),
+        valid_frequency_domain=(
+            lambda ref: snapshot.valid_frequency_domain
+            if domain_ref is not None and ref == domain_ref
+            else None
+        ),
+        geometric_topology_preflight=(
+            lambda ref: preflight_graph
+            if preflight_graph is not None
+            and preflight_ref is not None
+            and ref == preflight_ref
+            and preflight_graph.as_external_ref() == ref
+            else None
+        ),
+        external_authority=lambda ref: external.get(_ref_key(ref)),
     )
 
 
@@ -1176,6 +1246,7 @@ def _fixture(
     r120_repository.save_compiled_geometry(compiled)
 
     topology_preflight_ref = None
+    preflight_graph = None
     if (
         room_policy == PORTAL_POLICY
         and portal_specs is not None
@@ -1313,12 +1384,17 @@ def _fixture(
             'terminations': terminations,
         }
 
+    snapshot_authority_resolvers = _snapshot_authority_resolvers(
+        snapshot,
+        preflight_graph=preflight_graph,
+    )
     snapshot_repository = CadAcousticSnapshotRepository(
         scene_repository,
         variant_repository=variant_repository,
         r110_repository=r110_repository,
         r120_repository=r120_repository,
         fidelity_policy_resolver=fidelity_policy_resolver,
+        authority_resolvers=snapshot_authority_resolvers,
     )
     snapshot_repository.save_snapshot(snapshot)
     snapshot_repository.save_prediction_request(request)
@@ -1424,6 +1500,7 @@ def _fixture(
         'geometry_resolver': geometry_resolver,
         'geometry_authorities': geometry_authorities,
         'external_resolver': external_resolver,
+        'snapshot_authority_resolvers': snapshot_authority_resolvers,
         'fidelity_policy_resolver': fidelity_policy_resolver,
         'fidelity_policy': fidelity_policy,
         'execution_input': execution_input,
@@ -1978,11 +2055,13 @@ def test_execution_input_artifact_and_result_save_reopen_fail_closed(
         snapshot_repository=CadAcousticSnapshotRepository(
             SceneRepository(fx['scene_repository'].path),
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             SceneRepository(fx['scene_repository'].path),
             external_authority_resolver=fx['external_resolver'],
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            snapshot_authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
@@ -2283,11 +2362,13 @@ def test_portal_reflection_save_reopen_identity_and_stale_portal_rejection(
         snapshot_repository=CadAcousticSnapshotRepository(
             SceneRepository(fx['scene_repository'].path),
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             SceneRepository(fx['scene_repository'].path),
             external_authority_resolver=fx['external_resolver'],
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            snapshot_authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
@@ -2472,11 +2553,13 @@ def test_multi_region_portal_execution_input_and_artifact_save_reopen_exact_iden
         snapshot_repository=CadAcousticSnapshotRepository(
             SceneRepository(fx['scene_repository'].path),
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             SceneRepository(fx['scene_repository'].path),
             external_authority_resolver=fx['external_resolver'],
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            snapshot_authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
@@ -2702,11 +2785,13 @@ def test_multi_portal_execution_input_and_artifact_save_reopen_exact_identity(
         snapshot_repository=CadAcousticSnapshotRepository(
             reopened_scene,
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             reopened_scene,
             external_authority_resolver=fx['external_resolver'],
             fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            snapshot_authority_resolvers=fx['snapshot_authority_resolvers'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
@@ -2737,3 +2822,45 @@ def test_stale_multi_portal_authority_does_not_reopen_as_current(
     fx['geometry_authorities'].pop(fx['portals'].authority_id)
     with pytest.raises(ValueError, match='portal exact authority'):
         repository.get(artifact.artifact_id)
+
+
+def test_snapshot_read_reresolves_exact_r150_topology_preflight(
+    tmp_path: Path,
+) -> None:
+    fx = _portal_chain_fixture(tmp_path, region_count=3)
+    snapshot = fx['snapshot']
+    preflight_ref = snapshot.geometric_acoustics_topology_preflight_ref
+    assert preflight_ref is not None
+    assert snapshot.readiness.requested_observable_ready
+
+    reopened = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+        authority_resolvers=fx['snapshot_authority_resolvers'],
+    )
+    assert reopened.get_snapshot(snapshot.snapshot_id) == snapshot
+
+    missing = fx['snapshot_authority_resolvers']._replace(
+        geometric_topology_preflight=lambda ref: None
+    )
+    with pytest.raises(
+        ValueError,
+        match='geometric topology preflight exact external authority '
+        'does not exist',
+    ):
+        CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path),
+            authority_resolvers=missing,
+        ).get_snapshot(snapshot.snapshot_id)
+
+    with pytest.raises(
+        ValueError,
+        match='geometric topology preflight authority requires a typed '
+        'preflight resolver',
+    ):
+        CadAcousticSnapshotRepository(
+            SceneRepository(fx['scene_repository'].path),
+            authority_resolvers=fx['snapshot_authority_resolvers']._replace(
+                geometric_topology_preflight=None
+            ),
+        ).get_snapshot(snapshot.snapshot_id)

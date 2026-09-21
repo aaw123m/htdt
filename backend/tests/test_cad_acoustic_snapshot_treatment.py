@@ -14,7 +14,10 @@ from htdt.cad_acoustic_snapshot import (
     build_acoustic_prediction_request,
     build_acoustic_scene_snapshot,
 )
-from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
+from htdt.cad_acoustic_snapshot_repository import (
+    AcousticSnapshotAuthorityResolvers,
+    CadAcousticSnapshotRepository,
+)
 from htdt.cad_acoustic_treatment import (
     TreatmentAcousticModel,
     TreatmentAcousticModelSubject,
@@ -77,6 +80,44 @@ def _external(name: str, token: str) -> ExactExternalAuthorityRef:
         authority_id=name,
         authority_version='fixture-v1',
         semantic_hash_sha256=token * 64,
+    )
+
+
+def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
+    return (
+        ref.authority_id,
+        ref.authority_version,
+        ref.semantic_hash_sha256,
+    )
+
+
+def _authority_resolvers(snapshot) -> AcousticSnapshotAuthorityResolvers:
+    """Honest registry resolving every external authority a snapshot claims."""
+    refs: dict[tuple[str, str, str], ExactExternalAuthorityRef] = {}
+    for ref in (
+        snapshot.acoustic_region_authority_ref,
+        snapshot.portal_authority_ref,
+        snapshot.boundary_termination_authority_ref,
+    ):
+        if ref is not None:
+            refs[_ref_key(ref)] = ref
+    for surface in snapshot.surface_boundary_configuration:
+        for ref in (
+            surface.material_authority,
+            surface.boundary_physics_authority,
+        ):
+            if ref is not None:
+                refs[_ref_key(ref)] = ref
+    for binding in snapshot.treatment_boundary_bindings:
+        for ref in (
+            binding.base_material_authority,
+            binding.base_boundary_physics_authority,
+            *binding.selected_treatment_material_authorities,
+        ):
+            if ref is not None:
+                refs[_ref_key(ref)] = ref
+    return AcousticSnapshotAuthorityResolvers(
+        external_authority=lambda ref: refs.get(_ref_key(ref)),
     )
 
 
@@ -757,6 +798,7 @@ def test_save_reopen_exactly_reresolves_treatment_authorities(
         fx['scene_repository'],
         r120_repository=fx['r120_repository'],
         treatment_boundary_repository=fx['overlay_repository'],
+        authority_resolvers=_authority_resolvers(snapshot),
     )
     repository.save_snapshot(snapshot)
 
@@ -776,6 +818,7 @@ def test_save_reopen_exactly_reresolves_treatment_authorities(
         reopened_scene,
         r120_repository=reopened_r120,
         treatment_boundary_repository=reopened_overlays,
+        authority_resolvers=_authority_resolvers(snapshot),
     )
 
     assert reopened_repository.get_snapshot(snapshot.snapshot_id) == snapshot
@@ -799,10 +842,12 @@ def test_v1_persisted_snapshot_compatibility(tmp_path: Path) -> None:
     repository = CadAcousticSnapshotRepository(
         fx['scene_repository'],
         r120_repository=fx['r120_repository'],
+        authority_resolvers=_authority_resolvers(parsed),
     )
     repository.save_snapshot(parsed)
     reopened = CadAcousticSnapshotRepository(
-        SceneRepository(fx['scene_repository'].path)
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=_authority_resolvers(snapshot),
     ).get_snapshot(snapshot.snapshot_id)
     assert reopened == snapshot
 
