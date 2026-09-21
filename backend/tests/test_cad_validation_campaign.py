@@ -15,7 +15,12 @@ from htdt.cad_measurement_loop import (
 )
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import (
@@ -172,18 +177,24 @@ def _save_measurement(
         measurement_id=measurement_id,
         evidence_type=evidence_type,
         captured_at=captured_at,
-        source_kind='rew_api',
+        source_kind='unknown',
         provenance=provenance,
     )
-    raw = measurement_id.encode()
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=(70.0, 71.0, 69.0, 70.0),
+        phase_status='absent',
+        processing={'fixture_measurement_id': measurement_id},
+    )
     dataset = CadFrequencyResponseDataset(
         dataset_id=f'dataset:{measurement_id}',
         measurement_id=measurement_id,
         frequency_hz=(20.0, 40.0, 80.0, 160.0),
         level_db=(70.0, 71.0, 69.0, 70.0),
         phase_status='absent',
+        processing_json=canonical_json({'fixture_measurement_id': measurement_id}),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='test-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repository.save(
         record,

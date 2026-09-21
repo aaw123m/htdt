@@ -17,7 +17,12 @@ from htdt.cad_measurement_quality import (
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Direction3, Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_system_variant import ChannelRoleBinding, ProposedEntitySpec, build_system_variant
@@ -229,7 +234,14 @@ def _save_evidence(
     acquisition=True,
     phase=False,
 ):
-    raw = f'raw:{measurement_id}'.encode()
+    processing = {'fixture_raw': f'raw:{measurement_id}'}
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0),
+        level_db=(70.0, 71.0, 69.5),
+        phase_deg=(0.0, 5.0, 8.0) if phase else None,
+        phase_status='valid' if phase else 'absent',
+        processing=processing,
+    )
     record = measurement_record_for_revision(
         fx['as_built_revision'],
         point_entity_id,
@@ -241,7 +253,7 @@ def _save_evidence(
         routing_evidence='verified',
         captured_at=captured_at,
         imported_at=CAPTURE_TIME,
-        source_kind='rew_api',
+        source_kind='unknown',
         external_source_id=f'rew:{measurement_id}',
     )
     dataset = CadFrequencyResponseDataset(
@@ -251,8 +263,9 @@ def _save_evidence(
         level_db=(70.0, 71.0, 69.5),
         phase_deg=(0.0, 5.0, 8.0) if phase else None,
         phase_status='valid' if phase else 'absent',
+        processing_json=canonical_json(processing),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     fx['measurements'].save(
         record,

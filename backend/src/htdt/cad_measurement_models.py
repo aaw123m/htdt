@@ -94,6 +94,29 @@ class CadFrequencyResponseDataset(BaseModel):
     source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     importer_version: str = Field(min_length=1)
 
+    def identity_payload(self) -> dict[str, Any]:
+        """Versioned semantic identity payload covering the whole dataset.
+
+        Covers the sample arrays plus the interpretation metadata
+        (``phase_status``, ``level_reference``, ``smoothing``,
+        ``processing_json``), the retained raw-asset binding
+        (``source_sha256``) and the declared versioned importer
+        (``importer_version``), so the persisted ``dataset_sha256``
+        identifies exactly one immutable dataset interpretation.
+        """
+        return self.model_dump(mode='json')
+
+    @property
+    def dataset_sha256(self) -> str:
+        """Immutable semantic SHA-256 over ``identity_payload``.
+
+        Persisted in ``cad_frequency_responses.dataset_sha256`` at save
+        time and re-verified on every authoritative read; downstream
+        records (quality reports, comparisons) reference this identity
+        directly.
+        """
+        return _hash(self.identity_payload())
+
     @model_validator(mode='after')
     def valid_arrays(self) -> 'CadFrequencyResponseDataset':
         count = len(self.frequency_hz)

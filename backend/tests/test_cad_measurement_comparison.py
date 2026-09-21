@@ -17,7 +17,11 @@ from htdt.cad_measurement_models import (
 )
 from htdt.cad_measurement_quality import dataset_sha256
 from htdt.cad_measurement_repository import CadMeasurementRepository, _pack
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_f1_scene
 from htdt.comparison import (
@@ -44,7 +48,13 @@ def _save_dataset(
     levels: tuple[float, ...] = (70.0, 71.0, 69.0, 72.0),
     frequencies: tuple[float, ...] = (20.0, 40.0, 80.0, 160.0),
 ):
-    raw = measurement_id.encode('utf-8')
+    # The declared importer keeps fixture datasets honestly derived: the raw
+    # asset literally states the samples the dataset persists.
+    raw = declared_fr_raw(
+        frequency_hz=frequencies,
+        level_db=levels,
+        phase_status='absent',
+    )
     record = measurement_record_for_revision(
         revision,
         'point-mlp',
@@ -55,7 +65,7 @@ def _save_dataset(
         radiation_scope='single',
         routing_evidence='verified',
         imported_at='2026-09-19T00:00:00+00:00',
-        source_kind='rew_api',
+        source_kind='unknown',
         external_source_id=f'rew-{measurement_id}',
     )
     dataset = CadFrequencyResponseDataset(
@@ -65,7 +75,7 @@ def _save_dataset(
         level_db=levels,
         phase_status='absent',
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     repository.save(
         record,
@@ -247,16 +257,18 @@ def test_persisted_comparison_fails_closed_when_dataset_row_changes(
     assert repository.get_comparison(saved.comparison_id) == saved
 
     # A semantic change to a persisted dataset row invalidates the comparison
-    # evidence bound to its hash instead of being silently reused.
+    # evidence bound to its hash instead of being silently reused. The
+    # tampered row can no longer pass the dataset's own persisted semantic
+    # hash, so the authoritative dataset read fails closed first.
     with closing(sqlite3.connect(repository.path)) as connection, connection:
         connection.execute(
             'UPDATE cad_frequency_responses SET level_blob=? WHERE dataset_id=?',
             (_pack((80.0, 81.0, 79.0, 82.0)), dataset_b.dataset_id),
         )
 
-    with pytest.raises(ValueError, match='dataset B hash mismatch'):
+    with pytest.raises(ValueError, match='dataset semantic hash mismatch'):
         repository.get_comparison(saved.comparison_id)
-    with pytest.raises(ValueError, match='dataset B hash mismatch'):
+    with pytest.raises(ValueError, match='dataset semantic hash mismatch'):
         repository.list_comparisons(revision.document_id)
 
 

@@ -99,7 +99,8 @@ def measurement_sha256(record: CadMeasurementRecord) -> str:
 
 
 def dataset_sha256(dataset: CadFrequencyResponseDataset) -> str:
-    return _hash(dataset.model_dump(mode='json'))
+    """Persisted semantic dataset identity — delegates to the model property."""
+    return dataset.dataset_sha256
 
 
 class CadMeasurementQualityProfile(BaseModel):

@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_schema import (
     NATIVE_SCHEMA_VERSION,
@@ -600,3 +601,36 @@ def test_legacy_prediction_table_with_lazy_result_identity_column_is_adopted(
     assert check_native_schema_compatibility(path) == 0
     SceneRepository(path)
     assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+
+
+def test_legacy_frequency_response_table_gains_lazy_identity_columns(
+    tmp_path: Path,
+) -> None:
+    """dataset_sha256/transformation_sha256 are optional lazy-migration columns.
+
+    A pre-versioning database may lack them entirely; adoption accepts the
+    table and ``CadMeasurementRepository`` then appends both lazily. Rows
+    written before the columns existed keep NULL and are non-authoritative.
+    """
+    path = tmp_path / 'legacy-fr.sqlite3'
+    _create_database(
+        path,
+        _LEGACY_DDL[0],  # scene_revisions (foreign-key target)
+        _LEGACY_DDL[7],  # cad_measurement_assets (foreign-key target)
+        _LEGACY_DDL[8],  # cad_measurements (foreign-key target)
+        _LEGACY_DDL[9],  # cad_frequency_responses without identity columns
+    )
+
+    assert check_native_schema_compatibility(path) == 0
+    scene_repository = SceneRepository(path)
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+
+    CadMeasurementRepository(scene_repository)
+    with sqlite3.connect(path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                'PRAGMA table_info(cad_frequency_responses)'
+            )
+        }
+    assert {'dataset_sha256', 'transformation_sha256'} <= columns

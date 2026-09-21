@@ -123,6 +123,8 @@ _LEGACY_TABLE_SIGNATURES = {
             ('processing_json', 'TEXT', 1, None, 0),
             ('source_sha256', 'TEXT', 1, None, 0),
             ('importer_version', 'TEXT', 1, None, 0),
+            ('dataset_sha256', 'TEXT', 0, None, 0),
+            ('transformation_sha256', 'TEXT', 0, None, 0),
         ),
         foreign_keys=frozenset({
             ('measurement_id', 'cad_measurements', 'measurement_id'),
@@ -131,6 +133,10 @@ _LEGACY_TABLE_SIGNATURES = {
         unique_sets=frozenset({
             frozenset({'measurement_id'}),
         }),
+        # Import-transformation binding is appended lazily by
+        # CadMeasurementRepository._initialize: a pre-versioning database may
+        # lack the columns but must match exactly when they are present.
+        optional_columns=frozenset({'dataset_sha256', 'transformation_sha256'}),
     ),
     'cad_measurement_assets': _LegacyTableSignature(
         columns=(

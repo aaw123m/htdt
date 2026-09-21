@@ -14,7 +14,12 @@ from htdt.cad_measurement_quality import (
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
-from htdt.cad_measurements import measurement_record_for_revision
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
+    measurement_record_for_revision,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
     Direction3,
@@ -148,7 +153,13 @@ def _save_measurement(
 ):
     measurement_repository = fx['measurement_repository']
     quality_repository = fx['quality_repository']
-    raw = f'raw:{measurement_id}'.encode('utf-8')
+    processing = {'fixture_raw': f'raw:{measurement_id}'}
+    raw = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0),
+        level_db=(70.0, 71.0, 69.5),
+        phase_status='absent',
+        processing=processing,
+    )
     record = measurement_record_for_revision(
         revision,
         'mlp',
@@ -159,7 +170,7 @@ def _save_measurement(
         radiation_scope='single',
         routing_evidence='verified',
         imported_at='2026-09-20T00:03:00+00:00',
-        source_kind='rew_api',
+        source_kind='unknown',
         external_source_id=f'rew:{measurement_id}',
     )
     dataset = CadFrequencyResponseDataset(
@@ -168,8 +179,9 @@ def _save_measurement(
         frequency_hz=(20.0, 40.0, 80.0),
         level_db=(70.0, 71.0, 69.5),
         phase_status='absent',
+        processing_json=canonical_json(processing),
         source_sha256=sha256(raw).hexdigest(),
-        importer_version='fixture-1',
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
     )
     measurement_repository.save(
         record,

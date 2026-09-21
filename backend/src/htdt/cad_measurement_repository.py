@@ -21,6 +21,7 @@ from .cad_measurement_models import (
     replay_measurement_comparison,
 )
 from .cad_measurement_quality import dataset_sha256
+from .cad_measurements import import_transformation_sha256, verify_imported_dataset
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import acoustic_reference_position, scene_content_hash
 from .cad_search_repository import CadSearchRepository
@@ -120,7 +121,9 @@ class CadMeasurementRepository:
                     smoothing TEXT,
                     processing_json TEXT NOT NULL,
                     source_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
-                    importer_version TEXT NOT NULL
+                    importer_version TEXT NOT NULL,
+                    dataset_sha256 TEXT,
+                    transformation_sha256 TEXT
                 );
                 CREATE TABLE IF NOT EXISTS cad_measurement_comparisons (
                     comparison_id TEXT PRIMARY KEY,
@@ -150,6 +153,24 @@ class CadMeasurementRepository:
                     ON cad_measurement_plans(search_spec_id, seq ASC);
                 '''
             )
+            # Import-transformation binding migration: rows written before the
+            # persisted dataset semantic hash / transformation seal existed
+            # keep NULL and are non-authoritative — reads fail closed
+            # (``_row_to_dataset``) rather than fabricating an identity this
+            # version never attested. Both are lazy optional columns in the
+            # pre-versioning table signature.
+            columns = {
+                row['name']
+                for row in connection.execute('PRAGMA table_info(cad_frequency_responses)')
+            }
+            if 'dataset_sha256' not in columns:
+                connection.execute(
+                    'ALTER TABLE cad_frequency_responses ADD COLUMN dataset_sha256 TEXT'
+                )
+            if 'transformation_sha256' not in columns:
+                connection.execute(
+                    'ALTER TABLE cad_frequency_responses ADD COLUMN transformation_sha256 TEXT'
+                )
 
     def _validated_revision(self, record: CadMeasurementRecord) -> SceneRevision:
         revision = self.scene_repository.get(record.scene_revision_id)
@@ -251,12 +272,32 @@ class CadMeasurementRepository:
         raw_filename: str,
         raw_bytes: bytes,
     ) -> None:
+        """Persist one measurement record and its FR dataset as bound evidence.
+
+        Beyond the SceneRevision/entity binding and the raw-asset SHA check,
+        the persisted samples must be the canonical output of the dataset's
+        declared versioned importer: ``verify_imported_dataset`` resolves the
+        importer authority, requires its source kind to equal the record's,
+        and reruns the exact transformation against ``raw_bytes`` so the
+        stored arrays — not just the raw file — are bound to the source
+        bytes. The row is then sealed with the immutable dataset semantic
+        hash (``dataset_sha256``) and the versioned transformation seal
+        (``transformation_sha256`` over raw source + importer + dataset
+        hash), which reads re-verify.
+        """
         self._validated_revision(record)
         if dataset.measurement_id != record.measurement_id:
             raise ValueError('dataset measurement_id does not match measurement record')
         digest = sha256(raw_bytes).hexdigest()
         if digest != dataset.source_sha256:
             raise ValueError('raw asset SHA-256 does not match dataset source_sha256')
+        verify_imported_dataset(dataset, raw_bytes, source_kind=record.source_kind)
+        dataset_identity = dataset_sha256(dataset)
+        transformation_identity = import_transformation_sha256(
+            source_sha256=digest,
+            importer_version=dataset.importer_version,
+            dataset_sha256=dataset_identity,
+        )
         target = self._asset_path(digest)
         if target.exists():
             # An already-installed identical digest is a successful dedup hit;
@@ -322,8 +363,9 @@ class CadMeasurementRepository:
                 '''INSERT INTO cad_frequency_responses(
                     dataset_id, measurement_id, frequency_blob, level_blob, phase_blob,
                     phase_status, level_reference, smoothing, processing_json,
-                    source_sha256, importer_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    source_sha256, importer_version, dataset_sha256,
+                    transformation_sha256
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (
                     dataset.dataset_id,
                     dataset.measurement_id,
@@ -336,6 +378,8 @@ class CadMeasurementRepository:
                     dataset.processing_json,
                     dataset.source_sha256,
                     dataset.importer_version,
+                    dataset_identity,
+                    transformation_identity,
                 ),
             )
             connection.commit()
@@ -348,10 +392,16 @@ class CadMeasurementRepository:
             ).fetchone()
         return None if row is None else self._row_to_measurement(row)
 
+    _DATASET_SELECT = (
+        '''SELECT d.*, m.source_kind AS record_source_kind
+           FROM cad_frequency_responses d
+           LEFT JOIN cad_measurements m ON m.measurement_id=d.measurement_id'''
+    )
+
     def get_dataset(self, dataset_id: str) -> CadFrequencyResponseDataset | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT * FROM cad_frequency_responses WHERE dataset_id=?',
+                f'{self._DATASET_SELECT} WHERE d.dataset_id=?',
                 (dataset_id,),
             ).fetchone()
         return None if row is None else self._row_to_dataset(row)
@@ -359,7 +409,7 @@ class CadMeasurementRepository:
     def dataset_for_measurement(self, measurement_id: str) -> CadFrequencyResponseDataset | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT * FROM cad_frequency_responses WHERE measurement_id=?',
+                f'{self._DATASET_SELECT} WHERE d.measurement_id=?',
                 (measurement_id,),
             ).fetchone()
         return None if row is None else self._row_to_dataset(row)
@@ -384,7 +434,8 @@ class CadMeasurementRepository:
         dataset_id: str,
     ) -> sqlite3.Row | None:
         return connection.execute(
-            '''SELECT d.*, m.document_id, m.scene_revision_id
+            '''SELECT d.*, m.document_id, m.scene_revision_id,
+                      m.source_kind AS record_source_kind
                FROM cad_frequency_responses d
                JOIN cad_measurements m ON m.measurement_id=d.measurement_id
                WHERE d.dataset_id=?''',
@@ -568,9 +619,32 @@ class CadMeasurementRepository:
         }
         return CadMeasurementRecord.model_validate(payload)
 
-    @staticmethod
-    def _row_to_dataset(row: sqlite3.Row) -> CadFrequencyResponseDataset:
-        return CadFrequencyResponseDataset(
+    def _verified_raw_asset(self, digest: str) -> bytes:
+        """Load the content-addressed raw asset, failing closed on tampering."""
+        try:
+            raw = self._read_asset(self._asset_path(digest))
+        except FileNotFoundError as exc:
+            raise ValueError(
+                'measurement raw asset is unavailable for dataset verification'
+            ) from exc
+        if sha256(raw).hexdigest() != digest:
+            raise ValueError(
+                'measurement raw asset content does not match its content address'
+            )
+        return raw
+
+    def _row_to_dataset(self, row: sqlite3.Row) -> CadFrequencyResponseDataset:
+        """Authoritative read: re-verify the persisted import-transformation binding.
+
+        The row must carry the persisted dataset semantic hash and the
+        versioned transformation seal; both are recomputed from the stored
+        columns, then the exact pinned importer reruns against the
+        content-addressed raw asset and must reproduce the row exactly. Rows
+        written before the binding existed (NULL columns), rows whose seals
+        were recomputed coherently over altered samples, and rows whose raw
+        asset was removed or replaced all fail closed.
+        """
+        dataset = CadFrequencyResponseDataset(
             dataset_id=row['dataset_id'],
             measurement_id=row['measurement_id'],
             frequency_hz=_unpack(row['frequency_blob']) or (),
@@ -583,6 +657,36 @@ class CadMeasurementRepository:
             source_sha256=row['source_sha256'],
             importer_version=row['importer_version'],
         )
+        stored_dataset_sha256 = row['dataset_sha256']
+        stored_transformation_sha256 = row['transformation_sha256']
+        if stored_dataset_sha256 is None or stored_transformation_sha256 is None:
+            # Backward-compatibility policy: rows written before the
+            # import-transformation binding existed never had their samples
+            # attested, so they are non-authoritative and fail closed on read
+            # rather than acquiring a fabricated current identity.
+            raise ValueError(
+                'frequency-response dataset predates import-transformation '
+                'binding and is non-authoritative'
+            )
+        if stored_dataset_sha256 != dataset_sha256(dataset):
+            raise ValueError('persisted dataset semantic hash mismatch')
+        if stored_transformation_sha256 != import_transformation_sha256(
+            source_sha256=dataset.source_sha256,
+            importer_version=dataset.importer_version,
+            dataset_sha256=stored_dataset_sha256,
+        ):
+            raise ValueError('persisted dataset transformation hash mismatch')
+        record_source_kind = (
+            row['record_source_kind']
+            if 'record_source_kind' in row.keys()
+            else None
+        )
+        verify_imported_dataset(
+            dataset,
+            self._verified_raw_asset(dataset.source_sha256),
+            source_kind=record_source_kind,
+        )
+        return dataset
 
     @staticmethod
     def _row_to_comparison(row: sqlite3.Row) -> CadMeasurementComparison:
