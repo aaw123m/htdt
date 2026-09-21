@@ -108,10 +108,12 @@ Lifecycle facts are append-only and follow one explicit edge set:
 
 The plan itself is the proposal authority. An export event requires an exact
 export ID/hash. `user_applied` is a separate user-confirmed fact; export does
-not imply it. `remeasured` and `validated` require an exact
-VerificationMeasurementPlan and re-measurement IDs. `exported` may open the
-chain as a root fact (a plan can be exported before lifecycle recording
-begins); `validated` is terminal.
+not imply it. `remeasured` and `validated` require an exact preregistered
+VerificationMeasurementPlan plus re-measurement IDs that reproduce a persisted
+verification completion bound to that contract — bare same-scene measurement
+IDs are not evidence, and `validated` additionally requires the completion's
+reproduced `pass` result. `exported` may open the chain as a root fact (a plan
+can be exported before lifecycle recording begins); `validated` is terminal.
 
 Each persisted event after the first claims the exact chain head via
 `supersedes_event_sha256`, and the head check runs inside the same
@@ -126,9 +128,9 @@ tolerated as implicit extensions).
 No lifecycle transition mutates SceneRevision/SystemVariant into an as-built
 state.
 
-## Verification MeasurementPlan foundation
+## Verification MeasurementPlan preregistration
 
-`CadVerificationMeasurementPlan` binds:
+`CadVerificationMeasurementPlan` is the immutable re-measure contract. It binds:
 
 - exact CalibrationPlan ID/hash,
 - exact exported-settings ID/hash,
@@ -137,17 +139,45 @@ state.
 - routing,
 - reference SPL,
 - required measurement capability claims,
-- explicit before and after Measurement IDs.
+- explicit before Measurement IDs.
+
+The contract is preregistered before any after measurement can exist:
+`save_verification_plan` commits the contract row together with a
+`CadVerificationMeasurementPlanRegistration` under one `BEGIN IMMEDIATE`
+transaction. The repository generates `registered_at_utc` at commit — the
+caller-claimed `created_at_utc` can never postdate it — and registration fails
+when the contract claims already-collected `after_measurement_ids` or when a
+qualifying measured capture (exact SceneRevision, preregistered point and
+routing, outside the before lineage) already persists. A contract built after
+seeing after data can therefore never pose as the original preregistration.
+
+After evidence attaches later through append-only
+`CadVerificationMeasurementCompletion` records built by
+`build_verification_measurement_completion` and persisted by
+`save_verification_completion`. Each evidence row resolves the exact
+measurement/dataset/quality-report identities, requires `evidence_type` of
+`measured` on the contract's exact SceneRevision at a preregistered point on
+preregistered routing, and must be captured no earlier than
+`registered_at_utc`. The completion's `pass`/`fail` result reproduces the
+contract's required-capability evaluation over the bound quality reports; the
+repository rebuilds the whole record on save/read, so no claimed outcome is
+trusted on payload alone.
+
+Verification plan rows persisted before this authority existed — recognizable
+by a missing registration row or a non-empty `after_measurement_ids` — stay
+readable for audit but are legacy post-hoc records: no registration is ever
+inferred for them, and every attestation path (completion saves, `remeasured`/
+`validated` transitions) fails closed.
 
 This is the lineage foundation for the later re-measure/holdout validation loop.
 This slice does not manufacture new quality claims for the after measurements.
 
 ## Persistence and reopen
 
-`CadCalibrationRepository` stores plans, exports, verification plans and
-lifecycle events in additive native SQLite tables. Reopen revalidates every
-source authority and semantic hash. A source MeasurementQualityReport hash
-mismatch is rejected.
+`CadCalibrationRepository` stores plans, exports, verification plans,
+verification registrations, verification completions and lifecycle events in
+additive native SQLite tables. Reopen revalidates every source authority and
+semantic hash. A source MeasurementQualityReport hash mismatch is rejected.
 
 ## Deferred adapters and algorithms
 

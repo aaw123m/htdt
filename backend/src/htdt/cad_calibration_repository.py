@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 import sqlite3
 
@@ -8,17 +10,38 @@ from .cad_calibration import (
     CadCalibrationExportSnapshot,
     CadCalibrationLifecycleEvent,
     CadCalibrationPlan,
+    CadVerificationMeasurementCompletion,
     CadVerificationMeasurementPlan,
+    CadVerificationMeasurementPlanRegistration,
     build_generic_biquad_export,
+    build_verification_measurement_completion,
+    build_verification_plan_registration,
     evaluate_calibration_support,
+    exact_verification_plan_registration,
 )
 from .cad_measurement_quality import dataset_sha256, measurement_sha256
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository
+from .cad_scene import Position3
 from .cad_schema import check_native_schema_compatibility
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
+
+
+def _utc_now() -> str:
+    """Repository commit clock; the only source of durable registration time."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_timestamp(value: str, label: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f'{label} must be ISO-8601') from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f'{label} must be timezone-aware')
+    return parsed
 
 
 _LIFECYCLE_ORDER = {
@@ -67,7 +90,19 @@ def _lifecycle_chain_violation(
 
 
 class CadCalibrationRepository:
-    """Append-only #173 authority layered on exact scene/system/measurement sources."""
+    """Append-only #173 authority layered on exact scene/system/measurement sources.
+
+    ``save_verification_plan`` is the durable preregistration authority for the
+    re-measure contract: it commits the contract row together with a
+    repository-attested registration record under one ``BEGIN IMMEDIATE``
+    transaction, after proving the contract claims no already-collected after
+    evidence and no qualifying re-measurement exists. Downstream gates
+    (completion saves, ``remeasured``/``validated`` lifecycle transitions) use
+    the persisted registration and completion records — never caller-supplied
+    timestamps or bare measurement ids. Contract rows written before this
+    authority existed stay readable but carry no registration, so they read as
+    legacy post-hoc records rather than preregistered contracts.
+    """
 
     def __init__(
         self,
@@ -145,6 +180,30 @@ class CadCalibrationRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_calibration_verification_plan_seq
                     ON cad_calibration_verification_plans(plan_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_calibration_verification_registrations (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    registration_id TEXT NOT NULL UNIQUE,
+                    registration_sha256 TEXT NOT NULL UNIQUE,
+                    verification_plan_id TEXT NOT NULL UNIQUE
+                        REFERENCES cad_calibration_verification_plans(verification_plan_id),
+                    verification_plan_semantic_sha256 TEXT NOT NULL,
+                    registered_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_calibration_verification_completions (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    completion_id TEXT NOT NULL UNIQUE,
+                    completion_sha256 TEXT NOT NULL UNIQUE,
+                    verification_plan_id TEXT NOT NULL
+                        REFERENCES cad_calibration_verification_plans(verification_plan_id),
+                    result TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_calibration_verification_completion_plan_seq
+                    ON cad_calibration_verification_completions(verification_plan_id, seq ASC);
 
                 CREATE TABLE IF NOT EXISTS cad_calibration_lifecycle_events (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -432,41 +491,196 @@ class CadCalibrationRepository:
             ):
                 raise ValueError('verification measurement exact SceneRevision binding mismatch')
 
+    def _preexisting_after_evidence(
+        self,
+        connection: sqlite3.Connection,
+        verification: CadVerificationMeasurementPlan,
+    ) -> str | None:
+        """Return a persisted measurement id that could serve as after evidence.
+
+        Qualifying evidence is a ``measured`` capture bound to the contract's
+        exact SceneRevision at a preregistered measurement point on
+        preregistered routing that is not one of the declared before
+        measurements. The check runs inside the same write transaction that
+        commits the contract and its registration, so a concurrent
+        measurement import and a registration serialize into one ordering:
+        either the contract commits first, or the already-committed evidence
+        makes the registration fail.
+        """
+        points = {
+            (point.point_id, point.position)
+            for point in verification.measurement_points
+        }
+        before_ids = set(verification.before_measurement_ids)
+        routing = set(verification.routing)
+        rows = connection.execute(
+            """
+            SELECT measurement_id, measurement_entity_id, measurement_position_json,
+                   channel_role
+            FROM cad_measurements
+            WHERE document_id=? AND scene_revision_id=? AND scene_content_hash=?
+              AND evidence_type='measured'
+            """,
+            (
+                verification.document_id,
+                verification.scene_revision_id,
+                verification.scene_content_hash,
+            ),
+        ).fetchall()
+        for row in rows:
+            if row['measurement_id'] in before_ids:
+                continue
+            if row['channel_role'] not in routing:
+                continue
+            position = Position3.model_validate(
+                json.loads(row['measurement_position_json'])
+            )
+            if (row['measurement_entity_id'], position) in points:
+                return str(row['measurement_id'])
+        return None
+
+    def _commit_verification_registration(
+        self,
+        connection: sqlite3.Connection,
+        verification: CadVerificationMeasurementPlan,
+    ) -> CadVerificationMeasurementPlanRegistration:
+        """Attest durable preregistration inside the contract write transaction.
+
+        ``registered_at_utc`` is generated here at commit and the
+        empty-after / no-qualifying-evidence checks run under the same
+        ``BEGIN IMMEDIATE`` boundary, so evidence import and contract
+        registration have exactly one deterministic ordering.
+        """
+        if verification.after_measurement_ids:
+            raise ValueError(
+                'verification plan cannot register while claiming '
+                'already-collected after measurement evidence'
+            )
+        claimed = _parse_timestamp(
+            verification.created_at_utc,
+            'verification plan created_at_utc',
+        )
+        registered_at_utc = _utc_now()
+        registered = _parse_timestamp(
+            registered_at_utc,
+            'verification plan registration registered_at_utc',
+        )
+        if claimed > registered:
+            raise ValueError(
+                'verification plan created_at_utc cannot postdate durable '
+                'registration'
+            )
+        blocker = self._preexisting_after_evidence(connection, verification)
+        if blocker is not None:
+            raise ValueError(
+                'verification plan cannot register over existing qualifying '
+                f're-measurement evidence: {blocker}'
+            )
+        registration = build_verification_plan_registration(
+            verification=verification,
+            registered_at_utc=registered_at_utc,
+        )
+        connection.execute(
+            """
+            INSERT INTO cad_calibration_verification_plans(
+                verification_plan_id, plan_id, export_id,
+                verification_semantic_sha256, created_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                verification.verification_plan_id,
+                verification.calibration_plan_id,
+                verification.exported_settings_id,
+                verification.verification_semantic_sha256,
+                registration.registered_at_utc,
+                verification.model_dump_json(),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO cad_calibration_verification_registrations(
+                registration_id, registration_sha256, verification_plan_id,
+                verification_plan_semantic_sha256, registered_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                registration.registration_id,
+                registration.registration_sha256,
+                registration.verification_plan_id,
+                registration.verification_plan_semantic_sha256,
+                registration.registered_at_utc,
+                registration.model_dump_json(),
+            ),
+        )
+        return registration
+
     def save_verification_plan(
         self,
         verification: CadVerificationMeasurementPlan,
-    ) -> None:
+    ) -> CadVerificationMeasurementPlanRegistration:
+        """Persist the re-measure contract and its durable preregistration.
+
+        The contract row and a repository-attested
+        ``CadVerificationMeasurementPlanRegistration`` commit under one
+        ``BEGIN IMMEDIATE`` transaction. Registration fails when the contract
+        claims already-collected ``after_measurement_ids`` or when qualifying
+        re-measurement evidence already exists, so a contract built after
+        seeing after data can never pose as the original preregistration. A
+        repeated save of the exact persisted contract is idempotent and
+        returns the original registration — the durable time is never
+        rewritten, and a persisted contract without a registration row fails
+        closed instead of silently inferring one.
+        """
         self._validate_verification(verification)
+        check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
-            if connection.execute(
-                'SELECT 1 FROM cad_calibration_verification_plans WHERE verification_plan_id=?',
+            connection.execute('BEGIN IMMEDIATE')
+            row = connection.execute(
+                'SELECT payload_json FROM cad_calibration_verification_plans '
+                'WHERE verification_plan_id=?',
                 (verification.verification_plan_id,),
-            ).fetchone() is not None:
-                raise ValueError(
-                    f'verification measurement plan already exists: '
-                    f'{verification.verification_plan_id}'
+            ).fetchone()
+            if row is not None:
+                persisted = CadVerificationMeasurementPlan.model_validate_json(
+                    row['payload_json']
                 )
-            connection.execute(
-                """
-                INSERT INTO cad_calibration_verification_plans(
-                    verification_plan_id, plan_id, export_id,
-                    verification_semantic_sha256, created_at_utc, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
+                if persisted != verification:
+                    raise ValueError(
+                        f'verification measurement plan already exists: '
+                        f'{verification.verification_plan_id}'
+                    )
+                registration = self._registration_for(
+                    connection,
                     verification.verification_plan_id,
-                    verification.calibration_plan_id,
-                    verification.exported_settings_id,
-                    verification.verification_semantic_sha256,
-                    verification.created_at_utc,
-                    verification.model_dump_json(),
-                ),
-            )
+                )
+                if registration is None:
+                    # No historical registration time is silently inferred.
+                    raise ValueError(
+                        'verification plan registration authority missing/stale'
+                    )
+                exact_verification_plan_registration(persisted, registration)
+            else:
+                registration = self._commit_verification_registration(
+                    connection,
+                    verification,
+                )
+            connection.commit()
+        return registration
 
     def get_verification_plan(
         self,
         verification_plan_id: str,
     ) -> CadVerificationMeasurementPlan | None:
+        """Return the persisted re-measure contract, including legacy rows.
+
+        Rows written before the registration authority existed — recognizable
+        by a missing ``cad_calibration_verification_registrations`` row or a
+        non-empty ``after_measurement_ids`` — are still readable for audit but
+        are post-hoc evidence bundles, not preregistered contracts: every
+        attestation path (``get_verification_plan_registration``,
+        ``save_verification_completion``, re-measure lifecycle transitions)
+        fails closed for them.
+        """
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
@@ -483,6 +697,177 @@ class CadCalibrationRepository:
         )
         self._validate_verification(verification)
         return verification
+
+    @staticmethod
+    def _registration_for(
+        connection: sqlite3.Connection,
+        verification_plan_id: str,
+    ) -> CadVerificationMeasurementPlanRegistration | None:
+        row = connection.execute(
+            'SELECT payload_json FROM cad_calibration_verification_registrations '
+            'WHERE verification_plan_id=?',
+            (verification_plan_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return CadVerificationMeasurementPlanRegistration.model_validate_json(
+            row['payload_json']
+        )
+
+    def get_verification_plan_registration(
+        self,
+        verification_plan_id: str,
+    ) -> CadVerificationMeasurementPlanRegistration | None:
+        """Return the durable preregistration for one contract, if attested.
+
+        ``None`` marks a missing registration — including every legacy
+        post-hoc plan row — never an inferred one. A registration pointing at
+        a missing or different contract fails closed.
+        """
+        with closing(self._connect()) as connection, connection:
+            registration = self._registration_for(connection, verification_plan_id)
+        if registration is None:
+            return None
+        verification = self.get_verification_plan(verification_plan_id)
+        if verification is None:
+            raise ValueError(
+                'verification plan registration references missing contract'
+            )
+        return exact_verification_plan_registration(verification, registration)
+
+    def save_verification_completion(
+        self,
+        completion: CadVerificationMeasurementCompletion,
+    ) -> CadVerificationMeasurementCompletion:
+        """Persist append-only re-measure evidence for a preregistered contract.
+
+        The completion must reproduce exactly from the persisted contract,
+        its durable registration and the bound measurement/dataset/quality
+        authorities: the whole record — including the ``pass``/``fail``
+        result — is rebuilt and compared, so no claimed outcome is trusted
+        on payload alone. Contracts without a registration row (legacy
+        post-hoc records) can never gain completion evidence.
+        """
+        completion = CadVerificationMeasurementCompletion.model_validate(
+            completion.model_dump(mode='python')
+        )
+        verification = self.get_verification_plan(completion.verification_plan_id)
+        if (
+            verification is None
+            or verification.verification_semantic_sha256
+            != completion.verification_plan_semantic_sha256
+        ):
+            raise ValueError('verification completion plan authority missing/stale')
+        registration = self.get_verification_plan_registration(
+            verification.verification_plan_id
+        )
+        if registration is None:
+            raise ValueError(
+                'verification plan registration authority missing/stale'
+            )
+        if (
+            completion.registration_id != registration.registration_id
+            or completion.registration_sha256 != registration.registration_sha256
+        ):
+            raise ValueError('verification completion registration authority mismatch')
+        comparison = None
+        if completion.comparison_id is not None:
+            comparison = self.measurement_repository.get_comparison(
+                completion.comparison_id
+            )
+            if (
+                comparison is None
+                or comparison.comparison_sha256 != completion.comparison_sha256
+            ):
+                raise ValueError(
+                    'verification completion comparison authority missing/stale'
+                )
+        rebuilt = build_verification_measurement_completion(
+            verification=verification,
+            registration=registration,
+            after_measurement_ids=completion.after_measurement_ids,
+            measurement_repository=self.measurement_repository,
+            quality_repository=self.quality_repository,
+            comparison=comparison,
+            completed_at_utc=completion.completed_at_utc,
+        )
+        if rebuilt != completion:
+            raise ValueError('verification completion does not reproduce exactly')
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_calibration_verification_completions '
+                'WHERE completion_id=?',
+                (completion.completion_id,),
+            ).fetchone()
+            if row is not None:
+                persisted = CadVerificationMeasurementCompletion.model_validate_json(
+                    row['payload_json']
+                )
+                if persisted != completion:
+                    raise ValueError(
+                        'verification completion id has different semantics'
+                    )
+                return persisted
+            connection.execute(
+                """
+                INSERT INTO cad_calibration_verification_completions(
+                    completion_id, completion_sha256, verification_plan_id,
+                    result, created_at_utc, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    completion.completion_id,
+                    completion.completion_sha256,
+                    completion.verification_plan_id,
+                    completion.result,
+                    completion.completed_at_utc,
+                    completion.model_dump_json(),
+                ),
+            )
+        return completion
+
+    def get_verification_completion(
+        self,
+        completion_id: str,
+    ) -> CadVerificationMeasurementCompletion | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_calibration_verification_completions '
+                'WHERE completion_id=?',
+                (completion_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        completion = CadVerificationMeasurementCompletion.model_validate_json(
+            row['payload_json']
+        )
+        return self.save_verification_completion(completion)
+
+    def list_verification_completions(
+        self,
+        verification_plan_id: str,
+    ) -> tuple[CadVerificationMeasurementCompletion, ...]:
+        """Return every persisted completion for a contract, fully revalidated."""
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_calibration_verification_completions
+                WHERE verification_plan_id=?
+                ORDER BY seq ASC
+                """,
+                (verification_plan_id,),
+            ).fetchall()
+        completions = tuple(
+            CadVerificationMeasurementCompletion.model_validate_json(
+                row['payload_json']
+            )
+            for row in rows
+        )
+        return tuple(
+            self.save_verification_completion(completion)
+            for completion in completions
+        )
 
     def _validate_lifecycle_event(
         self,
@@ -520,6 +905,39 @@ class CadCalibrationRepository:
                 raise ValueError('calibration lifecycle verification hash mismatch')
             if verification.calibration_plan_id != plan.plan_id:
                 raise ValueError('calibration lifecycle verification belongs to another plan')
+            registration = self.get_verification_plan_registration(
+                verification.verification_plan_id
+            )
+            if registration is None:
+                raise ValueError(
+                    'calibration lifecycle verification plan registration '
+                    'authority missing/stale'
+                )
+            if event.state in {'remeasured', 'validated'}:
+                # Re-measurement facts must reproduce a persisted completion
+                # bound to the preregistered contract; arbitrary same-scene
+                # measurement ids are not evidence, and `validated`
+                # additionally requires the completion's reproduced PASS.
+                matching = tuple(
+                    item
+                    for item in self.list_verification_completions(
+                        verification.verification_plan_id
+                    )
+                    if item.after_measurement_ids
+                    == tuple(sorted(event.measurement_ids))
+                )
+                if not matching:
+                    raise ValueError(
+                        'calibration lifecycle measurement ids do not reproduce '
+                        'a persisted verification completion'
+                    )
+                if event.state == 'validated' and not any(
+                    item.result == 'pass' for item in matching
+                ):
+                    raise ValueError(
+                        'calibration lifecycle validated requires a passing '
+                        'persisted verification completion'
+                    )
 
         for measurement_id in event.measurement_ids:
             measurement = self.measurement_repository.get_measurement(measurement_id)
