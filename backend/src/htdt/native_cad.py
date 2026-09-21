@@ -16,6 +16,14 @@ from .constraint_editor import ConstraintEditorWindow
 from .measurement_editor import MeasurementEditorWindow
 from .measurement_workspace import MeasurementWorkspaceWindow
 from .native_backup import create_backup, restore_backup
+from .native_diagnostics import (
+    NativeDiagnostics,
+    concise_reason,
+    configure_diagnostics,
+    install_exception_hooks,
+    report_launch_failure,
+    write_stderr,
+)
 from .native_editor import default_data_dir
 from .optimization_workspace import OptimizationWorkspaceWindow
 from .prediction_workspace import PredictionWorkspaceWindow
@@ -64,6 +72,39 @@ def _packaged_application_icon() -> Path | None:
     return None
 
 
+def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
+    """GUI startup boundary: failures leave a durable record and a visible reason."""
+
+    try:
+        app = QApplication([sys.argv[0]])
+        icon_path = _packaged_application_icon()
+        if icon_path is not None:
+            app.setWindowIcon(QIcon(str(icon_path)))
+        if args.workflow_shell:
+            apply_dark_theme(app)
+        repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
+        window = (
+            build_workflow_shell(repository, args.document_id)
+            if args.workflow_shell
+            else OptimizationWorkspaceWindow(repository, args.document_id)
+        )
+        window.show()
+        return int(app.exec())
+    except Exception as exc:
+        diagnostics.log_startup_failure(exc)
+        report_launch_failure(
+            title="HTDT did not start",
+            reason=concise_reason(exc),
+            recovery=(
+                "Your data was not modified by this failure. Start HTDT again; "
+                "if the problem repeats, restore your most recent backup and "
+                "share the diagnostic log with support."
+            ),
+            log_path=diagnostics.log_path,
+        )
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="HTDT native CAD editor")
     parser.add_argument("--data-dir", type=Path, default=default_data_dir())
@@ -94,13 +135,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args(argv)
 
+    if args.backup is not None:
+        launch_mode = "backup"
+    elif args.restore is not None:
+        launch_mode = "restore"
+    elif args.seed_synthetic_demo:
+        launch_mode = "seed-synthetic-demo"
+    else:
+        launch_mode = "gui"
+    maintenance_request = launch_mode != "gui"
+    diagnostics = configure_diagnostics(args.data_dir)
+    install_exception_hooks(diagnostics)
+    diagnostics.log_session_start(launch_mode)
+
     guard = SingleInstanceGuard(args.data_dir)
     if not guard.acquire():
-        print(
+        diagnostics.log_lock_contention()
+        write_stderr(
             "HTDT data directory is already in use by another process: "
-            f"{args.data_dir}",
-            file=sys.stderr,
+            f"{args.data_dir}"
         )
+        if not maintenance_request:
+            report_launch_failure(
+                title="HTDT is already running",
+                reason="Another HTDT instance is already using this data directory.",
+                recovery=(
+                    "Close the other HTDT window, then start HTDT again. "
+                    "If no other instance is running, wait a moment and retry."
+                ),
+                log_path=diagnostics.log_path,
+            )
         return 2
 
     try:
@@ -134,20 +198,7 @@ def main(argv: list[str] | None = None) -> int:
             print("synthetic demo is development-only and does not unlock owned-room recommendation")
             return 0
 
-        app = QApplication([sys.argv[0]])
-        icon_path = _packaged_application_icon()
-        if icon_path is not None:
-            app.setWindowIcon(QIcon(str(icon_path)))
-        if args.workflow_shell:
-            apply_dark_theme(app)
-        repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
-        window = (
-            build_workflow_shell(repository, args.document_id)
-            if args.workflow_shell
-            else OptimizationWorkspaceWindow(repository, args.document_id)
-        )
-        window.show()
-        return int(app.exec())
+        return _run_gui(args, diagnostics)
     finally:
         guard.release()
 
