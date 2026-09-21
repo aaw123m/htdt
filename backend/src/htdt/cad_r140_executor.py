@@ -706,52 +706,87 @@ class CadR140ExecutorRepository:
             return None
         return ExecutionResourceEstimate.model_validate_json(row['payload_json'])
 
-    def save_result(self, result: ExecutionTaskResult) -> ExecutionTaskResult:
-        result = ExecutionTaskResult.model_validate(result.model_dump(mode='python'))
+    def _require_result_authorities(
+        self,
+        result: ExecutionTaskResult,
+        *,
+        label: str,
+    ) -> ExecutionTaskResult:
+        """Re-check task identity and exact external result/provenance refs."""
         task = self.execution_repository.get_task(result.task_id)
         if task is None:
-            raise ValueError('R140 result references missing task')
+            raise ValueError(f'{label} references missing task')
         if (
             task.semantic_sha256 != result.task_semantic_sha256
             or task.execution_input_sha256 != result.execution_input_sha256
         ):
-            raise ValueError('R140 result task/input identity mismatch')
+            raise ValueError(f'{label} task/input identity mismatch')
+        self.execution_repository._resolve_external(
+            result.result_authority_ref,
+            label='execution result',
+        )
+        self.execution_repository._resolve_external(
+            result.execution_provenance_ref,
+            label='execution provenance',
+        )
+        return result
+
+    def _validate_result(self, result: ExecutionTaskResult) -> ExecutionTaskResult:
+        result = ExecutionTaskResult.model_validate(result.model_dump(mode='python'))
+        return self._require_result_authorities(result, label='R140 result')
+
+    def save_result(self, result: ExecutionTaskResult) -> ExecutionTaskResult:
+        result = self._validate_result(result)
         with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                """
-                SELECT payload_json
-                FROM cad_r140_execution_results
-                WHERE execution_result_id=?
-                """,
-                (result.execution_result_id,),
-            ).fetchone()
-            if row is not None:
-                persisted = ExecutionTaskResult.model_validate_json(
-                    row['payload_json']
-                )
-                if persisted != result:
-                    raise ValueError(
-                        'R140 execution result id exists with different semantics'
-                    )
-                return persisted
-            connection.execute(
-                """
-                INSERT INTO cad_r140_execution_results(
-                    execution_result_id,
-                    semantic_sha256,
-                    task_id,
-                    payload_json,
-                    recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    result.execution_result_id,
-                    result.semantic_sha256,
-                    result.task_id,
-                    result.model_dump_json(),
-                    _utc_now(),
-                ),
+            connection.execute('BEGIN IMMEDIATE')
+            return self._save_result_in_transaction(connection, result)
+
+    def _save_result_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        result: ExecutionTaskResult,
+    ) -> ExecutionTaskResult:
+        """Persist one validated result inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK and must have resolved the
+        exact external authorities first; persisted rows were validated on
+        commit.
+        """
+        row = connection.execute(
+            """
+            SELECT payload_json
+            FROM cad_r140_execution_results
+            WHERE execution_result_id=?
+            """,
+            (result.execution_result_id,),
+        ).fetchone()
+        if row is not None:
+            persisted = ExecutionTaskResult.model_validate_json(
+                row['payload_json']
             )
+            if persisted != result:
+                raise ValueError(
+                    'R140 execution result id exists with different semantics'
+                )
+            return persisted
+        connection.execute(
+            """
+            INSERT INTO cad_r140_execution_results(
+                execution_result_id,
+                semantic_sha256,
+                task_id,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                result.execution_result_id,
+                result.semantic_sha256,
+                result.task_id,
+                result.model_dump_json(),
+                _utc_now(),
+            ),
+        )
         return result
 
     def get_result(self, execution_result_id: str) -> ExecutionTaskResult | None:
@@ -767,20 +802,33 @@ class CadR140ExecutorRepository:
         if row is None:
             return None
         result = ExecutionTaskResult.model_validate_json(row['payload_json'])
-        task = self.execution_repository.get_task(result.task_id)
-        if task is None:
-            raise ValueError('R140 persisted result references missing task')
-        if (
-            task.semantic_sha256 != result.task_semantic_sha256
-            or task.execution_input_sha256 != result.execution_input_sha256
-        ):
-            raise ValueError('R140 persisted result task/input identity mismatch')
-        return result
+        return self._require_result_authorities(
+            result,
+            label='R140 persisted result',
+        )
 
     def save_attempt(
         self,
         attempt: ExecutionAttemptRecord,
     ) -> ExecutionAttemptRecord:
+        attempt = self._validate_attempt(attempt)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            return self._save_attempt_in_transaction(connection, attempt)
+
+    def _validate_attempt(
+        self,
+        attempt: ExecutionAttemptRecord,
+        *,
+        committed_result: ExecutionTaskResult | None = None,
+    ) -> ExecutionAttemptRecord:
+        """Validate one attempt's exact task/estimate/result authorities.
+
+        A SUCCEEDED attempt normally requires its embedded result to be
+        persisted exactly. During atomic success publication the result is not
+        committed yet, so ``committed_result`` is the co-committed row it must
+        equal instead.
+        """
         attempt = ExecutionAttemptRecord.model_validate(
             attempt.model_dump(mode='python')
         )
@@ -802,50 +850,115 @@ class CadR140ExecutorRepository:
         if task.resource_estimate_ref != attempt.resource_estimate_ref:
             raise ValueError('R140 attempt resource estimate is stale for task')
         if attempt.execution_result is not None:
-            persisted_result = self.get_result(
-                attempt.execution_result.execution_result_id
-            )
-            if persisted_result != attempt.execution_result:
-                raise ValueError('R140 attempt success result is not persisted exactly')
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                """
-                SELECT payload_json
-                FROM cad_r140_execution_attempts
-                WHERE attempt_id=?
-                """,
-                (attempt.attempt_id,),
-            ).fetchone()
-            if row is not None:
-                persisted = ExecutionAttemptRecord.model_validate_json(
-                    row['payload_json']
-                )
-                if persisted != attempt:
+            if committed_result is not None:
+                if committed_result != attempt.execution_result:
                     raise ValueError(
-                        'R140 execution attempt id exists with different semantics'
+                        'R140 attempt success result does not match the '
+                        'co-committed result'
                     )
-                return persisted
-            connection.execute(
-                """
-                INSERT INTO cad_r140_execution_attempts(
-                    attempt_id,
-                    semantic_sha256,
-                    task_id,
-                    state,
-                    payload_json,
-                    recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    attempt.attempt_id,
-                    attempt.semantic_sha256,
-                    attempt.task_id,
-                    attempt.state,
-                    attempt.model_dump_json(),
-                    _utc_now(),
-                ),
-            )
+            else:
+                persisted_result = self.get_result(
+                    attempt.execution_result.execution_result_id
+                )
+                if persisted_result != attempt.execution_result:
+                    raise ValueError(
+                        'R140 attempt success result is not persisted exactly'
+                    )
         return attempt
+
+    def _save_attempt_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        attempt: ExecutionAttemptRecord,
+    ) -> ExecutionAttemptRecord:
+        """Persist one validated attempt inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK and must have validated all
+        authorities first; persisted rows were validated on commit.
+        """
+        row = connection.execute(
+            """
+            SELECT payload_json
+            FROM cad_r140_execution_attempts
+            WHERE attempt_id=?
+            """,
+            (attempt.attempt_id,),
+        ).fetchone()
+        if row is not None:
+            persisted = ExecutionAttemptRecord.model_validate_json(
+                row['payload_json']
+            )
+            if persisted != attempt:
+                raise ValueError(
+                    'R140 execution attempt id exists with different semantics'
+                )
+            return persisted
+        connection.execute(
+            """
+            INSERT INTO cad_r140_execution_attempts(
+                attempt_id,
+                semantic_sha256,
+                task_id,
+                state,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                attempt.attempt_id,
+                attempt.semantic_sha256,
+                attempt.task_id,
+                attempt.state,
+                attempt.model_dump_json(),
+                _utc_now(),
+            ),
+        )
+        return attempt
+
+    def commit_success(
+        self,
+        *,
+        result: ExecutionTaskResult,
+        cache_entry: MultiFidelityExecutionCacheEntry,
+        attempt: ExecutionAttemptRecord,
+    ) -> ExecutionAttemptRecord:
+        """Validate then atomically publish one successful execution.
+
+        Every exact authority — task/input identity, external
+        result/provenance refs, resource estimate and cache/attempt coherence
+        — is resolved before the shared write transaction begins. The runtime
+        result, the reusable cache entry and the SUCCEEDED attempt then commit
+        or roll back together, so a rejected authority or a mid-commit fault
+        can never leave a committed result row behind.
+        """
+        result = self._validate_result(result)
+        cache_entry = self.execution_repository._validate_cache_entry(cache_entry)
+        if attempt.state != 'SUCCEEDED':
+            raise ValueError(
+                'R140 success publication requires a SUCCEEDED attempt'
+            )
+        attempt = self._validate_attempt(attempt, committed_result=result)
+        if (
+            cache_entry.task_id != result.task_id
+            or cache_entry.result_authority_ref != result.result_authority_ref
+            or cache_entry.execution_provenance_ref
+            != result.execution_provenance_ref
+        ):
+            raise ValueError(
+                'R140 success cache entry does not match the committed result'
+            )
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            self._save_result_in_transaction(connection, result)
+            self.execution_repository._save_cache_entry_in_transaction(
+                connection,
+                cache_entry,
+            )
+            persisted_attempt = self._save_attempt_in_transaction(
+                connection,
+                attempt,
+            )
+        return persisted_attempt
 
     def list_attempts(
         self,
@@ -861,10 +974,20 @@ class CadR140ExecutorRepository:
                 """,
                 (task_id,),
             ).fetchall()
-        return tuple(
+        attempts = tuple(
             ExecutionAttemptRecord.model_validate_json(row['payload_json'])
             for row in rows
         )
+        for attempt in attempts:
+            embedded = attempt.execution_result
+            if embedded is None:
+                continue
+            if self.get_result(embedded.execution_result_id) != embedded:
+                raise ValueError(
+                    'R140 persisted attempt success result does not resolve '
+                    'exactly'
+                )
+        return attempts
 
 
 class BoundedR140Executor:
@@ -1040,8 +1163,42 @@ class BoundedR140Executor:
             progress_sink=self.progress_sink,
         )
 
+        def build_telemetry(
+            *,
+            state: Literal['SUCCEEDED', 'FAILED', 'CANCELLED'],
+            finished_at_utc: str,
+            exit_condition: str,
+            failure_reason: str | None = None,
+            partial_diagnostic: str | None = None,
+        ) -> ExecutionTelemetry:
+            scratch_usage, progress_fraction, progress_message = context.snapshot()
+            return ExecutionTelemetry(
+                queued_at_utc=queued_at_utc,
+                started_at_utc=started_at,
+                finished_at_utc=finished_at_utc,
+                wall_time_seconds=max(0.0, time.monotonic() - started_monotonic),
+                task_state=state,
+                worker_allocation=allocation,
+                peak_memory=RuntimeMetricEvidence(
+                    state='UNSUPPORTED',
+                    unit='bytes',
+                ),
+                scratch_usage=self._runtime_metric(
+                    scratch_usage,
+                    unit='bytes',
+                ),
+                cancellation_requested=token.is_requested(),
+                cancellation_requested_at_utc=token.requested_at_utc,
+                failure_reason=failure_reason,
+                exit_condition=exit_condition,
+                partial_diagnostic=partial_diagnostic,
+                last_progress_fraction=progress_fraction,
+                last_progress_message=progress_message,
+            )
+
         state: Literal['SUCCEEDED', 'FAILED', 'CANCELLED']
         result: ExecutionTaskResult | None = None
+        cache_entry: MultiFidelityExecutionCacheEntry | None = None
         failure_reason: str | None = None
         partial_diagnostic: str | None = None
         exit_condition = 'completed'
@@ -1054,14 +1211,12 @@ class BoundedR140Executor:
                 raise ExecutionCancelled('execution cancellation requested')
             result = build_execution_task_result(task=task, output=output)
             finished_at = _utc_now()
-            self.runtime_repository.save_result(result)
             cache_entry = build_multifidelity_execution_cache_entry(
                 task=task,
                 result_authority_ref=output.result_authority_ref,
                 execution_provenance_ref=output.execution_provenance_ref,
                 completed_at_utc=finished_at,
             )
-            self.execution_repository.save_cache_entry(cache_entry)
             state = 'SUCCEEDED'
         except ExecutionCancelled as exc:
             finished_at = _utc_now()
@@ -1080,37 +1235,44 @@ class BoundedR140Executor:
             failure_reason = f'{type(exc).__name__}: {exc}'
             exit_condition = 'unhandled_worker_exception'
 
-        scratch_usage, progress_fraction, progress_message = context.snapshot()
-        telemetry = ExecutionTelemetry(
-            queued_at_utc=queued_at_utc,
-            started_at_utc=started_at,
-            finished_at_utc=finished_at,
-            wall_time_seconds=max(0.0, time.monotonic() - started_monotonic),
-            task_state=state,
-            worker_allocation=allocation,
-            peak_memory=RuntimeMetricEvidence(
-                state='UNSUPPORTED',
-                unit='bytes',
-            ),
-            scratch_usage=self._runtime_metric(
-                scratch_usage,
-                unit='bytes',
-            ),
-            cancellation_requested=token.is_requested(),
-            cancellation_requested_at_utc=token.requested_at_utc,
-            failure_reason=failure_reason,
-            exit_condition=exit_condition,
-            partial_diagnostic=partial_diagnostic,
-            last_progress_fraction=progress_fraction,
-            last_progress_message=progress_message,
-        )
         attempt = build_execution_attempt(
             task=task,
             estimate=estimate,
             state=state,
-            telemetry=telemetry,
+            telemetry=build_telemetry(
+                state=state,
+                finished_at_utc=finished_at,
+                exit_condition=exit_condition,
+                failure_reason=failure_reason,
+                partial_diagnostic=partial_diagnostic,
+            ),
             execution_result=result if state == 'SUCCEEDED' else None,
         )
+        if state == 'SUCCEEDED':
+            # Publish the runtime result, the exact reusable cache entry and
+            # the SUCCEEDED attempt atomically: a rejected external authority
+            # or a mid-commit fault rolls back all three, so no committed
+            # result row can survive as an orphan. A publication failure is
+            # then recorded as an independent FAILED attempt.
+            assert result is not None and cache_entry is not None
+            try:
+                return self.runtime_repository.commit_success(
+                    result=result,
+                    cache_entry=cache_entry,
+                    attempt=attempt,
+                )
+            except Exception as exc:
+                attempt = build_execution_attempt(
+                    task=task,
+                    estimate=estimate,
+                    state='FAILED',
+                    telemetry=build_telemetry(
+                        state='FAILED',
+                        finished_at_utc=_utc_now(),
+                        exit_condition='result_publication_failure',
+                        failure_reason=f'{type(exc).__name__}: {exc}',
+                    ),
+                )
         return self.runtime_repository.save_attempt(attempt)
 
     def _record_queued_cancel(
