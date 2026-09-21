@@ -30,8 +30,8 @@ from .cad_system_variant_lifecycle import (
 )
 
 
-SYSTEM_VARIANT_MEASURED_SCHEMA_VERSION = 1
-SYSTEM_VARIANT_MEASURED_AUTHORITY_VERSION = 'o100g-system-variant-measured-1'
+SYSTEM_VARIANT_MEASURED_SCHEMA_VERSION = 2
+SYSTEM_VARIANT_MEASURED_AUTHORITY_VERSION = 'o100g-system-variant-measured-2'
 
 
 def _canonical(value: Any) -> str:
@@ -46,6 +46,32 @@ def _canonical(value: Any) -> str:
 
 def _digest(value: Any) -> str:
     return sha256(_canonical(value).encode('utf-8')).hexdigest()
+
+
+def _authority_payload(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    key_column: str,
+    key: str,
+) -> dict[str, Any] | None:
+    """Read one persisted campaign-authority payload in the shared database.
+
+    The O100G campaign repository owns the campaign/registration/completion
+    tables over the same native CAD database. A missing table or row means
+    the required authority is absent, never defaulted.
+    """
+    try:
+        row = connection.execute(
+            f'SELECT payload_json FROM {table} WHERE {key_column}=?',
+            (key,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    payload = json.loads(row['payload_json'])
+    return payload if isinstance(payload, dict) else None
 
 
 class SystemVariantMeasurementEvidenceRef(BaseModel):
@@ -93,13 +119,19 @@ class SystemVariantMeasuredRecord(BaseModel):
     This does not mean every proposed entity was individually measured. Entity
     lifecycle is promoted to measured only for proposed speaker entities that
     appear explicitly in bound measurement source_speaker_ids.
+
+    Measured promotion is campaign-bound: the record carries the exact
+    preregistered campaign identity/hash and the durable campaign
+    registration identity/hash that authorized it, hashed into
+    `record_sha256`, so read-side validation can always prove why an entity
+    entered the measured state.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_version: Literal[1] = SYSTEM_VARIANT_MEASURED_SCHEMA_VERSION
+    schema_version: Literal[2] = SYSTEM_VARIANT_MEASURED_SCHEMA_VERSION
     authority_version: Literal[
-        'o100g-system-variant-measured-1'
+        'o100g-system-variant-measured-2'
     ] = SYSTEM_VARIANT_MEASURED_AUTHORITY_VERSION
 
     record_id: str = Field(pattern=r'^system-variant-measured:[0-9a-f]{64}$')
@@ -109,6 +141,18 @@ class SystemVariantMeasuredRecord(BaseModel):
         pattern=r'^system-variant-as-built:[0-9a-f]{64}$'
     )
     as_built_record_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    campaign_id: str = Field(
+        pattern=r'^system-variant-measurement-campaign:[0-9a-f]{64}$'
+    )
+    campaign_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    campaign_registration_id: str = Field(
+        pattern=(
+            r'^system-variant-measurement-campaign-registration:'
+            r'[0-9a-f]{64}$'
+        )
+    )
+    campaign_registration_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     application_id: str = Field(min_length=1)
     application_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -234,9 +278,22 @@ def build_system_variant_measured_record(
             CadMeasurementQualityReport,
         ]
     ],
+    campaign_id: str,
+    campaign_sha256: str,
+    campaign_registration_id: str,
+    campaign_registration_sha256: str,
     bound_at_utc: str,
     notes: Sequence[str] = (),
 ) -> SystemVariantMeasuredRecord:
+    """Compose one measured lifecycle record bound to a preregistered campaign.
+
+    The campaign identity/hash and the durable campaign registration
+    identity/hash are part of the record semantics, so the record always
+    carries the exact campaign authority that authorized measured
+    promotion. Persisting the record is a separate campaign-bound gate:
+    `CadSystemVariantMeasuredLifecycleRepository` only commits it while the
+    same transaction holds the campaign's persisted completion.
+    """
     target = scene_repository.get(as_built_record.as_built_revision_id)
     if target is None:
         raise ValueError('measured lifecycle as-built SceneRevision disappeared')
@@ -329,6 +386,10 @@ def build_system_variant_measured_record(
         'authority_version': SYSTEM_VARIANT_MEASURED_AUTHORITY_VERSION,
         'as_built_record_id': as_built_record.record_id,
         'as_built_record_sha256': as_built_record.record_sha256,
+        'campaign_id': campaign_id,
+        'campaign_sha256': campaign_sha256,
+        'campaign_registration_id': campaign_registration_id,
+        'campaign_registration_sha256': campaign_registration_sha256,
         'application_id': as_built_record.application_id,
         'application_sha256': as_built_record.application_sha256,
         'variant_id': as_built_record.variant_id,
@@ -350,6 +411,10 @@ def build_system_variant_measured_record(
         record_sha256=digest,
         as_built_record_id=as_built_record.record_id,
         as_built_record_sha256=as_built_record.record_sha256,
+        campaign_id=campaign_id,
+        campaign_sha256=campaign_sha256,
+        campaign_registration_id=campaign_registration_id,
+        campaign_registration_sha256=campaign_registration_sha256,
         application_id=as_built_record.application_id,
         application_sha256=as_built_record.application_sha256,
         variant_id=as_built_record.variant_id,
@@ -365,7 +430,18 @@ def build_system_variant_measured_record(
 
 
 class CadSystemVariantMeasuredLifecycleRepository:
-    """Append-only measured lifecycle evidence over explicit as-built authority."""
+    """Append-only measured lifecycle evidence bound to campaign authority.
+
+    Every record binds one exact preregistered
+    SystemVariantMeasurementCampaign and its durable registration
+    (identity + SHA-256) into `record_sha256`. There is no standalone
+    public save path: the only durable promotion is the O100G campaign
+    repository's `complete_campaign`, which commits the exact campaign
+    completion before this record inside one shared transaction. Reads
+    re-resolve the record, its persisted campaign/registration authorities
+    and the persisted campaign completion, so measured state can always
+    prove which preregistered campaign authorized it.
+    """
 
     def __init__(
         self,
@@ -447,6 +523,9 @@ class CadSystemVariantMeasuredLifecycleRepository:
         ):
             raise ValueError('measured lifecycle as-built authority mismatch')
 
+        with closing(self._connect()) as connection:
+            self._require_campaign_authority(connection, record)
+
         evidence = []
         for ref in record.measurements:
             measurement = self.measurement_repository.get_measurement(
@@ -484,6 +563,10 @@ class CadSystemVariantMeasuredLifecycleRepository:
             scene_repository=self.scene_repository,
             as_built_record=as_built,
             evidence=evidence,
+            campaign_id=record.campaign_id,
+            campaign_sha256=record.campaign_sha256,
+            campaign_registration_id=record.campaign_registration_id,
+            campaign_registration_sha256=record.campaign_registration_sha256,
             bound_at_utc=record.bound_at_utc,
             notes=record.notes,
         )
@@ -493,14 +576,80 @@ class CadSystemVariantMeasuredLifecycleRepository:
             )
         return record
 
-    def save(
+    def _require_campaign_authority(
         self,
+        connection: sqlite3.Connection,
         record: SystemVariantMeasuredRecord,
-    ) -> SystemVariantMeasuredRecord:
-        record = self._validate(record)
-        with closing(self._connect()) as connection, connection:
-            connection.execute('BEGIN IMMEDIATE')
-            return self._save_in_transaction(connection, record)
+    ) -> None:
+        """Re-resolve the persisted campaign/registration this record binds."""
+        campaign = _authority_payload(
+            connection,
+            table='cad_system_variant_measurement_campaigns',
+            key_column='campaign_id',
+            key=record.campaign_id,
+        )
+        if campaign is None:
+            raise ValueError('measured lifecycle campaign authority missing')
+        if campaign.get('campaign_sha256') != record.campaign_sha256:
+            raise ValueError('measured lifecycle campaign authority mismatch')
+        registration = _authority_payload(
+            connection,
+            table='cad_system_variant_measurement_campaign_registrations',
+            key_column='campaign_id',
+            key=record.campaign_id,
+        )
+        if registration is None:
+            raise ValueError(
+                'measured lifecycle campaign registration authority missing'
+            )
+        if (
+            registration.get('registration_id')
+            != record.campaign_registration_id
+            or registration.get('registration_sha256')
+            != record.campaign_registration_sha256
+            or registration.get('campaign_id') != record.campaign_id
+            or registration.get('campaign_sha256') != record.campaign_sha256
+        ):
+            raise ValueError(
+                'measured lifecycle campaign registration authority mismatch'
+            )
+
+    def _require_campaign_completion(
+        self,
+        connection: sqlite3.Connection,
+        record: SystemVariantMeasuredRecord,
+    ) -> None:
+        """Require the persisted campaign completion authorizing this record.
+
+        Measured lifecycle promotion is durable only under the preregistered
+        campaign's exact completion, which re-binds this record's identity,
+        the campaign identity/hash and the durable registration. The campaign
+        repository's `complete_campaign` commits that completion row before
+        this record inside the shared transaction, so the check holds inside
+        the publishing transaction as well as on every later read.
+        """
+        completion = _authority_payload(
+            connection,
+            table='cad_system_variant_measurement_campaign_completions',
+            key_column='campaign_id',
+            key=record.campaign_id,
+        )
+        if completion is None:
+            raise ValueError(
+                'measured lifecycle campaign completion authority missing'
+            )
+        if (
+            completion.get('measured_record_id') != record.record_id
+            or completion.get('measured_record_sha256') != record.record_sha256
+            or completion.get('campaign_sha256') != record.campaign_sha256
+            or completion.get('campaign_registration_id')
+            != record.campaign_registration_id
+            or completion.get('campaign_registration_sha256')
+            != record.campaign_registration_sha256
+        ):
+            raise ValueError(
+                'measured lifecycle campaign completion authority mismatch'
+            )
 
     def _save_in_transaction(
         self,
@@ -509,12 +658,16 @@ class CadSystemVariantMeasuredLifecycleRepository:
     ) -> SystemVariantMeasuredRecord:
         """Persist one validated measured record inside the caller's transaction.
 
-        Used by save and by the O100G measurement campaign repository's atomic
-        campaign completion, which commits plan completions, the campaign
-        completion and this measured lifecycle record over the same native
-        database. The caller owns BEGIN/COMMIT/ROLLBACK and must have
-        validated the record first; persisted rows were validated on commit.
+        Used only by the O100G measurement campaign repository's atomic
+        campaign completion, which commits plan completions, the exact
+        campaign completion and this measured lifecycle record over the same
+        native database. The campaign completion row must already exist in
+        the same transaction, so a measured record can never be persisted
+        without its preregistered campaign completion authority. The caller
+        owns BEGIN/COMMIT/ROLLBACK and must have validated the record first;
+        persisted rows were validated on commit.
         """
+        self._require_campaign_completion(connection, record)
         row = connection.execute(
             """
             SELECT payload_json
@@ -570,13 +723,9 @@ class CadSystemVariantMeasuredLifecycleRepository:
                 """,
                 (record_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return self._validate(
-            SystemVariantMeasuredRecord.model_validate_json(
-                row['payload_json']
-            )
-        )
+            if row is None:
+                return None
+            return self._validated_record(connection, row['payload_json'])
 
     def list_for_as_built(
         self,
@@ -593,11 +742,18 @@ class CadSystemVariantMeasuredLifecycleRepository:
                 (as_built_record_id,),
             ).fetchall()
 
-        return tuple(
-            self._validate(
-                SystemVariantMeasuredRecord.model_validate_json(
-                    row['payload_json']
-                )
+            return tuple(
+                self._validated_record(connection, row['payload_json'])
+                for row in rows
             )
-            for row in rows
+
+    def _validated_record(
+        self,
+        connection: sqlite3.Connection,
+        payload_json: str,
+    ) -> SystemVariantMeasuredRecord:
+        record = self._validate(
+            SystemVariantMeasuredRecord.model_validate_json(payload_json)
         )
+        self._require_campaign_completion(connection, record)
+        return record

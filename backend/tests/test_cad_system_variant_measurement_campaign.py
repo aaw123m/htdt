@@ -32,6 +32,7 @@ from htdt.cad_system_variant_lifecycle import (
 )
 from htdt.cad_system_variant_measured_lifecycle import (
     CadSystemVariantMeasuredLifecycleRepository,
+    build_system_variant_measured_record,
 )
 from htdt.cad_system_variant_measurement_campaign import (
     CadSystemVariantMeasurementCampaignRepository,
@@ -393,10 +394,39 @@ def test_generic_measurement_does_not_promote_variant_without_campaign_completio
     tmp_path: Path,
 ) -> None:
     fx = _fixture(tmp_path)
-    _save_evidence(fx)
+    measurement, dataset, report = _save_evidence(fx)
 
     assert fx['measured'].list_for_as_built(fx['as_built'].record_id) == ()
     assert fx['campaigns'].get_campaign_completion('missing') is None
+
+    # Generic measurement + quality evidence alone cannot create a durable
+    # measured lifecycle state: measured records must bind a persisted
+    # preregistered campaign, and the repository exposes no standalone save.
+    assert not hasattr(fx['measured'], 'save')
+    record = build_system_variant_measured_record(
+        scene_repository=fx['scene'],
+        as_built_record=fx['as_built'],
+        evidence=((measurement, dataset, report),),
+        campaign_id='system-variant-measurement-campaign:' + '0' * 64,
+        campaign_sha256='0' * 64,
+        campaign_registration_id=(
+            'system-variant-measurement-campaign-registration:' + '0' * 64
+        ),
+        campaign_registration_sha256='0' * 64,
+        bound_at_utc=COMPLETE_TIME,
+    )
+    with pytest.raises(ValueError, match='campaign authority missing'):
+        fx['measured']._validate(record)
+    with closing(sqlite3.connect(fx['scene'].path)) as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        with pytest.raises(
+            ValueError, match='campaign completion authority'
+        ):
+            fx['measured']._save_in_transaction(connection, record)
+        connection.rollback()
+
+    assert fx['measured'].get(record.record_id) is None
+    assert fx['measured'].list_for_as_built(fx['as_built'].record_id) == ()
 
 
 def test_campaign_completion_promotes_exact_measured_lifecycle_and_reopens(
@@ -419,6 +449,15 @@ def test_campaign_completion_promotes_exact_measured_lifecycle_and_reopens(
     assert measured.variant_id == fx['variant'].variant_id
     states = {item.entity_id: item.state for item in measured.entity_lifecycle}
     assert states['sl'] == 'measured'
+    # The promoted measured record proves which preregistered campaign and
+    # durable registration authorized it.
+    assert measured.campaign_id == campaign.campaign_id
+    assert measured.campaign_sha256 == campaign.campaign_sha256
+    assert measured.campaign_registration_id == registration.registration_id
+    assert (
+        measured.campaign_registration_sha256
+        == registration.registration_sha256
+    )
     assert completion.measured_record_id == measured.record_id
     assert completion.campaign_registration_id == registration.registration_id
     assert (

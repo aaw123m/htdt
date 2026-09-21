@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from contextlib import closing
 from hashlib import sha256
 from pathlib import Path
+import sqlite3
 
 import pytest
 
+import htdt.cad_system_variant_measurement_campaign as campaign_module
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
     CadAcquisitionContextBinding,
@@ -42,11 +45,23 @@ from htdt.cad_system_variant_measured_lifecycle import (
     CadSystemVariantMeasuredLifecycleRepository,
     build_system_variant_measured_record,
 )
+from htdt.cad_system_variant_measurement_campaign import (
+    CadSystemVariantMeasurementCampaignRepository,
+    SystemVariantMeasurementTarget,
+    VariantMeasurementAcquisitionRequirement,
+    build_system_variant_measurement_campaign,
+    build_system_variant_measurement_plan,
+)
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
 
 
 DOCUMENT_ID = 'o100g-measured-lifecycle-fixture'
 NOW = '2026-09-20T00:00:00+00:00'
+PLAN_TIME = '2026-09-20T00:02:30+00:00'
+CAMPAIGN_TIME = '2026-09-20T00:03:00+00:00'
+REGISTER_TIME = '2026-09-20T00:03:30+00:00'
+CAPTURE_TIME = '2026-09-20T00:04:30+00:00'
+COMPLETE_TIME = '2026-09-20T00:05:00+00:00'
 
 
 def _speaker(entity_id: str, role: str, x_m: float) -> SceneEntity:
@@ -61,7 +76,7 @@ def _speaker(entity_id: str, role: str, x_m: float) -> SceneEntity:
     )
 
 
-def _fixture(tmp_path: Path):
+def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     baseline = scene_repository.save(
         SceneDocument(
@@ -131,14 +146,81 @@ def _fixture(tmp_path: Path):
     quality_repository = CadMeasurementQualityRepository(
         measurement_repository
     )
+    measured = CadSystemVariantMeasuredLifecycleRepository(
+        scene_repository=scene_repository,
+        lifecycle_repository=lifecycle_repository,
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+    )
+    campaigns = CadSystemVariantMeasurementCampaignRepository(
+        scene_repository=scene_repository,
+        variant_repository=variant_repository,
+        lifecycle_repository=lifecycle_repository,
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+        measured_lifecycle_repository=measured,
+    )
+
+    # The preregistered campaign is the only measured-promotion authority:
+    # its exact target/acquisition requirements are committed before any
+    # qualifying measurement evidence may exist.
+    target = SystemVariantMeasurementTarget(
+        target_id='sl-at-mlp',
+        measurement_point_entity_id='mlp',
+        measurement_position=applied.document.entity('mlp').position,
+        source_entity_ids=('sl',),
+        channel_role='SL',
+        observable='magnitude_response',
+        acquisition=VariantMeasurementAcquisitionRequirement(
+            require_context=True
+        ),
+        expected_measurement_count=1,
+        validation_purpose='variant measured lifecycle',
+    )
+    plan = build_system_variant_measurement_plan(
+        scene_repository=scene_repository,
+        variant_repository=variant_repository,
+        lifecycle_repository=lifecycle_repository,
+        as_built_record=as_built,
+        targets=(target,),
+        created_at_utc=PLAN_TIME,
+        purpose='measure installed proposal',
+    )
+    campaigns.save_plan(plan)
+    campaign = build_system_variant_measurement_campaign(
+        plans=(plan,),
+        purpose='SystemVariant measurement campaign',
+        preregistered_at_utc=CAMPAIGN_TIME,
+    )
+    monkeypatch.setattr(
+        campaign_module, '_utc_now', lambda: REGISTER_TIME
+    )
+    registration = campaigns.save_campaign(campaign)
+
     return {
         'scene_repository': scene_repository,
         'variant_repository': variant_repository,
         'lifecycle_repository': lifecycle_repository,
         'measurement_repository': measurement_repository,
         'quality_repository': quality_repository,
+        'measured': measured,
+        'campaigns': campaigns,
         'applied': applied,
         'as_built': as_built,
+        'target': target,
+        'plan': plan,
+        'campaign': campaign,
+        'registration': registration,
+    }
+
+
+def _campaign_refs(fx) -> dict[str, str]:
+    """The exact campaign authority a measured record must bind."""
+    return {
+        'campaign_id': fx['campaign'].campaign_id,
+        'campaign_sha256': fx['campaign'].campaign_sha256,
+        'campaign_registration_id': fx['registration'].registration_id,
+        'campaign_registration_sha256': fx['registration'].registration_sha256,
     }
 
 
@@ -150,6 +232,7 @@ def _save_measurement(
     source_speaker_ids: tuple[str, ...],
     evidence_type: str = 'measured',
     with_acquisition_context: bool = True,
+    captured_at: str = CAPTURE_TIME,
 ):
     measurement_repository = fx['measurement_repository']
     quality_repository = fx['quality_repository']
@@ -169,7 +252,8 @@ def _save_measurement(
         source_speaker_ids=source_speaker_ids,
         radiation_scope='single',
         routing_evidence='verified',
-        imported_at='2026-09-20T00:03:00+00:00',
+        captured_at=captured_at,
+        imported_at=CAPTURE_TIME,
         source_kind='unknown',
         external_source_id=f'rew:{measurement_id}',
     )
@@ -207,7 +291,7 @@ def _save_measurement(
         profile=build_measurement_quality_profile(),
         acquisition_context=acquisition,
         report_id=f'report:{measurement_id}',
-        created_at_utc='2026-09-20T00:04:00+00:00',
+        created_at_utc=CAPTURE_TIME,
     )
     quality_repository.save_report(report)
     return record, dataset, report
@@ -215,8 +299,9 @@ def _save_measurement(
 
 def test_measured_record_promotes_only_explicit_proposed_source_speaker(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fx = _fixture(tmp_path)
+    fx = _fixture(tmp_path, monkeypatch)
     measurement, dataset, report = _save_measurement(
         fx,
         revision=fx['applied'],
@@ -224,12 +309,39 @@ def test_measured_record_promotes_only_explicit_proposed_source_speaker(
         source_speaker_ids=('sl',),
     )
 
-    record = build_system_variant_measured_record(
+    completion, _, record = fx['campaigns'].complete_campaign(
+        campaign=fx['campaign'],
+        assignments_by_plan={
+            fx['plan'].plan_id: {
+                fx['target'].target_id: (measurement.measurement_id,)
+            }
+        },
+        completed_at_utc=COMPLETE_TIME,
+    )
+
+    # The measured record binds the exact preregistered campaign and its
+    # durable registration, so its promotion provenance is re-resolvable.
+    assert record.campaign_id == fx['campaign'].campaign_id
+    assert record.campaign_sha256 == fx['campaign'].campaign_sha256
+    assert record.campaign_registration_id == (
+        fx['registration'].registration_id
+    )
+    assert record.campaign_registration_sha256 == (
+        fx['registration'].registration_sha256
+    )
+    assert completion.measured_record_id == record.record_id
+    assert completion.measured_record_sha256 == record.record_sha256
+
+    # The same record reproduces from the builder given the campaign
+    # authority refs.
+    rebuilt = build_system_variant_measured_record(
         scene_repository=fx['scene_repository'],
         as_built_record=fx['as_built'],
         evidence=((measurement, dataset, report),),
-        bound_at_utc='2026-09-20T00:05:00+00:00',
+        **_campaign_refs(fx),
+        bound_at_utc=COMPLETE_TIME,
     )
+    assert rebuilt == record
 
     lifecycle = {item.entity_id: item for item in record.entity_lifecycle}
     assert lifecycle['sl'].state == 'measured'
@@ -242,14 +354,6 @@ def test_measured_record_promotes_only_explicit_proposed_source_speaker(
         'magnitude_response',
     )
     assert record.measurements[0].acquisition_context_id == 'acq:measure-sl'
-
-    repository = CadSystemVariantMeasuredLifecycleRepository(
-        scene_repository=fx['scene_repository'],
-        lifecycle_repository=fx['lifecycle_repository'],
-        measurement_repository=fx['measurement_repository'],
-        quality_repository=fx['quality_repository'],
-    )
-    repository.save(record)
 
     reopened_scene = SceneRepository(fx['scene_repository'].path)
     reopened_variants = CadSystemVariantRepository(reopened_scene)
@@ -273,8 +377,9 @@ def test_measured_record_promotes_only_explicit_proposed_source_speaker(
 
 def test_measured_record_requires_exact_as_built_revision(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fx = _fixture(tmp_path)
+    fx = _fixture(tmp_path, monkeypatch)
     descendant_document = fx['applied'].document.model_copy(
         update={
             'entities': tuple(
@@ -311,14 +416,16 @@ def test_measured_record_requires_exact_as_built_revision(
             scene_repository=fx['scene_repository'],
             as_built_record=fx['as_built'],
             evidence=((measurement, dataset, report),),
-            bound_at_utc='2026-09-20T00:05:00+00:00',
+            **_campaign_refs(fx),
+            bound_at_utc=COMPLETE_TIME,
         )
 
 
 def test_measured_record_rejects_derived_evidence(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fx = _fixture(tmp_path)
+    fx = _fixture(tmp_path, monkeypatch)
     measurement, dataset, report = _save_measurement(
         fx,
         revision=fx['applied'],
@@ -335,14 +442,16 @@ def test_measured_record_rejects_derived_evidence(
             scene_repository=fx['scene_repository'],
             as_built_record=fx['as_built'],
             evidence=((measurement, dataset, report),),
-            bound_at_utc='2026-09-20T00:05:00+00:00',
+            **_campaign_refs(fx),
+            bound_at_utc=COMPLETE_TIME,
         )
 
 
 def test_measured_record_can_bind_configuration_measurement_without_promoting_entity(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fx = _fixture(tmp_path)
+    fx = _fixture(tmp_path, monkeypatch)
     measurement, dataset, report = _save_measurement(
         fx,
         revision=fx['applied'],
@@ -354,7 +463,8 @@ def test_measured_record_can_bind_configuration_measurement_without_promoting_en
         scene_repository=fx['scene_repository'],
         as_built_record=fx['as_built'],
         evidence=((measurement, dataset, report),),
-        bound_at_utc='2026-09-20T00:05:00+00:00',
+        **_campaign_refs(fx),
+        bound_at_utc=COMPLETE_TIME,
     )
 
     assert {item.state for item in record.entity_lifecycle} == {'as_built'}
@@ -363,8 +473,9 @@ def test_measured_record_can_bind_configuration_measurement_without_promoting_en
 
 def test_measured_record_requires_explicit_acquisition_context(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fx = _fixture(tmp_path)
+    fx = _fixture(tmp_path, monkeypatch)
     measurement, dataset, report = _save_measurement(
         fx,
         revision=fx['applied'],
@@ -381,5 +492,115 @@ def test_measured_record_requires_explicit_acquisition_context(
             scene_repository=fx['scene_repository'],
             as_built_record=fx['as_built'],
             evidence=((measurement, dataset, report),),
-            bound_at_utc='2026-09-20T00:05:00+00:00',
+            **_campaign_refs(fx),
+            bound_at_utc=COMPLETE_TIME,
         )
+
+
+def test_measured_record_validation_requires_persisted_campaign_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A record bound to campaign refs that were never persisted cannot
+    validate: the preregistered campaign is the promotion authority."""
+    fx = _fixture(tmp_path, monkeypatch)
+    measurement, dataset, report = _save_measurement(
+        fx,
+        revision=fx['applied'],
+        measurement_id='measure-sl',
+        source_speaker_ids=('sl',),
+    )
+    record = build_system_variant_measured_record(
+        scene_repository=fx['scene_repository'],
+        as_built_record=fx['as_built'],
+        evidence=((measurement, dataset, report),),
+        campaign_id='system-variant-measurement-campaign:' + '0' * 64,
+        campaign_sha256='0' * 64,
+        campaign_registration_id=(
+            'system-variant-measurement-campaign-registration:' + '0' * 64
+        ),
+        campaign_registration_sha256='0' * 64,
+        bound_at_utc=COMPLETE_TIME,
+    )
+
+    with pytest.raises(ValueError, match='campaign authority missing'):
+        fx['measured']._validate(record)
+
+
+def test_measured_record_cannot_persist_without_campaign_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Direct measured-lifecycle persistence fails closed.
+
+    There is no public save path and the internal write primitive refuses
+    to commit while the bound campaign's completion is not in the same
+    transaction.
+    """
+    fx = _fixture(tmp_path, monkeypatch)
+    measurement, dataset, report = _save_measurement(
+        fx,
+        revision=fx['applied'],
+        measurement_id='measure-sl',
+        source_speaker_ids=('sl',),
+    )
+    record = build_system_variant_measured_record(
+        scene_repository=fx['scene_repository'],
+        as_built_record=fx['as_built'],
+        evidence=((measurement, dataset, report),),
+        **_campaign_refs(fx),
+        bound_at_utc=COMPLETE_TIME,
+    )
+
+    assert not hasattr(fx['measured'], 'save')
+    with closing(
+        sqlite3.connect(fx['scene_repository'].path)
+    ) as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        with pytest.raises(
+            ValueError, match='campaign completion authority'
+        ):
+            fx['measured']._save_in_transaction(connection, record)
+        connection.rollback()
+
+    assert fx['measured'].get(record.record_id) is None
+    assert fx['measured'].list_for_as_built(fx['as_built'].record_id) == ()
+
+
+def test_persisted_measured_record_requires_completion_provenance_on_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read-side fail-closed: a measured row without its persisted campaign
+    completion cannot prove why the entities entered measured state."""
+    fx = _fixture(tmp_path, monkeypatch)
+    measurement, _, _ = _save_measurement(
+        fx,
+        revision=fx['applied'],
+        measurement_id='measure-sl',
+        source_speaker_ids=('sl',),
+    )
+    _, _, record = fx['campaigns'].complete_campaign(
+        campaign=fx['campaign'],
+        assignments_by_plan={
+            fx['plan'].plan_id: {
+                fx['target'].target_id: (measurement.measurement_id,)
+            }
+        },
+        completed_at_utc=COMPLETE_TIME,
+    )
+    assert fx['measured'].get(record.record_id) == record
+
+    # Simulate a pre-authority/corrupt durable state: the measured row lost
+    # its campaign completion authority.
+    with closing(
+        sqlite3.connect(fx['scene_repository'].path)
+    ) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_system_variant_measurement_campaign_completions'
+        )
+
+    with pytest.raises(ValueError, match='campaign completion authority'):
+        fx['measured'].get(record.record_id)
+    with pytest.raises(ValueError, match='campaign completion authority'):
+        fx['measured'].list_for_as_built(fx['as_built'].record_id)

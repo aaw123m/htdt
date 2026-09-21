@@ -932,6 +932,10 @@ def complete_system_variant_measurement_campaign(
             evidence_by_measurement[key]
             for key in sorted(evidence_by_measurement)
         ),
+        campaign_id=campaign.campaign_id,
+        campaign_sha256=campaign.campaign_sha256,
+        campaign_registration_id=registration.registration_id,
+        campaign_registration_sha256=registration.registration_sha256,
         bound_at_utc=completed_at_utc,
         notes=notes,
     )
@@ -1548,6 +1552,11 @@ class CadSystemVariantMeasurementCampaignRepository:
             measured.as_built_record_id != campaign.as_built_record_id
             or measured.variant_id != campaign.variant_id
             or measured.variant_sha256 != campaign.variant_sha256
+            or measured.campaign_id != campaign.campaign_id
+            or measured.campaign_sha256 != campaign.campaign_sha256
+            or measured.campaign_registration_id != registration.registration_id
+            or measured.campaign_registration_sha256
+            != registration.registration_sha256
         ):
             raise ValueError('campaign completion measured lifecycle authority mismatch')
         by_id = (
