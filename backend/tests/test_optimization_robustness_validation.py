@@ -1294,7 +1294,7 @@ def test_o90e_synthetic_o60_evidence_never_opens_production_gate(tmp_path) -> No
     assert 'synthetic_evidence' in decision.reasons
 
 
-def test_o90e_historical_decision_is_immutable_and_new_evidence_adds_new_decision(
+def test_o90e_superseded_decision_fails_closed_and_new_evidence_adds_new_decision(
     tmp_path,
 ) -> None:
     env = _fixture(tmp_path)
@@ -1316,11 +1316,212 @@ def test_o90e_historical_decision_is_immutable_and_new_evidence_adds_new_decisio
     assert second.assessments[-1].perturbation_measurement.quality_report_id == (
         newer_report.report_id
     )
-    assert env.validation_repository.get_decision(first.decision_id) == first
-    assert env.validation_repository.list_decisions(env.spec.robustness_spec_id) == (
-        first,
-        second,
+
+    # The superseded row is never rewritten, but it no longer reproduces the
+    # canonical evaluation of the current authorities, so authoritative reads
+    # fail closed instead of serving a stale production-gate decision.
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.get_decision(first.decision_id)
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.list_decisions(env.spec.robustness_spec_id)
+    assert env.validation_repository.get_decision(second.decision_id) == second
+
+
+def _phase_case(env):
+    """Preregister a plus case whose magnitude-only evidence blocks the claim."""
+    return env.validation_repository.preregister_case(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        axis_id='speaker-x',
+        direction='plus',
+        nominal_measurement_plan_id=env.planned[env.nominal.candidate_id].plan_id,
+        perturbation_measurement_plan_id=env.planned[env.plus.candidate_id].plan_id,
+        o60_campaign_id=env.campaign.campaign_id,
+        observable_id='response.shape_rms_db',
+        receiver_entity_id='listener-main',
+        required_capability='phase_response',
+        channel_role='front_left',
+        source_speaker_ids=('speaker-fl',),
+        radiation_scope='single',
     )
+
+
+def _rebuild_decision(env, canonical, *, assessments=None, axis_coverage=None):
+    """Recompute a self-hash-valid decision over mutated caller fields."""
+    return build_o90e_decision(
+        spec=env.spec,
+        validation_id=canonical.o60_validation_id,
+        validation_sha256=canonical.o60_validation_sha256,
+        campaign_id=canonical.o60_campaign_id,
+        campaign_sha256=canonical.o60_campaign_sha256,
+        assessments=(
+            canonical.assessments if assessments is None else assessments
+        ),
+        axis_coverage=(
+            canonical.axis_coverage if axis_coverage is None else axis_coverage
+        ),
+        support_state=canonical.support_state,
+        reasons=canonical.reasons,
+        decided_at_utc=canonical.decided_at_utc,
+    )
+
+
+def test_o90e_fabricated_eligible_decision_over_real_evidence_is_rejected(
+    tmp_path,
+) -> None:
+    env = _fixture(tmp_path)
+    phase_case = _phase_case(env)
+    canonical = env.validation_repository.evaluate_decision(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        o60_validation_id=env.o60_record.validation_id,
+        case_ids=(env.minus_case.case_id, phase_case.case_id),
+        decided_at_utc='2030-01-01T04:40:00+00:00',
+    )
+    assert canonical.production_gate == 'closed'
+    blocked = next(
+        item for item in canonical.assessments if item.direction == 'plus'
+    )
+    assert blocked.status == 'unsupported'
+
+    # Every referenced authority stays real; only the caller-supplied
+    # interpretation is fabricated into an internally self-hash-valid payload.
+    forged = build_o90e_decision(
+        spec=env.spec,
+        validation_id=canonical.o60_validation_id,
+        validation_sha256=canonical.o60_validation_sha256,
+        campaign_id=canonical.o60_campaign_id,
+        campaign_sha256=canonical.o60_campaign_sha256,
+        assessments=tuple(
+            item.model_copy(update={'status': 'supported', 'reasons': ()})
+            for item in canonical.assessments
+        ),
+        axis_coverage=tuple(
+            item.model_copy(update={'state': 'full'})
+            for item in canonical.axis_coverage
+        ),
+        support_state='full',
+        reasons=('eligible',),
+        decided_at_utc=canonical.decided_at_utc,
+    )
+    assert forged.production_gate == 'eligible'
+
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.save_decision(forged)
+
+    # The same fabricated payload written straight into the store is detected
+    # by the read-side canonical replay as well.
+    with sqlite3.connect(env.scene_repository.path) as connection:
+        connection.execute(
+            '''
+            INSERT INTO cad_robustness_validation_decisions(
+                decision_id, robustness_spec_id, candidate_id,
+                production_gate, support_state, decision_sha256,
+                decided_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                forged.decision_id,
+                forged.robustness_spec_id,
+                forged.candidate_id,
+                forged.production_gate,
+                forged.support_state,
+                forged.decision_sha256,
+                forged.decided_at_utc,
+                forged.model_dump_json(),
+            ),
+        )
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.get_decision(forged.decision_id)
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.list_decisions(env.spec.robustness_spec_id)
+
+
+def test_o90e_fabricated_assessment_fields_are_rejected(tmp_path) -> None:
+    env = _fixture(tmp_path)
+    phase_case = _phase_case(env)
+    canonical = env.validation_repository.evaluate_decision(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        o60_validation_id=env.o60_record.validation_id,
+        case_ids=(env.minus_case.case_id, phase_case.case_id),
+        decided_at_utc='2030-01-01T04:50:00+00:00',
+    )
+    assert canonical.production_gate == 'closed'
+    blocked = next(
+        item for item in canonical.assessments if item.direction == 'plus'
+    )
+    assert blocked.perturbation_measurement.capability_decision == 'BLOCKED'
+
+    # Embedded capability decision flipped to ALLOWED while the exact
+    # report/gate still says BLOCKED.
+    forged_ref = blocked.perturbation_measurement.model_copy(
+        update={'capability_decision': 'ALLOWED'}
+    )
+    forged_capability = _rebuild_decision(
+        env,
+        canonical,
+        assessments=tuple(
+            item.model_copy(update={'perturbation_measurement': forged_ref})
+            if item.direction == 'plus'
+            else item
+            for item in canonical.assessments
+        ),
+    )
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.save_decision(forged_capability)
+
+    # Assessment axis/direction/delta changed while retaining the real case id.
+    forged_binding = _rebuild_decision(
+        env,
+        canonical,
+        assessments=tuple(
+            item.model_copy(
+                update={
+                    'axis_id': 'speaker-y',
+                    'direction': 'plus',
+                    'target_delta': 0.2,
+                }
+            )
+            if item.direction == 'minus'
+            else item
+            for item in canonical.assessments
+        ),
+    )
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.save_decision(forged_binding)
+
+    # Sensitivity evidence hash and derived reasons replaced.
+    forged_evidence = _rebuild_decision(
+        env,
+        canonical,
+        assessments=tuple(
+            item.model_copy(
+                update={
+                    'sensitivity_evidence_sha256': '0' * 64,
+                    'reasons': (),
+                }
+            )
+            if item.direction == 'minus'
+            else item
+            for item in canonical.assessments
+        ),
+    )
+    with pytest.raises(ValueError, match='canonical evaluation'):
+        env.validation_repository.save_decision(forged_evidence)
+
+
+def test_o90e_unknown_authority_version_fails_closed(tmp_path) -> None:
+    env = _fixture(tmp_path)
+    decision = env.validation_repository.evaluate_decision(
+        robustness_spec_id=env.spec.robustness_spec_id,
+        o60_validation_id=env.o60_record.validation_id,
+        case_ids=(env.minus_case.case_id, env.plus_case.case_id),
+        decided_at_utc='2030-01-01T05:00:00+00:00',
+    )
+
+    foreign = decision.model_copy(
+        update={'authority_version': 'o90e-owned-room-validation-999'}
+    )
+    with pytest.raises(ValueError):
+        env.validation_repository.save_decision(foreign)
 
 
 def test_o90e_raw_measurement_asset_tamper_rejected_on_reopen(tmp_path) -> None:
