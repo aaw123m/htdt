@@ -12,6 +12,11 @@ from .cad_acoustic_snapshot import (
     TreatmentBoundaryOverlaySnapshotRef,
     source_binding_from_r110,
 )
+from .cad_acoustic_solver_adapter import (
+    AcousticNumericalFidelityPolicy,
+    NumericalFidelityPolicyResolver,
+    numerical_fidelity_policy_request_reasons,
+)
 from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_repository import SceneRepository
 from .cad_scene import acoustic_reference_position
@@ -39,6 +44,7 @@ class CadAcousticSnapshotRepository:
         r120_repository: R120GeometryCompilerRepository | None = None,
         treatment_boundary_repository: TreatmentBoundaryOverlayRepository | None = None,
         wave_excitation_repository: CadWaveExcitationRepository | None = None,
+        fidelity_policy_resolver: NumericalFidelityPolicyResolver | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.variant_repository = (
@@ -60,6 +66,7 @@ class CadAcousticSnapshotRepository:
             else R120GeometryCompilerRepository(scene_repository)
         )
         self.treatment_boundary_repository = treatment_boundary_repository
+        self.fidelity_policy_resolver = fidelity_policy_resolver
         self.wave_excitation_repository = (
             wave_excitation_repository
             if wave_excitation_repository is not None
@@ -630,6 +637,41 @@ class CadAcousticSnapshotRepository:
         )
         return self._validate_snapshot(snapshot)
 
+    def _resolve_fidelity_policy(
+        self,
+        request: AcousticPredictionRequest,
+    ) -> AcousticNumericalFidelityPolicy:
+        if self.fidelity_policy_resolver is None:
+            raise ValueError(
+                'AcousticPredictionRequest requires a numerical fidelity '
+                'policy resolver'
+            )
+        resolved = self.fidelity_policy_resolver(
+            request.numerical_fidelity_policy_ref
+        )
+        if resolved is None:
+            raise ValueError(
+                'numerical fidelity policy exact external authority '
+                'does not exist'
+            )
+        policy = AcousticNumericalFidelityPolicy.model_validate(
+            resolved.model_dump(mode='python')
+        )
+        if policy.authority_ref != request.numerical_fidelity_policy_ref:
+            raise ValueError(
+                'numerical fidelity policy exact external authority mismatch'
+            )
+        reasons = numerical_fidelity_policy_request_reasons(
+            policy=policy,
+            request=request,
+        )
+        if reasons:
+            raise ValueError(
+                'numerical fidelity policy is not applicable to the '
+                f'AcousticPredictionRequest: {", ".join(reasons)}'
+            )
+        return policy
+
     def save_prediction_request(
         self,
         request: AcousticPredictionRequest,
@@ -651,6 +693,7 @@ class CadAcousticSnapshotRepository:
             raise ValueError(
                 'AcousticPredictionRequest snapshot hash mismatch'
             )
+        self._resolve_fidelity_policy(request)
 
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
@@ -727,4 +770,5 @@ class CadAcousticSnapshotRepository:
             raise ValueError(
                 'persisted AcousticPredictionRequest snapshot hash mismatch'
             )
+        self._resolve_fidelity_policy(request)
         return request

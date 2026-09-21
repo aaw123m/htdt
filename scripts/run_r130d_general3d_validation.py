@@ -787,6 +787,7 @@ def _create_pffdtd_dispatch(
         request=fixture['request'],
         adapter=fixture['descriptor'],
         solver_configuration_ref=configuration.as_external_ref(),
+        numerical_fidelity_policy=fixture['fidelity_policy'],
     )
     if dispatch.state != 'READY':
         raise ValidationBlocked(

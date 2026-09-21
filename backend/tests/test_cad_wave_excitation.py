@@ -12,6 +12,7 @@ from htdt.cad_acoustic_snapshot import (
 )
 from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
 from htdt.cad_acoustic_solver_adapter import (
+    AcousticNumericalFidelityPolicy,
     bind_prediction_request_to_solver_adapter,
     build_acoustic_solver_adapter_descriptor,
 )
@@ -442,6 +443,14 @@ def test_explicit_binding_promotes_snapshot_wave_readiness_and_dispatch(
         solver_configuration_ref=_ref(
             'fixture-wave-config',
             '9',
+        ),
+        numerical_fidelity_policy=AcousticNumericalFidelityPolicy(
+            authority_ref=request.numerical_fidelity_policy_ref,
+            acoustic_domain='wave',
+            model_solver_role_ids=('r130-wave-fixture-role',),
+            supported_observables=('complex_pressure',),
+            valid_frequency_domain=snapshot.requested_frequency_domain,
+            parameter_bounds={'points_per_wavelength': 8.0},
         ),
     )
 

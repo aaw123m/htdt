@@ -16,6 +16,7 @@ from htdt.cad_acoustic_snapshot import (
 )
 from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
 from htdt.cad_acoustic_solver_adapter import (
+    AcousticNumericalFidelityPolicy,
     bind_prediction_request_to_solver_adapter,
     build_acoustic_solver_adapter_descriptor,
 )
@@ -1221,15 +1222,29 @@ def _fixture(
         ),
         geometric_acoustics_topology_preflight_ref=topology_preflight_ref,
     )
+    fidelity_policy = AcousticNumericalFidelityPolicy(
+        authority_ref=_ref(
+            'fixture-fidelity-policy',
+            'fidelity',
+        ),
+        acoustic_domain='geometric',
+        model_solver_role_ids=('r150-deterministic-ga',),
+        supported_observables=('deterministic_paths',),
+        valid_frequency_domain=domain,
+        parameter_bounds={},
+    )
+
+    def fidelity_policy_resolver(ref: ExactExternalAuthorityRef):
+        return (
+            fidelity_policy if fidelity_policy.authority_ref == ref else None
+        )
+
     request = build_acoustic_prediction_request(
         snapshot=snapshot,
         model_solver_role_id='r150-deterministic-ga',
         requested_frequency_domain=domain,
         requested_observables=('deterministic_paths',),
-        numerical_fidelity_policy_ref=_ref(
-            'fixture-fidelity-policy',
-            'fidelity',
-        ),
+        numerical_fidelity_policy_ref=fidelity_policy.authority_ref,
     )
     configuration = build_deterministic_ga_configuration(
         frequency_centers_hz=(500.0, 1000.0),
@@ -1280,6 +1295,7 @@ def _fixture(
         request=request,
         adapter=descriptor,
         solver_configuration_ref=configuration.as_external_ref(),
+        numerical_fidelity_policy=fidelity_policy,
     )
     assert dispatch.state == expected_dispatch_state, {
         'dispatch_reasons': dispatch.reasons,
@@ -1302,6 +1318,7 @@ def _fixture(
         variant_repository=variant_repository,
         r110_repository=r110_repository,
         r120_repository=r120_repository,
+        fidelity_policy_resolver=fidelity_policy_resolver,
     )
     snapshot_repository.save_snapshot(snapshot)
     snapshot_repository.save_prediction_request(request)
@@ -1330,6 +1347,7 @@ def _fixture(
         scene_repository,
         snapshot_repository=snapshot_repository,
         external_authority_resolver=external_resolver,
+        fidelity_policy_resolver=fidelity_policy_resolver,
     )
     dispatch_repository.save_descriptor(descriptor)
     dispatch_repository.save_dispatch(dispatch)
@@ -1406,6 +1424,8 @@ def _fixture(
         'geometry_resolver': geometry_resolver,
         'geometry_authorities': geometry_authorities,
         'external_resolver': external_resolver,
+        'fidelity_policy_resolver': fidelity_policy_resolver,
+        'fidelity_policy': fidelity_policy,
         'execution_input': execution_input,
         'surface_by_key': surface_by_key,
     }
@@ -1956,11 +1976,13 @@ def test_execution_input_artifact_and_result_save_reopen_fail_closed(
     reopened = CadDeterministicPathArtifactRepository(
         SceneRepository(fx['scene_repository'].path),
         snapshot_repository=CadAcousticSnapshotRepository(
-            SceneRepository(fx['scene_repository'].path)
+            SceneRepository(fx['scene_repository'].path),
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
         ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             SceneRepository(fx['scene_repository'].path),
             external_authority_resolver=fx['external_resolver'],
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
@@ -2259,11 +2281,13 @@ def test_portal_reflection_save_reopen_identity_and_stale_portal_rejection(
     reopened = CadDeterministicPathArtifactRepository(
         SceneRepository(fx['scene_repository'].path),
         snapshot_repository=CadAcousticSnapshotRepository(
-            SceneRepository(fx['scene_repository'].path)
+            SceneRepository(fx['scene_repository'].path),
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
         ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             SceneRepository(fx['scene_repository'].path),
             external_authority_resolver=fx['external_resolver'],
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
@@ -2446,11 +2470,13 @@ def test_multi_region_portal_execution_input_and_artifact_save_reopen_exact_iden
     reopened = CadDeterministicPathArtifactRepository(
         SceneRepository(fx['scene_repository'].path),
         snapshot_repository=CadAcousticSnapshotRepository(
-            SceneRepository(fx['scene_repository'].path)
+            SceneRepository(fx['scene_repository'].path),
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
         ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             SceneRepository(fx['scene_repository'].path),
             external_authority_resolver=fx['external_resolver'],
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
@@ -2673,10 +2699,14 @@ def test_multi_portal_execution_input_and_artifact_save_reopen_exact_identity(
     reopened_scene = SceneRepository(fx['scene_repository'].path)
     reopened = CadDeterministicPathArtifactRepository(
         reopened_scene,
-        snapshot_repository=CadAcousticSnapshotRepository(reopened_scene),
+        snapshot_repository=CadAcousticSnapshotRepository(
+            reopened_scene,
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+        ),
         dispatch_repository=CadAcousticSolverDispatchRepository(
             reopened_scene,
             external_authority_resolver=fx['external_resolver'],
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
         ),
         configuration_resolver=fx['configuration_resolver'],
         material_resolver=fx['material_resolver'],
