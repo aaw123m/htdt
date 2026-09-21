@@ -6,8 +6,10 @@ import sqlite3
 import pytest
 
 from htdt.cad_acoustic_snapshot import (
+    AcousticSceneSnapshot,
     ReceiverMeasurementAuthority,
     SnapshotEnvironmentAuthorityRef,
+    _digest,
     build_acoustic_prediction_request,
     build_acoustic_scene_snapshot,
     receiver_binding_from_scene,
@@ -2231,3 +2233,365 @@ def test_snapshot_read_repeats_save_side_authority_resolution(
         match='requires a typed',
     ):
         reopened.get_snapshot(snapshot.snapshot_id)
+
+
+def _forged_snapshot(snapshot, **updates) -> AcousticSceneSnapshot:
+    """Self-consistent forgery: claimed semantics with a recomputed identity.
+
+    The returned snapshot passes ``exact_snapshot_identity`` (semantic hash
+    and id are recomputed over the tampered payload), so any rejection is
+    attributable to canonical replay, not to a dangling hash.
+    """
+    forged = snapshot.model_copy(update=updates)
+    digest = _digest(forged.semantic_payload())
+    return AcousticSceneSnapshot.model_validate(
+        {
+            **forged.model_dump(mode='python'),
+            'semantic_sha256': digest,
+            'snapshot_id': f'acoustic-scene-snapshot:{digest}',
+        }
+    )
+
+
+def _forged_ready_readiness(snapshot):
+    return snapshot.readiness.model_copy(
+        update={
+            'wave_source_ready': True,
+            'requested_observable_ready': True,
+            'observable_readiness': tuple(
+                item
+                if item.state == 'READY'
+                else item.model_copy(update={'state': 'READY', 'reasons': ()})
+                for item in snapshot.readiness.observable_readiness
+            ),
+        }
+    )
+
+
+def test_canonical_builder_output_round_trips_unchanged(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    repository = _snapshot_repository(fx, resolvers)
+
+    assert repository.save_snapshot(snapshot) == snapshot
+
+    reopened = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        authority_resolvers=resolvers,
+    )
+    assert reopened.get_snapshot(snapshot.snapshot_id) == snapshot
+    assert reopened.get_snapshot_by_hash(snapshot.semantic_sha256) == snapshot
+
+
+def test_forged_ready_claim_is_rejected_by_canonical_replay(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    assert snapshot.readiness.wave_source_ready is False
+    assert snapshot.readiness.requested_observable_ready is False
+    repository = _snapshot_repository(
+        fx,
+        _snapshot_authority_resolvers(snapshot),
+    )
+
+    forged = _forged_snapshot(
+        snapshot,
+        readiness=_forged_ready_readiness(snapshot),
+    )
+    assert forged.snapshot_id != snapshot.snapshot_id
+    assert forged.readiness.wave_source_ready is True
+    assert all(
+        item.state == 'READY'
+        for item in forged.readiness.observable_readiness
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        repository.save_snapshot(forged)
+
+
+def test_forged_unsupported_observable_ready_claim_is_rejected(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = build_acoustic_scene_snapshot(
+        scene_revision=fx['revision'],
+        system_variant=fx['variant'],
+        compiled_geometry=fx['compiled'],
+        source_models=(fx['magnitude_source'], fx['complex_source']),
+        receivers=fx['receivers'],
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('subjective_impression',),
+        environment=fx['snapshot'].environment,
+        valid_frequency_domain=fx['snapshot'].valid_frequency_domain,
+        valid_frequency_domain_authority_ref=(
+            fx['snapshot'].valid_frequency_domain_authority_ref
+        ),
+    )
+    observable = snapshot.readiness.observable_readiness[0]
+    assert observable.observable == 'subjective_impression'
+    assert observable.state == 'UNSUPPORTED'
+
+    forged = _forged_snapshot(
+        snapshot,
+        readiness=snapshot.readiness.model_copy(
+            update={
+                'requested_observable_ready': True,
+                'observable_readiness': (
+                    observable.model_copy(
+                        update={'state': 'READY', 'reasons': ()}
+                    ),
+                ),
+            }
+        ),
+    )
+    repository = _snapshot_repository(
+        fx,
+        _snapshot_authority_resolvers(snapshot),
+    )
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        repository.save_snapshot(forged)
+
+
+def test_forged_unresolved_conditions_are_rejected_by_canonical_replay(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    assert 'wave_source_excitation_blocked' in snapshot.unresolved_conditions
+
+    forged = _forged_snapshot(snapshot, unresolved_conditions=())
+    assert forged.unresolved_conditions == ()
+
+    repository = _snapshot_repository(
+        fx,
+        _snapshot_authority_resolvers(snapshot),
+    )
+    with pytest.raises(
+        ValueError,
+        match='unresolved conditions do not reproduce from exact authorities',
+    ):
+        repository.save_snapshot(forged)
+
+
+def test_forged_schema_version_claim_is_rejected_by_canonical_replay(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    assert snapshot.schema_version == 1
+
+    forged = _forged_snapshot(
+        snapshot,
+        schema_version=2,
+        authority_version='2',
+        compiler_version='2',
+        readiness=snapshot.readiness.model_copy(
+            update={'geometric_boundary_ready': True}
+        ),
+    )
+    assert forged.schema_version == 2
+
+    repository = _snapshot_repository(
+        fx,
+        _snapshot_authority_resolvers(snapshot),
+    )
+    with pytest.raises(
+        ValueError,
+        match='schema version does not reproduce from exact authorities',
+    ):
+        repository.save_snapshot(forged)
+
+
+def _insert_persisted_snapshot_row(db_path, snapshot, *, like) -> None:
+    """Insert a snapshot row directly, bypassing repository validation."""
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO cad_acoustic_scene_snapshots(
+                snapshot_id,
+                semantic_sha256,
+                document_id,
+                scene_revision_id,
+                scene_content_hash,
+                system_variant_id,
+                system_variant_sha256,
+                r120_compiled_geometry_id,
+                r120_compiled_geometry_sha256,
+                material_boundary_configuration_sha256,
+                environment_authority_sha256,
+                payload_json,
+                recorded_at_utc
+            )
+            SELECT ?, ?, document_id, scene_revision_id, scene_content_hash,
+                system_variant_id, system_variant_sha256,
+                r120_compiled_geometry_id, r120_compiled_geometry_sha256,
+                material_boundary_configuration_sha256,
+                environment_authority_sha256, ?, ?
+            FROM cad_acoustic_scene_snapshots
+            WHERE snapshot_id=?
+            """,
+            (
+                snapshot.snapshot_id,
+                snapshot.semantic_sha256,
+                snapshot.model_dump_json(),
+                NOW,
+                like.snapshot_id,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_forged_ready_snapshot_fails_closed_on_read_and_dispatch(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    resolvers = _snapshot_authority_resolvers(snapshot)
+    repository = _snapshot_repository(fx, resolvers)
+    repository.save_snapshot(snapshot)
+
+    forged = _forged_snapshot(
+        snapshot,
+        readiness=_forged_ready_readiness(snapshot),
+    )
+    _insert_persisted_snapshot_row(
+        fx['scene_repository'].path,
+        forged,
+        like=snapshot,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        repository.get_snapshot(forged.snapshot_id)
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        repository.get_snapshot_by_hash(forged.semantic_sha256)
+
+    policy = _fidelity_policy(
+        domain='wave',
+        roles=('future-r130-wave-role',),
+        observables=('complex_pressure',),
+    )
+    _fidelity_registry, fidelity_resolver = _fidelity_resolver(policy)
+    snapshot_repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=fidelity_resolver,
+        authority_resolvers=resolvers,
+    )
+    request = build_acoustic_prediction_request(
+        snapshot=forged,
+        model_solver_role_id='future-r130-wave-role',
+        requested_frequency_domain=forged.requested_frequency_domain,
+        requested_observables=('complex_pressure',),
+        numerical_fidelity_policy_ref=policy.authority_ref,
+    )
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        snapshot_repository.save_prediction_request(request)
+
+    adapter = _adapter_descriptor(
+        role='future-r130-wave-role',
+        domain='wave',
+        observables=('complex_pressure',),
+    )
+    configuration = _ref('fixture-wave-config', '4')
+    forged_binding = bind_prediction_request_to_solver_adapter(
+        snapshot=forged,
+        request=request,
+        adapter=adapter,
+        solver_configuration_ref=configuration,
+        numerical_fidelity_policy=policy,
+    )
+    # The forgery itself claims full readiness; only canonical replay on the
+    # read path stops it from reaching a READY solver dispatch.
+    assert forged_binding.state == 'READY'
+
+    _registry, external_resolver = _exact_ref_registry(
+        adapter.solver_implementation_ref,
+        adapter.solver_configuration_schema_ref,
+        configuration,
+    )
+    dispatch_repository = CadAcousticSolverDispatchRepository(
+        fx['scene_repository'],
+        snapshot_repository=snapshot_repository,
+        external_authority_resolver=external_resolver,
+        fidelity_policy_resolver=fidelity_resolver,
+    )
+    dispatch_repository.save_descriptor(adapter)
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        dispatch_repository.save_dispatch(forged_binding)
+
+
+def test_persisted_snapshot_index_columns_must_agree_with_payload(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot = fx['snapshot']
+    repository = _snapshot_repository(
+        fx,
+        _snapshot_authority_resolvers(snapshot),
+    )
+    repository.save_snapshot(snapshot)
+
+    connection = sqlite3.connect(fx['scene_repository'].path)
+    try:
+        connection.execute(
+            'UPDATE cad_acoustic_scene_snapshots '
+            'SET r120_compiled_geometry_sha256=? WHERE snapshot_id=?',
+            ('0' * 64, snapshot.snapshot_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        ValueError,
+        match='persisted AcousticSceneSnapshot payload identity mismatch',
+    ):
+        repository.get_snapshot(snapshot.snapshot_id)
+
+    connection = sqlite3.connect(fx['scene_repository'].path)
+    try:
+        connection.execute(
+            'UPDATE cad_acoustic_scene_snapshots '
+            'SET r120_compiled_geometry_sha256=?, '
+            'environment_authority_sha256=NULL WHERE snapshot_id=?',
+            (
+                snapshot.r120_compiled_geometry_sha256,
+                snapshot.snapshot_id,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        ValueError,
+        match='persisted AcousticSceneSnapshot payload identity mismatch',
+    ):
+        repository.get_snapshot_by_hash(snapshot.semantic_sha256)

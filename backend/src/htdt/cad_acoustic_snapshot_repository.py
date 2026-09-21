@@ -109,6 +109,13 @@ class CadAcousticSnapshotRepository:
     read; an opaque stored hash alone is not treated as proof that the
     external authority still exists with the same semantics. Snapshots
     carrying such refs fail closed when the matching resolver is missing.
+
+    Derived semantics are never trusted from the payload: after every exact
+    authority re-resolves, the repository replays the canonical schema
+    version selection, readiness derivation and unresolved-condition
+    derivation from ``build_acoustic_scene_snapshot()`` and requires exact
+    equality, so a self-consistent but non-canonical READY claim is
+    rejected on save and on every read.
     """
 
     def __init__(
@@ -1044,6 +1051,45 @@ class CadAcousticSnapshotRepository:
             )
         return snapshot
 
+    def _persisted_snapshot(
+        self,
+        row: sqlite3.Row,
+    ) -> AcousticSceneSnapshot:
+        """Fail-closed read of a persisted snapshot row.
+
+        Every indexed column must reproduce the payload exactly before the
+        payload is replayed against the resolved authorities; a row whose
+        persisted columns disagree with its payload is never served.
+        """
+        snapshot = AcousticSceneSnapshot.model_validate_json(
+            row['payload_json']
+        )
+        environment_hash = (
+            None
+            if snapshot.environment is None
+            else snapshot.environment.authority.semantic_hash_sha256
+        )
+        if (
+            snapshot.snapshot_id != row['snapshot_id']
+            or snapshot.semantic_sha256 != row['semantic_sha256']
+            or snapshot.document_id != row['document_id']
+            or snapshot.scene_revision_id != row['scene_revision_id']
+            or snapshot.scene_content_hash != row['scene_content_hash']
+            or snapshot.system_variant_id != row['system_variant_id']
+            or snapshot.system_variant_sha256 != row['system_variant_sha256']
+            or snapshot.r120_compiled_geometry_id
+            != row['r120_compiled_geometry_id']
+            or snapshot.r120_compiled_geometry_sha256
+            != row['r120_compiled_geometry_sha256']
+            or snapshot.material_boundary_configuration_sha256
+            != row['material_boundary_configuration_sha256']
+            or environment_hash != row['environment_authority_sha256']
+        ):
+            raise ValueError(
+                'persisted AcousticSceneSnapshot payload identity mismatch'
+            )
+        return self._validate_snapshot(snapshot)
+
     def get_snapshot(
         self,
         snapshot_id: str,
@@ -1051,7 +1097,12 @@ class CadAcousticSnapshotRepository:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
-                SELECT snapshot_id, semantic_sha256, payload_json
+                SELECT snapshot_id, semantic_sha256, document_id,
+                    scene_revision_id, scene_content_hash,
+                    system_variant_id, system_variant_sha256,
+                    r120_compiled_geometry_id, r120_compiled_geometry_sha256,
+                    material_boundary_configuration_sha256,
+                    environment_authority_sha256, payload_json
                 FROM cad_acoustic_scene_snapshots
                 WHERE snapshot_id=?
                 """,
@@ -1059,17 +1110,7 @@ class CadAcousticSnapshotRepository:
             ).fetchone()
         if row is None:
             return None
-        snapshot = AcousticSceneSnapshot.model_validate_json(
-            row['payload_json']
-        )
-        if (
-            snapshot.snapshot_id != row['snapshot_id']
-            or snapshot.semantic_sha256 != row['semantic_sha256']
-        ):
-            raise ValueError(
-                'persisted AcousticSceneSnapshot payload identity mismatch'
-            )
-        return self._validate_snapshot(snapshot)
+        return self._persisted_snapshot(row)
 
     def get_snapshot_by_hash(
         self,
@@ -1078,7 +1119,12 @@ class CadAcousticSnapshotRepository:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
-                SELECT snapshot_id, semantic_sha256, payload_json
+                SELECT snapshot_id, semantic_sha256, document_id,
+                    scene_revision_id, scene_content_hash,
+                    system_variant_id, system_variant_sha256,
+                    r120_compiled_geometry_id, r120_compiled_geometry_sha256,
+                    material_boundary_configuration_sha256,
+                    environment_authority_sha256, payload_json
                 FROM cad_acoustic_scene_snapshots
                 WHERE semantic_sha256=?
                 """,
@@ -1086,17 +1132,7 @@ class CadAcousticSnapshotRepository:
             ).fetchone()
         if row is None:
             return None
-        snapshot = AcousticSceneSnapshot.model_validate_json(
-            row['payload_json']
-        )
-        if (
-            snapshot.snapshot_id != row['snapshot_id']
-            or snapshot.semantic_sha256 != row['semantic_sha256']
-        ):
-            raise ValueError(
-                'persisted AcousticSceneSnapshot payload identity mismatch'
-            )
-        return self._validate_snapshot(snapshot)
+        return self._persisted_snapshot(row)
 
     def _resolve_fidelity_policy(
         self,

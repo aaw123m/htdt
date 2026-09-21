@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from htdt.cad_acoustic_snapshot import (
+    AcousticSceneSnapshot,
     SnapshotEnvironmentAuthorityRef,
+    _digest,
     build_acoustic_prediction_request,
     build_acoustic_scene_snapshot,
     receiver_binding_from_scene,
@@ -574,3 +576,63 @@ def test_ready_snapshot_fails_closed_without_authority_resolvers(
     )
     honest.save_snapshot(snapshot)
     assert honest.get_snapshot(snapshot.snapshot_id) == snapshot
+
+
+def _forged_snapshot(snapshot, **updates) -> AcousticSceneSnapshot:
+    """Self-consistent forgery: claimed semantics with a recomputed identity."""
+    forged = snapshot.model_copy(update=updates)
+    digest = _digest(forged.semantic_payload())
+    return AcousticSceneSnapshot.model_validate(
+        {
+            **forged.model_dump(mode='python'),
+            'semantic_sha256': digest,
+            'snapshot_id': f'acoustic-scene-snapshot:{digest}',
+        }
+    )
+
+
+def test_missing_wave_excitation_cannot_claim_wave_source_ready(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    unbound = build_acoustic_scene_snapshot(
+        scene_revision=fx['revision'],
+        system_variant=fx['variant'],
+        compiled_geometry=fx['compiled'],
+        source_models=(fx['source'],),
+        receivers=fx['snapshot'].receivers,
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=fx['snapshot'].requested_observables,
+        environment=fx['snapshot'].environment,
+        valid_frequency_domain=fx['snapshot'].valid_frequency_domain,
+        valid_frequency_domain_authority_ref=(
+            fx['snapshot'].valid_frequency_domain_authority_ref
+        ),
+    )
+    assert unbound.schema_version == 1
+    assert unbound.readiness.wave_source_ready is False
+    assert 'wave_source_excitation_blocked' in unbound.unresolved_conditions
+
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        wave_excitation_repository=fx['wave_repository'],
+        authority_resolvers=_snapshot_authority_resolvers(unbound),
+    )
+    repository.save_snapshot(unbound)
+    assert repository.get_snapshot(unbound.snapshot_id) == unbound
+
+    forged = _forged_snapshot(
+        unbound,
+        readiness=unbound.readiness.model_copy(
+            update={'wave_source_ready': True}
+        ),
+    )
+    assert forged.readiness.wave_source_ready is True
+    with pytest.raises(
+        ValueError,
+        match='readiness does not reproduce from exact authorities',
+    ):
+        repository.save_snapshot(forged)
