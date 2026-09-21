@@ -31,6 +31,7 @@ from .cad_standards import (
     explicit_hard_constraint_gate,
     reevaluate_standards_profile,
 )
+from .cad_standards_authorities import builtin_standards_source_authorities
 from .cad_standards_profiles import builtin_standards_profiles
 from .cad_standards_repository import CadStandardsRepository
 from .cad_system_variant import materialize_system_variant
@@ -119,6 +120,8 @@ class StandardsWorkspaceModel:
             scene_repository,
             self.variant_repository,
         )
+        for authority in builtin_standards_source_authorities():
+            self.repository.save_source_authority(authority)
         for profile in builtin_standards_profiles():
             self.repository.save_profile(profile)
 
@@ -595,6 +598,7 @@ class StandardsCriterionPanel(QFrame):
             result_by_id = {item.criterion_id: item for item in evaluation.results}
             for criterion in profile.criteria:
                 result = result_by_id[criterion.criterion_id]
+                authority = criterion.source.authority_ref
                 lines.extend(
                     [
                         "",
@@ -602,6 +606,14 @@ class StandardsCriterionPanel(QFrame):
                         f"source: {criterion.source.publisher} / {criterion.source.document_title}",
                         f"source version: {criterion.source.document_version}",
                         f"reference: {criterion.source.reference}",
+                        f"content kind: {criterion.source.content_kind or 'なし'}",
+                        "source authority: "
+                        + (
+                            authority.authority_id
+                            if authority is not None
+                            else "なし"
+                        ),
+                        f"extraction: {criterion.source.extraction_id or 'なし'}",
                         f"criterion SHA-256: {result.criterion_sha256}",
                         "evidence: "
                         + (

@@ -13,6 +13,49 @@ publisher, document title/version, reference, quantity, unit, applicable domain,
 inputs/capabilities, evidence requirement, comparison operator, boundary inclusivity, and
 numeric angle semantics.
 
+## Source provenance (Issue #418)
+
+Citation text alone is not treated as proof that a published criterion's
+threshold/rule came from the cited document. Published criteria are bound to
+exact, retained source authorities:
+
+- `StandardsSourceAuthority` is a content-addressed record of one source
+  document: publisher, document title/version, optional verified
+  `document_sha256`, optional `source_uri`, the extraction/normalization
+  version, and a set of `CriterionSourceExtraction` records. Its
+  `authority_id` (`standards-source-authority:<sha256>`) and
+  `semantic_hash_sha256` are derived from the full semantic payload, so any
+  change to the document identity or to a recorded extraction is a different
+  authority.
+- Each `CriterionSourceExtraction` binds an `extraction_id`, the exact
+  section/table `reference`, a `content_kind` (`normative`, `guidance`, or
+  `policy_transform`), and the normalized structured data — `quantity`,
+  `unit`, and the exact `CriterionRule` — that a published criterion must
+  reproduce. `excerpt` optionally retains verbatim source text where licensing
+  permits; built-in profiles ship normalized data only.
+- `CriterionSource.authority_ref` is a typed `ExactExternalAuthorityRef`
+  (authority id + version + semantic hash) and must be declared together with
+  `extraction_id`. Both are part of the criterion's semantic identity and
+  therefore of `profile_semantic_hash`.
+
+`CadStandardsRepository.save_profile()` resolves every declared authority ref
+at the persistence boundary — against the injected `source_authority_resolver`
+first, then the retained `cad_standards_source_authorities` store — and
+verifies that the resolved authority exactly reproduces the criterion's
+citation identity, extraction id, reference, content kind, quantity, unit, and
+rule. A resolved authority is pinned into the retained store so historical
+published profile versions remain auditable after external resolvers change.
+Fabricated thresholds, dangling refs/extraction ids, and citations of another
+document/version are rejected. `user_defined` profiles remain functional
+without authority bindings; when they do declare a ref, it is held to the same
+exact-match contract. Observation/evidence evaluation (#410) is unchanged.
+
+The built-in authorities live in `backend/src/htdt/cad_standards_authorities.py`;
+the built-in profiles in `cad_standards_profiles.py` derive their citation text,
+quantity, unit, and rule directly from the retained extraction records so a
+profile cannot drift from the claimed authority.
+
+
 `StandardsEvaluation` binds the exact profile semantic hash to one exact
 `SceneRevision` and, when applicable, one exact `SystemVariant` semantic hash and an
 explicit set of target entity IDs. Each `CriterionObservation` may additionally bind the
@@ -83,7 +126,9 @@ Source:
   <https://cedia.org/site/assets/files/6057/cedia-cta_rp22_v1_2_sept_2023.pdf>
 
 HTDT provides separate profile identities for Levels 1–4:
-`cedia-cta-rp22-spatial-level-{1..4}`, version `1.2-2023-09`.
+`cedia-cta-rp22-spatial-level-{1..4}`, version `1.2-2023-09-prov1` (the `-prov1`
+suffix marks the Issue #418 source-authority provenance release; earlier
+published versions remain immutable history).
 
 Encoded criteria:
 
@@ -133,7 +178,7 @@ Source:
 - Encoded reference: Figure 12, page 28, 5.1.2 speaker placement.
 
 Profile identity: `dolby-atmos-home-5.1.2-layout`, version
-`r3.1-2018-12-13`.
+`r3.1-2018-12-13-prov1`.
 
 Encoded source ranges are 22°–30° for front left/right and 90°–110° for surround
 left/right. HTDT maps them into its explicit signed azimuth convention: 0° points toward
@@ -156,7 +201,7 @@ Source:
   <https://www.auro-3d.com/wp-content/uploads/2024/05/Auro-3D-Home-Theater-Setup-Guidelines-v12-20240516.pdf>
 - Encoded references: §3.3.1.1 (pages 23–24) and §3.3.2 Table 3 “Normative Speaker Positions” (page 26).
 
-Profile identity: `auro3d-home-layout`, version `rev12-2024-05-16`.
+Profile identity: `auro3d-home-layout`, version `rev12-2024-05-16-prov1`.
 
 Encoded criteria are limited to unambiguous public min/max statements:
 
