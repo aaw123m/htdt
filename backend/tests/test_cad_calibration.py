@@ -10,6 +10,7 @@ import threading
 
 import pytest
 
+import htdt.cad_calibration_repository as calibration_repository_module
 from htdt.cad_calibration import (
     CadCalibrationChannel,
     CadCalibrationLifecycleEvent,
@@ -23,7 +24,9 @@ from htdt.cad_calibration import (
     build_calibration_lifecycle_event,
     build_calibration_plan,
     build_generic_biquad_export,
+    build_verification_measurement_completion,
     build_verification_measurement_plan,
+    build_verification_plan_registration,
     evaluate_biquad_db,
     read_generic_biquad_json,
     render_generic_biquad_csv,
@@ -101,6 +104,8 @@ def _save_measurement(
     measurement_id: str,
     *,
     phase: bool = False,
+    captured_at: str | None = None,
+    channel_role: str = 'FL',
 ):
     # The declared importer keeps fixture datasets honestly derived: the raw
     # asset literally declares the persisted samples, with the caller's raw
@@ -119,10 +124,11 @@ def _save_measurement(
         'point-mlp',
         measurement_id=measurement_id,
         evidence_type='measured',
-        channel_role='FL',
+        channel_role=channel_role,
         source_speaker_ids=('speaker-fl',),
         radiation_scope='single',
         routing_evidence='verified',
+        captured_at=captured_at,
         imported_at='2026-09-19T12:31:00+00:00',
         source_kind='unknown',
         external_source_id=f'rew-{measurement_id}',
@@ -157,6 +163,7 @@ def _save_quality(
     common_timing: bool = False,
     polarity: bool = False,
     usable_band: bool = True,
+    repeat_with: str | None = None,
 ):
     evidence = CadMeasurementQualityEvidence(
         usable_frequency_band_hz=(20.0, 20000.0) if usable_band else None,
@@ -167,6 +174,10 @@ def _save_quality(
         delay_correction_s=0.0 if common_timing else None,
         polarity_correct=True if polarity else None,
         polarity_confidence=0.99 if polarity else None,
+        repeat_measurement_ids=(
+            (measurement.measurement_id, repeat_with) if repeat_with is not None else ()
+        ),
+        repeatability_rms_db=0.2 if repeat_with is not None else None,
         evidence_source='manual',
     )
     acquisition = (
@@ -181,6 +192,7 @@ def _save_quality(
     profile = build_measurement_quality_profile(
         profile_version='calibration-fixture-quality-1',
         minimum_polarity_confidence=0.9 if polarity else None,
+        maximum_repeatability_rms_db=0.5 if repeat_with is not None else None,
     )
     report = build_measurement_quality_report(
         measurement=measurement,
@@ -193,6 +205,98 @@ def _save_quality(
     )
     quality_repository.save_report(report)
     return report
+
+
+# Fixed timeline shared by the verification-flow fixtures: the durable
+# registration commit is injected at _VERIFICATION_REGISTERED so the claimed
+# plan timestamp precedes it and the honest re-measurement capture follows it.
+_VERIFICATION_CLAIMED = '2026-09-19T12:37:00+00:00'
+_VERIFICATION_REGISTERED = '2026-09-19T12:37:30+00:00'
+_VERIFICATION_CAPTURED = '2026-09-19T12:38:00+00:00'
+_VERIFICATION_COMPLETED = '2026-09-19T12:39:00+00:00'
+
+
+def _verification_plan(
+    plan,
+    export,
+    before_id,
+    verification_plan_id,
+    *,
+    created_at_utc=_VERIFICATION_CLAIMED,
+):
+    """The honest preregistered contract: before lineage only, no after ids."""
+    return build_verification_measurement_plan(
+        plan=plan,
+        exported_settings=export,
+        measurement_points=(
+            CadVerificationMeasurementPoint(
+                point_id='point-mlp',
+                position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
+            ),
+        ),
+        routing=('FL',),
+        reference_level_db_spl=75.0,
+        required_measurement_capabilities=('magnitude_response', 'repeatability'),
+        before_measurement_ids=(before_id,),
+        verification_plan_id=verification_plan_id,
+        created_at_utc=created_at_utc,
+    )
+
+
+def _insert_verification_row(
+    repository: CadCalibrationRepository, verification
+) -> None:
+    """Persist a contract row exactly like the pre-registration writer did:
+    the plan payload lands in ``cad_calibration_verification_plans`` with no
+    registration attestation."""
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            """
+            INSERT INTO cad_calibration_verification_plans(
+                verification_plan_id, plan_id, export_id,
+                verification_semantic_sha256, created_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                verification.verification_plan_id,
+                verification.calibration_plan_id,
+                verification.exported_settings_id,
+                verification.verification_semantic_sha256,
+                verification.created_at_utc,
+                verification.model_dump_json(),
+            ),
+        )
+
+
+def _register_verification(calibration, monkeypatch, verification):
+    """Commit the contract with the repository clock pinned at registration."""
+    monkeypatch.setattr(
+        calibration_repository_module,
+        '_utc_now',
+        lambda: _VERIFICATION_REGISTERED,
+    )
+    return calibration.save_verification_plan(verification)
+
+
+def _complete_verification(
+    calibration,
+    measurements,
+    quality,
+    verification,
+    registration,
+    after_id,
+    *,
+    completed_at_utc=_VERIFICATION_COMPLETED,
+):
+    completion = build_verification_measurement_completion(
+        verification=verification,
+        registration=registration,
+        after_measurement_ids=(after_id,),
+        measurement_repository=measurements,
+        quality_repository=quality,
+        completed_at_utc=completed_at_utc,
+    )
+    return calibration.save_verification_completion(completion)
 
 
 def _device(**overrides):
@@ -513,11 +617,10 @@ def test_quantized_export_is_separate_and_re_evaluated(tmp_path: Path) -> None:
     assert evaluate_biquad_db(actual, 63.0) == pytest.approx(1.5, abs=1e-9)
 
 
-def test_verification_measurement_plan_keeps_exact_export_scene_system_and_before_after_lineage(tmp_path: Path) -> None:
+def test_verification_measurement_plan_keeps_exact_export_scene_system_and_before_after_lineage(tmp_path: Path, monkeypatch) -> None:
     revision, variant, measurements, quality, _variants, calibration = _repositories(tmp_path)
     before, dataset = _save_measurement(measurements, revision, 'before')
     report = _save_quality(quality, before, dataset, report_id='quality-before')
-    after, _after_dataset = _save_measurement(measurements, revision, 'after')
     plan = _plan(revision, variant, before, dataset, report, _channel(peq=(_peq(),)))
     calibration.save_plan(plan)
     snapshot = build_generic_biquad_export(
@@ -526,24 +629,30 @@ def test_verification_measurement_plan_keeps_exact_export_scene_system_and_befor
         created_at_utc='2026-09-19T12:36:00+00:00',
     )
     calibration.save_export(snapshot)
-    verification = build_verification_measurement_plan(
-        plan=plan,
-        exported_settings=snapshot,
-        measurement_points=(
-            CadVerificationMeasurementPoint(
-                point_id='point-mlp',
-                position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
-            ),
-        ),
-        routing=('FL',),
-        reference_level_db_spl=75.0,
-        required_measurement_capabilities=('magnitude_response', 'repeatability'),
-        before_measurement_ids=(before.measurement_id,),
-        after_measurement_ids=(after.measurement_id,),
-        verification_plan_id='verification-1',
-        created_at_utc='2026-09-19T12:37:00+00:00',
+
+    # The contract preregisters before any re-measurement exists: durable
+    # registration is repository-attested at commit, then after evidence binds
+    # through a later immutable completion record — the plan is never rewritten.
+    verification = _verification_plan(
+        plan, snapshot, before.measurement_id, 'verification-1'
     )
-    calibration.save_verification_plan(verification)
+    registration = _register_verification(calibration, monkeypatch, verification)
+    after, after_dataset = _save_measurement(
+        measurements, revision, 'after', captured_at=_VERIFICATION_CAPTURED
+    )
+    after_repeat, _ = _save_measurement(
+        measurements, revision, 'after-repeat', captured_at=_VERIFICATION_CAPTURED
+    )
+    _save_quality(
+        quality,
+        after,
+        after_dataset,
+        report_id='quality-after',
+        repeat_with=after_repeat.measurement_id,
+    )
+    completion = _complete_verification(
+        calibration, measurements, quality, verification, registration, 'after'
+    )
 
     reopened = CadCalibrationRepository(
         scene_repository=calibration.scene_repository,
@@ -552,8 +661,16 @@ def test_verification_measurement_plan_keeps_exact_export_scene_system_and_befor
         quality_repository=quality,
     )
     assert reopened.get_verification_plan('verification-1') == verification
+    assert reopened.get_verification_plan_registration('verification-1') == registration
+    assert reopened.get_verification_completion(completion.completion_id) == completion
+    assert reopened.list_verification_completions('verification-1') == (completion,)
     assert verification.before_measurement_ids == ('before',)
-    assert verification.after_measurement_ids == ('after',)
+    assert verification.after_measurement_ids == ()
+    assert registration.registered_at_utc == _VERIFICATION_REGISTERED
+    assert completion.result == 'pass'
+    assert completion.after_measurement_ids == ('after',)
+    assert completion.evidence[0].captured_at == _VERIFICATION_CAPTURED
+    assert completion.evidence[0].measurement_sha256 != '0' * 64
 
 
 def test_save_reopen_preserves_plan_export_lifecycle_semantic_identity(tmp_path: Path) -> None:
@@ -654,12 +771,11 @@ def test_generic_biquad_csv_neutralizes_formula_prefixed_identifiers(tmp_path: P
         assert not candidate or candidate[0] not in ('=', '+', '@')
 
 
-def _lifecycle_authorities(tmp_path: Path):
-    """Persist a plan, its export and its verification plan for lifecycle tests."""
+def _lifecycle_authorities(tmp_path: Path, monkeypatch):
+    """Persist a plan, its export, preregistered verification plan and completion."""
     revision, variant, measurements, quality, _variants, calibration = _repositories(tmp_path)
     before, dataset = _save_measurement(measurements, revision, 'lifecycle-before')
     report = _save_quality(quality, before, dataset, report_id='quality-lifecycle')
-    after, _after_dataset = _save_measurement(measurements, revision, 'lifecycle-after')
     plan = _plan(revision, variant, before, dataset, report, _channel(peq=(_peq(),)))
     calibration.save_plan(plan)
     export = build_generic_biquad_export(
@@ -668,24 +784,32 @@ def _lifecycle_authorities(tmp_path: Path):
         created_at_utc='2026-09-19T12:34:00+00:00',
     )
     calibration.save_export(export)
-    verification = build_verification_measurement_plan(
-        plan=plan,
-        exported_settings=export,
-        measurement_points=(
-            CadVerificationMeasurementPoint(
-                point_id='point-mlp',
-                position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
-            ),
-        ),
-        routing=('FL',),
-        reference_level_db_spl=75.0,
-        required_measurement_capabilities=('magnitude_response', 'repeatability'),
-        before_measurement_ids=(before.measurement_id,),
-        after_measurement_ids=(after.measurement_id,),
-        verification_plan_id='verification-lifecycle',
-        created_at_utc='2026-09-19T12:37:00+00:00',
+    verification = _verification_plan(
+        plan, export, before.measurement_id, 'verification-lifecycle'
     )
-    calibration.save_verification_plan(verification)
+    registration = _register_verification(calibration, monkeypatch, verification)
+    after, after_dataset = _save_measurement(
+        measurements,
+        revision,
+        'lifecycle-after',
+        captured_at=_VERIFICATION_CAPTURED,
+    )
+    after_repeat, _ = _save_measurement(
+        measurements,
+        revision,
+        'lifecycle-after-repeat',
+        captured_at=_VERIFICATION_CAPTURED,
+    )
+    _save_quality(
+        quality,
+        after,
+        after_dataset,
+        report_id='quality-lifecycle-after',
+        repeat_with=after_repeat.measurement_id,
+    )
+    _complete_verification(
+        calibration, measurements, quality, verification, registration, 'lifecycle-after'
+    )
     return calibration, plan, export, verification, after.measurement_id
 
 
@@ -787,8 +911,8 @@ def _insert_legacy_lifecycle_row(repository: CadCalibrationRepository, event) ->
     return payload['event_semantic_sha256']
 
 
-def test_calibration_lifecycle_exact_progression_persists_and_reopens(tmp_path: Path) -> None:
-    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_exact_progression_persists_and_reopens(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path, monkeypatch)
     chain = _lifecycle_chain(plan, export, verification, after_id)
     for event in chain:
         calibration.save_lifecycle_event(event)
@@ -814,8 +938,8 @@ def test_calibration_lifecycle_exact_progression_persists_and_reopens(tmp_path: 
     )
 
 
-def test_calibration_lifecycle_rejects_skipped_state_and_terminal_extension(tmp_path: Path) -> None:
-    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_rejects_skipped_state_and_terminal_extension(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path, monkeypatch)
     proposed, exported, applied, remeasured, validated = _lifecycle_chain(
         plan, export, verification, after_id
     )
@@ -881,8 +1005,8 @@ def test_calibration_lifecycle_rejects_skipped_state_and_terminal_extension(tmp_
     )
 
 
-def test_calibration_lifecycle_rejects_stale_and_unclaimed_successors(tmp_path: Path) -> None:
-    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_rejects_stale_and_unclaimed_successors(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path, monkeypatch)
     proposed = build_calibration_lifecycle_event(
         plan=plan,
         state='proposed',
@@ -926,8 +1050,8 @@ def test_calibration_lifecycle_rejects_stale_and_unclaimed_successors(tmp_path: 
     assert calibration.list_lifecycle_events(plan.plan_id) == (proposed, exported)
 
 
-def test_calibration_lifecycle_rejects_bad_root_and_unpersisted_predecessor(tmp_path: Path) -> None:
-    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_rejects_bad_root_and_unpersisted_predecessor(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path, monkeypatch)
 
     # A first-ever event may only open the chain at proposed or exported.
     mid_chain_root = build_calibration_lifecycle_event(
@@ -962,8 +1086,8 @@ def test_calibration_lifecycle_rejects_bad_root_and_unpersisted_predecessor(tmp_
     assert calibration.list_lifecycle_events(plan.plan_id) == ()
 
 
-def test_calibration_lifecycle_concurrent_writers_single_winner(tmp_path: Path) -> None:
-    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_concurrent_writers_single_winner(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path, monkeypatch)
     exported = build_calibration_lifecycle_event(
         plan=plan,
         state='exported',
@@ -1019,8 +1143,8 @@ def test_calibration_lifecycle_concurrent_writers_single_winner(tmp_path: Path) 
     assert calibration.list_lifecycle_events(plan.plan_id) == (exported, winner)
 
 
-def test_calibration_lifecycle_read_detects_historical_fork(tmp_path: Path) -> None:
-    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_read_detects_historical_fork(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path, monkeypatch)
     proposed, exported, applied, remeasured, _validated = _lifecycle_chain(
         plan, export, verification, after_id
     )
@@ -1059,8 +1183,8 @@ def test_calibration_lifecycle_read_detects_historical_fork(tmp_path: Path) -> N
         calibration.list_lifecycle_events(plan.plan_id)
 
 
-def test_calibration_lifecycle_read_detects_historical_invalid_edge(tmp_path: Path) -> None:
-    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_read_detects_historical_invalid_edge(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, verification, after_id = _lifecycle_authorities(tmp_path, monkeypatch)
     _proposed, exported, _applied, _remeasured, _validated = _lifecycle_chain(
         plan, export, verification, after_id
     )
@@ -1087,8 +1211,8 @@ def test_calibration_lifecycle_read_detects_historical_invalid_edge(tmp_path: Pa
         calibration.list_lifecycle_events(plan.plan_id)
 
 
-def test_calibration_lifecycle_builder_rejects_predecessor_of_another_plan(tmp_path: Path) -> None:
-    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path)
+def test_calibration_lifecycle_builder_rejects_predecessor_of_another_plan(tmp_path: Path, monkeypatch) -> None:
+    calibration, plan, export, _verification, _after_id = _lifecycle_authorities(tmp_path, monkeypatch)
     proposed = build_calibration_lifecycle_event(
         plan=plan,
         state='proposed',
@@ -1122,3 +1246,332 @@ def test_calibration_lifecycle_builder_rejects_predecessor_of_another_plan(tmp_p
             created_at_utc='2026-09-19T12:41:00+00:00',
         )
     assert calibration.list_lifecycle_events(plan.plan_id) == ()
+
+
+def _saved_plan_and_export(
+    revision, variant, measurements, quality, calibration, marker: str
+):
+    """Plan + export preamble shared by the preregistration tests."""
+    before, dataset = _save_measurement(measurements, revision, f'{marker}-before')
+    report = _save_quality(quality, before, dataset, report_id=f'quality-{marker}-before')
+    plan = _plan(
+        revision,
+        variant,
+        before,
+        dataset,
+        report,
+        _channel(peq=(_peq(),)),
+        plan_id=f'plan-{marker}',
+    )
+    calibration.save_plan(plan)
+    export = build_generic_biquad_export(
+        plan,
+        export_id=f'export-{marker}',
+        created_at_utc='2026-09-19T12:36:00+00:00',
+    )
+    calibration.save_export(export)
+    return before, plan, export
+
+
+def test_verification_registration_rejects_contract_claiming_after_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A contract naming already-collected after measurements is a post-hoc
+    bundle, not a preregistration, and must never persist."""
+    revision, variant, measurements, quality, _v, calibration = _repositories(tmp_path)
+    before, plan, export = _saved_plan_and_export(
+        revision, variant, measurements, quality, calibration, 'posthoc'
+    )
+    after, _ = _save_measurement(measurements, revision, 'posthoc-after')
+    posthoc = build_verification_measurement_plan(
+        plan=plan,
+        exported_settings=export,
+        measurement_points=(
+            CadVerificationMeasurementPoint(
+                point_id='point-mlp',
+                position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
+            ),
+        ),
+        routing=('FL',),
+        reference_level_db_spl=75.0,
+        required_measurement_capabilities=('magnitude_response', 'repeatability'),
+        before_measurement_ids=(before.measurement_id,),
+        after_measurement_ids=(after.measurement_id,),
+        verification_plan_id='verification-posthoc',
+        created_at_utc=_VERIFICATION_CLAIMED,
+    )
+    with pytest.raises(ValueError, match='cannot register while claiming'):
+        _register_verification(calibration, monkeypatch, posthoc)
+    # The failed commit rolls back the contract row itself: nothing attested,
+    # nothing persisted.
+    assert calibration.get_verification_plan('verification-posthoc') is None
+    assert calibration.get_verification_plan_registration('verification-posthoc') is None
+
+
+def test_verification_registration_rejects_existing_qualifying_after_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Even an honestly empty contract cannot register once qualifying
+    re-measurement evidence already exists — the caller saw the data. Evidence
+    outside the preregistered routing does not block."""
+    revision, variant, measurements, quality, _v, calibration = _repositories(tmp_path)
+    before, plan, export = _saved_plan_and_export(
+        revision, variant, measurements, quality, calibration, 'evidence'
+    )
+    # A measured capture on routing outside the contract does not qualify.
+    _save_measurement(measurements, revision, 'unrelated-fr', channel_role='FR')
+    verification = _verification_plan(
+        plan, export, before.measurement_id, 'verification-clean'
+    )
+    registration = _register_verification(calibration, monkeypatch, verification)
+    assert registration.registered_at_utc == _VERIFICATION_REGISTERED
+
+    # Once qualifying FL evidence exists, a second contract for the same
+    # plan/export can no longer claim to be the original preregistration.
+    _save_measurement(measurements, revision, 'evidence-after')
+    late = _verification_plan(
+        plan, export, before.measurement_id, 'verification-late'
+    )
+    with pytest.raises(
+        ValueError, match='cannot register over existing qualifying'
+    ):
+        _register_verification(calibration, monkeypatch, late)
+    assert calibration.get_verification_plan('verification-late') is None
+    assert calibration.get_verification_plan_registration('verification-late') is None
+
+
+def test_verification_registration_time_is_attested_at_commit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """``registered_at_utc`` is the repository commit clock, never the caller's
+    claimed ``created_at_utc``; a claim postdating the attestation fails and a
+    repeat save returns the original attestation."""
+    revision, variant, measurements, quality, _v, calibration = _repositories(tmp_path)
+    before, plan, export = _saved_plan_and_export(
+        revision, variant, measurements, quality, calibration, 'clock'
+    )
+    future_claim = _verification_plan(
+        plan,
+        export,
+        before.measurement_id,
+        'verification-future-claim',
+        created_at_utc=_VERIFICATION_CAPTURED,
+    )
+    with pytest.raises(ValueError, match='cannot postdate durable registration'):
+        _register_verification(calibration, monkeypatch, future_claim)
+
+    verification = _verification_plan(
+        plan, export, before.measurement_id, 'verification-attested'
+    )
+    registration = _register_verification(calibration, monkeypatch, verification)
+    assert registration.registered_at_utc == _VERIFICATION_REGISTERED
+    assert registration.registered_at_utc != verification.created_at_utc
+
+    # Saving the identical contract again returns the original attestation —
+    # the durable time is never rewritten by a later clock.
+    monkeypatch.setattr(
+        calibration_repository_module,
+        '_utc_now',
+        lambda: '2026-09-19T13:00:00+00:00',
+    )
+    assert calibration.save_verification_plan(verification) == registration
+
+
+def test_verification_completion_rejects_pre_registration_capture(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Evidence captured before the durable registration time, or bound to the
+    declared before lineage, can never satisfy the contract."""
+    revision, variant, measurements, quality, _v, calibration = _repositories(tmp_path)
+    before, plan, export = _saved_plan_and_export(
+        revision, variant, measurements, quality, calibration, 'stale'
+    )
+    verification = _verification_plan(
+        plan, export, before.measurement_id, 'verification-stale'
+    )
+    registration = _register_verification(calibration, monkeypatch, verification)
+
+    # Persisted after registration but claiming a capture before it.
+    _save_measurement(
+        measurements, revision, 'stale-capture', captured_at=_VERIFICATION_CLAIMED
+    )
+    with pytest.raises(
+        ValueError, match='pre-registration measurement cannot satisfy'
+    ):
+        _complete_verification(
+            calibration, measurements, quality, verification, registration, 'stale-capture'
+        )
+
+    with pytest.raises(
+        ValueError, match='before measurements cannot satisfy'
+    ):
+        _complete_verification(
+            calibration, measurements, quality, verification, registration,
+            before.measurement_id,
+        )
+
+
+def test_lifecycle_remeasured_rejects_arbitrary_same_scene_measurements(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Bare same-scene measurement ids are not re-measurement evidence: only a
+    persisted completion bound to the preregistered contract advances the
+    lifecycle."""
+    revision, variant, measurements, quality, _v, calibration = _repositories(tmp_path)
+    before, plan, export = _saved_plan_and_export(
+        revision, variant, measurements, quality, calibration, 'bare'
+    )
+    verification = _verification_plan(
+        plan, export, before.measurement_id, 'verification-bare'
+    )
+    _register_verification(calibration, monkeypatch, verification)
+    after, _ = _save_measurement(
+        measurements, revision, 'bare-after', captured_at=_VERIFICATION_CAPTURED
+    )
+
+    proposed, exported, applied, remeasured, _validated = _lifecycle_chain(
+        plan, export, verification, after.measurement_id
+    )
+    calibration.save_lifecycle_event(proposed)
+    calibration.save_lifecycle_event(exported)
+    calibration.save_lifecycle_event(applied)
+    with pytest.raises(
+        ValueError, match='do not reproduce a persisted verification completion'
+    ):
+        calibration.save_lifecycle_event(remeasured)
+
+
+def test_lifecycle_validated_requires_passing_completion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """``remeasured`` records the collected evidence fact; ``validated``
+    additionally requires a persisted ``pass`` completion reproducing the
+    transition's exact measurement ids."""
+    revision, variant, measurements, quality, _v, calibration = _repositories(tmp_path)
+    before, plan, export = _saved_plan_and_export(
+        revision, variant, measurements, quality, calibration, 'gate'
+    )
+    verification = _verification_plan(
+        plan, export, before.measurement_id, 'verification-gate'
+    )
+    registration = _register_verification(calibration, monkeypatch, verification)
+
+    # First retake fails the preregistered repeatability claim: the report has
+    # no repeatability evidence, so the completion honestly records 'fail'.
+    fail_after, fail_dataset = _save_measurement(
+        measurements, revision, 'gate-fail-after', captured_at=_VERIFICATION_CAPTURED
+    )
+    _save_quality(quality, fail_after, fail_dataset, report_id='quality-gate-fail')
+    failed = _complete_verification(
+        calibration, measurements, quality, verification, registration, 'gate-fail-after'
+    )
+    assert failed.result == 'fail'
+    assert failed.result_reasons
+
+    proposed, exported, applied, remeasured, validated = _lifecycle_chain(
+        plan, export, verification, fail_after.measurement_id
+    )
+    calibration.save_lifecycle_event(proposed)
+    calibration.save_lifecycle_event(exported)
+    calibration.save_lifecycle_event(applied)
+    calibration.save_lifecycle_event(remeasured)
+    with pytest.raises(
+        ValueError, match='validated requires a passing persisted verification'
+    ):
+        calibration.save_lifecycle_event(validated)
+
+    # A second pass completion over a fresh retake supersedes honestly: the
+    # validated transition binds that completion's exact measurement ids.
+    pass_after, pass_dataset = _save_measurement(
+        measurements, revision, 'gate-pass-after', captured_at=_VERIFICATION_CAPTURED
+    )
+    pass_repeat, _ = _save_measurement(
+        measurements, revision, 'gate-pass-repeat', captured_at=_VERIFICATION_CAPTURED
+    )
+    _save_quality(
+        quality,
+        pass_after,
+        pass_dataset,
+        report_id='quality-gate-pass',
+        repeat_with=pass_repeat.measurement_id,
+    )
+    passed = _complete_verification(
+        calibration, measurements, quality, verification, registration, 'gate-pass-after'
+    )
+    assert passed.result == 'pass'
+
+    mismatched = build_calibration_lifecycle_event(
+        plan=plan,
+        state='validated',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=(fail_after.measurement_id, pass_after.measurement_id),
+        supersedes_event=remeasured,
+        event_id='event-validated-mismatched',
+        created_at_utc='2026-09-19T12:44:30+00:00',
+    )
+    with pytest.raises(
+        ValueError, match='do not reproduce a persisted verification completion'
+    ):
+        calibration.save_lifecycle_event(mismatched)
+
+    validated_pass = build_calibration_lifecycle_event(
+        plan=plan,
+        state='validated',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=(pass_after.measurement_id,),
+        supersedes_event=remeasured,
+        event_id='event-validated-pass',
+        created_at_utc='2026-09-19T12:44:45+00:00',
+    )
+    calibration.save_lifecycle_event(validated_pass)
+
+
+def test_legacy_posthoc_verification_plan_reads_but_never_attests(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Rows written before the registration authority existed stay readable for
+    audit but carry no durable preregistration: no inferred registration, no
+    completion evidence, no re-registration."""
+    revision, variant, measurements, quality, _v, calibration = _repositories(tmp_path)
+    before, plan, export = _saved_plan_and_export(
+        revision, variant, measurements, quality, calibration, 'legacy'
+    )
+    legacy = _verification_plan(
+        plan, export, before.measurement_id, 'verification-legacy'
+    )
+    _insert_verification_row(calibration, legacy)
+
+    reopened = CadCalibrationRepository(
+        scene_repository=calibration.scene_repository,
+        system_variant_repository=calibration.system_variant_repository,
+        measurement_repository=measurements,
+        quality_repository=quality,
+    )
+    assert reopened.get_verification_plan('verification-legacy') == legacy
+    assert reopened.get_verification_plan_registration('verification-legacy') is None
+    with pytest.raises(ValueError, match='registration authority missing/stale'):
+        reopened.save_verification_plan(legacy)
+
+    # A fabricated attestation cannot mint completion evidence for a row that
+    # was never registered: the persisted authority is missing, not caller-made.
+    legacy_after, legacy_after_dataset = _save_measurement(
+        measurements, revision, 'legacy-after', captured_at=_VERIFICATION_CAPTURED
+    )
+    _save_quality(
+        quality, legacy_after, legacy_after_dataset, report_id='quality-legacy-after'
+    )
+    fabricated = build_verification_plan_registration(
+        verification=legacy, registered_at_utc=_VERIFICATION_REGISTERED
+    )
+    completion = build_verification_measurement_completion(
+        verification=legacy,
+        registration=fabricated,
+        after_measurement_ids=('legacy-after',),
+        measurement_repository=measurements,
+        quality_repository=quality,
+        completed_at_utc=_VERIFICATION_COMPLETED,
+    )
+    with pytest.raises(ValueError, match='registration authority missing/stale'):
+        reopened.save_verification_completion(completion)
