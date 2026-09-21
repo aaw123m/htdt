@@ -1,3 +1,5 @@
+import csv
+import io
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,11 @@ from htdt.cad_system_variant import (
 )
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.report import (
+    InstallationCalibrationChannelSummary,
+    InstallationCalibrationSummary,
+    InstallationTreatmentInstanceSummary,
+    InstallationTreatmentQuantitySummary,
+    InstallationTreatmentSummary,
     build_installation_output,
     render_installation_csv,
     render_installation_report_html,
@@ -154,3 +161,179 @@ def test_installation_output_regenerates_identically_after_repository_reopen(
     assert after == before
     assert after.semantic_sha256 == before.semantic_sha256
     assert render_installation_csv(after) == render_installation_csv(before)
+
+
+def _assert_spreadsheet_inert(cell: str) -> None:
+    """A parsed cell must never re-enter spreadsheet formula evaluation."""
+    candidate = cell.lstrip()
+    if not candidate:
+        return
+    assert candidate[0] not in ('=', '+', '@'), f'unneutralized formula cell: {cell!r}'
+    if candidate[0] == '-':
+        # Only an inert numeric literal may keep a leading '-'.
+        float(candidate)
+
+
+def test_installation_csv_neutralizes_formula_prefixed_entity_cells(tmp_path: Path) -> None:
+    base = _installation_scene()
+    entities = list(base.entities)
+    entities[0] = entities[0].model_copy(update={
+        'entity_id': '=HYPERLINK("https://example.invalid","speaker")',
+        'name': '  =2+1',
+        'speaker_role': '@SUM(1,1)',
+    })
+    entities[5] = entities[5].model_copy(update={
+        'entity_id': '\t=cmd|"/c calc"!A0',
+        'name': '-2+3+cmd|"/c calc"!A0',
+        'position': Position3(x_m=-1.5, y_m=3.1, z_m=0.45),
+    })
+    entities[6] = entities[6].model_copy(update={'name': '+cmd|"/c calc"!A0'})
+    scene = base.model_copy(update={'entities': tuple(entities)})
+
+    scene_repository = SceneRepository(tmp_path / 'scene.sqlite3')
+    saved = scene_repository.save(scene, parent_revision_id=None)
+    output = build_installation_output(saved.revision)
+
+    csv_text = render_installation_csv(output)
+    rows = [row for row in csv.reader(io.StringIO(csv_text)) if row]
+    for row in rows:
+        for cell in row:
+            _assert_spreadsheet_inert(cell)
+
+    entity_rows = {
+        row[0]: row
+        for row in rows[1:]
+        if len(row) == 20
+    }
+    speaker = entity_rows["'=HYPERLINK(\"https://example.invalid\",\"speaker\")"]
+    assert speaker[2] == "'  =2+1"
+    assert speaker[3] == "'@SUM(1,1)"
+    seat = entity_rows["'\t=cmd|\"/c calc\"!A0"]
+    assert seat[2] == "'-2+3+cmd|\"/c calc\"!A0"
+    assert seat[4] == '-1.5'  # legitimate negative numeric cell is not prefixed
+    assert float(seat[4]) == -1.5
+    screen = entity_rows['screen-main']
+    assert screen[2] == "'+cmd|\"/c calc\"!A0"
+    point = entity_rows['point-mlp']
+    assert point[2] == 'MLP'
+    assert output.semantic_sha256 in csv_text
+
+    # Rendering safety never mutates the semantic model or its identity.
+    speaker_model = next(
+        item for item in output.entities
+        if item.entity_id == '=HYPERLINK("https://example.invalid","speaker")'
+    )
+    assert speaker_model.name == '  =2+1'
+    assert speaker_model.speaker_role == '@SUM(1,1)'
+
+    html = render_installation_report_html(
+        output,
+        exported_at_utc='2026-09-19T07:01:00+00:00',
+    )
+    assert '=HYPERLINK(&quot;https://example.invalid&quot;,&quot;speaker&quot;)' in html
+
+
+def test_installation_csv_neutralizes_treatment_and_calibration_identifiers(
+    tmp_path: Path,
+) -> None:
+    scene_repository = SceneRepository(tmp_path / 'scene.sqlite3')
+    saved = scene_repository.save(_installation_scene(), parent_revision_id=None)
+    output = build_installation_output(saved.revision)
+
+    dangerous = output.model_copy(update={
+        'treatment': InstallationTreatmentSummary(
+            status='AVAILABLE',
+            instances=(
+                InstallationTreatmentInstanceSummary(
+                    instance_id='=cmd|"/c calc"!A0',
+                    placement_version=1,
+                    placement_sha256='a' * 64,
+                    lifecycle='proposed',
+                    definition_id='@def',
+                    definition_version='1',
+                    definition_sha256='b' * 64,
+                    scene_revision_id='rev-1',
+                    scene_content_hash='c' * 64,
+                    host_surface_id='\t=surface',
+                    host_surface_authority_sha256='d' * 64,
+                    host_binding_evaluation_sha256='e' * 64,
+                    host_binding_state='bound',
+                    host_surface_semantic_class='wall',
+                    position_m=(-1.0, 2.0, 3.0),
+                    orientation={'yaw_deg': 0.0},
+                    coverage_width_m=1.2,
+                    coverage_height_m=0.6,
+                    physical_width_m=1.2,
+                    physical_height_m=0.6,
+                    thickness_m=0.05,
+                    air_gap_m=0.0,
+                    face_area_m2=0.72,
+                    treatment_type='absorber',
+                    uncertainty_kind='unknown',
+                    wave_material_capability='UNKNOWN',
+                    geometric_material_capability='UNKNOWN',
+                    solver_prediction_readiness='UNKNOWN',
+                ),
+            ),
+            quantities=(
+                InstallationTreatmentQuantitySummary(
+                    definition_id='@def',
+                    definition_version='1',
+                    definition_sha256='b' * 64,
+                    lifecycle='proposed',
+                    quantity=2,
+                    total_face_area_m2=1.44,
+                    instance_ids=('=cmd|"/c calc"!A0',),
+                ),
+            ),
+        ),
+        'calibration': InstallationCalibrationSummary(
+            status='AVAILABLE',
+            lifecycle_state='proposed',
+            requested_channels=(
+                InstallationCalibrationChannelSummary(
+                    settings_source='requested',
+                    channel_id='-2+3+cmd',
+                    role_id='FL',
+                    source_entity_id='speaker-fl',
+                    physical_output_id='@out-fl',
+                    sample_rate_hz=48000,
+                    gain_db=-1.5,
+                    delay_s=0.0,
+                    polarity='normal',
+                ),
+            ),
+        ),
+    })
+    assert dangerous.semantic_sha256 == output.semantic_sha256
+
+    csv_text = render_installation_csv(dangerous)
+    rows = [row for row in csv.reader(io.StringIO(csv_text)) if row]
+    for row in rows:
+        for cell in row:
+            _assert_spreadsheet_inert(cell)
+
+    instance_row = next(
+        row for row in rows
+        if row[0] == 'treatment_instance' and row[1] != 'instance_id'
+    )
+    assert instance_row[1] == '\'=cmd|"/c calc"!A0'
+    assert instance_row[2] == "'@def@1"
+    assert instance_row[6] == "'-1,2,3"
+    assert instance_row[8] == "'\t=surface"
+    quantity_row = next(
+        row for row in rows
+        if row[0] == 'treatment_quantity' and row[1] != 'definition_id'
+    )
+    assert quantity_row[1] == "'@def@1"
+    assert quantity_row[3] == '2'
+    assert quantity_row[5] == '\'=cmd|"/c calc"!A0'
+    calibration_row = next(
+        row for row in rows
+        if row[0] == 'calibration_setting' and row[1] != 'requested_or_exported'
+    )
+    assert calibration_row[1] == 'requested'
+    assert calibration_row[2] == "'-2+3+cmd"
+    assert calibration_row[3] == "'@out-fl"
+    assert calibration_row[4] == '-1.5'
+    assert calibration_row[9] == 'proposed'

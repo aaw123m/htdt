@@ -28,6 +28,7 @@ from .cad_scene import SceneDocument, SceneEntity, quaternion_to_euler_deg, scen
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_standards import StandardsEvaluation, StandardsProfile
 from .cad_video_geometry import ProjectorSpecification, VideoGeometryEvaluation
+from .csv_export import csv_safe_row
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -1408,11 +1409,17 @@ def _csv_number(value: float | None) -> str:
 
 
 def render_installation_csv(output: InstallationOutput) -> str:
-    """Render deterministic installation coordinates; no generation timestamp is included."""
+    """Render deterministic installation coordinates; no generation timestamp is included.
+
+    Every row is routed through :func:`csv_safe_row` so user/imported textual
+    cells are neutralized against spreadsheet formula interpretation (see
+    ``htdt.csv_export`` for the single-quote escaping convention). Numeric
+    cells remain plain numeric literals.
+    """
 
     stream = io.StringIO(newline='')
     writer = csv.writer(stream, lineterminator='\n')
-    writer.writerow((
+    writer.writerow(csv_safe_row((
         'entity_id', 'entity_kind', 'name', 'speaker_role',
         'x_m', 'y_m', 'z_m',
         'body_yaw_deg', 'body_pitch_deg', 'body_roll_deg',
@@ -1421,10 +1428,10 @@ def render_installation_csv(output: InstallationOutput) -> str:
         'scene_revision_id', 'scene_content_hash',
         'system_variant_id', 'system_variant_sha256',
         'semantic_sha256',
-    ))
+    )))
     for item in output.entities:
         aim = item.aim_xyz or (None, None, None)
-        writer.writerow((
+        writer.writerow(csv_safe_row((
             item.entity_id,
             item.entity_kind,
             item.name,
@@ -1445,40 +1452,40 @@ def render_installation_csv(output: InstallationOutput) -> str:
             output.authority.system_variant_id or '',
             output.authority.system_variant_sha256 or '',
             output.semantic_sha256,
-        ))
+        )))
     if output.schema_version >= 2:
         writer.writerow(())
-        writer.writerow(('authority_record', 'authority', 'payload_json'))
-        writer.writerow((
+        writer.writerow(csv_safe_row(('authority_record', 'authority', 'payload_json')))
+        writer.writerow(csv_safe_row((
             'authority_record',
             'projector',
             _canonical(None if output.projector is None else output.projector.model_dump(mode='json')),
-        ))
-        writer.writerow((
+        )))
+        writer.writerow(csv_safe_row((
             'authority_record',
             'standards',
             _canonical(None if output.standards is None else output.standards.model_dump(mode='json')),
-        ))
+        )))
     if output.schema_version >= 3:
-        writer.writerow((
+        writer.writerow(csv_safe_row((
             'authority_record',
             'treatment',
             _canonical(None if output.treatment is None else output.treatment.model_dump(mode='json')),
-        ))
-        writer.writerow((
+        )))
+        writer.writerow(csv_safe_row((
             'authority_record',
             'calibration',
             _canonical(None if output.calibration is None else output.calibration.model_dump(mode='json')),
-        ))
+        )))
         writer.writerow(())
-        writer.writerow((
+        writer.writerow(csv_safe_row((
             'treatment_instance', 'instance_id', 'definition_id', 'lifecycle',
             'physical_dimensions_m', 'quantity', 'position_m', 'orientation_json',
             'host_surface_id', 'host_binding_state', 'capability_state',
-        ))
+        )))
         if output.treatment is not None:
             for item in output.treatment.instances:
-                writer.writerow((
+                writer.writerow(csv_safe_row((
                     'treatment_instance',
                     item.instance_id,
                     f'{item.definition_id}@{item.definition_version}',
@@ -1490,30 +1497,30 @@ def render_installation_csv(output: InstallationOutput) -> str:
                     item.host_surface_id,
                     item.host_binding_state,
                     f'wave={item.wave_material_capability};geometric={item.geometric_material_capability};solver={item.solver_prediction_readiness}',
-                ))
+                )))
             writer.writerow(())
-            writer.writerow((
+            writer.writerow(csv_safe_row((
                 'treatment_quantity', 'definition_id', 'lifecycle',
                 'quantity', 'total_face_area_m2', 'instance_ids',
-            ))
+            )))
             for item in output.treatment.quantities:
-                writer.writerow((
+                writer.writerow(csv_safe_row((
                     'treatment_quantity',
                     f'{item.definition_id}@{item.definition_version}',
                     item.lifecycle,
                     item.quantity,
                     _csv_number(item.total_face_area_m2),
                     '|'.join(item.instance_ids),
-                ))
+                )))
         writer.writerow(())
-        writer.writerow((
+        writer.writerow(csv_safe_row((
             'calibration_setting', 'requested_or_exported', 'channel_id',
             'physical_output_id', 'gain_db', 'delay_s', 'polarity',
             'crossover_json', 'peq_json', 'lifecycle_state',
-        ))
+        )))
         if output.calibration is not None:
             for item in (*output.calibration.requested_channels, *output.calibration.exported_channels):
-                writer.writerow((
+                writer.writerow(csv_safe_row((
                     'calibration_setting',
                     item.settings_source,
                     item.channel_id,
@@ -1524,7 +1531,7 @@ def render_installation_csv(output: InstallationOutput) -> str:
                     _canonical(list(item.crossovers)),
                     _canonical([peq.model_dump(mode='json') for peq in item.peq]),
                     output.calibration.lifecycle_state or '',
-                ))
+                )))
     return stream.getvalue()
 
 
