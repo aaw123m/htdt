@@ -116,16 +116,21 @@ No threshold, mask, PPW, scored-frequency set, observation contract, amplitude/p
 
 ## Next pre-fixed numerical experiment
 
-The next experiment should isolate the PPW-dependent trilinear stencil phase while keeping the PFFDTD solver, geometry, PPW series, trilinear interpolation rule, duration, and canonical observation operator unchanged.
+Predeclare one **dense frequency-neighborhood direct-DTFT experiment** using the already persisted 8/10/12 PPW raw PFFDTD records from authoritative run #76. This experiment requires no new solver execution and does not change the canonical contract.
 
-Predeclare a **matched half-cell source/receiver fixture** using world coordinates chosen from the frozen PFFDTD grid formula `h = 3.432 / PPW` and origin offset `-3.5h`. A coordinate equal to an integer multiple of `1.716 m` has fractional grid coordinate `0.5` for PPW 8, 10, and 12. One bounded fixture is:
+Freeze before reading the dense-sweep result:
 
-- source: `(1.716, 1.716, 1.716) m`;
-- receiver: `(3.432, 1.716, 1.716) m`.
+- 36.0 through 44.0 Hz inclusive at 0.5 Hz spacing;
+- 76.0 through 84.0 Hz inclusive at 0.5 Hz spacing;
+- the same persisted pressure/source records from run #76;
+- the same native finite-record direct-DTFT operator;
+- the same symmetric metric `|H_b-H_a| / max(|H_b|, |H_a|, 1e-12)`;
+- the same 8→10 and 10→12 pairings;
+- evaluation of the complete predeclared frequency grid, with no post-result frequency selection;
+- 40/80 Hz remain the only canonical scored frequencies;
+- no threshold, mask, time window, source/receiver position, geometry, PPW, or solver change.
 
-Both points are inside the same exact sloped R120B polyhedron. At all three PPWs, every axis is predeclared to land at half-cell phase, so the trilinear source and receiver weights are exactly the same eight `1/8` weights while the physical world positions remain fixed **within that new experiment**.
-
-The experiment should rerun only PPW 8/10/12, preserve the canonical 40/80 Hz finite-record scoring and current thresholds/mask, and record the same spatial metrics. It is a separate diagnostic fixture and must not reinterpret or replace the current canonical fixture. If its self-convergence trend materially changes while geometry metrics remain well behaved, that would motivate a narrower source/receiver stencil study; if it does not, interpolation phase becomes less plausible as the dominant contributor.
+Rationale: the two frozen physical geometry-error metrics improve from 10→12 PPW, while the six-frequency diagnostic worsens at only 39 and 81 Hz. A fixed sweep spanning one nominal `1/T = 4 Hz` record-resolution neighborhood around each canonical frequency is the lowest-confound next experiment for distinguishing a narrow transfer-shape / mode-bin effect before changing source/receiver interpolation semantics.
 
 No execution of this proposed experiment is part of the present slice.
 
