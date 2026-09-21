@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -313,6 +314,7 @@ def _build_spec(
     report=None,
     evaluator=None,
     spec_id='joint-spec-fixture',
+    candidate_budget=32,
 ):
     return build_joint_optimization_spec(
         scene_revision=fixture.revision,
@@ -335,7 +337,7 @@ def _build_spec(
             dsp_perturbation_policy='none',
         ),
         evaluator=evaluator or _evaluator(),
-        candidate_budget=32,
+        candidate_budget=candidate_budget,
         created_at_utc=NOW,
         spec_id=spec_id,
     )
@@ -967,3 +969,144 @@ def test_selected_dsp_candidate_does_not_auto_export_or_advance_apply_state(
     assert fixture.system_variant_repository.application_for_variant(
         fixture.base_variant.variant_id
     ) is None
+
+
+def _repository(fixture) -> CadJointOptimizationRepository:
+    return CadJointOptimizationRepository(
+        scene_repository=fixture.scene_repository,
+        system_variant_repository=fixture.system_variant_repository,
+        calibration_repository=fixture.calibration_repository,
+    )
+
+
+def _position_candidate(spec, variant, value_m: float):
+    return build_joint_candidate(
+        spec=spec,
+        physical_system_variant=variant,
+        decisions=(
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:x_m',
+                value=value_m,
+            ),
+        ),
+    )
+
+
+def test_candidate_budget_rejects_distinct_candidate_beyond_persisted_budget(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    spec = _build_spec(
+        fixture,
+        spec_id='joint-spec-budget-one',
+        candidate_budget=1,
+    )
+    repository = _repository(fixture)
+    repository.save_spec(spec)
+
+    admitted = _position_candidate(spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(admitted)
+
+    overflow = _position_candidate(spec, fixture.moved_variant, 1.0)
+    with pytest.raises(ValueError, match='candidate budget is exhausted'):
+        repository.save_candidate(overflow)
+
+    assert repository.list_candidates(spec.spec_id) == (admitted,)
+
+    # A different spec keeps its own budget accounting.
+    other = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_spec(fixture.spec)
+    repository.save_candidate(other)
+    assert repository.list_candidates(fixture.spec.spec_id) == (other,)
+
+
+def test_save_candidate_exact_duplicate_is_idempotent_at_full_budget(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    spec = _build_spec(
+        fixture,
+        spec_id='joint-spec-budget-duplicate',
+        candidate_budget=1,
+    )
+    repository = _repository(fixture)
+    repository.save_spec(spec)
+
+    candidate = _position_candidate(spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+
+    # Duplicate identity is rechecked before budget admission, so an exact
+    # duplicate stays idempotent even when the budget is already durable-full.
+    duplicate = repository.save_candidate(candidate)
+    assert duplicate == candidate
+    assert repository.list_candidates(spec.spec_id) == (candidate,)
+
+
+def test_concurrent_candidate_admission_serializes_last_budget_slot(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    spec = _build_spec(
+        fixture,
+        spec_id='joint-spec-budget-race',
+        candidate_budget=2,
+    )
+    repository = _repository(fixture)
+    repository.save_spec(spec)
+
+    admitted = _position_candidate(spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(admitted)
+
+    # One slot remains; two distinct candidates race for it.
+    contender_a = _position_candidate(spec, fixture.moved_variant, 1.0)
+    plan = _save_plan(
+        fixture,
+        plan_id='budget-race-gain-plan-174',
+        channel=_channel(gain_db=1.0),
+    )
+    contender_b = build_joint_candidate(
+        spec=spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 1.0),),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    assert contender_a.candidate_id != contender_b.candidate_id
+
+    barrier = threading.Barrier(2)
+    outcomes: dict[str, tuple[str, object]] = {}
+
+    def attempt(key: str, candidate) -> None:
+        barrier.wait(10.0)
+        try:
+            outcomes[key] = ('saved', repository.save_candidate(candidate))
+        except ValueError as exc:
+            outcomes[key] = ('rejected', exc)
+
+    threads = (
+        threading.Thread(target=attempt, args=('a', contender_a)),
+        threading.Thread(target=attempt, args=('b', contender_b)),
+    )
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30.0)
+    assert not any(thread.is_alive() for thread in threads)
+
+    saved = [
+        value for status, value in outcomes.values() if status == 'saved'
+    ]
+    rejected = [
+        value for status, value in outcomes.values() if status == 'rejected'
+    ]
+    assert len(saved) == 1
+    assert len(rejected) == 1
+    assert 'candidate budget is exhausted' in str(rejected[0])
+
+    persisted = repository.list_candidates(spec.spec_id)
+    assert len(persisted) == spec.candidate_budget
+    assert {item.candidate_id for item in persisted} == {
+        admitted.candidate_id,
+        saved[0].candidate_id,
+    }
