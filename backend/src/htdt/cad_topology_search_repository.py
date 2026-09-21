@@ -552,6 +552,17 @@ class CadTopologySearchRepository:
         candidate_id: str,
         variant: SystemVariant,
     ) -> None:
+        """Publish one candidate-derived SystemVariant and its mapping atomically.
+
+        Candidate/spec authority and the SystemVariant's own authority are
+        replayed on auxiliary connections BEFORE the write transaction opens:
+        those lookups run on nested connections, which must not execute while
+        BEGIN IMMEDIATE is held. The current-mapping check, the conditional
+        variant insert, and the candidate->variant mapping insert then commit
+        or roll back under one write transaction, so a failure can never
+        leave a persisted variant without its candidate binding.
+        """
+
         candidate = self.get_candidate(candidate_id)
         if candidate is None:
             raise ValueError('topology candidate must be persisted before its variant')
@@ -579,13 +590,18 @@ class CadTopologySearchRepository:
         ):
             raise ValueError('candidate SystemVariant O100B provenance mismatch')
 
+        # A variant that is not yet persisted must prove its own authority
+        # before the write transaction opens. Inside the transaction the row
+        # is only re-checked, so a racing writer that committed an identical
+        # variant is reused while a conflicting payload fails closed.
         existing_variant = self.variant_repository.get_variant(variant.variant_id)
         if existing_variant is None:
-            self.variant_repository.save_variant(variant)
+            self.variant_repository._require_variant_authority(variant)
         elif existing_variant != variant:
             raise ValueError('candidate variant_id already stores different payload')
 
         with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
             row = connection.execute(
                 'SELECT variant_id FROM cad_topology_candidate_variants '
                 'WHERE candidate_id=?',
@@ -597,6 +613,23 @@ class CadTopologySearchRepository:
                         'topology candidate already maps to another SystemVariant'
                     )
                 return
+            variant_row = connection.execute(
+                'SELECT payload_json FROM cad_system_variants '
+                'WHERE variant_id=?',
+                (variant.variant_id,),
+            ).fetchone()
+            if variant_row is None:
+                self.variant_repository._save_variant_in_transaction(
+                    connection,
+                    variant,
+                )
+            elif (
+                SystemVariant.model_validate_json(variant_row['payload_json'])
+                != variant
+            ):
+                raise ValueError(
+                    'candidate variant_id already stores different payload'
+                )
             connection.execute(
                 'INSERT INTO cad_topology_candidate_variants('
                 'candidate_id, variant_id) VALUES (?, ?)',
