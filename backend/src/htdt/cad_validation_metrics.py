@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from itertools import combinations
+import json
 from math import isfinite, sqrt
-from typing import Literal, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -10,6 +12,20 @@ from .comparison import FrequencyResponse, compare_frequency_responses
 
 
 ValidationGate = Literal['pass', 'fail', 'insufficient']
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+        allow_nan=False,
+    )
+
+
+def _canonical_sha256(value: Any) -> str:
+    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 class CadObjectiveValidationSample(BaseModel):
@@ -217,12 +233,120 @@ class CadCandidateSeparationCheck(BaseModel):
         return self
 
 
+class CadApplicabilityEvidenceRef(BaseModel):
+    """One exact source authority an applicability decision binds to."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source_kind: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class CadApplicabilityCheck(BaseModel):
+    """One O60 applicability decision bound to exact evaluator/source authority.
+
+    ``passed`` together with a free-form note is never authoritative: the check
+    carries the registered evaluator identity and version, the canonical
+    evaluated ``subject`` scope, and typed ``evidence_refs`` sealed by
+    ``decision_sha256``. The validation repository re-derives every persisted
+    check through its registered evaluator before saving and on authoritative
+    reads, so a claim that cannot be reproduced from the referenced evidence
+    fails closed.
+    """
+
     model_config = ConfigDict(frozen=True)
 
     code: str = Field(min_length=1)
     passed: bool
-    detail: str = Field(min_length=1)
+    evaluator_id: str = Field(min_length=1)
+    evaluator_version: str = Field(min_length=1)
+    subject_json: str = Field(min_length=2)
+    subject_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    evidence_refs: tuple[CadApplicabilityEvidenceRef, ...] = Field(min_length=1)
+    decision_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    detail: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode='after')
+    def valid_check(self) -> 'CadApplicabilityCheck':
+        try:
+            subject = json.loads(self.subject_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError('applicability check subject must be JSON') from exc
+        if not isinstance(subject, dict):
+            raise ValueError('applicability check subject must be a JSON object')
+        if _canonical_json(subject) != self.subject_json:
+            raise ValueError('applicability check subject must be canonical JSON')
+        if _canonical_sha256(subject) != self.subject_sha256:
+            raise ValueError('applicability check subject hash mismatch')
+        ref_keys = [
+            (ref.source_kind, ref.source_id) for ref in self.evidence_refs
+        ]
+        if len(ref_keys) != len(set(ref_keys)):
+            raise ValueError('applicability evidence refs must be unique')
+        if _canonical_sha256(self.decision_payload()) != self.decision_sha256:
+            raise ValueError('applicability decision hash mismatch')
+        return self
+
+    def subject(self) -> dict[str, Any]:
+        """Parsed canonical subject scope this decision was evaluated over."""
+        return json.loads(self.subject_json)
+
+    def decision_payload(self) -> dict[str, Any]:
+        """Canonical decision content sealed by ``decision_sha256``.
+
+        The optional human ``detail`` note is intentionally not part of the
+        authoritative decision payload.
+        """
+        return {
+            'code': self.code,
+            'passed': self.passed,
+            'evaluator_id': self.evaluator_id,
+            'evaluator_version': self.evaluator_version,
+            'subject': json.loads(self.subject_json),
+            'evidence_refs': [
+                ref.model_dump(mode='json') for ref in self.evidence_refs
+            ],
+        }
+
+
+def build_applicability_check(
+    *,
+    code: str,
+    passed: bool,
+    evaluator_id: str,
+    evaluator_version: str,
+    subject: Mapping[str, Any],
+    evidence_refs: Sequence[CadApplicabilityEvidenceRef | Mapping[str, Any]],
+    detail: str | None = None,
+) -> CadApplicabilityCheck:
+    """Assemble an evidence-bound applicability check with canonical hashes."""
+    refs = tuple(
+        sorted(
+            (
+                ref
+                if isinstance(ref, CadApplicabilityEvidenceRef)
+                else CadApplicabilityEvidenceRef.model_validate(ref)
+                for ref in evidence_refs
+            ),
+            key=lambda ref: (ref.source_kind, ref.source_id, ref.source_sha256),
+        )
+    )
+    provisional = CadApplicabilityCheck.model_construct(
+        code=code,
+        passed=bool(passed),
+        evaluator_id=evaluator_id,
+        evaluator_version=evaluator_version,
+        subject_json=_canonical_json(subject),
+        subject_sha256=_canonical_sha256(subject),
+        evidence_refs=refs,
+        decision_sha256='0' * 64,
+        detail=detail,
+    )
+    return CadApplicabilityCheck(
+        **provisional.model_dump(exclude={'decision_sha256'}),
+        decision_sha256=_canonical_sha256(provisional.decision_payload()),
+    )
 
 
 def build_trend_checks(

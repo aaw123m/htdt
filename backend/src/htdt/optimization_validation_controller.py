@@ -57,7 +57,10 @@ from .cad_search_repository import CadSearchRepository
 from .measurement_workspace import _MeasurementScrollArea
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation_repository import CadModelValidationRepository
-from .cad_model_validation_service import CadModelValidationService
+from .cad_model_validation_service import (
+    CadModelValidationService,
+    CadValidationApplicabilitySpec,
+)
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_measurement_loop import build_measurement_plan, complete_measurement_plan
 from .cad_validation_campaign import (
@@ -68,9 +71,9 @@ from .cad_validation_campaign import (
     CadValidationTargetResponse,
     build_validation_campaign,
 )
+from .cad_applicability import applicability_authority_summary
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
-from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
 
 
@@ -456,7 +459,7 @@ class ValidationControllerMixin:
             self._campaign_selected()
             return
 
-        checks: list[CadApplicabilityCheck] = []
+        requests: list[CadValidationApplicabilitySpec] = []
         for code in campaign.required_applicability_codes:
             state_widget = self.campaign_applicability_state.get(code)
             detail_widget = self.campaign_applicability_detail.get(code)
@@ -467,23 +470,28 @@ class ValidationControllerMixin:
                 return
             state = str(state_widget.currentData())
             detail = detail_widget.text().strip()
-            if state == 'pass' and not detail:
-                self.statusBar().showMessage(
-                    f'{code}を合格にする場合は確認根拠を入力してください'
-                )
-                return
-            if not detail:
-                detail = '未確認' if state == 'unverified' else '適用条件不合格'
-            checks.append(CadApplicabilityCheck(
-                code=code,
-                passed=state == 'pass',
-                detail=detail,
-            ))
+            if state == 'auto':
+                requests.append(CadValidationApplicabilitySpec(
+                    code=code,
+                    mode='auto',
+                    detail=detail or None,
+                ))
+            elif state == 'manual':
+                if not detail:
+                    self.statusBar().showMessage(
+                        f'{code}の手動証跡には登録済みattestation IDを入力してください'
+                    )
+                    return
+                requests.append(CadValidationApplicabilitySpec(
+                    code=code,
+                    mode='manual',
+                    attestation_id=detail,
+                ))
 
         try:
             record = self.campaign_service.build_validation_record(
                 campaign.campaign_id,
-                tuple(checks),
+                tuple(requests),
             )
             self.validation_repository.save(record)
         except Exception as exc:
@@ -639,9 +647,11 @@ class ValidationControllerMixin:
                 f'候補差: {_gate_label(check.gate)} · {ratio} 再現性'
             )
         for check in record.applicability_checks:
+            note = f' · {check.detail}' if check.detail else ''
             lines.append(
                 f'{_APPLICABILITY_LABELS.get(check.code, check.code)}: '
-                f'{"合格" if check.passed else "不合格"} · {check.detail}'
+                f'{"合格" if check.passed else "不合格"} · '
+                f'{applicability_authority_summary(check)}{note}'
             )
         lines.append(f'推薦可否: {_gate_label(record.recommendation_gate)}')
         if record.gate_reasons:

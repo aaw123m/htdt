@@ -108,7 +108,7 @@ def _check_gate(record) -> tuple[bool, tuple[str, ...]]:
             )
     for check in record.applicability_checks:
         if not check.passed:
-            reasons.append(f'applicability {check.code} failed: {check.detail}')
+            reasons.append(f'applicability {check.code} failed: {check.detail or ""}')
     return not reasons, tuple(reasons)
 
 
@@ -252,6 +252,20 @@ def audit(
             'applicability_checks': [
                 check.model_dump(mode='json') for check in record.applicability_checks
             ],
+            'applicability_authorities': [
+                {
+                    'code': check.code,
+                    'passed': check.passed,
+                    'evaluator_id': check.evaluator_id,
+                    'evaluator_version': check.evaluator_version,
+                    'subject': check.subject(),
+                    'evidence_refs': [
+                        ref.model_dump(mode='json') for ref in check.evidence_refs
+                    ],
+                    'decision_sha256': check.decision_sha256,
+                }
+                for check in record.applicability_checks
+            ],
             'recommendation_gate': record.recommendation_gate,
             'gate_reasons': list(record.gate_reasons),
             'audit_gate_reasons': list(gate_reasons),
@@ -306,6 +320,22 @@ def main() -> int:
     ):
         print(f'O60R_{key.upper()}={report[key]}', flush=True)
     print(f"O60R_EVIDENCE_READY={report['evidence_ready']}", flush=True)
+    for authority in report['applicability_authorities']:
+        code_key = ''.join(
+            char if char.isalnum() else '_'
+            for char in str(authority['code'])
+        ).upper()
+        refs = ';'.join(
+            f"{ref['source_kind']}:{ref['source_id']}:{ref['source_sha256']}"
+            for ref in authority['evidence_refs']
+        )
+        print(
+            f'O60R_APPLICABILITY_{code_key}='
+            f"{authority['passed']}|"
+            f"{authority['evaluator_id']}@{authority['evaluator_version']}|"
+            f'{refs}',
+            flush=True,
+        )
     print(
         'O60R_SOURCE_DATABASE_READONLY='
         f"{report['source_database_readonly']}",

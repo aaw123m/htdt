@@ -6,8 +6,9 @@ import pytest
 
 from htdt.cad_model_validation import CadModelValidationRecord, build_full_model_validation
 from htdt.cad_validation_metrics import (
-    CadApplicabilityCheck,
+    CadApplicabilityEvidenceRef,
     CadObjectiveValidationSample,
+    build_applicability_check,
     build_candidate_separation_check,
     build_repeatability_check,
     build_sensitivity_check,
@@ -29,6 +30,31 @@ def _fr(offset: float) -> FrequencyResponse:
     return FrequencyResponse(
         frequency_hz=(20.0, 40.0, 80.0, 160.0),
         level_db=(80.0 + offset, 81.0 + offset, 79.0 + offset, 80.0 + offset),
+    )
+
+
+def _manual_check(code: str, detail: str, *, passed: bool = True):
+    """Fixture attestation-bound check; these tests never hit a repository."""
+    return build_applicability_check(
+        code=code,
+        passed=passed,
+        evaluator_id='o60-applicability-manual',
+        evaluator_version='1',
+        subject={
+            'code': code,
+            'document_id': AUTH['document_id'],
+            'scope': {},
+            'search_spec_id': AUTH['search_spec_id'],
+            'search_spec_sha256': AUTH['search_spec_sha256'],
+        },
+        evidence_refs=(
+            CadApplicabilityEvidenceRef(
+                source_kind='o60_applicability_attestation',
+                source_id='o60-applicability-attestation:' + '9' * 64,
+                source_sha256='9' * 64,
+            ),
+        ),
+        detail=detail,
     )
 
 
@@ -102,9 +128,9 @@ def _record(*, evidence_scope: str, reverse_measured: bool = False):
         repeatability_checks=repeatability,
         separation_checks=separation,
         applicability_checks=(
-            CadApplicabilityCheck(code='geometry', passed=True, detail='exact rectangular room'),
-            CadApplicabilityCheck(code='band', passed=True, detail='20-160 Hz inside validated band'),
-            CadApplicabilityCheck(code='routing', passed=True, detail='channel mapping verified'),
+            _manual_check('geometry', 'exact rectangular room'),
+            _manual_check('band', '20-160 Hz inside validated band'),
+            _manual_check('routing', 'channel mapping verified'),
         ),
         low_hz=20.0,
         high_hz=160.0,

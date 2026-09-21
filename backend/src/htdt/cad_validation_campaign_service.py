@@ -13,6 +13,7 @@ from .cad_model_validation import CadModelValidationRecord
 from .cad_model_validation_service import (
     CadModelValidationBuildSpec,
     CadModelValidationService,
+    CadValidationApplicabilitySpec,
     CadValidationCandidateBinding,
     CadValidationObjectiveBinding,
     CadValidationRepeatabilitySpec,
@@ -32,7 +33,6 @@ from .cad_validation_campaign import (
     CadValidationCampaignRegistration,
 )
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
-from .cad_validation_metrics import CadApplicabilityCheck
 from .comparison import FrequencyResponse
 from .optimization_objectives import (
     ObjectiveVector,
@@ -533,8 +533,14 @@ class CadValidationCampaignService:
     def build_validation_record(
         self,
         campaign_id: str,
-        applicability_checks: Sequence[CadApplicabilityCheck],
+        applicability_requests: Sequence[CadValidationApplicabilitySpec],
     ) -> CadModelValidationRecord:
+        """Build the campaign record with evaluator-derived applicability checks.
+
+        ``applicability_requests`` declares which preregistered code is
+        evaluated in which mode (automated derivation or persisted manual
+        attestation); the pass/fail decision itself is never caller-supplied.
+        """
         campaign = self.campaign_repository.get(campaign_id)
         if campaign is None:
             raise KeyError(campaign_id)
@@ -555,8 +561,8 @@ class CadValidationCampaignService:
                 'validation campaign evidence is not ready: ' + '; '.join(reasons)
             )
 
-        checks = tuple(applicability_checks)
-        codes = tuple(check.code for check in checks)
+        requests = tuple(applicability_requests)
+        codes = tuple(request.code for request in requests)
         if len(codes) != len(set(codes)):
             raise ValueError('applicability check codes must be unique')
         if set(codes) != set(campaign.required_applicability_codes):
@@ -649,7 +655,7 @@ class CadValidationCampaignService:
             sensitivity=sensitivity,
             repeatability=repeatability,
             separation=separation,
-            applicability=checks,
+            applicability=requests,
             trend_tolerance_by_objective=campaign.trend_tolerance_by_objective,
             trend_min_comparable_pairs=campaign.trend_min_comparable_pairs,
             trend_min_agreement_ratio=campaign.trend_min_agreement_ratio,

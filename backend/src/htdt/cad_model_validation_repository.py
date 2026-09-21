@@ -7,6 +7,12 @@ from pathlib import Path
 import json
 import sqlite3
 
+from .cad_applicability import (
+    CadApplicabilityAttestation,
+    CadApplicabilityAttestationRepository,
+    rederive_applicability_check,
+    resolve_applicability_context,
+)
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation import (
     CadModelValidationRecord,
@@ -46,7 +52,21 @@ class CadModelValidationRepository:
             raise ValueError('O60 repositories must share one native CAD database')
         if objective_repository is not None and Path(objective_repository.path) != self.path:
             raise ValueError('O60 objective repository must share one native CAD database')
+        self.applicability_attestations = CadApplicabilityAttestationRepository(self.path)
         self._initialize()
+
+    def save_attestation(
+        self,
+        attestation: CadApplicabilityAttestation,
+    ) -> CadApplicabilityAttestation:
+        """Persist one immutable manual applicability attestation."""
+        return self.applicability_attestations.save(attestation)
+
+    def get_attestation(
+        self,
+        attestation_id: str,
+    ) -> CadApplicabilityAttestation | None:
+        return self.applicability_attestations.get(attestation_id)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
@@ -600,13 +620,76 @@ class CadModelValidationRepository:
                 'model validation residuals do not match prediction/measurement evidence'
             )
 
+    @staticmethod
+    def _scoped_measurement_ids(record: CadModelValidationRecord) -> tuple[str, ...]:
+        ids = {pair.measurement_id for pair in record.pairs}
+        for check in record.repeatability_checks:
+            ids.update(check.measurement_ids)
+        for check in record.separation_checks:
+            ids.update((check.measurement_a_id, check.measurement_b_id))
+        return tuple(sorted(ids))
+
+    def _validate_applicability_authority(
+        self,
+        record: CadModelValidationRecord,
+        spec,
+    ) -> None:
+        """Re-derive every applicability decision from exact evidence authority.
+
+        A persisted ``passed`` claim is never trusted: each check is rebuilt
+        through its registered evaluator from the resolved SceneRevision /
+        SearchSpec / prediction-batch / Measurement Plan / attestation
+        authorities and must match exactly, so fabricated, foreign or tampered
+        claims fail closed.
+        """
+        if not record.applicability_checks:
+            return
+        context = resolve_applicability_context(
+            document_id=record.document_id,
+            search_spec_id=record.search_spec_id,
+            search_spec_sha256=record.search_spec_sha256,
+            candidate_set_sha256=record.candidate_set_sha256,
+            model_id=record.model_id,
+            model_version=record.model_version,
+            evidence_scope=record.evidence_scope,
+            campaign_id=record.campaign_id,
+            requested_band_hz=record.requested_band_hz,
+            pair_attempt_ids=tuple(
+                pair.prediction_source_id for pair in record.pairs
+            ),
+            pair_measurement_ids=tuple(
+                pair.measurement_id for pair in record.pairs
+            ),
+            scoped_measurement_ids=self._scoped_measurement_ids(record),
+            search_repository=self.search_repository,
+            roomsim_repository=self.roomsim_repository,
+            measurement_repository=self.measurement_repository,
+            attestation_repository=self.applicability_attestations,
+        )
+        for check in record.applicability_checks:
+            try:
+                expected = rederive_applicability_check(context, check)
+            except ValueError as exc:
+                raise ValueError(
+                    f'applicability {check.code} authority does not resolve: {exc}'
+                ) from exc
+            if expected != check:
+                raise ValueError(
+                    'applicability check does not match evidence authority: '
+                    f'{check.code}'
+                )
+
     def _validate_persisted_record(
         self,
         record: CadModelValidationRecord,
     ) -> CadModelValidationRecord:
-        """Fail closed on a persisted record whose residuals drifted from evidence."""
+        """Fail closed on a persisted record whose evidence drifted."""
         plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
         self._validate_residual_authority(record, plans)
+        spec = self.search_repository.get(record.search_spec_id)
+        if spec is None:
+            raise ValueError('model validation SearchSpec does not exist')
+        self._validate_applicability_authority(record, spec)
         return record
 
     def save(self, record: CadModelValidationRecord) -> None:
@@ -627,6 +710,7 @@ class CadModelValidationRepository:
         self._validate_repeatability_and_separation(record, plans)
         self._validate_evidence_scope(record)
         self._validate_campaign_binding(record, plans)
+        self._validate_applicability_authority(record, spec)
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -679,6 +763,10 @@ class CadModelValidationRepository:
         plans = self.measurement_repository.list_measurement_plans(record.search_spec_id)
         self._validate_residual_authority(record, plans)
         self._validate_campaign_binding(record, plans)
+        spec = self.search_repository.get(record.search_spec_id)
+        if spec is None:
+            raise ValueError('eligible validation record SearchSpec does not exist')
+        self._validate_applicability_authority(record, spec)
         return record
 
     def list_for_search_spec(self, search_spec_id: str) -> tuple[CadModelValidationRecord, ...]:

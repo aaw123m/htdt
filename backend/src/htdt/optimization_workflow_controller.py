@@ -784,11 +784,11 @@ class OptimizationWorkflowController(
         for code in ("geometry", "band", "routing"):
             state = QComboBox()
             state.addItem("未確認", "unverified")
-            state.addItem("合格", "pass")
-            state.addItem("不合格", "fail")
+            state.addItem("自動評価", "auto")
+            state.addItem("手動証跡", "manual")
             self.campaign_applicability_state[code] = state
             detail = QLineEdit()
-            detail.setPlaceholderText("確認根拠 / 失敗理由")
+            detail.setPlaceholderText("確認メモ / attestation ID")
             self.campaign_applicability_detail[code] = detail
 
         self.validation_refresh_button = QPushButton("保存済み検証を更新")

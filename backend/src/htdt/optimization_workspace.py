@@ -523,7 +523,9 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.campaign_detail_label)
 
         applicability_label = QLabel(
-            '適用条件 · passを選ぶ場合は確認根拠を明示します。未確認/FAILはgateを開きません'
+            '適用条件 · 自動評価は保存済みの証拠権威から判定を再計算します。'
+            '手動証跡は登録済みattestation IDを根拠欄に入力します。'
+            '未確認はgateを開きません'
         )
         applicability_label.setWordWrap(True)
         layout.addWidget(applicability_label)
@@ -536,13 +538,13 @@ class OptimizationWorkspaceWindow(
         ):
             state = QComboBox()
             state.addItem('未確認', 'unverified')
-            state.addItem('PASS', 'pass')
-            state.addItem('FAIL', 'fail')
+            state.addItem('自動評価', 'auto')
+            state.addItem('手動証跡', 'manual')
             self.campaign_applicability_state[code] = state
             applicability_form.addRow(f'{label_text} 判定', state)
 
             detail = QLineEdit()
-            detail.setPlaceholderText('確認根拠 / 失敗理由')
+            detail.setPlaceholderText('確認メモ / attestation ID')
             self.campaign_applicability_detail[code] = detail
             applicability_form.addRow(f'{label_text} 根拠', detail)
         layout.addLayout(applicability_form)

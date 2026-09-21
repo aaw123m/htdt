@@ -88,7 +88,9 @@ campaign measurement loop:
 7. collect the preregistered repeatability measurements;
 8. complete each Measurement Plan;
 9. materialize the preregistered O30 objective evidence;
-10. enter explicit geometry/band/routing applicability evidence;
+10. enter explicit geometry/band/routing applicability evidence — each PASS is
+    bound to exact evaluator and source authority (automated re-derivation from
+    scene/spec/batch/plan evidence, or a persisted immutable attestation);
 11. build and save the campaign ValidationRecord.
 
 No synthetic fixture, normal N60 import, or pre-campaign measurement may be used

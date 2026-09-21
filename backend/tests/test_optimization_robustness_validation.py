@@ -58,8 +58,9 @@ from htdt.cad_validation_campaign import (
 )
 from htdt.cad_validation_campaign_repository import CadValidationCampaignRepository
 from htdt.cad_validation_metrics import (
-    CadApplicabilityCheck,
+    CadApplicabilityEvidenceRef,
     CadObjectiveValidationSample,
+    build_applicability_check,
     build_candidate_separation_check,
     build_repeatability_check,
     build_sensitivity_check,
@@ -76,6 +77,31 @@ from htdt.optimization_robustness_validation import (
     build_o90e_decision,
     build_o90e_validation_case,
 )
+
+
+def _manual_check(code: str, detail: str):
+    """Fixture attestation-bound check; these tests never hit a repository."""
+    return build_applicability_check(
+        code=code,
+        passed=True,
+        evaluator_id='o60-applicability-manual',
+        evaluator_version='1',
+        subject={
+            'code': code,
+            'document_id': 'o90e-owned-room-fixture',
+            'scope': {},
+            'search_spec_id': 'o90e-fixture-spec',
+            'search_spec_sha256': '6' * 64,
+        },
+        evidence_refs=(
+            CadApplicabilityEvidenceRef(
+                source_kind='o60_applicability_attestation',
+                source_id='o60-applicability-attestation:' + '5' * 64,
+                source_sha256='5' * 64,
+            ),
+        ),
+        detail=detail,
+    )
 
 
 class _ModelValidationRepository:
@@ -358,21 +384,9 @@ def _build_o60_record(
         repeatability_checks=(repeatability,),
         separation_checks=(separation,),
         applicability_checks=(
-            CadApplicabilityCheck(
-                code='geometry',
-                passed=True,
-                detail='exact software fixture geometry',
-            ),
-            CadApplicabilityCheck(
-                code='band',
-                passed=True,
-                detail='20-160 Hz fixture band',
-            ),
-            CadApplicabilityCheck(
-                code='routing',
-                passed=True,
-                detail='fixture source routing is explicit',
-            ),
+            _manual_check('geometry', 'exact software fixture geometry'),
+            _manual_check('band', '20-160 Hz fixture band'),
+            _manual_check('routing', 'fixture source routing is explicit'),
         ),
         low_hz=band[0],
         high_hz=band[1],

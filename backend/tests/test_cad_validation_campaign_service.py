@@ -8,7 +8,10 @@ import pytest
 
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
-from htdt.cad_model_validation_service import CadModelValidationService
+from htdt.cad_model_validation_service import (
+    CadModelValidationService,
+    CadValidationApplicabilitySpec,
+)
 from htdt.cad_objective_models import CadObjectiveInputRef, canonical_objective_sha256
 from htdt.cad_repository import SceneRepository
 from htdt.cad_roomsim_results import canonical_roomsim_result_sha256
@@ -26,7 +29,6 @@ from htdt.cad_validation_campaign import (
 )
 from htdt.cad_validation_campaign_repository import CadValidationCampaignRepository
 from htdt.cad_validation_campaign_service import CadValidationCampaignService
-from htdt.cad_validation_metrics import CadApplicabilityCheck
 from htdt.optimization_objectives import ObjectiveMetric, ObjectiveVector
 
 
@@ -47,6 +49,9 @@ class _Measurements:
     def latest_measurement_plans(self, _search_spec_id):
         return tuple(self.plans)
 
+    def list_measurement_plans(self, _search_spec_id):
+        return tuple(self.plans)
+
     def get_measurement(self, measurement_id):
         return self.records.get(measurement_id)
 
@@ -62,6 +67,9 @@ class _RoomSim:
 
     def list_batch_specs(self, _search_spec_id):
         return (self.batch,)
+
+    def get_batch_spec(self, batch_run_id):
+        return self.batch if batch_run_id == self.batch.batch_run_id else None
 
     def list_candidate_attempts(self, batch_run_id, candidate_id):
         return tuple(
@@ -183,10 +191,14 @@ def _fixture(tmp_path):
     batch = SimpleNamespace(
         batch_run_id='batch',
         document_id=document.document_id,
+        scene_revision_id=spec.scene_revision_id,
+        scene_content_hash=spec.scene_content_hash,
         search_spec_id=spec.search_spec_id,
         search_spec_sha256=spec.search_spec_sha256,
         candidate_set_sha256=page.candidate_set_sha256,
         model_id='rew-roomsim',
+        binding_json=json.dumps({'geometry_mode': 'exact_rectangular'}),
+        batch_spec_sha256='ab' * 32,
     )
     attempts = []
     objectives = _Objectives(scene_repo.path)
@@ -220,6 +232,7 @@ def _fixture(tmp_path):
                 document_id=document.document_id,
                 scene_revision_id=f'applied:{candidate_id}',
                 evidence_type='measured',
+                routing_evidence='verified',
                 captured_at=f'2030-01-0{repeat_index + 1}T00:00:00+00:00',
                 provenance_json=json.dumps({
                     'validation_scope': 'owned_room',
@@ -244,6 +257,7 @@ def _fixture(tmp_path):
             candidate_set_sha256=page.candidate_set_sha256,
             measurement_ids=tuple(measurement_ids),
             applied_scene_revision_id=f'applied:{candidate_id}',
+            plan_sha256=f'{(index + 33):064x}',
         ))
 
         primary_measurement_id = measurement_ids[0]
@@ -306,9 +320,11 @@ def test_campaign_readiness_and_build_use_preregistered_evidence(tmp_path):
     record = service.build_validation_record(
         campaign.campaign_id,
         (
-            CadApplicabilityCheck(code='geometry', passed=True, detail='exact rectangular room'),
-            CadApplicabilityCheck(code='band', passed=True, detail='20-160 Hz supported'),
-            CadApplicabilityCheck(code='routing', passed=True, detail='routing verified'),
+            CadValidationApplicabilitySpec(
+                code='geometry', detail='exact rectangular room'
+            ),
+            CadValidationApplicabilitySpec(code='band', detail='20-160 Hz supported'),
+            CadValidationApplicabilitySpec(code='routing', detail='routing verified'),
         ),
     )
 
