@@ -218,32 +218,39 @@ def _fixture(tmp_path: Path):
             ),
         )
     )
+    bindings = (
+        SurfaceBoundaryAuthorityBinding(
+            source_surface_id=surface_id,
+            material_authority=_ref('fixture-material', 'a'),
+            boundary_physics_authority=_ref(
+                'fixture-boundary-physics',
+                'b',
+            ),
+        ),
+    )
+    portals = make_portal_authority(declaration_mode='explicit_none')
+    terminations = make_boundary_termination_authority(
+        declaration_mode='explicit_none'
+    )
     compiled = compile_r120_geometry(
         revision,
         make_r120_geometry_compilation_request(
             revision,
             geometric_tolerance_m=1.0e-6,
         ),
-        surface_boundary_bindings=(
-            SurfaceBoundaryAuthorityBinding(
-                source_surface_id=surface_id,
-                material_authority=_ref('fixture-material', 'a'),
-                boundary_physics_authority=_ref(
-                    'fixture-boundary-physics',
-                    'b',
-                ),
-            ),
-        ),
+        surface_boundary_bindings=bindings,
         region_authority=region,
-        portal_authority=make_portal_authority(
-            declaration_mode='explicit_none',
-        ),
-        boundary_termination_authority=make_boundary_termination_authority(
-            declaration_mode='explicit_none',
-        ),
+        portal_authority=portals,
+        boundary_termination_authority=terminations,
     )
     r120_repository = R120GeometryCompilerRepository(scene_repository)
-    r120_repository.save_compiled_geometry(compiled)
+    r120_repository.save_compiled_geometry(
+        compiled,
+        surface_boundary_bindings=bindings,
+        region_authority=region,
+        portal_authority=portals,
+        boundary_termination_authority=terminations,
+    )
 
     excitation = build_acoustic_wave_excitation_authority(
         definition_id=definition.definition_id,

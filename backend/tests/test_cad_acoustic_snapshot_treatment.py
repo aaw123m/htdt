@@ -299,7 +299,13 @@ def _fixture(tmp_path: Path):
     assert compiled.readiness.geometric_acoustics_geometry_ready is True
 
     r120_repository = R120GeometryCompilerRepository(scene_repository)
-    r120_repository.save_compiled_geometry(compiled)
+    r120_repository.save_compiled_geometry(
+        compiled,
+        surface_boundary_bindings=(base_binding,),
+        region_authority=region,
+        portal_authority=portals,
+        boundary_termination_authority=terminations,
+    )
     variant_repository = CadSystemVariantRepository(scene_repository)
     treatment_repository = CadAcousticTreatmentRepository(
         scene_repository,

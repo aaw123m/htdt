@@ -94,6 +94,8 @@ Canonical JSON serializers/deserializers are provided for:
 
 `R120GeometryCompilerRepository` also provides append-only SQLite persistence in the native CAD database. Reopen validates the persisted compiled authority against the exact immutable SceneRevision id/content hash and the exact embedded SemanticAcousticGeometry id/hash. Diagnostic reopen validates the exact persisted compiled geometry id/hash before returning evidence.
 
+Persistence additionally retains the exact non-scene compile inputs the compiled payload does not itself embed — `surface_boundary_bindings` plus any `AcousticRegionAuthority`/`PortalAuthority`/`BoundaryTerminationAuthority` — in `cad_r120_compile_inputs`, and the exact `PortalAuthority` each diagnostic consumed in `cad_r120_leak_diagnostic_inputs`. On every save and every authoritative read the repository resolves those retained authorities (a missing or mismatched ref fails closed), re-runs `compile_r120_geometry(...)`/`diagnose_r120_leak_and_portals(...)`, and requires exact equality with the stored payload, so a self-hash-valid but non-canonical derived result cannot persist or reload.
+
 Model validators recompute identities on reopen, so stale/tampered hashes fail closed.
 
 ## Focused fixtures
