@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
 
 from .cad_measurement_models import CadMeasurementComparison
 from .cad_repository import SceneRepository
+from .ingress import read_file_bounded
+from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
 from .measurement_workflow import (
     MeasurementAssignment,
     MeasurementView,
@@ -245,7 +247,13 @@ class MeasurementPageWorkspace(QWidget):
         if not path:
             return
         try:
-            self.controller.stage_rew_text(Path(path).read_bytes(), Path(path).name)
+            file_path = Path(path)
+            raw = read_file_bounded(
+                file_path,
+                MAX_NATIVE_REW_TEXT_FILE_BYTES,
+                label="REW text file",
+            )
+            self.controller.stage_rew_text(raw, file_path.name)
         except Exception as exc:
             self._set_notice(f"読み込みに失敗しました · {exc}", SemanticState.ERROR)
             return

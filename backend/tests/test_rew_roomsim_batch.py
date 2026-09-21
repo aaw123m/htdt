@@ -254,10 +254,9 @@ class FakeResponse:
     def __exit__(self, *args):
         return None
 
-    def read(self) -> bytes:
-        if self.payload is None:
-            return b''
-        return json.dumps(self.payload).encode('utf-8')
+    def read(self, amt: int = -1) -> bytes:
+        raw = b'' if self.payload is None else json.dumps(self.payload).encode('utf-8')
+        return raw if amt is None or amt < 0 else raw[:amt]
 
 
 def test_write_client_uses_documented_roomsim_post_routes() -> None:

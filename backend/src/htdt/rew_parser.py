@@ -5,6 +5,9 @@ import hashlib
 import math
 import re
 
+from .ingress import IngressTooLargeError
+from .limits import MAX_REW_TEXT_BYTES
+
 
 PARSER_VERSION = 'rew-text-1'
 _SPLIT = re.compile(r'[\t ]+')
@@ -34,7 +37,20 @@ def _decode(raw: bytes) -> str:
         raise RewParseError('Only UTF-8/ASCII REW text exports are supported in v0.1') from exc
 
 
-def parse_rew_frequency_response(raw: bytes) -> ParsedFrequencyResponse:
+def parse_rew_frequency_response(raw: bytes, *, max_bytes: int = MAX_REW_TEXT_BYTES) -> ParsedFrequencyResponse:
+    """Parse a REW text export within the shared ingress byte ceiling.
+
+    ``max_bytes`` mirrors the browser transport's ``MAX_REW_TEXT_BYTES`` so
+    every producer of ``raw`` (bounded native file read, decoded Base64 body,
+    direct callers) is held to the same resource-safety policy before UTF-8
+    decode and line/float expansion.
+    """
+    if max_bytes < 0:
+        raise ValueError('max_bytes must be non-negative')
+    if len(raw) > max_bytes:
+        raise IngressTooLargeError(
+            f'REW text payload is too large: {len(raw)} bytes (limit {max_bytes} bytes)'
+        )
     if not raw:
         raise RewParseError('The input file is empty')
 

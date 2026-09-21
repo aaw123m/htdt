@@ -39,6 +39,8 @@ from .cad_scene import (
 )
 from .comparison import FrequencyResponse, compare_frequency_responses
 from .constraint_editor import ConstraintEditorWindow
+from .ingress import read_file_bounded
+from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
 from .native_editor import ROLE
 from .rew_api import RewApiClient
 
@@ -269,8 +271,13 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         if not path:
             return
         try:
-            raw = Path(path).read_bytes()
-            self.import_rew_text_bytes(raw, Path(path).name)
+            file_path = Path(path)
+            raw = read_file_bounded(
+                file_path,
+                MAX_NATIVE_REW_TEXT_FILE_BYTES,
+                label='REW text file',
+            )
+            self.import_rew_text_bytes(raw, file_path.name)
         except Exception as exc:
             self.statusBar().showMessage(f'REWテキスト取込失敗 · {exc}')
 
