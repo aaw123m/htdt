@@ -4,12 +4,22 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
 from .cad_schema import ensure_native_schema
+
+
+_LOGGER = logging.getLogger('htdt.native')
+
+# Editor view state is disposable UI convenience state (selection, hidden and
+# locked ids), not project truth. Read validation bounds each persisted id list
+# generously above any real scene so that a corrupt or hostile row can only
+# ever reset UI state, never abort document open or force unbounded allocation.
+MAX_VIEW_STATE_ID_COUNT = 1_000_000
 
 
 class SceneRevisionConflictError(ValueError):
@@ -59,6 +69,22 @@ class SemanticGeometryBindingRecord:
     input_raw_mesh_id: str
     input_asset_sha256: str
     conversion_request_id: str
+
+
+def _decode_view_state_ids(payload: object, *, field: str) -> tuple[str, ...]:
+    """Decode one ``editor_view_states`` ``*_ids_json`` column.
+
+    Raises ``ValueError`` when the payload is not a JSON array of strings or is
+    absurdly large, so the caller can treat the whole row as corrupt.
+    """
+    value = json.loads(payload)
+    if not isinstance(value, list):
+        raise ValueError(f'{field} must be a JSON array')
+    if len(value) > MAX_VIEW_STATE_ID_COUNT:
+        raise ValueError(f'{field} exceeds {MAX_VIEW_STATE_ID_COUNT} ids')
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError(f'{field} must contain only string ids')
+    return tuple(value)
 
 
 class SceneRepository:
@@ -407,25 +433,64 @@ class SceneRepository:
             )
 
     def view_state(self, document_id: str) -> EditorViewRecord | None:
+        """Return persisted editor view state, or ``None`` when absent or corrupt.
+
+        ``editor_view_states`` is non-authoritative UI state, so this read
+        boundary fails soft: a malformed row is discarded and reported through
+        the diagnostics log, and callers see ``None`` (default view state) while
+        the underlying SceneRevision stays untouched. Authoritative stores such
+        as ``scene_revisions`` keep failing closed on corruption.
+        """
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM editor_view_states WHERE document_id=?',
                 (document_id,),
             ).fetchone()
-        if row is None:
-            return None
-        selected = tuple(str(value) for value in json.loads(row['selected_ids_json']))
-        if not selected and row['selected_id'] is not None:
-            selected = (str(row['selected_id']),)
-        hidden = tuple(str(value) for value in json.loads(row['hidden_ids_json']))
-        locked = tuple(str(value) for value in json.loads(row['locked_ids_json']))
+            if row is None:
+                return None
+            try:
+                return self._row_to_view_state(row)
+            except (TypeError, ValueError, RecursionError) as exc:
+                _LOGGER.warning(
+                    'discarding corrupt editor view state for document %s; '
+                    'resetting UI state to defaults (%s)',
+                    document_id,
+                    exc,
+                )
+                self._discard_view_state(connection, document_id)
+                return None
+
+    @staticmethod
+    def _row_to_view_state(row: sqlite3.Row) -> EditorViewRecord:
+        selected_id = row['selected_id']
+        if selected_id is not None and not isinstance(selected_id, str):
+            raise ValueError('selected_id is not a string')
+        selected = _decode_view_state_ids(row['selected_ids_json'], field='selected_ids_json')
+        if not selected and selected_id is not None:
+            selected = (selected_id,)
+        hidden = _decode_view_state_ids(row['hidden_ids_json'], field='hidden_ids_json')
+        locked = _decode_view_state_ids(row['locked_ids_json'], field='locked_ids_json')
         return EditorViewRecord(
             document_id=row['document_id'],
-            selected_id=row['selected_id'],
+            selected_id=selected_id,
             selected_ids=selected,
             hidden_ids=hidden,
             locked_ids=locked,
         )
+
+    @staticmethod
+    def _discard_view_state(connection: sqlite3.Connection, document_id: str) -> None:
+        """Best-effort delete of a corrupt view-state row; never raises."""
+        try:
+            connection.execute(
+                'DELETE FROM editor_view_states WHERE document_id=?',
+                (document_id,),
+            )
+        except sqlite3.Error:
+            _LOGGER.warning(
+                'could not delete corrupt editor view state row for document %s',
+                document_id,
+            )
 
     @staticmethod
     def _row_to_revision(row: sqlite3.Row) -> SceneRevision:

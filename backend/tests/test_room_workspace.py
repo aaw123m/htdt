@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from contextlib import closing
+import logging
 import os
+import sqlite3
 
 import pytest
 
@@ -136,6 +139,59 @@ def test_room_controller_reuses_repository_working_document_and_recovery(tmp_pat
     assert saved.document.entity(added.entity_id).speaker_role == "SPK"
     assert repository.recovery(F1_DOCUMENT_ID) is None
     assert not controller.is_dirty
+
+
+def test_room_controller_opens_with_default_view_state_when_row_corrupt(tmp_path, caplog) -> None:
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    controller.set_selection("speaker-fl")
+    original = repository.latest(F1_DOCUMENT_ID)
+    assert original is not None
+    assert repository.view_state(F1_DOCUMENT_ID) is not None
+
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            "UPDATE editor_view_states SET hidden_ids_json='{corrupt' WHERE document_id=?",
+            (F1_DOCUMENT_ID,),
+        )
+
+    with caplog.at_level(logging.WARNING, logger="htdt.native"):
+        reopened = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+
+    # Only the disposable UI state resets; the document still opens.
+    assert reopened.view_state.selection == ()
+    assert reopened.selected_id is None
+    assert reopened.view_state.hidden_ids == set()
+    assert reopened.view_state.locked_ids == set()
+    assert reopened.committed_document == original.document
+    latest = repository.latest(F1_DOCUMENT_ID)
+    assert latest is not None
+    assert latest.revision_id == original.revision_id
+    assert latest.content_hash == original.content_hash
+    assert any("editor view state" in record.message for record in caplog.records)
+
+
+def test_room_controller_sanitizes_stale_entity_ids_in_valid_view_state(tmp_path) -> None:
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    original = repository.latest(F1_DOCUMENT_ID)
+    assert original is not None
+    repository.save_view_state(
+        F1_DOCUMENT_ID,
+        selected_id="ghost",
+        selected_ids=("ghost", "speaker-fl"),
+        hidden_ids={"ghost", "speaker-fr"},
+        locked_ids={"ghost"},
+    )
+
+    reopened = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+
+    # Well-formed rows keep flowing through EditorViewState.sanitize(): stale
+    # ids drop out without discarding the rest of the persisted state.
+    assert reopened.view_state.selection == ("speaker-fl",)
+    assert reopened.selected_id == "speaker-fl"
+    assert reopened.view_state.hidden_ids == {"speaker-fr"}
+    assert reopened.view_state.locked_ids == set()
 
 
 def test_room_controller_deactivation_fails_closed_during_preview(tmp_path) -> None:
