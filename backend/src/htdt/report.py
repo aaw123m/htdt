@@ -22,7 +22,10 @@ from .cad_calibration import (
     CadCalibrationPlan,
     CadVerificationMeasurementPlan,
 )
-from .cad_calibration_repository import _LIFECYCLE_ORDER as CALIBRATION_LIFECYCLE_ORDER
+from .cad_calibration_repository import (
+    _LIFECYCLE_ORDER as CALIBRATION_LIFECYCLE_ORDER,
+    _lifecycle_chain_violation,
+)
 from .cad_repository import SceneRevision
 from .cad_scene import SceneDocument, SceneEntity, quaternion_to_euler_deg, scene_content_hash
 from .cad_system_variant import SystemVariant, materialize_system_variant
@@ -1145,20 +1148,28 @@ def _calibration_summary(
         ):
             raise ValueError('VerificationMeasurementPlan scene/system mismatch')
 
-    previous_order = -1
+    previous_event: CadCalibrationLifecycleEvent | None = None
     event_rows: list[tuple[str, str, str]] = []
-    for index, event in enumerate(lifecycle_events):
+    for event in lifecycle_events:
         if (
             event.calibration_plan_id != plan.plan_id
             or event.calibration_plan_semantic_sha256 != plan.plan_semantic_sha256
         ):
             raise ValueError('calibration lifecycle event plan hash mismatch')
-        current_order = CALIBRATION_LIFECYCLE_ORDER[event.state]
-        if index == 0 and event.state not in {'proposed', 'exported'}:
-            raise ValueError('first calibration lifecycle state must be proposed or exported')
-        if current_order <= previous_order:
-            raise ValueError('calibration lifecycle states must advance monotonically')
-        previous_order = current_order
+        if previous_event is None:
+            if event.state not in {'proposed', 'exported'}:
+                raise ValueError('first calibration lifecycle state must be proposed or exported')
+            if event.supersedes_event_sha256 is not None:
+                raise ValueError(
+                    'first calibration lifecycle event must not claim a predecessor'
+                )
+        else:
+            violation = _lifecycle_chain_violation(previous_event, event)
+            if violation is not None:
+                raise ValueError(
+                    f'calibration lifecycle events are not a single chain: {violation}'
+                )
+        previous_event = event
         if event.exported_settings_id is not None:
             if export_snapshot is None or (
                 event.exported_settings_id != export_snapshot.export_id

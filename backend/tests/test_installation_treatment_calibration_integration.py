@@ -438,46 +438,55 @@ def _calibration_authorities(revision, variant, *, plan_id='cal-plan-1', max_boo
         verification_plan_id=f'{plan_id}-verification',
         created_at_utc='2026-09-19T13:05:00+00:00',
     )
+    proposed_event = build_calibration_lifecycle_event(
+        plan=plan,
+        state='proposed',
+        event_id=f'{plan_id}-event-proposed',
+        # Deliberately later than the exported timestamp. Append order, not time, is authority.
+        created_at_utc='2026-09-19T15:00:00+00:00',
+    )
+    exported_event = build_calibration_lifecycle_event(
+        plan=plan,
+        state='exported',
+        exported_settings=export,
+        supersedes_event=proposed_event,
+        event_id=f'{plan_id}-event-exported',
+        created_at_utc='2026-09-19T14:00:00+00:00',
+    )
+    applied_event = build_calibration_lifecycle_event(
+        plan=plan,
+        state='user_applied',
+        exported_settings=export,
+        supersedes_event=exported_event,
+        event_id=f'{plan_id}-event-applied',
+        created_at_utc='2026-09-19T13:00:00+00:00',
+    )
+    remeasured_event = build_calibration_lifecycle_event(
+        plan=plan,
+        state='remeasured',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=('measurement-after',),
+        supersedes_event=applied_event,
+        event_id=f'{plan_id}-event-remeasured',
+        created_at_utc='2026-09-19T12:00:00+00:00',
+    )
+    validated_event = build_calibration_lifecycle_event(
+        plan=plan,
+        state='validated',
+        exported_settings=export,
+        verification_plan=verification,
+        measurement_ids=('measurement-after',),
+        supersedes_event=remeasured_event,
+        event_id=f'{plan_id}-event-validated',
+        created_at_utc='2026-09-19T11:00:00+00:00',
+    )
     events = (
-        build_calibration_lifecycle_event(
-            plan=plan,
-            state='proposed',
-            event_id=f'{plan_id}-event-proposed',
-            # Deliberately later than the exported timestamp. Append order, not time, is authority.
-            created_at_utc='2026-09-19T15:00:00+00:00',
-        ),
-        build_calibration_lifecycle_event(
-            plan=plan,
-            state='exported',
-            exported_settings=export,
-            event_id=f'{plan_id}-event-exported',
-            created_at_utc='2026-09-19T14:00:00+00:00',
-        ),
-        build_calibration_lifecycle_event(
-            plan=plan,
-            state='user_applied',
-            exported_settings=export,
-            event_id=f'{plan_id}-event-applied',
-            created_at_utc='2026-09-19T13:00:00+00:00',
-        ),
-        build_calibration_lifecycle_event(
-            plan=plan,
-            state='remeasured',
-            exported_settings=export,
-            verification_plan=verification,
-            measurement_ids=('measurement-after',),
-            event_id=f'{plan_id}-event-remeasured',
-            created_at_utc='2026-09-19T12:00:00+00:00',
-        ),
-        build_calibration_lifecycle_event(
-            plan=plan,
-            state='validated',
-            exported_settings=export,
-            verification_plan=verification,
-            measurement_ids=('measurement-after',),
-            event_id=f'{plan_id}-event-validated',
-            created_at_utc='2026-09-19T11:00:00+00:00',
-        ),
+        proposed_event,
+        exported_event,
+        applied_event,
+        remeasured_event,
+        validated_event,
     )
     return plan, export, verification, events
 

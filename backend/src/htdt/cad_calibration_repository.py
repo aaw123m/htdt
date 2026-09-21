@@ -29,6 +29,42 @@ _LIFECYCLE_ORDER = {
     'validated': 4,
 }
 
+# Exact #173 lifecycle edges. `exported` is also a legal root state: a plan
+# persisted and exported before any `proposed` lifecycle event still opens its
+# chain with the export fact. Export alone never implies the user applied the
+# settings, that re-measurement happened, or that the plan validated — each of
+# those is its own persisted transition of the exact current head.
+_LIFECYCLE_ROOT_STATES = frozenset({'proposed', 'exported'})
+_LIFECYCLE_TRANSITIONS = {
+    'proposed': frozenset({'exported'}),
+    'exported': frozenset({'user_applied'}),
+    'user_applied': frozenset({'remeasured'}),
+    'remeasured': frozenset({'validated'}),
+    'validated': frozenset(),
+}
+
+
+class CalibrationLifecycleConflictError(ValueError):
+    """A lifecycle-event save violated the plan's single-head lifecycle chain contract."""
+
+
+def _lifecycle_chain_violation(
+    head: CadCalibrationLifecycleEvent,
+    event: CadCalibrationLifecycleEvent,
+) -> str | None:
+    """Return why *event* cannot extend persisted *head*, or None when valid."""
+    if (
+        event.supersedes_event_sha256 is not None
+        and event.supersedes_event_sha256 != head.event_semantic_sha256
+    ):
+        return (
+            f'claims predecessor {event.supersedes_event_sha256} '
+            f'but the persisted head is {head.event_semantic_sha256}'
+        )
+    if event.state not in _LIFECYCLE_TRANSITIONS[head.state]:
+        return f'{head.state} -> {event.state} is not an allowed lifecycle transition'
+    return None
+
 
 class CadCalibrationRepository:
     """Append-only #173 authority layered on exact scene/system/measurement sources."""
@@ -499,16 +535,42 @@ class CadCalibrationRepository:
                 raise ValueError('calibration lifecycle measurement SceneRevision mismatch')
 
     def save_lifecycle_event(self, event: CadCalibrationLifecycleEvent) -> None:
+        """Append one lifecycle event as the single head of its plan's chain.
+
+        The persisted history of one ``calibration_plan_id`` is an append-only
+        state machine enforced under one ``BEGIN IMMEDIATE`` transaction:
+
+        - the first event must be ``proposed`` or ``exported`` and claim no
+          predecessor;
+        - every later event must claim the exact current head via
+          ``supersedes_event_sha256``;
+        - only the explicit ``proposed -> exported -> user_applied ->
+          remeasured -> validated`` edges are legal, so export alone can never
+          advance a plan to applied/validated semantics;
+        - ``validated`` is terminal.
+
+        Two writers building on the same head cannot both advance it: the head
+        check runs inside the write transaction, so the loser sees the moved
+        head and fails with ``CalibrationLifecycleConflictError``. The event's
+        upstream authorities (exact plan, export, verification plan and
+        measurement bindings) are revalidated on every save before the lock is
+        taken, so the builder remains a convenience and not the only integrity
+        boundary.
+        """
         self._validate_lifecycle_event(event)
         with closing(self._connect()) as connection, connection:
+            # BEGIN IMMEDIATE holds the write lock across the duplicate recheck,
+            # the head read and the insert: concurrent writers cannot both
+            # observe the same head.
+            connection.execute('BEGIN IMMEDIATE')
             if connection.execute(
                 'SELECT 1 FROM cad_calibration_lifecycle_events WHERE event_id=?',
                 (event.event_id,),
             ).fetchone() is not None:
                 raise ValueError(f'calibration lifecycle event already exists: {event.event_id}')
-            previous = connection.execute(
+            head_row = connection.execute(
                 """
-                SELECT state
+                SELECT state, event_semantic_sha256, payload_json
                 FROM cad_calibration_lifecycle_events
                 WHERE plan_id=?
                 ORDER BY seq DESC
@@ -516,13 +578,41 @@ class CadCalibrationRepository:
                 """,
                 (event.calibration_plan_id,),
             ).fetchone()
-            previous_order = 0 if previous is None else _LIFECYCLE_ORDER[previous['state']]
-            current_order = _LIFECYCLE_ORDER[event.state]
-            if previous is None:
-                if event.state not in {'proposed', 'exported'}:
-                    raise ValueError('first calibration lifecycle state must be proposed or exported')
-            elif current_order <= previous_order:
-                raise ValueError('calibration lifecycle states must advance monotonically')
+            if head_row is None:
+                if event.state not in _LIFECYCLE_ROOT_STATES:
+                    raise CalibrationLifecycleConflictError(
+                        f'first calibration lifecycle state for plan '
+                        f'{event.calibration_plan_id} must be proposed or exported'
+                    )
+                if event.supersedes_event_sha256 is not None:
+                    raise CalibrationLifecycleConflictError(
+                        f'first calibration lifecycle event for plan '
+                        f'{event.calibration_plan_id} must not claim a predecessor '
+                        'that was never persisted'
+                    )
+            else:
+                head = CadCalibrationLifecycleEvent.model_validate_json(
+                    head_row['payload_json']
+                )
+                if (
+                    head_row['state'] != head.state
+                    or head_row['event_semantic_sha256'] != head.event_semantic_sha256
+                ):
+                    raise ValueError(
+                        'persisted calibration lifecycle head disagrees with its payload'
+                    )
+                if event.supersedes_event_sha256 is None:
+                    raise CalibrationLifecycleConflictError(
+                        f'calibration lifecycle for plan {event.calibration_plan_id} '
+                        'already has a persisted head; a new event must claim it '
+                        'via supersedes_event_sha256'
+                    )
+                violation = _lifecycle_chain_violation(head, event)
+                if violation is not None:
+                    raise CalibrationLifecycleConflictError(
+                        f'calibration lifecycle event {event.event_id} rejected: '
+                        f'{violation}'
+                    )
             connection.execute(
                 """
                 INSERT INTO cad_calibration_lifecycle_events(
@@ -544,10 +634,20 @@ class CadCalibrationRepository:
         self,
         plan_id: str,
     ) -> tuple[CadCalibrationLifecycleEvent, ...]:
+        """Return the persisted lifecycle as a validated single-head chain.
+
+        Rows are replayed in insertion order; the chain must start with an
+        unclaimed ``proposed``/``exported`` root and every successor must be an
+        allowed transition that extends its predecessor — explicitly via
+        ``supersedes_event_sha256``, or implicitly for rows persisted before
+        predecessor tracking existed. A historical fork, an unclaimed root or
+        an invalid edge is surfaced as ``ValueError`` rather than silently
+        relying on insertion order.
+        """
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT event_id, plan_id, state, event_semantic_sha256, payload_json
                 FROM cad_calibration_lifecycle_events
                 WHERE plan_id=?
                 ORDER BY seq ASC
@@ -558,6 +658,35 @@ class CadCalibrationRepository:
             CadCalibrationLifecycleEvent.model_validate_json(row['payload_json'])
             for row in rows
         )
-        for event in events:
+        head: CadCalibrationLifecycleEvent | None = None
+        for row, event in zip(rows, events):
+            if (
+                row['event_id'] != event.event_id
+                or row['plan_id'] != event.calibration_plan_id
+                or row['state'] != event.state
+                or row['event_semantic_sha256'] != event.event_semantic_sha256
+            ):
+                raise ValueError(
+                    'persisted calibration lifecycle row disagrees with its payload'
+                )
             self._validate_lifecycle_event(event)
+            if head is None:
+                if event.state not in _LIFECYCLE_ROOT_STATES:
+                    raise ValueError(
+                        f'calibration lifecycle history for {plan_id} '
+                        'does not start with proposed or exported'
+                    )
+                if event.supersedes_event_sha256 is not None:
+                    raise ValueError(
+                        f'calibration lifecycle history for {plan_id} '
+                        'starts with a predecessor claim that was never persisted'
+                    )
+            else:
+                violation = _lifecycle_chain_violation(head, event)
+                if violation is not None:
+                    raise ValueError(
+                        f'calibration lifecycle history for {plan_id} '
+                        f'is not a single chain: {violation}'
+                    )
+            head = event
         return events
