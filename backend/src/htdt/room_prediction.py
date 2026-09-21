@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import sqlite3
 from threading import Event
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
@@ -289,8 +290,7 @@ class RoomPredictionController(QObject):
         context = self._current_apply_context()
         if context is None or not self.job_guard.can_apply(token, context):
             return None
-        for item in typed:
-            self.prediction_repository.save(item)
+        self.prediction_repository.save_run(typed)
         self._selected_run_id = typed[0].run_id
         return typed
 
@@ -326,6 +326,12 @@ class RoomPredictionController(QObject):
                 final_state = RoomPredictionRunState(
                     False,
                     f"予測結果を拒否しました · {exc}",
+                    error=True,
+                )
+            except sqlite3.Error as exc:
+                final_state = RoomPredictionRunState(
+                    False,
+                    f"予測結果を保存できませんでした · {exc}",
                     error=True,
                 )
             else:

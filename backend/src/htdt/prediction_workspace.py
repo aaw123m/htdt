@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from hashlib import sha256
+import sqlite3
 from threading import Event
 
 import pyvista as pv
@@ -340,8 +341,14 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             self.statusBar().showMessage('古い予測結果を破棄しました · scene/constraintが変更されています')
             return
 
-        for item in result:
-            self.prediction_repository.save(item)
+        try:
+            self.prediction_repository.save_run(result)
+        except ValueError as exc:
+            self.statusBar().showMessage(f'予測結果を拒否しました · {exc}')
+            return
+        except sqlite3.Error as exc:
+            self.statusBar().showMessage(f'予測を保存できませんでした · {exc}')
+            return
         self.prediction_selected_run_id = result[0].run_id
         self._refresh_prediction_results()
         self._rebuild()
