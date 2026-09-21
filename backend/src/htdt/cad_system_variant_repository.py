@@ -348,25 +348,41 @@ class CadSystemVariantRepository:
         self._require_variant_authority(variant)
 
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                INSERT INTO cad_system_variants(
-                    variant_id, document_id, baseline_revision_id,
-                    baseline_content_hash, parent_variant_id, variant_sha256,
-                    payload_json, created_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    variant.variant_id,
-                    variant.document_id,
-                    variant.baseline_revision_id,
-                    variant.baseline_content_hash,
-                    variant.parent_variant_id,
-                    variant.variant_sha256,
-                    variant.model_dump_json(),
-                    variant.created_at_utc,
-                ),
-            )
+            connection.execute('BEGIN IMMEDIATE')
+            self._save_variant_in_transaction(connection, variant)
+
+    def _save_variant_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        variant: SystemVariant,
+    ) -> None:
+        """Insert one validated SystemVariant inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK and must have replayed
+        ``_require_variant_authority`` first: that validation resolves rows on
+        second connections, which must not run while BEGIN IMMEDIATE is held.
+        Higher-level repositories sharing this database use this helper to
+        commit a variant together with their own dependent rows atomically.
+        """
+        connection.execute(
+            """
+            INSERT INTO cad_system_variants(
+                variant_id, document_id, baseline_revision_id,
+                baseline_content_hash, parent_variant_id, variant_sha256,
+                payload_json, created_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                variant.variant_id,
+                variant.document_id,
+                variant.baseline_revision_id,
+                variant.baseline_content_hash,
+                variant.parent_variant_id,
+                variant.variant_sha256,
+                variant.model_dump_json(),
+                variant.created_at_utc,
+            ),
+        )
 
     def get_variant(self, variant_id: str) -> SystemVariant | None:
         return self._get_variant(variant_id, frozenset())

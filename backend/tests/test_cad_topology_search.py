@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 
 from pathlib import Path
 
@@ -1476,3 +1477,294 @@ def test_persisted_candidate_row_replays_membership_on_read(
         connection.close()
     with pytest.raises(ValueError, match='search spec is missing'):
         repository.get_candidate(candidate.candidate_id)
+
+
+def _candidate_variant(repository, spec, candidate, **kwargs):
+    """Rebuild the deterministic O100B SystemVariant for one candidate."""
+
+    return topology_candidate_to_system_variant(
+        baseline=repository.scene_repository.get(spec.baseline_revision_id),
+        template_variant=repository.variant_repository.get_variant(
+            spec.template_variant_id
+        ),
+        spec=spec,
+        candidate=candidate,
+        created_at_utc='2026-09-19T00:02:00+00:00',
+        **kwargs,
+    )
+
+
+def test_candidate_variant_publish_is_atomic_across_repositories(
+    tmp_path: Path,
+) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+    child = _candidate_variant(repository, spec, candidate)
+
+    repository.save_candidate_variant(candidate.candidate_id, child)
+
+    assert repository.variant_repository.get_variant(child.variant_id) == child
+    assert repository.variant_for_candidate(candidate.candidate_id) == child
+    with sqlite3.connect(repository.path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_system_variants WHERE variant_id=?',
+            (child.variant_id,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_topology_candidate_variants '
+            'WHERE candidate_id=?',
+            (candidate.candidate_id,),
+        ).fetchone()[0] == 1
+
+    # Repeating the identical promotion stays idempotent.
+    repository.save_candidate_variant(candidate.candidate_id, child)
+    assert repository.variant_for_candidate(candidate.candidate_id) == child
+    with sqlite3.connect(repository.path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_system_variants WHERE variant_id=?',
+            (child.variant_id,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_topology_candidate_variants '
+            'WHERE candidate_id=?',
+            (candidate.candidate_id,),
+        ).fetchone()[0] == 1
+
+
+def test_candidate_variant_remap_rejection_leaves_no_orphan_variant(
+    tmp_path: Path,
+) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+    first = _candidate_variant(repository, spec, candidate)
+    repository.save_candidate_variant(candidate.candidate_id, first)
+
+    # A different but otherwise valid variant for the same candidate is
+    # rejected and must not remain in the global variant authority.
+    second = _candidate_variant(
+        repository, spec, candidate, name='Alternative promotion'
+    )
+    assert second.variant_id != first.variant_id
+    with pytest.raises(ValueError, match='already maps to another SystemVariant'):
+        repository.save_candidate_variant(candidate.candidate_id, second)
+
+    assert repository.variant_repository.get_variant(second.variant_id) is None
+    assert repository.variant_for_candidate(candidate.candidate_id) == first
+    with sqlite3.connect(repository.path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_system_variants WHERE variant_id=?',
+            (second.variant_id,),
+        ).fetchone()[0] == 0
+
+
+def test_candidate_variant_mapping_failure_rolls_back_new_variant(
+    tmp_path: Path,
+) -> None:
+    """An injected mapping-insert failure must roll back the variant row."""
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+    child = _candidate_variant(repository, spec, candidate)
+
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            '''
+            CREATE TRIGGER fail_candidate_variant_mapping_insert
+            BEFORE INSERT ON cad_topology_candidate_variants
+            BEGIN
+                SELECT RAISE(ABORT, 'injected mapping insert failure');
+            END
+            '''
+        )
+
+    with pytest.raises(
+        sqlite3.DatabaseError, match='injected mapping insert failure'
+    ):
+        repository.save_candidate_variant(candidate.candidate_id, child)
+
+    # Neither half of the promotion may persist.
+    assert repository.variant_repository.get_variant(child.variant_id) is None
+    assert repository.variant_for_candidate(candidate.candidate_id) is None
+    with sqlite3.connect(repository.path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_system_variants WHERE variant_id=?',
+            (child.variant_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_topology_candidate_variants '
+            'WHERE candidate_id=?',
+            (candidate.candidate_id,),
+        ).fetchone()[0] == 0
+        connection.execute('DROP TRIGGER fail_candidate_variant_mapping_insert')
+
+    # Retrying the honest operation commits both halves together.
+    repository.save_candidate_variant(candidate.candidate_id, child)
+    assert repository.variant_for_candidate(candidate.candidate_id) == child
+    assert repository.variant_repository.get_variant(child.variant_id) == child
+
+
+def test_candidate_variant_reuses_independently_persisted_variant(
+    tmp_path: Path,
+) -> None:
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+    child = _candidate_variant(repository, spec, candidate)
+
+    # A variant already persisted through its own authority is mapped, not
+    # duplicated.
+    repository.variant_repository.save_variant(child)
+    repository.save_candidate_variant(candidate.candidate_id, child)
+
+    assert repository.variant_for_candidate(candidate.candidate_id) == child
+    with sqlite3.connect(repository.path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_system_variants WHERE variant_id=?',
+            (child.variant_id,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_topology_candidate_variants '
+            'WHERE candidate_id=?',
+            (candidate.candidate_id,),
+        ).fetchone()[0] == 1
+
+
+def test_concurrent_identical_candidate_variant_promotions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Racing identical promotions serialize on the write transaction."""
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+    child = _candidate_variant(repository, spec, candidate)
+
+    variant_repository = repository.variant_repository
+    barrier = threading.Barrier(2)
+    real_require = variant_repository._require_variant_authority
+
+    def gated_authority(variant, lineage=frozenset()):
+        result = real_require(variant, lineage)
+        if variant.variant_id == child.variant_id:
+            # Force both workers through the "variant not yet persisted"
+            # validation before either may open the write transaction.
+            barrier.wait(timeout=30)
+        return result
+
+    monkeypatch.setattr(
+        variant_repository, '_require_variant_authority', gated_authority
+    )
+
+    results: list[object] = []
+
+    def worker() -> None:
+        try:
+            repository.save_candidate_variant(candidate.candidate_id, child)
+            results.append('ok')
+        except Exception as exc:  # noqa: BLE001 - collect for assertion
+            results.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+        assert not thread.is_alive()
+    monkeypatch.delattr(variant_repository, '_require_variant_authority')
+
+    assert results.count('ok') == 2
+    assert repository.variant_for_candidate(candidate.candidate_id) == child
+    assert repository.variant_repository.get_variant(child.variant_id) == child
+    with sqlite3.connect(repository.path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_system_variants WHERE variant_id=?',
+            (child.variant_id,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_topology_candidate_variants '
+            'WHERE candidate_id=?',
+            (candidate.candidate_id,),
+        ).fetchone()[0] == 1
+
+
+def test_concurrent_candidate_variant_remap_loser_leaves_no_orphan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two different valid variants racing for one candidate: the loser fails
+    inside the shared transaction and its variant is never persisted."""
+    repository, spec = _persisted_placement_spec(tmp_path)
+    page = _canonical_candidate_page(repository, spec)
+    repository.save_candidate_page(page)
+    candidate = page.candidates[0]
+    first = _candidate_variant(repository, spec, candidate)
+    second = _candidate_variant(
+        repository, spec, candidate, name='Alternative promotion'
+    )
+    assert first.variant_id != second.variant_id
+
+    variant_repository = repository.variant_repository
+    barrier = threading.Barrier(2)
+    promoted_ids = {first.variant_id, second.variant_id}
+    real_require = variant_repository._require_variant_authority
+
+    def gated_authority(variant, lineage=frozenset()):
+        result = real_require(variant, lineage)
+        if variant.variant_id in promoted_ids:
+            barrier.wait(timeout=30)
+        return result
+
+    monkeypatch.setattr(
+        variant_repository, '_require_variant_authority', gated_authority
+    )
+
+    results: list[object] = []
+
+    def worker(variant) -> None:
+        try:
+            repository.save_candidate_variant(candidate.candidate_id, variant)
+            results.append('ok')
+        except Exception as exc:  # noqa: BLE001 - collect for assertion
+            results.append(exc)
+
+    threads = [
+        threading.Thread(target=worker, args=(first,)),
+        threading.Thread(target=worker, args=(second,)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+        assert not thread.is_alive()
+    monkeypatch.delattr(variant_repository, '_require_variant_authority')
+
+    assert results.count('ok') == 1
+    failure = next(result for result in results if result != 'ok')
+    assert isinstance(failure, ValueError)
+    assert 'already maps to another SystemVariant' in str(failure)
+
+    mapped = repository.variant_for_candidate(candidate.candidate_id)
+    assert mapped is not None
+    winner, loser = (
+        (first, second)
+        if mapped.variant_id == first.variant_id
+        else (second, first)
+    )
+    assert repository.variant_repository.get_variant(winner.variant_id) == winner
+    # The losing promotion must not remain in the global variant authority.
+    assert repository.variant_repository.get_variant(loser.variant_id) is None
+    with sqlite3.connect(repository.path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_system_variants WHERE variant_id=?',
+            (loser.variant_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_topology_candidate_variants '
+            'WHERE candidate_id=?',
+            (candidate.candidate_id,),
+        ).fetchone()[0] == 1
