@@ -12,6 +12,10 @@ from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
 from .cad_schema import ensure_native_schema
 
 
+class SceneRevisionConflictError(ValueError):
+    """A SceneRevision save violated the document's single-head lineage contract."""
+
+
 @dataclass(frozen=True)
 class SceneRevision:
     revision_id: str
@@ -139,13 +143,33 @@ class SceneRepository:
                 return None
             return self._row_to_revision(row)
 
-    def save(self, document: SceneDocument, *, parent_revision_id: str | None) -> SaveResult:
+    def save(
+        self,
+        document: SceneDocument,
+        *,
+        parent_revision_id: str | None,
+        allow_branch: bool = False,
+    ) -> SaveResult:
+        """Persist one immutable SceneRevision as the document's current head.
+
+        This is an optimistic compare-and-swap boundary on the single-head
+        lineage: the first revision of a document requires
+        ``parent_revision_id=None`` and no existing revision, and every later
+        revision requires ``parent_revision_id`` to equal the document's latest
+        revision. The head check runs inside the same ``BEGIN IMMEDIATE``
+        transaction as the insert, so two writers racing from the same head
+        cannot both advance it. Violations raise ``SceneRevisionConflictError``.
+
+        ``allow_branch=True`` deliberately relaxes the head check for explicit
+        non-head lineage; see ``_save_in_transaction`` for the full contract.
+        """
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
             return self._save_in_transaction(
                 connection,
                 document,
                 parent_revision_id=parent_revision_id,
+                allow_branch=allow_branch,
             )
 
     def _save_in_transaction(
@@ -156,18 +180,46 @@ class SceneRepository:
         parent_revision_id: str | None,
         revision_id: str | None = None,
         created_at_utc: str | None = None,
+        allow_branch: bool = False,
     ) -> SaveResult:
         """Persist one immutable SceneRevision inside the caller's transaction.
 
         This is the single SceneRevision write authority used by both normal saves
         and higher-level operations that must commit related lineage atomically.
-        The caller owns BEGIN/COMMIT/ROLLBACK when passing an existing connection.
+        The caller owns BEGIN/COMMIT/ROLLBACK when passing an existing connection;
+        the head check below must run under a held BEGIN IMMEDIATE so that racing
+        writers serialize before compare-and-swap evaluation.
+
+        Lineage contract: the first revision of a document requires
+        ``parent_revision_id=None`` and no existing revision; every later
+        revision requires ``parent_revision_id`` to equal the document's latest
+        (highest seq) revision. Stale-parent and duplicate-root saves raise
+        ``SceneRevisionConflictError`` rather than silently branching history.
+
+        ``allow_branch=True`` permits a non-head parent for deliberate detached
+        lineage (for example O50 measurement-plan fixture revisions that must
+        descend directly from the SearchSpec source revision). A branch row
+        still wins ``latest()`` by insertion order, so callers must bind the
+        returned revision by id and must not treat it as the document's current
+        head. A second root (``parent_revision_id=None`` with existing history)
+        is always rejected.
         """
 
         payload_json = canonical_scene_json(document)
         content_hash = scene_content_hash(document)
+        head = connection.execute(
+            'SELECT revision_id FROM scene_revisions '
+            'WHERE document_id=? ORDER BY seq DESC LIMIT 1',
+            (document.document_id,),
+        ).fetchone()
         parent = None
-        if parent_revision_id is not None:
+        if parent_revision_id is None:
+            if head is not None:
+                raise SceneRevisionConflictError(
+                    'duplicate root SceneRevision rejected: document '
+                    f'{document.document_id} already has revision history'
+                )
+        else:
             parent = connection.execute(
                 'SELECT * FROM scene_revisions WHERE revision_id=?',
                 (parent_revision_id,),
@@ -176,6 +228,13 @@ class SceneRepository:
                 raise ValueError(f'unknown parent revision: {parent_revision_id}')
             if parent['document_id'] != document.document_id:
                 raise ValueError('parent revision belongs to a different document')
+            if not allow_branch and (
+                head is None or head['revision_id'] != parent_revision_id
+            ):
+                raise SceneRevisionConflictError(
+                    f'stale parent SceneRevision: {parent_revision_id} is not the '
+                    f'latest revision of document {document.document_id}'
+                )
             if parent['content_hash'] == content_hash:
                 connection.execute(
                     'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
