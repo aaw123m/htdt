@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from contextlib import closing
 from hashlib import sha256
 from pathlib import Path
+import sqlite3
 
 import pytest
 
+import htdt.cad_system_variant_measurement_campaign as campaign_module
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
     CadAcquisitionContextBinding,
@@ -30,6 +33,7 @@ from htdt.cad_system_variant_measurement_campaign import (
     SystemVariantMeasurementTarget,
     VariantMeasurementAcquisitionRequirement,
     build_system_variant_measurement_campaign,
+    build_system_variant_measurement_campaign_registration,
     build_system_variant_measurement_plan,
     complete_system_variant_measurement_campaign,
     complete_system_variant_measurement_plan,
@@ -40,8 +44,19 @@ from htdt.cad_system_variant_repository import CadSystemVariantRepository
 DOCUMENT_ID = 'o100g-variant-campaign-fixture'
 PLAN_TIME = '2026-09-20T00:03:00+00:00'
 CAMPAIGN_TIME = '2026-09-20T00:04:00+00:00'
+REGISTER_TIME = '2026-09-20T00:04:30+00:00'
 CAPTURE_TIME = '2026-09-20T00:05:00+00:00'
 COMPLETE_TIME = '2026-09-20T00:06:00+00:00'
+
+
+@pytest.fixture(autouse=True)
+def _repository_commit_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the durable commit timestamp the repository attests at save."""
+    monkeypatch.setattr(
+        campaign_module,
+        '_utc_now',
+        lambda: REGISTER_TIME,
+    )
 
 
 def _speaker(entity_id: str, role: str, x_m: float) -> SceneEntity:
@@ -199,8 +214,8 @@ def _plan_and_campaign(fx, target=None):
         purpose='SystemVariant measurement campaign',
         preregistered_at_utc=CAMPAIGN_TIME,
     )
-    fx['campaigns'].save_campaign(campaign)
-    return plan, campaign
+    registration = fx['campaigns'].save_campaign(campaign)
+    return plan, campaign, registration
 
 
 def _save_evidence(
@@ -271,7 +286,7 @@ def test_plan_binds_exact_variant_application_and_as_built_and_preserves_deviati
     tmp_path: Path,
 ) -> None:
     fx = _fixture(tmp_path, as_built_deviation=True)
-    plan, _ = _plan_and_campaign(fx)
+    plan, _, _ = _plan_and_campaign(fx)
 
     assert plan.variant_id == fx['variant'].variant_id
     assert plan.variant_sha256 == fx['variant'].variant_sha256
@@ -318,7 +333,7 @@ def test_plan_creation_fails_closed_on_wrong_exact_target(
     [
         ({'channel_role': 'SR'}, 'wrong channel role'),
         ({'source_speaker_ids': ('fl',)}, 'wrong source entity role'),
-        ({'captured_at': '2026-09-20T00:03:30+00:00'}, 'pre-campaign'),
+        ({'captured_at': '2026-09-20T00:03:30+00:00'}, 'pre-registration'),
         ({'acquisition': False}, 'requires acquisition context'),
     ],
 )
@@ -328,12 +343,13 @@ def test_campaign_exact_matching_rejects_wrong_or_incomplete_evidence(
     match,
 ) -> None:
     fx = _fixture(tmp_path)
-    plan, campaign = _plan_and_campaign(fx)
+    plan, campaign, registration = _plan_and_campaign(fx)
     _save_evidence(fx, **evidence_kwargs)
 
     with pytest.raises(ValueError, match=match):
         complete_system_variant_measurement_plan(
             campaign=campaign,
+            registration=registration,
             plan=plan,
             assignments={plan.targets[0].target_id: ('measure-sl',)},
             measurement_repository=fx['measurements'],
@@ -345,12 +361,13 @@ def test_campaign_exact_matching_rejects_wrong_or_incomplete_evidence(
 def test_insufficient_quality_capability_rejected(tmp_path: Path) -> None:
     fx = _fixture(tmp_path)
     target = _target(fx, observable='phase_response')
-    plan, campaign = _plan_and_campaign(fx, target)
+    plan, campaign, registration = _plan_and_campaign(fx, target)
     _save_evidence(fx, phase=False)
 
     with pytest.raises(ValueError, match='quality capability is insufficient'):
         complete_system_variant_measurement_plan(
             campaign=campaign,
+            registration=registration,
             plan=plan,
             assignments={target.target_id: ('measure-sl',)},
             measurement_repository=fx['measurements'],
@@ -373,7 +390,7 @@ def test_campaign_completion_promotes_exact_measured_lifecycle_and_reopens(
     tmp_path: Path,
 ) -> None:
     fx = _fixture(tmp_path)
-    plan, campaign = _plan_and_campaign(fx)
+    plan, campaign, registration = _plan_and_campaign(fx)
     measurement, _, _ = _save_evidence(fx)
 
     completion, plan_completions, measured = (
@@ -382,6 +399,7 @@ def test_campaign_completion_promotes_exact_measured_lifecycle_and_reopens(
             lifecycle_repository=fx['lifecycle'],
             measured_lifecycle_repository=fx['measured'],
             campaign=campaign,
+            registration=registration,
             plans=(plan,),
             assignments_by_plan={
                 plan.plan_id: {
@@ -401,6 +419,16 @@ def test_campaign_completion_promotes_exact_measured_lifecycle_and_reopens(
     states = {item.entity_id: item.state for item in measured.entity_lifecycle}
     assert states['sl'] == 'measured'
     assert completion.measured_record_id == measured.record_id
+    assert completion.campaign_registration_id == registration.registration_id
+    assert (
+        completion.campaign_registration_sha256 == registration.registration_sha256
+    )
+    for item in plan_completions:
+        assert item.campaign_registration_id == registration.registration_id
+        assert (
+            item.campaign_registration_sha256
+            == registration.registration_sha256
+        )
 
     reopened_scene = SceneRepository(fx['scene'].path)
     reopened_variants = CadSystemVariantRepository(reopened_scene)
@@ -432,13 +460,18 @@ def test_campaign_completion_promotes_exact_measured_lifecycle_and_reopens(
         == plan_completions[0]
     )
     assert reopened_campaigns.get_campaign_completion(campaign.campaign_id) == completion
+    assert (
+        reopened_campaigns.get_campaign_registration(campaign.campaign_id)
+        == registration
+    )
 
 
 def test_old_plan_and_campaign_are_immutable_when_new_target_is_created(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fx = _fixture(tmp_path)
-    first_plan, first_campaign = _plan_and_campaign(fx)
+    first_plan, first_campaign, first_registration = _plan_and_campaign(fx)
     second_target = _target(
         fx,
         target_id='sl-at-mlp-repeat',
@@ -458,11 +491,240 @@ def test_old_plan_and_campaign_are_immutable_when_new_target_is_created(
     second_campaign = build_system_variant_measurement_campaign(
         plans=(second_plan,),
         purpose='new target requires new campaign',
-        preregistered_at_utc='2026-09-20T00:08:00+00:00',
+        preregistered_at_utc='2026-09-20T00:07:30+00:00',
     )
-    fx['campaigns'].save_campaign(second_campaign)
+    monkeypatch.setattr(
+        campaign_module, '_utc_now', lambda: '2026-09-20T00:08:00+00:00'
+    )
+    second_registration = fx['campaigns'].save_campaign(second_campaign)
 
     assert second_plan.plan_id != first_plan.plan_id
     assert second_campaign.campaign_id != first_campaign.campaign_id
+    assert second_registration.campaign_id == second_campaign.campaign_id
+    assert second_registration.registered_at_utc == '2026-09-20T00:08:00+00:00'
+    assert (
+        second_registration.registration_id != first_registration.registration_id
+    )
     assert fx['campaigns'].get_plan(first_plan.plan_id) == first_plan
     assert fx['campaigns'].get_campaign(first_campaign.campaign_id) == first_campaign
+    assert (
+        fx['campaigns'].get_campaign_registration(first_campaign.campaign_id)
+        == first_registration
+    )
+
+
+def _plan_only(fx):
+    plan = build_system_variant_measurement_plan(
+        scene_repository=fx['scene'],
+        variant_repository=fx['variants'],
+        lifecycle_repository=fx['lifecycle'],
+        as_built_record=fx['as_built'],
+        targets=(_target(fx),),
+        created_at_utc=PLAN_TIME,
+        purpose='measure installed proposal',
+    )
+    fx['campaigns'].save_plan(plan)
+    return plan
+
+
+def test_campaign_commit_time_is_repository_attested_not_caller_supplied(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan_only(fx)
+    # Caller backdates the claimed preregistration as far as the plans allow.
+    campaign = build_system_variant_measurement_campaign(
+        plans=(plan,),
+        purpose='backdated claim stays planning metadata',
+        preregistered_at_utc='2026-09-20T00:03:30+00:00',
+    )
+
+    registration = fx['campaigns'].save_campaign(campaign)
+
+    assert registration.campaign_id == campaign.campaign_id
+    assert registration.campaign_sha256 == campaign.campaign_sha256
+    assert registration.registered_at_utc == REGISTER_TIME
+    assert registration.registered_at_utc != campaign.preregistered_at_utc
+    assert (
+        fx['campaigns'].get_campaign_registration(campaign.campaign_id)
+        == registration
+    )
+    # The caller claim remains hashed campaign metadata; the durable fact did
+    # not move.
+    persisted = fx['campaigns'].get_campaign(campaign.campaign_id)
+    assert persisted.preregistered_at_utc == '2026-09-20T00:03:30+00:00'
+
+
+def test_campaign_commit_time_is_not_rewriteable_by_resave(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+
+    assert fx['campaigns'].save_campaign(campaign) == registration
+    assert registration.registered_at_utc == REGISTER_TIME
+
+
+def test_retrospective_campaign_registration_rejected_when_evidence_exists(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan_only(fx)
+    # Qualifying measured evidence is committed before the campaign is saved.
+    _save_evidence(fx)
+    campaign = build_system_variant_measurement_campaign(
+        plans=(plan,),
+        purpose='retrospective campaign',
+        preregistered_at_utc=CAMPAIGN_TIME,
+    )
+
+    with pytest.raises(ValueError, match='qualifying measurement evidence'):
+        fx['campaigns'].save_campaign(campaign)
+
+    assert fx['campaigns'].get_campaign(campaign.campaign_id) is None
+    assert (
+        fx['campaigns'].get_campaign_registration(campaign.campaign_id) is None
+    )
+
+
+def test_unrelated_measurement_does_not_block_campaign_registration(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan_only(fx)
+    # Evidence for a different channel role cannot satisfy a preregistered
+    # target, so it is not qualifying evidence for this campaign.
+    _save_evidence(fx, measurement_id='measure-sr', channel_role='SR')
+    campaign = build_system_variant_measurement_campaign(
+        plans=(plan,),
+        purpose='unrelated evidence does not block registration',
+        preregistered_at_utc=CAMPAIGN_TIME,
+    )
+
+    registration = fx['campaigns'].save_campaign(campaign)
+    assert registration.registered_at_utc == REGISTER_TIME
+
+
+def test_campaign_claimed_preregistration_cannot_postdate_commit(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan_only(fx)
+    campaign = build_system_variant_measurement_campaign(
+        plans=(plan,),
+        purpose='claim after durable commit',
+        preregistered_at_utc='2026-09-20T00:04:45+00:00',
+    )
+
+    with pytest.raises(ValueError, match='cannot postdate durable registration'):
+        fx['campaigns'].save_campaign(campaign)
+
+
+def test_evidence_captured_before_durable_registration_cannot_satisfy_target(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+    # Captured after the caller-claimed preregistered_at_utc but before the
+    # repository-attested registered_at_utc: only the durable authority gates.
+    _save_evidence(fx, captured_at='2026-09-20T00:04:15+00:00')
+
+    with pytest.raises(ValueError, match='pre-registration'):
+        complete_system_variant_measurement_plan(
+            campaign=campaign,
+            registration=registration,
+            plan=plan,
+            assignments={plan.targets[0].target_id: ('measure-sl',)},
+            measurement_repository=fx['measurements'],
+            quality_repository=fx['quality'],
+            completed_at_utc=COMPLETE_TIME,
+        )
+
+
+def test_completion_rejects_foreign_registration_authority(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+    _save_evidence(fx)
+    other_plan = build_system_variant_measurement_plan(
+        scene_repository=fx['scene'],
+        variant_repository=fx['variants'],
+        lifecycle_repository=fx['lifecycle'],
+        as_built_record=fx['as_built'],
+        targets=(
+            _target(
+                fx,
+                target_id='sl-at-mlp-repeat',
+                expected_measurement_count=2,
+                repeatability_required=True,
+            ),
+        ),
+        created_at_utc='2026-09-20T00:03:30+00:00',
+        purpose='other plan',
+    )
+    other_campaign = build_system_variant_measurement_campaign(
+        plans=(other_plan,),
+        purpose='other campaign',
+        preregistered_at_utc=CAMPAIGN_TIME,
+    )
+    foreign = build_system_variant_measurement_campaign_registration(
+        campaign=other_campaign,
+        registered_at_utc=REGISTER_TIME,
+    )
+
+    with pytest.raises(ValueError, match='registration authority mismatch'):
+        complete_system_variant_measurement_plan(
+            campaign=campaign,
+            registration=foreign,
+            plan=plan,
+            assignments={plan.targets[0].target_id: ('measure-sl',)},
+            measurement_repository=fx['measurements'],
+            quality_repository=fx['quality'],
+            completed_at_utc=COMPLETE_TIME,
+        )
+
+
+def test_plan_completion_requires_persisted_registration(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    plan = _plan_only(fx)
+    campaign = build_system_variant_measurement_campaign(
+        plans=(plan,),
+        purpose='campaign persisted without durable registration',
+        preregistered_at_utc=CAMPAIGN_TIME,
+    )
+    # Simulate a pre-authority row: campaign persisted with no registration.
+    with closing(sqlite3.connect(fx['scene'].path)) as connection, connection:
+        connection.execute(
+            """
+            INSERT INTO cad_system_variant_measurement_campaigns(
+                campaign_id, campaign_sha256, variant_id, as_built_record_id,
+                payload_json, recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                campaign.campaign_id,
+                campaign.campaign_sha256,
+                campaign.variant_id,
+                campaign.as_built_record_id,
+                campaign.model_dump_json(),
+                campaign.preregistered_at_utc,
+            ),
+        )
+    _save_evidence(fx)
+    registration = build_system_variant_measurement_campaign_registration(
+        campaign=campaign,
+        registered_at_utc=REGISTER_TIME,
+    )
+    completion, _ = complete_system_variant_measurement_plan(
+        campaign=campaign,
+        registration=registration,
+        plan=plan,
+        assignments={plan.targets[0].target_id: ('measure-sl',)},
+        measurement_repository=fx['measurements'],
+        quality_repository=fx['quality'],
+        completed_at_utc=COMPLETE_TIME,
+    )
+
+    # No historical registration time is silently inferred.
+    assert fx['campaigns'].get_campaign_registration(campaign.campaign_id) is None
+    with pytest.raises(ValueError, match='registration authority missing/stale'):
+        fx['campaigns'].save_plan_completion(completion)
+    with pytest.raises(ValueError, match='registration authority missing/stale'):
+        fx['campaigns'].save_campaign(campaign)
