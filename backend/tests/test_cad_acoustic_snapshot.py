@@ -409,7 +409,13 @@ def _fixture(
         portal_authority=portals,
         boundary_termination_authority=terminations,
     )
-    r120_repository.save_compiled_geometry(compiled)
+    r120_repository.save_compiled_geometry(
+        compiled,
+        surface_boundary_bindings=bindings,
+        region_authority=region,
+        portal_authority=portals,
+        boundary_termination_authority=terminations,
+    )
 
     observables = (
         'magnitude_response',

@@ -1,23 +1,32 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
+import sqlite3
 
 from htdt.cad_repository import SceneRepository, SceneRevision
 from htdt.cad_scene import SceneDocument, scene_content_hash
 from htdt.r120_geometry_compiler import (
+    AcousticRegionAuthority,
     AcousticRegionDeclaration,
+    BoundaryTerminationAuthority,
     ExactExternalAuthorityRef,
     LeakDiagnosticSample,
+    PortalAuthority,
     PortalBoundaryEdge,
     PortalDeclaration,
+    R120CompiledGeometry,
     R120GeometryCompilationError,
+    R120LeakPortalDiagnostic,
     SurfaceBoundaryAuthorityBinding,
+    _semantic_hash,
     compile_r120_geometry,
     deserialize_r120_compiled_geometry,
     deserialize_r120_leak_portal_diagnostic,
     diagnose_r120_leak_and_portals,
     make_acoustic_region_authority,
+    make_boundary_termination_authority,
     make_leak_portal_diagnostic_request,
     make_leak_sampling_authority,
     make_portal_authority,
@@ -474,6 +483,7 @@ def test_sqlite_save_reopen_preserves_exact_scene_and_diagnostic_hashes(
         geometric_tolerance_m=1.0e-6,
     )
     compiled = compile_r120_geometry(saved_revision, request)
+    portals = make_portal_authority(declaration_mode='explicit_none')
     diagnostic_request = make_leak_portal_diagnostic_request(
         compiled,
         closed_boundary_expectation=True,
@@ -482,12 +492,12 @@ def test_sqlite_save_reopen_preserves_exact_scene_and_diagnostic_hashes(
     diagnostic = diagnose_r120_leak_and_portals(
         compiled,
         diagnostic_request,
-        portal_authority=make_portal_authority(declaration_mode='explicit_none'),
+        portal_authority=portals,
     )
 
     repository = R120GeometryCompilerRepository(scene_repository)
     repository.save_compiled_geometry(compiled)
-    repository.save_leak_portal_diagnostic(diagnostic)
+    repository.save_leak_portal_diagnostic(diagnostic, portal_authority=portals)
 
     reopened_repository = R120GeometryCompilerRepository(
         SceneRepository(scene_repository.path)
@@ -510,4 +520,570 @@ def test_sqlite_save_reopen_preserves_exact_scene_and_diagnostic_hashes(
     assert reopened_diagnostic is not None
     assert reopened_diagnostic.exact_compiled_geometry_hash_sha256 == (
         compiled.compiled_hash_sha256
+    )
+
+
+def _compile_authorities(
+    revision: SceneRevision,
+) -> tuple[
+    tuple[SurfaceBoundaryAuthorityBinding, ...],
+    AcousticRegionAuthority,
+    PortalAuthority,
+    BoundaryTerminationAuthority,
+]:
+    surface_id = _surface_id(revision)
+    bindings = (
+        SurfaceBoundaryAuthorityBinding(
+            source_surface_id=surface_id,
+            material_authority=_dummy_external_ref('fixture-material'),
+            boundary_physics_authority=_dummy_external_ref(
+                'fixture-boundary-physics'
+            ),
+        ),
+    )
+    region = make_acoustic_region_authority(
+        (
+            AcousticRegionDeclaration(
+                region_id='room-air',
+                boundary_surface_ids=(surface_id,),
+            ),
+        )
+    )
+    portals = make_portal_authority(declaration_mode='explicit_none')
+    terminations = make_boundary_termination_authority(
+        declaration_mode='explicit_none'
+    )
+    return bindings, region, portals, terminations
+
+
+def _authority_fixture(tmp_path: Path):
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(
+        _revision()[0].document,
+        parent_revision_id=None,
+    ).revision
+    bindings, region, portals, terminations = _compile_authorities(revision)
+    compiled = compile_r120_geometry(
+        revision,
+        make_r120_geometry_compilation_request(
+            revision,
+            geometric_tolerance_m=1.0e-6,
+        ),
+        surface_boundary_bindings=bindings,
+        region_authority=region,
+        portal_authority=portals,
+        boundary_termination_authority=terminations,
+    )
+    repository = R120GeometryCompilerRepository(scene_repository)
+    repository.save_compiled_geometry(
+        compiled,
+        surface_boundary_bindings=bindings,
+        region_authority=region,
+        portal_authority=portals,
+        boundary_termination_authority=terminations,
+    )
+    return {
+        'scene_repository': scene_repository,
+        'repository': repository,
+        'revision': revision,
+        'compiled': compiled,
+        'bindings': bindings,
+        'region': region,
+        'portals': portals,
+        'terminations': terminations,
+    }
+
+
+def _retamper_compiled(
+    compiled: R120CompiledGeometry,
+    **overrides: object,
+) -> R120CompiledGeometry:
+    """Rebuild a self-hash-valid compiled authority over tampered fields."""
+    payload = compiled.model_dump(mode='json')
+    payload.update(overrides)
+    core = {
+        key: value
+        for key, value in payload.items()
+        if key not in ('compiled_geometry_id', 'compiled_hash_sha256')
+    }
+    digest = _semantic_hash(core)
+    payload['compiled_hash_sha256'] = digest
+    payload['compiled_geometry_id'] = f'r120-compiled-geometry:{digest}'
+    return R120CompiledGeometry.model_validate(payload)
+
+
+def _retamper_diagnostic(
+    diagnostic: R120LeakPortalDiagnostic,
+    **overrides: object,
+) -> R120LeakPortalDiagnostic:
+    """Rebuild a self-hash-valid diagnostic over tampered fields."""
+    payload = diagnostic.model_dump(mode='json')
+    payload.update(overrides)
+    core = {
+        key: value
+        for key, value in payload.items()
+        if key not in ('diagnostic_result_id', 'diagnostic_hash_sha256')
+    }
+    digest = _semantic_hash(core)
+    payload['diagnostic_hash_sha256'] = digest
+    payload['diagnostic_result_id'] = f'r120-leak-portal-diagnostic:{digest}'
+    return R120LeakPortalDiagnostic.model_validate(payload)
+
+
+def test_repository_replays_compiled_geometry_from_retained_exact_authorities(
+    tmp_path: Path,
+) -> None:
+    fixture = _authority_fixture(tmp_path)
+    compiled = fixture['compiled']
+    repository = fixture['repository']
+
+    # Idempotent re-save resolves the retained inputs; authorities need not be
+    # supplied twice.
+    assert repository.save_compiled_geometry(compiled) == compiled
+
+    reopened_repository = R120GeometryCompilerRepository(
+        SceneRepository(fixture['scene_repository'].path)
+    )
+    reopened = reopened_repository.get_compiled_geometry(
+        compiled.compiled_geometry_id
+    )
+    assert reopened == compiled
+    assert reopened is not None
+    assert reopened.region_authority_ref == fixture['compiled'].region_authority_ref
+    assert reopened_repository.get_compiled_geometry_by_hash(
+        compiled.compiled_hash_sha256
+    ) == compiled
+
+
+def test_self_hash_valid_tampered_compiled_geometry_is_rejected_at_save(
+    tmp_path: Path,
+) -> None:
+    fixture = _authority_fixture(tmp_path)
+    compiled = fixture['compiled']
+    repository = fixture['repository']
+
+    readiness = compiled.readiness.model_dump(mode='json')
+    readiness['wave_geometry_ready'] = not readiness['wave_geometry_ready']
+    forged_readiness = _retamper_compiled(compiled, readiness=readiness)
+    try:
+        repository.save_compiled_geometry(
+            forged_readiness,
+            surface_boundary_bindings=fixture['bindings'],
+            region_authority=fixture['region'],
+            portal_authority=fixture['portals'],
+            boundary_termination_authority=fixture['terminations'],
+        )
+    except ValueError as exc:
+        assert 'does not reproduce' in str(exc)
+    else:
+        raise AssertionError('tampered readiness flags must fail closed')
+
+    bounding_volume = compiled.bounding_volume.model_dump(mode='json')
+    bounding_volume['max_x_m'] = bounding_volume['max_x_m'] + 1.0
+    forged_bounds = _retamper_compiled(
+        compiled,
+        bounding_volume=bounding_volume,
+    )
+    try:
+        repository.save_compiled_geometry(
+            forged_bounds,
+            surface_boundary_bindings=fixture['bindings'],
+            region_authority=fixture['region'],
+            portal_authority=fixture['portals'],
+            boundary_termination_authority=fixture['terminations'],
+        )
+    except ValueError as exc:
+        assert 'does not reproduce' in str(exc)
+    else:
+        raise AssertionError('tampered bounding volume must fail closed')
+
+    # Passthrough surface-mapping authorities are pinned to the retained exact
+    # inputs: the same payload under the original bindings diverges.
+    mapping = [
+        dict(item)
+        for item in compiled.model_dump(mode='json')['surface_mapping']
+    ]
+    mapping[0]['material_authority'] = _dummy_external_ref(
+        'forged-material'
+    ).model_dump(mode='json')
+    forged_mapping = _retamper_compiled(compiled, surface_mapping=mapping)
+    try:
+        repository.save_compiled_geometry(
+            forged_mapping,
+            surface_boundary_bindings=fixture['bindings'],
+            region_authority=fixture['region'],
+            portal_authority=fixture['portals'],
+            boundary_termination_authority=fixture['terminations'],
+        )
+    except ValueError as exc:
+        assert 'does not reproduce' in str(exc)
+    else:
+        raise AssertionError('swapped material authority must fail closed')
+
+
+def test_compiled_geometry_dangling_input_authority_fails_closed(
+    tmp_path: Path,
+) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(
+        _revision()[0].document,
+        parent_revision_id=None,
+    ).revision
+    bindings, region, portals, terminations = _compile_authorities(revision)
+    compiled = compile_r120_geometry(
+        revision,
+        make_r120_geometry_compilation_request(
+            revision,
+            geometric_tolerance_m=1.0e-6,
+        ),
+        surface_boundary_bindings=bindings,
+        region_authority=region,
+        portal_authority=portals,
+        boundary_termination_authority=terminations,
+    )
+    repository = R120GeometryCompilerRepository(scene_repository)
+
+    try:
+        repository.save_compiled_geometry(compiled)
+    except ValueError as exc:
+        assert 'unretained acoustic region authority' in str(exc)
+    else:
+        raise AssertionError('dangling region authority must fail closed')
+
+    other_region = make_acoustic_region_authority(
+        (
+            AcousticRegionDeclaration(
+                region_id='other-region',
+                boundary_surface_ids=(_surface_id(revision),),
+            ),
+        )
+    )
+    try:
+        repository.save_compiled_geometry(
+            compiled,
+            surface_boundary_bindings=bindings,
+            region_authority=other_region,
+            portal_authority=portals,
+            boundary_termination_authority=terminations,
+        )
+    except ValueError as exc:
+        assert 'acoustic region authority mismatch' in str(exc)
+    else:
+        raise AssertionError('mismatched region authority must fail closed')
+
+    authority_free = compile_r120_geometry(
+        revision,
+        make_r120_geometry_compilation_request(
+            revision,
+            geometric_tolerance_m=1.0e-6,
+        ),
+    )
+    try:
+        repository.save_compiled_geometry(
+            authority_free,
+            region_authority=region,
+        )
+    except ValueError as exc:
+        assert 'without a compiled ref' in str(exc)
+    else:
+        raise AssertionError('unreferenced authority must fail closed')
+
+
+def test_tampered_persisted_compiled_inputs_fail_closed_on_read(
+    tmp_path: Path,
+) -> None:
+    fixture = _authority_fixture(tmp_path)
+    compiled = fixture['compiled']
+    repository = fixture['repository']
+
+    # A self-hash-valid forged payload with consistent index columns has no
+    # retained inputs for the forged identity and fails closed.
+    readiness = compiled.readiness.model_dump(mode='json')
+    readiness['wave_geometry_ready'] = not readiness['wave_geometry_ready']
+    forged = _retamper_compiled(compiled, readiness=readiness)
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            """
+            UPDATE cad_r120_compiled_geometry
+            SET compiled_geometry_id=?,
+                compiled_hash_sha256=?,
+                payload_json=?
+            WHERE compiled_geometry_id=?
+            """,
+            (
+                forged.compiled_geometry_id,
+                forged.compiled_hash_sha256,
+                forged.model_dump_json(),
+                compiled.compiled_geometry_id,
+            ),
+        )
+        connection.commit()
+    try:
+        repository.get_compiled_geometry(forged.compiled_geometry_id)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('forged persisted payload must fail closed')
+
+
+def test_tampered_retained_compile_inputs_fail_closed_on_read(
+    tmp_path: Path,
+) -> None:
+    fixture = _authority_fixture(tmp_path)
+    compiled = fixture['compiled']
+    repository = fixture['repository']
+
+    other_region = make_acoustic_region_authority(
+        (
+            AcousticRegionDeclaration(
+                region_id='forged-region',
+                boundary_surface_ids=(
+                    fixture['region'].declarations[0].boundary_surface_ids
+                ),
+            ),
+        )
+    )
+    with sqlite3.connect(repository.path) as connection:
+        row = connection.execute(
+            """
+            SELECT inputs_json
+            FROM cad_r120_compile_inputs
+            WHERE compiled_geometry_id=?
+            """,
+            (compiled.compiled_geometry_id,),
+        ).fetchone()
+        inputs = json.loads(row[0])
+        inputs['region_authority'] = other_region.model_dump(mode='json')
+        connection.execute(
+            """
+            UPDATE cad_r120_compile_inputs
+            SET inputs_json=?
+            WHERE compiled_geometry_id=?
+            """,
+            (json.dumps(inputs), compiled.compiled_geometry_id),
+        )
+        connection.commit()
+    try:
+        repository.get_compiled_geometry(compiled.compiled_geometry_id)
+    except ValueError as exc:
+        assert 'authority mismatch' in str(exc)
+    else:
+        raise AssertionError('swapped retained region authority must fail closed')
+
+    with sqlite3.connect(repository.path) as connection:
+        row = connection.execute(
+            """
+            SELECT inputs_json
+            FROM cad_r120_compile_inputs
+            WHERE compiled_geometry_id=?
+            """,
+            (compiled.compiled_geometry_id,),
+        ).fetchone()
+        inputs = json.loads(row[0])
+        inputs['region_authority'] = fixture['region'].model_dump(mode='json')
+        inputs['surface_boundary_bindings'] = []
+        connection.execute(
+            """
+            UPDATE cad_r120_compile_inputs
+            SET inputs_json=?
+            WHERE compiled_geometry_id=?
+            """,
+            (json.dumps(inputs), compiled.compiled_geometry_id),
+        )
+        connection.commit()
+    try:
+        repository.get_compiled_geometry(compiled.compiled_geometry_id)
+    except ValueError as exc:
+        assert 'does not reproduce' in str(exc)
+    else:
+        raise AssertionError('stripped retained bindings must fail closed')
+
+
+def test_leak_portal_diagnostic_replays_from_retained_portal_authority(
+    tmp_path: Path,
+) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(
+        _revision(remove_triangle_index=0)[0].document,
+        parent_revision_id=None,
+    ).revision
+    compiled = compile_r120_geometry(
+        revision,
+        make_r120_geometry_compilation_request(
+            revision,
+            geometric_tolerance_m=1.0e-6,
+            input_policy='diagnostic_compile_unresolved',
+        ),
+    )
+    repository = R120GeometryCompilerRepository(scene_repository)
+    repository.save_compiled_geometry(compiled)
+
+    portals = make_portal_authority(declaration_mode='explicit_none')
+    diagnostic = diagnose_r120_leak_and_portals(
+        compiled,
+        make_leak_portal_diagnostic_request(
+            compiled,
+            closed_boundary_expectation=True,
+            sampling_authority=_sampling(),
+        ),
+        portal_authority=portals,
+    )
+
+    # The diagnostic consumed a portal authority that is only referenced by
+    # ref; persistence must receive the exact authority to retain it.
+    try:
+        repository.save_leak_portal_diagnostic(diagnostic)
+    except ValueError as exc:
+        assert 'unretained portal authority' in str(exc)
+    else:
+        raise AssertionError('dangling diagnostic portal authority must fail closed')
+
+    repository.save_leak_portal_diagnostic(diagnostic, portal_authority=portals)
+
+    # Idempotent re-save resolves the retained portal authority.
+    assert repository.save_leak_portal_diagnostic(diagnostic) == diagnostic
+
+    reopened_repository = R120GeometryCompilerRepository(
+        SceneRepository(scene_repository.path)
+    )
+    reopened = reopened_repository.get_leak_portal_diagnostic(
+        diagnostic.diagnostic_result_id
+    )
+    assert reopened == diagnostic
+    assert reopened is not None
+    assert reopened.portal_authority_ref == diagnostic.portal_authority_ref
+
+
+def test_tampered_leak_portal_diagnostic_is_rejected(tmp_path: Path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(
+        _revision(remove_triangle_index=0)[0].document,
+        parent_revision_id=None,
+    ).revision
+    compiled = compile_r120_geometry(
+        revision,
+        make_r120_geometry_compilation_request(
+            revision,
+            geometric_tolerance_m=1.0e-6,
+            input_policy='diagnostic_compile_unresolved',
+        ),
+    )
+    repository = R120GeometryCompilerRepository(scene_repository)
+    repository.save_compiled_geometry(compiled)
+
+    portals = make_portal_authority(declaration_mode='explicit_none')
+    diagnostic = diagnose_r120_leak_and_portals(
+        compiled,
+        make_leak_portal_diagnostic_request(
+            compiled,
+            closed_boundary_expectation=True,
+            sampling_authority=_sampling(),
+        ),
+        portal_authority=portals,
+    )
+
+    # Fabricated findings under a recomputed self hash are rejected at save.
+    forged_findings = _retamper_diagnostic(diagnostic, findings=())
+    try:
+        repository.save_leak_portal_diagnostic(
+            forged_findings,
+            portal_authority=portals,
+        )
+    except ValueError as exc:
+        assert 'does not reproduce' in str(exc)
+    else:
+        raise AssertionError('fabricated diagnostic findings must fail closed')
+
+    repository.save_leak_portal_diagnostic(diagnostic, portal_authority=portals)
+
+    # Fabricated ray evidence in the persisted row fails closed on read: the
+    # forged identity has no retained inputs.
+    evidence = [
+        dict(item)
+        for item in diagnostic.model_dump(mode='json')['ray_escape_evidence']
+    ]
+    evidence[0]['escaped_without_intersection'] = not evidence[0][
+        'escaped_without_intersection'
+    ]
+    forged_evidence = _retamper_diagnostic(
+        diagnostic,
+        ray_escape_evidence=evidence,
+    )
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            """
+            UPDATE cad_r120_leak_portal_diagnostics
+            SET diagnostic_result_id=?,
+                diagnostic_hash_sha256=?,
+                payload_json=?
+            WHERE diagnostic_result_id=?
+            """,
+            (
+                forged_evidence.diagnostic_result_id,
+                forged_evidence.diagnostic_hash_sha256,
+                forged_evidence.model_dump_json(),
+                diagnostic.diagnostic_result_id,
+            ),
+        )
+        connection.commit()
+    try:
+        repository.get_leak_portal_diagnostic(
+            forged_evidence.diagnostic_result_id
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('forged persisted diagnostic must fail closed')
+
+
+def test_diagnostic_without_portal_authority_rejects_supplied_authority(
+    tmp_path: Path,
+) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(
+        _revision(remove_triangle_index=0)[0].document,
+        parent_revision_id=None,
+    ).revision
+    compiled = compile_r120_geometry(
+        revision,
+        make_r120_geometry_compilation_request(
+            revision,
+            geometric_tolerance_m=1.0e-6,
+            input_policy='diagnostic_compile_unresolved',
+        ),
+    )
+    repository = R120GeometryCompilerRepository(scene_repository)
+    repository.save_compiled_geometry(compiled)
+
+    diagnostic = diagnose_r120_leak_and_portals(
+        compiled,
+        make_leak_portal_diagnostic_request(
+            compiled,
+            closed_boundary_expectation=True,
+            sampling_authority=_sampling(),
+        ),
+    )
+    assert diagnostic.portal_authority_ref is None
+    repository.save_leak_portal_diagnostic(diagnostic)
+
+    try:
+        repository.save_leak_portal_diagnostic(
+            diagnostic,
+            portal_authority=make_portal_authority(
+                declaration_mode='explicit_none'
+            ),
+        )
+    except ValueError as exc:
+        assert 'without a compiled ref' in str(exc)
+    else:
+        raise AssertionError('unreferenced diagnostic authority must fail closed')
+
+    reopened_repository = R120GeometryCompilerRepository(
+        SceneRepository(scene_repository.path)
+    )
+    assert (
+        reopened_repository.get_leak_portal_diagnostic(
+            diagnostic.diagnostic_result_id
+        )
+        == diagnostic
     )
