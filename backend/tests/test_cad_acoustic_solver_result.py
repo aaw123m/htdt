@@ -100,12 +100,15 @@ def _dispatch(
         'adapter_descriptor_semantic_sha256': descriptor_hash,
         'solver_implementation_ref': implementation.model_dump(mode='json'),
         'solver_configuration_ref': configuration.model_dump(mode='json'),
+        'numerical_fidelity_policy_ref': (
+            request.numerical_fidelity_policy_ref.model_dump(mode='json')
+        ),
     }
     solver_input_hash = _digest(solver_input)
     reasons = () if state == 'READY' else ('fixture_dispatch_blocked',)
     core = {
-        'schema_version': 1,
-        'authority_version': '1',
+        'schema_version': 2,
+        'authority_version': '2',
         'acoustic_scene_snapshot_id': request.acoustic_scene_snapshot_id,
         'acoustic_scene_snapshot_sha256': (
             request.acoustic_scene_snapshot_sha256
@@ -121,6 +124,9 @@ def _dispatch(
         'adapter_descriptor_semantic_sha256': descriptor_hash,
         'solver_implementation_ref': implementation.model_dump(mode='json'),
         'solver_configuration_ref': configuration.model_dump(mode='json'),
+        'numerical_fidelity_policy_ref': (
+            request.numerical_fidelity_policy_ref.model_dump(mode='json')
+        ),
         'state': state,
         'reasons': list(reasons),
         'deterministic_solver_input_hash': solver_input_hash,
@@ -138,6 +144,7 @@ def _dispatch(
         adapter_descriptor_semantic_sha256=descriptor_hash,
         solver_implementation_ref=implementation,
         solver_configuration_ref=configuration,
+        numerical_fidelity_policy_ref=request.numerical_fidelity_policy_ref,
         state=state,
         reasons=reasons,
         deterministic_solver_input_hash=solver_input_hash,

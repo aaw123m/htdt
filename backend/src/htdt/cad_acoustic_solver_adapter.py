@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from hashlib import sha256
 import json
 from typing import Any, Literal, Sequence
@@ -16,7 +17,8 @@ from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 ACOUSTIC_SOLVER_ADAPTER_SCHEMA_VERSION = 1
 ACOUSTIC_SOLVER_ADAPTER_AUTHORITY_VERSION = '1'
-ACOUSTIC_SOLVER_DISPATCH_AUTHORITY_VERSION = '1'
+ACOUSTIC_SOLVER_DISPATCH_SCHEMA_VERSION = 2
+ACOUSTIC_SOLVER_DISPATCH_AUTHORITY_VERSION = '2'
 
 AcousticSolverDomain = Literal['wave', 'geometric']
 SolverDispatchState = Literal['READY', 'BLOCKED', 'UNSUPPORTED']
@@ -110,6 +112,73 @@ class AcousticSolverAdapterDescriptor(BaseModel):
         )
 
 
+class AcousticNumericalFidelityPolicy(BaseModel):
+    """Resolved numerical-fidelity policy authority.
+
+    The policy stays an exact external authority: a resolver must return the
+    policy bound to the same authority id/version/hash tuple the prediction
+    request declared. HTDT verifies only this declared applicability envelope
+    (solver role, acoustic domain, observables, frequency band and declared
+    numerical parameter bounds); the numerical solver semantics stay inside
+    the hashed external authority payload.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_ref: ExactExternalAuthorityRef
+    acoustic_domain: AcousticSolverDomain
+    model_solver_role_ids: tuple[str, ...] = Field(min_length=1)
+    supported_observables: tuple[str, ...] = Field(min_length=1)
+    valid_frequency_domain: FrequencyDomain
+    parameter_bounds: dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode='after')
+    def validate_policy(self) -> 'AcousticNumericalFidelityPolicy':
+        if self.model_solver_role_ids != tuple(
+            sorted(set(self.model_solver_role_ids))
+        ):
+            raise ValueError(
+                'fidelity policy solver roles must be unique and sorted'
+            )
+        if self.supported_observables != tuple(
+            sorted(set(self.supported_observables))
+        ):
+            raise ValueError(
+                'fidelity policy observables must be unique and sorted'
+            )
+        return self
+
+
+NumericalFidelityPolicyResolver = Callable[
+    [ExactExternalAuthorityRef],
+    AcousticNumericalFidelityPolicy | None,
+]
+
+
+def numerical_fidelity_policy_request_reasons(
+    *,
+    policy: AcousticNumericalFidelityPolicy,
+    request: AcousticPredictionRequest,
+) -> tuple[str, ...]:
+    """Applicability failures of a resolved fidelity policy for one request."""
+    reasons: list[str] = []
+    if request.model_solver_role_id not in policy.model_solver_role_ids:
+        reasons.append('numerical_fidelity_policy_role_not_applicable')
+    reasons.extend(
+        f'numerical_fidelity_policy_observable_not_supported:{observable}'
+        for observable in request.requested_observables
+        if observable not in policy.supported_observables
+    )
+    if not _domain_contains(
+        policy.valid_frequency_domain,
+        request.requested_frequency_domain,
+    ):
+        reasons.append(
+            'numerical_fidelity_policy_frequency_domain_not_supported'
+        )
+    return tuple(reasons)
+
+
 class AcousticSolverDispatchBinding(BaseModel):
     """Exact request-to-adapter dispatch evaluation.
 
@@ -119,8 +188,8 @@ class AcousticSolverDispatchBinding(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_version: Literal[1] = ACOUSTIC_SOLVER_ADAPTER_SCHEMA_VERSION
-    authority_version: Literal['1'] = ACOUSTIC_SOLVER_DISPATCH_AUTHORITY_VERSION
+    schema_version: Literal[2] = ACOUSTIC_SOLVER_DISPATCH_SCHEMA_VERSION
+    authority_version: Literal['2'] = ACOUSTIC_SOLVER_DISPATCH_AUTHORITY_VERSION
 
     binding_id: str = Field(
         pattern=r'^acoustic-solver-dispatch:[0-9a-f]{64}$'
@@ -145,6 +214,7 @@ class AcousticSolverDispatchBinding(BaseModel):
 
     solver_implementation_ref: ExactExternalAuthorityRef
     solver_configuration_ref: ExactExternalAuthorityRef
+    numerical_fidelity_policy_ref: ExactExternalAuthorityRef
 
     state: SolverDispatchState
     reasons: tuple[str, ...]
@@ -189,6 +259,9 @@ class AcousticSolverDispatchBinding(BaseModel):
             'solver_configuration_ref': self.solver_configuration_ref.model_dump(
                 mode='json'
             ),
+            'numerical_fidelity_policy_ref': (
+                self.numerical_fidelity_policy_ref.model_dump(mode='json')
+            ),
         }
 
     def semantic_payload(self) -> dict[str, Any]:
@@ -215,6 +288,9 @@ class AcousticSolverDispatchBinding(BaseModel):
             ),
             'solver_configuration_ref': self.solver_configuration_ref.model_dump(
                 mode='json'
+            ),
+            'numerical_fidelity_policy_ref': (
+                self.numerical_fidelity_policy_ref.model_dump(mode='json')
             ),
             'state': self.state,
             'reasons': list(self.reasons),
@@ -281,6 +357,7 @@ def bind_prediction_request_to_solver_adapter(
     request: AcousticPredictionRequest,
     adapter: AcousticSolverAdapterDescriptor,
     solver_configuration_ref: ExactExternalAuthorityRef,
+    numerical_fidelity_policy: AcousticNumericalFidelityPolicy,
 ) -> AcousticSolverDispatchBinding:
     snapshot = AcousticSceneSnapshot.model_validate(
         snapshot.model_dump(mode='python')
@@ -291,6 +368,9 @@ def bind_prediction_request_to_solver_adapter(
     adapter = AcousticSolverAdapterDescriptor.model_validate(
         adapter.model_dump(mode='python')
     )
+    policy = AcousticNumericalFidelityPolicy.model_validate(
+        numerical_fidelity_policy.model_dump(mode='python')
+    )
 
     if (
         request.acoustic_scene_snapshot_id != snapshot.snapshot_id
@@ -298,6 +378,11 @@ def bind_prediction_request_to_solver_adapter(
     ):
         raise ValueError(
             'prediction request does not bind the exact AcousticSceneSnapshot'
+        )
+    if policy.authority_ref != request.numerical_fidelity_policy_ref:
+        raise ValueError(
+            'numerical fidelity policy does not resolve the exact '
+            'AcousticPredictionRequest authority'
         )
 
     unsupported: list[str] = []
@@ -340,6 +425,17 @@ def bind_prediction_request_to_solver_adapter(
         )
     ):
         unsupported.append('frequency_domain_outside_snapshot_valid_authority')
+
+    if policy.acoustic_domain != adapter.acoustic_domain:
+        unsupported.append(
+            'numerical_fidelity_policy_domain_not_supported_by_adapter'
+        )
+    unsupported.extend(
+        numerical_fidelity_policy_request_reasons(
+            policy=policy,
+            request=request,
+        )
+    )
 
     readiness = snapshot.readiness
     if not readiness.geometry_ready:
@@ -417,11 +513,14 @@ def bind_prediction_request_to_solver_adapter(
         'solver_configuration_ref': solver_configuration_ref.model_dump(
             mode='json'
         ),
+        'numerical_fidelity_policy_ref': policy.authority_ref.model_dump(
+            mode='json'
+        ),
     }
     solver_input_hash = _semantic_hash(solver_input_payload)
 
     core = {
-        'schema_version': ACOUSTIC_SOLVER_ADAPTER_SCHEMA_VERSION,
+        'schema_version': ACOUSTIC_SOLVER_DISPATCH_SCHEMA_VERSION,
         'authority_version': ACOUSTIC_SOLVER_DISPATCH_AUTHORITY_VERSION,
         'acoustic_scene_snapshot_id': snapshot.snapshot_id,
         'acoustic_scene_snapshot_sha256': snapshot.semantic_sha256,
@@ -434,6 +533,9 @@ def bind_prediction_request_to_solver_adapter(
             mode='json'
         ),
         'solver_configuration_ref': solver_configuration_ref.model_dump(
+            mode='json'
+        ),
+        'numerical_fidelity_policy_ref': policy.authority_ref.model_dump(
             mode='json'
         ),
         'state': state,
@@ -453,6 +555,7 @@ def bind_prediction_request_to_solver_adapter(
         adapter_descriptor_semantic_sha256=adapter.semantic_sha256,
         solver_implementation_ref=adapter.solver_implementation_ref,
         solver_configuration_ref=solver_configuration_ref,
+        numerical_fidelity_policy_ref=policy.authority_ref,
         state=state,
         reasons=tuple(reasons),
         deterministic_solver_input_hash=solver_input_hash,

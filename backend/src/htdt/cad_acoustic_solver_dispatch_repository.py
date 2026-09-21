@@ -6,10 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
+from .cad_acoustic_snapshot import AcousticPredictionRequest
 from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
 from .cad_acoustic_solver_adapter import (
+    AcousticNumericalFidelityPolicy,
     AcousticSolverAdapterDescriptor,
     AcousticSolverDispatchBinding,
+    NumericalFidelityPolicyResolver,
     bind_prediction_request_to_solver_adapter,
 )
 from .cad_repository import SceneRepository
@@ -34,6 +37,10 @@ class CadAcousticSolverDispatchRepository:
     They must be re-resolved by a caller-provided authority resolver; an opaque
     stored hash alone is not treated as proof that the external authority still
     exists with the same semantics.
+
+    The request numerical-fidelity policy is resolved the same way through a
+    caller-provided fidelity-policy resolver, so a READY dispatch always proves
+    the exact resolved fidelity authority.
     """
 
     def __init__(
@@ -42,13 +49,23 @@ class CadAcousticSolverDispatchRepository:
         *,
         snapshot_repository: CadAcousticSnapshotRepository | None = None,
         external_authority_resolver: ExternalAuthorityResolver,
+        fidelity_policy_resolver: NumericalFidelityPolicyResolver,
     ) -> None:
         self.scene_repository = scene_repository
+        self.fidelity_policy_resolver = fidelity_policy_resolver
         self.snapshot_repository = (
             snapshot_repository
             if snapshot_repository is not None
-            else CadAcousticSnapshotRepository(scene_repository)
+            else CadAcousticSnapshotRepository(
+                scene_repository,
+                fidelity_policy_resolver=fidelity_policy_resolver,
+            )
         )
+        if self.snapshot_repository.fidelity_policy_resolver is None:
+            raise ValueError(
+                'solver dispatch requires a snapshot repository with '
+                'numerical fidelity policy resolution'
+            )
         self.external_authority_resolver = external_authority_resolver
         self.path = Path(scene_repository.path)
         if Path(self.snapshot_repository.path) != self.path:
@@ -126,6 +143,27 @@ class CadAcousticSolverDispatchRepository:
         if resolved != ref:
             raise ValueError(f'{label} exact external authority mismatch')
         return resolved
+
+    def _resolve_fidelity_policy(
+        self,
+        request: AcousticPredictionRequest,
+    ) -> AcousticNumericalFidelityPolicy:
+        resolved = self.fidelity_policy_resolver(
+            request.numerical_fidelity_policy_ref
+        )
+        if resolved is None:
+            raise ValueError(
+                'numerical fidelity policy exact external authority '
+                'does not exist'
+            )
+        policy = AcousticNumericalFidelityPolicy.model_validate(
+            resolved.model_dump(mode='python')
+        )
+        if policy.authority_ref != request.numerical_fidelity_policy_ref:
+            raise ValueError(
+                'numerical fidelity policy exact external authority mismatch'
+            )
+        return policy
 
     def _validate_descriptor(
         self,
@@ -267,12 +305,14 @@ class CadAcousticSolverDispatchRepository:
             binding.solver_configuration_ref,
             label='solver configuration',
         )
+        policy = self._resolve_fidelity_policy(request)
 
         recomputed = bind_prediction_request_to_solver_adapter(
             snapshot=snapshot,
             request=request,
             adapter=descriptor,
             solver_configuration_ref=binding.solver_configuration_ref,
+            numerical_fidelity_policy=policy,
         )
         if recomputed != binding:
             raise ValueError(

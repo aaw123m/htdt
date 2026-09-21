@@ -473,6 +473,40 @@ def _policy() -> ExactExternalAuthorityRef:
     return _ref('fixture-numerical-fidelity-policy', 'f')
 
 
+def _fidelity_policy(
+    *,
+    ref: ExactExternalAuthorityRef | None = None,
+    domain: str = 'geometric',
+    roles: tuple[str, ...] = ('future-r150-geometric-role',),
+    observables: tuple[str, ...] = ('deterministic_paths',),
+    minimum_hz: float = 500.0,
+    maximum_hz: float = 1000.0,
+) -> AcousticNumericalFidelityPolicy:
+    return AcousticNumericalFidelityPolicy(
+        authority_ref=_policy() if ref is None else ref,
+        acoustic_domain=domain,
+        model_solver_role_ids=roles,
+        supported_observables=observables,
+        valid_frequency_domain=FrequencyDomain(
+            minimum_hz=minimum_hz,
+            maximum_hz=maximum_hz,
+        ),
+        parameter_bounds={
+            'maximum_mesh_element_extent_m': 0.25,
+            'convergence_tolerance': 1.0e-6,
+        },
+    )
+
+
+def _fidelity_resolver(*policies: AcousticNumericalFidelityPolicy):
+    registry = {policy.authority_ref: policy for policy in policies}
+
+    def resolve(ref: ExactExternalAuthorityRef):
+        return registry.get(ref)
+
+    return registry, resolve
+
+
 def test_closed_r120_snapshot_preserves_exact_geometry_and_topology(
     tmp_path: Path,
 ) -> None:
@@ -792,11 +826,13 @@ def test_acoustic_prediction_request_is_append_only_and_exact_snapshot_bound(
     tmp_path: Path,
 ) -> None:
     fx = _fixture(tmp_path)
+    _registry, fidelity_resolver = _fidelity_resolver(_fidelity_policy())
     repository = CadAcousticSnapshotRepository(
         fx['scene_repository'],
         variant_repository=fx['variant_repository'],
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=fidelity_resolver,
     )
     repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -809,7 +845,8 @@ def test_acoustic_prediction_request_is_append_only_and_exact_snapshot_bound(
 
     repository.save_prediction_request(request)
     reopened = CadAcousticSnapshotRepository(
-        SceneRepository(fx['scene_repository'].path)
+        SceneRepository(fx['scene_repository'].path),
+        fidelity_policy_resolver=fidelity_resolver,
     ).get_prediction_request(request.request_id)
 
     assert reopened == request
@@ -888,6 +925,7 @@ def test_rectangular_legacy_prediction_request_identity_is_unchanged(
 
 
 from htdt.cad_acoustic_solver_adapter import (
+    AcousticNumericalFidelityPolicy,
     bind_prediction_request_to_solver_adapter,
     build_acoustic_solver_adapter_descriptor,
 )
@@ -949,6 +987,7 @@ def test_geometric_adapter_dispatch_is_ready_only_for_exact_supported_contract(
             'fixture-geometric-config',
             '3',
         ),
+        numerical_fidelity_policy=_fidelity_policy(),
     )
 
     assert binding.state == 'READY'
@@ -956,6 +995,10 @@ def test_geometric_adapter_dispatch_is_ready_only_for_exact_supported_contract(
     assert binding.acoustic_scene_snapshot_id == snapshot.snapshot_id
     assert binding.prediction_request_id == request.request_id
     assert binding.solver_implementation_ref == adapter.solver_implementation_ref
+    assert (
+        binding.numerical_fidelity_policy_ref
+        == request.numerical_fidelity_policy_ref
+    )
     assert len(binding.deterministic_solver_input_hash) == 64
 
 
@@ -981,6 +1024,11 @@ def test_wave_adapter_dispatch_preserves_current_wave_excitation_block(
         request=request,
         adapter=adapter,
         solver_configuration_ref=_ref('fixture-wave-config', '4'),
+        numerical_fidelity_policy=_fidelity_policy(
+            domain='wave',
+            roles=('future-r130-wave-role',),
+            observables=('complex_pressure',),
+        ),
     )
 
     assert binding.state == 'BLOCKED'
@@ -1015,6 +1063,7 @@ def test_adapter_role_observable_and_frequency_capabilities_fail_closed(
             'fixture-incompatible-config',
             '5',
         ),
+        numerical_fidelity_policy=_fidelity_policy(),
     )
 
     assert binding.state == 'UNSUPPORTED'
@@ -1055,18 +1104,21 @@ def test_solver_build_or_configuration_changes_dispatch_identity(
         request=request,
         adapter=adapter_a,
         solver_configuration_ref=_ref('fixture-geometric-config', '8'),
+        numerical_fidelity_policy=_fidelity_policy(),
     )
     changed_solver = bind_prediction_request_to_solver_adapter(
         snapshot=snapshot,
         request=request,
         adapter=adapter_b,
         solver_configuration_ref=_ref('fixture-geometric-config', '8'),
+        numerical_fidelity_policy=_fidelity_policy(),
     )
     changed_config = bind_prediction_request_to_solver_adapter(
         snapshot=snapshot,
         request=request,
         adapter=adapter_a,
         solver_configuration_ref=_ref('fixture-geometric-config', '9'),
+        numerical_fidelity_policy=_fidelity_policy(),
     )
 
     assert first.state == 'READY'
@@ -1113,11 +1165,14 @@ def _exact_ref_registry(*refs: ExactExternalAuthorityRef):
 
 def _persisted_geometric_dispatch(tmp_path: Path):
     fx = _fixture(tmp_path)
+    policy = _fidelity_policy()
+    fidelity_registry, fidelity_resolver = _fidelity_resolver(policy)
     snapshot_repository = CadAcousticSnapshotRepository(
         fx['scene_repository'],
         variant_repository=fx['variant_repository'],
         r110_repository=fx['r110_repository'],
         r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=fidelity_resolver,
     )
     snapshot_repository.save_snapshot(fx['snapshot'])
     request = build_acoustic_prediction_request(
@@ -1144,6 +1199,7 @@ def _persisted_geometric_dispatch(tmp_path: Path):
         fx['scene_repository'],
         snapshot_repository=snapshot_repository,
         external_authority_resolver=resolver,
+        fidelity_policy_resolver=fidelity_resolver,
     )
     repository.save_descriptor(adapter)
     binding = bind_prediction_request_to_solver_adapter(
@@ -1151,28 +1207,46 @@ def _persisted_geometric_dispatch(tmp_path: Path):
         request=request,
         adapter=adapter,
         solver_configuration_ref=configuration,
+        numerical_fidelity_policy=policy,
     )
     repository.save_dispatch(binding)
-    return fx, registry, resolver, adapter, configuration, binding
+    return {
+        'fixture': fx,
+        'registry': registry,
+        'resolver': resolver,
+        'fidelity_registry': fidelity_registry,
+        'fidelity_resolver': fidelity_resolver,
+        'adapter': adapter,
+        'configuration': configuration,
+        'binding': binding,
+        'request': request,
+        'policy': policy,
+    }
 
 
 def test_solver_dispatch_repository_save_reopen_recomputes_exact_authorities(
     tmp_path: Path,
 ) -> None:
-    fx, _registry, resolver, adapter, configuration, binding = (
-        _persisted_geometric_dispatch(tmp_path)
-    )
+    persisted = _persisted_geometric_dispatch(tmp_path)
+    fx = persisted['fixture']
 
     reopened_scene = SceneRepository(fx['scene_repository'].path)
     reopened = CadAcousticSolverDispatchRepository(
         reopened_scene,
-        external_authority_resolver=resolver,
+        external_authority_resolver=persisted['resolver'],
+        fidelity_policy_resolver=persisted['fidelity_resolver'],
     )
 
+    adapter = persisted['adapter']
+    binding = persisted['binding']
     assert reopened.get_descriptor(adapter.descriptor_id) == adapter
     assert reopened.get_dispatch(binding.binding_id) == binding
     assert binding.state == 'READY'
-    assert binding.solver_configuration_ref == configuration
+    assert binding.solver_configuration_ref == persisted['configuration']
+    assert (
+        binding.numerical_fidelity_policy_ref
+        == persisted['request'].numerical_fidelity_policy_ref
+    )
 
 
 def test_solver_adapter_descriptor_requires_resolvable_external_authorities(
@@ -1190,6 +1264,7 @@ def test_solver_adapter_descriptor_requires_resolvable_external_authorities(
     repository = CadAcousticSolverDispatchRepository(
         fx['scene_repository'],
         external_authority_resolver=resolver,
+        fidelity_policy_resolver=_fidelity_resolver()[1],
     )
 
     with pytest.raises(
@@ -1202,10 +1277,9 @@ def test_solver_adapter_descriptor_requires_resolvable_external_authorities(
 def test_solver_dispatch_reopen_fails_closed_when_configuration_authority_stales(
     tmp_path: Path,
 ) -> None:
-    fx, registry, resolver, _adapter, configuration, binding = (
-        _persisted_geometric_dispatch(tmp_path)
-    )
-    registry.pop(
+    persisted = _persisted_geometric_dispatch(tmp_path)
+    configuration = persisted['configuration']
+    persisted['registry'].pop(
         (
             configuration.authority_id,
             configuration.authority_version,
@@ -1214,11 +1288,453 @@ def test_solver_dispatch_reopen_fails_closed_when_configuration_authority_stales
     )
 
     reopened = CadAcousticSolverDispatchRepository(
-        SceneRepository(fx['scene_repository'].path),
-        external_authority_resolver=resolver,
+        SceneRepository(persisted['fixture']['scene_repository'].path),
+        external_authority_resolver=persisted['resolver'],
+        fidelity_policy_resolver=persisted['fidelity_resolver'],
     )
     with pytest.raises(
         ValueError,
         match='solver configuration exact external authority does not exist',
     ):
-        reopened.get_dispatch(binding.binding_id)
+        reopened.get_dispatch(persisted['binding'].binding_id)
+
+
+def test_prediction_request_persistence_requires_fidelity_policy_resolver(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    resolverless = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+    )
+    resolverless.save_snapshot(fx['snapshot'])
+    request = build_acoustic_prediction_request(
+        snapshot=fx['snapshot'],
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='requires a numerical fidelity policy resolver',
+    ):
+        resolverless.save_prediction_request(request)
+
+    _registry, fidelity_resolver = _fidelity_resolver(_fidelity_policy())
+    resolved = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=fidelity_resolver,
+    )
+    resolved.save_prediction_request(request)
+
+    with pytest.raises(
+        ValueError,
+        match='requires a numerical fidelity policy resolver',
+    ):
+        resolverless.get_prediction_request(request.request_id)
+
+
+def test_prediction_request_rejects_unresolvable_fidelity_policy(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    _registry, fidelity_resolver = _fidelity_resolver()
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=fidelity_resolver,
+    )
+    repository.save_snapshot(fx['snapshot'])
+    request = build_acoustic_prediction_request(
+        snapshot=fx['snapshot'],
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='numerical fidelity policy exact external authority '
+        'does not exist',
+    ):
+        repository.save_prediction_request(request)
+
+
+def test_prediction_request_rejects_mismatched_fidelity_authority(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    mismatched = _fidelity_policy(
+        ref=_ref('fixture-numerical-fidelity-policy', 'e')
+    )
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=lambda ref: mismatched,
+    )
+    repository.save_snapshot(fx['snapshot'])
+    request = build_acoustic_prediction_request(
+        snapshot=fx['snapshot'],
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='numerical fidelity policy exact external authority mismatch',
+    ):
+        repository.save_prediction_request(request)
+
+
+def test_prediction_request_rejects_inapplicable_fidelity_policy(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=_fidelity_resolver(
+            _fidelity_policy(
+                roles=('other-role',),
+                observables=('magnitude_response',),
+                minimum_hz=600.0,
+                maximum_hz=900.0,
+            )
+        )[1],
+    )
+    repository.save_snapshot(fx['snapshot'])
+    request = build_acoustic_prediction_request(
+        snapshot=fx['snapshot'],
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='numerical fidelity policy is not applicable',
+    ) as error:
+        repository.save_prediction_request(request)
+    message = str(error.value)
+    assert 'numerical_fidelity_policy_role_not_applicable' in message
+    assert (
+        'numerical_fidelity_policy_observable_not_supported:'
+        'deterministic_paths'
+    ) in message
+    assert (
+        'numerical_fidelity_policy_frequency_domain_not_supported' in message
+    )
+
+
+def test_prediction_request_reopen_detects_disappeared_fidelity_authority(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    fidelity_registry, fidelity_resolver = _fidelity_resolver(
+        _fidelity_policy()
+    )
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=fidelity_resolver,
+    )
+    repository.save_snapshot(fx['snapshot'])
+    request = build_acoustic_prediction_request(
+        snapshot=fx['snapshot'],
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+    repository.save_prediction_request(request)
+
+    fidelity_registry.pop(request.numerical_fidelity_policy_ref)
+    reopened = CadAcousticSnapshotRepository(
+        SceneRepository(fx['scene_repository'].path),
+        fidelity_policy_resolver=fidelity_resolver,
+    )
+    with pytest.raises(
+        ValueError,
+        match='numerical fidelity policy exact external authority '
+        'does not exist',
+    ):
+        reopened.get_prediction_request(request.request_id)
+
+
+def test_solver_dispatch_rejects_unresolvable_fidelity_policy(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    policy = _fidelity_policy()
+    _registry, snapshot_fidelity_resolver = _fidelity_resolver(policy)
+    snapshot_repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        variant_repository=fx['variant_repository'],
+        r110_repository=fx['r110_repository'],
+        r120_repository=fx['r120_repository'],
+        fidelity_policy_resolver=snapshot_fidelity_resolver,
+    )
+    snapshot_repository.save_snapshot(fx['snapshot'])
+    request = build_acoustic_prediction_request(
+        snapshot=fx['snapshot'],
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=fx['snapshot'].requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+    snapshot_repository.save_prediction_request(request)
+
+    adapter = _adapter_descriptor(
+        role='future-r150-geometric-role',
+        domain='geometric',
+        observables=('deterministic_paths',),
+    )
+    configuration = _ref('fixture-geometric-config', '3')
+    _registry, resolver = _exact_ref_registry(
+        adapter.solver_implementation_ref,
+        adapter.solver_configuration_schema_ref,
+        configuration,
+    )
+    dispatch_repository = CadAcousticSolverDispatchRepository(
+        fx['scene_repository'],
+        snapshot_repository=snapshot_repository,
+        external_authority_resolver=resolver,
+        fidelity_policy_resolver=_fidelity_resolver()[1],
+    )
+    dispatch_repository.save_descriptor(adapter)
+    binding = bind_prediction_request_to_solver_adapter(
+        snapshot=fx['snapshot'],
+        request=request,
+        adapter=adapter,
+        solver_configuration_ref=configuration,
+        numerical_fidelity_policy=policy,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='numerical fidelity policy exact external authority '
+        'does not exist',
+    ):
+        dispatch_repository.save_dispatch(binding)
+
+
+def test_solver_dispatch_reopen_detects_disappeared_fidelity_authority(
+    tmp_path: Path,
+) -> None:
+    persisted = _persisted_geometric_dispatch(tmp_path)
+    persisted['fidelity_registry'].pop(
+        persisted['request'].numerical_fidelity_policy_ref
+    )
+
+    reopened = CadAcousticSolverDispatchRepository(
+        SceneRepository(persisted['fixture']['scene_repository'].path),
+        external_authority_resolver=persisted['resolver'],
+        fidelity_policy_resolver=persisted['fidelity_resolver'],
+    )
+    with pytest.raises(
+        ValueError,
+        match='numerical fidelity policy exact external authority '
+        'does not exist',
+    ):
+        reopened.get_dispatch(persisted['binding'].binding_id)
+
+
+def test_solver_dispatch_requires_snapshot_repository_fidelity_resolution(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    adapter = _adapter_descriptor(
+        role='future-r150-geometric-role',
+        domain='geometric',
+        observables=('deterministic_paths',),
+    )
+    _registry, resolver = _exact_ref_registry(
+        adapter.solver_implementation_ref,
+        adapter.solver_configuration_schema_ref,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='requires a snapshot repository with numerical fidelity '
+        'policy resolution',
+    ):
+        CadAcousticSolverDispatchRepository(
+            fx['scene_repository'],
+            snapshot_repository=CadAcousticSnapshotRepository(
+                fx['scene_repository']
+            ),
+            external_authority_resolver=resolver,
+            fidelity_policy_resolver=_fidelity_resolver()[1],
+        )
+
+
+def test_bind_rejects_fidelity_policy_authority_mismatch(
+    tmp_path: Path,
+) -> None:
+    snapshot = _fixture(tmp_path)['snapshot']
+    request = build_acoustic_prediction_request(
+        snapshot=snapshot,
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=snapshot.requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+    adapter = _adapter_descriptor(
+        role='future-r150-geometric-role',
+        domain='geometric',
+        observables=('deterministic_paths',),
+    )
+    mismatched = _fidelity_policy(
+        ref=_ref('fixture-numerical-fidelity-policy', 'e')
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='does not resolve the exact AcousticPredictionRequest authority',
+    ):
+        bind_prediction_request_to_solver_adapter(
+            snapshot=snapshot,
+            request=request,
+            adapter=adapter,
+            solver_configuration_ref=_ref('fixture-geometric-config', '3'),
+            numerical_fidelity_policy=mismatched,
+        )
+
+
+def test_fidelity_policy_incompatibility_keeps_dispatch_unsupported(
+    tmp_path: Path,
+) -> None:
+    snapshot = _fixture(tmp_path)['snapshot']
+    request = build_acoustic_prediction_request(
+        snapshot=snapshot,
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=snapshot.requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+    adapter = _adapter_descriptor(
+        role='future-r150-geometric-role',
+        domain='geometric',
+        observables=('deterministic_paths',),
+    )
+
+    wrong_domain = bind_prediction_request_to_solver_adapter(
+        snapshot=snapshot,
+        request=request,
+        adapter=adapter,
+        solver_configuration_ref=_ref('fixture-geometric-config', '3'),
+        numerical_fidelity_policy=_fidelity_policy(domain='wave'),
+    )
+    assert wrong_domain.state == 'UNSUPPORTED'
+    assert (
+        'numerical_fidelity_policy_domain_not_supported_by_adapter'
+        in wrong_domain.reasons
+    )
+
+    wrong_role = bind_prediction_request_to_solver_adapter(
+        snapshot=snapshot,
+        request=request,
+        adapter=adapter,
+        solver_configuration_ref=_ref('fixture-geometric-config', '3'),
+        numerical_fidelity_policy=_fidelity_policy(
+            roles=('other-role',),
+            observables=('magnitude_response',),
+            minimum_hz=600.0,
+            maximum_hz=900.0,
+        ),
+    )
+    assert wrong_role.state == 'UNSUPPORTED'
+    assert (
+        'numerical_fidelity_policy_role_not_applicable' in wrong_role.reasons
+    )
+    assert (
+        'numerical_fidelity_policy_observable_not_supported:'
+        'deterministic_paths'
+    ) in wrong_role.reasons
+    assert (
+        'numerical_fidelity_policy_frequency_domain_not_supported'
+        in wrong_role.reasons
+    )
+
+
+def test_ready_dispatch_solver_input_proves_resolved_fidelity_authority(
+    tmp_path: Path,
+) -> None:
+    snapshot = _fixture(tmp_path)['snapshot']
+    request = build_acoustic_prediction_request(
+        snapshot=snapshot,
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=snapshot.requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_policy(),
+    )
+    adapter = _adapter_descriptor(
+        role='future-r150-geometric-role',
+        domain='geometric',
+        observables=('deterministic_paths',),
+    )
+    configuration = _ref('fixture-geometric-config', '3')
+
+    binding = bind_prediction_request_to_solver_adapter(
+        snapshot=snapshot,
+        request=request,
+        adapter=adapter,
+        solver_configuration_ref=configuration,
+        numerical_fidelity_policy=_fidelity_policy(),
+    )
+
+    assert binding.state == 'READY'
+    solver_input = binding.solver_input_payload()
+    assert solver_input['numerical_fidelity_policy_ref'] == (
+        request.numerical_fidelity_policy_ref.model_dump(mode='json')
+    )
+    assert (
+        binding.numerical_fidelity_policy_ref
+        == request.numerical_fidelity_policy_ref
+    )
+
+    other_request = build_acoustic_prediction_request(
+        snapshot=snapshot,
+        model_solver_role_id='future-r150-geometric-role',
+        requested_frequency_domain=snapshot.requested_frequency_domain,
+        requested_observables=('deterministic_paths',),
+        numerical_fidelity_policy_ref=_ref(
+            'fixture-numerical-fidelity-policy',
+            'e',
+        ),
+    )
+    other_policy = _fidelity_policy(
+        ref=other_request.numerical_fidelity_policy_ref
+    )
+    other_binding = bind_prediction_request_to_solver_adapter(
+        snapshot=snapshot,
+        request=other_request,
+        adapter=adapter,
+        solver_configuration_ref=configuration,
+        numerical_fidelity_policy=other_policy,
+    )
+    assert (
+        other_binding.deterministic_solver_input_hash
+        != binding.deterministic_solver_input_hash
+    )
+    assert other_binding.binding_id != binding.binding_id
+

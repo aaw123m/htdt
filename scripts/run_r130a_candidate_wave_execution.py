@@ -30,6 +30,7 @@ from htdt.cad_acoustic_snapshot import (
 )
 from htdt.cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
 from htdt.cad_acoustic_solver_adapter import (
+    AcousticNumericalFidelityPolicy,
     bind_prediction_request_to_solver_adapter,
     build_acoustic_solver_adapter_descriptor,
 )
@@ -791,15 +792,6 @@ def _fixture(
     assert snapshot.readiness.wave_boundary_ready
     assert snapshot.readiness.requested_observable_ready
 
-    snapshot_repository = CadAcousticSnapshotRepository(
-        scene_repository,
-        variant_repository=variant_repository,
-        r110_repository=r110_repository,
-        r120_repository=r120_repository,
-        wave_excitation_repository=wave_repository,
-    )
-    snapshot_repository.save_snapshot(snapshot)
-
     role_id = {
         'rigid': 'r130a-candidate-wave',
         'impedance': 'r130b-candidate-impedance',
@@ -819,6 +811,42 @@ def _fixture(
             'production_adoption_claim': False,
         },
     )
+    fidelity_policy = AcousticNumericalFidelityPolicy(
+        authority_ref=fidelity_ref,
+        acoustic_domain='wave',
+        model_solver_role_ids=(role_id,),
+        supported_observables=('complex_pressure',),
+        valid_frequency_domain=FrequencyDomain(
+            minimum_hz=min(band.minimum_hz, 40.0),
+            maximum_hz=max(band.maximum_hz, 100.0),
+        ),
+        parameter_bounds={
+            'max_grid_cells': 200000.0,
+            'max_time_steps': 512.0,
+        },
+    )
+
+    def fidelity_policy_resolver(
+        ref: ExactExternalAuthorityRef,
+    ) -> AcousticNumericalFidelityPolicy | None:
+        if ref != fidelity_policy.authority_ref:
+            return None
+        return (
+            fidelity_policy
+            if store.resolve(ref) is not None
+            else None
+        )
+
+    snapshot_repository = CadAcousticSnapshotRepository(
+        scene_repository,
+        variant_repository=variant_repository,
+        r110_repository=r110_repository,
+        r120_repository=r120_repository,
+        wave_excitation_repository=wave_repository,
+        fidelity_policy_resolver=fidelity_policy_resolver,
+    )
+    snapshot_repository.save_snapshot(snapshot)
+
     request = build_acoustic_prediction_request(
         snapshot=snapshot,
         model_solver_role_id=role_id,
@@ -920,6 +948,7 @@ def _fixture(
         scene_repository,
         snapshot_repository=snapshot_repository,
         external_authority_resolver=store.resolve,
+        fidelity_policy_resolver=fidelity_policy_resolver,
     )
     dispatch_repository.save_descriptor(descriptor)
     dispatch = bind_prediction_request_to_solver_adapter(
@@ -927,6 +956,7 @@ def _fixture(
         request=request,
         adapter=descriptor,
         solver_configuration_ref=configuration.as_external_ref(),
+        numerical_fidelity_policy=fidelity_policy,
     )
     assert dispatch.state == 'READY'
     dispatch_repository.save_dispatch(dispatch)
@@ -994,6 +1024,8 @@ def _fixture(
         'output_schema_ref': output_schema_ref,
         'environment': environment,
         'fidelity_ref': fidelity_ref,
+        'fidelity_policy': fidelity_policy,
+        'fidelity_policy_resolver': fidelity_policy_resolver,
         'boundary_mode': boundary_mode,
         'impedance_material_ref': impedance_material_ref,
         'impedance_boundary_ref': impedance_boundary_ref,
@@ -1069,6 +1101,7 @@ def _assert_preflight_gates(fixture: dict[str, object]) -> dict[str, bool]:
         request=blocked_request,
         adapter=descriptor,
         solver_configuration_ref=configuration.as_external_ref(),
+        numerical_fidelity_policy=fixture['fidelity_policy'],
     )
     assert blocked_dispatch.state == 'BLOCKED'
     fixture['dispatch_repository'].save_dispatch(blocked_dispatch)
@@ -1113,6 +1146,7 @@ def _assert_preflight_gates(fixture: dict[str, object]) -> dict[str, bool]:
         request=wide_request,
         adapter=descriptor,
         solver_configuration_ref=configuration.as_external_ref(),
+        numerical_fidelity_policy=fixture['fidelity_policy'],
     )
     assert wide_dispatch.state == 'UNSUPPORTED'
     fixture['dispatch_repository'].save_dispatch(wide_dispatch)
@@ -1207,11 +1241,13 @@ def _verify_reopen_and_tamper(
         r110_repository=reopened_r110,
         r120_repository=reopened_r120,
         wave_excitation_repository=reopened_wave,
+        fidelity_policy_resolver=fixture['fidelity_policy_resolver'],
     )
     reopened_dispatch = CadAcousticSolverDispatchRepository(
         reopened_scene,
         snapshot_repository=reopened_snapshot,
         external_authority_resolver=store.resolve,
+        fidelity_policy_resolver=fixture['fidelity_policy_resolver'],
     )
     reopened_result = CadAcousticSolverResultRepository(
         reopened_scene,
