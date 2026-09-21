@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterable
 from pathlib import Path
 from typing import Any
 
@@ -65,3 +66,21 @@ def read_response_bounded(response: Any, max_bytes: int, *, label: str = 'respon
     if len(payload) > max_bytes:
         raise _too_large(label, max_bytes, None)
     return payload
+
+
+async def read_stream_bounded(stream: AsyncIterable[bytes], max_bytes: int, *, label: str = 'stream') -> bytes:
+    """Consume an async byte stream with a hard byte ceiling.
+
+    The bound is enforced on the bytes actually delivered, so a chunked or
+    undeclared-length stream cannot grow past ``max_bytes`` even when no size
+    was advertised up front. The error is raised as soon as the cumulative
+    size exceeds the limit, without buffering beyond the offending chunk.
+    """
+    if max_bytes < 0:
+        raise ValueError('max_bytes must be non-negative')
+    chunks = bytearray()
+    async for chunk in stream:
+        chunks.extend(chunk)
+        if len(chunks) > max_bytes:
+            raise _too_large(label, max_bytes, None)
+    return bytes(chunks)

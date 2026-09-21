@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from htdt.limits import (
@@ -23,6 +23,11 @@ def make_client(*, allow_testserver: bool = False) -> TestClient:
     @app.post('/write')
     def write() -> dict[str, bool]:
         return {'ok': True}
+
+    @app.post('/echo')
+    async def echo(request: Request) -> dict[str, object]:
+        body = await request.body()
+        return {'received': len(body), 'content_length': request.headers.get('content-length')}
 
     return TestClient(app, base_url='http://127.0.0.1:8765')
 
@@ -57,6 +62,54 @@ def test_oversized_declared_body_is_rejected_before_route() -> None:
     client = make_client()
     response = client.post('/write', content=b'{}', headers={'Content-Length': str(MAX_SMALL_JSON_BODY_BYTES + 1)})
     assert response.status_code == 413
+
+
+def test_oversized_declared_body_uses_endpoint_specific_limit() -> None:
+    client = make_client()
+    response = client.post(
+        '/api/import/preview',
+        content=b'{}',
+        headers={'Content-Length': str(MAX_REW_REQUEST_BODY_BYTES + 1)},
+    )
+    assert response.status_code == 413
+
+
+def test_chunked_body_at_exactly_the_limit_reaches_route() -> None:
+    client = make_client()
+    half = MAX_SMALL_JSON_BODY_BYTES // 2
+    chunks = iter([b'x' * half, b'y' * (MAX_SMALL_JSON_BODY_BYTES - half)])
+    response = client.post('/echo', content=chunks)
+    assert response.status_code == 200
+    # An iterable body is sent chunked, without a Content-Length header.
+    assert response.json() == {
+        'received': MAX_SMALL_JSON_BODY_BYTES,
+        'content_length': None,
+    }
+
+
+def test_chunked_body_one_byte_over_limit_is_rejected_before_route() -> None:
+    client = make_client()
+    # The byte that crosses the limit arrives in a later chunk: the cap is on
+    # the bytes actually delivered, not on a declared length.
+    chunks = iter([b'x' * MAX_SMALL_JSON_BODY_BYTES, b'x'])
+    response = client.post('/echo', content=chunks)
+    assert response.status_code == 413
+    assert response.json()['detail'] == f'Request body exceeds {MAX_SMALL_JSON_BODY_BYTES} bytes'
+
+
+def test_honest_chunked_body_reaches_route_intact() -> None:
+    client = make_client()
+    payload = b'{"a": 1}'
+    response = client.post('/echo', content=iter([payload[:3], payload[3:]]))
+    assert response.status_code == 200
+    assert response.json()['received'] == len(payload)
+
+
+def test_honest_declared_body_still_passes() -> None:
+    client = make_client()
+    response = client.post('/echo', content=b'{"a": 1}')
+    assert response.status_code == 200
+    assert response.json()['received'] == len(b'{"a": 1}')
 
 
 def test_endpoint_specific_body_limits() -> None:

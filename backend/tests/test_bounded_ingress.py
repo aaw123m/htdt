@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -11,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-from htdt.ingress import IngressTooLargeError, read_file_bounded, read_response_bounded
+from htdt.ingress import IngressTooLargeError, read_file_bounded, read_response_bounded, read_stream_bounded
 from htdt.limits import (
     MAX_NATIVE_REW_TEXT_FILE_BYTES,
     MAX_REW_API_RESPONSE_BYTES,
@@ -182,6 +183,44 @@ def test_read_response_bounded_rejects_declared_length_without_reading() -> None
     with pytest.raises(IngressTooLargeError):
         read_response_bounded(response, 64)
     assert response.reads == 0
+
+
+# ----------------------------------------------------------------------
+# read_stream_bounded: undeclared/chunked streams are bounded on delivery
+
+
+async def _chunks(*parts: bytes):
+    for part in parts:
+        yield part
+
+
+def test_read_stream_bounded_boundary() -> None:
+    assert asyncio.run(read_stream_bounded(_chunks(b'ab', b'cd'), 4)) == b'abcd'
+    with pytest.raises(IngressTooLargeError, match='too large'):
+        asyncio.run(read_stream_bounded(_chunks(b'ab', b'cde'), 4))
+
+
+def test_read_stream_bounded_rejects_as_soon_as_limit_is_crossed() -> None:
+    consumed: list[bytes] = []
+
+    async def stream():
+        for part in (b'x' * 8, b'y' * 8, b'z' * 8):
+            consumed.append(part)
+            yield part
+
+    with pytest.raises(IngressTooLargeError):
+        asyncio.run(read_stream_bounded(stream(), 8))
+    # The second chunk crossed the limit; the third was never consumed.
+    assert consumed == [b'x' * 8, b'y' * 8]
+
+
+def test_read_stream_bounded_empty_stream_is_within_limit() -> None:
+    assert asyncio.run(read_stream_bounded(_chunks(), 0)) == b''
+
+
+def test_read_stream_bounded_validates_limit() -> None:
+    with pytest.raises(ValueError, match='non-negative'):
+        asyncio.run(read_stream_bounded(_chunks(b'ab'), -1))
 
 
 # ----------------------------------------------------------------------
