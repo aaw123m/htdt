@@ -13,10 +13,17 @@ import tempfile
 import time
 from uuid import uuid4
 
-from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementComparison, CadMeasurementRecord
+from .cad_measurement_models import (
+    CadFrequencyResponseDataset,
+    CadMeasurementComparison,
+    CadMeasurementRecord,
+    build_measurement_comparison,
+    replay_measurement_comparison,
+)
+from .cad_measurement_quality import dataset_sha256
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import acoustic_reference_position
-from .comparison import ComparisonResult
+from .comparison import ComparisonResult, FrequencyResponse, replay_comparison_result
 
 
 def _pack(values: tuple[float, ...] | None) -> bytes | None:
@@ -365,39 +372,79 @@ class CadMeasurementRepository:
             raise KeyError(measurement_id)
         return self._validated_revision(record)
 
+    @staticmethod
+    def _comparison_evidence_row(
+        connection: sqlite3.Connection,
+        dataset_id: str,
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            '''SELECT d.*, m.document_id, m.scene_revision_id
+               FROM cad_frequency_responses d
+               JOIN cad_measurements m ON m.measurement_id=d.measurement_id
+               WHERE d.dataset_id=?''',
+            (dataset_id,),
+        ).fetchone()
+
     def save_comparison(
         self,
         dataset_a_id: str,
         dataset_b_id: str,
         result: ComparisonResult,
     ) -> CadMeasurementComparison:
+        """Persist a comparison only if it replays exactly from bound datasets.
+
+        The caller-supplied result is never trusted on its own: the two exact
+        persisted datasets are loaded, the pinned algorithm is rerun against
+        them under the declared spec, and the record is sealed with the
+        dataset semantic hashes, the comparison-spec hash and a comparison
+        identity SHA-256. Any mismatch fails closed before the INSERT.
+        """
         if dataset_a_id == dataset_b_id:
             raise ValueError('comparison requires two different datasets')
+        if not isinstance(result, ComparisonResult):
+            raise TypeError('comparison result must be a ComparisonResult')
         with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
             rows = []
             for dataset_id in (dataset_a_id, dataset_b_id):
-                row = connection.execute(
-                    '''SELECT d.dataset_id, m.document_id, m.scene_revision_id
-                       FROM cad_frequency_responses d
-                       JOIN cad_measurements m ON m.measurement_id=d.measurement_id
-                       WHERE d.dataset_id=?''',
-                    (dataset_id,),
-                ).fetchone()
+                row = self._comparison_evidence_row(connection, dataset_id)
                 if row is None:
                     raise KeyError(f'dataset not found: {dataset_id}')
                 rows.append(row)
             if rows[0]['document_id'] != rows[1]['document_id']:
                 raise ValueError('comparison datasets belong to different documents')
-            comparison = CadMeasurementComparison(
+            dataset_a = self._row_to_dataset(rows[0])
+            dataset_b = self._row_to_dataset(rows[1])
+            recomputed = replay_comparison_result(
+                result,
+                FrequencyResponse(dataset_a.frequency_hz, dataset_a.level_db),
+                FrequencyResponse(dataset_b.frequency_hz, dataset_b.level_db),
+            )
+            if recomputed != result:
+                raise ValueError(
+                    'comparison result does not match the canonical algorithm '
+                    'output for the bound datasets'
+                )
+            comparison = build_measurement_comparison(
                 comparison_id=str(uuid4()),
                 document_id=rows[0]['document_id'],
                 dataset_a_id=dataset_a_id,
                 dataset_b_id=dataset_b_id,
+                dataset_a_sha256=dataset_sha256(dataset_a),
+                dataset_b_sha256=dataset_sha256(dataset_b),
                 scene_revision_a_id=rows[0]['scene_revision_id'],
                 scene_revision_b_id=rows[1]['scene_revision_id'],
                 created_at=_utc_now(),
-                **asdict(result),
+                result=result,
             )
+            result_payload = {
+                **asdict(result),
+                'dataset_a_sha256': comparison.dataset_a_sha256,
+                'dataset_b_sha256': comparison.dataset_b_sha256,
+                'algorithm_sha256': comparison.algorithm_sha256,
+                'spec_sha256': comparison.spec_sha256,
+                'comparison_sha256': comparison.comparison_sha256,
+            }
             connection.execute(
                 '''INSERT INTO cad_measurement_comparisons(
                     comparison_id, document_id, dataset_a_id, dataset_b_id,
@@ -411,10 +458,61 @@ class CadMeasurementRepository:
                     comparison.scene_revision_a_id,
                     comparison.scene_revision_b_id,
                     comparison.created_at,
-                    json.dumps(asdict(result), ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False),
+                    json.dumps(result_payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False),
                 ),
             )
             connection.commit()
+        return comparison
+
+    def _validate_current_comparison(
+        self,
+        comparison: CadMeasurementComparison,
+    ) -> CadMeasurementComparison:
+        """Re-verify a persisted comparison against current bound evidence.
+
+        Authoritative reads reload the exact datasets, check the semantic
+        dataset hashes and revision bindings, then replay the pinned
+        algorithm and require exact equality with the persisted result. A row
+        whose evidence was altered or removed fails closed instead of
+        silently serving stale comparison values.
+        """
+        with closing(self._connect()) as connection:
+            evidence = []
+            for dataset_id in (comparison.dataset_a_id, comparison.dataset_b_id):
+                row = self._comparison_evidence_row(connection, dataset_id)
+                if row is None:
+                    raise ValueError(
+                        f'comparison references unknown dataset: {dataset_id}'
+                    )
+                evidence.append(
+                    (
+                        self._row_to_dataset(row),
+                        str(row['document_id']),
+                        str(row['scene_revision_id']),
+                    )
+                )
+        dataset_a, document_a, revision_a = evidence[0]
+        dataset_b, document_b, revision_b = evidence[1]
+        if comparison.dataset_a_sha256 != dataset_sha256(dataset_a):
+            raise ValueError('comparison dataset A hash mismatch')
+        if comparison.dataset_b_sha256 != dataset_sha256(dataset_b):
+            raise ValueError('comparison dataset B hash mismatch')
+        if (
+            comparison.document_id != document_a
+            or comparison.document_id != document_b
+            or comparison.scene_revision_a_id != revision_a
+            or comparison.scene_revision_b_id != revision_b
+        ):
+            raise ValueError('comparison dataset/revision binding mismatch')
+        recomputed = replay_measurement_comparison(
+            comparison,
+            dataset_a=dataset_a,
+            dataset_b=dataset_b,
+        )
+        if recomputed != comparison.comparison_result():
+            raise ValueError(
+                'comparison does not match canonical comparison algorithm output'
+            )
         return comparison
 
     def get_comparison(self, comparison_id: str) -> CadMeasurementComparison | None:
@@ -423,7 +521,9 @@ class CadMeasurementRepository:
                 'SELECT * FROM cad_measurement_comparisons WHERE comparison_id=?',
                 (comparison_id,),
             ).fetchone()
-        return None if row is None else self._row_to_comparison(row)
+        if row is None:
+            return None
+        return self._validate_current_comparison(self._row_to_comparison(row))
 
     def list_comparisons(self, document_id: str) -> tuple[CadMeasurementComparison, ...]:
         with closing(self._connect()) as connection, connection:
@@ -431,7 +531,10 @@ class CadMeasurementRepository:
                 'SELECT * FROM cad_measurement_comparisons WHERE document_id=? ORDER BY created_at DESC, comparison_id',
                 (document_id,),
             ).fetchall()
-        return tuple(self._row_to_comparison(row) for row in rows)
+        comparisons = tuple(self._row_to_comparison(row) for row in rows)
+        for comparison in comparisons:
+            self._validate_current_comparison(comparison)
+        return comparisons
 
     @staticmethod
     def _row_to_measurement(row: sqlite3.Row) -> CadMeasurementRecord:

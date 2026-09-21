@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections.abc import Callable
 from dataclasses import dataclass
+from hashlib import sha256
+import json
 import math
+from typing import Any
 
 
 ALGORITHM_VERSION = 'fr-compare-1'
@@ -13,6 +17,40 @@ class ComparisonError(ValueError):
     pass
 
 
+def _canonical_json(payload: Any) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+        allow_nan=False,
+    )
+
+
+def _hash(payload: Any) -> str:
+    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
+
+
+COMPARISON_ALGORITHM_IDENTITY = {
+    'algorithm_version': ALGORITHM_VERSION,
+    'points_per_octave': PPO,
+    'grid': 'log2_spaced_octave_aligned_grid_over_overlap_band',
+    'interpolation': 'linear_in_log2_frequency',
+    'extrapolation': 'forbidden',
+    'difference': 'a_minus_b_pointwise',
+    'excluded_bands': 'inclusive_frequency_ranges_removed_from_valid_grid',
+    'reference_band': 'level_offset_is_mean_difference_over_valid_reference_grid',
+    'metrics': [
+        'mean_difference_db',
+        'rms_difference_db',
+        'level_offset_db',
+        'shape_rms_db',
+    ],
+    'insufficient_valid_points': 'difference_metrics_are_none_below_two_points',
+}
+COMPARISON_ALGORITHM_SHA256 = _hash(COMPARISON_ALGORITHM_IDENTITY)
+
+
 @dataclass(frozen=True)
 class FrequencyResponse:
     frequency_hz: tuple[float, ...]
@@ -21,6 +59,13 @@ class FrequencyResponse:
 
 @dataclass(frozen=True)
 class ComparisonResult:
+    """Canonical A/B output plus the exact spec that produced it.
+
+    ``requested_band_hz``, ``reference_band_hz`` and ``excluded_bands`` record
+    the full comparison spec so a persistence authority can replay the pinned
+    algorithm and require exact equality instead of trusting opaque arrays.
+    """
+
     requested_band_hz: tuple[float, float]
     actual_band_hz: tuple[float, float]
     grid_hz: tuple[float, ...]
@@ -34,6 +79,8 @@ class ComparisonResult:
     valid_points: int
     total_grid_points: int
     algorithm_version: str = ALGORITHM_VERSION
+    reference_band_hz: tuple[float, float] | None = None
+    excluded_bands: tuple[tuple[float, float], ...] = ()
 
 
 def _grid(low_hz: float, high_hz: float) -> tuple[float, ...]:
@@ -125,4 +172,59 @@ def compare_frequency_responses(
         shape_rms_db=shape_rms,
         valid_points=len(valid_grid),
         total_grid_points=len(complete_grid),
+        reference_band_hz=reference_band_hz,
+        excluded_bands=excluded_bands,
+    )
+
+
+# Explicit versioned replay support: every algorithm version that can produce
+# persisted comparisons keeps its pinned identity hash and builder here so
+# historical results stay replayable. A result pinned to an identity that is
+# not registered fails closed instead of silently trusting supplied arrays.
+ComparisonResultReplay = Callable[..., ComparisonResult]
+
+_COMPARISON_RESULT_REPLAY: dict[str, tuple[str, ComparisonResultReplay]] = {
+    ALGORITHM_VERSION: (
+        COMPARISON_ALGORITHM_SHA256,
+        compare_frequency_responses,
+    ),
+}
+
+
+def comparison_algorithm_sha256(algorithm_version: str) -> str:
+    """Pinned identity hash for a replayable comparison algorithm version."""
+    replay = _COMPARISON_RESULT_REPLAY.get(algorithm_version)
+    if replay is None:
+        raise ValueError(
+            'comparison algorithm version is not replayable: '
+            f'{algorithm_version}'
+        )
+    return replay[0]
+
+
+def replay_comparison_result(
+    result: ComparisonResult,
+    a: FrequencyResponse,
+    b: FrequencyResponse,
+) -> ComparisonResult:
+    """Rerun the pinned algorithm for ``result.algorithm_version``.
+
+    The result carries its full comparison spec (requested band, reference
+    band, exclusions) so replay recomputes the canonical output from the two
+    frequency responses and can be required to equal the proposed result.
+    """
+    replay = _COMPARISON_RESULT_REPLAY.get(result.algorithm_version)
+    if replay is None:
+        raise ValueError(
+            'comparison algorithm version is not replayable: '
+            f'{result.algorithm_version}'
+        )
+    _algorithm_sha256, builder = replay
+    return builder(
+        a,
+        b,
+        result.requested_band_hz[0],
+        result.requested_band_hz[1],
+        reference_band_hz=result.reference_band_hz,
+        excluded_bands=result.excluded_bands,
     )
