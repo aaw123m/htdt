@@ -70,6 +70,7 @@ from htdt.cad_scene import (
     Direction3,
     Offset3,
     Position3,
+    RoomPrism,
     SceneDocument,
     SceneEntity,
     Size3,
@@ -208,11 +209,12 @@ def _scene(
     boundary_mode: str = 'rigid',
     *,
     fixture_id: str = FIXTURE_ID,
+    room: RoomPrism | None = None,
 ) -> SceneDocument:
     return SceneDocument(
         document_id=fixture_id,
         schema_version=4,
-        room=None,
+        room=room,
         r120_semantic_geometry=_semantic_geometry(
             boundary_mode,
             fixture_id=fixture_id,
@@ -254,6 +256,7 @@ def _fixture(
     *,
     boundary_mode: str = 'rigid',
     fixture_id: str = FIXTURE_ID,
+    room: RoomPrism | None = None,
 ):
     db_path = root / 'candidate.sqlite3'
     authority_root = root / 'authorities'
@@ -264,7 +267,7 @@ def _fixture(
     if boundary_mode not in {'rigid', 'impedance', 'causal'}:
         raise ValueError(f'unsupported boundary mode: {boundary_mode}')
     revision = scene_repository.save(
-        _scene(boundary_mode, fixture_id=fixture_id),
+        _scene(boundary_mode, fixture_id=fixture_id, room=room),
         parent_revision_id=None,
     ).revision
     variant_repository = CadSystemVariantRepository(scene_repository)

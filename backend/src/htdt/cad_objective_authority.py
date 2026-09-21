@@ -68,6 +68,7 @@ class ObjectiveAuthorityContext(NamedTuple):
     prediction_provider_repository: Any
     inputs: tuple[ResolvedObjectiveInput, ...] = ()
     spec: Mapping[str, Any] | None = None
+    hybrid_provider_repository: Any = None
 
 
 # Evidence classes that may stay declared-only when their source kind has no
@@ -227,6 +228,85 @@ def _resolve_prediction_provider(
     )
 
 
+def _spec_band(payload: Any, label: str) -> tuple[float, float]:
+    if not isinstance(payload, list) or len(payload) != 2:
+        raise ValueError(f'{label} must be a [low_hz, high_hz] pair')
+    low_hz = float(payload[0])
+    high_hz = float(payload[1])
+    if not (low_hz > 0.0 and high_hz > low_hz):
+        raise ValueError(f'{label} requires 0 < low_hz < high_hz')
+    return low_hz, high_hz
+
+
+def _resolve_hybrid_prediction_provider(
+    context: ObjectiveAuthorityContext,
+    ref: CadObjectiveInputRef,
+) -> ResolvedObjectiveInput:
+    if ref.evidence_class != 'predicted':
+        raise ValueError(
+            'r170b_hybrid_prediction_provider evidence class must be predicted'
+        )
+    repository = context.hybrid_provider_repository
+    if repository is None:
+        raise ValueError('hybrid prediction provider authority unavailable')
+    spec = context.spec
+    if spec is None:
+        raise ValueError('hybrid provider objective spec unavailable')
+    provider_id = spec.get('provider_id')
+    if not isinstance(provider_id, str) or not provider_id:
+        raise ValueError('hybrid provider objective spec provider_id missing')
+    provider = repository.get(provider_id)
+    if provider is None:
+        raise ValueError('hybrid prediction provider does not exist')
+    if provider.semantic_sha256 != spec.get('provider_sha256'):
+        raise ValueError(
+            'hybrid provider objective spec provider semantic hash mismatch'
+        )
+    authority = provider.base_current_authority
+    if (
+        authority.document_id != context.evaluation.document_id
+        or authority.scene_revision_id != context.evaluation.scene_revision_id
+        or authority.scene_content_hash != context.evaluation.scene_content_hash
+    ):
+        raise ValueError(
+            'hybrid prediction provider belongs to another SceneRevision'
+        )
+    low_hz, high_hz = _spec_band(
+        spec.get('requested_band_hz'),
+        'hybrid provider objective spec requested_band_hz',
+    )
+    source_entity_id = spec.get('source_entity_id')
+    receiver_id = spec.get('receiver_id')
+    if not isinstance(source_entity_id, str) or not source_entity_id:
+        raise ValueError('hybrid provider objective spec source_entity_id missing')
+    if not isinstance(receiver_id, str) or not receiver_id:
+        raise ValueError('hybrid provider objective spec receiver_id missing')
+    # Deferred import: the provider integration module imports the repository
+    # module that owns this authority replay.
+    from .cad_hybrid_prediction_provider_integration import (
+        build_hybrid_provider_objective_input,
+    )
+
+    objective_input = build_hybrid_provider_objective_input(
+        provider,
+        source_entity_id=source_entity_id,
+        receiver_id=receiver_id,
+        low_hz=low_hz,
+        high_hz=high_hz,
+    )
+    if objective_input.input_id != ref.source_id:
+        raise ValueError('hybrid provider objective input identity mismatch')
+    if objective_input.input_id != spec.get('objective_input_id'):
+        raise ValueError('hybrid provider spec objective_input_id mismatch')
+    if objective_input.semantic_sha256 != spec.get('objective_input_sha256'):
+        raise ValueError('hybrid provider spec objective_input_sha256 mismatch')
+    return ResolvedObjectiveInput(
+        ref=ref,
+        source_sha256=objective_input.semantic_sha256,
+        authority=provider,
+    )
+
+
 OBJECTIVE_INPUT_RESOLVERS: dict[
     str,
     Callable[[ObjectiveAuthorityContext, CadObjectiveInputRef], ResolvedObjectiveInput],
@@ -235,6 +315,7 @@ OBJECTIVE_INPUT_RESOLVERS: dict[
     'cad_measurement': _resolve_cad_measurement,
     'cad_roomsim_attempt': _resolve_cad_roomsim_attempt,
     'r170a_prediction_provider': _resolve_prediction_provider,
+    'r170b_hybrid_prediction_provider': _resolve_hybrid_prediction_provider,
 }
 
 
@@ -431,6 +512,76 @@ def _evaluate_provider_objective(context: ObjectiveAuthorityContext) -> Objectiv
     return _selected_vector(vector, context.spec)
 
 
+def _evaluate_hybrid_provider_objective(
+    context: ObjectiveAuthorityContext,
+) -> ObjectiveVector:
+    # Deferred import: the provider module owns the R170B response contract.
+    from .cad_hybrid_prediction_provider import hybrid_provider_frequency_response
+
+    assert context.spec is not None
+    provider_inputs = [
+        item
+        for item in context.inputs
+        if item.ref.source_kind == 'r170b_hybrid_prediction_provider'
+    ]
+    if len(provider_inputs) != 1:
+        raise ValueError(
+            'hybrid provider objective evaluation requires exactly one '
+            'hybrid provider input'
+        )
+    provider = provider_inputs[0].authority
+    if provider is None:
+        raise ValueError(
+            'hybrid provider objective input did not resolve a provider'
+        )
+    if provider.provider_id != context.spec.get('provider_id'):
+        raise ValueError(
+            'hybrid provider objective spec provider identity mismatch'
+        )
+    if provider.semantic_sha256 != context.spec.get('provider_sha256'):
+        raise ValueError(
+            'hybrid provider objective spec provider semantic hash mismatch'
+        )
+    if context.spec.get('observable') != 'frequency_response_magnitude':
+        raise ValueError('hybrid provider objective spec observable mismatch')
+    try:
+        objective_spec = ResponseObjectiveSpec.model_validate(
+            context.spec.get('objective_spec')
+        )
+    except ValueError as exc:
+        raise ValueError(f'hybrid provider objective spec is invalid: {exc}') from exc
+    low_hz, high_hz = _spec_band(
+        context.spec.get('requested_band_hz'),
+        'hybrid provider objective spec requested_band_hz',
+    )
+    if (low_hz, high_hz) != (objective_spec.low_hz, objective_spec.high_hz):
+        raise ValueError(
+            'hybrid provider objective spec band/objective mismatch'
+        )
+    source_entity_id = context.spec.get('source_entity_id')
+    receiver_id = context.spec.get('receiver_id')
+    if not isinstance(source_entity_id, str) or not source_entity_id:
+        raise ValueError('hybrid provider objective spec source_entity_id missing')
+    if not isinstance(receiver_id, str) or not receiver_id:
+        raise ValueError('hybrid provider objective spec receiver_id missing')
+    target = _spec_frequency_response(context.spec.get('target'))
+    response = hybrid_provider_frequency_response(
+        provider,
+        source_entity_id=source_entity_id,
+        receiver_id=receiver_id,
+        low_hz=objective_spec.low_hz,
+        high_hz=objective_spec.high_hz,
+    )
+    vector = target_response_objectives(
+        context.evaluation.candidate_id,
+        response,
+        target,
+        objective_spec,
+        prefix='response',
+    )
+    return _selected_vector(vector, context.spec)
+
+
 OBJECTIVE_VECTOR_EVALUATORS: dict[
     str,
     Callable[[ObjectiveAuthorityContext], ObjectiveVector],
@@ -438,4 +589,5 @@ OBJECTIVE_VECTOR_EVALUATORS: dict[
     'target_response': _evaluate_target_response,
     'candidate_movement': _evaluate_candidate_movement,
     'r170a-provider-objective-1': _evaluate_provider_objective,
+    'r170b-hybrid-provider-objective-1': _evaluate_hybrid_provider_objective,
 }
