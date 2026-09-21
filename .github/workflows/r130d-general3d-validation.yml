@@ -7,7 +7,10 @@ on:
       - 'backend/tests/test_r130d_general3d_validation.py'
       - 'benchmarks/acoustics/r130d_general3d_validation_plan.json'
       - 'benchmarks/acoustics/r130d_target_window_diagnostic_plan.json'
+      - 'benchmarks/acoustics/r130d_spatial_representation_diagnostic_plan.json'
       - 'benchmarks/acoustics/r130d_general3d_self_convergence_run25_summary.json'
+      - 'benchmarks/acoustics/r130d_target_window_diagnostic_run62_summary.json'
+      - 'benchmarks/acoustics/r130d_spatial_representation_diagnostic_run*_summary.json'
       - 'benchmarks/acoustics/r130d_mfem_reference/**'
       - 'scripts/run_r130d_general3d_validation.py'
       - 'scripts/run_r130d_polyhedral_candidate_wave_execution.py'
@@ -15,6 +18,7 @@ on:
       - 'docs/R130D_GENERAL3D_INDEPENDENT_VALIDATION_2026-09-20.md'
       - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_DIAGNOSIS_PLAN_2026-09-20.md'
       - 'docs/R130D_GENERAL3D_TARGET_WINDOW_DIAGNOSTIC_PLAN_2026-09-20.md'
+      - 'docs/R130D_GENERAL3D_SPATIAL_REPRESENTATION_DIAGNOSTIC_EVIDENCE_2026-09-21.md'
       - 'docs/R130D_GENERAL3D_SELF_CONVERGENCE_RERUN_EVIDENCE_2026-09-20.md'
       - '.github/workflows/r130d-general3d-validation.yml'
   workflow_dispatch:
@@ -37,7 +41,9 @@ jobs:
       PFFDTD_SHA: aa319f6c86517cb95aabfae8656277da62c3ead5
       PLAN: benchmarks/acoustics/r130d_general3d_validation_plan.json
       DIAGNOSTIC_PLAN: benchmarks/acoustics/r130d_target_window_diagnostic_plan.json
+      SPATIAL_DIAGNOSTIC_PLAN: benchmarks/acoustics/r130d_spatial_representation_diagnostic_plan.json
       PR286_SUMMARY: benchmarks/acoustics/r130d_general3d_self_convergence_run25_summary.json
+      PR295_SUMMARY: benchmarks/acoustics/r130d_target_window_diagnostic_run62_summary.json
       EVIDENCE_DIR: artifacts/r130d/general3d
       EVIDENCE_OUTPUT: artifacts/r130d/general3d/evidence.json
       HTDT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -127,7 +133,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
           $work = Join-Path $env:RUNNER_TEMP 'r130d-general3d-validation'
-          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --diagnostic-plan $env:DIAGNOSTIC_PLAN --pr286-summary $env:PR286_SUMMARY --mfem-root $env:MFEM_ROOT --mfem-executable $env:MFEM_REFERENCE_EXE --pffdtd-root $env:PFFDTD_ROOT --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S
+          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --diagnostic-plan $env:DIAGNOSTIC_PLAN --spatial-diagnostic-plan $env:SPATIAL_DIAGNOSTIC_PLAN --pr286-summary $env:PR286_SUMMARY --pr295-summary $env:PR295_SUMMARY --mfem-root $env:MFEM_ROOT --mfem-executable $env:MFEM_REFERENCE_EXE --pffdtd-root $env:PFFDTD_ROOT --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S
 
       - name: Record reference-build BLOCKED evidence
         if: env.MFEM_RUNTIME_AVAILABLE != '1'
@@ -135,7 +141,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
           $work = Join-Path $env:RUNNER_TEMP 'r130d-general3d-validation'
-          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --diagnostic-plan $env:DIAGNOSTIC_PLAN --pr286-summary $env:PR286_SUMMARY --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
+          python scripts\run_r130d_general3d_validation.py --plan $env:PLAN --diagnostic-plan $env:DIAGNOSTIC_PLAN --spatial-diagnostic-plan $env:SPATIAL_DIAGNOSTIC_PLAN --pr286-summary $env:PR286_SUMMARY --pr295-summary $env:PR295_SUMMARY --work-root $work --output $env:EVIDENCE_OUTPUT --mfem-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
 
       - name: Validate evidence integrity and report physics state
         shell: pwsh
@@ -149,6 +155,31 @@ jobs:
           if ($doc.payload.rdc_calls -ne 0) { throw "RDC calls must remain zero" }
           if ($doc.payload.htdt_capture_changed -ne $false) { throw "HTDT-Capture change claim is forbidden" }
           if ($doc.payload.scope.production_solver_selected -ne $false) { throw "production solver adoption claim is forbidden" }
+          if ($decision.execution_state -eq 'PASS') {
+            if ($doc.payload.canonical_pr295_reproduction.state -ne 'PASS') { throw "PR #295 canonical reproduction failed" }
+            if ($doc.payload.frequency_neighborhood_diagnostic.canonical_acceptance_inclusion -ne $false) { throw "diagnostic frequency leaked into canonical acceptance" }
+            $summary = [ordered]@{
+              schema_version = 'htdt.r130d.spatial-representation-diagnostic-summary-1'
+              repository_head = $doc.payload.repository_head
+              plan_sha256 = $doc.payload.plan_sha256
+              spatial_diagnostic_plan_sha256 = $doc.payload.spatial_diagnostic_plan.semantic_sha256
+              canonical_pr295_reproduction = $doc.payload.canonical_pr295_reproduction
+              spatial_representation_trend = $doc.payload.spatial_representation_trend
+              interpolation_stencil_diagnostic = $doc.payload.interpolation_stencil_diagnostic
+              frequency_neighborhood_diagnostic = $doc.payload.frequency_neighborhood_diagnostic
+              canonical_reference_self_convergence = $doc.payload.decision_semantics.canonical_reference_self_convergence
+              canonical_pffdtd_self_convergence = $doc.payload.decision_semantics.canonical_pffdtd_self_convergence
+              cross_solver_eligibility = $doc.payload.decision_semantics.cross_solver_eligibility
+              general_3d_validation_state = $doc.payload.decision_semantics.general_3d_validation_state
+              rdc_calls = $doc.payload.rdc_calls
+              htdt_capture_changed = $doc.payload.htdt_capture_changed
+            }
+            $summaryPath = Join-Path $env:EVIDENCE_DIR 'spatial_diagnostic_summary.json'
+            $summary | ConvertTo-Json -Depth 30 | Set-Content -Encoding utf8 $summaryPath
+            Write-Output 'R130D_SPATIAL_DIAGNOSTIC_SUMMARY_BEGIN'
+            Get-Content -Raw $summaryPath
+            Write-Output 'R130D_SPATIAL_DIAGNOSTIC_SUMMARY_END'
+          }
 
       - name: Bundle frozen plans and provenance
         if: always()
@@ -157,15 +188,20 @@ jobs:
           New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
           Copy-Item $env:PLAN (Join-Path $env:EVIDENCE_DIR 'frozen_general3d_validation_plan.json')
           Copy-Item $env:DIAGNOSTIC_PLAN (Join-Path $env:EVIDENCE_DIR 'frozen_target_window_diagnostic_plan.json')
+          Copy-Item $env:SPATIAL_DIAGNOSTIC_PLAN (Join-Path $env:EVIDENCE_DIR 'frozen_spatial_representation_diagnostic_plan.json')
           Copy-Item $env:PR286_SUMMARY (Join-Path $env:EVIDENCE_DIR 'pr286_baseline_summary.json')
+          Copy-Item $env:PR295_SUMMARY (Join-Path $env:EVIDENCE_DIR 'pr295_baseline_summary.json')
           $manifest = [ordered]@{
-            schema_version = 'htdt.r130d.target-window-artifact-manifest-1'
+            schema_version = 'htdt.r130d.spatial-representation-artifact-manifest-1'
             repository_head = $env:HTDT_PR_HEAD_SHA
             general3d_plan_file_sha256 = (Get-FileHash $env:PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
             general3d_plan_semantic_sha256 = '5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec'
             diagnostic_plan_file_sha256 = (Get-FileHash $env:DIAGNOSTIC_PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
             diagnostic_plan_semantic_sha256 = 'ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db'
+            spatial_diagnostic_plan_file_sha256 = (Get-FileHash $env:SPATIAL_DIAGNOSTIC_PLAN -Algorithm SHA256).Hash.ToLowerInvariant()
+            spatial_diagnostic_plan_semantic_sha256 = '7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4'
             pr286_baseline_summary_file_sha256 = (Get-FileHash $env:PR286_SUMMARY -Algorithm SHA256).Hash.ToLowerInvariant()
+            pr295_baseline_summary_file_sha256 = (Get-FileHash $env:PR295_SUMMARY -Algorithm SHA256).Hash.ToLowerInvariant()
             evidence_file_sha256 = (Get-FileHash $env:EVIDENCE_OUTPUT -Algorithm SHA256).Hash.ToLowerInvariant()
             rdc_calls = 0
             htdt_capture_changed = $false

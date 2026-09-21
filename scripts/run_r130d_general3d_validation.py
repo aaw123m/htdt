@@ -40,10 +40,17 @@ from htdt.r130d_general3d_validation import (
     analytic_complex_harmonic_spectrum,
     analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
+    classify_frequency_neighborhood,
+    classify_spatial_representation_trend,
     compare_complex_transfer,
+    connected_air_domain_node_metrics,
+    interpolation_stencil_diagnostic,
+    load_spatial_representation_diagnostic_plan,
     load_target_window_diagnostic_plan,
     load_validation_plan,
     native_window_left_rectangle_transfer,
+    normalized_complex_difference,
+    plane_distance_metrics,
     save_evidence,
     semantic_hash,
     target_window_sampling_metadata,
@@ -51,6 +58,7 @@ from htdt.r130d_general3d_validation import (
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
+    validate_spatial_representation_diagnostic_binding,
     validation_decision_v2,
 )
 
@@ -797,6 +805,362 @@ def _create_pffdtd_dispatch(
     return dispatch
 
 
+def _point_in_triangle_3d(
+    point: np.ndarray,
+    a: np.ndarray,
+    b: np.ndarray,
+    c: np.ndarray,
+    *,
+    tolerance: float,
+) -> bool:
+    v0 = b - a
+    v1 = c - a
+    v2 = point - a
+    d00 = float(np.dot(v0, v0))
+    d01 = float(np.dot(v0, v1))
+    d11 = float(np.dot(v1, v1))
+    d20 = float(np.dot(v2, v0))
+    d21 = float(np.dot(v2, v1))
+    denominator = d00 * d11 - d01 * d01
+    if abs(denominator) <= 1.0e-24:
+        raise ValidationBlocked('exact sloped face triangulation is degenerate')
+    v = (d11 * d20 - d01 * d21) / denominator
+    w = (d00 * d21 - d01 * d20) / denominator
+    u = 1.0 - v - w
+    return (
+        u >= -tolerance
+        and v >= -tolerance
+        and w >= -tolerance
+        and u <= 1.0 + tolerance
+        and v <= 1.0 + tolerance
+        and w <= 1.0 + tolerance
+    )
+
+
+def _read_pffdtd_spatial_representation_diagnostic(
+    plan: R130DGeneral3DValidationPlan,
+    diagnostic: dict[str, Any],
+    *,
+    sim_dir: Path,
+) -> dict[str, Any]:
+    try:
+        import h5py
+    except Exception as exc:
+        raise ValidationBlocked(
+            'h5py is required for PFFDTD spatial diagnostic extraction'
+        ) from exc
+
+    cart_path = sim_dir / 'cart_grid.h5'
+    voxel_path = sim_dir / 'vox_out.h5'
+    comms_path = sim_dir / 'comms_out.h5'
+    for asset in (cart_path, voxel_path, comms_path):
+        if not asset.is_file():
+            raise ValidationBlocked(
+                f'PFFDTD spatial diagnostic asset is missing: {asset.name}'
+            )
+
+    try:
+        with h5py.File(cart_path, 'r') as handle:
+            xv = np.asarray(handle['xv'][...], dtype=np.float64)
+            yv = np.asarray(handle['yv'][...], dtype=np.float64)
+            zv = np.asarray(handle['zv'][...], dtype=np.float64)
+            h = float(handle['h'][()])
+        with h5py.File(voxel_path, 'r') as handle:
+            bn_ixyz = np.asarray(handle['bn_ixyz'][...], dtype=np.int64)
+            adj_bn = np.asarray(handle['adj_bn'][...], dtype=bool)
+            voxel_dims = (
+                int(handle['Nx'][()]),
+                int(handle['Ny'][()]),
+                int(handle['Nz'][()]),
+            )
+        with h5py.File(comms_path, 'r') as handle:
+            in_ixyz = np.asarray(handle['in_ixyz'][...], dtype=np.int64).reshape(-1)
+            in_sigs = np.asarray(handle['in_sigs'][...], dtype=np.float64)
+            out_ixyz = np.asarray(handle['out_ixyz'][...], dtype=np.int64).reshape(-1)
+            out_alpha = np.asarray(handle['out_alpha'][...], dtype=np.float64)
+    except Exception as exc:
+        raise ValidationBlocked(
+            f'PFFDTD spatial diagnostic HDF5 read failed: {type(exc).__name__}: {exc}'
+        ) from exc
+
+    dims = (int(xv.size), int(yv.size), int(zv.size))
+    if dims != voxel_dims:
+        raise ValidationBlocked(
+            f'PFFDTD cart/voxel dimensions disagree: {dims} != {voxel_dims}'
+        )
+    if adj_bn.shape != (bn_ixyz.size, 6):
+        raise ValidationBlocked(
+            f'PFFDTD Cartesian boundary adjacency has unexpected shape {adj_bn.shape}'
+        )
+    if in_ixyz.shape != (8,) or in_sigs.ndim != 2 or in_sigs.shape[0] != 8:
+        raise ValidationBlocked(
+            'PFFDTD source authority is not the frozen eight-node trilinear stencil'
+        )
+    if out_ixyz.shape != (8,) or out_alpha.shape != (1, 8):
+        raise ValidationBlocked(
+            'PFFDTD receiver authority is not the frozen one-receiver eight-node stencil'
+        )
+
+    source_first = np.asarray(in_sigs[:, 0], dtype=np.float64)
+    source_sum = float(np.sum(source_first))
+    if (
+        not np.all(np.isfinite(source_first))
+        or not math.isfinite(source_sum)
+        or abs(source_sum) <= np.finfo(np.float64).tiny
+    ):
+        raise ValidationBlocked('PFFDTD source first-sample stencil cannot be normalized')
+    source_weights = source_first / source_sum
+    source_stencil = interpolation_stencil_diagnostic(
+        xv=xv,
+        yv=yv,
+        zv=zv,
+        linear_indices=in_ixyz,
+        weights=source_weights,
+        exact_position_m=plan.fixture.source_position_m,
+        grid_spacing_m=h,
+    )
+    receiver_stencil = interpolation_stencil_diagnostic(
+        xv=xv,
+        yv=yv,
+        zv=zv,
+        linear_indices=out_ixyz,
+        weights=out_alpha[0],
+        exact_position_m=plan.fixture.receiver_position_m,
+        grid_spacing_m=h,
+    )
+    for label, stencil in (
+        ('source', source_stencil),
+        ('receiver', receiver_stencil),
+    ):
+        if not math.isclose(
+            float(stencil['weight_sum']), 1.0, rel_tol=0.0, abs_tol=1.0e-12
+        ):
+            raise ValidationBlocked(f'PFFDTD {label} stencil weights do not sum to one')
+        if float(stencil['reconstruction_error_m']) > max(1.0e-12, h * 1.0e-10):
+            raise ValidationBlocked(
+                f'PFFDTD {label} stencil does not reconstruct exact coordinate'
+            )
+
+    directions = diagnostic['spatial_representation']['cartesian_neighbor_order']
+    domain = connected_air_domain_node_metrics(
+        dimensions=dims,
+        boundary_linear_indices=bn_ixyz,
+        boundary_adjacency=adj_bn,
+        source_linear_indices=in_ixyz,
+        neighbor_directions=directions,
+    )
+    reached_mask = np.asarray(domain.pop('reachable_mask'), dtype=bool)
+    exact_volume = float(plan.fixture.base_tetrahedralization_volume_m3)
+    discrete_volume = float(domain['reachable_air_node_count']) * h ** 3
+    relative_volume_error = (discrete_volume - exact_volume) / exact_volume
+
+    face_map = {key: indices for key, indices in plan.fixture.faces}
+    sloped_key = str(diagnostic['spatial_representation']['sloped_surface_key'])
+    if sloped_key not in face_map:
+        raise ValidationBlocked(f'unknown frozen sloped surface key: {sloped_key}')
+    face_indices = tuple(int(x) for x in face_map[sloped_key])
+    if len(face_indices) != 4:
+        raise ValidationBlocked('frozen sloped surface must be the R120B quad')
+    vertices = np.asarray(plan.fixture.vertices_m, dtype=np.float64)
+    face_points = vertices[np.asarray(face_indices, dtype=np.int64)]
+    plane_point = face_points[0]
+    normal_raw = np.cross(face_points[1] - plane_point, face_points[2] - plane_point)
+    normal_norm = float(np.linalg.norm(normal_raw))
+    if normal_norm <= 0.0:
+        raise ValidationBlocked('frozen sloped surface plane is degenerate')
+    plane_normal = normal_raw / normal_norm
+    plane_d = -float(np.dot(plane_normal, plane_point))
+
+    ny = dims[1]
+    nz = dims[2]
+    yz = ny * nz
+    reverse = (1, 0, 3, 2, 5, 4)
+    direction_tuples = tuple(tuple(int(v) for v in row) for row in directions)
+    boundary_row = {int(index): row for row, index in enumerate(bn_ixyz)}
+
+    def coords(index: int) -> tuple[int, int, int]:
+        ix = index // yz
+        rem = index % yz
+        return ix, rem // nz, rem % nz
+
+    def linear(ix: int, iy: int, iz: int) -> int:
+        return ix * yz + iy * nz + iz
+
+    def position(index: int) -> np.ndarray:
+        ix, iy, iz = coords(index)
+        return np.asarray((xv[ix], yv[iy], zv[iz]), dtype=np.float64)
+
+    blocked_edges: set[tuple[int, int]] = set()
+    for row, current_value in enumerate(bn_ixyz):
+        current = int(current_value)
+        ix, iy, iz = coords(current)
+        for direction_index, (dx, dy, dz) in enumerate(direction_tuples):
+            if bool(adj_bn[row, direction_index]):
+                continue
+            nx, ny_, nz_ = ix + dx, iy + dy, iz + dz
+            if not (0 <= nx < dims[0] and 0 <= ny_ < dims[1] and 0 <= nz_ < dims[2]):
+                continue
+            neighbor = linear(nx, ny_, nz_)
+            pair = (min(current, neighbor), max(current, neighbor))
+            blocked_edges.add(pair)
+            neighbor_row = boundary_row.get(neighbor)
+            if (
+                neighbor_row is not None
+                and bool(adj_bn[neighbor_row, reverse[direction_index]])
+            ):
+                raise ValidationBlocked(
+                    'PFFDTD boundary adjacency is asymmetric across a blocked edge'
+                )
+
+    plane_tolerance = max(1.0e-12, h * 1.0e-9)
+    bary_tolerance = max(1.0e-12, h * 1.0e-9)
+    tri_a = (face_points[0], face_points[1], face_points[2])
+    tri_b = (face_points[0], face_points[2], face_points[3])
+    samples: list[list[float]] = []
+    for first, second in sorted(blocked_edges):
+        p0 = position(first)
+        p1 = position(second)
+        s0 = float(np.dot(plane_normal, p0) + plane_d)
+        s1 = float(np.dot(plane_normal, p1) + plane_d)
+        denominator = s0 - s1
+        if abs(denominator) <= plane_tolerance:
+            continue
+        t = s0 / denominator
+        if t < -1.0e-12 or t > 1.0 + 1.0e-12:
+            continue
+        intersection = p0 + t * (p1 - p0)
+        if not (
+            _point_in_triangle_3d(
+                intersection, *tri_a, tolerance=bary_tolerance
+            )
+            or _point_in_triangle_3d(
+                intersection, *tri_b, tolerance=bary_tolerance
+            )
+        ):
+            continue
+        samples.append([float(x) for x in (0.5 * (p0 + p1))])
+
+    if not samples:
+        raise ValidationBlocked(
+            'PFFDTD spatial diagnostic found no blocked-adjacency samples on sloped surface'
+        )
+    distance = plane_distance_metrics(
+        samples,
+        plane_point_m=plane_point,
+        plane_unit_normal=plane_normal,
+        grid_spacing_m=h,
+    )
+
+    geometry_core = {
+        'representation_kind': diagnostic['spatial_representation']['representation_kind'],
+        'grid_spacing_m': h,
+        'grid_dimensions': list(dims),
+        'grid_origin_m': [float(xv[0]), float(yv[0]), float(zv[0])],
+        'grid_axes_m': {
+            'x': [float(x) for x in xv],
+            'y': [float(x) for x in yv],
+            'z': [float(x) for x in zv],
+        },
+        'boundary_linear_indices': [int(x) for x in bn_ixyz],
+        'boundary_adjacency': adj_bn.astype(np.uint8).tolist(),
+        'cart_grid_file_sha256': _sha256_file(cart_path),
+        'voxel_mask_file_sha256': _sha256_file(voxel_path),
+    }
+    return {
+        'representation_definition': diagnostic['spatial_representation']['representation_kind'],
+        'grid_spacing_m': h,
+        'grid_dimensions': list(dims),
+        'exact_polyhedron_volume_m3': exact_volume,
+        'discrete_air_domain_volume_estimate_m3': discrete_volume,
+        'relative_volume_error': relative_volume_error,
+        'absolute_relative_volume_error': abs(relative_volume_error),
+        **domain,
+        'geometry_representation_hash': semantic_hash(geometry_core),
+        'pffdtd_cart_grid_asset_file_sha256': geometry_core[
+            'cart_grid_file_sha256'
+        ],
+        'pffdtd_geometry_mask_asset_file_sha256': geometry_core[
+            'voxel_mask_file_sha256'
+        ],
+        'sloped_surface_key': sloped_key,
+        'exact_plane_equation_unit_normal': {
+            'a': float(plane_normal[0]),
+            'b': float(plane_normal[1]),
+            'c': float(plane_normal[2]),
+            'd': plane_d,
+        },
+        'staircase_sample_definition': diagnostic['spatial_representation']['sloped_staircase_sample_definition'],
+        **distance,
+        'source_stencil': source_stencil,
+        'receiver_stencil': receiver_stencil,
+    }
+
+
+def _validate_pr295_canonical_reproduction(
+    summary_path: Path,
+    *,
+    reference_levels: list[dict[str, Any]],
+    pffdtd_levels: list[dict[str, Any]],
+    max_abs_tolerance: float,
+) -> dict[str, Any]:
+    summary = json.loads(summary_path.read_text(encoding='utf-8'))
+    expected_mfem = {
+        int(item['refinement']): np.asarray(item['canonical'], dtype=np.float64)
+        for item in summary.get('outputs', {}).get('mfem', ())
+    }
+    expected_pffdtd = {
+        float(item['points_per_wavelength']): np.asarray(
+            item['canonical'], dtype=np.float64
+        )
+        for item in summary.get('outputs', {}).get('pffdtd', ())
+    }
+    if set(expected_mfem) != {1, 2, 3} or set(expected_pffdtd) != {8.0, 10.0, 12.0}:
+        raise ValidationBlocked('PR #295 canonical baseline schedule is incomplete')
+
+    tolerance = float(max_abs_tolerance)
+    if not math.isfinite(tolerance) or tolerance < 0.0:
+        raise ValidationBlocked('PR #295 reproduction tolerance is invalid')
+    details: dict[str, list[dict[str, Any]]] = {'mfem': [], 'pffdtd': []}
+    maximum = 0.0
+    for level in reference_levels:
+        key = int(level['refinement'])
+        actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
+        error = float(np.max(np.abs(actual - expected_mfem[key])))
+        maximum = max(maximum, error)
+        if error > tolerance:
+            raise ValidationBlocked(
+                f'MFEM refinement {key} did not reproduce PR #295 canonical transfer: '
+                f'max_abs_component_error={error} > {tolerance}'
+            )
+        details['mfem'].append(
+            {'refinement': key, 'max_abs_complex_component_error': error}
+        )
+    for level in pffdtd_levels:
+        key = float(level['points_per_wavelength'])
+        actual = np.asarray(level['transfer_pa_per_m3_s'], dtype=np.float64)
+        error = float(np.max(np.abs(actual - expected_pffdtd[key])))
+        maximum = max(maximum, error)
+        if error > tolerance:
+            raise ValidationBlocked(
+                f'PFFDTD {key:g} PPW did not reproduce PR #295 canonical transfer: '
+                f'max_abs_component_error={error} > {tolerance}'
+            )
+        details['pffdtd'].append(
+            {'points_per_wavelength': key, 'max_abs_complex_component_error': error}
+        )
+    return {
+        'state': 'PASS',
+        'baseline_authoritative_run_id': summary.get('source', {}).get('workflow_run_id'),
+        'baseline_artifact_id': summary.get('source', {}).get('artifact_id'),
+        'baseline_artifact_digest_sha256': summary.get('source', {}).get(
+            'artifact_digest_sha256'
+        ),
+        'max_abs_complex_component_error_all_six_levels': maximum,
+        'max_abs_complex_component_tolerance': tolerance,
+        **details,
+    }
+
+
 def _run_pffdtd_level(
     plan: R130DGeneral3DValidationPlan,
     *,
@@ -806,6 +1170,7 @@ def _run_pffdtd_level(
     compiled_ref,
     rigid_boundary_ref,
     ppw: float,
+    spatial_diagnostic: dict[str, Any],
 ) -> dict[str, Any]:
     base = fixture['configuration']
     configuration = build_pffdtd_candidate_configuration(
@@ -1030,6 +1395,42 @@ def _run_pffdtd_level(
         frequency_hz=plan.physical_quantity.frequency_hz,
         magnitude_mask_relative_db=plan.acceptance.magnitude_mask_relative_db,
     )
+    diagnostic_frequencies = np.asarray(
+        spatial_diagnostic['frequency_neighborhood']['diagnostic_frequency_hz'],
+        dtype=np.float64,
+    )
+    neighborhood_transfer = pffdtd_finite_record_pressure_transfer(
+        pressure_trace,
+        source_trace,
+        time_step_s=time_step_s,
+        frequency_hz=diagnostic_frequencies,
+    )
+    spatial_metrics = _read_pffdtd_spatial_representation_diagnostic(
+        plan,
+        spatial_diagnostic,
+        sim_dir=run_dir,
+    )
+    spatial_metrics['pffdtd_cart_grid_logical_sha256'] = evidence[
+        'cart_grid_logical_sha256'
+    ]
+    spatial_metrics['pffdtd_geometry_mask_logical_sha256'] = evidence[
+        'boundary_mask_logical_sha256'
+    ]
+    if not math.isclose(
+        float(spatial_metrics['grid_spacing_m']),
+        float(evidence['grid_spacing_m']),
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        raise ValidationBlocked(
+            'PFFDTD spatial diagnostic grid spacing differs from executed-grid evidence'
+        )
+    if tuple(int(x) for x in spatial_metrics['grid_dimensions']) != tuple(
+        int(x) for x in evidence['grid_dimensions']
+    ):
+        raise ValidationBlocked(
+            'PFFDTD spatial diagnostic dimensions differ from executed-grid evidence'
+        )
     sampling_metadata = target_window_sampling_metadata(
         solver='PFFDTD',
         requested_duration_s=plan.physical_quantity.duration_s,
@@ -1109,6 +1510,28 @@ def _run_pffdtd_level(
         ),
         'canonical_aligned_delta': _metric_dict(canonical_aligned_delta),
         'canonical_recomputed_from_raw_max_abs_error': canonical_raw_error,
+        'diagnostic_frequency_hz': [float(x) for x in diagnostic_frequencies],
+        'diagnostic_neighborhood_transfer_pa_per_m3_s': _complex_pairs(
+            neighborhood_transfer
+        ),
+        'diagnostic_neighborhood_transfer_sha256': semantic_hash(
+            _complex_pairs(neighborhood_transfer)
+        ),
+        'spatial_representation_diagnostic': {
+            **{
+                key: value
+                for key, value in spatial_metrics.items()
+                if key not in ('source_stencil', 'receiver_stencil')
+            },
+            'pffdtd_cart_grid_logical_sha256': evidence[
+                'cart_grid_logical_sha256'
+            ],
+            'pffdtd_boundary_mask_logical_sha256': evidence[
+                'boundary_mask_logical_sha256'
+            ],
+        },
+        'source_interpolation_stencil': spatial_metrics['source_stencil'],
+        'receiver_interpolation_stencil': spatial_metrics['receiver_stencil'],
         'sampling_metadata': sampling_metadata,
         'diagnostic_raw_trace': {
             'sim_outs_sha256': _sha256_file(raw_output_path),
@@ -1332,7 +1755,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument('--plan', required=True, type=Path)
     parser.add_argument('--diagnostic-plan', required=True, type=Path)
+    parser.add_argument('--spatial-diagnostic-plan', required=True, type=Path)
     parser.add_argument('--pr286-summary', required=True, type=Path)
+    parser.add_argument('--pr295-summary', required=True, type=Path)
     parser.add_argument('--mfem-root', type=Path)
     parser.add_argument('--mfem-executable', type=Path)
     parser.add_argument('--pffdtd-root', type=Path)
@@ -1348,6 +1773,10 @@ def main(argv: list[str] | None = None) -> int:
     plan = load_validation_plan(args.plan)
     diagnostic = load_target_window_diagnostic_plan(args.diagnostic_plan)
     _validate_target_window_diagnostic_binding(plan, diagnostic)
+    spatial_diagnostic = load_spatial_representation_diagnostic_plan(
+        args.spatial_diagnostic_plan
+    )
+    validate_spatial_representation_diagnostic_binding(plan, spatial_diagnostic)
     observation_operator_fixture = _run_observation_operator_fixture(diagnostic)
     repository_head = os.environ.get('HTDT_PR_HEAD_SHA', '').strip().lower()
     if not repository_head:
@@ -1488,6 +1917,7 @@ def main(argv: list[str] | None = None) -> int:
                     compiled_ref=compiled_ref,
                     rigid_boundary_ref=rigid_boundary_ref,
                     ppw=ppw,
+                    spatial_diagnostic=spatial_diagnostic,
                 )
             )
 
@@ -1535,6 +1965,67 @@ def main(argv: list[str] | None = None) -> int:
             args.pr286_summary,
             reference_levels=reference_levels,
             pffdtd_levels=pffdtd_levels,
+        )
+        canonical_pr295_reproduction = _validate_pr295_canonical_reproduction(
+            args.pr295_summary,
+            reference_levels=reference_levels,
+            pffdtd_levels=pffdtd_levels,
+            max_abs_tolerance=float(
+                spatial_diagnostic['canonical_reproduction'][
+                    'max_abs_complex_component_tolerance'
+                ]
+            ),
+        )
+
+        diagnostic_frequency_hz = tuple(
+            float(x)
+            for x in spatial_diagnostic['frequency_neighborhood'][
+                'diagnostic_frequency_hz'
+            ]
+        )
+        level_by_ppw = {
+            float(level['points_per_wavelength']): np.asarray(
+                [
+                    complex(float(pair[0]), float(pair[1]))
+                    for pair in level['diagnostic_neighborhood_transfer_pa_per_m3_s']
+                ],
+                dtype=np.complex128,
+            )
+            for level in pffdtd_levels
+        }
+        if set(level_by_ppw) != {8.0, 10.0, 12.0}:
+            raise ValidationBlocked('diagnostic neighborhood lacks exact 8/10/12 levels')
+        fixed_floor = float(
+            spatial_diagnostic['frequency_neighborhood']['fixed_floor']
+        )
+        d_8_10 = [
+            normalized_complex_difference(
+                level_by_ppw[8.0][index],
+                level_by_ppw[10.0][index],
+                fixed_floor=fixed_floor,
+            )
+            for index in range(len(diagnostic_frequency_hz))
+        ]
+        d_10_12 = [
+            normalized_complex_difference(
+                level_by_ppw[10.0][index],
+                level_by_ppw[12.0][index],
+                fixed_floor=fixed_floor,
+            )
+            for index in range(len(diagnostic_frequency_hz))
+        ]
+        neighborhood_classification = classify_frequency_neighborhood(
+            d_8_10, d_10_12
+        )
+        spatial_levels = [
+            {
+                'points_per_wavelength': level['points_per_wavelength'],
+                **level['spatial_representation_diagnostic'],
+            }
+            for level in pffdtd_levels
+        ]
+        spatial_classification = classify_spatial_representation_trend(
+            spatial_levels
         )
 
         reference_pair_metrics = []
@@ -1673,6 +2164,64 @@ def main(argv: list[str] | None = None) -> int:
                 observation_operator_fixture
             ),
             'canonical_pr286_reproduction': canonical_reproduction,
+            'spatial_diagnostic_plan': {
+                'diagnostic_id': spatial_diagnostic['diagnostic_id'],
+                'schema_version': spatial_diagnostic['schema_version'],
+                'semantic_sha256': semantic_hash(spatial_diagnostic),
+                'decision_semantics': spatial_diagnostic['decision_semantics'],
+            },
+            'canonical_pr295_reproduction': canonical_pr295_reproduction,
+            'spatial_representation_trend': {
+                'levels': spatial_levels,
+                **spatial_classification,
+            },
+            'interpolation_stencil_diagnostic': {
+                'levels': [
+                    {
+                        'points_per_wavelength': level['points_per_wavelength'],
+                        'source': level['source_interpolation_stencil'],
+                        'receiver': level['receiver_interpolation_stencil'],
+                    }
+                    for level in pffdtd_levels
+                ],
+                'source_receiver_positions_unchanged': True,
+                'solver_semantics_changed': False,
+            },
+            'frequency_neighborhood_diagnostic': {
+                'frequency_hz': list(diagnostic_frequency_hz),
+                'canonical_scored_frequency_hz': [40.0, 80.0],
+                'diagnostic_only_frequency_hz': [39.0, 41.0, 79.0, 81.0],
+                'normalized_complex_difference_formula': spatial_diagnostic[
+                    'frequency_neighborhood'
+                ]['normalized_complex_difference_formula'],
+                'fixed_floor': fixed_floor,
+                'levels': [
+                    {
+                        'points_per_wavelength': level['points_per_wavelength'],
+                        'transfer_pa_per_m3_s': level[
+                            'diagnostic_neighborhood_transfer_pa_per_m3_s'
+                        ],
+                        'transfer_sha256': level[
+                            'diagnostic_neighborhood_transfer_sha256'
+                        ],
+                    }
+                    for level in pffdtd_levels
+                ],
+                'd_8_10': d_8_10,
+                'd_10_12': d_10_12,
+                'per_frequency': [
+                    {
+                        'frequency_hz': frequency,
+                        'd_8_10': d_8_10[index],
+                        'd_10_12': d_10_12[index],
+                        'worsening': bool(d_10_12[index] > d_8_10[index]),
+                    }
+                    for index, frequency in enumerate(diagnostic_frequency_hz)
+                ],
+                **neighborhood_classification,
+                'diagnostic_only': True,
+                'canonical_acceptance_inclusion': False,
+            },
             'repository_head': repository_head,
             'fixture_id': plan.fixture.fixture_id,
             'fixture_sha256': plan.fixture_sha256(),
@@ -1762,6 +2311,12 @@ def main(argv: list[str] | None = None) -> int:
                     reference_assessment.state
                 ),
                 'canonical_pffdtd_self_convergence': pffdtd_assessment.state,
+                'canonical_pr295_reproduction': canonical_pr295_reproduction['state'],
+                'spatial_representation_trend': spatial_classification['classification'],
+                'frequency_neighborhood_sensitivity': (
+                    neighborhood_classification['classification']
+                ),
+                'interpolation_stencil_diagnostic': 'RECORDED',
                 'aligned_reference_self_convergence': (
                     reference_aligned_assessment.state
                 ),

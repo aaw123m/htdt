@@ -1,0 +1,421 @@
+{
+  "schema_version": "htdt.r130d.spatial-representation-diagnostic-run-summary-1",
+  "source": {
+    "issue": 101,
+    "pull_request": 298,
+    "workflow_run_id": 35545706871,
+    "workflow_run_number": 76,
+    "workflow_name": "R130D Independent General-3D Validation",
+    "evidence_producing_commit": "609acd6da9ab722685f565db18e2c9ec00592c92",
+    "artifact_id": 10616239750,
+    "artifact_name": "r130d-independent-general3d-validation",
+    "artifact_digest_sha256": "568e7620f623b99395cc76a5ba1e0cd6b7edb6a5e1a5e95f60547101c4224c0f",
+    "evidence_semantic_sha256": "8c7bef610281aad9eac18ff35e2419fe98b44069c38d0f46f3ca8a691a7ef44f",
+    "evidence_file_sha256": "49fb2ab861112d315a5013e4830b1756485f0f02b81b2b9499f7fecc9875fa39",
+    "artifact_manifest_file_sha256": "969ca47d7fd926d088de26d3902641b40f1658a859fc9efea3cbdc3bfdaee8fc",
+    "workflow_summary_file_sha256": "494da798438f1b1299ec9d35ead331f82d6423268c9ea6d9a07b165b0febce4b"
+  },
+  "frozen_authority": {
+    "task_start_main_sha": "9e6066259ec58c093e9a7587550ccf907f28402f",
+    "frozen_plan_commit": "f02a118cdfd2ed5e0a5bab6db7b5e90ff9058257",
+    "general3d_plan_semantic_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+    "target_window_diagnostic_plan_semantic_sha256": "ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db",
+    "spatial_diagnostic_plan_semantic_sha256": "7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4",
+    "spatial_diagnostic_plan_file_sha256": "d71d3fefc967adf68ad4b034644b904418288a2b002c94044301aacfcedc22b4",
+    "pffdtd_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      8,
+      10,
+      12
+    ],
+    "canonical_frequency_hz": [
+      40,
+      80
+    ],
+    "diagnostic_frequency_hz": [
+      39,
+      40,
+      41,
+      79,
+      80,
+      81
+    ],
+    "requested_duration_s": 0.25,
+    "canonical_thresholds_changed": false,
+    "canonical_magnitude_mask_changed": false
+  },
+  "canonical_pr295_reproduction": {
+    "state": "PASS",
+    "max_abs_complex_component_error_all_six_levels": 0,
+    "max_abs_complex_component_tolerance": 1e-9,
+    "baseline_authoritative_run_id": 35540693380,
+    "baseline_artifact_id": 10614827536,
+    "baseline_artifact_digest_sha256": "62a57fc08bb983ca4d5f5ead6ae86a8ab87819a255d75fe082c4a01570195b9f"
+  },
+  "canonical_pffdtd_adjacent_complex_rms": {
+    "8_to_10": 0.8761219168261092,
+    "10_to_12": 3.171427115345244
+  },
+  "spatial_representation": {
+    "definition": "node-centered Cartesian grid with boundary-node indices bn_ixyz and per-boundary-node blocked-neighbor adjacency mask adj_bn; not voxel-cell-center occupancy",
+    "classification": "SPATIAL_REPRESENTATION_MONOTONIC",
+    "levels": [
+      {
+        "points_per_wavelength": 8,
+        "grid_spacing_m": 0.429,
+        "grid_dimensions": [
+          18,
+          18,
+          18
+        ],
+        "exact_polyhedron_volume_m3": 56,
+        "discrete_air_domain_volume_estimate_m3": 51.87250797299999,
+        "relative_volume_error": -0.07370521476785731,
+        "absolute_relative_volume_error": 0.07370521476785731,
+        "active_node_count": 5832,
+        "reachable_air_node_count": 657,
+        "interior_node_count": 301,
+        "boundary_node_count": 356,
+        "exterior_or_disconnected_node_count": 5175,
+        "geometry_representation_hash": "87a5cbf2a518b01a5fa4fabbf20ff66894026226d73d2665a36df685f168e422",
+        "pffdtd_cart_grid_logical_sha256": "616c8232fe335c8ff6c024b773ef1ade0e8ecf8f9c4795886f69f242a5e5a6ec",
+        "pffdtd_geometry_mask_logical_sha256": "f64b971faede55905860b6bec414b2c46eebc12b3fabbbf99ee41bf22bcf1aee",
+        "sloped_boundary_sample_count": 99,
+        "sloped_rms_abs_normal_distance_m": 0.10643273213907566,
+        "sloped_max_abs_normal_distance_m": 0.18687369909049462,
+        "sloped_rms_abs_normal_distance_over_h": 0.24809494671113208,
+        "sloped_max_abs_normal_distance_over_h": 0.43560302818297114
+      },
+      {
+        "points_per_wavelength": 10,
+        "grid_spacing_m": 0.3432,
+        "grid_dimensions": [
+          20,
+          20,
+          20
+        ],
+        "exact_polyhedron_volume_m3": 56,
+        "discrete_air_domain_volume_estimate_m3": 59.666174650368006,
+        "relative_volume_error": 0.06546740447085726,
+        "absolute_relative_volume_error": 0.06546740447085726,
+        "active_node_count": 8000,
+        "reachable_air_node_count": 1476,
+        "interior_node_count": 820,
+        "boundary_node_count": 656,
+        "exterior_or_disconnected_node_count": 6524,
+        "geometry_representation_hash": "9151d2678a4b4f3d76abbde8ed5443c0f545ee78f0d57eee99e18d459110322d",
+        "pffdtd_cart_grid_logical_sha256": "a06cd614a880aaa2b26190b80f0ccc05e35eda0651b8e6131d86d9a913564637",
+        "pffdtd_geometry_mask_logical_sha256": "f5e7609debd00609668c6952ed408b69b66b9287b70f90b235e632edfed919ac",
+        "sloped_boundary_sample_count": 180,
+        "sloped_rms_abs_normal_distance_m": 0.08904407368726742,
+        "sloped_max_abs_normal_distance_m": 0.15648398527344198,
+        "sloped_rms_abs_normal_distance_over_h": 0.2594524291587046,
+        "sloped_max_abs_normal_distance_over_h": 0.4559556680461596
+      },
+      {
+        "points_per_wavelength": 12,
+        "grid_spacing_m": 0.286,
+        "grid_dimensions": [
+          22,
+          22,
+          22
+        ],
+        "exact_polyhedron_volume_m3": 56,
+        "discrete_air_domain_volume_estimate_m3": 56.331923647999986,
+        "relative_volume_error": 0.005927207999999747,
+        "absolute_relative_volume_error": 0.005927207999999747,
+        "active_node_count": 10648,
+        "reachable_air_node_count": 2408,
+        "interior_node_count": 1476,
+        "boundary_node_count": 932,
+        "exterior_or_disconnected_node_count": 8240,
+        "geometry_representation_hash": "2a3b07b1e561787ba3a520a922731bc91f71ef78868e7981018b96bd0de99c08",
+        "pffdtd_cart_grid_logical_sha256": "45339c995ac59acfc173b91412956f9c615efc470d21448e35d7d86a5e3a1083",
+        "pffdtd_geometry_mask_logical_sha256": "eb785a6f24ab69f39c521411218f2ce98236d067efa241df87c9e9e63d4d79fa",
+        "sloped_boundary_sample_count": 252,
+        "sloped_rms_abs_normal_distance_m": 0.06894020332133433,
+        "sloped_max_abs_normal_distance_m": 0.107928353141168,
+        "sloped_rms_abs_normal_distance_over_h": 0.24104966196270744,
+        "sloped_max_abs_normal_distance_over_h": 0.37737186412995805
+      }
+    ]
+  },
+  "interpolation_stencil": {
+    "source_receiver_positions_unchanged": true,
+    "solver_semantics_changed": false,
+    "all_weight_sums_one": true,
+    "all_reconstruction_errors_m_at_most": 6.661338147750939e-16,
+    "source_stencil_identity_changes_with_ppw": true,
+    "receiver_stencil_identity_changes_with_ppw": true,
+    "levels": [
+      {
+        "points_per_wavelength": 8,
+        "source": {
+          "stencil_sha256": "fec54f949f37b2a3c28da1cd16cead28d74aec1b64d2eeaceb7c334f633b8393",
+          "fractional_cell_coordinate": [
+            0.996503496503497,
+            0.1620046620046623,
+            0.1620046620046623
+          ],
+          "interpolation_weights": [
+            0.026153742991974906,
+            0.00009176751927009089,
+            0.13528446914553857,
+            0.1352844691455386,
+            0.00047468234787910083,
+            0.0004746823478791009,
+            0.6997808152204442,
+            0.002455371281475337
+          ],
+          "weight_sum": 1,
+          "reconstructed_coordinate_m": [
+            1.5,
+            2,
+            2
+          ],
+          "reconstruction_error_m": 0
+        },
+        "receiver": {
+          "stencil_sha256": "81c9ad84677512d9c2f4f455e92277c589247e8ade8569ef2cfdc0c3c380acae",
+          "fractional_cell_coordinate": [
+            0.3275058275058282,
+            0.1620046620046623,
+            0.1620046620046623
+          ],
+          "interpolation_weights": [
+            0.008595557638298189,
+            0.01764995287294681,
+            0.044461913251340766,
+            0.044461913251340766,
+            0.09129723824207692,
+            0.09129723824207692,
+            0.22998644336484783,
+            0.4722497431370718
+          ],
+          "weight_sum": 1,
+          "reconstructed_coordinate_m": [
+            2.5,
+            2,
+            2
+          ],
+          "reconstruction_error_m": 0
+        }
+      },
+      {
+        "points_per_wavelength": 10,
+        "source": {
+          "stencil_sha256": "11829baa76b35508779facea868293dc94b4433aed0bdee6c7793ab809199bd0",
+          "fractional_cell_coordinate": [
+            0.8706293706293705,
+            0.3275058275058277,
+            0.3275058275058277
+          ],
+          "interpolation_weights": [
+            0.0933837646696468,
+            0.013876302380630244,
+            0.19175242780920332,
+            0.19175242780920332,
+            0.028493332646347475,
+            0.028493332646347475,
+            0.39374075034131734,
+            0.05850766169730417
+          ],
+          "weight_sum": 1,
+          "reconstructed_coordinate_m": [
+            1.5000000000000002,
+            2.0000000000000004,
+            2.0000000000000004
+          ],
+          "reconstruction_error_m": 6.661338147750939e-16
+        },
+        "receiver": {
+          "stencil_sha256": "60a196298d0c36afa8bdfe4ebce2dd6dacf0581a5f1009ba0f6adf34651adfa2",
+          "fractional_cell_coordinate": [
+            0.7843822843822846,
+            0.3275058275058277,
+            0.3275058275058277
+          ],
+          "interpolation_weights": [
+            0.08413289641589335,
+            0.023127170634383694,
+            0.17275687271163842,
+            0.17275687271163842,
+            0.047488887743912356,
+            0.04748888774391236,
+            0.35473564254311474,
+            0.09751276949550675
+          ],
+          "weight_sum": 1,
+          "reconstructed_coordinate_m": [
+            2.5,
+            2,
+            2.0000000000000004
+          ],
+          "reconstruction_error_m": 4.440892098500626e-16
+        }
+      },
+      {
+        "points_per_wavelength": 12,
+        "source": {
+          "stencil_sha256": "dd49f6327c1382ecb920670cecb0ef1b065e9367233bee62f6feceed57ef9f43",
+          "fractional_cell_coordinate": [
+            0.7447552447552451,
+            0.4930069930069931,
+            0.4930069930069931
+          ],
+          "interpolation_weights": [
+            0.18101715268447136,
+            0.06203874246932582,
+            0.18615239105849896,
+            0.18615239105849898,
+            0.06379870679469678,
+            0.06379870679469679,
+            0.1914333099537756,
+            0.06560859918603572
+          ],
+          "weight_sum": 1,
+          "reconstructed_coordinate_m": [
+            1.5,
+            2,
+            2
+          ],
+          "reconstruction_error_m": 0
+        },
+        "receiver": {
+          "stencil_sha256": "379272a1e9a0b5c65e42bddbcb9a0844ef399e9053f6066a15ee5278213e2290",
+          "fractional_cell_coordinate": [
+            0.24125874125874266,
+            0.4930069930069931,
+            0.4930069930069931
+          ],
+          "interpolation_weights": [
+            0.058639359320321986,
+            0.18441653583347517,
+            0.06030288724430277,
+            0.06030288724430278,
+            0.18964821060889298,
+            0.18964821060889298,
+            0.062013607449814934,
+            0.1950283016899964
+          ],
+          "weight_sum": 1,
+          "reconstructed_coordinate_m": [
+            2.5,
+            2,
+            2
+          ],
+          "reconstruction_error_m": 0
+        }
+      }
+    ]
+  },
+  "frequency_neighborhood": {
+    "normalized_complex_difference_formula": "|H_b-H_a| / max(|H_b|, |H_a|, fixed_floor)",
+    "fixed_floor": 1e-12,
+    "classification": "NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS",
+    "worsening_count": 2,
+    "per_frequency": [
+      {
+        "frequency_hz": 39,
+        "d_8_10": 0.42390990399538847,
+        "d_10_12": 0.9146486503582703,
+        "worsening": true
+      },
+      {
+        "frequency_hz": 40,
+        "d_8_10": 1.1641542852091484,
+        "d_10_12": 1.0669840925504512,
+        "worsening": false
+      },
+      {
+        "frequency_hz": 41,
+        "d_8_10": 1.6497135735772022,
+        "d_10_12": 1.033596242179431,
+        "worsening": false
+      },
+      {
+        "frequency_hz": 79,
+        "d_8_10": 0.8409240122438313,
+        "d_10_12": 0.7956348502256921,
+        "worsening": false
+      },
+      {
+        "frequency_hz": 80,
+        "d_8_10": 0.8739186164453011,
+        "d_10_12": 0.8732840836035831,
+        "worsening": false
+      },
+      {
+        "frequency_hz": 81,
+        "d_8_10": 0.9457862940378359,
+        "d_10_12": 1.0035691523422232,
+        "worsening": true
+      }
+    ],
+    "canonical_acceptance_inclusion": false
+  },
+  "provenance_by_ppw": [
+    {
+      "points_per_wavelength": 8,
+      "result_sha256": "059b3c18a9aaf456dcb309d5e772a775fec5d0e2a0f444effe20695e3b69e4cd",
+      "candidate_execution_input_sha256": "b0507ee2382a5c25272a8198fe77b8624d6336975011a4c5925884f16433b7dd",
+      "solver_geometry_sha256": "e3f9b6b993ab6e40dd75a8d3f4844630c3498c94c0218ee7ad556bc6d60774ac",
+      "executed_grid_sha256": "7652cb221a48b0209360ea12b579759ff1f0c57dc5a382742b1fec38a8af4faf",
+      "sim_outs_sha256": "aaad4bef1aca76f92397eba679bbea83055707ca20b550cf9af23638c66f07c8",
+      "comms_out_sha256": "ad3b1595d9d37d25c18de874dabf7bae8883f252888127d1ea12966c6aa1cfdc",
+      "pressure_trace_sha256": "cbc075fe9808cb1bec30b2db6583594d1422803268514fd1e3e807cf1ac40a3a",
+      "source_trace_sha256": "b7a9f5eeee181abef9c49d9a225bf56cf500df5dffa12b9e7715a3a265d78444"
+    },
+    {
+      "points_per_wavelength": 10,
+      "result_sha256": "70d4de1bbd85146ba21de5fd82360ac01c2cdd252d9e635d785d0446f2a8dc2b",
+      "candidate_execution_input_sha256": "71fecfe76a4c7fbf2526889eca28fe6c72209c03f6138666ab384d9507cda7e7",
+      "solver_geometry_sha256": "af2e73de7f8fe4da44e7edd599f2bca5b54c5cc4e0633fc48d8092dec5969d79",
+      "executed_grid_sha256": "cd14dac76857f22fa9366d19280a137cc064142a0e75c6c7a14ee97a562a60c9",
+      "sim_outs_sha256": "bdde68b2832fa36f06c187db86b252f2b55b7715f17457c19b1322b3527c24ea",
+      "comms_out_sha256": "0a1d77944147e250a418e436269058ddc9a0254d02b1afdd8a3c7b1ec7094f68",
+      "pressure_trace_sha256": "ea9271e7f967f67af250d5d2a48915e7c60ffc9b6bea866f43d991ff486fb0f4",
+      "source_trace_sha256": "61c49db37bf7104f67f27f34aaafe01f0519a9b6499ee2ec0f6be3fb07e1ae49"
+    },
+    {
+      "points_per_wavelength": 12,
+      "result_sha256": "d99be02249f34be41c1e414bb60fdd9491f7b004dee9061a5d51272ddb1748f5",
+      "candidate_execution_input_sha256": "7585565697dc6680c966cc9fb90a19dc25402f1b3bf6b12654f925014fdab446",
+      "solver_geometry_sha256": "ba20a46c43a28b110047a382d221f66f9c639a5d8053cf8f972c18052e0fdb8a",
+      "executed_grid_sha256": "ffd8914bae95373e5825a767725f03fdb9f7e09e4d043ad2a766e23d5fdbd23f",
+      "sim_outs_sha256": "27abba41a02e51bc0871485f054d17e3bff508a3574badffb988431bf6b39d2c",
+      "comms_out_sha256": "853229fa8b8e9c9d7f4c5403312804246d6f952265a211de0c47a30248046cb2",
+      "pressure_trace_sha256": "69b03748066afa3410137c20c350ab03253a54e09a5896cfe766118fa06dd88e",
+      "source_trace_sha256": "e3bcd2e2f3605b5f58d94e2b3d24eb92f82207e4f90152cc8aff4fcddfa7c5e0"
+    }
+  ],
+  "decision": {
+    "solver_execution": "PASS",
+    "canonical_observable_contract": "MATCH",
+    "canonical_reference_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "canonical_pffdtd_self_convergence": "SELF_CONVERGENCE_FAILED",
+    "cross_solver_eligibility": "CROSS_SOLVER_BLOCKED",
+    "general_3d_validation_state": "NOT_VALIDATED",
+    "spatial_representation_trend": "SPATIAL_REPRESENTATION_MONOTONIC",
+    "frequency_neighborhood_sensitivity": "NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS",
+    "fixture_validation_result": "FAIL"
+  },
+  "verification": {
+    "focused_tests": "46 passed, 1 warning",
+    "runner_compile_check": "PASS",
+    "r130d_authoritative_workflow": "PASS",
+    "repository_ci": "PASS",
+    "windows_release_artifact": "PASS",
+    "rdc_calls": 0,
+    "htdt_capture_changed": false
+  },
+  "interpretation": {
+    "cause_proven": false,
+    "note": "The frozen neighborhood classifier label is diagnostic only. The two worsening frequencies are 39 Hz and 81 Hz; 40 Hz and 80 Hz do not worsen under the frozen symmetric per-frequency metric. This does not alter the canonical failed self-convergence decision."
+  },
+  "next_predeclared_experiment": {
+    "experiment_id": "r130d-fixed-dense-frequency-neighborhood-direct-dtft",
+    "proposal": "Using the same 8/10/12 raw records and no new solver execution, predeclare direct-DTFT frequencies 36.0 through 44.0 Hz and 76.0 through 84.0 Hz inclusive at 0.5 Hz spacing; retain the same symmetric normalized complex-difference formula and 1e-12 floor; evaluate the entire fixed grid without post-result selection. Canonical 40/80 Hz scoring remains unchanged.",
+    "rationale": "Physical geometry errors improve monotonically while the coarse six-point symmetric diagnostic worsens at only 39 and 81 Hz. A fixed one-record-resolution neighborhood sweep is the lowest-confound next test of local mode/bin sensitivity before changing source/receiver stencil semantics."
+  }
+}
