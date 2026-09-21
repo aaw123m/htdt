@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
 from pathlib import Path
 import sqlite3
 
@@ -16,6 +17,10 @@ from .cad_adaptive_planner import (
 from .cad_extended_search import generate_extended_candidates
 from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_model_validation_repository import CadModelValidationRepository
+
+
+class AdaptiveObservationConflictError(ValueError):
+    """An observation save violated the per-key single-head supersession contract."""
 
 
 class CadAdaptiveExtendedRepository:
@@ -54,12 +59,17 @@ class CadAdaptiveExtendedRepository:
                     candidate_id TEXT NOT NULL,
                     objective_id TEXT NOT NULL,
                     observation_sha256 TEXT NOT NULL UNIQUE,
+                    supersedes_observation_sha256 TEXT,
                     payload_json TEXT NOT NULL,
                     created_at_utc TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_adaptive_extended_observation_search_seq
                     ON cad_adaptive_extended_observations(
                         extended_search_id, seq ASC
+                    );
+                CREATE INDEX IF NOT EXISTS idx_adaptive_extended_observation_key_seq
+                    ON cad_adaptive_extended_observations(
+                        extended_search_id, candidate_id, objective_id, seq ASC
                     );
 
                 CREATE TABLE IF NOT EXISTS cad_adaptive_extended_plans (
@@ -78,6 +88,103 @@ class CadAdaptiveExtendedRepository:
                     ON cad_adaptive_extended_plans(
                         extended_search_id, seq ASC
                     );
+                """
+            )
+            # Predecessor-column migration: rows written before the persisted
+            # predecessor hash existed are backfilled from their payload so the
+            # supersession edge is a dedicated indexed column. A persisted fork
+            # — two children claiming one head, or two roots for one key — is
+            # reported explicitly before the uniqueness guards are installed,
+            # instead of failing opaquely or letting a read pick a winner by
+            # insertion order.
+            columns = {
+                row['name']
+                for row in connection.execute(
+                    'PRAGMA table_info(cad_adaptive_extended_observations)'
+                )
+            }
+            if 'supersedes_observation_sha256' not in columns:
+                connection.execute(
+                    'ALTER TABLE cad_adaptive_extended_observations '
+                    'ADD COLUMN supersedes_observation_sha256 TEXT'
+                )
+                for row in connection.execute(
+                    'SELECT observation_id, payload_json '
+                    'FROM cad_adaptive_extended_observations'
+                ).fetchall():
+                    connection.execute(
+                        'UPDATE cad_adaptive_extended_observations '
+                        'SET supersedes_observation_sha256=? '
+                        'WHERE observation_id=?',
+                        (
+                            json.loads(row['payload_json']).get(
+                                'supersedes_observation_sha256'
+                            ),
+                            row['observation_id'],
+                        ),
+                    )
+            forked_heads = connection.execute(
+                """
+                SELECT supersedes_observation_sha256
+                FROM cad_adaptive_extended_observations
+                WHERE supersedes_observation_sha256 IS NOT NULL
+                GROUP BY supersedes_observation_sha256
+                HAVING COUNT(*) > 1
+                """
+            ).fetchall()
+            if forked_heads:
+                raise ValueError(
+                    'adaptive extended observation history has a supersession '
+                    'fork: '
+                    + ', '.join(
+                        sorted(
+                            row['supersedes_observation_sha256']
+                            for row in forked_heads
+                        )
+                    )
+                    + ' claimed by more than one child'
+                )
+            forked_roots = connection.execute(
+                """
+                SELECT extended_search_id, candidate_id, objective_id
+                FROM cad_adaptive_extended_observations
+                WHERE supersedes_observation_sha256 IS NULL
+                GROUP BY extended_search_id, candidate_id, objective_id
+                HAVING COUNT(*) > 1
+                """
+            ).fetchall()
+            if forked_roots:
+                raise ValueError(
+                    'adaptive extended observation history has a supersession '
+                    'fork: '
+                    + ', '.join(
+                        sorted(
+                            f"({row['extended_search_id']}, "
+                            f"{row['candidate_id']}, {row['objective_id']})"
+                            for row in forked_roots
+                        )
+                    )
+                    + ' has more than one root observation'
+                )
+            # Single-head storage invariants: one claimed head may be
+            # superseded at most once, and each observation key may persist at
+            # most one predecessor-free root.
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_adaptive_extended_observation_supersedes
+                ON cad_adaptive_extended_observations(
+                    supersedes_observation_sha256
+                ) WHERE supersedes_observation_sha256 IS NOT NULL
+                """
+            )
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_adaptive_extended_observation_root
+                ON cad_adaptive_extended_observations(
+                    extended_search_id, candidate_id, objective_id
+                ) WHERE supersedes_observation_sha256 IS NULL
                 """
             )
 
@@ -125,6 +232,27 @@ class CadAdaptiveExtendedRepository:
         self,
         observation: CadAdaptiveExtendedObservation,
     ) -> None:
+        """Append one observation as the single head of its evidence chain.
+
+        The persisted history of one
+        ``(extended_search_id, candidate_id, objective_id)`` key is an
+        append-only chain enforced under one ``BEGIN IMMEDIATE``
+        transaction: the first observation must claim no predecessor and
+        every later observation must claim the exact current head via
+        ``supersedes_observation_sha256``. The head is reloaded on the
+        write connection inside the transaction, so two writers racing
+        from the same head cannot both advance it — the loser sees the
+        moved head and fails with ``AdaptiveObservationConflictError``.
+        The persisted predecessor column and its uniqueness indexes keep
+        the same single-head invariant at the storage layer, so no write
+        path can leave two children claiming one head.
+
+        The immutable SearchSpec/candidate/capability authorities are
+        revalidated on every save before the lock is taken — they open
+        their own connections, which must not run while BEGIN IMMEDIATE
+        is held — so the builder remains a convenience and not the only
+        integrity boundary.
+        """
         observation = CadAdaptiveExtendedObservation.model_validate(
             observation.model_dump(mode='python')
         )
@@ -137,23 +265,6 @@ class CadAdaptiveExtendedRepository:
         if observation.evidence_scope != expected_scope:
             raise ValueError(
                 'adaptive extended observation scope does not match capability'
-            )
-
-        existing = [
-            item
-            for item in self.list_observations(observation.extended_search_id)
-            if item.candidate_id == observation.candidate_id
-            and item.objective_id == observation.objective_id
-        ]
-        latest = existing[-1] if existing else None
-        if latest is None:
-            if observation.supersedes_observation_sha256 is not None:
-                raise ValueError(
-                    'first adaptive extended observation must not supersede another record'
-                )
-        elif observation.supersedes_observation_sha256 != latest.observation_sha256:
-            raise ValueError(
-                'adaptive extended observation must supersede the current record SHA'
             )
 
         candidates, candidate_set_sha256 = self._all_candidates(spec, base)
@@ -169,13 +280,57 @@ class CadAdaptiveExtendedRepository:
             )
 
         with closing(self._connect()) as connection, connection:
+            # BEGIN IMMEDIATE holds the write lock across the duplicate
+            # recheck, the per-key head reload and the insert: concurrent
+            # writers cannot both observe the same head.
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_adaptive_extended_observations '
+                'WHERE observation_id=?',
+                (observation.observation_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    'adaptive extended observation already exists: '
+                    f'{observation.observation_id}'
+                )
+            head_row = connection.execute(
+                """
+                SELECT *
+                FROM cad_adaptive_extended_observations
+                WHERE extended_search_id=? AND candidate_id=? AND objective_id=?
+                ORDER BY seq DESC
+                LIMIT 1
+                """,
+                (
+                    observation.extended_search_id,
+                    observation.candidate_id,
+                    observation.objective_id,
+                ),
+            ).fetchone()
+            if head_row is None:
+                if observation.supersedes_observation_sha256 is not None:
+                    raise AdaptiveObservationConflictError(
+                        'first adaptive extended observation must not supersede '
+                        'another record'
+                    )
+            else:
+                head = self._observation_from_row(head_row)
+                if (
+                    observation.supersedes_observation_sha256
+                    != head.observation_sha256
+                ):
+                    raise AdaptiveObservationConflictError(
+                        'adaptive extended observation must supersede the '
+                        'current record SHA'
+                    )
             connection.execute(
                 """
                 INSERT INTO cad_adaptive_extended_observations(
                     observation_id, extended_search_id, candidate_id,
-                    objective_id, observation_sha256, payload_json,
+                    objective_id, observation_sha256,
+                    supersedes_observation_sha256, payload_json,
                     created_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     observation.observation_id,
@@ -183,10 +338,36 @@ class CadAdaptiveExtendedRepository:
                     observation.candidate_id,
                     observation.objective_id,
                     observation.observation_sha256,
+                    observation.supersedes_observation_sha256,
                     observation.model_dump_json(),
                     observation.created_at_utc,
                 ),
             )
+
+    @staticmethod
+    def _observation_from_row(
+        row: sqlite3.Row,
+    ) -> CadAdaptiveExtendedObservation:
+        """Deserialize one persisted observation row and verify its columns."""
+
+        observation = CadAdaptiveExtendedObservation.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['observation_id'] != observation.observation_id
+            or row['extended_search_id'] != observation.extended_search_id
+            or row['candidate_id'] != observation.candidate_id
+            or row['objective_id'] != observation.objective_id
+            or row['observation_sha256'] != observation.observation_sha256
+            or row['supersedes_observation_sha256']
+            != observation.supersedes_observation_sha256
+            or row['created_at_utc'] != observation.created_at_utc
+        ):
+            raise ValueError(
+                'persisted adaptive extended observation row disagrees '
+                'with its payload'
+            )
+        return observation
 
     def get_observation(
         self,
@@ -194,18 +375,12 @@ class CadAdaptiveExtendedRepository:
     ) -> CadAdaptiveExtendedObservation | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json '
+                'SELECT * '
                 'FROM cad_adaptive_extended_observations '
                 'WHERE observation_id=?',
                 (observation_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else CadAdaptiveExtendedObservation.model_validate_json(
-                row['payload_json']
-            )
-        )
+        return None if row is None else self._observation_from_row(row)
 
     def current_observations(
         self,
@@ -240,19 +415,21 @@ class CadAdaptiveExtendedRepository:
         self,
         extended_search_id: str,
     ) -> tuple[CadAdaptiveExtendedObservation, ...]:
+        """Return the search's observation history with column-level integrity.
+
+        Rows are replayed in insertion order; every stored column —
+        including the persisted predecessor hash — must agree with its
+        payload, so a tampered or drifted row fails closed rather than
+        silently steering the supersession-head CAS.
+        """
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json '
+                'SELECT * '
                 'FROM cad_adaptive_extended_observations '
                 'WHERE extended_search_id=? ORDER BY seq ASC',
                 (extended_search_id,),
             ).fetchall()
-        return tuple(
-            CadAdaptiveExtendedObservation.model_validate_json(
-                row['payload_json']
-            )
-            for row in rows
-        )
+        return tuple(self._observation_from_row(row) for row in rows)
 
     def _require_plan_authority(self, plan: CadAdaptiveExtendedPlan) -> None:
         """Replay the exact O80/O60/observation authority one plan binds to.
