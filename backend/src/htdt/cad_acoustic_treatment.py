@@ -11,11 +11,13 @@ from .acoustic_benchmark import AcousticMaterial
 from .cad_repository import SceneRevision
 from .cad_scene import Position3, Quaternion4
 from .cad_system_variant import SystemVariant, materialize_system_variant
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .semantic_geometry import SemanticSurface
 
 
-ACOUSTIC_TREATMENT_SCHEMA_VERSION = 1
-ACOUSTIC_TREATMENT_AUTHORITY_VERSION = 'acoustic-treatment-1'
+ACOUSTIC_TREATMENT_SCHEMA_VERSION = 2
+ACOUSTIC_TREATMENT_AUTHORITY_VERSION = 'acoustic-treatment-2'
+TREATMENT_EVIDENCE_AUTHORITY_VERSION = 'treatment-evidence-1'
 TREATMENT_SURFACE_BINDING_EVALUATOR_ID = 'htdt.acoustic_treatment.semantic_surface_binding'
 TREATMENT_SURFACE_BINDING_EVALUATOR_VERSION = '1'
 TREATMENT_SURFACE_AUTHORITY_VERSION = 'r120-semantic-surface-host-1'
@@ -56,6 +58,34 @@ SurfaceLifecycleState = Literal[
 ]
 HostSemanticPolicy = Literal['semantic_class_does_not_gate_placement_authority']
 
+TreatmentSourceKind = Literal[
+    'manufacturer',
+    'measurement',
+    'literature',
+    'user_defined',
+    'analytic_model',
+    'inference',
+]
+
+# Source kinds that claim externally sourced data. They require an exact
+# source_sha256 and resolve to a retained TreatmentEvidenceAuthority whose
+# normalized subject must support the persisted values.
+EXTERNAL_TREATMENT_SOURCE_KINDS = frozenset({'manufacturer', 'measurement', 'literature'})
+# Source kinds that claim model-generated data. They resolve to a retained
+# TreatmentEvidenceAuthority carrying an exact TreatmentModelBasis.
+MODEL_TREATMENT_SOURCE_KINDS = frozenset({'analytic_model', 'inference'})
+
+# Which provenance source kinds may honestly back each evidence basis. A
+# 'measured' basis can never be claimed from a bare user_defined record, and a
+# 'modelled' basis can never be claimed from measurement/manufacturer data.
+EVIDENCE_BASIS_SOURCE_KINDS: dict[str, frozenset[str]] = {
+    'measured': EXTERNAL_TREATMENT_SOURCE_KINDS,
+    'inferred': frozenset(
+        {'manufacturer', 'measurement', 'literature', 'analytic_model', 'inference'}
+    ),
+    'modelled': MODEL_TREATMENT_SOURCE_KINDS,
+}
+
 
 def _canonical(value: Any) -> str:
     return json.dumps(
@@ -72,22 +102,33 @@ def _digest(value: Any) -> str:
 
 
 class TreatmentProvenance(BaseModel):
-    """Versioned source identity for a treatment definition or acoustic model."""
+    """Versioned source claim bound to an exact resolvable evidence authority.
+
+    The claim is only authoritative when `source_authority` resolves to a
+    persisted `TreatmentEvidenceAuthority` whose retained source fields and
+    normalized subject match the claimed values exactly.
+    """
 
     model_config = ConfigDict(frozen=True)
 
-    source_kind: Literal[
-        'manufacturer',
-        'measurement',
-        'literature',
-        'user_defined',
-        'analytic_model',
-        'inference',
-    ]
+    source_kind: TreatmentSourceKind
     source_id: str = Field(min_length=1)
     source_version: str = Field(min_length=1)
     source_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     reference: str | None = Field(default=None, min_length=1)
+    source_authority: ExactExternalAuthorityRef
+
+    @model_validator(mode='after')
+    def exact_source_claim(self) -> 'TreatmentProvenance':
+        if (
+            self.source_kind in EXTERNAL_TREATMENT_SOURCE_KINDS
+            and self.source_sha256 is None
+        ):
+            raise ValueError(
+                'manufacturer/measurement/literature provenance requires an '
+                'exact source_sha256'
+            )
+        return self
 
 
 class TreatmentDimensions(BaseModel):
@@ -190,6 +231,169 @@ class TreatmentUncertainty(BaseModel):
         return self
 
 
+class TreatmentAcousticModelSubject(BaseModel):
+    """Normalized acoustic-model values an evidence authority supports.
+
+    The acoustic model's own provenance is deliberately excluded: the evidence
+    authority carries the source identity, so binding it here would be circular.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    model_id: str = Field(min_length=1)
+    model_version: str = Field(min_length=1)
+    evidence_basis: TreatmentEvidenceBasis
+    valid_frequency_band: TreatmentFrequencyBand
+    uncertainty: TreatmentUncertainty
+    material: AcousticMaterial
+
+
+class TreatmentEvidenceSubject(BaseModel):
+    """Exact normalized treatment data a persisted evidence authority supports.
+
+    The subject binds the treatment id/version plus every production-significant
+    normalized field group, so evidence retained for one treatment/version can
+    never silently authorize another treatment's values.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    definition_id: str = Field(min_length=1)
+    definition_version: str = Field(min_length=1)
+    treatment_type: TreatmentType
+    dimensions: TreatmentDimensions
+    air_gap_m: float = Field(ge=0.0)
+    layers: tuple[TreatmentLayer, ...]
+    parameters: TreatmentPhysicalParameters = Field(
+        default_factory=TreatmentPhysicalParameters
+    )
+    acoustic_model: TreatmentAcousticModelSubject | None = None
+
+    @model_validator(mode='after')
+    def finite_subject(self) -> 'TreatmentEvidenceSubject':
+        if not isfinite(float(self.air_gap_m)):
+            raise ValueError('treatment evidence subject air gap must be finite')
+        return self
+
+
+class TreatmentModelBasis(BaseModel):
+    """Exact generative-model authority for analytic_model/inference evidence.
+
+    Exact model id/version plus canonical parameters identify the conversion
+    that produced the normalized subject; assumed vs derived quantities are
+    explicit rather than implied.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    model_id: str = Field(min_length=1)
+    model_version: str = Field(min_length=1)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    assumed_quantities: tuple[str, ...] = ()
+    derived_quantities: tuple[str, ...] = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_model_basis(self) -> 'TreatmentModelBasis':
+        try:
+            _canonical(self.parameters)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                'treatment model basis parameters must be canonical JSON'
+            ) from exc
+        quantities = (*self.assumed_quantities, *self.derived_quantities)
+        if any(not str(item).strip() for item in quantities):
+            raise ValueError('treatment model basis quantities must be non-empty')
+        overlap = set(self.assumed_quantities) & set(self.derived_quantities)
+        if overlap:
+            raise ValueError(
+                'treatment model basis quantities cannot be both assumed and '
+                f'derived: {sorted(overlap)}'
+            )
+        return self
+
+
+class TreatmentEvidenceAuthority(BaseModel):
+    """Immutable content-addressed evidence record behind a provenance claim.
+
+    For manufacturer/measurement/literature data this retains the exact source
+    identity (including the raw source SHA-256) and the normalized extraction
+    it supports. For analytic_model/inference data it retains the exact model
+    basis. For user_defined data it is the explicit immutable manual evidence
+    authority rather than implied external provenance.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    authority_version: Literal[
+        'treatment-evidence-1'
+    ] = TREATMENT_EVIDENCE_AUTHORITY_VERSION
+    evidence_id: str = Field(pattern=r'^treatment-evidence:[0-9a-f]{64}$')
+    source_kind: TreatmentSourceKind
+    source_id: str = Field(min_length=1)
+    source_version: str = Field(min_length=1)
+    source_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    reference: str | None = Field(default=None, min_length=1)
+    extraction_id: str = Field(min_length=1)
+    extraction_version: str = Field(min_length=1)
+    model_basis: TreatmentModelBasis | None = None
+    subject: TreatmentEvidenceSubject
+    evidence_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_evidence(self) -> 'TreatmentEvidenceAuthority':
+        if self.source_kind in EXTERNAL_TREATMENT_SOURCE_KINDS:
+            if self.source_sha256 is None:
+                raise ValueError(
+                    'manufacturer/measurement/literature treatment evidence '
+                    'requires an exact source_sha256'
+                )
+            if self.model_basis is not None:
+                raise ValueError(
+                    'externally sourced treatment evidence cannot carry a model basis'
+                )
+        elif self.source_kind in MODEL_TREATMENT_SOURCE_KINDS:
+            if self.model_basis is None:
+                raise ValueError(
+                    'analytic_model/inference treatment evidence requires an '
+                    'exact model basis'
+                )
+        elif self.model_basis is not None:
+            raise ValueError('user_defined treatment evidence cannot carry a model basis')
+        expected = _digest(self.identity_payload())
+        if self.evidence_sha256 != expected:
+            raise ValueError('TreatmentEvidenceAuthority semantic hash mismatch')
+        if self.evidence_id != f'treatment-evidence:{expected}':
+            raise ValueError('TreatmentEvidenceAuthority id mismatch')
+        return self
+
+    def identity_payload(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode='json',
+            exclude={'evidence_id', 'evidence_sha256'},
+        )
+
+    def subject_sha256(self) -> str:
+        return _digest(self.subject.model_dump(mode='json'))
+
+    def as_external_ref(self) -> ExactExternalAuthorityRef:
+        return ExactExternalAuthorityRef(
+            authority_id=self.evidence_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.evidence_sha256,
+        )
+
+    def as_provenance(self) -> 'TreatmentProvenance':
+        """Provenance claim exactly matching this retained evidence authority."""
+        return TreatmentProvenance(
+            source_kind=self.source_kind,
+            source_id=self.source_id,
+            source_version=self.source_version,
+            source_sha256=self.source_sha256,
+            reference=self.reference,
+            source_authority=self.as_external_ref(),
+        )
+
+
 class TreatmentAcousticModel(BaseModel):
     """Treatment-level acoustic capability using the existing R110/R100 material split."""
 
@@ -212,6 +416,12 @@ class TreatmentAcousticModel(BaseModel):
             raise ValueError(
                 'unsupported treatment physics must be represented by no acoustic_model, not a fake model'
             )
+        allowed = EVIDENCE_BASIS_SOURCE_KINDS[self.evidence_basis]
+        if self.provenance.source_kind not in allowed:
+            raise ValueError(
+                f"evidence_basis '{self.evidence_basis}' cannot be claimed from "
+                f"source_kind '{self.provenance.source_kind}'"
+            )
         return self
 
 
@@ -220,8 +430,8 @@ class AcousticTreatmentDefinition(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal[1] = ACOUSTIC_TREATMENT_SCHEMA_VERSION
-    authority_version: Literal['acoustic-treatment-1'] = ACOUSTIC_TREATMENT_AUTHORITY_VERSION
+    schema_version: Literal[2] = ACOUSTIC_TREATMENT_SCHEMA_VERSION
+    authority_version: Literal['acoustic-treatment-2'] = ACOUSTIC_TREATMENT_AUTHORITY_VERSION
     authority_role: Literal['attached_acoustic_treatment'] = 'attached_acoustic_treatment'
     definition_id: str = Field(min_length=1)
     version: str = Field(min_length=1)
@@ -290,8 +500,8 @@ class AcousticTreatmentPlacement(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal[1] = ACOUSTIC_TREATMENT_SCHEMA_VERSION
-    authority_version: Literal['acoustic-treatment-1'] = ACOUSTIC_TREATMENT_AUTHORITY_VERSION
+    schema_version: Literal[2] = ACOUSTIC_TREATMENT_SCHEMA_VERSION
+    authority_version: Literal['acoustic-treatment-2'] = ACOUSTIC_TREATMENT_AUTHORITY_VERSION
     authority_role: Literal['attached_acoustic_treatment'] = 'attached_acoustic_treatment'
     instance_id: str = Field(min_length=1)
     placement_version: int = Field(ge=1)
@@ -755,6 +965,88 @@ def evaluate_treatment_surface_binding(
         bound_authority_valid=True,
         placement_authority_valid=True,
         reasons=tuple(reasons),
+    )
+
+
+def build_treatment_evidence_authority(
+    *,
+    source_kind: TreatmentSourceKind,
+    source_id: str,
+    source_version: str,
+    source_sha256: str | None = None,
+    reference: str | None = None,
+    extraction_id: str,
+    extraction_version: str,
+    model_basis: TreatmentModelBasis | None = None,
+    subject: TreatmentEvidenceSubject,
+) -> TreatmentEvidenceAuthority:
+    """Build a deterministic content-addressed treatment evidence authority.
+
+    The returned authority must be persisted through
+    `CadAcousticTreatmentRepository.save_evidence` before a definition whose
+    provenance references it can be saved.
+    """
+
+    payload = {
+        'authority_version': TREATMENT_EVIDENCE_AUTHORITY_VERSION,
+        'source_kind': source_kind,
+        'source_id': source_id,
+        'source_version': source_version,
+        'source_sha256': source_sha256,
+        'reference': reference,
+        'extraction_id': extraction_id,
+        'extraction_version': extraction_version,
+        'model_basis': None if model_basis is None else model_basis.model_dump(mode='json'),
+        'subject': subject.model_dump(mode='json'),
+    }
+    digest = _digest(payload)
+    return TreatmentEvidenceAuthority(
+        evidence_id=f'treatment-evidence:{digest}',
+        evidence_sha256=digest,
+        **payload,
+    )
+
+
+def acoustic_model_evidence_subject(
+    model: TreatmentAcousticModel,
+) -> TreatmentAcousticModelSubject:
+    """Normalized acoustic-model subject (model provenance excluded)."""
+
+    return TreatmentAcousticModelSubject(
+        model_id=model.model_id,
+        model_version=model.model_version,
+        evidence_basis=model.evidence_basis,
+        valid_frequency_band=model.valid_frequency_band,
+        uncertainty=model.uncertainty,
+        material=model.material,
+    )
+
+
+def definition_evidence_subject(
+    definition: AcousticTreatmentDefinition,
+) -> TreatmentEvidenceSubject:
+    """Exact normalized subject a persisted evidence authority must match.
+
+    Covers every production-significant normalized field group: physical
+    dimensions/air gap, layer stack, explicit physical parameters, and the
+    normalized acoustic model (material, band, uncertainty, evidence basis)
+    when one is attached.
+    """
+
+    model = definition.acoustic_model
+    return TreatmentEvidenceSubject(
+        definition_id=definition.definition_id,
+        definition_version=definition.version,
+        treatment_type=definition.treatment_type,
+        dimensions=definition.dimensions,
+        air_gap_m=definition.air_gap_m,
+        layers=definition.layers,
+        parameters=definition.parameters,
+        acoustic_model=(
+            None
+            if model is None
+            else acoustic_model_evidence_subject(model)
+        ),
     )
 
 

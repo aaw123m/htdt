@@ -6,15 +6,19 @@ import pytest
 
 from htdt.acoustic_benchmark import AcousticMaterial, GeometricAcousticBand
 from htdt.cad_acoustic_treatment import (
+    AcousticTreatmentDefinition,
     TreatmentAcousticModel,
+    TreatmentAcousticModelSubject,
     TreatmentCoverage,
     TreatmentDimensions,
+    TreatmentEvidenceAuthority,
+    TreatmentEvidenceSubject,
     TreatmentFrequencyBand,
     TreatmentLayer,
     TreatmentPhysicalParameters,
-    TreatmentProvenance,
     TreatmentUncertainty,
     build_acoustic_treatment_definition,
+    build_treatment_evidence_authority,
     build_treatment_placement,
     evaluate_treatment_prediction_capability,
     revise_treatment_placement,
@@ -66,102 +70,155 @@ def _baseline(tmp_path: Path):
     return scene_repository, variant_repository, revision, variant_a, variant_b
 
 
+def _save_definition(
+    repository: CadAcousticTreatmentRepository,
+    definition: AcousticTreatmentDefinition,
+    evidence: tuple[TreatmentEvidenceAuthority, ...],
+) -> AcousticTreatmentDefinition:
+    for item in evidence:
+        repository.save_evidence(item)
+    return repository.save_definition(definition)
+
+
 def _porous_definition():
-    provenance = TreatmentProvenance(
+    dimensions = TreatmentDimensions(width_m=0.6, height_m=1.2, thickness_m=0.1)
+    layers = (
+        TreatmentLayer(
+            layer_id='porous-core',
+            material_name='mineral wool',
+            thickness_m=0.1,
+            density_kg_m3=48.0,
+            airflow_resistivity_pa_s_m2=12000.0,
+        ),
+    )
+    parameters = TreatmentPhysicalParameters(
+        bulk_density_kg_m3=48.0,
+        airflow_resistivity_pa_s_m2=12000.0,
+    )
+    band = TreatmentFrequencyBand(min_hz=125.0, max_hz=4000.0)
+    uncertainty = TreatmentUncertainty(
+        kind='quantified',
+        value=0.05,
+        unit='absorption_coefficient',
+        note='fixture uncertainty',
+    )
+    material = AcousticMaterial(
+        material_id='porous-panel-measured',
+        provenance='Issue #171 test fixture',
+        version='1',
+        wave_model='unsupported',
+        geometric_model='banded',
+        geometric_bands=(
+            GeometricAcousticBand(center_hz=125.0, absorption=0.35, scattering=0.05),
+            GeometricAcousticBand(center_hz=500.0, absorption=0.90, scattering=0.05),
+            GeometricAcousticBand(center_hz=2000.0, absorption=0.95, scattering=0.05),
+        ),
+    )
+    evidence = build_treatment_evidence_authority(
         source_kind='measurement',
         source_id='lab-panel-600x1200x100',
         source_version='2026-09-01',
         source_sha256='1' * 64,
         reference='fixture measurement authority',
+        extraction_id='fixture-extraction',
+        extraction_version='1',
+        subject=TreatmentEvidenceSubject(
+            definition_id='porous-panel-100',
+            definition_version='1.0',
+            treatment_type='absorber_with_air_gap',
+            dimensions=dimensions,
+            air_gap_m=0.1,
+            layers=layers,
+            parameters=parameters,
+            acoustic_model=TreatmentAcousticModelSubject(
+                model_id='porous-panel-geometric-bands',
+                model_version='1',
+                evidence_basis='measured',
+                valid_frequency_band=band,
+                uncertainty=uncertainty,
+                material=material,
+            ),
+        ),
     )
+    provenance = evidence.as_provenance()
     acoustic_model = TreatmentAcousticModel(
         model_id='porous-panel-geometric-bands',
         model_version='1',
         evidence_basis='measured',
-        valid_frequency_band=TreatmentFrequencyBand(min_hz=125.0, max_hz=4000.0),
-        uncertainty=TreatmentUncertainty(
-            kind='quantified',
-            value=0.05,
-            unit='absorption_coefficient',
-            note='fixture uncertainty',
-        ),
+        valid_frequency_band=band,
+        uncertainty=uncertainty,
         provenance=provenance,
-        material=AcousticMaterial(
-            material_id='porous-panel-measured',
-            provenance='Issue #171 test fixture',
-            version='1',
-            wave_model='unsupported',
-            geometric_model='banded',
-            geometric_bands=(
-                GeometricAcousticBand(center_hz=125.0, absorption=0.35, scattering=0.05),
-                GeometricAcousticBand(center_hz=500.0, absorption=0.90, scattering=0.05),
-                GeometricAcousticBand(center_hz=2000.0, absorption=0.95, scattering=0.05),
-            ),
-        ),
+        material=material,
     )
-    return build_acoustic_treatment_definition(
+    definition = build_acoustic_treatment_definition(
         definition_id='porous-panel-100',
         version='1.0',
         name='100 mm porous panel',
         treatment_type='absorber_with_air_gap',
         provenance=provenance,
-        dimensions=TreatmentDimensions(width_m=0.6, height_m=1.2, thickness_m=0.1),
+        dimensions=dimensions,
         air_gap_m=0.1,
-        layers=(
-            TreatmentLayer(
-                layer_id='porous-core',
-                material_name='mineral wool',
-                thickness_m=0.1,
-                density_kg_m3=48.0,
-                airflow_resistivity_pa_s_m2=12000.0,
-            ),
-        ),
-        parameters=TreatmentPhysicalParameters(
-            bulk_density_kg_m3=48.0,
-            airflow_resistivity_pa_s_m2=12000.0,
-        ),
+        layers=layers,
+        parameters=parameters,
         acoustic_model=acoustic_model,
     )
+    return definition, (evidence,)
 
 
 def _membrane_definition():
-    return build_acoustic_treatment_definition(
+    dimensions = TreatmentDimensions(width_m=0.6, height_m=1.2, thickness_m=0.08)
+    layers = (
+        TreatmentLayer(
+            layer_id='membrane',
+            material_name='plywood membrane',
+            thickness_m=0.006,
+            surface_density_kg_m2=4.2,
+        ),
+        TreatmentLayer(
+            layer_id='cavity-fill',
+            material_name='porous fill',
+            thickness_m=0.05,
+            density_kg_m3=32.0,
+        ),
+    )
+    parameters = TreatmentPhysicalParameters(
+        membrane_surface_density_kg_m2=4.2,
+        cavity_depth_m=0.074,
+    )
+    evidence = build_treatment_evidence_authority(
+        source_kind='user_defined',
+        source_id='membrane-concept',
+        source_version='1',
+        reference='geometry only; acoustic model not yet qualified',
+        extraction_id='manual-declaration',
+        extraction_version='1',
+        subject=TreatmentEvidenceSubject(
+            definition_id='membrane-panel-80',
+            definition_version='1.0',
+            treatment_type='membrane_panel_absorber',
+            dimensions=dimensions,
+            air_gap_m=0.0,
+            layers=layers,
+            parameters=parameters,
+        ),
+    )
+    definition = build_acoustic_treatment_definition(
         definition_id='membrane-panel-80',
         version='1.0',
         name='80 mm membrane absorber',
         treatment_type='membrane_panel_absorber',
-        provenance=TreatmentProvenance(
-            source_kind='user_defined',
-            source_id='membrane-concept',
-            source_version='1',
-            reference='geometry only; acoustic model not yet qualified',
-        ),
-        dimensions=TreatmentDimensions(width_m=0.6, height_m=1.2, thickness_m=0.08),
-        layers=(
-            TreatmentLayer(
-                layer_id='membrane',
-                material_name='plywood membrane',
-                thickness_m=0.006,
-                surface_density_kg_m2=4.2,
-            ),
-            TreatmentLayer(
-                layer_id='cavity-fill',
-                material_name='porous fill',
-                thickness_m=0.05,
-                density_kg_m3=32.0,
-            ),
-        ),
-        parameters=TreatmentPhysicalParameters(
-            membrane_surface_density_kg_m2=4.2,
-            cavity_depth_m=0.074,
-        ),
+        provenance=evidence.as_provenance(),
+        dimensions=dimensions,
+        layers=layers,
+        parameters=parameters,
         acoustic_model=None,
     )
+    return definition, (evidence,)
 
 
 def test_definition_identity_is_deterministic_and_does_not_infer_wave_impedance() -> None:
-    first = _porous_definition()
-    second = _porous_definition()
+    first, _first_evidence = _porous_definition()
+    second, _second_evidence = _porous_definition()
 
     assert first == second
     assert first.definition_sha256 == second.definition_sha256
@@ -184,7 +241,7 @@ def test_definition_identity_is_deterministic_and_does_not_infer_wave_impedance(
 
 
 def test_unsupported_membrane_physics_remains_unknown_fail_closed() -> None:
-    definition = _membrane_definition()
+    definition, _evidence = _membrane_definition()
     capability = evaluate_treatment_prediction_capability(definition)
 
     assert definition.acoustic_model is None
@@ -205,8 +262,10 @@ def test_no_treatment_baseline_and_ab_placements_persist_without_mutating_scene(
     assert materialize_system_variant(baseline, variant_b) == before
 
     repository = CadAcousticTreatmentRepository(scene_repository, variant_repository)
-    porous = repository.save_definition(_porous_definition())
-    membrane = repository.save_definition(_membrane_definition())
+    porous, porous_evidence = _porous_definition()
+    membrane, membrane_evidence = _membrane_definition()
+    porous = _save_definition(repository, porous, porous_evidence)
+    membrane = _save_definition(repository, membrane, membrane_evidence)
 
     assert repository.list_placements_for_variant('no-treatment') == ()
 
@@ -256,7 +315,8 @@ def test_no_treatment_baseline_and_ab_placements_persist_without_mutating_scene(
 def test_proposed_to_installed_lifecycle_is_append_only_and_exact(tmp_path: Path) -> None:
     scene_repository, variant_repository, baseline, variant_a, _variant_b = _baseline(tmp_path)
     repository = CadAcousticTreatmentRepository(scene_repository, variant_repository)
-    porous = repository.save_definition(_porous_definition())
+    porous_definition, porous_evidence = _porous_definition()
+    porous = _save_definition(repository, porous_definition, porous_evidence)
 
     proposed = build_treatment_placement(
         definition=porous,
