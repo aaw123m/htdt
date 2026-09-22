@@ -27,6 +27,7 @@ from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.cad_topology_comparison import (
     ExactAuthorityRef,
     ObjectiveEvidenceBinding,
+    ResolvedObjectiveAuthority,
     build_system_topology_comparison_spec,
     build_topology_comparison_selection,
     build_variant_evaluation_bundle,
@@ -477,6 +478,36 @@ def test_named_topology_comparison_exact_authority_pareto_and_reopen(
 
         coverage_ref = coverage_refs[variant.variant_id]
         direct_ref = direct_refs[variant.variant_id]
+        coverage_metric_ids = {coverage.objective_id, loss.objective_id}
+        for source, source_metrics in (
+            (
+                coverage_ref,
+                tuple(
+                    item
+                    for item in metrics
+                    if item.objective_id in coverage_metric_ids
+                ),
+            ),
+            (
+                direct_ref,
+                tuple(
+                    item
+                    for item in metrics
+                    if item.objective_id not in coverage_metric_ids
+                ),
+            ),
+        ):
+            external_authorities[source.authority_id] = (
+                ResolvedObjectiveAuthority(
+                    ref=source,
+                    objective_vector=ObjectiveVector(
+                        candidate_id=variant.variant_id,
+                        metrics=source_metrics,
+                    ),
+                )
+                if source_metrics
+                else source
+            )
         evidence = []
         for metric in metrics:
             source = (
