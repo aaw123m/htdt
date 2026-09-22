@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol, get_args
 
 from .cad_measurement_models import (
     CadFrequencyResponseDataset,
@@ -13,9 +13,18 @@ from .cad_measurement_models import (
     RoutingEvidence,
 )
 from .cad_measurement_quality import (
+    MEASUREMENT_QUALITY_CHECKS,
     CadMeasurementCapability,
+    CadMeasurementLineageRecord,
+    MeasurementCapabilityClaim,
+    MeasurementRetakeGuidance,
+    QualityDecision,
+    RetakeRecommendation,
+    build_measurement_lineage,
     gate_measurement_claim,
+    measurement_retake_guidance,
     phase_response_capability,
+    unestablished_capability_claims,
     unestablished_common_timing_capability,
 )
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
@@ -94,6 +103,15 @@ class SpeakerTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class MeasurementCheckView:
+    """One independent quality check surfaced for UX display (#468)."""
+
+    check: str
+    status: QualityDecision
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class MeasurementView:
     measurement_id: str
     dataset_id: str | None
@@ -117,12 +135,52 @@ class MeasurementView:
     # and common_timing fails closed at UNKNOWN.
     phase_response_capability: CadMeasurementCapability | None
     common_timing_capability: CadMeasurementCapability | None
+    # Full canonical claim matrix (#468) in canonical claim order. From the
+    # replay-validated report bound to the exact dataset when one exists;
+    # otherwise the fail-closed matrix in which only dataset-local claims keep
+    # their verdicts and every acquisition-evidence claim stays UNKNOWN.
+    capabilities: tuple[CadMeasurementCapability, ...]
+    # Independent quality checks (clipping, SNR, usable band, timing, polarity,
+    # IR window, calibration, repeatability) with PASS/FAIL/UNKNOWN/
+    # NOT_EVALUATED status and the authority reason. Empty without a current
+    # replay-validated report — missing evidence is never shown as PASS.
+    quality_checks: tuple[MeasurementCheckView, ...]
+    # Report summary state: 'current' binds the exact dataset, 'stale' means a
+    # report exists but is pinned to a different dataset, 'missing' means no
+    # report exists for this measurement.
+    quality_report_state: Literal['current', 'stale', 'missing']
+    quality_profile_version: str | None
+    quality_report_created_at: str | None
+    # Retake authority: recommendation/reasons plus structured guidance on
+    # which acquisition context/evidence is missing and what to re-measure.
+    # None/empty without a current replay-validated report.
+    retake_recommendation: RetakeRecommendation | None
+    retake_reasons: tuple[str, ...]
+    retake_guidance: MeasurementRetakeGuidance | None
+    # Append-only retake lineage: the measurement currently selected in this
+    # retake chain, and the chain neighbours of this measurement if any.
+    selected_measurement_id: str
+    supersedes_measurement_id: str | None
+    superseded_by_measurement_id: str | None
     sample_count: int
     frequency_band_hz: tuple[float, float] | None
     captured_at: str | None
     imported_at: str
     scene_revision_id: str
     scene_matches_current: bool
+
+    @property
+    def is_selected(self) -> bool:
+        """Whether this measurement is the selected evidence of its retake chain."""
+        return self.selected_measurement_id == self.measurement_id
+
+    @property
+    def has_lineage(self) -> bool:
+        """Whether this measurement participates in a retake chain."""
+        return (
+            self.supersedes_measurement_id is not None
+            or self.superseded_by_measurement_id is not None
+        )
 
 
 class MeasurementWorkflowController:
@@ -320,6 +378,14 @@ class MeasurementWorkflowController:
 
     def measurement_views(self) -> tuple[MeasurementView, ...]:
         latest = self.scene_repository.latest(self.document_id)
+        # Retake lineage is append-only validated evidence; resolving the chain
+        # once keeps the per-row topology identical to
+        # CadMeasurementQualityRepository.selected_measurement_for_lineage.
+        lineage = self.quality_repository.list_lineage(self.document_id)
+        lineage_children = {
+            event.supersedes_measurement_id: event for event in lineage
+        }
+        lineage_parents = {event.measurement_id: event for event in lineage}
         rows: list[MeasurementView] = []
         for record in self.measurement_repository.list_measurements(self.document_id):
             dataset = self.measurement_repository.dataset_for_measurement(record.measurement_id)
@@ -337,6 +403,14 @@ class MeasurementWorkflowController:
             phase_status: MeasurementPhaseStatus | None = None
             phase_capability: CadMeasurementCapability | None = None
             timing_capability: CadMeasurementCapability | None = None
+            capabilities: tuple[CadMeasurementCapability, ...] = ()
+            checks: tuple[MeasurementCheckView, ...] = ()
+            report_state: Literal['current', 'stale', 'missing'] = 'missing'
+            profile_version: str | None = None
+            report_created_at: str | None = None
+            retake_recommendation: RetakeRecommendation | None = None
+            retake_reasons: tuple[str, ...] = ()
+            retake_guidance: MeasurementRetakeGuidance | None = None
             dataset_id = None
             if dataset is not None:
                 dataset_id = dataset.dataset_id
@@ -352,9 +426,44 @@ class MeasurementWorkflowController:
                 if report is not None and report.dataset_id == dataset.dataset_id:
                     phase_capability = gate_measurement_claim(report, "phase_response")
                     timing_capability = gate_measurement_claim(report, "common_timing")
+                    # Full claim matrix (#468): every canonical claim is gated
+                    # through the report so historical reports missing a claim
+                    # still fail closed at UNKNOWN.
+                    capabilities = tuple(
+                        gate_measurement_claim(report, claim)
+                        for claim in get_args(MeasurementCapabilityClaim)
+                    )
+                    checks = tuple(
+                        MeasurementCheckView(
+                            check=name,
+                            status=getattr(report, name).status,
+                            reason=getattr(report, name).reason,
+                        )
+                        for name in MEASUREMENT_QUALITY_CHECKS
+                    )
+                    report_state = 'current'
+                    profile_version = report.profile.profile_version
+                    report_created_at = report.created_at_utc
+                    retake_recommendation = report.retake_recommendation
+                    retake_reasons = report.retake_reasons
+                    retake_guidance = measurement_retake_guidance(report)
                 else:
+                    # A report pinned to a different (superseded) dataset is
+                    # stale evidence: it must not drive claims for the dataset
+                    # actually bound to this measurement.
                     phase_capability = phase_response_capability(dataset)
                     timing_capability = unestablished_common_timing_capability()
+                    capabilities = unestablished_capability_claims(dataset)
+                    if report is not None:
+                        report_state = 'stale'
+
+            superseded_by = lineage_children.get(record.measurement_id)
+            supersedes = lineage_parents.get(record.measurement_id)
+            head = record.measurement_id
+            while head in lineage_children:
+                head = lineage_children[head].measurement_id
+            head_edge = lineage_parents.get(head)
+            selected_id = head if head_edge is None else head_edge.selected_measurement_id
 
             rows.append(
                 MeasurementView(
@@ -374,6 +483,21 @@ class MeasurementWorkflowController:
                     phase_status=phase_status,
                     phase_response_capability=phase_capability,
                     common_timing_capability=timing_capability,
+                    capabilities=capabilities,
+                    quality_checks=checks,
+                    quality_report_state=report_state,
+                    quality_profile_version=profile_version,
+                    quality_report_created_at=report_created_at,
+                    retake_recommendation=retake_recommendation,
+                    retake_reasons=retake_reasons,
+                    retake_guidance=retake_guidance,
+                    selected_measurement_id=selected_id,
+                    supersedes_measurement_id=(
+                        None if supersedes is None else supersedes.supersedes_measurement_id
+                    ),
+                    superseded_by_measurement_id=(
+                        None if superseded_by is None else superseded_by.measurement_id
+                    ),
                     sample_count=sample_count,
                     frequency_band_hz=band,
                     captured_at=record.captured_at,
@@ -386,6 +510,38 @@ class MeasurementWorkflowController:
                 )
             )
         return tuple(rows)
+
+    def record_retake(
+        self,
+        *,
+        measurement_id: str,
+        supersedes_measurement_id: str,
+        selected_measurement_id: str | None = None,
+        reason: str,
+    ) -> CadMeasurementLineageRecord:
+        """Append a retake/selection lineage record between two persisted measurements.
+
+        The repository enforces the append-only single-head contract and the
+        identical-binding rule (same SceneRevision, measurement point,
+        position, channel role, source speakers, radiation scope); this method
+        only requires an explicit reason and defaults the selection to the
+        retake measurement. The previous measurement and its quality reports
+        are never rewritten or moved — calibration/holdout assignments stay
+        bound to the evidence they selected.
+        """
+        if measurement_id == supersedes_measurement_id:
+            raise MeasurementWorkflowError("再測定には元の測定とは別の測定を記録してください")
+        if not reason.strip():
+            raise MeasurementWorkflowError("再測定の理由を記録してください")
+        lineage = build_measurement_lineage(
+            document_id=self.document_id,
+            measurement_id=measurement_id,
+            supersedes_measurement_id=supersedes_measurement_id,
+            selected_measurement_id=selected_measurement_id or measurement_id,
+            reason=reason.strip(),
+        )
+        self.quality_repository.save_lineage(lineage)
+        return lineage
 
     def dataset(self, dataset_id: str) -> CadFrequencyResponseDataset:
         dataset = self.measurement_repository.get_dataset(dataset_id)
@@ -441,6 +597,7 @@ class MeasurementWorkflowController:
 __all__ = [
     "AssignmentTarget",
     "MeasurementAssignment",
+    "MeasurementCheckView",
     "MeasurementView",
     "MeasurementWorkflowController",
     "MeasurementWorkflowError",

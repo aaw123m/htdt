@@ -21,6 +21,7 @@ from htdt.cad_measurement_quality import (
     build_measurement_quality_profile,
     build_measurement_quality_report,
     gate_measurement_claim,
+    measurement_retake_guidance,
     replay_measurement_quality_report,
 )
 from htdt.cad_measurement_quality_repository import (
@@ -1124,3 +1125,88 @@ def test_persisted_lineage_corruption_surfaces_on_reads(tmp_path: Path) -> None:
     assert quality_repository.list_lineage(revision.document_id) == ()
 
 
+
+
+def test_measurement_retake_guidance_maps_missing_evidence_and_remeasure(tmp_path: Path) -> None:
+    """#468: retake guidance names the missing acquisition context/evidence."""
+    revision, measurement_repository, _ = _repositories(tmp_path)
+    record, dataset = _save_measurement(
+        measurement_repository, revision, 'm-guidance', raw=b'guidance-raw'
+    )
+
+    # No evidence supplied at all: nothing fails, but every acquisition input
+    # is honestly listed as missing and the recommendation stays UNKNOWN.
+    empty = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(),
+        profile=build_measurement_quality_profile(),
+    )
+    guidance = measurement_retake_guidance(empty)
+    assert guidance.recommendation == 'UNKNOWN'
+    assert guidance.failed_checks == ()
+    assert 'clipping' in guidance.unknown_checks
+    assert 'repeatability' in guidance.not_evaluated_checks
+    assert guidance.missing_evidence == (
+        'clipping_metadata',
+        'snr_evidence',
+        'usable_band_evidence',
+        'timing_reference_evidence',
+        'polarity_evidence',
+        'impulse_response',
+        'calibration_provenance',
+        'repeat_measurements',
+        'acquisition_context',
+    )
+    assert 'same_binding' not in guidance.remeasure
+    assert 'timed_acquisition' in guidance.remeasure
+    assert 'calibrated_microphone' in guidance.remeasure
+    assert 'repeat_measurement' in guidance.remeasure
+    assert 'impulse_response_capture' in guidance.remeasure
+    assert 'acquisition_metadata' in guidance.remeasure
+
+    # Fully provisioned evidence under a thresholded profile: nothing missing,
+    # no re-measure action, recommendation NOT_NEEDED.
+    calibration_sha = sha256(b'mic-calibration').hexdigest()
+    complete = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(
+            clipping_detected=False,
+            peak_dbfs=-3.0,
+            snr_db=42.0,
+            usable_frequency_band_hz=(10.0, 22000.0),
+            timing_reference_valid=True,
+            timing_reference_id='loopback-1',
+            clock_source='umik-usb',
+            sample_rate_hz=48000,
+            delay_correction_s=0.00025,
+            polarity_correct=True,
+            polarity_confidence=0.95,
+            has_impulse_response=True,
+            ir_window_start_s=0.0,
+            ir_window_end_s=0.5,
+            ir_truncated=False,
+            calibration_file_sha256=calibration_sha,
+            expected_calibration_file_sha256=calibration_sha,
+            repeat_measurement_ids=('repeat-a', 'repeat-b'),
+            repeatability_rms_db=0.4,
+        ),
+        profile=build_measurement_quality_profile(
+            minimum_snr_db=20.0,
+            required_usable_band_hz=(20.0, 20000.0),
+            minimum_polarity_confidence=0.5,
+            maximum_repeatability_rms_db=1.0,
+        ),
+        acquisition_context=CadAcquisitionContextBinding(
+            acquisition_context_id='acq-1',
+            acquisition_context_sha256=sha256(b'acq-1').hexdigest(),
+            source_kind='native',
+        ),
+    )
+    guidance = measurement_retake_guidance(complete)
+    assert guidance.recommendation == 'NOT_NEEDED'
+    assert guidance.missing_evidence == ()
+    assert guidance.remeasure == ()
+    assert guidance.failed_checks == ()
+    assert guidance.unknown_checks == ()

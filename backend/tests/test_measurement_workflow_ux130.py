@@ -5,6 +5,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import pytest
 from PySide6.QtWidgets import QApplication, QDockWidget
 
 from hashlib import sha256
@@ -17,7 +18,10 @@ from htdt.cad_measurement_quality import (
     build_measurement_quality_profile,
     build_measurement_quality_report,
 )
-from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
+from htdt.cad_measurement_quality_repository import (
+    CadMeasurementQualityRepository,
+    MeasurementLineageConflictError,
+)
 from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_measurements import (
     HTDT_DECLARED_IMPORTER_VERSION,
@@ -294,6 +298,340 @@ def test_capability_claims_come_from_replay_validated_quality_report(tmp_path: P
     assert timed.phase_response_capability.decision == "ALLOWED"
     assert timed.common_timing_capability is not None
     assert timed.common_timing_capability.decision == "ALLOWED"
+
+
+def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Path) -> None:
+    """#468: every report claim and independent check reaches the view."""
+    scene_repository, revision = _saved_f1(tmp_path)
+    measurement_repository = CadMeasurementRepository(scene_repository)
+    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+    controller = MeasurementWorkflowController(
+        scene_repository,
+        revision.document_id,
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+    )
+
+    record, dataset = _save_phase_dataset(
+        measurement_repository, revision, "clipped-measurement"
+    )
+    quality_repository.save_report(
+        build_measurement_quality_report(
+            measurement=record,
+            dataset=dataset,
+            evidence=CadMeasurementQualityEvidence(
+                clipping_detected=True,
+                snr_db=12.0,
+            ),
+            profile=build_measurement_quality_profile(
+                profile_version="strict-2",
+                minimum_snr_db=20.0,
+            ),
+            created_at_utc="2026-09-22T01:02:03+00:00",
+        )
+    )
+
+    view = controller.measurement_views()[0]
+
+    # Full claim matrix: all canonical claims, gated through the report.
+    assert [cap.claim for cap in view.capabilities] == [
+        "magnitude_response",
+        "phase_response",
+        "common_timing",
+        "arrival_time",
+        "decay",
+        "calibrated_response",
+        "repeatability",
+        "polarity",
+    ]
+    decisions = {cap.claim: cap.decision for cap in view.capabilities}
+    assert decisions["magnitude_response"] == "ALLOWED"
+    assert decisions["phase_response"] == "ALLOWED"
+    assert decisions["common_timing"] == "UNKNOWN"
+    assert decisions["arrival_time"] == "BLOCKED"
+    assert decisions["calibrated_response"] == "BLOCKED"
+    assert decisions["polarity"] == "UNKNOWN"
+
+    # Independent checks are independently visible.
+    checks = {item.check: item for item in view.quality_checks}
+    assert checks["clipping"].status == "FAIL"
+    assert checks["noise_snr"].status == "FAIL"
+    assert checks["timing_reference"].status == "UNKNOWN"
+    assert checks["ir_window"].status == "NOT_EVALUATED"
+    assert checks["repeatability"].status == "NOT_EVALUATED"
+
+    # Report summary: profile version and timestamp, never raw hashes.
+    assert view.quality_report_state == "current"
+    assert view.quality_profile_version == "strict-2"
+    assert view.quality_report_created_at == "2026-09-22T01:02:03+00:00"
+
+    # Retake authority: recommendation, reasons, and structured guidance on
+    # which acquisition context/evidence is missing and what to re-measure.
+    assert view.retake_recommendation == "RETAKE"
+    assert view.retake_reasons
+    assert any(reason.startswith("clipping:") for reason in view.retake_reasons)
+    guidance = view.retake_guidance
+    assert guidance is not None
+    assert guidance.recommendation == "RETAKE"
+    assert "clipping" in guidance.failed_checks
+    assert "noise_snr" in guidance.failed_checks
+    assert "timing_reference" in guidance.unknown_checks
+    assert "ir_window" in guidance.not_evaluated_checks
+    assert "timing_reference_evidence" in guidance.missing_evidence
+    assert "calibration_provenance" in guidance.missing_evidence
+    assert "repeat_measurements" in guidance.missing_evidence
+    assert "acquisition_context" in guidance.missing_evidence
+    assert "snr_evidence" not in guidance.missing_evidence
+    assert "clipping_metadata" not in guidance.missing_evidence
+    assert "same_binding" in guidance.remeasure
+    assert "timed_acquisition" in guidance.remeasure
+    assert "calibrated_microphone" in guidance.remeasure
+    assert "repeat_measurement" in guidance.remeasure
+    assert "impulse_response_capture" in guidance.remeasure
+
+    # No retake chain yet: the measurement is its own selection.
+    assert view.selected_measurement_id == "clipped-measurement"
+    assert view.supersedes_measurement_id is None
+    assert view.superseded_by_measurement_id is None
+    assert view.is_selected is True
+    assert view.has_lineage is False
+
+
+def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
+    """Missing quality evidence stays UNKNOWN, never an implicit PASS."""
+    scene_repository, revision = _saved_f1(tmp_path)
+    measurement_repository = CadMeasurementRepository(scene_repository)
+    controller = MeasurementWorkflowController(
+        scene_repository,
+        revision.document_id,
+        measurement_repository=measurement_repository,
+        quality_repository=CadMeasurementQualityRepository(measurement_repository),
+    )
+    _save_phase_dataset(measurement_repository, revision, "no-report")
+
+    view = controller.measurement_views()[0]
+
+    assert view.quality_report_state == "missing"
+    assert view.quality_profile_version is None
+    assert view.quality_report_created_at is None
+    assert view.quality_checks == ()
+    assert view.retake_recommendation is None
+    assert view.retake_reasons == ()
+    assert view.retake_guidance is None
+
+    decisions = {cap.claim: cap.decision for cap in view.capabilities}
+    assert len(view.capabilities) == 8
+    # Dataset-local claims keep dataset verdicts; everything else fails closed.
+    assert decisions["magnitude_response"] == "ALLOWED"
+    assert decisions["phase_response"] == "ALLOWED"
+    assert decisions["common_timing"] == "UNKNOWN"
+    assert decisions["arrival_time"] == "UNKNOWN"
+    assert decisions["decay"] == "UNKNOWN"
+    assert decisions["calibrated_response"] == "UNKNOWN"
+    assert decisions["repeatability"] == "UNKNOWN"
+    assert decisions["polarity"] == "UNKNOWN"
+
+
+class _StaleReportSource:
+    """Quality read stub returning a report pinned to another dataset."""
+
+    def __init__(self, report) -> None:
+        self._report = report
+
+    def latest_report(self, measurement_id: str):
+        return self._report if measurement_id == "stale-bound" else None
+
+    def list_lineage(self, document_id: str):
+        return ()
+
+    def save_lineage(self, lineage) -> None:  # pragma: no cover - not exercised
+        raise AssertionError("stub must not persist lineage")
+
+
+def test_stale_report_does_not_drive_current_dataset_claims(tmp_path: Path) -> None:
+    scene_repository, revision = _saved_f1(tmp_path)
+    measurement_repository = CadMeasurementRepository(scene_repository)
+    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+
+    stale_record, stale_dataset = _save_phase_dataset(
+        measurement_repository, revision, "stale-bound"
+    )
+    other_record, other_dataset = _save_phase_dataset(
+        measurement_repository, revision, "report-donor"
+    )
+    # The report honestly binds the donor measurement's dataset; replayed
+    # against "stale-bound" it must not leak into that dataset's claims.
+    report = build_measurement_quality_report(
+        measurement=other_record,
+        dataset=other_dataset,
+        evidence=CadMeasurementQualityEvidence(
+            timing_reference_valid=True,
+            timing_reference_id="loopback-1",
+            clock_source="umik-1-usb",
+            sample_rate_hz=48000,
+            delay_correction_s=0.00025,
+        ),
+        profile=build_measurement_quality_profile(),
+        acquisition_context=CadAcquisitionContextBinding(
+            acquisition_context_id="acq-1",
+            acquisition_context_sha256=sha256(b"acq-1").hexdigest(),
+            source_kind="native",
+        ),
+    )
+    quality_repository.save_report(report)
+
+    controller = MeasurementWorkflowController(
+        scene_repository,
+        revision.document_id,
+        measurement_repository=measurement_repository,
+        quality_repository=_StaleReportSource(report),
+    )
+    view = next(
+        row
+        for row in controller.measurement_views()
+        if row.measurement_id == "stale-bound"
+    )
+
+    assert view.quality_report_state == "stale"
+    assert view.quality_profile_version is None
+    assert view.quality_checks == ()
+    assert view.retake_recommendation is None
+    assert view.retake_guidance is None
+    decisions = {cap.claim: cap.decision for cap in view.capabilities}
+    assert decisions["magnitude_response"] == "ALLOWED"
+    assert decisions["phase_response"] == "ALLOWED"
+    assert decisions["common_timing"] == "UNKNOWN"
+
+
+def test_record_retake_appends_lineage_and_selected_is_visible(tmp_path: Path) -> None:
+    scene_repository, revision = _saved_f1(tmp_path)
+    measurement_repository = CadMeasurementRepository(scene_repository)
+    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+    controller = MeasurementWorkflowController(
+        scene_repository,
+        revision.document_id,
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+    )
+    _save_phase_dataset(measurement_repository, revision, "retake-original")
+    _save_phase_dataset(measurement_repository, revision, "retake-new")
+    _save_phase_dataset(measurement_repository, revision, "retake-newer")
+
+    lineage = controller.record_retake(
+        measurement_id="retake-new",
+        supersedes_measurement_id="retake-original",
+        reason="clipping reported by quality report",
+    )
+    assert lineage.selected_measurement_id == "retake-new"
+
+    views = {row.measurement_id: row for row in controller.measurement_views()}
+    original = views["retake-original"]
+    retake = views["retake-new"]
+    assert original.superseded_by_measurement_id == "retake-new"
+    assert original.supersedes_measurement_id is None
+    assert original.selected_measurement_id == "retake-new"
+    assert original.is_selected is False
+    assert retake.supersedes_measurement_id == "retake-original"
+    assert retake.superseded_by_measurement_id is None
+    assert retake.selected_measurement_id == "retake-new"
+    assert retake.is_selected is True
+    assert retake.has_lineage is True
+
+    # A retake may deliberately keep the superseded side selected.
+    controller.record_retake(
+        measurement_id="retake-newer",
+        supersedes_measurement_id="retake-new",
+        selected_measurement_id="retake-new",
+        reason="repeat acquisition kept earlier selection",
+    )
+    views = {row.measurement_id: row for row in controller.measurement_views()}
+    assert views["retake-original"].selected_measurement_id == "retake-new"
+    assert views["retake-newer"].selected_measurement_id == "retake-new"
+    assert views["retake-newer"].supersedes_measurement_id == "retake-new"
+    assert views["retake-new"].superseded_by_measurement_id == "retake-newer"
+
+    # A second retake claiming the same stale head is a rejected fork.
+    _save_phase_dataset(measurement_repository, revision, "retake-fork")
+    with pytest.raises(MeasurementLineageConflictError):
+        controller.record_retake(
+            measurement_id="retake-fork",
+            supersedes_measurement_id="retake-new",
+            reason="stale head fork",
+        )
+
+    # Old evidence is never rewritten: all measurements remain listed.
+    assert {row.measurement_id for row in controller.measurement_views()} == {
+        "retake-original",
+        "retake-new",
+        "retake-newer",
+        "retake-fork",
+    }
+
+
+def test_retake_button_guides_to_import_and_commit_records_lineage(tmp_path: Path) -> None:
+    app = _app()
+    scene_repository, revision = _saved_f1(tmp_path)
+    measurement_repository = CadMeasurementRepository(scene_repository)
+    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+    controller = MeasurementWorkflowController(
+        scene_repository,
+        revision.document_id,
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+    )
+    record, dataset = _save_phase_dataset(
+        measurement_repository, revision, "ui-retake-source"
+    )
+    quality_repository.save_report(
+        build_measurement_quality_report(
+            measurement=record,
+            dataset=dataset,
+            evidence=CadMeasurementQualityEvidence(clipping_detected=True),
+            profile=build_measurement_quality_profile(),
+        )
+    )
+
+    workspace = MeasurementPageWorkspace(controller)
+    try:
+        workspace.set_context("quality")
+        workspace.quality_table.selectRow(0)
+
+        # The full quality report is surfaced: checks, claims, retake guidance.
+        assert "最新" in workspace.quality_report_label.text()
+        assert "クリッピング" in workspace.quality_checks_label.text()
+        assert "不合格" in workspace.quality_checks_label.text()
+        capabilities_text = workspace.quality_capabilities_label.text()
+        assert "振幅応答" in capabilities_text
+        assert "共通タイミング" in capabilities_text
+        assert "校正済み応答" in capabilities_text
+        retake_text = workspace.retake_label.text()
+        assert "再測定を推奨" in retake_text
+        assert "不足している証拠" in retake_text
+        assert workspace.retake_button.isEnabled()
+
+        # The retake entry point routes to re-acquisition with the binding
+        # pre-filled for the same measurement point/role.
+        workspace.retake_button.click()
+        assert workspace.current_context_id == "import"
+
+        controller.stage_rew_text(b"20 70\n40 71\n80 69\n", "retake.txt")
+        workspace.refresh()
+        assert workspace.target_combo.currentData() == "point-mlp"
+        assert workspace.channel_combo.currentText() == "front_left"
+        workspace._commit_assignment()
+
+        views = {row.measurement_id: row for row in controller.measurement_views()}
+        source = views["ui-retake-source"]
+        assert source.superseded_by_measurement_id is not None
+        assert source.is_selected is False
+        retake = views[source.superseded_by_measurement_id]
+        assert retake.supersedes_measurement_id == "ui-retake-source"
+        assert retake.selected_measurement_id == retake.measurement_id
+        assert "系譜" in workspace.retake_label.text() or "選択中" in workspace.retake_label.text()
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
 
 
 def test_predicted_vs_measured_comparison_delegates_and_persists(tmp_path: Path) -> None:

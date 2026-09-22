@@ -110,6 +110,89 @@ def _capability_decision(capability: CadMeasurementCapability | None) -> str:
     return "UNKNOWN" if capability is None else capability.decision
 
 
+def _check_label(check: str) -> str:
+    """User-facing label for one independent quality check."""
+    return {
+        "clipping": "クリッピング",
+        "noise_snr": "ノイズ/SNR",
+        "usable_frequency_band": "使用可能帯域",
+        "timing_reference": "タイミング基準",
+        "polarity": "極性",
+        "ir_window": "インパルス応答窓",
+        "calibration": "キャリブレーション",
+        "repeatability": "繰り返し精度",
+    }.get(check, check)
+
+
+def _check_status_label(status: str) -> str:
+    """PASS/FAIL/UNKNOWN/NOT_EVALUATED — missing evidence never shows as PASS."""
+    return {
+        "PASS": "合格",
+        "FAIL": "不合格",
+        "UNKNOWN": "未確認",
+        "NOT_EVALUATED": "未評価",
+    }.get(status, status)
+
+
+def _claim_label(claim: str) -> str:
+    """User-facing label for one downstream capability claim."""
+    return {
+        "magnitude_response": "振幅応答",
+        "phase_response": "位相応答",
+        "common_timing": "共通タイミング",
+        "arrival_time": "到達時刻",
+        "decay": "減衰特性",
+        "calibrated_response": "校正済み応答",
+        "repeatability": "繰り返し精度",
+        "polarity": "極性",
+    }.get(claim, claim)
+
+
+def _report_state_label(state: str) -> str:
+    return {
+        "current": "最新",
+        "stale": "旧データセットのレポート（再評価が必要です）",
+        "missing": "レポートなし",
+    }.get(state, state)
+
+
+def _retake_recommendation_label(value: str | None) -> str:
+    return {
+        "RETAKE": "再測定を推奨",
+        "NOT_NEEDED": "再測定不要",
+        "UNKNOWN": "未確認（証拠不足）",
+        None: "—",
+    }.get(value, str(value))
+
+
+def _missing_evidence_label(code: str) -> str:
+    """Stable missing-evidence codes from MeasurementRetakeGuidance."""
+    return {
+        "clipping_metadata": "クリッピング有無の取得メタデータ",
+        "snr_evidence": "SNR証拠",
+        "usable_band_evidence": "使用可能帯域の証拠",
+        "timing_reference_evidence": "タイミング基準（基準ID・クロック・サンプルレート・遅延補正）",
+        "polarity_evidence": "極性証拠",
+        "impulse_response": "インパルス応答",
+        "ir_window_evidence": "IR窓・切り詰め証拠",
+        "calibration_provenance": "マイク校正ファイルの来歴",
+        "repeat_measurements": "同一条件の繰り返し測定",
+        "acquisition_context": "取得コンテキストの紐付け",
+    }.get(code, code)
+
+
+def _remeasure_label(code: str) -> str:
+    """Stable re-measure codes from MeasurementRetakeGuidance."""
+    return {
+        "same_binding": "同じ測定点・入力役割・音源で再測定",
+        "timed_acquisition": "タイミング基準を記録できる取得コンテキストで再測定",
+        "calibrated_microphone": "校正ファイルを適用したマイクで再測定",
+        "repeat_measurement": "同一条件の測定を追加して繰り返し精度を評価",
+        "impulse_response_capture": "インパルス応答を含む形式で再取得",
+        "acquisition_metadata": "クリッピング/SNR/帯域/極性の取得メタデータを記録して再測定",
+    }.get(code, code)
+
+
 def _quality_label(value: str) -> str:
     return {
         "unknown": "未確認",
@@ -194,6 +277,7 @@ class MeasurementPageWorkspace(QWidget):
         self._rew_rows: list[dict[str, Any]] = []
         self._quality_views: tuple[MeasurementView, ...] = ()
         self._last_comparison: CadMeasurementComparison | None = None
+        self._retake_source_id: str | None = None
 
         self.setObjectName("measurementPageWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
@@ -478,9 +562,14 @@ class MeasurementPageWorkspace(QWidget):
                 "「読み込み」でREWデータを選ぶと、ここで測定位置と意味付けを確定できます。"
             )
         else:
+            retake_note = (
+                "\nこの測定は再測定として記録されます（元の測定とレポートは保持されます）。"
+                if self._retake_source_id
+                else ""
+            )
             self.assignment_pending_label.setText(
                 f"{pending.source_label} · {pending.sample_count:,} 点 · "
-                f"{_format_band(pending.frequency_band_hz)}"
+                f"{_format_band(pending.frequency_band_hz)}{retake_note}"
             )
 
         previous_target = self.target_combo.currentData()
@@ -518,6 +607,36 @@ class MeasurementPageWorkspace(QWidget):
                 else Qt.CheckState.Unchecked
             )
 
+        # A pending retake pre-fills the exact binding it supersedes so the
+        # lineage record stays valid; the user can still adjust before saving.
+        retake_view = next(
+            (
+                view
+                for view in self._quality_views
+                if view.measurement_id == self._retake_source_id
+            ),
+            None,
+        )
+        if retake_view is not None:
+            index = self.target_combo.findData(retake_view.target_entity_id)
+            if index >= 0:
+                self.target_combo.setCurrentIndex(index)
+            self.channel_combo.setCurrentText(retake_view.channel_role)
+            index = self.radiation_combo.findData(retake_view.radiation_scope)
+            if index >= 0:
+                self.radiation_combo.setCurrentIndex(index)
+            index = self.routing_combo.findData(retake_view.routing_evidence)
+            if index >= 0:
+                self.routing_combo.setCurrentIndex(index)
+            wanted_sources = set(retake_view.source_speaker_ids)
+            for index in range(self.source_speaker_list.count()):
+                item = self.source_speaker_list.item(index)
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if item.data(Qt.ItemDataRole.UserRole) in wanted_sources
+                    else Qt.CheckState.Unchecked
+                )
+
     def _commit_assignment(self) -> None:
         target_id = self.target_combo.currentData()
         if not isinstance(target_id, str) or not target_id:
@@ -544,6 +663,31 @@ class MeasurementPageWorkspace(QWidget):
             record = self.controller.commit_pending(assignment)
         except Exception as exc:
             self._set_notice(f"測定を保存できませんでした · {exc}", SemanticState.ERROR)
+            return
+        retake_source_id = self._retake_source_id
+        self._retake_source_id = None
+        if retake_source_id is not None:
+            # Append-only lineage: the superseded measurement, its quality
+            # reports and any calibration/holdout assignment stay untouched.
+            try:
+                self.controller.record_retake(
+                    measurement_id=record.measurement_id,
+                    supersedes_measurement_id=retake_source_id,
+                    reason="user-initiated retake from the measurement quality page",
+                )
+            except Exception as exc:
+                self._set_notice(
+                    "測定は保存されましたが、再測定の系譜を記録できませんでした"
+                    f"（保存時と同じ測定点・役割・音源が必要です） · {exc}",
+                    SemanticState.WARNING,
+                )
+                self.refresh()
+                return
+            self._set_notice(
+                "再測定を保存し、置き換えの系譜を記録しました。",
+                SemanticState.SUCCESS,
+            )
+            self.refresh()
             return
         self._set_notice(
             f"{_evidence_label(record.evidence_type)}測定を保存しました。「品質」で内容を確認できます。",
@@ -582,9 +726,9 @@ class MeasurementPageWorkspace(QWidget):
         layout.addLayout(capability_row)
 
         table_card, table_layout = _card("保存済み測定", host)
-        self.quality_table = QTableWidget(0, 8, table_card)
+        self.quality_table = QTableWidget(0, 9, table_card)
         self.quality_table.setHorizontalHeaderLabels(
-            ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域"]
+            ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域", "再測定"]
         )
         self.quality_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -614,6 +758,31 @@ class MeasurementPageWorkspace(QWidget):
         _set_plot_appearance(self.quality_plot)
         detail_layout.addWidget(self.quality_plot)
         layout.addWidget(detail_card)
+
+        report_card, report_layout = _card("品質レポート", host)
+        self.quality_report_label = QLabel("測定を選択してください", report_card)
+        self.quality_report_label.setWordWrap(True)
+        report_layout.addWidget(self.quality_report_label)
+        self.quality_checks_label = QLabel("", report_card)
+        self.quality_checks_label.setWordWrap(True)
+        report_layout.addWidget(self.quality_checks_label)
+        self.quality_capabilities_label = QLabel("", report_card)
+        self.quality_capabilities_label.setWordWrap(True)
+        report_layout.addWidget(self.quality_capabilities_label)
+        layout.addWidget(report_card)
+
+        retake_card, retake_layout = _card("再測定ガイダンス", host)
+        self.retake_label = QLabel("測定を選択してください", retake_card)
+        self.retake_label.setWordWrap(True)
+        retake_layout.addWidget(self.retake_label)
+        retake_row = QHBoxLayout()
+        retake_row.addStretch(1)
+        self.retake_button = QPushButton("再測定（REWから再取得）", retake_card)
+        self.retake_button.setEnabled(False)
+        self.retake_button.clicked.connect(self._start_retake)
+        retake_row.addWidget(self.retake_button)
+        retake_layout.addLayout(retake_row)
+        layout.addWidget(retake_card)
         layout.addStretch(1)
         self.pages.addWidget(page)
 
@@ -636,6 +805,7 @@ class MeasurementPageWorkspace(QWidget):
                 _capability_decision_label(row.common_timing_capability),
                 "現在の配置" if row.scene_matches_current else "測定時の配置",
                 _format_band(row.frequency_band_hz),
+                _retake_recommendation_label(row.retake_recommendation),
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -696,6 +866,11 @@ class MeasurementPageWorkspace(QWidget):
         if not views:
             self.quality_detail.setText("保存済み測定はありません")
             self.quality_plot.clear()
+            self.quality_report_label.setText("保存済み測定はありません")
+            self.quality_checks_label.setText("")
+            self.quality_capabilities_label.setText("")
+            self.retake_label.setText("保存済み測定はありません")
+            self.retake_button.setEnabled(False)
         elif not self.quality_table.selectedItems():
             self.quality_table.selectRow(0)
             self._show_quality_row(0)
@@ -725,6 +900,83 @@ class MeasurementPageWorkspace(QWidget):
             f"{scene}\n"
             f"音源: {source_speakers} · {captured}"
         )
+
+        # Replay-validated quality report summary (#468): profile name/version
+        # and timestamp are shown, raw internal hashes stay out of the view.
+        profile = row.quality_profile_version or "—"
+        created = row.quality_report_created_at or "—"
+        self.quality_report_label.setText(
+            f"状態: {_report_state_label(row.quality_report_state)} · "
+            f"プロファイル {profile} · 作成 {created}"
+        )
+        if row.quality_checks:
+            check_lines = "\n".join(
+                f"{_check_label(item.check)}: {_check_status_label(item.status)}"
+                f" — {item.reason}"
+                for item in row.quality_checks
+            )
+            self.quality_checks_label.setText(f"チェック:\n{check_lines}")
+        else:
+            self.quality_checks_label.setText(
+                "チェック: この測定に現在の品質レポートはありません（未評価）。"
+            )
+        if row.capabilities:
+            capability_lines = "\n".join(
+                f"{_claim_label(item.claim)}: {_capability_decision_label(item)}"
+                f" — {' / '.join(item.reasons)}"
+                for item in row.capabilities
+            )
+            self.quality_capabilities_label.setText(
+                f"この測定で使える主張:\n{capability_lines}"
+            )
+        else:
+            self.quality_capabilities_label.setText("この測定で使える主張: データなし")
+
+        # Retake guidance and lineage (#468).
+        names = {view.measurement_id: view.target_name for view in self._quality_views}
+
+        def _name(measurement_id: str) -> str:
+            return names.get(measurement_id, "別の測定")
+
+        retake_lines = [
+            f"再測定: {_retake_recommendation_label(row.retake_recommendation)}"
+        ]
+        guidance = row.retake_guidance
+        if guidance is not None:
+            if row.retake_reasons:
+                retake_lines.append("理由: " + " / ".join(row.retake_reasons))
+            if guidance.missing_evidence:
+                retake_lines.append(
+                    "不足している証拠: "
+                    + "、".join(
+                        _missing_evidence_label(code)
+                        for code in guidance.missing_evidence
+                    )
+                )
+            if guidance.remeasure:
+                retake_lines.append(
+                    "再測定の指針: "
+                    + "；".join(_remeasure_label(code) for code in guidance.remeasure)
+                )
+        elif row.quality_report_state != "current":
+            retake_lines.append(
+                "現在の品質レポートがないため、証拠に基づく再測定の判定はできません。"
+            )
+        if row.supersedes_measurement_id is not None:
+            retake_lines.append(
+                f"この測定は {_name(row.supersedes_measurement_id)} の再測定です"
+            )
+        if row.superseded_by_measurement_id is not None:
+            retake_lines.append(
+                f"この測定は {_name(row.superseded_by_measurement_id)} に置き換えられています"
+            )
+        if row.has_lineage:
+            retake_lines.append(
+                f"この系譜で選択中の測定: {_name(row.selected_measurement_id)}"
+            )
+        self.retake_label.setText("\n".join(retake_lines))
+        self.retake_button.setEnabled(True)
+
         self.quality_plot.clear()
         if row.dataset_id is None:
             return
@@ -746,6 +998,19 @@ class MeasurementPageWorkspace(QWidget):
             name=_evidence_label(row.evidence_type),
         )
         self.quality_plot.enableAutoRange()
+
+    def _start_retake(self) -> None:
+        row_index = self.quality_table.currentRow()
+        if not (0 <= row_index < len(self._quality_views)):
+            return
+        row = self._quality_views[row_index]
+        self._retake_source_id = row.measurement_id
+        self._set_notice(
+            f"{row.target_name} の再測定です。REWから再取得し、"
+            "「割り当て」で同じ測定点・入力役割・音源を選んでください。",
+            None,
+        )
+        self.set_context("import")
 
     # ------------------------------------------------------------------
     # Comparison page
