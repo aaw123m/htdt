@@ -8,7 +8,10 @@ from uuid import uuid4
 
 from .cad_adaptive_repository import CadAdaptivePlanRepository
 from .cad_adaptive_service import CadAdaptivePlannerService
-from .cad_adaptive_extended import build_adaptive_extended_observation
+from .cad_adaptive_extended import (
+    build_adaptive_extended_observation,
+    build_observation_source_ref,
+)
 from .cad_adaptive_extended_repository import CadAdaptiveExtendedRepository
 from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from .cad_constraint_models import CadConstraintSet
@@ -725,14 +728,24 @@ def seed_synthetic_optimization_demo(
     adaptive_extended_repository = CadAdaptiveExtendedRepository(
         extended_repository,
         validation_repository,
+        objective_repository,
     )
     for index, candidate in enumerate(extended_page.candidates):
-        base_x = float(candidate.positions['synthetic-fl']['x_m'])
-        aim_yaw = float(candidate.aim_yaw_deg['synthetic-fl'])
-        predicted = 2.0 + abs(base_x - 1.7) * 1.5 + abs(aim_yaw) / 30.0
-        measured = (
-            predicted + 0.08 + 0.02 * (aim_yaw / 15.0)
-            if index in {0, 4, 8, 12}
+        # #382: the fixture binds each observation to the exact persisted O30
+        # evaluation for the extended candidate's base candidate — the stored
+        # value is the evaluation's own metric, never a fabricated number.
+        predicted_evaluation = predicted_evaluation_by_candidate[
+            candidate.base_candidate_id
+        ]
+        predicted_metric = predicted_evaluation.vector.metric(
+            'response.shape_rms_db'
+        )
+        measured_evaluation = measured_evaluation_by_candidate.get(
+            candidate.base_candidate_id
+        )
+        measured_metric = (
+            measured_evaluation.vector.metric('response.shape_rms_db')
+            if measured_evaluation is not None
             else None
         )
         observation = build_adaptive_extended_observation(
@@ -741,19 +754,23 @@ def seed_synthetic_optimization_demo(
             candidate_id=candidate.candidate_id,
             evidence_scope='synthetic_fixture',
             objective_id='response.shape_rms_db',
-            unit='dB',
-            predicted_value=predicted,
-            prediction_source_kind='synthetic_directional_fixture',
-            prediction_source_id=f'synthetic-ext-pred:{candidate.candidate_id}',
-            measured_value=measured,
-            measurement_source_kind=(
-                'synthetic_measurement_fixture'
-                if measured is not None
-                else None
+            unit=predicted_metric.unit,
+            predicted_value=float(predicted_metric.value),
+            prediction_source=build_observation_source_ref(
+                kind='objective_evaluation',
+                source_id=predicted_evaluation.evaluation_id,
+                source_sha256=predicted_evaluation.evaluation_sha256,
             ),
-            measurement_source_id=(
-                f'synthetic-ext-meas:{candidate.candidate_id}'
-                if measured is not None
+            measured_value=(
+                None if measured_metric is None else float(measured_metric.value)
+            ),
+            measurement_source=(
+                build_observation_source_ref(
+                    kind='objective_evaluation',
+                    source_id=measured_evaluation.evaluation_id,
+                    source_sha256=measured_evaluation.evaluation_sha256,
+                )
+                if measured_evaluation is not None
                 else None
             ),
             created_at_utc=_now(),

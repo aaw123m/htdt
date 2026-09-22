@@ -6,7 +6,10 @@ import pytest
 
 from htdt.cad_adaptive_repository import CadAdaptivePlanRepository
 from htdt.cad_adaptive_service import CadAdaptivePlannerService
-from htdt.cad_adaptive_extended import build_adaptive_extended_observation
+from htdt.cad_adaptive_extended import (
+    build_adaptive_extended_observation,
+    synthetic_observation_source_ref,
+)
 from htdt.cad_adaptive_extended_repository import CadAdaptiveExtendedRepository
 from htdt.cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from htdt.cad_extended_search import generate_extended_candidates
@@ -172,7 +175,7 @@ def test_synthetic_demo_persists_o10_through_o80_without_owned_room_promotion(tm
         result.extended_search_id
     )
     assert len(observations) == 18
-    assert sum(item.measured_value is not None for item in observations) == 4
+    assert sum(item.measured_value is not None for item in observations) == 12
 
     service = CadAdaptivePlannerService(
         search,
@@ -243,11 +246,17 @@ def test_adaptive_extended_observation_supersession_excludes_new_measurement(
         objective_id=target.objective_id,
         unit=target.unit,
         predicted_value=target.predicted_value,
-        prediction_source_kind=target.prediction_source_kind,
-        prediction_source_id=target.prediction_source_id,
+        prediction_source=target.prediction_source,
         measured_value=target.predicted_value + 0.05,
-        measurement_source_kind='synthetic_measurement_fixture',
-        measurement_source_id=f'synthetic-later:{target.candidate_id}',
+        measurement_source=synthetic_observation_source_ref(
+            f'synthetic-later:{target.candidate_id}',
+            {
+                'kind': 'synthetic_measurement_fixture',
+                'candidate_id': target.candidate_id,
+                'objective_id': target.objective_id,
+                'measured_value': target.predicted_value + 0.05,
+            },
+        ),
         supersedes_observation_sha256=target.observation_sha256,
     )
     adaptive_extended_repository.save_observation(replacement)

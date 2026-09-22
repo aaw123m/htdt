@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
 import sqlite3
 import threading
 
@@ -10,6 +11,8 @@ from htdt import cad_adaptive_extended
 from htdt.cad_adaptive_extended import (
     build_adaptive_extended_observation,
     build_adaptive_extended_plan,
+    build_observation_source_ref,
+    synthetic_observation_source_ref,
 )
 from htdt.cad_adaptive_extended_repository import (
     AdaptiveObservationConflictError,
@@ -34,7 +37,12 @@ def _seeded(tmp_path):
     search = CadSearchRepository(scene_repository)
     measurements = CadMeasurementRepository(scene_repository)
     roomsim = CadRoomSimRepository(scene_repository, search)
-    objectives = CadObjectiveRepository(scene_repository, search)
+    objectives = CadObjectiveRepository(
+        scene_repository,
+        search,
+        measurement_repository=measurements,
+        roomsim_repository=roomsim,
+    )
     validation = CadModelValidationRepository(
         search,
         roomsim,
@@ -42,7 +50,11 @@ def _seeded(tmp_path):
         objectives,
     )
     extended = CadExtendedSearchRepository(search, validation)
-    adaptive_extended = CadAdaptiveExtendedRepository(extended, validation)
+    adaptive_extended = CadAdaptiveExtendedRepository(
+        extended,
+        validation,
+        objectives,
+    )
     return (
         scene_repository,
         result,
@@ -50,6 +62,13 @@ def _seeded(tmp_path):
         validation,
         extended,
         adaptive_extended,
+    )
+
+
+def _synthetic_ref(source_id: str, **fields):
+    return synthetic_observation_source_ref(
+        source_id,
+        {'source_id': source_id, **fields},
     )
 
 
@@ -81,11 +100,12 @@ def _supersede_first_predicted(
         objective_id=target.objective_id,
         unit=target.unit,
         predicted_value=target.predicted_value,
-        prediction_source_kind=target.prediction_source_kind,
-        prediction_source_id=target.prediction_source_id,
+        prediction_source=target.prediction_source,
         measured_value=target.predicted_value + 0.05,
-        measurement_source_kind='synthetic_measurement_fixture',
-        measurement_source_id=f'synthetic-later:{target.candidate_id}',
+        measurement_source=_synthetic_ref(
+            f'synthetic-later:{target.candidate_id}',
+            role='measurement',
+        ),
         supersedes_observation_sha256=target.observation_sha256,
     )
     adaptive_extended.save_observation(replacement)
@@ -109,11 +129,12 @@ def _measured_successor(
         objective_id=target.objective_id,
         unit=target.unit,
         predicted_value=target.predicted_value,
-        prediction_source_kind=target.prediction_source_kind,
-        prediction_source_id=target.prediction_source_id,
+        prediction_source=target.prediction_source,
         measured_value=target.predicted_value + 0.09,
-        measurement_source_kind='synthetic_measurement_fixture',
-        measurement_source_id=f'synthetic-{source_tag}:{target.candidate_id}',
+        measurement_source=_synthetic_ref(
+            f'synthetic-{source_tag}:{target.candidate_id}',
+            role='measurement',
+        ),
         supersedes_observation_sha256=target.observation_sha256,
     )
 
@@ -527,8 +548,10 @@ def test_save_observation_root_rules_unchanged(tmp_path):
         objective_id=target.objective_id,
         unit=target.unit,
         predicted_value=target.predicted_value,
-        prediction_source_kind=target.prediction_source_kind,
-        prediction_source_id=f'synthetic-second-root:{target.candidate_id}',
+        prediction_source=_synthetic_ref(
+            f'synthetic-second-root:{target.candidate_id}',
+            role='prediction',
+        ),
     )
     with pytest.raises(
         AdaptiveObservationConflictError,
@@ -536,7 +559,9 @@ def test_save_observation_root_rules_unchanged(tmp_path):
     ):
         adaptive_extended.save_observation(second_root)
 
-    # The first record of a fresh key must not claim a predecessor.
+    # The first record of a fresh key must not claim a predecessor. A
+    # declared-only synthetic source is used so the supersession rule —
+    # not source resolution — is the boundary under test.
     orphan = build_adaptive_extended_observation(
         extended_spec=spec,
         candidate_set_sha256=result.extended_candidate_set_sha256,
@@ -545,8 +570,10 @@ def test_save_observation_root_rules_unchanged(tmp_path):
         objective_id='unwritten_objective',
         unit=target.unit,
         predicted_value=target.predicted_value,
-        prediction_source_kind=target.prediction_source_kind,
-        prediction_source_id=target.prediction_source_id,
+        prediction_source=_synthetic_ref(
+            f'synthetic-orphan:{target.candidate_id}',
+            role='prediction',
+        ),
         supersedes_observation_sha256='a' * 64,
     )
     with pytest.raises(
@@ -709,4 +736,297 @@ def test_list_observations_rejects_column_payload_drift(tmp_path):
             ('f' * 64, replacement.observation_id),
         )
     with pytest.raises(ValueError, match='disagrees with its payload'):
+        adaptive_extended.list_observations(result.extended_search_id)
+
+
+def _objectives_repo(scene_repository, search):
+    """Fully wired O30 repository over the same native database."""
+
+    return CadObjectiveRepository(
+        scene_repository,
+        search,
+        measurement_repository=CadMeasurementRepository(scene_repository),
+        roomsim_repository=CadRoomSimRepository(scene_repository, search),
+    )
+
+
+def test_observation_source_binds_exact_objective_evaluation(tmp_path):
+    """#382: a stored value must equal the resolved source metric exactly."""
+    (
+        scene_repository,
+        result,
+        search,
+        _validation,
+        extended,
+        adaptive_extended,
+    ) = _seeded(tmp_path)
+    objectives = _objectives_repo(scene_repository, search)
+    spec = extended.get_spec(result.extended_search_id)
+    assert spec is not None
+    current = adaptive_extended.current_observations(result.extended_search_id)
+    target = next(item for item in current if item.measured_value is None)
+    ref = target.prediction_source
+    assert ref.kind == 'objective_evaluation'
+    assert objectives.get_evaluation(ref.source_id) is not None
+
+    # An exact supersession bound to the same evaluation persists.
+    valid = build_adaptive_extended_observation(
+        extended_spec=spec,
+        candidate_set_sha256=result.extended_candidate_set_sha256,
+        candidate_id=target.candidate_id,
+        evidence_scope='synthetic_fixture',
+        objective_id=target.objective_id,
+        unit=target.unit,
+        predicted_value=target.predicted_value,
+        prediction_source=ref,
+        supersedes_observation_sha256=target.observation_sha256,
+    )
+    adaptive_extended.save_observation(valid)
+    head_sha = valid.observation_sha256
+
+    def forged(**overrides):
+        fields = dict(
+            extended_spec=spec,
+            candidate_set_sha256=result.extended_candidate_set_sha256,
+            candidate_id=target.candidate_id,
+            evidence_scope='synthetic_fixture',
+            objective_id=target.objective_id,
+            unit=target.unit,
+            predicted_value=target.predicted_value,
+            prediction_source=ref,
+            supersedes_observation_sha256=head_sha,
+        )
+        fields.update(overrides)
+        return build_adaptive_extended_observation(**fields)
+
+    # A real evaluation id carrying a fabricated value is rejected.
+    with pytest.raises(
+        ValueError, match='does not equal the stored observation metric'
+    ):
+        adaptive_extended.save_observation(
+            forged(predicted_value=target.predicted_value + 0.5)
+        )
+
+    # The same evaluation under a fabricated hash is rejected.
+    with pytest.raises(ValueError, match='source hash mismatch'):
+        adaptive_extended.save_observation(
+            forged(
+                prediction_source=build_observation_source_ref(
+                    kind='objective_evaluation',
+                    source_id=ref.source_id,
+                    source_sha256='0' * 64,
+                )
+            )
+        )
+
+    # A source that does not resolve to persisted evidence is rejected.
+    with pytest.raises(ValueError, match='does not resolve'):
+        adaptive_extended.save_observation(
+            forged(
+                prediction_source=build_observation_source_ref(
+                    kind='objective_evaluation',
+                    source_id='missing-evaluation',
+                    source_sha256='0' * 64,
+                )
+            )
+        )
+
+    # A declared unit the source metric does not carry is rejected.
+    with pytest.raises(ValueError, match='unit mismatch'):
+        adaptive_extended.save_observation(forged(unit='dBSPL'))
+
+    # An objective the source vector does not report is rejected.
+    with pytest.raises(ValueError, match='does not report objective'):
+        adaptive_extended.save_observation(
+            forged(objective_id='unwritten_objective')
+        )
+
+    # The prediction evaluation carries no measured evidence, so it cannot
+    # back a measured claim either.
+    with pytest.raises(ValueError, match='carries no measured evidence'):
+        adaptive_extended.save_observation(
+            forged(
+                measured_value=target.predicted_value,
+                measurement_source=ref,
+            )
+        )
+
+    # An evaluation recorded for a different base candidate cannot back this
+    # observation even when every other field is exact.
+    search_spec = search.get(result.search_spec_id)
+    page = generate_extended_candidates(
+        scene_repository,
+        search_spec,
+        spec,
+        limit=500,
+    )
+    base_by_id = {
+        candidate.candidate_id: candidate.base_candidate_id
+        for candidate in page.candidates
+    }
+    other = next(
+        item
+        for item in current
+        if base_by_id[item.candidate_id] != base_by_id[target.candidate_id]
+    )
+    with pytest.raises(ValueError, match='different candidate'):
+        adaptive_extended.save_observation(
+            forged(prediction_source=other.prediction_source)
+        )
+
+    # A measured claim whose value diverges from the bound evaluation metric
+    # is rejected even though the source is a valid measured evaluation.
+    measured_target = next(
+        item for item in current if item.measured_value is not None
+    )
+    with pytest.raises(
+        ValueError, match='does not equal the stored observation metric'
+    ):
+        adaptive_extended.save_observation(
+            build_adaptive_extended_observation(
+                extended_spec=spec,
+                candidate_set_sha256=result.extended_candidate_set_sha256,
+                candidate_id=measured_target.candidate_id,
+                evidence_scope='synthetic_fixture',
+                objective_id=measured_target.objective_id,
+                unit=measured_target.unit,
+                predicted_value=measured_target.predicted_value,
+                prediction_source=measured_target.prediction_source,
+                measured_value=measured_target.measured_value + 0.5,
+                measurement_source=measured_target.measurement_source,
+                supersedes_observation_sha256=(
+                    measured_target.observation_sha256
+                ),
+            )
+        )
+
+
+def test_synthetic_source_cannot_back_owned_room_evidence(tmp_path):
+    """#382: a declared fixture claim cannot pose as owned-room evidence."""
+    (
+        _scene_repository,
+        result,
+        _search,
+        _validation,
+        extended,
+        adaptive_extended,
+    ) = _seeded(tmp_path)
+    spec = extended.get_spec(result.extended_search_id)
+    assert spec is not None
+    current = adaptive_extended.current_observations(result.extended_search_id)
+    target = current[0]
+    observation = build_adaptive_extended_observation(
+        extended_spec=spec,
+        candidate_set_sha256=result.extended_candidate_set_sha256,
+        candidate_id=target.candidate_id,
+        evidence_scope='owned_room',
+        objective_id=target.objective_id,
+        unit=target.unit,
+        predicted_value=target.predicted_value,
+        prediction_source=_synthetic_ref(
+            f'claimed-owned-room:{target.candidate_id}',
+            role='prediction',
+        ),
+        supersedes_observation_sha256=target.observation_sha256,
+    )
+    # The capability scope boundary rejects it before source resolution;
+    # the resolver guard itself is verified directly as defense in depth.
+    with pytest.raises(ValueError, match='scope does not match capability'):
+        adaptive_extended.save_observation(observation)
+    with pytest.raises(ValueError, match='cannot back owned-room'):
+        adaptive_extended._validate_observation_sources(
+            observation,
+            'any-base-candidate',
+        )
+
+
+def test_observation_authority_replays_after_restart(tmp_path):
+    """#382: reads re-resolve the exact source binding, never stored labels."""
+    db_path = tmp_path / 'cad.sqlite3'
+    (
+        _scene_repository,
+        result,
+        _search,
+        _validation,
+        _extended,
+        adaptive_extended,
+    ) = _seeded(tmp_path)
+    before = adaptive_extended.current_observations(result.extended_search_id)
+    assert before
+
+    scene_repository = SceneRepository(db_path)
+    search = CadSearchRepository(scene_repository)
+    measurements = CadMeasurementRepository(scene_repository)
+    roomsim = CadRoomSimRepository(scene_repository, search)
+    objectives = CadObjectiveRepository(
+        scene_repository,
+        search,
+        measurement_repository=measurements,
+        roomsim_repository=roomsim,
+    )
+    validation = CadModelValidationRepository(
+        search,
+        roomsim,
+        measurements,
+        objectives,
+    )
+    extended = CadExtendedSearchRepository(search, validation)
+    reopened = CadAdaptiveExtendedRepository(extended, validation, objectives)
+    after = reopened.current_observations(result.extended_search_id)
+    assert after == before
+    assert all(
+        item.prediction_source.kind == 'objective_evaluation' for item in after
+    )
+
+
+def test_observation_fails_closed_when_source_evidence_is_tampered(tmp_path):
+    """#382: deleting referenced authority invalidates the observation."""
+    (
+        scene_repository,
+        result,
+        _search,
+        _validation,
+        _extended,
+        adaptive_extended,
+    ) = _seeded(tmp_path)
+    current = adaptive_extended.current_observations(result.extended_search_id)
+    target = current[0]
+    evaluation_id = target.prediction_source.source_id
+    with closing(
+        sqlite3.connect(scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_objective_evaluations WHERE evaluation_id=?',
+            (evaluation_id,),
+        )
+    with pytest.raises(ValueError, match='does not resolve'):
+        adaptive_extended.get_observation(target.observation_id)
+
+
+def test_pre382_observation_rows_fail_closed(tmp_path):
+    """Rows written before typed source refs cannot prove authority."""
+    (
+        scene_repository,
+        result,
+        _search,
+        _validation,
+        _extended,
+        adaptive_extended,
+    ) = _seeded(tmp_path)
+    current = adaptive_extended.current_observations(result.extended_search_id)
+    target = next(item for item in current if item.measured_value is None)
+    legacy = target.model_dump(mode='json')
+    legacy['prediction_source_kind'] = 'synthetic_directional_fixture'
+    legacy['prediction_source_id'] = 'legacy-untyped-source'
+    del legacy['prediction_source']
+    del legacy['measurement_source']
+    with closing(
+        sqlite3.connect(scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            'UPDATE cad_adaptive_extended_observations '
+            'SET payload_json=? WHERE observation_id=?',
+            (json.dumps(legacy), target.observation_id),
+        )
+    with pytest.raises(ValueError, match='pre-#382'):
         adaptive_extended.list_observations(result.extended_search_id)

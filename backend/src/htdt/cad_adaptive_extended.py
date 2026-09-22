@@ -55,6 +55,63 @@ def adaptive_extended_timestamp_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+AdaptiveObservationSourceKind = Literal[
+    'objective_evaluation',
+    'synthetic_fixture',
+]
+
+
+class CadAdaptiveObservationSourceRef(BaseModel):
+    """Typed exact source ref for one O80A observation value (#382).
+
+    ``objective_evaluation`` names a persisted O30
+    ``CadObjectiveEvaluation`` by id plus its exact ``evaluation_sha256``;
+    the repository resolves it and requires the referenced metric to
+    reproduce the observation's candidate/objective/unit/value and to carry
+    an input ref of the required evidence class (``predicted`` for the
+    prediction source, ``measured`` for the measurement source — the latter
+    transitively binds the dataset/provenance authority O30 already
+    replays).
+
+    ``synthetic_fixture`` is a declared-only development ref: it never
+    resolves to persisted production evidence and is rejected outside
+    ``synthetic_fixture`` observation scope, so an arbitrary source string
+    can no longer be labeled owned-room.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: AdaptiveObservationSourceKind
+    source_id: str = Field(min_length=1)
+    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+def build_observation_source_ref(
+    *,
+    kind: AdaptiveObservationSourceKind,
+    source_id: str,
+    source_sha256: str,
+) -> CadAdaptiveObservationSourceRef:
+    return CadAdaptiveObservationSourceRef(
+        kind=kind,
+        source_id=source_id,
+        source_sha256=source_sha256,
+    )
+
+
+def synthetic_observation_source_ref(
+    source_id: str,
+    descriptor: Any,
+) -> CadAdaptiveObservationSourceRef:
+    """Declared-only development ref pinned to a deterministic descriptor."""
+
+    return CadAdaptiveObservationSourceRef(
+        kind='synthetic_fixture',
+        source_id=source_id,
+        source_sha256=_digest(descriptor),
+    )
+
+
 class CadAdaptiveExtendedObservation(BaseModel):
     """Immutable objective evidence for one exact extended candidate."""
 
@@ -70,10 +127,8 @@ class CadAdaptiveExtendedObservation(BaseModel):
     unit: str = Field(min_length=1)
     predicted_value: float
     measured_value: float | None = None
-    prediction_source_kind: str = Field(min_length=1)
-    prediction_source_id: str = Field(min_length=1)
-    measurement_source_kind: str | None = Field(default=None, min_length=1)
-    measurement_source_id: str | None = Field(default=None, min_length=1)
+    prediction_source: CadAdaptiveObservationSourceRef
+    measurement_source: CadAdaptiveObservationSourceRef | None = None
     supersedes_observation_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     observation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     created_at_utc: str = Field(min_length=1)
@@ -84,13 +139,9 @@ class CadAdaptiveExtendedObservation(BaseModel):
             raise ValueError('extended adaptive predicted value must be finite')
         if self.measured_value is not None and not isfinite(float(self.measured_value)):
             raise ValueError('extended adaptive measured value must be finite')
-        measured_refs = (
-            self.measurement_source_kind is not None,
-            self.measurement_source_id is not None,
-        )
-        if self.measured_value is None and any(measured_refs):
+        if self.measured_value is None and self.measurement_source is not None:
             raise ValueError('predicted-only extended evidence must not claim measurement source')
-        if self.measured_value is not None and not all(measured_refs):
+        if self.measured_value is not None and self.measurement_source is None:
             raise ValueError('measured extended evidence requires measurement source')
         if self.observation_sha256 != _digest(self.identity_payload()):
             raise ValueError('extended adaptive observation identity hash mismatch')
@@ -107,10 +158,12 @@ class CadAdaptiveExtendedObservation(BaseModel):
             'unit': self.unit,
             'predicted_value': self.predicted_value,
             'measured_value': self.measured_value,
-            'prediction_source_kind': self.prediction_source_kind,
-            'prediction_source_id': self.prediction_source_id,
-            'measurement_source_kind': self.measurement_source_kind,
-            'measurement_source_id': self.measurement_source_id,
+            'prediction_source': self.prediction_source.model_dump(mode='json'),
+            'measurement_source': (
+                None
+                if self.measurement_source is None
+                else self.measurement_source.model_dump(mode='json')
+            ),
             'supersedes_observation_sha256': self.supersedes_observation_sha256,
         }
 
@@ -124,11 +177,9 @@ def build_adaptive_extended_observation(
     objective_id: str,
     unit: str,
     predicted_value: float,
-    prediction_source_kind: str,
-    prediction_source_id: str,
+    prediction_source: CadAdaptiveObservationSourceRef,
     measured_value: float | None = None,
-    measurement_source_kind: str | None = None,
-    measurement_source_id: str | None = None,
+    measurement_source: CadAdaptiveObservationSourceRef | None = None,
     supersedes_observation_sha256: str | None = None,
     created_at_utc: str | None = None,
 ) -> CadAdaptiveExtendedObservation:
@@ -142,10 +193,12 @@ def build_adaptive_extended_observation(
         'unit': unit,
         'predicted_value': float(predicted_value),
         'measured_value': None if measured_value is None else float(measured_value),
-        'prediction_source_kind': prediction_source_kind,
-        'prediction_source_id': prediction_source_id,
-        'measurement_source_kind': measurement_source_kind,
-        'measurement_source_id': measurement_source_id,
+        'prediction_source': prediction_source.model_dump(mode='json'),
+        'measurement_source': (
+            None
+            if measurement_source is None
+            else measurement_source.model_dump(mode='json')
+        ),
         'supersedes_observation_sha256': supersedes_observation_sha256,
     }
     return CadAdaptiveExtendedObservation(

@@ -135,6 +135,7 @@ class OptimizationWorkspaceWindow(
         self.adaptive_extended_repository = CadAdaptiveExtendedRepository(
             self.extended_repository,
             self.validation_repository,
+            self.objective_repository,
         )
         self.adaptive_extended_service = CadAdaptiveExtendedPlannerService(
             self.extended_repository,
