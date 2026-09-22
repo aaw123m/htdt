@@ -454,38 +454,81 @@ class CadAcousticTreatmentRepository:
             evaluated_revision_id=evaluated_revision_id,
         )
 
+    _PLACEMENT_ROW_COLUMNS = (
+        'instance_id, placement_version, lifecycle, '
+        'definition_id, definition_version, definition_sha256, '
+        'document_id, scene_revision_id, system_variant_id, '
+        'placement_sha256, previous_placement_sha256, payload_json'
+    )
+
     def _decode_placement(self, payload_json: str) -> AcousticTreatmentPlacement:
-        placement = AcousticTreatmentPlacement.model_validate_json(payload_json)
-        definition = self.get_definition(
-            placement.definition_id,
-            placement.definition_version,
-        )
+        """Lower-level raw decode: schema validation plus self-hash integrity.
+
+        No external authority is resolved here on purpose: predecessor rows
+        are loaded through this decode while replaying lineage, and full
+        definition/scene/variant/lineage authority is revalidated separately
+        by :meth:`_validate_placement_authority` on every authoritative read.
+        """
+        return AcousticTreatmentPlacement.model_validate_json(payload_json)
+
+    def _placement_row(
+        self,
+        instance_id: str,
+        placement_version: int,
+    ) -> sqlite3.Row | None:
+        with closing(self._connect()) as connection, connection:
+            return connection.execute(
+                f'SELECT {self._PLACEMENT_ROW_COLUMNS} '
+                'FROM cad_acoustic_treatment_placements '
+                'WHERE instance_id=? AND placement_version=?',
+                (instance_id, placement_version),
+            ).fetchone()
+
+    @staticmethod
+    def _check_placement_row_identity(
+        placement: AcousticTreatmentPlacement,
+        row: sqlite3.Row,
+    ) -> None:
+        """Fail closed when a persisted payload disagrees with its indexed columns."""
         if (
-            definition is None
-            or definition.definition_sha256 != placement.definition_sha256
+            placement.instance_id != row['instance_id']
+            or placement.placement_version != row['placement_version']
+            or placement.lifecycle != row['lifecycle']
+            or placement.definition_id != row['definition_id']
+            or placement.definition_version != row['definition_version']
+            or placement.definition_sha256 != row['definition_sha256']
+            or placement.document_id != row['document_id']
+            or placement.scene_revision_id != row['scene_revision_id']
+            or placement.system_variant_id != row['system_variant_id']
+            or placement.placement_sha256 != row['placement_sha256']
+            or placement.previous_placement_sha256
+            != row['previous_placement_sha256']
         ):
-            raise ValueError(
-                'persisted treatment placement references an invalid '
-                'definition authority'
-            )
-        revision = self.scene_repository.get(placement.scene_revision_id)
-        if (
-            placement.host_surface_id is not None
-            and revision is not None
-            and revision.document.r120_semantic_geometry is not None
-        ):
-            evaluation = self.evaluate_placement_surface_binding(placement)
-            if not evaluation.placement_authority_valid:
-                raise ValueError(
-                    'persisted treatment placement semantic host binding is invalid: '
-                    f'{evaluation.binding_state}'
-                )
+            raise ValueError('persisted treatment placement identity mismatch')
+
+    def _decode_placement_row(self, row: sqlite3.Row) -> AcousticTreatmentPlacement:
+        placement = self._decode_placement(row['payload_json'])
+        self._check_placement_row_identity(placement, row)
         return placement
 
-    def _validate_placement_authority(
+    def _read_placement_row(self, row: sqlite3.Row) -> AcousticTreatmentPlacement:
+        """Authoritative read of one persisted row: decode, identity check,
+        then full definition/scene/variant/lineage authority replay."""
+        placement = self._decode_placement_row(row)
+        self._validate_placement_authority(placement)
+        return placement
+
+    def _validate_placement_local_authority(
         self,
         placement: AcousticTreatmentPlacement,
     ) -> None:
+        """Re-resolve every external authority one placement version claims.
+
+        The exact AcousticTreatmentDefinition, the exact SceneRevision
+        (document/content hash), the semantic host-surface binding and the
+        optional SystemVariant (id/hash/baseline relation) are all reloaded
+        and compared; missing or mismatched authority fails closed.
+        """
         definition = self.get_definition(
             placement.definition_id,
             placement.definition_version,
@@ -534,34 +577,72 @@ class CadAcousticTreatmentRepository:
             ):
                 raise ValueError('proposed treatment placement baseline is not exact')
 
-        if placement.placement_version == 1:
-            if (
-                placement.previous_placement_version is not None
-                or placement.previous_placement_sha256 is not None
-            ):
-                raise ValueError('first treatment placement version cannot have lineage')
-            return
+    def _validate_placement_authority(
+        self,
+        placement: AcousticTreatmentPlacement,
+    ) -> None:
+        """Replay full placement authority, including lineage, fail closed.
 
-        previous = self.get_placement(
-            placement.instance_id,
-            placement.placement_version - 1,
-        )
-        if previous is None:
-            raise ValueError('treatment placement prior lineage does not exist')
-        if previous.placement_sha256 != placement.previous_placement_sha256:
-            raise ValueError('treatment placement prior lineage hash mismatch')
-        if (
-            previous.instance_id != placement.instance_id
-            or previous.definition_id != placement.definition_id
-            or previous.definition_version != placement.definition_version
-            or previous.definition_sha256 != placement.definition_sha256
-            or previous.document_id != placement.document_id
-        ):
-            raise ValueError('treatment placement lineage changed immutable authority')
-        if previous.lifecycle == 'installed':
-            raise ValueError('installed treatment placement is terminal')
-        if placement.lifecycle not in {'proposed', 'installed'}:
-            raise ValueError('unsupported treatment lifecycle transition')
+        Each version's local authority is revalidated, then the exact
+        previous-version chain is walked iteratively: predecessor rows are
+        loaded through the lower-level raw decode (never through the
+        authoritative read path, avoiding recursive read ambiguity) and every
+        ancestor is revalidated in turn. Version/cycle guards bound the walk
+        and an ``installed`` terminal predecessor rejects any later version.
+        """
+        visited: set[tuple[str, int]] = set()
+        current = placement
+        while True:
+            key = (current.instance_id, current.placement_version)
+            if key in visited:
+                raise ValueError('treatment placement lineage cycle detected')
+            visited.add(key)
+
+            self._validate_placement_local_authority(current)
+
+            if current.placement_version == 1:
+                if (
+                    current.previous_placement_version is not None
+                    or current.previous_placement_sha256 is not None
+                ):
+                    raise ValueError(
+                        'first treatment placement version cannot have lineage'
+                    )
+                return
+
+            if (
+                current.previous_placement_version != current.placement_version - 1
+                or current.previous_placement_sha256 is None
+            ):
+                raise ValueError(
+                    'treatment placement lineage must reference the '
+                    'immediately prior version'
+                )
+
+            row = self._placement_row(
+                current.instance_id,
+                current.previous_placement_version,
+            )
+            if row is None:
+                raise ValueError('treatment placement prior lineage does not exist')
+            previous = self._decode_placement_row(row)
+            if previous.placement_sha256 != current.previous_placement_sha256:
+                raise ValueError('treatment placement prior lineage hash mismatch')
+            if (
+                previous.instance_id != current.instance_id
+                or previous.definition_id != current.definition_id
+                or previous.definition_version != current.definition_version
+                or previous.definition_sha256 != current.definition_sha256
+                or previous.document_id != current.document_id
+            ):
+                raise ValueError(
+                    'treatment placement lineage changed immutable authority'
+                )
+            if previous.lifecycle == 'installed':
+                raise ValueError('installed treatment placement is terminal')
+            if current.lifecycle not in {'proposed', 'installed'}:
+                raise ValueError('unsupported treatment lifecycle transition')
+            current = previous
 
     def save_placement(
         self,
@@ -582,6 +663,7 @@ class CadAcousticTreatmentRepository:
             return existing
 
         with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
             connection.execute(
                 """
                 INSERT INTO cad_acoustic_treatment_placements(
@@ -613,15 +695,10 @@ class CadAcousticTreatmentRepository:
         instance_id: str,
         placement_version: int,
     ) -> AcousticTreatmentPlacement | None:
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT payload_json FROM cad_acoustic_treatment_placements '
-                'WHERE instance_id=? AND placement_version=?',
-                (instance_id, placement_version),
-            ).fetchone()
+        row = self._placement_row(instance_id, placement_version)
         if row is None:
             return None
-        return self._decode_placement(row['payload_json'])
+        return self._read_placement_row(row)
 
     def latest_placement(
         self,
@@ -629,13 +706,14 @@ class CadAcousticTreatmentRepository:
     ) -> AcousticTreatmentPlacement | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_acoustic_treatment_placements '
+                f'SELECT {self._PLACEMENT_ROW_COLUMNS} '
+                'FROM cad_acoustic_treatment_placements '
                 'WHERE instance_id=? ORDER BY placement_version DESC LIMIT 1',
                 (instance_id,),
             ).fetchone()
         if row is None:
             return None
-        return self._decode_placement(row['payload_json'])
+        return self._read_placement_row(row)
 
     def list_placements_for_scene(
         self,
@@ -643,11 +721,12 @@ class CadAcousticTreatmentRepository:
     ) -> tuple[AcousticTreatmentPlacement, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_acoustic_treatment_placements '
+                f'SELECT {self._PLACEMENT_ROW_COLUMNS} '
+                'FROM cad_acoustic_treatment_placements '
                 'WHERE scene_revision_id=? ORDER BY seq ASC',
                 (scene_revision_id,),
             ).fetchall()
-        return tuple(self._decode_placement(row['payload_json']) for row in rows)
+        return tuple(self._read_placement_row(row) for row in rows)
 
     def list_placements_for_variant(
         self,
@@ -655,8 +734,9 @@ class CadAcousticTreatmentRepository:
     ) -> tuple[AcousticTreatmentPlacement, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_acoustic_treatment_placements '
+                f'SELECT {self._PLACEMENT_ROW_COLUMNS} '
+                'FROM cad_acoustic_treatment_placements '
                 'WHERE system_variant_id=? ORDER BY seq ASC',
                 (system_variant_id,),
             ).fetchall()
-        return tuple(self._decode_placement(row['payload_json']) for row in rows)
+        return tuple(self._read_placement_row(row) for row in rows)
