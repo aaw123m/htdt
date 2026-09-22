@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication
 from htdt.cad_constraint_models import CadConstraintSet, CadWallClearanceConstraint
 from htdt.cad_measurement_loop import CadMeasurementPlan, build_measurement_plan
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID
+from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene
 from htdt.cad_search import (
     build_cad_search_spec,
     candidate_preview_document,
@@ -74,6 +74,8 @@ def _planned_measurement_plan(
 def test_editor_rew_read_binds_current_constraint_workspace(tmp_path: Path, monkeypatch) -> None:
     app = _app()
     repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    # #627: the F1 fixture is explicit test content now, never auto-seeded.
+    repository.save(make_f1_scene(), parent_revision_id=None)
     window = MeasurementEditorWindow(repository, F1_DOCUMENT_ID)
     window.selected_id = 'point-mlp'
     window.rew_combo.addItem('REW A', 'rew-uuid-1')
@@ -104,6 +106,7 @@ def test_editor_rew_read_binds_current_constraint_workspace(tmp_path: Path, monk
 def test_optimization_rew_read_binds_current_constraint_workspace(tmp_path: Path, monkeypatch) -> None:
     app = _app()
     repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    repository.save(make_f1_scene(), parent_revision_id=None)
     controller = OptimizationWorkflowController(repository, F1_DOCUMENT_ID)
     revision = repository.latest(F1_DOCUMENT_ID)
     assert revision is not None

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 
 import htdt.workflow_application as workflow_application
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID, is_unassigned_speaker_role, room_vertices
+from htdt.cad_scene import F1_DOCUMENT_ID, is_unassigned_speaker_role, make_f1_scene, room_vertices
 from htdt.command_registry import CommandRegistry, register_default_commands
 from htdt.native_editor import NativeEditorWindow
 from htdt.room_geometry_input import RoomGeometryInputController
@@ -83,6 +83,8 @@ def _room_composition(repository: SceneRepository, monkeypatch) -> object:
             viewport_factory=lambda parent: FakeRoomViewport(parent),
         ),
     )
+    # #627: the F1 fixture is explicit test content now, never auto-seeded.
+    repository.save(make_f1_scene(), parent_revision_id=None)
     composition = object.__new__(workflow_application.WorkflowApplicationComposition)
     composition.repository = repository
     composition.document_id = F1_DOCUMENT_ID
@@ -92,6 +94,8 @@ def _room_composition(repository: SceneRepository, monkeypatch) -> object:
 
 
 def _room_workspace(repository: SceneRepository) -> RoomWorkspace:
+    # #627: the F1 fixture is explicit test content now, never auto-seeded.
+    repository.save(make_f1_scene(), parent_revision_id=None)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -332,6 +336,7 @@ def test_pending_commit_creates_single_undo_entry(tmp_path) -> None:
 def test_native_editor_save_commits_focused_position_field(tmp_path) -> None:
     app = _app()
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
     window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
     window.show()
     app.processEvents()

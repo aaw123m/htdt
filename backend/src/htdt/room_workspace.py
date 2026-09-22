@@ -36,7 +36,6 @@ from .cad_objects import (
 from .cad_orientation_constraints import entity_collision_geometry_authority
 from .cad_repository import RecoverySnapshot, SceneRepository
 from .cad_scene import (
-    F1_DOCUMENT_ID,
     PHYSICAL_ENTITY_KINDS,
     BodyGeometryKind,
     BodyMeshAsset,
@@ -52,7 +51,6 @@ from .cad_scene import (
     Size3,
     is_unassigned_speaker_role,
     make_empty_scene,
-    make_f1_scene,
     next_unassigned_speaker_role,
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
@@ -206,12 +204,14 @@ class RoomWorkspaceController:
     def _load_latest_or_seed(self) -> None:
         revision = self.repository.current_head(self.document_id)
         if revision is None:
-            seed = (
-                make_f1_scene()
-                if self.document_id == F1_DOCUMENT_ID
-                else make_empty_scene(self.document_id)
-            )
-            revision = self.repository.save(seed, parent_revision_id=None).revision
+            # A previously unseen document identity starts empty. No document
+            # id — including the legacy F1 default — implicitly selects the
+            # synthetic fixture; demo content only exists through the explicit
+            # development seed path (#627).
+            revision = self.repository.save(
+                make_empty_scene(self.document_id),
+                parent_revision_id=None,
+            ).revision
         self.working = TheaterWorkingDocument(
             revision.document,
             source_revision_id=revision.revision_id,

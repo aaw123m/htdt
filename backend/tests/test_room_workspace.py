@@ -37,6 +37,18 @@ def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
+def _f1_repository(tmp_path) -> SceneRepository:
+    """Repository where the F1 fixture content was persisted explicitly.
+
+    Since #627 the F1 document id no longer auto-seeds synthetic content, so
+    tests exercising the fixture scene save it themselves.
+    """
+
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    return repository
+
+
 class FakeRoomViewport(QFrame):
     entitySelected = Signal(object)
 
@@ -119,7 +131,7 @@ class TransformFakeViewport(GeometryFakeViewport):
 
 
 def test_room_controller_reuses_repository_working_document_and_recovery(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     original = repository.latest(F1_DOCUMENT_ID)
     assert original is not None
@@ -151,7 +163,7 @@ def test_room_controller_reuses_repository_working_document_and_recovery(tmp_pat
 
 
 def test_room_controller_assigns_distinct_unassigned_roles_to_new_speakers(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
 
     first = controller.add_object("speaker")
@@ -169,7 +181,7 @@ def test_room_controller_assigns_distinct_unassigned_roles_to_new_speakers(tmp_p
 
 
 def test_room_controller_role_edit_accepts_choice_and_returns_to_unassigned(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     added = controller.add_object("speaker")
     controller.set_selection(added.entity_id)
@@ -208,7 +220,7 @@ def test_room_controller_role_edit_accepts_choice_and_returns_to_unassigned(tmp_
 
 
 def test_room_controller_opens_with_default_view_state_when_row_corrupt(tmp_path, caplog) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     controller.set_selection("speaker-fl")
     original = repository.latest(F1_DOCUMENT_ID)
@@ -238,7 +250,7 @@ def test_room_controller_opens_with_default_view_state_when_row_corrupt(tmp_path
 
 
 def test_room_controller_sanitizes_stale_entity_ids_in_valid_view_state(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     original = repository.latest(F1_DOCUMENT_ID)
     assert original is not None
@@ -261,7 +273,7 @@ def test_room_controller_sanitizes_stale_entity_ids_in_valid_view_state(tmp_path
 
 
 def test_room_controller_deactivation_fails_closed_during_preview(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     entity_id = controller.document.entities[0].entity_id
 
@@ -277,7 +289,7 @@ def test_room_controller_deactivation_fails_closed_during_preview(tmp_path) -> N
 
 
 def test_room_controller_deactivation_blocks_dirty_and_recovery(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
 
     controller.add_object("seat")
@@ -300,7 +312,7 @@ def test_room_controller_deactivation_blocks_dirty_and_recovery(tmp_path) -> Non
 
 def test_room_workspace_is_component_composition_and_contextual(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -342,7 +354,7 @@ def test_room_workspace_is_component_composition_and_contextual(tmp_path) -> Non
 
 def test_room_workspace_mount_matches_ux110_shell_contract(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     mount = build_room_workspace_mount(
         repository,
         F1_DOCUMENT_ID,
@@ -370,7 +382,7 @@ def test_room_workspace_mount_matches_ux110_shell_contract(tmp_path) -> None:
 
 def test_room_geometry_sketch_commits_through_working_document_and_recovery(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -409,7 +421,7 @@ def test_room_geometry_sketch_commits_through_working_document_and_recovery(tmp_
 
 def test_room_move_preview_is_visible_and_commits_as_one_undoable_command(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -450,7 +462,7 @@ def test_room_move_preview_is_visible_and_commits_as_one_undoable_command(tmp_pa
 
 def test_room_rotate_respects_axis_constraint_and_escape_cancels(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -483,7 +495,7 @@ def test_room_rotate_respects_axis_constraint_and_escape_cancels(tmp_path) -> No
 
 def test_room_geometry_midpoint_split_preserves_opening_references_and_undo(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -542,7 +554,7 @@ def test_room_geometry_midpoint_split_preserves_opening_references_and_undo(tmp_
 
 def test_room_numeric_edge_edit_fails_closed_when_opening_would_exceed_wall(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -587,7 +599,7 @@ def test_room_numeric_edge_edit_fails_closed_when_opening_would_exceed_wall(tmp_
 
 def test_geometry_context_panel_mounts_and_adds_opening_through_wall_authority(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -632,7 +644,7 @@ def test_geometry_context_panel_mounts_and_adds_opening_through_wall_authority(t
 
 def test_room_workspace_compact_layout_prioritizes_viewport_and_toggles_palette(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -677,7 +689,7 @@ def test_room_workspace_compact_layout_prioritizes_viewport_and_toggles_palette(
 
 def test_room_inspector_role_picker_shows_unassigned_and_commits_choice(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -727,7 +739,7 @@ def test_room_inspector_role_picker_shows_unassigned_and_commits_choice(tmp_path
 
 def test_room_workspace_exposes_cad_navigation_hint_in_all_layouts(tmp_path) -> None:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
