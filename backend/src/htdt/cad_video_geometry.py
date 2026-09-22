@@ -6,7 +6,12 @@ from math import acos, atan2, degrees, isfinite, sqrt
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from shapely.geometry import Point
 
+from .cad_orientation_constraints import (
+    entity_collision_geometry_authority,
+    entity_horizontal_footprint,
+)
 from .cad_repository import SceneRevision
 from .cad_scene import (
     Direction3,
@@ -616,6 +621,20 @@ class CollisionResult(BaseModel):
     entity_b: str = Field(min_length=1)
     status: EvaluationStatus
     intersects_or_violates_clearance: bool
+    # Issue #464: records whether the check consumed exact extruded body
+    # geometry, the bounding envelope on both sides, or a mix. Absent in
+    # pre-464 payloads; omitted from identity payloads while None.
+    geometry_authority: (
+        Literal['exact_body_geometry', 'bounding_envelope', 'mixed_body_geometry']
+        | None
+    ) = None
+
+
+def _collision_payload(item: CollisionResult) -> dict[str, Any]:
+    payload = item.model_dump(mode='json')
+    if payload.get('geometry_authority') is None:
+        payload.pop('geometry_authority', None)
+    return payload
 
 
 class VideoGeometryEvaluation(BaseModel):
@@ -657,7 +676,7 @@ class VideoGeometryEvaluation(BaseModel):
             'viewing': [item.model_dump(mode='json') for item in self.viewing],
             'sightlines': [item.model_dump(mode='json') for item in self.sightlines],
             'risers': [item.model_dump(mode='json') for item in self.risers],
-            'collisions': [item.model_dump(mode='json') for item in self.collisions],
+            'collisions': [_collision_payload(item) for item in self.collisions],
             'geometry_status': self.geometry_status,
             'screen_acoustic_effect_status': self.screen_acoustic_effect_status,
             'screen_acoustic_effect_reason': self.screen_acoustic_effect_reason,
@@ -1069,6 +1088,42 @@ def _obb_intersects(
     return True
 
 
+def _entity_z_extent(entity: SceneEntity) -> tuple[float, float]:
+    corners = _obb_corners(entity)
+    z_values = [point[2] for point in corners]
+    return min(z_values), max(z_values)
+
+
+def _extruded_intersects(
+    left: SceneEntity,
+    right: SceneEntity,
+    *,
+    left_extra_m: float,
+    right_extra_m: float,
+) -> bool:
+    """Extruded-body intersection: exact XY footprints plus Z-interval overlap.
+
+    Each entity contributes the footprint authority it actually has: authored
+    cylinder/polygon bodies give their exact upright XY footprint while
+    box/mesh/tilted bodies contribute the bounding-envelope hull.
+    ``*_extra_m`` inflates both the XY distance test and the Z interval, which
+    mirrors the per-side OBB inflation used by the envelope path.
+    """
+
+    left_footprint = entity_horizontal_footprint(left)
+    right_footprint = entity_horizontal_footprint(right)
+    xy_gap = float(left_footprint.distance(right_footprint))
+    left_z_min, left_z_max = _entity_z_extent(left)
+    right_z_min, right_z_max = _entity_z_extent(right)
+    z_overlap = (
+        left_z_min - left_extra_m <= right_z_max + right_extra_m + _EPS
+        and right_z_min - right_extra_m <= left_z_max + left_extra_m + _EPS
+    )
+    # Footprints that touch (gap 0) must still intersect even at zero
+    # clearance, matching the SAT convention of the OBB envelope path.
+    return z_overlap and xy_gap <= left_extra_m + right_extra_m + _EPS
+
+
 def _collision_results(
     *,
     scene: SceneDocument,
@@ -1082,6 +1137,10 @@ def _collision_results(
             'collision evaluation accepts speaker/screen/projector entities only: '
             + ', '.join(sorted(invalid))
         )
+    authorities = {
+        entity.entity_id: entity_collision_geometry_authority(entity)
+        for entity in entities
+    }
     results: list[CollisionResult] = []
     for index, left in enumerate(entities):
         for right in entities[index + 1:]:
@@ -1092,17 +1151,42 @@ def _collision_results(
                 left_extra += request.screen.frame_clearance_m
             if right.entity_id == request.screen.entity_id:
                 right_extra += request.screen.frame_clearance_m
-            intersects = _obb_intersects(
-                left,
-                right,
-                left_extra_m=left_extra,
-                right_extra_m=right_extra,
+            left_authority = authorities[left.entity_id]
+            right_authority = authorities[right.entity_id]
+            exact_pair = (
+                left_authority == 'exact_body_geometry'
+                and right_authority == 'exact_body_geometry'
             )
+            if left_authority == 'exact_body_geometry' or right_authority == 'exact_body_geometry':
+                # At least one side authored an exact body: consume explicit
+                # collision geometry, retaining the envelope on the other side.
+                intersects = _extruded_intersects(
+                    left,
+                    right,
+                    left_extra_m=left_extra,
+                    right_extra_m=right_extra,
+                )
+            else:
+                intersects = _obb_intersects(
+                    left,
+                    right,
+                    left_extra_m=left_extra,
+                    right_extra_m=right_extra,
+                )
             results.append(CollisionResult(
                 entity_a=left.entity_id,
                 entity_b=right.entity_id,
                 status='FAIL' if intersects else 'PASS',
                 intersects_or_violates_clearance=intersects,
+                geometry_authority=(
+                    'exact_body_geometry'
+                    if exact_pair
+                    else (
+                        'mixed_body_geometry'
+                        if 'exact_body_geometry' in (left_authority, right_authority)
+                        else 'bounding_envelope'
+                    )
+                ),
             ))
     return tuple(results)
 
@@ -1134,13 +1218,14 @@ def _riser_results(
             raise ValueError('riser binding must reference a riser SceneEntity')
         riser_corners = _obb_corners(riser)
         riser_top = max(point[2] for point in riser_corners)
-        center, axes, half = _entity_obb(riser)
-        seat_delta = _sub(_v(seat.position), center)
-        local_x = _dot(seat_delta, axes[0])
-        local_y = _dot(seat_delta, axes[1])
-        horizontally_supported = (
-            abs(local_x) <= half[0] + _EPS
-            and abs(local_y) <= half[1] + _EPS
+        # Issue #464: support uses the authored XY footprint when one exists
+        # (an L-shaped riser must not "support" a seat over its missing
+        # corner); the bounding-envelope hull is the fallback.
+        riser_footprint = entity_horizontal_footprint(riser)
+        seat_point = Point(float(seat.position.x_m), float(seat.position.y_m))
+        horizontally_supported = bool(
+            riser_footprint.covers(seat_point)
+            or float(riser_footprint.distance(seat_point)) <= _EPS
         )
         gap = seat_base - riser_top
         supported = (
@@ -1301,7 +1386,7 @@ def evaluate_video_geometry(
         'viewing': [item.model_dump(mode='json') for item in viewing],
         'sightlines': [item.model_dump(mode='json') for item in sightlines],
         'risers': [item.model_dump(mode='json') for item in risers],
-        'collisions': [item.model_dump(mode='json') for item in collisions],
+        'collisions': [_collision_payload(item) for item in collisions],
         'geometry_status': geometry_status,
         'screen_acoustic_effect_status': acoustic_status,
         'screen_acoustic_effect_reason': acoustic_reason,

@@ -8,6 +8,9 @@ from typing import Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from shapely.geometry import Polygon
+from shapely.validation import explain_validity
+
 from .cad_wall_models import WallTopology
 from .geometry import polygon_from_vertices
 from .semantic_geometry import SemanticAcousticGeometry
@@ -207,6 +210,185 @@ class Size3(BaseModel):
     z_m: float = Field(gt=0)
 
 
+# --- Physical body geometry (Issue #464) -------------------------------------
+#
+# ``size_m`` remains the persisted bounding envelope used for broad-phase and
+# legacy consumers. ``EntityBodyGeometry`` optionally refines the authored body
+# shape for display and collision. Body geometry is never acoustic solver
+# authority: acoustic geometry enters a scene only through
+# ``SceneDocument.r120_semantic_geometry``.
+
+BodyGeometryKind = Literal['box', 'cylinder', 'extruded_polygon', 'mesh_asset']
+MeshAssetFormat = Literal['obj', 'glb', 'htdt_meshbin_v1']
+
+_ENTITY_FOOTPRINT_MIN_AREA_M2 = 1e-8
+_ENVELOPE_FIT_EPS = 1e-9
+
+
+class FootprintVertex(BaseModel):
+    """Entity-local XY footprint vertex in meters (origin = entity anchor)."""
+
+    model_config = ConfigDict(frozen=True)
+    x_m: float
+    y_m: float
+
+    @field_validator('x_m', 'y_m')
+    @classmethod
+    def finite(cls, value: float) -> float:
+        value = float(value)
+        if not isfinite(value):
+            raise ValueError('footprint vertex values must be finite')
+        return value
+
+
+class BodyMeshVertex(BaseModel):
+    """Entity-local mesh vertex in meters."""
+
+    model_config = ConfigDict(frozen=True)
+    x_m: float
+    y_m: float
+    z_m: float
+
+    @field_validator('x_m', 'y_m', 'z_m')
+    @classmethod
+    def finite(cls, value: float) -> float:
+        value = float(value)
+        if not isfinite(value):
+            raise ValueError('body mesh vertex values must be finite')
+        return value
+
+
+class BodyMeshTriangle(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    a: int = Field(ge=0)
+    b: int = Field(ge=0)
+    c: int = Field(ge=0)
+
+    @model_validator(mode='after')
+    def distinct_indices(self) -> 'BodyMeshTriangle':
+        if len({self.a, self.b, self.c}) != 3:
+            raise ValueError('body mesh triangle indices must be distinct')
+        return self
+
+
+class BodyMeshAsset(BaseModel):
+    """Imported mesh body bound to the entity-local frame.
+
+    The mesh is explicit local-coordinate geometry with immutable asset
+    provenance (``asset_sha256`` addresses the original bytes in the project
+    content blob store). It is display and collision-envelope authority only —
+    never acoustic solver geometry.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    asset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_name: str = Field(min_length=1)
+    asset_format: MeshAssetFormat
+    original_size_bytes: int = Field(ge=0)
+    # Local transform: vertices are scaled by ``uniform_scale`` then translated
+    # by ``local_offset_m`` inside the entity-local frame.
+    local_offset_m: Offset3 = Field(default_factory=Offset3)
+    uniform_scale: float = Field(default=1.0, gt=0)
+    vertices: tuple[BodyMeshVertex, ...] = Field(min_length=1)
+    triangles: tuple[BodyMeshTriangle, ...] = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_mesh(self) -> 'BodyMeshAsset':
+        vertex_count = len(self.vertices)
+        for triangle in self.triangles:
+            if max(triangle.a, triangle.b, triangle.c) >= vertex_count:
+                raise ValueError('body mesh triangle references an unknown vertex')
+        return self
+
+
+class EntityBodyGeometry(BaseModel):
+    """Optional refined body shape for a physical SceneEntity.
+
+    Kinds:
+    - ``box``: explicit opt-in to the legacy rectangular envelope.
+    - ``cylinder``: vertical circular prism of ``radius_m`` spanning the full
+      ``size_m.z_m`` extent (round tables, cylindrical cabinets).
+    - ``extruded_polygon``: arbitrary entity-local XY ``footprint_vertices``
+      extruded over the full ``size_m.z_m`` extent (L-shaped sofas, risers,
+      irregular cabinets).
+    - ``mesh_asset``: imported entity-local triangle mesh (``mesh``); its
+      collision authority stays the ``size_m`` bounding envelope.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    kind: BodyGeometryKind
+    radius_m: float | None = Field(default=None, gt=0)
+    footprint_vertices: tuple[FootprintVertex, ...] | None = None
+    mesh: BodyMeshAsset | None = None
+
+    @model_validator(mode='after')
+    def valid_shape(self) -> 'EntityBodyGeometry':
+        if self.kind == 'box':
+            if (
+                self.radius_m is not None
+                or self.footprint_vertices is not None
+                or self.mesh is not None
+            ):
+                raise ValueError('box body geometry carries no additional parameters')
+        elif self.kind == 'cylinder':
+            if self.radius_m is None:
+                raise ValueError('cylinder body geometry requires radius_m')
+            if self.footprint_vertices is not None or self.mesh is not None:
+                raise ValueError('cylinder body geometry only accepts radius_m')
+        elif self.kind == 'extruded_polygon':
+            if self.footprint_vertices is None:
+                raise ValueError('extruded_polygon body geometry requires footprint_vertices')
+            if self.radius_m is not None or self.mesh is not None:
+                raise ValueError('extruded_polygon body geometry only accepts footprint_vertices')
+            self.footprint_polygon()
+        elif self.kind == 'mesh_asset':
+            if self.mesh is None:
+                raise ValueError('mesh_asset body geometry requires mesh')
+            if self.radius_m is not None or self.footprint_vertices is not None:
+                raise ValueError('mesh_asset body geometry only accepts mesh')
+        return self
+
+    def footprint_polygon(self) -> Polygon:
+        """Validate and return the authored entity-local footprint polygon."""
+
+        if self.footprint_vertices is None:
+            raise ValueError('body geometry has no footprint polygon')
+        coords = tuple(
+            (float(vertex.x_m), float(vertex.y_m))
+            for vertex in self.footprint_vertices
+        )
+        if len(coords) < 3:
+            raise ValueError('entity footprint polygon must have at least three vertices')
+        if coords[0] == coords[-1]:
+            raise ValueError(
+                'entity footprint polygon must not repeat the first vertex as a closing vertex'
+            )
+        if len(set(coords)) != len(coords):
+            raise ValueError('entity footprint polygon contains duplicate vertices')
+        polygon = Polygon(coords)
+        if not polygon.is_valid:
+            raise ValueError(f'Invalid entity footprint polygon: {explain_validity(polygon)}')
+        if polygon.is_empty or polygon.area <= _ENTITY_FOOTPRINT_MIN_AREA_M2:
+            raise ValueError('entity footprint polygon area is too small')
+        return polygon
+
+    def validate_envelope_fit(self, size_m: Size3) -> None:
+        """Ensure the authored body stays inside the ``size_m`` bounding envelope."""
+
+        if self.kind == 'cylinder':
+            limit = min(float(size_m.x_m), float(size_m.y_m)) * 0.5 + _ENVELOPE_FIT_EPS
+            if float(self.radius_m) > limit:  # type: ignore[arg-type]
+                raise ValueError('cylinder radius exceeds the size_m bounding envelope')
+        elif self.kind == 'extruded_polygon':
+            half_x = float(size_m.x_m) * 0.5 + _ENVELOPE_FIT_EPS
+            half_y = float(size_m.y_m) * 0.5 + _ENVELOPE_FIT_EPS
+            for vertex in self.footprint_vertices or ():
+                if abs(float(vertex.x_m)) > half_x or abs(float(vertex.y_m)) > half_y:
+                    raise ValueError(
+                        'entity footprint polygon extends outside the size_m bounding envelope'
+                    )
+
+
 class RoomVertex(BaseModel):
     model_config = ConfigDict(frozen=True)
     vertex_id: str = Field(min_length=1)
@@ -329,6 +511,7 @@ class SceneEntity(BaseModel):
     acoustic_reference_offset_m: Offset3 | None = None
     speaker_role: str | None = None
     aim_xyz: Direction3 | None = None
+    body_geometry: EntityBodyGeometry | None = None
 
     @model_validator(mode='after')
     def semantic_fields(self) -> 'SceneEntity':
@@ -343,6 +526,11 @@ class SceneEntity(BaseModel):
                 raise ValueError('measurement points do not have physical size_m')
             if self.acoustic_reference_offset_m is not None:
                 raise ValueError('measurement points are already acoustic reference positions')
+        if self.body_geometry is not None:
+            if self.kind not in PHYSICAL_ENTITY_KINDS:
+                raise ValueError('body_geometry is only valid for physical entity kinds')
+            if self.size_m is not None:
+                self.body_geometry.validate_envelope_fit(self.size_m)
         return self
 
 
@@ -481,6 +669,16 @@ def canonical_scene_json(document: SceneDocument) -> str:
         # N40 adds an optional body-local reference; omission preserves older scene hashes.
         if entity.get('acoustic_reference_offset_m') is None:
             entity.pop('acoustic_reference_offset_m', None)
+        # Issue-464 body geometry is optional; omission preserves pre-464 hashes.
+        body_geometry = entity.get('body_geometry')
+        if body_geometry is None:
+            entity.pop('body_geometry', None)
+        elif isinstance(body_geometry, dict):
+            # Per-kind parameters are mutually exclusive; drop unused null keys
+            # so each kind serializes only the fields it actually carries.
+            for key in ('radius_m', 'footprint_vertices', 'mesh'):
+                if body_geometry.get(key) is None:
+                    body_geometry.pop(key, None)
     # Preserve N05/N10/N20 rectangular-room hashes by omitting the new optional field.
     if isinstance(payload.get('room'), dict) and payload['room'].get('footprint_vertices') is None:
         payload['room'].pop('footprint_vertices', None)

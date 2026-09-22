@@ -12,6 +12,7 @@ from pyvistaqt import QtInteractor
 from .cad_prediction_models import CadPredictionResult
 from .prediction_interpretation import PredictionSpatialLink
 from .cad_scene import (
+    EntityBodyGeometry,
     PHYSICAL_ENTITY_KINDS,
     Position3,
     SceneDocument,
@@ -170,16 +171,112 @@ def _grid_mesh(
     return mesh
 
 
+def _entity_envelope_mesh(entity: SceneEntity) -> pv.PolyData:
+    """Bounding-envelope box at the entity pose (``size_m`` authority)."""
+
+    assert entity.size_m is not None
+    mesh = pv.Cube(
+        center=(0.0, 0.0, 0.0),
+        x_length=entity.size_m.x_m,
+        y_length=entity.size_m.y_m,
+        z_length=entity.size_m.z_m,
+    )
+    mesh.transform(
+        np.asarray(domain_pose_to_render_matrix(entity.position, entity.orientation), dtype=float),
+        inplace=True,
+    )
+    return mesh
+
+
+def _footprint_prism_mesh(entity: SceneEntity, body: EntityBodyGeometry) -> pv.PolyData:
+    """Extrude the entity-local XY footprint over the full ``size_m`` Z extent.
+
+    Local mesh coordinates are render-local (domain Y negated); the pose
+    matrix applies the C4-conjugated domain transform.
+    """
+
+    assert entity.size_m is not None
+    assert body.footprint_vertices is not None
+    half_z = float(entity.size_m.z_m) * 0.5
+    vertices = body.footprint_vertices
+    count = len(vertices)
+    points = np.asarray(
+        [
+            (float(vertex.x_m), -float(vertex.y_m), -half_z)
+            for vertex in vertices
+        ],
+        dtype=float,
+    )
+    base = pv.PolyData(points, np.asarray([count, *range(count)], dtype=np.int64))
+    return base.extrude((0.0, 0.0, float(entity.size_m.z_m)), capping=True)
+
+
+def _mesh_asset_mesh(body: EntityBodyGeometry) -> pv.PolyData:
+    """Entity-local imported triangle mesh (domain frame → render-local)."""
+
+    assert body.mesh is not None
+    mesh = body.mesh
+    offset = mesh.local_offset_m
+    scale = float(mesh.uniform_scale)
+    points = np.asarray(
+        [
+            (
+                float(vertex.x_m) * scale + offset.x_m,
+                -(float(vertex.y_m) * scale + offset.y_m),
+                float(vertex.z_m) * scale + offset.z_m,
+            )
+            for vertex in mesh.vertices
+        ],
+        dtype=float,
+    )
+    faces = np.asarray(
+        [[3, triangle.a, triangle.b, triangle.c] for triangle in mesh.triangles],
+        dtype=np.int64,
+    ).ravel()
+    return pv.PolyData(points, faces)
+
+
+def _entity_local_mesh(entity: SceneEntity) -> pv.PolyData | None:
+    """Authored non-envelope body mesh in entity-local render coordinates.
+
+    Returns ``None`` when the entity has no explicit non-box body geometry —
+    callers then use the ``size_m`` envelope box. The pose transform is left
+    to the caller so legacy editors with their own transform pipeline can
+    reuse the same shape construction (issue #464).
+    """
+
+    body = entity.body_geometry
+    if entity.size_m is None or body is None:
+        return None
+    if body.kind == 'cylinder' and body.radius_m is not None:
+        return pv.Cylinder(
+            center=(0.0, 0.0, 0.0),
+            direction=(0.0, 0.0, 1.0),
+            radius=float(body.radius_m),
+            height=float(entity.size_m.z_m),
+            resolution=48,
+        )
+    if body.kind == 'extruded_polygon' and body.footprint_vertices:
+        return _footprint_prism_mesh(entity, body)
+    if body.kind == 'mesh_asset' and body.mesh is not None:
+        return _mesh_asset_mesh(body)
+    return None
+
+
 def _entity_mesh(entity: SceneEntity) -> pv.PolyData:
+    """Render the authored body geometry; fall back to the bounding envelope.
+
+    ``size_m`` remains the broad-phase envelope; ``body_geometry`` refines the
+    displayed/collided shape. Mesh assets render their local-coordinate mesh;
+    a missing/invalid body degrades to the envelope box.
+    """
+
     if entity.size_m is None:
         mesh = pv.Sphere(radius=0.08)
     else:
-        mesh = pv.Cube(
-            center=(0.0, 0.0, 0.0),
-            x_length=entity.size_m.x_m,
-            y_length=entity.size_m.y_m,
-            z_length=entity.size_m.z_m,
-        )
+        mesh = _entity_local_mesh(entity)
+        if mesh is None:
+            return _entity_envelope_mesh(entity)
     mesh.transform(
         np.asarray(domain_pose_to_render_matrix(entity.position, entity.orientation), dtype=float),
         inplace=True,
@@ -314,6 +411,22 @@ class RoomViewport3D(QFrame):
                 name=f"entity-{entity.entity_id}",
             )
             self._actor_entity_ids[id(actor)] = entity.entity_id
+            if (
+                entity.size_m is not None
+                and entity.body_geometry is not None
+                and entity.body_geometry.kind != 'box'
+            ):
+                # The bounding envelope stays visible as a separate wireframe
+                # authority whenever an entity opts into richer body geometry.
+                self.plotter.add_mesh(
+                    _entity_envelope_mesh(entity),
+                    color=DARK_THEME.viewport.geometry_edge.hex,
+                    style="wireframe",
+                    line_width=1,
+                    opacity=0.45,
+                    pickable=False,
+                    name=f"envelope-{entity.entity_id}",
+                )
 
         if selected_id is not None:
             try:

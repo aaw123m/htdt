@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from math import floor, hypot, isfinite
+from itertools import chain
+from math import cos, floor, hypot, isfinite, pi, sin
 from typing import Callable, Literal
 
 from .cad_scene import Position3, SceneDocument, SceneEntity, quaternion_to_matrix3
@@ -31,6 +32,18 @@ _BOX_EDGE_INDEX_PAIRS: tuple[tuple[int, int], ...] = tuple(
     for right in range(left + 1, 8)
     if (left ^ right) in (1, 2, 4)
 )
+# Compass samples on cylinder rims for vertex/edge snapping (issue #464).
+_CYLINDER_SNAP_SEGMENTS = 8
+
+
+def _prism_edge_index_pairs(ring_size: int) -> tuple[tuple[int, int], ...]:
+    """Bottom ring, top ring, then vertical edges for an extruded footprint."""
+
+    return tuple(chain(
+        ((index, (index + 1) % ring_size) for index in range(ring_size)),
+        ((ring_size + index, ring_size + (index + 1) % ring_size) for index in range(ring_size)),
+        ((index, ring_size + index) for index in range(ring_size)),
+    ))
 
 
 @dataclass(frozen=True)
@@ -197,34 +210,95 @@ def _with_axis(position: Position3, axis: AxisName, value: float) -> Position3:
 
 @lru_cache(maxsize=2048)
 def _entity_vertices(entity: SceneEntity) -> tuple[Position3, ...]:
+    """Snap vertices from the authored body geometry where one exists.
+
+    Issue #464: cylinder bodies snap on their rim compass points, polygon
+    extrusions on each footprint corner at both Z extremes, and mesh assets on
+    their local-transformed vertices; box/legacy bodies keep the eight
+    bounding-envelope corners.
+    """
+
     if entity.size_m is None:
         return (entity.position,)
     matrix = quaternion_to_matrix3(entity.orientation)
-    half = (entity.size_m.x_m / 2.0, entity.size_m.y_m / 2.0, entity.size_m.z_m / 2.0)
+    half_z = entity.size_m.z_m / 2.0
+    body = entity.body_geometry
+    locals_: list[tuple[float, float, float]]
+    if body is not None and body.kind == 'cylinder' and body.radius_m is not None:
+        radius = float(body.radius_m)
+        locals_ = [
+            (
+                radius * cos(2.0 * pi * index / _CYLINDER_SNAP_SEGMENTS),
+                radius * sin(2.0 * pi * index / _CYLINDER_SNAP_SEGMENTS),
+                sz * half_z,
+            )
+            for sz in (-1.0, 1.0)
+            for index in range(_CYLINDER_SNAP_SEGMENTS)
+        ]
+    elif (
+        body is not None
+        and body.kind == 'extruded_polygon'
+        and body.footprint_vertices
+    ):
+        locals_ = [
+            (float(vertex.x_m), float(vertex.y_m), sz * half_z)
+            for sz in (-1.0, 1.0)
+            for vertex in body.footprint_vertices
+        ]
+    elif body is not None and body.kind == 'mesh_asset' and body.mesh is not None:
+        mesh = body.mesh
+        scale = float(mesh.uniform_scale)
+        offset = mesh.local_offset_m
+        locals_ = [
+            (
+                float(vertex.x_m) * scale + offset.x_m,
+                float(vertex.y_m) * scale + offset.y_m,
+                float(vertex.z_m) * scale + offset.z_m,
+            )
+            for vertex in mesh.vertices
+        ]
+    else:
+        half = (entity.size_m.x_m / 2.0, entity.size_m.y_m / 2.0, half_z)
+        locals_ = [
+            (sx * half[0], sy * half[1], sz * half[2])
+            for sx in (-1.0, 1.0)
+            for sy in (-1.0, 1.0)
+            for sz in (-1.0, 1.0)
+        ]
     result: list[Position3] = []
-    for sx in (-1.0, 1.0):
-        for sy in (-1.0, 1.0):
-            for sz in (-1.0, 1.0):
-                local = (sx * half[0], sy * half[1], sz * half[2])
-                rotated = tuple(
-                    sum(matrix[row][col] * local[col] for col in range(3))
-                    for row in range(3)
-                )
-                result.append(_position(
-                    entity.position.x_m + rotated[0],
-                    entity.position.y_m + rotated[1],
-                    entity.position.z_m + rotated[2],
-                ))
+    for local in locals_:
+        rotated = tuple(
+            sum(matrix[row][col] * local[col] for col in range(3))
+            for row in range(3)
+        )
+        result.append(_position(
+            entity.position.x_m + rotated[0],
+            entity.position.y_m + rotated[1],
+            entity.position.z_m + rotated[2],
+        ))
     return tuple(result)
 
 
 @lru_cache(maxsize=2048)
 def _entity_edges(entity: SceneEntity) -> tuple[_EdgeGeometry, ...]:
-    vertices = _entity_vertices(entity)
-    if len(vertices) != 8:
+    if entity.size_m is None:
         return ()
+    body = entity.body_geometry
+    if body is None or body.kind == 'box':
+        pairs = _BOX_EDGE_INDEX_PAIRS
+    elif body.kind == 'cylinder':
+        pairs = _prism_edge_index_pairs(_CYLINDER_SNAP_SEGMENTS)
+    elif body.kind == 'extruded_polygon' and body.footprint_vertices:
+        pairs = _prism_edge_index_pairs(len(body.footprint_vertices))
+    else:
+        # Imported meshes can carry thousands of edges; snapping keeps vertex
+        # and alignment candidates only.
+        return ()
+    vertices = _entity_vertices(entity)
     result: list[_EdgeGeometry] = []
-    for left, right in _BOX_EDGE_INDEX_PAIRS:
+    for left, right in pairs:
+        if left >= len(vertices) or right >= len(vertices):
+            return ()
         start, end = vertices[left], vertices[right]
         dx = end.x_m - start.x_m
         dy = end.y_m - start.y_m

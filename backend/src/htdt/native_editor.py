@@ -44,6 +44,7 @@ from .cad_scene import (
     rotate_orientation_world,
 )
 from .cad_snap import SnapCandidate, SnapSelector, generate_snap_candidates, snap_angle_deg, snap_position_axis
+from .room_viewport import _entity_mesh as _scene_entity_mesh
 from .command_palette import flush_focused_text_editor, focused_text_editor
 
 ROLE = int(Qt.ItemDataRole.UserRole)
@@ -405,18 +406,12 @@ class NativeEditorWindow(QMainWindow):
 
         if self.view_state.is_hidden(entity.entity_id):
             return
-        if entity.kind in {'speaker', 'furniture'}:
-            if entity.size_m is None:
-                raise ValueError(f'{entity.entity_id} requires size_m for rendering')
-            mesh = pv.Cube(
-                center=(0.0, 0.0, 0.0),
-                x_length=entity.size_m.x_m,
-                y_length=entity.size_m.y_m,
-                z_length=entity.size_m.z_m,
-            )
-        else:
-            mesh = pv.Sphere(radius=0.08, center=(0.0, 0.0, 0.0))
-        mesh.transform(np.asarray(domain_pose_to_render_matrix(entity.position, entity.orientation)), inplace=True)
+        if entity.kind in {'speaker', 'furniture'} and entity.size_m is None:
+            raise ValueError(f'{entity.entity_id} requires size_m for rendering')
+        # Issue #464: reuse the canonical body-aware mesh builder so this
+        # legacy viewport renders cylinders/polygon extrusions/mesh assets
+        # instead of always pv.Cube.
+        mesh = _scene_entity_mesh(entity)
         actor = self.viewport.add_mesh(mesh, name=f'entity:{entity.entity_id}', pickable=True)
         self.actors[entity.entity_id] = actor
         self.actor_ids[id(actor)] = entity.entity_id
