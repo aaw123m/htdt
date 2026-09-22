@@ -440,7 +440,9 @@ class CadSystemVariantMeasuredLifecycleRepository:
     completion before this record inside one shared transaction. Reads
     re-resolve the record, its persisted campaign/registration authorities
     and the persisted campaign completion, so measured state can always
-    prove which preregistered campaign authorized it.
+    prove which preregistered campaign authorized it — and that the record
+    was built from exactly the union of measurement evidence the
+    completion's referenced plan completions accepted.
     """
 
     def __init__(
@@ -623,7 +625,7 @@ class CadSystemVariantMeasuredLifecycleRepository:
         self,
         connection: sqlite3.Connection,
         record: SystemVariantMeasuredRecord,
-    ) -> None:
+    ) -> dict[str, Any]:
         """Require the persisted campaign completion authorizing this record.
 
         Measured lifecycle promotion is durable only under the preregistered
@@ -632,6 +634,9 @@ class CadSystemVariantMeasuredLifecycleRepository:
         repository's `complete_campaign` commits that completion row before
         this record inside the shared transaction, so the check holds inside
         the publishing transaction as well as on every later read.
+
+        Returns the verified completion payload so callers can keep replaying
+        its evidence authority without a second read.
         """
         completion = _authority_payload(
             connection,
@@ -644,7 +649,8 @@ class CadSystemVariantMeasuredLifecycleRepository:
                 'measured lifecycle campaign completion authority missing'
             )
         if (
-            completion.get('measured_record_id') != record.record_id
+            completion.get('campaign_id') != record.campaign_id
+            or completion.get('measured_record_id') != record.record_id
             or completion.get('measured_record_sha256') != record.record_sha256
             or completion.get('campaign_sha256') != record.campaign_sha256
             or completion.get('campaign_registration_id')
@@ -654,6 +660,154 @@ class CadSystemVariantMeasuredLifecycleRepository:
         ):
             raise ValueError(
                 'measured lifecycle campaign completion authority mismatch'
+            )
+        return completion
+
+    def _require_plan_completion_evidence_union(
+        self,
+        connection: sqlite3.Connection,
+        record: SystemVariantMeasuredRecord,
+        completion: dict[str, Any],
+    ) -> None:
+        """Require `record.measurements` to equal the plan-completion union.
+
+        The persisted campaign completion pins this record's identity and the
+        exact plan completions that authorized it. Every referenced plan
+        completion row must exist, reproduce its pinned content hash and
+        re-bind this record's campaign/registration authority, and the union
+        of their pinned measurement/dataset/quality-report/acquisition-context
+        evidence must equal this record's `measurements` set exactly — the
+        same evidence_by_measurement union the canonical campaign completion
+        feeds into the measured-record builder. The record's bound time is
+        also pinned to the completion timestamp, matching the canonical
+        `bound_at_utc=completed_at_utc` binding.
+        """
+        if completion.get('completed_at_utc') != record.bound_at_utc:
+            raise ValueError(
+                'measured lifecycle campaign completion timestamp mismatch'
+            )
+        campaign = _authority_payload(
+            connection,
+            table='cad_system_variant_measurement_campaigns',
+            key_column='campaign_id',
+            key=record.campaign_id,
+        )
+        plan_refs = campaign.get('plan_refs') if campaign is not None else None
+        if not isinstance(plan_refs, list):
+            raise ValueError('measured lifecycle campaign authority malformed')
+        expected_plan_ids: set[str] = set()
+        for plan_ref in plan_refs:
+            plan_id = (
+                plan_ref.get('plan_id') if isinstance(plan_ref, dict) else None
+            )
+            if not isinstance(plan_id, str):
+                raise ValueError(
+                    'measured lifecycle campaign authority malformed'
+                )
+            expected_plan_ids.add(plan_id)
+
+        ids = completion.get('plan_completion_ids')
+        digests = completion.get('plan_completion_sha256')
+        if (
+            not isinstance(ids, list)
+            or not isinstance(digests, list)
+            or not ids
+            or len(ids) != len(digests)
+        ):
+            raise ValueError(
+                'measured lifecycle plan completion authority malformed'
+            )
+
+        union: dict[str, tuple[Any, ...]] = {}
+        actual_plan_ids: set[str] = set()
+        for completion_id, completion_sha256 in zip(ids, digests):
+            payload = _authority_payload(
+                connection,
+                table='cad_system_variant_measurement_plan_completions',
+                key_column='completion_id',
+                key=completion_id,
+            )
+            if payload is None:
+                raise ValueError(
+                    'measured lifecycle plan completion evidence missing'
+                )
+            if (
+                payload.get('completion_id') != completion_id
+                or payload.get('completion_sha256') != completion_sha256
+                or payload.get('campaign_id') != record.campaign_id
+                or payload.get('campaign_sha256') != record.campaign_sha256
+                or payload.get('campaign_registration_id')
+                != record.campaign_registration_id
+                or payload.get('campaign_registration_sha256')
+                != record.campaign_registration_sha256
+            ):
+                raise ValueError(
+                    'measured lifecycle plan completion authority mismatch'
+                )
+            semantic = {
+                key: value
+                for key, value in payload.items()
+                if key not in {'completion_id', 'completion_sha256'}
+            }
+            if _digest(semantic) != completion_sha256:
+                raise ValueError(
+                    'measured lifecycle plan completion payload malformed'
+                )
+            plan_ref = payload.get('plan_ref')
+            plan_id = (
+                plan_ref.get('plan_id') if isinstance(plan_ref, dict) else None
+            )
+            if plan_id not in expected_plan_ids:
+                raise ValueError(
+                    'measured lifecycle plan completion authority mismatch'
+                )
+            actual_plan_ids.add(plan_id)
+            evidence = payload.get('evidence')
+            if not isinstance(evidence, list):
+                raise ValueError(
+                    'measured lifecycle plan completion evidence malformed'
+                )
+            for item in evidence:
+                if not isinstance(item, dict):
+                    raise ValueError(
+                        'measured lifecycle plan completion evidence malformed'
+                    )
+                measurement_id = item.get('measurement_id')
+                if (
+                    not isinstance(measurement_id, str)
+                    or measurement_id in union
+                ):
+                    raise ValueError(
+                        'measured lifecycle plan completion evidence malformed'
+                    )
+                union[measurement_id] = (
+                    item.get('measurement_sha256'),
+                    item.get('dataset_id'),
+                    item.get('dataset_sha256'),
+                    item.get('quality_report_id'),
+                    item.get('quality_report_sha256'),
+                    item.get('acquisition_context_id'),
+                    item.get('acquisition_context_sha256'),
+                )
+        if actual_plan_ids != expected_plan_ids:
+            raise ValueError(
+                'measured lifecycle plan completion plan set mismatch'
+            )
+        expected = {
+            ref.measurement_id: (
+                ref.measurement_sha256,
+                ref.dataset_id,
+                ref.dataset_sha256,
+                ref.quality_report_id,
+                ref.quality_report_sha256,
+                ref.acquisition_context_id,
+                ref.acquisition_context_sha256,
+            )
+            for ref in record.measurements
+        }
+        if union != expected:
+            raise ValueError(
+                'measured lifecycle plan completion evidence union mismatch'
             )
 
     def _save_in_transaction(
@@ -668,11 +822,18 @@ class CadSystemVariantMeasuredLifecycleRepository:
         campaign completion and this measured lifecycle record over the same
         native database. The campaign completion row must already exist in
         the same transaction, so a measured record can never be persisted
-        without its preregistered campaign completion authority. The caller
-        owns BEGIN/COMMIT/ROLLBACK and must have validated the record first;
+        without its preregistered campaign completion authority — and that
+        completion's referenced plan completions must prove this record was
+        built from exactly their accepted evidence union. The caller owns
+        BEGIN/COMMIT/ROLLBACK and must have validated the record first;
         persisted rows were validated on commit.
         """
-        self._require_campaign_completion(connection, record)
+        completion = self._require_campaign_completion(connection, record)
+        self._require_plan_completion_evidence_union(
+            connection,
+            record,
+            completion,
+        )
         row = connection.execute(
             """
             SELECT payload_json
@@ -760,5 +921,10 @@ class CadSystemVariantMeasuredLifecycleRepository:
         record = self._validate(
             SystemVariantMeasuredRecord.model_validate_json(payload_json)
         )
-        self._require_campaign_completion(connection, record)
+        completion = self._require_campaign_completion(connection, record)
+        self._require_plan_completion_evidence_union(
+            connection,
+            record,
+            completion,
+        )
         return record
