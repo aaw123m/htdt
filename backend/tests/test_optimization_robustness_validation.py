@@ -35,7 +35,10 @@ from htdt.cad_objective_models import CadObjectiveInputRef
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_repository import SceneRepository
-from htdt.cad_roomsim_results import roomsim_attempt_frequency_response
+from htdt.cad_roomsim_results import (
+    canonical_roomsim_result_json,
+    roomsim_attempt_frequency_response,
+)
 from htdt.cad_robustness_repository import CadRobustnessRepository
 from htdt.cad_robustness_validation_repository import (
     CadRobustnessValidationRepository,
@@ -148,9 +151,11 @@ class _RoomSimRepository:
                 batch_run_id=self.batch.batch_run_id,
                 candidate_id=candidate_id,
                 status='completed',
-                model_version=model_version,
-                response_json=response_json,
-                response_sha256=sha256(response_json.encode()).hexdigest(),
+                result=SimpleNamespace(
+                    model_version=model_version,
+                    response_json=response_json,
+                    response_sha256=sha256(response_json.encode()).hexdigest(),
+                ),
                 attempt_sha256=sha256(
                     f'o90e-attempt:{candidate_id}'.encode()
                 ).hexdigest(),
@@ -200,13 +205,19 @@ def _response(offset: float) -> FrequencyResponse:
 
 def _response_json(offset: float) -> str:
     response = _response(offset)
-    return json.dumps(
-        {
-            'frequency_hz': list(response.frequency_hz),
-            'magnitude': list(response.level_db),
-        },
-        separators=(',', ':'),
-    )
+    return canonical_roomsim_result_json({
+        'source_name': None,
+        'mic_position': 'Main',
+        'message': 'fixture',
+        'unit': 'SPL',
+        'smoothing': 'None',
+        'start_frequency_hz': 20.0,
+        'points_per_octave': 96.0,
+        'frequency_step_hz': None,
+        'frequency_hz': list(response.frequency_hz),
+        'magnitude': list(response.level_db),
+        'phase_deg': None,
+    })
 
 
 def _candidate_x(candidate) -> float:

@@ -26,7 +26,10 @@ from htdt.cad_objective_models import (
 from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_repository import SceneRepository
-from htdt.cad_roomsim_results import roomsim_attempt_frequency_response
+from htdt.cad_roomsim_results import (
+    canonical_roomsim_result_json,
+    roomsim_attempt_frequency_response,
+)
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
@@ -86,9 +89,18 @@ def _tilted_fr(tilt: float) -> FrequencyResponse:
 
 def _tilted_response_json(tilt: float) -> str:
     response = _tilted_fr(tilt)
-    return json.dumps({
+    return canonical_roomsim_result_json({
+        'source_name': None,
+        'mic_position': 'Main',
+        'message': 'fixture',
+        'unit': 'SPL',
+        'smoothing': 'None',
+        'start_frequency_hz': 20.0,
+        'points_per_octave': 96.0,
+        'frequency_step_hz': None,
         'frequency_hz': list(response.frequency_hz),
         'magnitude': list(response.level_db),
+        'phase_deg': None,
     })
 
 
@@ -106,13 +118,17 @@ class _RoomSimEvidence:
         if candidate_id not in self.candidates:
             return None
         index = list(self.candidates).index(candidate_id)
+        response_json = _tilted_response_json(float(index) * 2.0)
         return SimpleNamespace(
             attempt_id=attempt_id,
             batch_run_id='batch',
             candidate_id=candidate_id,
             status='completed',
-            model_version='fixture-1',
-            response_json=_tilted_response_json(float(index) * 2.0),
+            result=SimpleNamespace(
+                model_version='fixture-1',
+                response_json=response_json,
+                response_sha256=sha256(response_json.encode()).hexdigest(),
+            ),
         )
 
     def get_batch_spec(self, batch_run_id):

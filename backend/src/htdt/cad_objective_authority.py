@@ -16,7 +16,6 @@ their own resolvers/evaluators into ``CadObjectiveRepository``.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Callable, Mapping, NamedTuple
 
 from .cad_measurement_quality import dataset_sha256
@@ -186,15 +185,14 @@ def _resolve_cad_roomsim_attempt(
         raise ValueError(
             'objective predicted evidence candidate-set authority mismatch'
         )
-    response = roomsim_attempt_frequency_response(attempt)
-    source_sha256 = getattr(attempt, 'response_sha256', None)
-    if source_sha256 is None:
-        source_sha256 = canonical_objective_sha256(
-            json.loads(attempt.response_json)
+    if attempt.result is None:
+        raise ValueError(
+            'objective predicted evidence attempt has no execution result'
         )
+    response = roomsim_attempt_frequency_response(attempt)
     return ResolvedObjectiveInput(
         ref=ref,
-        source_sha256=source_sha256,
+        source_sha256=attempt.result.response_sha256,
         response=response,
         authority=attempt,
     )

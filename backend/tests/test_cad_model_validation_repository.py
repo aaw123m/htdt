@@ -11,6 +11,7 @@ from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_model_validation import build_model_validation
 from htdt.cad_model_validation_repository import CadModelValidationRepository
 from htdt.cad_repository import SceneRepository
+from htdt.cad_roomsim_results import canonical_roomsim_result_json
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import build_cad_search_spec
 from htdt.cad_search_models import CadSearchAxis
@@ -27,9 +28,18 @@ def _fr(offset: float) -> FrequencyResponse:
 
 def _response_json(offset: float) -> str:
     response = _fr(offset)
-    return json.dumps({
+    return canonical_roomsim_result_json({
+        'source_name': None,
+        'mic_position': 'Main',
+        'message': 'fixture',
+        'unit': 'SPL',
+        'smoothing': 'None',
+        'start_frequency_hz': 20.0,
+        'points_per_octave': 96.0,
+        'frequency_step_hz': None,
         'frequency_hz': list(response.frequency_hz),
         'magnitude': list(response.level_db),
+        'phase_deg': None,
     })
 
 
@@ -96,8 +106,10 @@ class _RoomSimEvidence:
             batch_run_id='batch-a',
             candidate_id='candidate-a',
             status='completed',
-            model_version='rew-fixture',
-            response_json=_response_json(0.0),
+            result=SimpleNamespace(
+                model_version='rew-fixture',
+                response_json=_response_json(0.0),
+            ),
         )
 
     def get_batch_spec(self, batch_run_id):

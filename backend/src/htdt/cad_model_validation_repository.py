@@ -616,7 +616,7 @@ class CadModelValidationRepository:
                 or batch.model_id != record.model_id
             ):
                 raise ValueError('validation prediction batch authority mismatch')
-            if attempt.model_version != record.model_version:
+            if attempt.result is None or attempt.result.model_version != record.model_version:
                 raise ValueError('validation prediction model version mismatch')
 
             measurement = self.measurement_repository.get_measurement(pair.measurement_id)
