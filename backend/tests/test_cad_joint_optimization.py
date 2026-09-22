@@ -11,6 +11,7 @@ import pytest
 
 from htdt.cad_calibration import (
     CadCalibrationChannel,
+    CadCrossoverSetting,
     CadDeviceCapabilityConstraints,
     build_biquad_filter,
     build_calibration_plan,
@@ -21,14 +22,17 @@ from htdt.cad_extended_search import (
     CadExtendedSearchAxis,
     build_extended_model_capability,
     build_extended_search_spec,
+    direction_with_horizontal_yaw,
 )
 from htdt.cad_extended_search_repository import CadExtendedSearchRepository
 from htdt.cad_joint_optimization import (
+    JointCandidate,
     JointDecisionValue,
     JointDspVariable,
     JointEvaluationInputRef,
     JointEvaluatorIdentity,
     JointHardConstraintRef,
+    JointObjectiveVectorRef,
     JointOptimizationSpec,
     JointRobustnessSpecRef,
     JointRobustnessVariableMapping,
@@ -71,6 +75,7 @@ from htdt.cad_scene import (
     SceneDocument,
     SceneEntity,
     Size3,
+    quaternion_from_euler_deg,
 )
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
@@ -147,6 +152,7 @@ def _channel(
     delay_s: float = 0.0,
     polarity: str = 'normal',
     peq=(),
+    crossovers=(),
 ) -> CadCalibrationChannel:
     return CadCalibrationChannel(
         channel_id='FL',
@@ -158,6 +164,7 @@ def _channel(
         delay_s=delay_s,
         polarity=polarity,
         peq=tuple(peq),
+        crossovers=tuple(crossovers),
         routing=('main',),
     )
 
@@ -429,6 +436,7 @@ def _build_spec(
     extended_search_spec=None,
     robustness=None,
     hard_constraints=(),
+    dsp_variables=None,
 ):
     return build_joint_optimization_spec(
         scene_revision=fixture.revision,
@@ -437,7 +445,7 @@ def _build_spec(
         extended_search_spec=extended_search_spec,
         base_calibration_plan=base_plan or fixture.base_plan,
         measurement_quality_report=report or fixture.quality_report,
-        dsp_variables=_dsp_variables(),
+        dsp_variables=_dsp_variables() if dsp_variables is None else dsp_variables,
         objectives=_objectives(),
         robustness=robustness or _robustness_ref(fixture),
         evaluator=evaluator or _evaluator(),
@@ -481,6 +489,24 @@ def _fixture(tmp_path: Path):
         created_at_utc=NOW,
     )
     system_variant_repository.save_variant(moved_variant)
+
+    # A distinct variant whose materialized speaker x_m stays at the baseline
+    # grid minimum: needed wherever a second consistent physical candidate is
+    # required (decision values must match the materialized scene, #389).
+    home_variant = build_system_variant(
+        baseline=revision,
+        name='Issue 389 unchanged speaker position',
+        role_bindings=roles,
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='hold-speaker-fl',
+                entity=speaker,
+                role_binding_id='FL',
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    system_variant_repository.save_variant(home_variant)
 
     constraints = CadConstraintSet(
         document_id=DOCUMENT_ID,
@@ -665,6 +691,7 @@ def _fixture(tmp_path: Path):
         system_variant_repository=system_variant_repository,
         base_variant=base_variant,
         moved_variant=moved_variant,
+        home_variant=home_variant,
         search_repository=search_repository,
         search_spec=search_spec,
         base_page=base_page,
@@ -1240,7 +1267,7 @@ def test_candidate_budget_rejects_distinct_candidate_beyond_persisted_budget(
     admitted = _position_candidate(spec, fixture.moved_variant, 2.0)
     repository.save_candidate(admitted)
 
-    overflow = _position_candidate(spec, fixture.moved_variant, 1.0)
+    overflow = _position_candidate(spec, fixture.home_variant, 1.0)
     with pytest.raises(ValueError, match='candidate budget is exhausted'):
         repository.save_candidate(overflow)
 
@@ -1291,7 +1318,7 @@ def test_concurrent_candidate_admission_serializes_last_budget_slot(
     repository.save_candidate(admitted)
 
     # One slot remains; two distinct candidates race for it.
-    contender_a = _position_candidate(spec, fixture.moved_variant, 1.0)
+    contender_a = _position_candidate(spec, fixture.home_variant, 1.0)
     plan = _save_plan(
         fixture,
         plan_id='budget-race-gain-plan-174',
@@ -1358,6 +1385,25 @@ def _resigned(spec: JointOptimizationSpec, **updates) -> JointOptimizationSpec:
             'semantic_sha256': canonical_joint_sha256(
                 unsigned.semantic_payload()
             )
+        }
+    )
+
+
+def _resigned_candidate(candidate: JointCandidate, **updates) -> JointCandidate:
+    """Return a mutated candidate whose candidate_sha256/id are honestly recomputed.
+
+    Same strongest-forgery shape as ``_resigned``: an attacker-controlled
+    payload that still passes the model-level self-hash and deterministic-ID
+    checks.
+    """
+
+    mutated = candidate.model_copy(update=updates)
+    unsigned = mutated.model_copy(update={'candidate_sha256': '0' * 64})
+    digest = canonical_joint_sha256(unsigned.semantic_payload())
+    return unsigned.model_copy(
+        update={
+            'candidate_sha256': digest,
+            'candidate_id': f'joint-candidate-{digest[:24]}',
         }
     )
 
@@ -1731,3 +1777,502 @@ def test_get_spec_replays_authority_after_authority_row_removed(
 
     with pytest.raises(ValueError, match='unknown physical SearchSpec'):
         repository.get_spec(fixture.spec.spec_id)
+
+
+def test_candidate_rejects_rehashed_decisions_outside_declared_bounds(
+    tmp_path: Path,
+) -> None:
+    """Self-hash-valid candidates still replay the canonical decision vector."""
+
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+
+    out_of_bounds = _resigned_candidate(
+        candidate,
+        decision_vector=(
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:x_m',
+                value=9.0,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='outside declared decision bounds'):
+        repository.save_candidate(out_of_bounds)
+
+    off_grid = _resigned_candidate(
+        candidate,
+        decision_vector=(
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:x_m',
+                value=1.5,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='not aligned to declared decision step'):
+        repository.save_candidate(off_grid)
+
+    unknown_variable = _resigned_candidate(
+        candidate,
+        decision_vector=(
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:y_m',
+                value=1.0,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='unknown physical decision variable'):
+        repository.save_candidate(unknown_variable)
+
+
+def test_candidate_rejects_decision_mismatched_with_materialized_variant(
+    tmp_path: Path,
+) -> None:
+    """An in-grid value that the variant does not materialize is rejected."""
+
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+
+    # In-bounds, on-grid, bound to a real changed SystemVariant — but the
+    # variant materializes speaker-fl at x_m=2.0, not the claimed 1.0.
+    inconsistent = _position_candidate(fixture.spec, fixture.moved_variant, 1.0)
+    with pytest.raises(
+        ValueError,
+        match='does not match the materialized SystemVariant scene',
+    ):
+        repository.save_candidate(inconsistent)
+
+    # The consistent mirror image persists and reopens unchanged.
+    consistent = _position_candidate(fixture.spec, fixture.home_variant, 1.0)
+    repository.save_candidate(consistent)
+    assert repository.get_candidate(consistent.candidate_id) == consistent
+
+
+def test_candidate_rejects_decision_mismatched_with_calibration_plan(
+    tmp_path: Path,
+) -> None:
+    """DSP decision values must equal the exact candidate CalibrationPlan."""
+
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+
+    plan = _save_plan(
+        fixture,
+        plan_id='mismatch-gain-plan-389',
+        channel=_channel(gain_db=1.0),
+    )
+    mismatched_gain = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 2.0),),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    with pytest.raises(
+        ValueError,
+        match='does not match the candidate CalibrationPlan',
+    ):
+        repository.save_candidate(mismatched_gain)
+
+    polarity_plan = _save_plan(
+        fixture,
+        plan_id='mismatch-polarity-plan-389',
+        channel=_channel(polarity='inverted'),
+    )
+    mismatched_polarity = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:polarity', 'normal'),),
+        calibration_plan=polarity_plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    with pytest.raises(
+        ValueError,
+        match='does not match the candidate CalibrationPlan',
+    ):
+        repository.save_candidate(mismatched_polarity)
+
+
+def test_candidate_rejects_decision_mismatched_with_peq_and_crossover_settings(
+    tmp_path: Path,
+) -> None:
+    """PEQ filter and crossover decision values resolve to exact plan rows."""
+
+    fixture = _fixture(tmp_path)
+    dsp_variables = _dsp_variables() + (
+        JointDspVariable(
+            variable_id='dsp:peq-freq',
+            channel_id='FL',
+            parameter='peq_frequency_hz',
+            filter_id='peq-1',
+            minimum=20.0,
+            maximum=20000.0,
+            step=1.0,
+            required_measurement_claim='magnitude_response',
+            required_band_hz=(20.0, 20000.0),
+        ),
+        JointDspVariable(
+            variable_id='dsp:xo-freq',
+            channel_id='FL',
+            parameter='crossover_frequency_hz',
+            crossover_index=0,
+            minimum=40.0,
+            maximum=200.0,
+            step=1.0,
+            required_measurement_claim='magnitude_response',
+            required_band_hz=(20.0, 20000.0),
+        ),
+        JointDspVariable(
+            variable_id='dsp:xo-order',
+            channel_id='FL',
+            parameter='crossover_order',
+            crossover_index=0,
+            minimum=2.0,
+            maximum=4.0,
+            step=2.0,
+            required_measurement_claim='magnitude_response',
+            required_band_hz=(20.0, 20000.0),
+        ),
+    )
+    spec = _build_spec(
+        fixture,
+        dsp_variables=dsp_variables,
+        spec_id='joint-spec-389-peq-xo',
+    )
+    repository = _repository(fixture)
+    repository.save_spec(spec)
+
+    plan = _save_plan(
+        fixture,
+        plan_id='peq-xo-plan-389',
+        channel=_channel(
+            peq=(_peq('peq-1', frequency_hz=100.0, gain_db=1.0),),
+            crossovers=(
+                CadCrossoverSetting(
+                    crossover_type='low_pass',
+                    frequency_hz=80.0,
+                    filter_order=4,
+                ),
+            ),
+        ),
+    )
+
+    consistent = build_joint_candidate(
+        spec=spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(
+            _dsp_decision('dsp:peq-freq', 100.0),
+            _dsp_decision('dsp:xo-freq', 80.0),
+            _dsp_decision('dsp:xo-order', 4),
+        ),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    repository.save_candidate(consistent)
+    assert repository.get_candidate(consistent.candidate_id) == consistent
+
+    for variable_id, value in (
+        ('dsp:peq-freq', 150.0),
+        ('dsp:xo-freq', 120.0),
+        ('dsp:xo-order', 2),
+    ):
+        mismatched = _resigned_candidate(
+            consistent,
+            decision_vector=(
+                JointDecisionValue(
+                    domain='dsp',
+                    variable_id=variable_id,
+                    value=value,
+                ),
+            ),
+        )
+        with pytest.raises(
+            ValueError,
+            match='does not match the candidate CalibrationPlan',
+        ):
+            repository.save_candidate(mismatched)
+
+
+def test_candidate_recomputes_eligibility_for_rehashed_blocked_candidate(
+    tmp_path: Path,
+) -> None:
+    """A BLOCKED candidate cannot be relabeled ELIGIBLE by rehashing."""
+
+    fixture = _fixture(tmp_path)
+    report = _save_quality(
+        fixture.quality_repository,
+        fixture.measurement,
+        fixture.dataset,
+        report_id='quality-389-no-timing',
+        common_timing=False,
+    )
+    base_plan = _save_plan(
+        fixture,
+        plan_id='base-389-no-timing',
+        report=report,
+    )
+    spec = _build_spec(
+        fixture,
+        base_plan=base_plan,
+        report=report,
+        spec_id='joint-spec-389-no-timing',
+    )
+    repository = _repository(fixture)
+    repository.save_spec(spec)
+
+    delay_plan = _save_plan(
+        fixture,
+        plan_id='delay-389-no-timing',
+        report=report,
+        channel=_channel(delay_s=0.005),
+    )
+    blocked = build_joint_candidate(
+        spec=spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:delay', 0.005),),
+        calibration_plan=delay_plan,
+        measurement_quality_report=report,
+    )
+    assert blocked.eligibility_state == 'BLOCKED'
+    assert blocked.blocked_reasons
+
+    # The canonically blocked candidate itself persists and reopens unchanged.
+    repository.save_candidate(blocked)
+    assert repository.get_candidate(blocked.candidate_id) == blocked
+
+    relabeled = _resigned_candidate(
+        blocked,
+        eligibility_state='ELIGIBLE',
+        blocked_reasons=(),
+    )
+    assert relabeled.candidate_id != blocked.candidate_id
+    with pytest.raises(ValueError, match='not the canonical compilation'):
+        repository.save_candidate(relabeled)
+
+
+def test_candidate_rejects_payload_objective_vector_ref(tmp_path: Path) -> None:
+    """Evaluation provenance cannot be smuggled inside a candidate payload."""
+
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+
+    forged = _resigned_candidate(
+        candidate,
+        objective_vector_ref=JointObjectiveVectorRef(
+            evaluation_binding_id='joint-evaluation-forged-389',
+            evaluation_binding_sha256='1' * 64,
+            objective_vector_sha256='2' * 64,
+        ),
+    )
+    with pytest.raises(ValueError, match='not the canonical compilation'):
+        repository.save_candidate(forged)
+
+
+def test_candidate_verifies_extended_yaw_decisions_against_materialized_scene(
+    tmp_path: Path,
+) -> None:
+    """Extended-search yaw decisions replay against the materialized entity."""
+
+    fixture = _fixture(tmp_path)
+    capability = build_extended_model_capability(
+        model_id='issue389-fixture-yaw-model',
+        model_version='1',
+        evidence_scope='synthetic_fixture',
+        supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
+        detail='issue389 fixture yaw capability',
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_capability(capability)
+    extended = build_extended_search_spec(
+        source_revision=fixture.revision,
+        base_spec=fixture.search_spec,
+        base_candidate_set_sha256=fixture.base_page.candidate_set_sha256,
+        base_candidate_count=len(fixture.base_page.candidates),
+        capability=capability,
+        axes=(
+            CadExtendedSearchAxis(
+                entity_id='speaker-fl',
+                parameter='aim_yaw_deg',
+                min_value=-5.0,
+                max_value=5.0,
+                step=5.0,
+            ),
+            CadExtendedSearchAxis(
+                entity_id='speaker-fl',
+                parameter='body_yaw_deg',
+                min_value=-10.0,
+                max_value=10.0,
+                step=5.0,
+            ),
+        ),
+        candidate_limit=256,
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_spec(extended)
+    spec = _build_spec(
+        fixture,
+        extended_search_spec=extended,
+        spec_id='joint-spec-389-yaw',
+    )
+    repository = _repository(fixture)
+    repository.save_spec(spec)
+
+    speaker = fixture.revision.document.entity('speaker-fl')
+    rotated = speaker.model_copy(
+        update={
+            'aim_xyz': direction_with_horizontal_yaw(speaker.aim_xyz, 5.0),
+            'orientation': quaternion_from_euler_deg(
+                yaw_deg=5.0,
+                pitch_deg=0.0,
+                roll_deg=0.0,
+            ),
+        }
+    )
+    yaw_variant = build_system_variant(
+        baseline=fixture.revision,
+        name='Issue 389 yaw speaker',
+        role_bindings=(ChannelRoleBinding(role_id='FL', display_name='Front Left'),),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='yaw-speaker-fl',
+                entity=rotated,
+                role_binding_id='FL',
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    fixture.system_variant_repository.save_variant(yaw_variant)
+
+    consistent = build_joint_candidate(
+        spec=spec,
+        physical_system_variant=yaw_variant,
+        decisions=(
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:aim_yaw_deg',
+                value=5.0,
+            ),
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:body_yaw_deg',
+                value=5.0,
+            ),
+        ),
+    )
+    repository.save_candidate(consistent)
+    assert repository.get_candidate(consistent.candidate_id) == consistent
+
+    mismatched_aim = build_joint_candidate(
+        spec=spec,
+        physical_system_variant=yaw_variant,
+        decisions=(
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:aim_yaw_deg',
+                value=-5.0,
+            ),
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='does not match the materialized SystemVariant scene',
+    ):
+        repository.save_candidate(mismatched_aim)
+
+    mismatched_body = build_joint_candidate(
+        spec=spec,
+        physical_system_variant=yaw_variant,
+        decisions=(
+            JointDecisionValue(
+                domain='physical',
+                variable_id='physical:speaker-fl:body_yaw_deg',
+                value=-5.0,
+            ),
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match='does not match the materialized SystemVariant scene',
+    ):
+        repository.save_candidate(mismatched_body)
+
+
+def test_get_candidate_replays_canonical_rebuild_on_tampered_payload(
+    tmp_path: Path,
+) -> None:
+    """Reads re-derive eligibility and materialization; payload is never trusted."""
+
+    fixture = _fixture(tmp_path)
+    plan = _save_plan(
+        fixture,
+        plan_id='tamper-gain-plan-389',
+        channel=_channel(gain_db=1.0),
+    )
+    candidate = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 1.0),),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    repository.save_candidate(candidate)
+
+    # A self-hash-valid payload whose decision value does not match the
+    # persisted CalibrationPlan is rejected on every read path.
+    forged = _resigned_candidate(
+        candidate,
+        decision_vector=(
+            JointDecisionValue(domain='dsp', variable_id='dsp:gain', value=2.0),
+        ),
+    )
+    with closing(
+        sqlite3.connect(fixture.scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_joint_candidates
+            SET payload_json=?
+            WHERE candidate_id=?
+            """,
+            (forged.model_dump_json(), candidate.candidate_id),
+        )
+    with pytest.raises(
+        ValueError,
+        match='does not match the candidate CalibrationPlan',
+    ):
+        repository.get_candidate(candidate.candidate_id)
+    with pytest.raises(
+        ValueError,
+        match='does not match the candidate CalibrationPlan',
+    ):
+        repository.list_candidates(fixture.spec.spec_id)
+
+    # Eligibility smuggled into the payload is equally non-canonical on read.
+    relabeled = _resigned_candidate(
+        candidate,
+        eligibility_state='BLOCKED',
+        blocked_reasons=('forged blocked reason',),
+    )
+    with closing(
+        sqlite3.connect(fixture.scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_joint_candidates
+            SET payload_json=?
+            WHERE candidate_id=?
+            """,
+            (relabeled.model_dump_json(), candidate.candidate_id),
+        )
+    with pytest.raises(ValueError, match='not the canonical compilation'):
+        repository.get_candidate(candidate.candidate_id)
