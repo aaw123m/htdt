@@ -49,11 +49,14 @@ from htdt.cad_calibration import (
 from htdt.cad_calibration_repository import CadCalibrationRepository
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
-    CadAcquisitionContextBinding,
     CadMeasurementQualityEvidence,
+    acquisition_context_binding,
+    build_acquisition_context,
+    build_measurement_observation,
     build_measurement_quality_profile,
     build_measurement_quality_report,
     measurement_sha256,
+    observation_binding,
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
@@ -75,7 +78,6 @@ from htdt.cad_scene import (
 )
 from htdt.cad_standards import (
     CriterionDefinition,
-    CriterionEvidenceRef,
     CriterionObservation,
     CriterionRule,
     CriterionSource,
@@ -83,6 +85,7 @@ from htdt.cad_standards import (
     build_user_standards_profile,
     evaluate_standards_profile,
 )
+from htdt.cad_standards_evidence import build_standards_observation_authority
 from htdt.cad_standards_repository import CadStandardsRepository
 from htdt.cad_system_variant import (
     ChannelRoleBinding,
@@ -428,6 +431,34 @@ def _standards(revision, *, variant=None):
         entity_ids=('projector-main', 'screen-main'),
         applicable_domains=('video',),
     )
+    pass_evidence = build_standards_observation_authority(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        system_variant_id=None if variant is None else variant.variant_id,
+        system_variant_sha256=None if variant is None else variant.variant_sha256,
+        quantity='angle',
+        unit='deg',
+        observed_value=10.0,
+        evidence_basis='measured',
+        entity_ids=('projector-main',),
+        note='pass-angle fixture observation',
+        observed_at_utc=NOW,
+    )
+    fail_evidence = build_standards_observation_authority(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        system_variant_id=None if variant is None else variant.variant_id,
+        system_variant_sha256=None if variant is None else variant.variant_sha256,
+        quantity='angle',
+        unit='deg',
+        observed_value=10.0,
+        evidence_basis='measured',
+        entity_ids=('projector-main',),
+        note='fail-angle fixture observation',
+        observed_at_utc=NOW,
+    )
     evaluation = evaluate_standards_profile(
         profile=profile,
         target=target,
@@ -437,6 +468,8 @@ def _standards(revision, *, variant=None):
                 entity_ids=('projector-main',),
                 observed_value=10.0,
                 unit='deg',
+                evidence_basis='measured',
+                evidence_refs=(pass_evidence.ref(),),
             ),
             CriterionObservation(
                 criterion_id='fail-angle',
@@ -444,18 +477,12 @@ def _standards(revision, *, variant=None):
                 observed_value=10.0,
                 unit='deg',
                 evidence_basis='measured',
-                evidence_refs=(
-                    CriterionEvidenceRef(
-                        evidence_id='measurement-evidence-1',
-                        evidence_sha256='c' * 64,
-                        detail='fixture evidence row',
-                    ),
-                ),
+                evidence_refs=(fail_evidence.ref(),),
             ),
         ),
         created_at_utc=NOW,
     )
-    return profile, evaluation
+    return profile, evaluation, (pass_evidence, fail_evidence)
 
 
 def _treatment_definition():
@@ -650,16 +677,35 @@ def _measurement_authority(measurement_repository, quality_repository, revision)
         profile_version='issue-420-quality-1',
         minimum_polarity_confidence=0.9,
     )
+    context = build_acquisition_context(
+        acquisition_context_id='issue-420-acquisition',
+        source_kind='manual',
+        subject_measurement_ids=(measurement.measurement_id,),
+        timing_reference_valid=True,
+        timing_reference_id='loopback-issue-420',
+        clock_source='shared-clock-issue-420',
+        sample_rate_hz=48000,
+        delay_correction_s=0.0,
+        created_at_utc='2026-09-19T13:01:30+00:00',
+    )
+    quality_repository.save_acquisition_context(context)
+    observation = build_measurement_observation(
+        observation_id='issue-420-observation',
+        measurement_id=measurement.measurement_id,
+        source_kind='manual',
+        usable_frequency_band_hz=(20.0, 20000.0),
+        polarity_correct=True,
+        polarity_confidence=0.99,
+        observed_at_utc='2026-09-19T13:01:45+00:00',
+    )
+    quality_repository.save_observation(observation)
     quality = build_measurement_quality_report(
         measurement=measurement,
         dataset=dataset,
         evidence=evidence,
         profile=profile,
-        acquisition_context=CadAcquisitionContextBinding(
-            acquisition_context_id='issue-420-acquisition',
-            acquisition_context_sha256=sha256(b'issue-420-acquisition').hexdigest(),
-            source_kind='manual',
-        ),
+        acquisition_context=acquisition_context_binding(context),
+        observation=observation_binding(observation),
         report_id='quality-issue-420',
         created_at_utc='2026-09-19T13:02:00+00:00',
     )
@@ -849,8 +895,10 @@ def _authorities(tmp_path: Path, *, with_semantic_geometry: bool = True):
         scene_repository,
         system_variant_repository,
     )
-    profile, standards = _standards(revision)
+    profile, standards, standards_evidence = _standards(revision)
     standards_repository.save_profile(profile)
+    for _evidence in standards_evidence:
+        standards_repository.save_observation_authority(_evidence)
     standards_repository.save_evaluation(standards)
 
     treatment_repository = CadAcousticTreatmentRepository(
@@ -918,7 +966,9 @@ def test_full_report_builds_from_replay_validated_authorities(tmp_path: Path) ->
         revision,
         variant,
     )
-    _profile, variant_standards = _standards(revision, variant=variant)
+    _profile, variant_standards, variant_evidence = _standards(revision, variant=variant)
+    for _evidence in variant_evidence:
+        ctx['standards_repository'].save_observation_authority(_evidence)
     ctx['standards_repository'].save_evaluation(variant_standards)
 
     output = service.build_installation_output_from_authorities(
@@ -989,7 +1039,9 @@ def test_variant_scoped_report_replays_and_rejects_foreign_authority(tmp_path: P
         request=_video_request(ctx['specification']),
     )
     ctx['video_repository'].save_evaluation(variant_video)
-    _profile, variant_standards = _standards(revision, variant=variant)
+    _profile, variant_standards, variant_evidence = _standards(revision, variant=variant)
+    for _evidence in variant_evidence:
+        ctx['standards_repository'].save_observation_authority(_evidence)
     ctx['standards_repository'].save_evaluation(variant_standards)
 
     output = service.build_installation_output_from_authorities(
@@ -1093,6 +1145,7 @@ def test_fabricated_standards_results_cannot_enter(tmp_path: Path) -> None:
             result['status'] = 'PASS'
             result['evidence_refs'] = [
                 {
+                    'kind': 'standards_manual_observation',
                     'evidence_id': 'fabricated-evidence',
                     'evidence_sha256': 'd' * 64,
                     'detail': 'invented after the fact',
@@ -1122,8 +1175,8 @@ def test_fabricated_standards_results_cannot_enter(tmp_path: Path) -> None:
         )
         connection.commit()
     with pytest.raises(
-        InstallationAuthorityError,
-        match='does not reproduce from canonical evaluator',
+        ValueError,
+        match='does not match evaluator authority',
     ):
         service.build_installation_output_from_authorities(
             scene_revision_id=revision.revision_id,
@@ -1444,7 +1497,9 @@ def test_replay_verifier_reproduces_semantics_after_restart(tmp_path: Path) -> N
         revision,
         variant,
     )
-    _profile, variant_standards = _standards(revision, variant=variant)
+    _profile, variant_standards, variant_evidence = _standards(revision, variant=variant)
+    for _evidence in variant_evidence:
+        ctx['standards_repository'].save_observation_authority(_evidence)
     ctx['standards_repository'].save_evaluation(variant_standards)
 
     output = service.build_installation_output_from_authorities(
