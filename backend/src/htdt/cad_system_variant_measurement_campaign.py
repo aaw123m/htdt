@@ -1524,6 +1524,12 @@ class CadSystemVariantMeasurementCampaignRepository:
         `measured`/`plan_completions` default to the persisted authorities;
         complete_campaign passes the just-validated in-memory artifacts so the
         same checks hold before they are committed in the shared transaction.
+
+        Beyond each side's independent exactness, this replays the canonical
+        cross-binding: `complete_system_variant_measurement_campaign` builds
+        the measured record from the same evidence_by_measurement union the
+        plan completions accepted, so the referenced measured record must
+        reproduce from exactly that union of evidence.
         """
         completion = SystemVariantMeasurementCampaignCompletion.model_validate(
             completion.model_dump(mode='python')
@@ -1585,11 +1591,140 @@ class CadSystemVariantMeasurementCampaignRepository:
         if actual_plan_ids != expected_plan_ids:
             raise ValueError('campaign completion does not cover exact plan set')
 
+        # Replay the canonical evidence binding: the referenced measured
+        # record must be built from exactly the union of exact measurement
+        # evidence the referenced plan completions accepted, bound at the
+        # completion timestamp. `notes` are user-authored record metadata
+        # bound by the record's own pinned hash rather than derived from
+        # evidence, so the replay reuses the referenced record's notes and
+        # they carry no lifecycle authority here.
+        expected_measured = self._replay_measured_from_plan_completions(
+            campaign=campaign,
+            registration=registration,
+            plan_completions=resolved,
+            bound_at_utc=completion.completed_at_utc,
+            notes=measured.notes,
+        )
+        if expected_measured != measured:
+            raise ValueError(
+                'campaign completion measured lifecycle evidence union mismatch'
+            )
+
         payload = completion.semantic_payload()
         digest = _digest(payload)
         if digest != completion.completion_sha256:
             raise ValueError('campaign completion failed exact reconstruction')
         return completion
+
+    def _resolve_plan_completion_evidence(
+        self,
+        ref: VariantMeasurementEvidenceRef,
+    ) -> tuple[
+        CadMeasurementRecord,
+        CadFrequencyResponseDataset,
+        CadMeasurementQualityReport,
+    ]:
+        """Resolve one pinned plan-completion evidence ref exactly.
+
+        Every artifact is re-resolved by its pinned identity and must
+        reproduce the pinned content hash, so a missing, substituted or
+        tampered measurement/dataset/quality-report row fails closed.
+        """
+        measurement = self.measurement_repository.get_measurement(
+            ref.measurement_id
+        )
+        if (
+            measurement is None
+            or measurement_sha256(measurement) != ref.measurement_sha256
+            or measurement.captured_at != ref.captured_at
+        ):
+            raise ValueError(
+                'campaign completion measurement evidence missing/stale'
+            )
+        dataset = self.measurement_repository.get_dataset(ref.dataset_id)
+        if dataset is None or dataset_sha256(dataset) != ref.dataset_sha256:
+            raise ValueError(
+                'campaign completion dataset evidence missing/stale'
+            )
+        report = self.quality_repository.get_report(ref.quality_report_id)
+        if report is None or report.report_sha256 != ref.quality_report_sha256:
+            raise ValueError(
+                'campaign completion quality report evidence missing/stale'
+            )
+        if (
+            dataset.measurement_id != measurement.measurement_id
+            or report.measurement_id != measurement.measurement_id
+            or report.dataset_id != dataset.dataset_id
+            or report.acquisition_context is None
+            or report.acquisition_context.acquisition_context_id
+            != ref.acquisition_context_id
+            or report.acquisition_context.acquisition_context_sha256
+            != ref.acquisition_context_sha256
+        ):
+            raise ValueError(
+                'campaign completion evidence exact binding mismatch'
+            )
+        return measurement, dataset, report
+
+    def _replay_measured_from_plan_completions(
+        self,
+        *,
+        campaign: SystemVariantMeasurementCampaign,
+        registration: SystemVariantMeasurementCampaignRegistration,
+        plan_completions: Sequence[SystemVariantMeasurementPlanCompletion],
+        bound_at_utc: str,
+        notes: Sequence[str],
+    ) -> SystemVariantMeasuredRecord:
+        """Rebuild the measured record the plan-completion union implies.
+
+        `complete_system_variant_measurement_campaign` feeds one
+        evidence_by_measurement map — the union of exact measurement
+        evidence every referenced plan completion accepted — into the
+        measured-record builder. This replays that relationship at
+        persistence/read time: a measured record built from any other
+        (still individually valid) evidence set fails closed.
+        """
+        as_built = self.lifecycle_repository.get(campaign.as_built_record_id)
+        if (
+            as_built is None
+            or as_built.record_sha256 != campaign.as_built_record_sha256
+        ):
+            raise ValueError(
+                'campaign completion AsBuilt authority missing/stale'
+            )
+        evidence_by_measurement: dict[
+            str,
+            tuple[
+                CadMeasurementRecord,
+                CadFrequencyResponseDataset,
+                CadMeasurementQualityReport,
+            ],
+        ] = {}
+        for plan_completion in plan_completions:
+            for ref in plan_completion.evidence:
+                if ref.measurement_id in evidence_by_measurement:
+                    raise ValueError(
+                        'campaign completion duplicates measurement evidence'
+                    )
+                evidence_by_measurement[ref.measurement_id] = (
+                    self._resolve_plan_completion_evidence(ref)
+                )
+        if len(evidence_by_measurement) != campaign.required_measurement_count:
+            raise ValueError('campaign required measurement count mismatch')
+        return build_system_variant_measured_record(
+            scene_repository=self.scene_repository,
+            as_built_record=as_built,
+            evidence=tuple(
+                evidence_by_measurement[key]
+                for key in sorted(evidence_by_measurement)
+            ),
+            campaign_id=campaign.campaign_id,
+            campaign_sha256=campaign.campaign_sha256,
+            campaign_registration_id=registration.registration_id,
+            campaign_registration_sha256=registration.registration_sha256,
+            bound_at_utc=bound_at_utc,
+            notes=notes,
+        )
 
     def _save_campaign_completion_in_transaction(
         self,

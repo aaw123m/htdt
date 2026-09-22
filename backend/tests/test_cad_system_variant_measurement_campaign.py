@@ -976,3 +976,312 @@ def test_complete_campaign_requires_persisted_campaign_and_registration(
             completed_at_utc=COMPLETE_TIME,
         )
     assert _completion_row_counts(fx['scene'].path) == (0, 0, 0)
+
+
+def _campaign_completion_for(
+    campaign,
+    registration,
+    plan_completions,
+    measured,
+    *,
+    completed_at_utc=COMPLETE_TIME,
+):
+    """Recompute a well-formed campaign completion over arbitrary refs.
+
+    Mirrors the identity construction in
+    `complete_system_variant_measurement_campaign`: the issue's attack path
+    is a completion whose hash is honestly recomputed over plan completions
+    from one evidence set and a measured record built from another.
+    """
+    ordered = tuple(sorted(
+        plan_completions,
+        key=lambda item: item.completion_id,
+    ))
+    payload = {
+        'authority_version': (
+            campaign_module.O100G_MEASUREMENT_CAMPAIGN_COMPLETION_AUTHORITY_VERSION
+        ),
+        'campaign_id': campaign.campaign_id,
+        'campaign_sha256': campaign.campaign_sha256,
+        'campaign_registration_id': registration.registration_id,
+        'campaign_registration_sha256': registration.registration_sha256,
+        'plan_completion_ids': [item.completion_id for item in ordered],
+        'plan_completion_sha256': [item.completion_sha256 for item in ordered],
+        'measured_record_id': measured.record_id,
+        'measured_record_sha256': measured.record_sha256,
+        'completed_at_utc': completed_at_utc,
+    }
+    digest = campaign_module._digest(payload)
+    return campaign_module.SystemVariantMeasurementCampaignCompletion(
+        completion_id=(
+            f'system-variant-measurement-campaign-completion:{digest}'
+        ),
+        completion_sha256=digest,
+        **payload,
+    )
+
+
+def _measured_for(fx, registration, campaign, evidence, **kwargs):
+    kwargs.setdefault('bound_at_utc', COMPLETE_TIME)
+    return build_system_variant_measured_record(
+        scene_repository=fx['scene'],
+        as_built_record=fx['as_built'],
+        evidence=evidence,
+        campaign_id=campaign.campaign_id,
+        campaign_sha256=campaign.campaign_sha256,
+        campaign_registration_id=registration.registration_id,
+        campaign_registration_sha256=registration.registration_sha256,
+        **kwargs,
+    )
+
+
+def _insert_measured_row(path, record) -> None:
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute('BEGIN IMMEDIATE')
+        connection.execute(
+            """
+            INSERT INTO cad_system_variant_measured(
+                record_id, record_sha256, as_built_record_id, variant_id,
+                as_built_revision_id, payload_json, recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record.record_id,
+                record.record_sha256,
+                record.as_built_record_id,
+                record.variant_id,
+                record.as_built_revision_id,
+                record.model_dump_json(),
+                record.bound_at_utc,
+            ),
+        )
+
+
+def _insert_campaign_completion_row(path, completion) -> None:
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute('BEGIN IMMEDIATE')
+        connection.execute(
+            """
+            INSERT INTO cad_system_variant_measurement_campaign_completions(
+                completion_id, completion_sha256, campaign_id,
+                measured_record_id, payload_json, recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                completion.completion_id,
+                completion.completion_sha256,
+                completion.campaign_id,
+                completion.measured_record_id,
+                completion.model_dump_json(),
+                completion.completed_at_utc,
+            ),
+        )
+
+
+def _plan_completion_for(fx, plan, campaign, registration, measurement_id):
+    completion, _ = complete_system_variant_measurement_plan(
+        campaign=campaign,
+        registration=registration,
+        plan=plan,
+        assignments={plan.targets[0].target_id: (measurement_id,)},
+        measurement_repository=fx['measurements'],
+        quality_repository=fx['quality'],
+        completed_at_utc=COMPLETE_TIME,
+    )
+    return completion
+
+
+def test_campaign_completion_rejects_measured_record_from_other_evidence(
+    tmp_path: Path,
+) -> None:
+    """A measured record built from a different valid measurement set is
+    rejected even though both sides bind the same campaign authority."""
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+    _save_evidence(fx, measurement_id='measure-sl')
+    other = _save_evidence(fx, measurement_id='measure-sl-b')
+
+    plan_completion = _plan_completion_for(
+        fx, plan, campaign, registration, 'measure-sl'
+    )
+    fx['campaigns'].save_plan_completion(plan_completion)
+
+    foreign = _measured_for(fx, registration, campaign, (other,))
+    completion = _campaign_completion_for(
+        campaign, registration, (plan_completion,), foreign
+    )
+
+    with pytest.raises(ValueError, match='evidence union'):
+        fx['campaigns']._validate_campaign_completion(
+            completion,
+            measured=foreign,
+            plan_completions=(plan_completion,),
+        )
+
+
+def test_campaign_completion_rejects_substituted_evidence_artifacts(
+    tmp_path: Path,
+) -> None:
+    """Same measurement id but a substituted dataset/quality report still
+    breaks the exact evidence union."""
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+    measurement, dataset, report = _save_evidence(fx)
+    plan_completion = _plan_completion_for(
+        fx, plan, campaign, registration, measurement.measurement_id
+    )
+    fx['campaigns'].save_plan_completion(plan_completion)
+
+    alt_dataset = dataset.model_copy(
+        update={
+            'dataset_id': 'dataset:measure-sl-alt',
+            'level_db': (70.5, 71.5, 70.0),
+        }
+    )
+    alt_report = build_measurement_quality_report(
+        measurement=measurement,
+        dataset=alt_dataset,
+        evidence=CadMeasurementQualityEvidence(),
+        profile=build_measurement_quality_profile(),
+        acquisition_context=report.acquisition_context,
+        report_id='report:measure-sl-alt',
+        created_at_utc='2026-09-20T00:05:30+00:00',
+    )
+    foreign = _measured_for(
+        fx, registration, campaign, ((measurement, alt_dataset, alt_report),)
+    )
+    completion = _campaign_completion_for(
+        campaign, registration, (plan_completion,), foreign
+    )
+
+    with pytest.raises(ValueError, match='evidence union'):
+        fx['campaigns']._validate_campaign_completion(
+            completion,
+            measured=foreign,
+            plan_completions=(plan_completion,),
+        )
+
+
+def test_persisted_foreign_evidence_union_fails_closed_on_save_and_reads(
+    tmp_path: Path,
+) -> None:
+    """The forged durable state from the issue — valid plan completions over
+    set A plus a valid measured record over set B — is rejected on save and
+    on every authoritative read."""
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+    _save_evidence(fx, measurement_id='measure-sl')
+    other = _save_evidence(fx, measurement_id='measure-sl-b')
+    plan_completion = _plan_completion_for(
+        fx, plan, campaign, registration, 'measure-sl'
+    )
+    fx['campaigns'].save_plan_completion(plan_completion)
+
+    foreign = _measured_for(fx, registration, campaign, (other,))
+    completion = _campaign_completion_for(
+        campaign, registration, (plan_completion,), foreign
+    )
+    _insert_campaign_completion_row(fx['scene'].path, completion)
+    _insert_measured_row(fx['scene'].path, foreign)
+
+    with pytest.raises(ValueError, match='evidence union'):
+        fx['campaigns'].save_campaign_completion(completion)
+    with pytest.raises(ValueError, match='evidence union'):
+        fx['campaigns'].get_campaign_completion(campaign.campaign_id)
+    with pytest.raises(ValueError, match='evidence union'):
+        fx['measured'].get(foreign.record_id)
+    with pytest.raises(ValueError, match='evidence union'):
+        fx['measured'].list_for_as_built(fx['as_built'].record_id)
+
+
+def test_missing_plan_completion_row_fails_closed_on_reads(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    plan, campaign, _ = _plan_and_campaign(fx)
+    _save_evidence(fx)
+    completion, _, measured = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan=_assignments(plan, 'measure-sl'),
+        completed_at_utc=COMPLETE_TIME,
+    )
+
+    with closing(sqlite3.connect(fx['scene'].path)) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_system_variant_measurement_plan_completions'
+        )
+
+    with pytest.raises(ValueError, match='plan completion'):
+        fx['campaigns'].get_campaign_completion(campaign.campaign_id)
+    with pytest.raises(ValueError, match='plan completion evidence missing'):
+        fx['measured'].get(measured.record_id)
+    with pytest.raises(ValueError, match='plan completion evidence missing'):
+        fx['measured'].list_for_as_built(fx['as_built'].record_id)
+    assert completion.campaign_id == campaign.campaign_id
+
+
+def test_tampered_plan_completion_row_fails_closed_on_reads(
+    tmp_path: Path,
+) -> None:
+    """A plan completion row swapped for a different well-formed completion
+    is caught by the pinned hash on every authoritative read."""
+    fx = _fixture(tmp_path)
+    plan, campaign, registration = _plan_and_campaign(fx)
+    _save_evidence(fx, measurement_id='measure-sl')
+    _save_evidence(fx, measurement_id='measure-sl-b')
+    completion, plan_completions, measured = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan=_assignments(plan, 'measure-sl'),
+        completed_at_utc=COMPLETE_TIME,
+    )
+
+    other_completion = _plan_completion_for(
+        fx, plan, campaign, registration, 'measure-sl-b'
+    )
+    with closing(sqlite3.connect(fx['scene'].path)) as connection, connection:
+        connection.execute(
+            'UPDATE cad_system_variant_measurement_plan_completions '
+            'SET payload_json=? WHERE completion_id=?',
+            (
+                other_completion.model_dump_json(),
+                plan_completions[0].completion_id,
+            ),
+        )
+
+    with pytest.raises(ValueError, match='plan completion'):
+        fx['campaigns'].get_campaign_completion(campaign.campaign_id)
+    with pytest.raises(ValueError, match='plan completion'):
+        fx['measured'].get(measured.record_id)
+    with pytest.raises(ValueError, match='plan completion'):
+        fx['measured'].list_for_as_built(fx['as_built'].record_id)
+    assert completion.measured_record_id == measured.record_id
+
+
+def test_complete_campaign_with_notes_reopens_unchanged(tmp_path: Path) -> None:
+    """Notes are user-authored record metadata: they stay bound by the
+    pinned record hash but carry no lifecycle authority, so canonical
+    completions with notes still save/reopen unchanged."""
+    fx = _fixture(tmp_path)
+    plan, campaign, _ = _plan_and_campaign(fx)
+    _save_evidence(fx)
+
+    completion, plan_completions, measured = fx['campaigns'].complete_campaign(
+        campaign=campaign,
+        assignments_by_plan=_assignments(plan, 'measure-sl'),
+        completed_at_utc=COMPLETE_TIME,
+        notes=('installer signed off',),
+    )
+
+    assert measured.notes == ('installer signed off',)
+    assert (
+        fx['campaigns'].get_campaign_completion(campaign.campaign_id)
+        == completion
+    )
+    assert fx['measured'].get(measured.record_id) == measured
+    assert fx['measured'].list_for_as_built(fx['as_built'].record_id) == (
+        measured,
+    )
+    assert (
+        fx['campaigns'].get_plan_completion(plan_completions[0].completion_id)
+        == plan_completions[0]
+    )
