@@ -11,11 +11,14 @@ from pyvistaqt import QtInteractor
 
 from .cad_prediction_models import CadPredictionResult
 from .cad_scene import (
+    PHYSICAL_ENTITY_KINDS,
+    Position3,
     SceneDocument,
     SceneEntity,
     acoustic_reference_position,
     domain_pose_to_render_matrix,
     domain_to_render,
+    quaternion_to_matrix3,
     room_vertices,
     scene_content_hash,
 )
@@ -28,6 +31,66 @@ class RoomOverlayState:
     labels: bool = False
     acoustics: bool = False
     focus_selection: bool = False
+
+
+_SELECTION_FORWARD_RAY_LENGTH_M = 0.6
+_SELECTION_AIM_RAY_LENGTH_M = 1.2
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionDirectionRay:
+    """One rendered direction cue for the selected entity.
+
+    ``role`` is 'forward' (physical body front, local +Y under the persisted
+    quaternion) or 'aim' (independent speaker acoustic aim). The two are
+    distinct authorities: a divergent speaker shows both rays in different
+    colors so toe-in vs acoustic aim can be compared at a glance.
+    """
+
+    mesh: pv.PolyData
+    color: str
+    role: str
+
+
+def _selection_direction_rays(entity: SceneEntity) -> tuple[SelectionDirectionRay, ...]:
+    """Body-forward and acoustic-aim rays for the selected physical entity.
+
+    Body forward always renders for physical entities; the acoustic aim ray is
+    drawn only when the speaker's aim is explicitly known (aim_xyz is not
+    None) — an unknown aim is never visualized as a guessed direction.
+    """
+
+    if entity.kind not in PHYSICAL_ENTITY_KINDS:
+        return ()
+    origin = acoustic_reference_position(entity) or entity.position
+    matrix = quaternion_to_matrix3(entity.orientation)
+    forward = (matrix[0][1], matrix[1][1], matrix[2][1])  # local +Y front axis
+    forward_end = Position3(
+        x_m=origin.x_m + forward[0] * _SELECTION_FORWARD_RAY_LENGTH_M,
+        y_m=origin.y_m + forward[1] * _SELECTION_FORWARD_RAY_LENGTH_M,
+        z_m=origin.z_m + forward[2] * _SELECTION_FORWARD_RAY_LENGTH_M,
+    )
+    rays = [
+        SelectionDirectionRay(
+            mesh=pv.Line(domain_to_render(origin), domain_to_render(forward_end)),
+            color=DARK_THEME.semantic.warning.hex,
+            role="forward",
+        )
+    ]
+    if entity.kind == "speaker" and entity.aim_xyz is not None:
+        aim_end = Position3(
+            x_m=origin.x_m + entity.aim_xyz.x * _SELECTION_AIM_RAY_LENGTH_M,
+            y_m=origin.y_m + entity.aim_xyz.y * _SELECTION_AIM_RAY_LENGTH_M,
+            z_m=origin.z_m + entity.aim_xyz.z * _SELECTION_AIM_RAY_LENGTH_M,
+        )
+        rays.append(
+            SelectionDirectionRay(
+                mesh=pv.Line(domain_to_render(origin), domain_to_render(aim_end)),
+                color=DARK_THEME.accent.primary.hex,
+                role="aim",
+            )
+        )
+    return tuple(rays)
 
 
 def _room_wireframe(document: SceneDocument) -> pv.PolyData | None:
@@ -250,6 +313,22 @@ class RoomViewport3D(QFrame):
                 name=f"entity-{entity.entity_id}",
             )
             self._actor_entity_ids[id(actor)] = entity.entity_id
+
+        if selected_id is not None:
+            try:
+                selected_entity = document.entity(selected_id)
+            except KeyError:
+                selected_entity = None
+            if selected_entity is not None:
+                for ray in _selection_direction_rays(selected_entity):
+                    self.plotter.add_mesh(
+                        ray.mesh,
+                        color=ray.color,
+                        line_width=3,
+                        opacity=0.95,
+                        pickable=False,
+                        name=f"selection-{ray.role}-{selected_id}",
+                    )
 
         if overlays.acoustics:
             self._render_acoustic_overlay(document)
@@ -535,4 +614,4 @@ class RoomViewport3D(QFrame):
         super().closeEvent(event)
 
 
-__all__ = ["RoomOverlayState", "RoomViewport3D"]
+__all__ = ["RoomOverlayState", "RoomViewport3D", "SelectionDirectionRay"]

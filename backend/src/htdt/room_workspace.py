@@ -24,11 +24,20 @@ from PySide6.QtWidgets import (
 )
 
 from .cad_document import EditStateError, EditorViewState
+from .cad_objects import (
+    aim_target_entities,
+    aim_yaw_pitch_deg,
+    direction_from_yaw_pitch_deg,
+    orientation_aligning_forward,
+    speaker_aim_replacements,
+)
 from .cad_repository import RecoverySnapshot, SceneRepository
 from .cad_scene import (
     F1_DOCUMENT_ID,
+    PHYSICAL_ENTITY_KINDS,
     Offset3,
     Position3,
+    Quaternion4,
     SceneDocument,
     SceneEntity,
     Size3,
@@ -37,6 +46,7 @@ from .cad_scene import (
     make_f1_scene,
     next_unassigned_speaker_role,
     quaternion_from_euler_deg,
+    quaternion_to_euler_deg,
 )
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .room_viewport import RoomOverlayState, RoomViewport3D
@@ -273,6 +283,8 @@ class RoomWorkspaceController:
         position: Position3,
         size_m: Size3 | None,
         speaker_role: str | None,
+        orientation: Quaternion4 | None = None,
+        aim_yaw_pitch_deg: tuple[float, float] | None = None,
     ) -> bool:
         entity_id = self.selected_id
         if entity_id is None:
@@ -301,7 +313,88 @@ class RoomWorkspaceController:
                     if item.kind == "speaker" and item.entity_id != entity_id
                 )
             updates["speaker_role"] = role
+        if orientation is not None:
+            if entity.kind not in PHYSICAL_ENTITY_KINDS:
+                raise EditStateError("この種類のオブジェクトには姿勢フィールドがありません")
+            # Numeric orientation is an exact pose edit through the same
+            # quaternion authority as gizmo rotation; it never touches aim_xyz.
+            updates["orientation"] = orientation
+        if aim_yaw_pitch_deg is not None:
+            if entity.kind != "speaker":
+                raise EditStateError("音響方向はスピーカー専用です")
+            # Acoustic aim edits never rotate the cabinet; aligning the body is
+            # a separate explicit action (align_selected_cabinet_to_aim).
+            updates["aim_xyz"] = direction_from_yaw_pitch_deg(
+                yaw_deg=aim_yaw_pitch_deg[0],
+                pitch_deg=aim_yaw_pitch_deg[1],
+            )
         changed = self.working.update_entity(entity_id, **updates)
+        if changed:
+            self._sync_recovery()
+        return changed
+
+    def aim_targets(self) -> tuple[SceneEntity, ...]:
+        """Seats and measurement points the selected speaker may be aimed at."""
+
+        return aim_target_entities(self.document)
+
+    def _selected_speaker_for_edit(self) -> SceneEntity:
+        entity_id = self.selected_id
+        if entity_id is None:
+            raise EditStateError("スピーカーを選択してください")
+        if not self.can_edit:
+            raise EditStateError("現在の状態では選択項目を編集できません")
+        if self.view_state.is_locked(entity_id):
+            raise EditStateError("ロック中のオブジェクトは編集できません")
+        entity = self.document.entity(entity_id)
+        if entity.kind != "speaker":
+            raise EditStateError("音響方向はスピーカー専用です")
+        return entity
+
+    def aim_selected_speaker_at(self, target_id: str) -> bool:
+        """Set the selected speaker's acoustic aim toward a seat/measurement point.
+
+        Body orientation is intentionally untouched; one Undo transaction.
+        """
+
+        entity = self._selected_speaker_for_edit()
+        replacements = speaker_aim_replacements(
+            self.document,
+            (entity.entity_id,),
+            target_id,
+        )
+        changed = self.working.update_entity(
+            entity.entity_id,
+            aim_xyz=replacements[0].aim_xyz,
+        )
+        if changed:
+            self._sync_recovery()
+        return changed
+
+    def clear_selected_speaker_aim(self) -> bool:
+        """Reset the selected speaker's acoustic aim to explicit unknown (None)."""
+
+        entity = self._selected_speaker_for_edit()
+        if entity.aim_xyz is None:
+            return False
+        changed = self.working.update_entity(entity.entity_id, aim_xyz=None)
+        if changed:
+            self._sync_recovery()
+        return changed
+
+    def align_selected_cabinet_to_aim(self) -> bool:
+        """Explicit command: rotate the cabinet so its front (+Y) follows the aim.
+
+        The acoustic aim itself is never modified by this action.
+        """
+
+        entity = self._selected_speaker_for_edit()
+        if entity.aim_xyz is None:
+            raise EditStateError("音響方向が未設定のため本体を合わせられません")
+        changed = self.working.update_entity(
+            entity.entity_id,
+            orientation=orientation_aligning_forward(entity.aim_xyz),
+        )
         if changed:
             self._sync_recovery()
         return changed
@@ -486,6 +579,9 @@ class ObjectPalette(QFrame):
 
 class SelectionInspector(QFrame):
     editCommitted = Signal()
+    aimTargetRequested = Signal(str)
+    aimClearRequested = Signal()
+    alignCabinetRequested = Signal()
 
     KIND_LABELS = {
         "speaker": "スピーカー",
@@ -543,13 +639,117 @@ class SelectionInspector(QFrame):
             self.size_fields[axis] = field
             self.form.addRow(f"寸法 {axis}", field)
 
+        # Transform — numeric physical orientation (#470). Backed by the exact
+        # persisted quaternion; one field commit is one Undo transaction.
+        self.orientation_header = QLabel("姿勢")
+        set_typography_role(self.orientation_header, TypographyRole.SECTION_TITLE)
+        self.orientation_header.setToolTip(
+            "本体の向きをヨー・ピッチ・ロール（°）で正確に編集します。"
+            "基準姿勢（全て 0°）では本体の正面は +Y（部屋後方）を向きます"
+        )
+        self.form.addRow(self.orientation_header)
+        self.orientation_labels: dict[str, QLabel] = {}
+        self.orientation_fields: dict[str, QDoubleSpinBox] = {}
+        orientation_tooltips = {
+            "Yaw": "Z軸まわりの回転（°）· 0°で正面は+Y（部屋後方）· 正値で正面は−X側へ旋回",
+            "Pitch": "本体の前後軸まわりのねじれ（°）· 正面の向きは変わりません",
+            "Roll": "X軸まわりの回転（°）· 正面を上（+）/下（−）へ傾けます",
+        }
+        for axis in ("Yaw", "Pitch", "Roll"):
+            label = QLabel(axis)
+            field = self._angle_field()
+            label.setToolTip(orientation_tooltips[axis])
+            field.setToolTip(orientation_tooltips[axis])
+            self.orientation_labels[axis] = label
+            self.orientation_fields[axis] = field
+            self.form.addRow(label, field)
+        self._orientation_widgets: tuple[QWidget, ...] = (
+            self.orientation_header,
+            *self.orientation_labels.values(),
+            *self.orientation_fields.values(),
+        )
+
+        # Speaker-only acoustic aim block (#470): independent authority from the
+        # cabinet pose. Unknown aim is never shown as a zero vector.
+        self.aim_section = QWidget()
+        aim_layout = QVBoxLayout(self.aim_section)
+        aim_layout.setContentsMargins(0, 0, 0, 0)
+        aim_layout.setSpacing(6)
+        aim_header = QLabel("音響方向")
+        set_typography_role(aim_header, TypographyRole.SECTION_TITLE)
+        aim_header.setToolTip(
+            "スピーカーの音響照準は本体の姿勢とは独立した権威です。"
+            "本体を回転させても音響方向は変わりません"
+        )
+        aim_layout.addWidget(aim_header)
+        self.aim_state_label = QLabel("—")
+        self.aim_state_label.setWordWrap(True)
+        set_typography_role(self.aim_state_label, TypographyRole.SECONDARY)
+        aim_layout.addWidget(self.aim_state_label)
+
+        target_row = QHBoxLayout()
+        target_label = QLabel("対象")
+        target_label.setToolTip("音響照準を向ける座席または測定点の音響基準点")
+        target_row.addWidget(target_label)
+        self.aim_target_combo = QComboBox()
+        target_row.addWidget(self.aim_target_combo, 1)
+        self.aim_apply_button = QPushButton("対象へ向ける")
+        self.aim_apply_button.setToolTip(
+            "選択した座席・測定点の音響基準点へ照準を設定します（本体は回転しません）"
+        )
+        self.aim_apply_button.clicked.connect(self._emit_aim_target)
+        target_row.addWidget(self.aim_apply_button)
+        aim_layout.addLayout(target_row)
+
+        self.aim_known_host = QWidget()
+        known_layout = QVBoxLayout(self.aim_known_host)
+        known_layout.setContentsMargins(0, 0, 0, 0)
+        known_layout.setSpacing(6)
+        aim_form = QFormLayout()
+        aim_form.setContentsMargins(0, 0, 0, 0)
+        self.aim_yaw_field = self._angle_field()
+        self.aim_yaw_field.setToolTip(
+            "音響照準の水平角（°）· 0° = +Y（部屋後方）· 正値 = +X（部屋右）方向"
+        )
+        self.aim_pitch_field = self._angle_field(minimum=-90.0, maximum=90.0)
+        self.aim_pitch_field.setToolTip("音響照準の仰角（°）· 正値 = +Z（上）方向")
+        aim_form.addRow("音響Yaw", self.aim_yaw_field)
+        aim_form.addRow("音響Pitch", self.aim_pitch_field)
+        known_layout.addLayout(aim_form)
+        aim_actions = QHBoxLayout()
+        self.aim_clear_button = QPushButton("未設定に戻す")
+        self.aim_clear_button.setToolTip(
+            "音響方向を消去して明示的な「未設定（不明）」に戻します"
+        )
+        self.aim_clear_button.clicked.connect(
+            lambda checked=False: self.aimClearRequested.emit()
+        )
+        self.aim_align_button = QPushButton("本体を方向に合わせる")
+        self.aim_align_button.setToolTip(
+            "明示操作: キャビネット正面（+Y）を音響方向へ向けます。音響方向自体は変わりません"
+        )
+        self.aim_align_button.clicked.connect(
+            lambda checked=False: self.alignCabinetRequested.emit()
+        )
+        aim_actions.addWidget(self.aim_clear_button)
+        aim_actions.addWidget(self.aim_align_button)
+        known_layout.addLayout(aim_actions)
+        aim_layout.addWidget(self.aim_known_host)
+        self.form.addRow(self.aim_section)
+
         self.name_field.editingFinished.connect(self.editCommitted.emit)
         self.role_field.activated.connect(
             lambda _index=-1: self.editCommitted.emit()
         )
         if self.role_field.lineEdit() is not None:
             self.role_field.lineEdit().editingFinished.connect(self.editCommitted.emit)
-        for field in (*self.position_fields.values(), *self.size_fields.values()):
+        for field in (
+            *self.position_fields.values(),
+            *self.size_fields.values(),
+            *self.orientation_fields.values(),
+            self.aim_yaw_field,
+            self.aim_pitch_field,
+        ):
             field.editingFinished.connect(self.editCommitted.emit)
 
         layout.addWidget(form_host)
@@ -567,7 +767,27 @@ class SelectionInspector(QFrame):
         field.setKeyboardTracking(False)
         return field
 
-    def set_entity(self, entity: SceneEntity | None, *, editable: bool) -> None:
+    @staticmethod
+    def _angle_field(
+        *,
+        minimum: float = -180.0,
+        maximum: float = 180.0,
+    ) -> QDoubleSpinBox:
+        field = QDoubleSpinBox()
+        field.setRange(minimum, maximum)
+        field.setDecimals(3)
+        field.setSingleStep(1.0)
+        field.setSuffix("°")
+        field.setKeyboardTracking(False)
+        return field
+
+    def set_entity(
+        self,
+        entity: SceneEntity | None,
+        *,
+        editable: bool,
+        aim_targets: tuple[SceneEntity, ...] = (),
+    ) -> None:
         self.empty_label.setVisible(entity is None)
         self.form_host.setVisible(entity is not None)
         if entity is None:
@@ -578,6 +798,10 @@ class SelectionInspector(QFrame):
             QSignalBlocker(self.role_field),
             *(QSignalBlocker(field) for field in self.position_fields.values()),
             *(QSignalBlocker(field) for field in self.size_fields.values()),
+            *(QSignalBlocker(field) for field in self.orientation_fields.values()),
+            QSignalBlocker(self.aim_yaw_field),
+            QSignalBlocker(self.aim_pitch_field),
+            QSignalBlocker(self.aim_target_combo),
             *([QSignalBlocker(role_edit)] if role_edit is not None else []),
         ]
         try:
@@ -615,10 +839,125 @@ class SelectionInspector(QFrame):
                 ):
                     field.setValue(value)
                     field.setEnabled(editable)
+            # Yaw/Pitch/Roll rows exist only for physical bodies; a measurement
+            # point is a reference position without a pose to author.
+            physical = entity.kind in PHYSICAL_ENTITY_KINDS
+            for widget in self._orientation_widgets:
+                widget.setVisible(physical)
+            if physical:
+                for field, value in zip(
+                    self.orientation_fields.values(),
+                    quaternion_to_euler_deg(entity.orientation),
+                    strict=True,
+                ):
+                    field.setValue(value)
+                    field.setEnabled(editable)
+            self.aim_section.setVisible(entity.kind == "speaker")
+            if entity.kind == "speaker":
+                self._set_aim_state(entity, editable=editable, aim_targets=aim_targets)
         finally:
             del blockers
 
-    def values(self, entity: SceneEntity) -> tuple[str, Position3, Size3 | None, str | None]:
+    def _set_aim_state(
+        self,
+        entity: SceneEntity,
+        *,
+        editable: bool,
+        aim_targets: tuple[SceneEntity, ...],
+    ) -> None:
+        previous_target = self.aim_target_combo.currentData()
+        self.aim_target_combo.clear()
+        for target in aim_targets:
+            label = f"{target.name} · {self.KIND_LABELS.get(target.kind, target.kind)}"
+            self.aim_target_combo.addItem(label, target.entity_id)
+        if previous_target is not None:
+            index = self.aim_target_combo.findData(previous_target)
+            if index >= 0:
+                self.aim_target_combo.setCurrentIndex(index)
+        has_target = self.aim_target_combo.count() > 0
+        self.aim_target_combo.setEnabled(editable and has_target)
+        self.aim_apply_button.setEnabled(editable and has_target)
+
+        aim = entity.aim_xyz
+        self.aim_known_host.setVisible(aim is not None)
+        if aim is None:
+            self.aim_state_label.setText(
+                "未設定（不明）· 座席・測定点へ向けると確定します"
+            )
+            return
+        yaw_deg, pitch_deg = aim_yaw_pitch_deg(aim)
+        self.aim_state_label.setText(
+            f"既知 · Yaw {yaw_deg:.3f}° · Pitch {pitch_deg:.3f}°\n"
+            f"方向 ({aim.x:.4f}, {aim.y:.4f}, {aim.z:.4f})"
+        )
+        self.aim_yaw_field.setValue(yaw_deg)
+        self.aim_pitch_field.setValue(pitch_deg)
+        self.aim_yaw_field.setEnabled(editable)
+        self.aim_pitch_field.setEnabled(editable)
+        self.aim_clear_button.setEnabled(editable)
+        self.aim_align_button.setEnabled(editable)
+
+    def _emit_aim_target(self, checked: bool = False) -> None:
+        del checked
+        target = self.aim_target_combo.currentData()
+        if target is not None:
+            self.aimTargetRequested.emit(str(target))
+
+    @staticmethod
+    def _edited_angles(
+        fields: tuple[QDoubleSpinBox, ...],
+        exact: tuple[float, ...],
+    ) -> tuple[float, ...] | None:
+        """Return edited angle values, or None when the user changed nothing.
+
+        Untouched fields contribute their exact authority values instead of the
+        display-rounded spin value, so editing one axis never snaps the others.
+        """
+
+        edited: list[float] = []
+        changed = False
+        for field, component in zip(fields, exact, strict=True):
+            value = field.value()
+            if abs(value - round(component, field.decimals())) > 1e-9:
+                changed = True
+                edited.append(value)
+            else:
+                edited.append(component)
+        return tuple(edited) if changed else None
+
+    def _edited_orientation(self, entity: SceneEntity) -> Quaternion4 | None:
+        if entity.kind not in PHYSICAL_ENTITY_KINDS:
+            return None
+        exact = quaternion_to_euler_deg(entity.orientation)
+        edited = self._edited_angles(tuple(self.orientation_fields.values()), exact)
+        if edited is None:
+            return None
+        return quaternion_from_euler_deg(
+            yaw_deg=edited[0],
+            pitch_deg=edited[1],
+            roll_deg=edited[2],
+        )
+
+    def _edited_aim_angles(self, entity: SceneEntity) -> tuple[float, float] | None:
+        if entity.kind != "speaker" or entity.aim_xyz is None:
+            return None
+        exact = aim_yaw_pitch_deg(entity.aim_xyz)
+        return self._edited_angles(
+            (self.aim_yaw_field, self.aim_pitch_field),
+            exact,
+        )
+
+    def values(
+        self,
+        entity: SceneEntity,
+    ) -> tuple[
+        str,
+        Position3,
+        Size3 | None,
+        str | None,
+        Quaternion4 | None,
+        tuple[float, float] | None,
+    ]:
         position = Position3(
             x_m=self.position_fields["X"].value(),
             y_m=self.position_fields["Y"].value(),
@@ -635,7 +974,14 @@ class SelectionInspector(QFrame):
         if entity.kind == "speaker":
             text = self.role_field.currentText().strip()
             role = "" if not text or text == SPEAKER_ROLE_UNASSIGNED_LABEL else text
-        return self.name_field.text(), position, size, role
+        return (
+            self.name_field.text(),
+            position,
+            size,
+            role,
+            self._edited_orientation(entity),
+            self._edited_aim_angles(entity),
+        )
 
 
 class ContextToolStrip(QFrame):
@@ -859,6 +1205,9 @@ class RoomWorkspace(QWidget):
 
         self.inspector = SelectionInspector()
         self.inspector.editCommitted.connect(self._commit_inspector)
+        self.inspector.aimTargetRequested.connect(self._aim_target_committed)
+        self.inspector.aimClearRequested.connect(self._aim_clear_committed)
+        self.inspector.alignCabinetRequested.connect(self._cabinet_align_committed)
         self.right_stack = QStackedWidget()
         self.right_stack.setMinimumWidth(248)
         self.right_stack.setMaximumWidth(320)
@@ -1187,12 +1536,14 @@ class RoomWorkspace(QWidget):
             return
         entity = self.controller.document.entity(entity_id)
         try:
-            name, position, size, role = self.inspector.values(entity)
+            name, position, size, role, orientation, aim_angles = self.inspector.values(entity)
             changed = self.controller.update_selected(
                 name=name,
                 position=position,
                 size_m=size,
                 speaker_role=role,
+                orientation=orientation,
+                aim_yaw_pitch_deg=aim_angles,
             )
         except (EditStateError, ValueError) as exc:
             self._pending_editor_rejected = True
@@ -1202,6 +1553,45 @@ class RoomWorkspace(QWidget):
         if changed:
             self._refresh()
             self._set_status("選択項目を更新しました")
+
+    def _aim_target_committed(self, target_id: object) -> None:
+        try:
+            changed = self.controller.aim_selected_speaker_at(str(target_id))
+        except (EditStateError, ValueError) as exc:
+            self._refresh_inspector()
+            self._set_status(str(exc), error=True)
+            return
+        if changed:
+            self._refresh()
+            self._set_status("選択した対象へ音響方向を設定しました")
+        else:
+            self._set_status("音響方向は変更されませんでした")
+
+    def _aim_clear_committed(self) -> None:
+        try:
+            changed = self.controller.clear_selected_speaker_aim()
+        except (EditStateError, ValueError) as exc:
+            self._refresh_inspector()
+            self._set_status(str(exc), error=True)
+            return
+        if changed:
+            self._refresh()
+            self._set_status("音響方向を未設定に戻しました")
+        else:
+            self._set_status("音響方向はすでに未設定です")
+
+    def _cabinet_align_committed(self) -> None:
+        try:
+            changed = self.controller.align_selected_cabinet_to_aim()
+        except (EditStateError, ValueError) as exc:
+            self._refresh_inspector()
+            self._set_status(str(exc), error=True)
+            return
+        if changed:
+            self._refresh()
+            self._set_status("本体を音響方向に合わせました")
+        else:
+            self._set_status("本体の向きは変更されませんでした")
 
     def _recover(self) -> None:
         try:
@@ -1248,7 +1638,12 @@ class RoomWorkspace(QWidget):
             and self.controller.can_edit
             and not self.controller.view_state.is_locked(entity.entity_id)
         )
-        self.inspector.set_entity(entity, editable=editable)
+        aim_targets = (
+            self.controller.aim_targets()
+            if entity is not None and entity.kind == "speaker"
+            else ()
+        )
+        self.inspector.set_entity(entity, editable=editable, aim_targets=aim_targets)
 
     def _render(self, *, reset_camera: bool = False) -> None:
         overlays = self.overlay_controls.state()
