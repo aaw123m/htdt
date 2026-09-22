@@ -70,7 +70,10 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Direction3, Position3
 from htdt.cad_wave_excitation import (
     ComplexVolumeVelocitySample,
+    WaveExcitationEvidenceSubject,
+    WaveExcitationManualDerivation,
     build_acoustic_wave_excitation_authority,
+    build_wave_excitation_evidence_authority,
 )
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 from scripts.run_r130a_candidate_wave_execution import _fixture as r130_fixture
@@ -113,32 +116,43 @@ def _excitation(
     frequencies: tuple[float, ...],
     q_values: tuple[complex, ...],
 ):
-    provenance = EquipmentDataProvenance(
+    samples = tuple(
+        ComplexVolumeVelocitySample(
+            frequency_hz=frequency,
+            real_m3_s=value.real,
+            imag_m3_s=value.imag,
+        )
+        for frequency, value in zip(frequencies, q_values, strict=True)
+    )
+    evidence = build_wave_excitation_evidence_authority(
         evidence_kind='user_defined',
         source_name='R160 numerical composition synthetic excitation',
         source_version='1',
         source_reference='synthetic algebra fixture; not physical validation',
-        source_sha256=_hash('r160-excitation-provenance'),
+        derivation=WaveExcitationManualDerivation(
+            author='r160-fixture',
+            authored_at_utc='2026-09-20T00:00:00+00:00',
+        ),
+        subject=WaveExcitationEvidenceSubject(
+            definition_id='equipment:r160-synthetic-source',
+            definition_version='1',
+            definition_sha256=_hash('r160-synthetic-equipment'),
+            samples=samples,
+        ),
     )
     return build_acoustic_wave_excitation_authority(
         definition_id='equipment:r160-synthetic-source',
         definition_version='1',
         definition_sha256=_hash('r160-synthetic-equipment'),
-        samples=tuple(
-            ComplexVolumeVelocitySample(
-                frequency_hz=frequency,
-                real_m3_s=value.real,
-                imag_m3_s=value.imag,
-            )
-            for frequency, value in zip(frequencies, q_values, strict=True)
-        ),
+        samples=samples,
         interpolation=InterpolationProvenance(
             method='linear',
             implementation='unused-exact-bin-fixture',
             implementation_version='1',
-            provenance=provenance,
+            provenance=evidence.provenance,
         ),
-        provenance=(provenance,),
+        provenance=(evidence.provenance,),
+        evidence=(evidence,),
         approximation_note=(
             'R160 tests use only exact samples; interpolation is never invoked.'
         ),
