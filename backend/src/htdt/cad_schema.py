@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import sqlite3
+from typing import Literal
 
 from .content_blobs import CONTENT_BLOB_DDL
 
@@ -514,6 +515,31 @@ def read_native_schema_version(path: Path) -> int:
             return _stored_version(connection)
     except sqlite3.DatabaseError as exc:
         raise NativeSchemaError(f'native database schema could not be read: {exc}') from exc
+
+
+NativeSchemaCompatibility = Literal[
+    'current',
+    'migration_required',
+    'incompatible_newer',
+    'legacy_unversioned',
+]
+
+
+def native_schema_compatibility(version: int) -> NativeSchemaCompatibility:
+    """Classify a stored native schema version against this application.
+
+    Version ``0`` is a pre-versioning/legacy (or empty) database; versions
+    below ``NATIVE_SCHEMA_VERSION`` migrate on open; anything newer is
+    rejected by the compatibility checks.
+    """
+
+    if version <= 0:
+        return 'legacy_unversioned'
+    if version > NATIVE_SCHEMA_VERSION:
+        return 'incompatible_newer'
+    if version < NATIVE_SCHEMA_VERSION:
+        return 'migration_required'
+    return 'current'
 
 
 def check_native_schema_compatibility(path: Path) -> int:

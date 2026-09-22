@@ -134,6 +134,19 @@ def _format_created_at(value: str) -> str:
         return value
 
 
+def _format_native_schema(metadata: BackupMetadata) -> str:
+    state = metadata.native_schema_compatibility
+    version = metadata.native_schema_version
+    supported = metadata.supported_native_schema_version
+    if state == "current":
+        return f"v{version}（このアプリと同一）"
+    if state == "migration_required":
+        return f"v{version}（移行が必要 — 復元時にv{supported}へ更新）"
+    if state == "incompatible_newer":
+        return f"v{version}（このアプリでは非対応 — 対応はv{supported}まで）"
+    return f"バージョン情報なし（従来形式 — 復元時にv{supported}へ移行）"
+
+
 class BackupMetadataView(QFrame):
     """Presentation-only view of metadata already produced by the controller."""
 
@@ -166,6 +179,7 @@ class BackupMetadataView(QFrame):
             ("created_at", "作成日時"),
             ("application_version", "HTDTバージョン"),
             ("schema_version", "バックアップschema"),
+            ("native_schema", "DB schema"),
             ("archive_size", "アーカイブ"),
             ("database_size", "データベース"),
             ("measurement_assets", "測定アセット"),
@@ -184,6 +198,7 @@ class BackupMetadataView(QFrame):
         self._values["created_at"].setText(_format_created_at(metadata.created_at_utc))
         self._values["application_version"].setText(metadata.application_version)
         self._values["schema_version"].setText(str(metadata.backup_schema_version))
+        self._values["native_schema"].setText(_format_native_schema(metadata))
         self._values["archive_size"].setText(_format_bytes(metadata.archive_size_bytes))
         self._values["database_size"].setText(_format_bytes(metadata.database_size_bytes))
         self._values["measurement_assets"].setText(
@@ -198,7 +213,8 @@ class BackupMetadataView(QFrame):
         if validated:
             self.validation_status.setText(
                 "復元前検証: manifest / SHA-256 / SQLite整合性 / 外部キー / "
-                "DB schema互換性 / 測定アセットを検証済み"
+                f"DB schema互換性（v{metadata.native_schema_version}） / "
+                "測定アセットを検証済み"
             )
             set_semantic_state(self.validation_status, SemanticState.SUCCESS)
 
@@ -260,8 +276,15 @@ class DataManagementWidget(QWidget):
         set_typography_role(intro, TypographyRole.BODY)
         layout.addWidget(intro)
 
+        current_schema_version = controller.backend.current_native_schema_version()
+        current_schema = (
+            f"v{current_schema_version}"
+            if current_schema_version > 0
+            else "バージョン情報なし（従来形式または未作成）"
+        )
         data_dir = QLabel(
-            f"現在のデータ保存場所: {controller.backend.data_dir}",
+            f"現在のデータ保存場所: {controller.backend.data_dir}"
+            f" / DB schema: {current_schema}",
             content,
         )
         data_dir.setWordWrap(True)

@@ -25,6 +25,7 @@ from .cad_schema import (
     NativeSchemaError,
     check_native_schema_compatibility,
     ensure_native_schema,
+    read_native_schema_version,
 )
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
@@ -113,6 +114,10 @@ class BackupManifest(BaseModel):
     # Optional so schema-1 backups written before build provenance existed
     # still validate; it is folded into the identity hash only when present.
     build: BackupBuildInfo | None = None
+    # The native DB schema version read from the snapshotted database at
+    # backup creation. Optional for pre-#325 archives; when present, staging
+    # requires it to equal the actual version stored in the staged database.
+    native_schema_version: int | None = Field(default=None, ge=0)
 
     @model_validator(mode='after')
     def valid_manifest(self) -> 'BackupManifest':
@@ -137,6 +142,8 @@ class BackupManifest(BaseModel):
         }
         if self.build is not None:
             payload['build'] = self.build.model_dump(mode='json', exclude_none=True)
+        if self.native_schema_version is not None:
+            payload['native_schema_version'] = self.native_schema_version
         return payload
 
 
@@ -384,6 +391,7 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
         'created_at_utc': _utc_now(),
         'files': [entry.model_dump(mode='json') for entry in entries],
         'build': build.model_dump(mode='json', exclude_none=True),
+        'native_schema_version': read_native_schema_version(database_path),
     }
     return BackupManifest(
         **payload,
@@ -521,7 +529,7 @@ def _extract_verified_member(
         raise ValueError(f'backup member SHA-256 mismatch: {entry.path}')
 
 
-def _stage_backup(backup_path: Path, stage_root: Path) -> BackupManifest:
+def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, int]:
     if backup_path.stat().st_size > MAX_NATIVE_BACKUP_ARCHIVE_BYTES:
         raise ValueError(
             'backup archive exceeds size limit: '
@@ -551,16 +559,42 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> BackupManifest:
     database_path = stage_root / DATABASE_NAME
     _sqlite_health(database_path)
     _assert_staged_database_openable(database_path)
+    # The native DB schema version is derived from the staged database
+    # itself, never trusted from the manifest: when a manifest carries the
+    # field it must equal the staged authority exactly.
+    staged_schema_version = read_native_schema_version(database_path)
+    if (
+        manifest.native_schema_version is not None
+        and manifest.native_schema_version != staged_schema_version
+    ):
+        raise ValueError(
+            'backup manifest native schema version does not match the '
+            'staged database: manifest='
+            f'{manifest.native_schema_version} staged={staged_schema_version}'
+        )
     _validate_asset_contract(
         data_dir=stage_root,
         database_path=database_path,
         manifest=manifest,
     )
-    return manifest
+    return manifest, staged_schema_version
 
 
 def validate_backup(backup_path: Path) -> BackupManifest:
     """Fully validate an archive, including SQLite integrity and raw-asset hashes."""
+
+    manifest, _staged_schema_version = inspect_backup(backup_path)
+    return manifest
+
+
+def inspect_backup(backup_path: Path) -> tuple[BackupManifest, int]:
+    """Fully validate an archive and report the staged DB's native schema.
+
+    The returned integer is the ``native_schema_metadata`` version actually
+    stored in the staged database (``0`` for a pre-versioning database), so
+    callers can present archive schema and DB schema as distinct values even
+    for backups whose manifest predates the ``native_schema_version`` field.
+    """
 
     backup_path = Path(backup_path)
     if not backup_path.is_file():
@@ -1075,7 +1109,7 @@ def _restore_backup(
 
     with tempfile.TemporaryDirectory(prefix='htdt-restore-stage-', dir=parent) as stage_name:
         stage_root = Path(stage_name)
-        manifest = _stage_backup(backup_path, stage_root)
+        manifest, _staged_schema_version = _stage_backup(backup_path, stage_root)
 
         existing_database = data_dir / DATABASE_NAME
         pre_backup: Path | None = None
