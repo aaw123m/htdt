@@ -15,7 +15,13 @@ import time
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 from .acoustic_benchmark import AcousticMaterial
 from .acoustic_pffdtd_causal_boundary import (
@@ -48,6 +54,8 @@ from .cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
 from .cad_acoustic_solver_result import (
+    AcousticSolverArtifactManifest,
+    AcousticSolverArtifactManifestResolver,
     AcousticSolverObservableArtifact,
     AcousticSolverResultEnvelope,
     CadAcousticSolverResultRepository,
@@ -209,6 +217,67 @@ class ExactJsonAuthorityStore:
         except ValueError:
             return None
         return ref
+
+    def solver_artifact_manifest_resolver(
+        self,
+        *,
+        encoding_schema_ref: ExactExternalAuthorityRef,
+    ) -> AcousticSolverArtifactManifestResolver:
+        """Typed manifest resolver over stored solver-artifact payloads.
+
+        The exact artifact payload is itself the manifest: it must declare the
+        governing ``schema_version`` (equal to the encoding schema authority
+        version), a non-empty ``quantity_type`` observable and an explicit
+        ``valid_domain`` frequency domain. Anything else fails closed.
+        """
+
+        def resolve_manifest(
+            ref: ExactExternalAuthorityRef,
+        ) -> AcousticSolverArtifactManifest | None:
+            try:
+                payload = self.read_payload(ref)
+            except ValueError:
+                return None
+            if not isinstance(payload, dict):
+                return None
+            if (
+                payload.get('schema_version')
+                != encoding_schema_ref.authority_version
+            ):
+                return None
+            observable = payload.get('quantity_type')
+            if not isinstance(observable, str) or not observable:
+                return None
+            try:
+                domain = FrequencyDomain.model_validate(
+                    payload.get('valid_domain')
+                )
+            except ValidationError:
+                return None
+            channel_identity = {
+                key: payload[key]
+                for key in ('receiver_identity_order', 'frequency_axis_hz')
+                if key in payload
+            }
+            solver_lineage = {
+                key: payload[key]
+                for key in (
+                    'solver_execution_id',
+                    'candidate_execution_input_id',
+                    'candidate_execution_input_sha256',
+                )
+                if isinstance(payload.get(key), str) and payload[key]
+            }
+            return AcousticSolverArtifactManifest(
+                artifact_ref=ref,
+                observable=observable,
+                encoding_schema_ref=encoding_schema_ref,
+                valid_frequency_domain=domain,
+                channel_identity=channel_identity,
+                solver_lineage=solver_lineage,
+            )
+
+        return resolve_manifest
 
 
 class CandidateResourceConfiguration(BaseModel):
@@ -2455,6 +2524,11 @@ class PffdtdCandidateWaveExecutor:
             execution_provenance_ref=provenance_ref,
             artifacts=(artifact,),
             completed_at_utc=_utc_now(),
+            artifact_manifest_resolver=(
+                self.authority_store.solver_artifact_manifest_resolver(
+                    encoding_schema_ref=self.output_schema_ref,
+                )
+            ),
         )
         return self.result_repository.save(envelope)
 

@@ -1341,5 +1341,10 @@ class PffdtdPolyhedralCandidateWaveExecutor:
             execution_provenance_ref=provenance_ref,
             artifacts=(artifact,),
             completed_at_utc=datetime.now(timezone.utc).isoformat(),
+            artifact_manifest_resolver=(
+                self.base_executor.authority_store.solver_artifact_manifest_resolver(
+                    encoding_schema_ref=self.base_executor.output_schema_ref,
+                )
+            ),
         )
         return self.base_executor.result_repository.save(result)

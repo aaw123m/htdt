@@ -2118,6 +2118,7 @@ def test_execution_input_artifact_and_result_save_reopen_fail_closed(
         dispatch_resolver=reopened.dispatch_repository,
         request_resolver=reopened.snapshot_repository,
         external_authority_resolver=result_external_resolver,
+        artifact_manifest_resolver=reopened.resolve_artifact_manifest,
     )
     result_repository.save(result)
     reopened_result_repository = CadAcousticSolverResultRepository(
@@ -2125,6 +2126,7 @@ def test_execution_input_artifact_and_result_save_reopen_fail_closed(
         dispatch_resolver=reopened.dispatch_repository,
         request_resolver=reopened.snapshot_repository,
         external_authority_resolver=result_external_resolver,
+        artifact_manifest_resolver=reopened.resolve_artifact_manifest,
     )
     assert reopened_result_repository.get(result.result_id) == result
 

@@ -9,6 +9,7 @@ import pytest
 from htdt.cad_acoustic_snapshot import AcousticPredictionRequest
 from htdt.cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from htdt.cad_acoustic_solver_result import (
+    AcousticSolverArtifactManifest,
     AcousticSolverObservableArtifact,
     CadAcousticSolverResultRepository,
     build_acoustic_solver_result_envelope,
@@ -209,6 +210,33 @@ def _registry(*refs: ExactExternalAuthorityRef):
     return values, resolve
 
 
+def _manifest_registry(*artifacts: AcousticSolverObservableArtifact):
+    values = {
+        (
+            item.artifact_authority.authority_id,
+            item.artifact_authority.authority_version,
+            item.artifact_authority.semantic_hash_sha256,
+        ): AcousticSolverArtifactManifest(
+            artifact_ref=item.artifact_authority,
+            observable=item.observable,
+            encoding_schema_ref=item.encoding_schema_ref,
+            valid_frequency_domain=item.valid_frequency_domain,
+        )
+        for item in artifacts
+    }
+
+    def resolve(ref: ExactExternalAuthorityRef):
+        return values.get(
+            (
+                ref.authority_id,
+                ref.authority_version,
+                ref.semantic_hash_sha256,
+            )
+        )
+
+    return resolve
+
+
 def test_result_envelope_binds_ready_dispatch_and_exact_requested_observables() -> None:
     request = _request()
     dispatch = _dispatch(request)
@@ -320,6 +348,7 @@ def test_result_repository_reopens_exact_artifacts_and_fails_when_artifact_stale
         field.encoding_schema_ref,
     ]
     values, resolver = _registry(*all_refs)
+    manifest_resolver = _manifest_registry(pressure, field)
     dispatch_resolver = _DispatchResolver(scene_repository.path, dispatch)
     request_resolver = _RequestResolver(scene_repository.path, request)
     repository = CadAcousticSolverResultRepository(
@@ -327,6 +356,7 @@ def test_result_repository_reopens_exact_artifacts_and_fails_when_artifact_stale
         dispatch_resolver=dispatch_resolver,
         request_resolver=request_resolver,
         external_authority_resolver=resolver,
+        artifact_manifest_resolver=manifest_resolver,
     )
     repository.save(result)
 
@@ -341,6 +371,7 @@ def test_result_repository_reopens_exact_artifacts_and_fails_when_artifact_stale
             request,
         ),
         external_authority_resolver=resolver,
+        artifact_manifest_resolver=manifest_resolver,
     )
     assert reopened.get(result.result_id) == result
 

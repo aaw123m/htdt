@@ -23,6 +23,7 @@ from .cad_acoustic_solver_adapter import (
 )
 from .cad_acoustic_solver_dispatch_repository import CadAcousticSolverDispatchRepository
 from .cad_acoustic_solver_result import (
+    AcousticSolverArtifactManifest,
     AcousticSolverObservableArtifact,
     AcousticSolverResultEnvelope,
     build_acoustic_solver_result_envelope,
@@ -1203,6 +1204,8 @@ DETERMINISTIC_PATH_ARTIFACT_SCHEMA_REF = ExactExternalAuthorityRef(
         }
     ),
 )
+
+DETERMINISTIC_PATHS_OBSERVABLE = 'deterministic_paths'
 
 
 @dataclass(frozen=True)
@@ -5047,7 +5050,7 @@ def deterministic_path_observable_manifest(
     artifact: DeterministicPathArtifact,
 ) -> AcousticSolverObservableArtifact:
     return AcousticSolverObservableArtifact(
-        observable='deterministic_paths',
+        observable=DETERMINISTIC_PATHS_OBSERVABLE,
         artifact_authority=artifact.as_external_ref(),
         encoding_schema_ref=DETERMINISTIC_PATH_ARTIFACT_SCHEMA_REF,
         valid_frequency_domain=artifact.frequency_domain,
@@ -5896,3 +5899,27 @@ class CadDeterministicPathArtifactRepository:
             )
             return ref if artifact.execution_provenance_ref() == ref else None
         return None
+
+    def resolve_artifact_manifest(
+        self,
+        ref: ExactExternalAuthorityRef,
+    ) -> AcousticSolverArtifactManifest | None:
+        """Resolve the persisted path artifact as a typed solver manifest."""
+        if not ref.authority_id.startswith('deterministic-path-artifact:'):
+            return None
+        artifact = self.get(ref.authority_id)
+        if artifact is None or artifact.as_external_ref() != ref:
+            return None
+        return AcousticSolverArtifactManifest(
+            artifact_ref=ref,
+            observable=DETERMINISTIC_PATHS_OBSERVABLE,
+            encoding_schema_ref=DETERMINISTIC_PATH_ARTIFACT_SCHEMA_REF,
+            valid_frequency_domain=artifact.frequency_domain,
+            solver_lineage={
+                'execution_id': artifact.execution_id,
+                'execution_input_id': artifact.execution_input_id,
+                'execution_input_sha256': artifact.execution_input_sha256,
+                'dispatch_binding_id': artifact.dispatch_binding_id,
+                'dispatch_binding_sha256': artifact.dispatch_binding_sha256,
+            },
+        )
