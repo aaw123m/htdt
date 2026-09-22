@@ -12,6 +12,13 @@ from .cad_measurement_models import (
     RadiationScope,
     RoutingEvidence,
 )
+from .cad_measurement_quality import (
+    CadMeasurementCapability,
+    gate_measurement_claim,
+    phase_response_capability,
+    unestablished_common_timing_capability,
+)
+from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurements import normalize_rew_api_snapshot, normalize_rew_text
 from .cad_repository import SceneRepository, SceneRevision
@@ -102,7 +109,14 @@ class MeasurementView:
     quality_reasons: tuple[str, ...]
     quality_source: str
     phase_status: MeasurementPhaseStatus | None
-    phase_timing_available: bool
+    # Canonical capability claims (#466). phase_response and common_timing are
+    # distinct authority claims: valid phase samples never imply a shared
+    # timing reference. When a replay-validated CadMeasurementQualityReport
+    # exists for the exact bound dataset these mirror its capability matrix;
+    # otherwise phase_response falls back to the canonical dataset-only rule
+    # and common_timing fails closed at UNKNOWN.
+    phase_response_capability: CadMeasurementCapability | None
+    common_timing_capability: CadMeasurementCapability | None
     sample_count: int
     frequency_band_hz: tuple[float, float] | None
     captured_at: str | None
@@ -125,6 +139,7 @@ class MeasurementWorkflowController:
         document_id: str,
         *,
         measurement_repository: CadMeasurementRepository | None = None,
+        quality_repository: CadMeasurementQualityRepository | None = None,
         rew_client: RewReadSource | None = None,
     ) -> None:
         self.scene_repository = scene_repository
@@ -133,6 +148,11 @@ class MeasurementWorkflowController:
             measurement_repository
             if measurement_repository is not None
             else CadMeasurementRepository(scene_repository)
+        )
+        self.quality_repository = (
+            quality_repository
+            if quality_repository is not None
+            else CadMeasurementQualityRepository(self.measurement_repository)
         )
         if rew_client is None:
             from .rew_api import RewApiClient
@@ -311,16 +331,26 @@ class MeasurementWorkflowController:
             band = None
             sample_count = 0
             phase_status: MeasurementPhaseStatus | None = None
-            phase_timing_available = False
+            phase_capability: CadMeasurementCapability | None = None
+            timing_capability: CadMeasurementCapability | None = None
             dataset_id = None
             if dataset is not None:
                 dataset_id = dataset.dataset_id
                 sample_count = len(dataset.frequency_hz)
                 band = (dataset.frequency_hz[0], dataset.frequency_hz[-1])
                 phase_status = dataset.phase_status
-                # Existing Overview/capability contract: only explicit "valid"
-                # phase evidence enables timing/phase workflows.
-                phase_timing_available = dataset.phase_status == "valid"
+                # Capability claims come from the replay-validated quality
+                # authority for the exact bound dataset. Valid phase samples
+                # alone authorize only phase-response inspection; they never
+                # imply a common timing reference, so without a report common
+                # timing fails closed at UNKNOWN.
+                report = self.quality_repository.latest_report(record.measurement_id)
+                if report is not None and report.dataset_id == dataset.dataset_id:
+                    phase_capability = gate_measurement_claim(report, "phase_response")
+                    timing_capability = gate_measurement_claim(report, "common_timing")
+                else:
+                    phase_capability = phase_response_capability(dataset)
+                    timing_capability = unestablished_common_timing_capability()
 
             rows.append(
                 MeasurementView(
@@ -338,7 +368,8 @@ class MeasurementWorkflowController:
                     quality_reasons=record.quality_reasons,
                     quality_source=record.quality_source,
                     phase_status=phase_status,
-                    phase_timing_available=phase_timing_available,
+                    phase_response_capability=phase_capability,
+                    common_timing_capability=timing_capability,
                     sample_count=sample_count,
                     frequency_band_hz=band,
                     captured_at=record.captured_at,

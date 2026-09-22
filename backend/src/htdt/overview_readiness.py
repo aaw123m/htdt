@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
+from .cad_measurement_quality import (
+    CadMeasurementQualityReport,
+    gate_measurement_claim,
+    phase_response_capability,
+)
 from .cad_model_validation import CadModelValidationRecord
 from .cad_prediction_models import CadPredictionResult
 from .cad_repository import SceneRevision
@@ -52,6 +57,20 @@ class MeasurementReadSource(Protocol):
         self,
         measurement_id: str,
     ) -> CadFrequencyResponseDataset | None: ...
+
+
+class MeasurementQualityReadSource(Protocol):
+    """Replay-validated quality authority for persisted measurements.
+
+    ``CadMeasurementQualityRepository.latest_report`` replays the pinned
+    algorithm before returning a report, so capability decisions consumed
+    here are never trusted on payload alone.
+    """
+
+    def latest_report(
+        self,
+        measurement_id: str,
+    ) -> CadMeasurementQualityReport | None: ...
 
 
 class PredictionReadSource(Protocol):
@@ -143,12 +162,14 @@ class OverviewReadinessService:
         prediction_source: PredictionReadSource,
         search_source: SearchReadSource,
         validation_source: ValidationReadSource,
+        quality_source: MeasurementQualityReadSource | None = None,
     ) -> None:
         self._scene_source = scene_source
         self._measurement_source = measurement_source
         self._prediction_source = prediction_source
         self._search_source = search_source
         self._validation_source = validation_source
+        self._quality_source = quality_source
 
     def read(
         self,
@@ -236,12 +257,56 @@ class OverviewReadinessService:
                 )
             )
         else:
-            phase_capable = any(
-                dataset is not None and dataset.phase_status == 'valid'
-                for measurement in measurements
-                for dataset in (self._measurement_source.dataset_for_measurement(measurement.measurement_id),)
-            )
-            if not phase_capable:
+            # Phase availability and common timing are distinct canonical
+            # capability claims (#466): valid phase samples never imply a
+            # shared timing reference. Only a replay-validated quality report
+            # can establish common_timing; without one it fails closed.
+            phase_available = False
+            timing_established = False
+            for measurement in measurements:
+                dataset = self._measurement_source.dataset_for_measurement(
+                    measurement.measurement_id
+                )
+                if dataset is None:
+                    continue
+                report = (
+                    self._quality_source.latest_report(measurement.measurement_id)
+                    if self._quality_source is not None
+                    else None
+                )
+                if report is not None and report.dataset_id == dataset.dataset_id:
+                    phase_decision = gate_measurement_claim(
+                        report, 'phase_response'
+                    ).decision
+                    timing_decision = gate_measurement_claim(
+                        report, 'common_timing'
+                    ).decision
+                else:
+                    phase_decision = phase_response_capability(dataset).decision
+                    timing_decision = 'UNKNOWN'
+                if phase_decision == 'ALLOWED':
+                    phase_available = True
+                if timing_decision == 'ALLOWED':
+                    timing_established = True
+            if timing_established:
+                pass
+            elif phase_available:
+                warnings.append(
+                    OverviewNotice(
+                        code='measurement.common_timing_unverified',
+                        severity='warning',
+                        message=(
+                            '位相データは利用できますが、共通タイミング基準が確認できません。'
+                            '測定間のタイミング/位相比較には品質レポートの確認が必要です。'
+                        ),
+                        action=_action(
+                            'measurement.review_quality',
+                            '測定品質を確認',
+                            MEASUREMENT_QUALITY,
+                        ),
+                    )
+                )
+            else:
                 warnings.append(
                     OverviewNotice(
                         code='measurement.phase_timing_unavailable',

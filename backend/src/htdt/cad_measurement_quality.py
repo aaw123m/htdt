@@ -574,6 +574,50 @@ def _derive_checks(
     }
 
 
+def phase_response_capability(
+    dataset: CadFrequencyResponseDataset,
+) -> CadMeasurementCapability:
+    """Canonical dataset-only phase_response claim.
+
+    Valid phase samples authorize phase-response inspection only. They never
+    imply a common timing reference — ``common_timing`` requires explicit
+    timing-reference evidence plus an authoritative acquisition context.
+    """
+
+    if dataset.phase_status == 'valid' and dataset.phase_deg is not None:
+        return CadMeasurementCapability(
+            claim='phase_response',
+            decision='ALLOWED',
+            reasons=('dataset contains phase explicitly marked valid',),
+        )
+    if dataset.phase_status == 'absent':
+        return CadMeasurementCapability(
+            claim='phase_response',
+            decision='BLOCKED',
+            reasons=('dataset explicitly has no phase evidence',),
+        )
+    return CadMeasurementCapability(
+        claim='phase_response',
+        decision='UNKNOWN',
+        reasons=('phase evidence is not verified',),
+    )
+
+
+def unestablished_common_timing_capability() -> CadMeasurementCapability:
+    """Fail-closed common_timing claim used when no quality report exists.
+
+    Without a replay-validated ``CadMeasurementQualityReport`` there is no
+    timing authority at all, so common timing stays UNKNOWN regardless of any
+    phase samples the dataset may contain.
+    """
+
+    return CadMeasurementCapability(
+        claim='common_timing',
+        decision='UNKNOWN',
+        reasons=('no measurement quality report is bound to this dataset',),
+    )
+
+
 def derive_measurement_capabilities(
     *,
     dataset: CadFrequencyResponseDataset,
@@ -587,24 +631,7 @@ def derive_measurement_capabilities(
         reasons=('immutable frequency/level dataset is present',),
     )
 
-    if dataset.phase_status == 'valid' and dataset.phase_deg is not None:
-        phase = CadMeasurementCapability(
-            claim='phase_response',
-            decision='ALLOWED',
-            reasons=('dataset contains phase explicitly marked valid',),
-        )
-    elif dataset.phase_status == 'absent':
-        phase = CadMeasurementCapability(
-            claim='phase_response',
-            decision='BLOCKED',
-            reasons=('dataset explicitly has no phase evidence',),
-        )
-    else:
-        phase = CadMeasurementCapability(
-            claim='phase_response',
-            decision='UNKNOWN',
-            reasons=('phase evidence is not verified',),
-        )
+    phase = phase_response_capability(dataset)
 
     timing_check = checks['timing_reference']
     authoritative_context = (
