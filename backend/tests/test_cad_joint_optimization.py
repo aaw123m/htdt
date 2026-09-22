@@ -25,6 +25,7 @@ from htdt.cad_extended_search import (
     direction_with_horizontal_yaw,
 )
 from htdt.cad_extended_search_repository import CadExtendedSearchRepository
+from htdt.cad_joint_evaluation_authority import ResolvedJointEvaluationInput
 from htdt.cad_joint_optimization import (
     JointCandidate,
     JointDecisionValue,
@@ -52,6 +53,8 @@ from htdt.cad_measurement_quality import (
     build_measurement_observation,
     build_measurement_quality_profile,
     build_measurement_quality_report,
+    dataset_sha256,
+    measurement_sha256,
     observation_binding,
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
@@ -213,11 +216,12 @@ def _objectives() -> tuple[ObjectiveDefinition, ...]:
 
 def _evaluator(
     *,
+    evaluator_id: str = 'issue174-fixture-evaluator',
     model_id: str = 'issue174-fixture-model',
     fidelity: str = 'deterministic-fixture',
 ) -> JointEvaluatorIdentity:
     return JointEvaluatorIdentity(
-        evaluator_id='issue174-fixture-evaluator',
+        evaluator_id=evaluator_id,
         evaluator_version='1',
         model_id=model_id,
         model_version='1',
@@ -402,6 +406,70 @@ def _spec_metrics_evaluator(context):
     return ObjectiveVector(
         candidate_id=context.evaluation.candidate_id,
         metrics=tuple(resolved),
+    )
+
+
+def _joint_fixture_result_resolver(store):
+    """Resolver for evaluator-owned, content-addressed fixture result records.
+
+    ``store`` maps ``source_id`` to an immutable result payload carrying the
+    evaluated candidate identity and the metric entries the pinned evaluator
+    will emit — an external evaluation-result authority whose input identity
+    and output vector are both content-addressed by ``source_sha256``.
+    """
+
+    def resolve(context, ref):
+        if ref.evidence_class != 'predicted':
+            raise ValueError(
+                'joint_fixture_result evidence class must be predicted'
+            )
+        payload = store.get(ref.source_id)
+        if payload is None:
+            raise ValueError('joint_fixture_result evidence does not exist')
+        if payload['candidate_id'] != context.candidate.candidate_id:
+            raise ValueError(
+                'joint_fixture_result evidence belongs to another candidate'
+            )
+        return ResolvedJointEvaluationInput(
+            ref=ref,
+            source_sha256=canonical_joint_sha256(payload),
+            authority=payload,
+        )
+
+    return resolve
+
+
+def _joint_fixture_result_evaluator(context):
+    """Pinned fixture evaluator: rebuild the vector from the result record."""
+
+    inputs = [
+        item
+        for item in context.inputs
+        if item.ref.source_kind == 'joint_fixture_result'
+    ]
+    if len(inputs) != 1:
+        raise ValueError(
+            'joint fixture evaluation requires exactly one result input'
+        )
+    payload = inputs[0].authority
+    if payload['candidate_id'] != context.candidate.candidate_id:
+        raise ValueError(
+            'joint fixture result belongs to another candidate'
+        )
+    definitions = {item.objective_id: item for item in context.spec.objectives}
+    metrics = tuple(
+        ObjectiveMetric(
+            objective_id=str(entry['objective_id']),
+            value=float(entry['value']),
+            unit=str(entry['unit']),
+            direction=str(entry['direction']),
+            definition=definitions[str(entry['objective_id'])],
+        )
+        for entry in payload['metrics']
+    )
+    return ObjectiveVector(
+        candidate_id=context.candidate.candidate_id,
+        metrics=metrics,
     )
 
 
@@ -706,6 +774,7 @@ def _fixture(tmp_path: Path):
         quality_repository=quality_repository,
         quality_report=quality_report,
         calibration_repository=calibration_repository,
+        joint_results={},
     )
     fixture.base_plan = _save_plan(
         fixture,
@@ -731,7 +800,23 @@ def _dsp_decision(variable_id: str, value):
     )
 
 
-def _evaluation(spec, candidate, *, error: float, headroom: float):
+def _evaluation(
+    fixture,
+    spec,
+    candidate,
+    *,
+    error: float,
+    headroom: float,
+    extra_refs=(),
+):
+    """Bind an evaluation to a content-addressed fixture result record.
+
+    The evaluator-owned result payload is pinned by exact candidate identity
+    and content hash, mirroring an external evaluation-result authority: the
+    repository resolver must resolve it and the pinned evaluator must
+    reproduce the bound ObjectiveVector from it.
+    """
+
     definitions = {item.objective_id: item for item in spec.objectives}
     vector = ObjectiveVector(
         candidate_id=candidate.candidate_id,
@@ -752,17 +837,34 @@ def _evaluation(spec, candidate, *, error: float, headroom: float):
             ),
         ),
     )
+    payload = {
+        'candidate_id': candidate.candidate_id,
+        'metrics': [
+            {
+                'objective_id': metric.objective_id,
+                'value': metric.value,
+                'unit': metric.unit,
+                'direction': metric.direction,
+            }
+            for metric in vector.metrics
+        ],
+    }
+    record_id = (
+        f'joint-fixture-result-{canonical_joint_sha256(payload)[:24]}'
+    )
+    fixture.joint_results[record_id] = payload
     return bind_joint_candidate_evaluation(
         spec=spec,
         candidate=candidate,
         objective_vector=vector,
         input_refs=(
             JointEvaluationInputRef(
-                evidence_class='hypothesis',
-                source_kind='issue174_deterministic_fixture',
-                source_id=f'fixture:{candidate.candidate_id}',
-                source_sha256=sha256(candidate.candidate_id.encode()).hexdigest(),
+                evidence_class='predicted',
+                source_kind='joint_fixture_result',
+                source_id=record_id,
+                source_sha256=canonical_joint_sha256(payload),
             ),
+            *extra_refs,
         ),
         created_at_utc=NOW,
     )
@@ -1014,8 +1116,10 @@ def test_compatible_position_and_dsp_candidates_share_existing_pareto(
         measurement_quality_report=fixture.quality_report,
     )
 
-    position_eval = _evaluation(fixture.spec, position, error=2.0, headroom=5.0)
-    dsp_eval = _evaluation(fixture.spec, dsp, error=1.0, headroom=6.0)
+    position_eval = _evaluation(
+        fixture, fixture.spec, position, error=2.0, headroom=5.0
+    )
+    dsp_eval = _evaluation(fixture, fixture.spec, dsp, error=1.0, headroom=6.0)
     result = joint_pareto_front(
         (position_eval, dsp_eval),
         (position, dsp),
@@ -1034,7 +1138,7 @@ def test_pareto_refuses_incompatible_evaluator_model_or_fidelity(
         physical_system_variant=fixture.moved_variant,
         decisions=(_physical_decision(),),
     )
-    first_eval = _evaluation(fixture.spec, first, error=2.0, headroom=5.0)
+    first_eval = _evaluation(fixture, fixture.spec, first, error=2.0, headroom=5.0)
 
     other_spec = _build_spec(
         fixture,
@@ -1049,7 +1153,7 @@ def test_pareto_refuses_incompatible_evaluator_model_or_fidelity(
         physical_system_variant=fixture.moved_variant,
         decisions=(_physical_decision(),),
     )
-    second_eval = _evaluation(other_spec, second, error=1.0, headroom=6.0)
+    second_eval = _evaluation(fixture, other_spec, second, error=1.0, headroom=6.0)
 
     with pytest.raises(ValueError, match='incompatible .*model/fidelity'):
         joint_pareto_front(
@@ -1100,6 +1204,7 @@ def test_spec_candidate_evaluation_and_selection_save_reopen_deterministically(
         measurement_quality_report=fixture.quality_report,
     )
     evaluation = _evaluation(
+        fixture,
         fixture.spec,
         candidate,
         error=1.0,
@@ -1152,6 +1257,14 @@ def test_spec_candidate_evaluation_and_selection_save_reopen_deterministically(
             ),
             extended_search_repository=reopened_extended,
         ),
+        input_resolvers={
+            'joint_fixture_result': _joint_fixture_result_resolver(
+                fixture.joint_results
+            ),
+        },
+        vector_evaluators={
+            'issue174-fixture-evaluator': _joint_fixture_result_evaluator,
+        },
     )
 
     assert reopened.get_spec(fixture.spec.spec_id) == fixture.spec
@@ -1235,6 +1348,14 @@ def _repository(fixture) -> CadJointOptimizationRepository:
         search_repository=fixture.search_repository,
         extended_search_repository=fixture.extended_search_repository,
         robustness_repository=fixture.robustness_repository,
+        input_resolvers={
+            'joint_fixture_result': _joint_fixture_result_resolver(
+                fixture.joint_results
+            ),
+        },
+        vector_evaluators={
+            'issue174-fixture-evaluator': _joint_fixture_result_evaluator,
+        },
     )
 
 
@@ -2276,3 +2397,642 @@ def test_get_candidate_replays_canonical_rebuild_on_tampered_payload(
         )
     with pytest.raises(ValueError, match='not the canonical compilation'):
         repository.get_candidate(candidate.candidate_id)
+
+
+
+
+def _resigned_evaluation(evaluation, **updates):
+    """Return a mutated evaluation whose binding hash is honestly recomputed.
+
+    Same strongest-forgery shape as ``_resigned``: a caller-controlled
+    payload that still passes the model-level self-hash check.
+    """
+
+    mutated = evaluation.model_copy(update=updates)
+    mutated = mutated.model_copy(
+        update={
+            'objective_vector_sha256': canonical_joint_sha256(
+                mutated.objective_vector.identity_payload()
+            ),
+        }
+    )
+    digest = canonical_joint_sha256(mutated.semantic_payload())
+    return mutated.model_copy(
+        update={
+            'evaluation_binding_sha256': digest,
+            'evaluation_binding_id': f'joint-evaluation-{digest[:24]}',
+        }
+    )
+
+
+def _result_ref(evaluation) -> JointEvaluationInputRef:
+    return next(
+        ref
+        for ref in evaluation.input_refs
+        if ref.source_kind == 'joint_fixture_result'
+    )
+
+
+def _builtin_evidence_refs(fixture, spec, candidate, plan):
+    return (
+        JointEvaluationInputRef(
+            evidence_class='derived',
+            source_kind='joint_candidate',
+            source_id=candidate.candidate_id,
+            source_sha256=candidate.candidate_sha256,
+        ),
+        JointEvaluationInputRef(
+            evidence_class='derived',
+            source_kind='joint_optimization_spec',
+            source_id=spec.spec_id,
+            source_sha256=spec.semantic_sha256,
+        ),
+        JointEvaluationInputRef(
+            evidence_class='derived',
+            source_kind='scene_revision',
+            source_id=spec.scene_revision_id,
+            source_sha256=fixture.revision.content_hash,
+        ),
+        JointEvaluationInputRef(
+            evidence_class='derived',
+            source_kind='system_variant',
+            source_id=candidate.physical_system_variant_id,
+            source_sha256=candidate.physical_system_variant_sha256,
+        ),
+        JointEvaluationInputRef(
+            evidence_class='derived',
+            source_kind='calibration_plan',
+            source_id=plan.plan_id,
+            source_sha256=plan.plan_semantic_sha256,
+        ),
+        JointEvaluationInputRef(
+            evidence_class='measured',
+            source_kind='cad_measurement',
+            source_id=spec.dsp_authority.source_measurement_id,
+            source_sha256=measurement_sha256(fixture.measurement),
+        ),
+        JointEvaluationInputRef(
+            evidence_class='measured',
+            source_kind='cad_measurement_dataset',
+            source_id=spec.dsp_authority.source_dataset_id,
+            source_sha256=dataset_sha256(fixture.dataset),
+        ),
+        JointEvaluationInputRef(
+            evidence_class='measured',
+            source_kind='measurement_quality_report',
+            source_id=spec.dsp_authority.measurement_quality_report_id,
+            source_sha256=fixture.quality_report.report_sha256,
+        ),
+        JointEvaluationInputRef(
+            evidence_class='derived',
+            source_kind='physical_search_spec',
+            source_id=spec.physical_search_spec_id,
+            source_sha256=fixture.search_spec.search_spec_sha256,
+        ),
+        JointEvaluationInputRef(
+            evidence_class='derived',
+            source_kind='robustness_spec',
+            source_id=spec.robustness.robustness_spec_id,
+            source_sha256=fixture.robustness_spec.robustness_spec_sha256,
+        ),
+        # Declared-only hypothesis claims stay admissible beside resolved
+        # evidence; the binding hash pins their caller-attested identity.
+        JointEvaluationInputRef(
+            evidence_class='hypothesis',
+            source_kind='issue390_stated_assumption',
+            source_id='assumption-1',
+            source_sha256='7' * 64,
+        ),
+    )
+
+
+def test_evaluation_resolves_builtin_evidence_and_reproduces_vector(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+
+    plan = _save_plan(
+        fixture,
+        plan_id='eval-authority-plan-390',
+        channel=_channel(gain_db=1.0),
+    )
+    candidate = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 1.0),),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    repository.save_candidate(candidate)
+
+    evaluation = _evaluation(
+        fixture,
+        fixture.spec,
+        candidate,
+        error=1.0,
+        headroom=6.0,
+        extra_refs=_builtin_evidence_refs(fixture, fixture.spec, candidate, plan),
+    )
+    persisted = repository.save_evaluation(evaluation)
+
+    assert persisted == evaluation
+    assert repository.get_evaluation(evaluation.evaluation_binding_id) == evaluation
+    assert repository.list_evaluations(fixture.spec.spec_id) == (evaluation,)
+
+
+def test_evaluation_rejects_fabricated_or_unresolvable_input_refs(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture, fixture.spec, candidate, error=1.0, headroom=6.0
+    )
+    result_ref = _result_ref(evaluation)
+
+    # A fabricated source identity: the resolver finds no such record.
+    forged = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=evaluation.objective_vector,
+        input_refs=(
+            result_ref.model_copy(
+                update={'source_id': 'joint-fixture-result-missing'}
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='evidence does not exist'):
+        repository.save_evaluation(forged)
+
+    # A declared semantic hash the resolver cannot reproduce.
+    forged_sha = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=evaluation.objective_vector,
+        input_refs=(
+            result_ref.model_copy(update={'source_sha256': '0' * 64}),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='input source hash mismatch'):
+        repository.save_evaluation(forged_sha)
+
+    # A measured input whose source kind has no registered resolver.
+    unresolvable = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=evaluation.objective_vector,
+        input_refs=(
+            result_ref,
+            JointEvaluationInputRef(
+                evidence_class='measured',
+                source_kind='unregistered_measurement_kind',
+                source_id='measurement-x',
+                source_sha256='1' * 64,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='no registered authority'):
+        repository.save_evaluation(unresolvable)
+
+
+def test_evaluation_rejects_evidence_bound_to_another_candidate(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture, fixture.spec, candidate, error=1.0, headroom=6.0
+    )
+    result_ref = _result_ref(evaluation)
+    other = _position_candidate(fixture.spec, fixture.moved_variant, 1.0)
+
+    # A real evaluator-owned result record pinned to a different candidate.
+    foreign_payload = dict(
+        fixture.joint_results[result_ref.source_id],
+        candidate_id=other.candidate_id,
+    )
+    fixture.joint_results['joint-fixture-result-foreign'] = foreign_payload
+    forged = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=evaluation.objective_vector,
+        input_refs=(
+            result_ref.model_copy(
+                update={
+                    'source_id': 'joint-fixture-result-foreign',
+                    'source_sha256': canonical_joint_sha256(foreign_payload),
+                }
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='belongs to another candidate'):
+        repository.save_evaluation(forged)
+
+    # A built-in ref naming a different candidate's evidence.
+    forged_candidate = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=evaluation.objective_vector,
+        input_refs=(
+            result_ref,
+            JointEvaluationInputRef(
+                evidence_class='derived',
+                source_kind='joint_candidate',
+                source_id=other.candidate_id,
+                source_sha256=other.candidate_sha256,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='exact evaluated candidate'):
+        repository.save_evaluation(forged_candidate)
+
+    # The candidate's physical SystemVariant is moved_variant; the base
+    # variant is real persisted evidence that belongs to another candidate.
+    forged_variant = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=evaluation.objective_vector,
+        input_refs=(
+            result_ref,
+            JointEvaluationInputRef(
+                evidence_class='derived',
+                source_kind='system_variant',
+                source_id=fixture.base_variant.variant_id,
+                source_sha256=fixture.base_variant.variant_sha256,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='exact candidate physical'):
+        repository.save_evaluation(forged_variant)
+
+
+def test_evaluation_rejects_calibration_plan_evidence_without_dsp_authority(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture, fixture.spec, candidate, error=1.0, headroom=6.0
+    )
+
+    forged = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=evaluation.objective_vector,
+        input_refs=(
+            _result_ref(evaluation),
+            JointEvaluationInputRef(
+                evidence_class='derived',
+                source_kind='calibration_plan',
+                source_id=fixture.base_plan.plan_id,
+                source_sha256=fixture.base_plan.plan_semantic_sha256,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='requires the candidate to carry'):
+        repository.save_evaluation(forged)
+
+
+def test_evaluation_rejects_rehashed_metric_tamper(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture, fixture.spec, candidate, error=1.0, headroom=6.0
+    )
+    repository.save_evaluation(evaluation)
+
+    # Change one objective value and honestly recompute every hash: the
+    # pinned evaluator still derives the recorded evidence output.
+    forged_vector = evaluation.objective_vector.model_copy(
+        update={
+            'metrics': (
+                evaluation.objective_vector.metrics[0].model_copy(
+                    update={'value': 99.0}
+                ),
+                evaluation.objective_vector.metrics[1],
+            )
+        }
+    )
+    forged = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=candidate,
+        objective_vector=forged_vector,
+        input_refs=evaluation.input_refs,
+        created_at_utc=evaluation.created_at_utc,
+    )
+    assert forged.evaluation_binding_id != evaluation.evaluation_binding_id
+    with pytest.raises(ValueError, match='does not reproduce'):
+        repository.save_evaluation(forged)
+
+    # A metric carrying a forged ObjectiveDefinition fails the canonical
+    # binding replay before evaluator invocation.
+    forged_definition = evaluation.objective_vector.model_copy(
+        update={
+            'metrics': (
+                evaluation.objective_vector.metrics[0].model_copy(
+                    update={
+                        'definition': (
+                            evaluation.objective_vector.metrics[0]
+                            .definition.model_copy(
+                                update={'comparison_model_id': 'forged-model'}
+                            )
+                        )
+                    }
+                ),
+                evaluation.objective_vector.metrics[1],
+            )
+        }
+    )
+    with pytest.raises(ValueError, match='definition/model/fidelity mismatch'):
+        bind_joint_candidate_evaluation(
+            spec=fixture.spec,
+            candidate=candidate,
+            objective_vector=forged_definition,
+            input_refs=evaluation.input_refs,
+            created_at_utc=evaluation.created_at_utc,
+        )
+
+
+def test_evaluation_rejects_evaluator_identity_mismatch(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture, fixture.spec, candidate, error=1.0, headroom=6.0
+    )
+
+    # Evaluator/model/fidelity must equal the spec-pinned identity exactly.
+    mismatched = _resigned_evaluation(
+        evaluation,
+        evaluator=_evaluator(model_id='issue174-other-fixture-model'),
+    )
+    with pytest.raises(ValueError, match='evaluator authority mismatch'):
+        repository.save_evaluation(mismatched)
+
+    # A spec pinned to an evaluator with no registered replay fails closed.
+    other_spec = _build_spec(
+        fixture,
+        evaluator=_evaluator(evaluator_id='issue390-unregistered-evaluator'),
+        spec_id='joint-spec-unregistered-evaluator',
+    )
+    repository.save_spec(other_spec)
+    other_candidate = _position_candidate(other_spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(other_candidate)
+    unresolvable = _evaluation(
+        fixture, other_spec, other_candidate, error=1.0, headroom=6.0
+    )
+    with pytest.raises(ValueError, match='not registered for replay'):
+        repository.save_evaluation(unresolvable)
+
+
+def test_evaluation_rejects_noncanonical_binding_payload(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture,
+        fixture.spec,
+        candidate,
+        error=1.0,
+        headroom=6.0,
+        extra_refs=(
+            JointEvaluationInputRef(
+                evidence_class='hypothesis',
+                source_kind='issue390_stated_assumption',
+                source_id='assumption-1',
+                source_sha256='7' * 64,
+            ),
+        ),
+    )
+    assert len(evaluation.input_refs) == 2
+
+    # Honestly rehashed but carrying input refs out of canonical order: the
+    # record is not the canonical binding of its declared inputs.
+    forged = _resigned_evaluation(
+        evaluation,
+        input_refs=tuple(reversed(evaluation.input_refs)),
+    )
+    with pytest.raises(ValueError, match='not the canonical binding'):
+        repository.save_evaluation(forged)
+
+
+def test_get_evaluation_detects_disappeared_and_tampered_evidence(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    plan = _save_plan(
+        fixture,
+        plan_id='eval-evidence-plan-390',
+        channel=_channel(gain_db=1.0),
+    )
+    candidate = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 1.0),),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture,
+        fixture.spec,
+        candidate,
+        error=1.0,
+        headroom=6.0,
+        extra_refs=(
+            JointEvaluationInputRef(
+                evidence_class='measured',
+                source_kind='measurement_quality_report',
+                source_id=fixture.spec.dsp_authority.measurement_quality_report_id,
+                source_sha256=fixture.quality_report.report_sha256,
+            ),
+        ),
+    )
+    repository.save_evaluation(evaluation)
+    result_ref = _result_ref(evaluation)
+
+    # Tamper the evaluator-owned result record: resolution can no longer
+    # reproduce the declared semantic hash.
+    fixture.joint_results[result_ref.source_id] = dict(
+        fixture.joint_results[result_ref.source_id],
+        candidate_id='joint-candidate-foreign',
+    )
+    with pytest.raises(ValueError, match='belongs to another candidate'):
+        repository.get_evaluation(evaluation.evaluation_binding_id)
+
+    # Disappeared evaluator evidence fails the read closed.
+    del fixture.joint_results[result_ref.source_id]
+    with pytest.raises(ValueError, match='evidence does not exist'):
+        repository.get_evaluation(evaluation.evaluation_binding_id)
+    with pytest.raises(ValueError, match='evidence does not exist'):
+        repository.list_evaluations(fixture.spec.spec_id)
+
+
+def test_get_evaluation_detects_disappeared_persisted_authority(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    plan = _save_plan(
+        fixture,
+        plan_id='eval-authority-loss-plan-390',
+        channel=_channel(gain_db=1.0),
+    )
+    candidate = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 1.0),),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture, fixture.spec, candidate, error=1.0, headroom=6.0
+    )
+    repository.save_evaluation(evaluation)
+
+    with closing(
+        sqlite3.connect(fixture.scene_repository.path)
+    ) as connection, connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute(
+            'DELETE FROM cad_measurement_quality_reports WHERE report_id=?',
+            (fixture.quality_report.report_id,),
+        )
+
+    with pytest.raises(ValueError, match='MeasurementQualityReport'):
+        repository.get_evaluation(evaluation.evaluation_binding_id)
+
+
+def test_get_evaluation_replays_authority_on_tampered_persistence(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidate = _position_candidate(fixture.spec, fixture.moved_variant, 2.0)
+    repository.save_candidate(candidate)
+    evaluation = _evaluation(
+        fixture, fixture.spec, candidate, error=1.0, headroom=6.0
+    )
+    repository.save_evaluation(evaluation)
+
+    # Tamper the persisted metrics and honestly rehash the row: read-side
+    # replay derives the vector from resolved evidence and fails closed.
+    forged_vector = evaluation.objective_vector.model_copy(
+        update={
+            'metrics': (
+                evaluation.objective_vector.metrics[0].model_copy(
+                    update={'value': 42.0}
+                ),
+                evaluation.objective_vector.metrics[1],
+            )
+        }
+    )
+    forged = _resigned_evaluation(
+        evaluation,
+        objective_vector=forged_vector,
+    )
+    with closing(
+        sqlite3.connect(fixture.scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_joint_candidate_evaluations
+            SET payload_json=?, evaluation_binding_sha256=?,
+                evaluation_binding_id=?
+            WHERE evaluation_binding_id=?
+            """,
+            (
+                forged.model_dump_json(),
+                forged.evaluation_binding_sha256,
+                forged.evaluation_binding_id,
+                evaluation.evaluation_binding_id,
+            ),
+        )
+
+    with pytest.raises(ValueError, match='does not reproduce'):
+        repository.get_evaluation(forged.evaluation_binding_id)
+    with pytest.raises(ValueError, match='does not reproduce'):
+        repository.list_evaluations(fixture.spec.spec_id)
+
+
+def test_pareto_front_consumes_only_canonically_bound_evaluations(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+
+    position = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.moved_variant,
+        decisions=(_physical_decision(),),
+    )
+    plan = _save_plan(
+        fixture,
+        plan_id='pareto-persist-gain-390',
+        channel=_channel(gain_db=1.0),
+    )
+    dsp = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 1.0),),
+        calibration_plan=plan,
+        measurement_quality_report=fixture.quality_report,
+    )
+    repository.save_candidate(position)
+    repository.save_candidate(dsp)
+    repository.save_evaluation(
+        _evaluation(fixture, fixture.spec, position, error=2.0, headroom=5.0)
+    )
+    dsp_evaluation = _evaluation(
+        fixture, fixture.spec, dsp, error=1.0, headroom=6.0
+    )
+    repository.save_evaluation(dsp_evaluation)
+
+    result = repository.pareto_front(fixture.spec.spec_id)
+    assert result.non_dominated_candidate_ids == (dsp.candidate_id,)
+    assert result.algorithm_version == 'pareto-front-2'
+
+    with pytest.raises(
+        ValueError, match='unpersisted JointOptimizationSpec'
+    ):
+        repository.pareto_front('joint-spec-missing')
+
+    # Tampered evidence can no longer feed the front.
+    result_ref = _result_ref(dsp_evaluation)
+    fixture.joint_results[result_ref.source_id] = dict(
+        fixture.joint_results[result_ref.source_id],
+        candidate_id='joint-candidate-foreign',
+    )
+    with pytest.raises(ValueError, match='belongs to another candidate'):
+        repository.pareto_front(fixture.spec.spec_id)
