@@ -51,6 +51,9 @@ AUTHORITY_HANDOFF_DOMAIN = 'htdt.capture.authority-record.v1'
 INGESTOR_CONFIGURATION_DIGEST = (
     '3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3'
 )
+PERSISTED_INGESTION_INTEGRITY_MISMATCH = (
+    'persisted_ingestion_integrity_mismatch'
+)
 
 # Estimated transient bytes held while one decoded mesh element is staged as
 # frozen pydantic models (model instance, field objects, container slots) and
@@ -79,6 +82,26 @@ CaptureProvenance = Literal[
 
 class CaptureIngestionTransactionError(ValueError):
     pass
+
+
+class PersistedIngestionIntegrityError(CaptureIngestionTransactionError):
+    """An existing run's persisted materialization is incomplete or corrupt.
+
+    Raised instead of reporting idempotent success when a re-import finds the
+    surviving ``capture_ingestion_runs`` row but part of the persisted
+    evidence or derived materialization is missing or no longer matches the
+    plan authority. The ``diagnostic`` attribute carries the stable
+    machine-readable code so operators can distinguish damaged persisted
+    state from an invalid incoming archive or plan and route the run to a
+    repair/reimport operation.
+    """
+
+    diagnostic = PERSISTED_INGESTION_INTEGRITY_MISMATCH
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(
+            f'{PERSISTED_INGESTION_INTEGRITY_MISMATCH}: {detail}'
+        )
 
 
 def _hash_parts(prefix: str, *parts: str) -> str:
@@ -940,19 +963,28 @@ class CaptureIngestionRepository:
                 connection.execute('BEGIN IMMEDIATE')
                 existing = connection.execute(
                     '''
-                    SELECT plan_json
+                    SELECT *
                     FROM capture_ingestion_runs
                     WHERE lineage_digest=?
                     ''',
                     (typed.lineage_digest,),
                 ).fetchone()
                 if existing is not None:
-                    if existing['plan_json'] != plan_json:
-                        raise CaptureIngestionTransactionError(
-                            'existing lineage digest has different plan semantics'
-                        )
+                    # A surviving run row is not proof that the persisted
+                    # materialization is still complete: links, payloads, and
+                    # derived records can be lost to faulty migrations,
+                    # restore bugs, or foreign-key-disabled writes. Re-verify
+                    # the full materialization — including persisted plan
+                    # identity — and fail closed on damage rather than
+                    # claiming idempotent success over a partial or corrupt
+                    # earlier ingest.
+                    verified = self._verify_persisted_materialization(
+                        connection,
+                        typed,
+                        existing,
+                    )
                     connection.rollback()
-                    return self._result(typed, created=False)
+                    return verified
 
                 connection.execute(
                     '''
@@ -1054,6 +1086,52 @@ class CaptureIngestionRepository:
                 raise
 
         return self._result(typed, created=True)
+
+    def verify_persisted_ingestion(
+        self,
+        plan: CaptureIngestionPlan | Mapping[str, Any],
+    ) -> CaptureIngestionCommitResult:
+        """Verify one run's complete persisted materialization.
+
+        Re-checks every row the original ingest wrote for ``plan`` against
+        the supplied plan authority: persisted run metadata and plan
+        identity, the exact source-evidence link set, each evidence row's
+        canonical metadata and payload SHA-256/length, the exact RoomPlan
+        record set, and the mesh-binding and authority-record link sets
+        including each record's deterministic identity and source authority.
+        No unexpected linked record may exist for the run.
+
+        The same routine backs re-import idempotency and is reusable by
+        backup/restore validation and the Capture library. It raises
+        PersistedIngestionIntegrityError rather than reporting success over
+        partial or corrupt persisted state; the returned counts come from
+        the verified persisted sets.
+        """
+
+        typed = (
+            plan
+            if isinstance(plan, CaptureIngestionPlan)
+            else CaptureIngestionPlan.model_validate(plan)
+        )
+        with closing(self._connect()) as connection:
+            run = connection.execute(
+                '''
+                SELECT *
+                FROM capture_ingestion_runs
+                WHERE lineage_digest=?
+                ''',
+                (typed.lineage_digest,),
+            ).fetchone()
+            if run is None:
+                raise PersistedIngestionIntegrityError(
+                    'ingestion run is not persisted: '
+                    f'{typed.lineage_digest}'
+                )
+            return self._verify_persisted_materialization(
+                connection,
+                typed,
+                run,
+            )
 
     def get_ingestion(self, lineage_digest: str) -> CaptureIngestionPlan | None:
         with closing(self._connect()) as connection:
@@ -1549,6 +1627,284 @@ class CaptureIngestionRepository:
                     'not match its payload'
                 )
         return binding
+
+    def _verify_persisted_materialization(
+        self,
+        connection: sqlite3.Connection,
+        plan: CaptureIngestionPlan,
+        run: sqlite3.Row,
+    ) -> CaptureIngestionCommitResult:
+        """Fail closed unless the run's persisted state is complete.
+
+        The run row alone is not proof of a healthy ingestion, so the
+        persisted plan identity and every expected row are re-verified
+        against the supplied plan authority and no unexpected linked record
+        may exist. The returned counts come from the verified persisted
+        sets, not the plan's declared fields.
+        """
+
+        lineage = plan.lineage_digest
+        plan_json = _canonical_json(plan.model_dump(mode='json', by_alias=True))
+        if run['plan_json'] != plan_json:
+            raise PersistedIngestionIntegrityError(
+                'persisted plan identity differs from the supplied plan: '
+                f'{lineage}'
+            )
+        for column, expected in (
+            ('bundle_digest', plan.bundle.bundle_digest),
+            ('capture_revision_id', plan.bundle.capture_revision_id),
+            ('ingestor_name', plan.ingestor.name),
+            ('ingestor_version', plan.ingestor.version),
+            ('configuration_digest', plan.ingestor.configuration_digest),
+        ):
+            if run[column] != expected:
+                raise PersistedIngestionIntegrityError(
+                    f'run metadata mismatch ({column}): {lineage}'
+                )
+
+        expected_source_ids = {
+            item.source_evidence_id for item in plan.source_evidence
+        }
+        linked_source_ids = {
+            row['source_evidence_id']
+            for row in connection.execute(
+                '''
+                SELECT source_evidence_id
+                FROM capture_ingestion_source_links
+                WHERE lineage_digest=?
+                ''',
+                (lineage,),
+            )
+        }
+        if linked_source_ids != expected_source_ids:
+            raise PersistedIngestionIntegrityError(
+                'source evidence link set mismatch: '
+                f'missing={sorted(expected_source_ids - linked_source_ids)}, '
+                f'unexpected={sorted(linked_source_ids - expected_source_ids)}'
+            )
+        for record in plan.source_evidence:
+            self._verify_persisted_source_evidence(connection, record)
+
+        roomplan_rows = connection.execute(
+            '''
+            SELECT kind, source_evidence_id, payload_json
+            FROM capture_roomplan_records
+            WHERE lineage_digest=?
+            ''',
+            (lineage,),
+        ).fetchall()
+        expected_roomplan = {
+            (record.kind, record.source_evidence_id): record
+            for record in plan.roomplan_records
+        }
+        persisted_roomplan = {
+            (row['kind'], row['source_evidence_id']): row['payload_json']
+            for row in roomplan_rows
+        }
+        if set(persisted_roomplan) != set(expected_roomplan):
+            raise PersistedIngestionIntegrityError(
+                'RoomPlan record set mismatch: '
+                f'missing={sorted(set(expected_roomplan) - set(persisted_roomplan))}, '
+                f'unexpected={sorted(set(persisted_roomplan) - set(expected_roomplan))}'
+            )
+        for key, payload_json in persisted_roomplan.items():
+            try:
+                persisted = CaptureRoomPlanRecord.model_validate_json(
+                    payload_json
+                )
+            except ValueError as exc:
+                raise PersistedIngestionIntegrityError(
+                    f'RoomPlan record payload is unreadable: {key}'
+                ) from exc
+            if persisted != expected_roomplan[key]:
+                raise PersistedIngestionIntegrityError(
+                    f'RoomPlan record payload mismatch: {key}'
+                )
+
+        expected_binding_ids: set[str] = set()
+        for handoff in plan.raw_visual_mesh_handoffs:
+            row = connection.execute(
+                '''
+                SELECT binding_id, payload_json,
+                       anchor_index_source_evidence_id,
+                       geometry_source_evidence_id
+                FROM capture_raw_visual_mesh_bindings
+                WHERE handoff_id=?
+                ''',
+                (handoff.raw_visual_mesh_handoff_id,),
+            ).fetchone()
+            if row is None:
+                raise PersistedIngestionIntegrityError(
+                    'raw mesh binding is missing for handoff: '
+                    f'{handoff.raw_visual_mesh_handoff_id}'
+                )
+            try:
+                binding = self._binding_from_payload_json(
+                    connection,
+                    row['payload_json'],
+                    binding_id=row['binding_id'],
+                    normalized_source_ids=(
+                        row['anchor_index_source_evidence_id'],
+                        row['geometry_source_evidence_id'],
+                    ),
+                )
+            except ValueError as exc:
+                raise PersistedIngestionIntegrityError(
+                    'raw mesh binding cannot be verified: '
+                    f'{row["binding_id"]}: {exc}'
+                ) from exc
+            if (
+                binding.binding_id != row['binding_id']
+                or binding.handoff != handoff
+            ):
+                raise PersistedIngestionIntegrityError(
+                    'raw mesh binding identity or source authority mismatch: '
+                    f'{row["binding_id"]}'
+                )
+            expected_binding_ids.add(row['binding_id'])
+        linked_binding_ids = {
+            row['binding_id']
+            for row in connection.execute(
+                '''
+                SELECT binding_id
+                FROM capture_ingestion_mesh_links
+                WHERE lineage_digest=?
+                ''',
+                (lineage,),
+            )
+        }
+        if linked_binding_ids != expected_binding_ids:
+            raise PersistedIngestionIntegrityError(
+                'raw mesh binding link set mismatch: '
+                f'missing={sorted(expected_binding_ids - linked_binding_ids)}, '
+                f'unexpected={sorted(linked_binding_ids - expected_binding_ids)}'
+            )
+
+        expected_authority_ids = {
+            record.authority_record_handoff_id
+            for record in plan.authority_records
+        }
+        linked_authority_ids = {
+            row['authority_record_handoff_id']
+            for row in connection.execute(
+                '''
+                SELECT authority_record_handoff_id
+                FROM capture_ingestion_authority_links
+                WHERE lineage_digest=?
+                ''',
+                (lineage,),
+            )
+        }
+        if linked_authority_ids != expected_authority_ids:
+            raise PersistedIngestionIntegrityError(
+                'authority record link set mismatch: '
+                f'missing={sorted(expected_authority_ids - linked_authority_ids)}, '
+                f'unexpected={sorted(linked_authority_ids - expected_authority_ids)}'
+            )
+        for record in plan.authority_records:
+            row = connection.execute(
+                '''
+                SELECT source_evidence_id, payload_json
+                FROM capture_authority_records
+                WHERE authority_record_handoff_id=?
+                ''',
+                (record.authority_record_handoff_id,),
+            ).fetchone()
+            if row is None:
+                raise PersistedIngestionIntegrityError(
+                    'authority record is missing: '
+                    f'{record.authority_record_handoff_id}'
+                )
+            try:
+                persisted = CaptureAuthorityRecord.model_validate_json(
+                    row['payload_json']
+                )
+            except ValueError as exc:
+                raise PersistedIngestionIntegrityError(
+                    'authority record payload is unreadable: '
+                    f'{record.authority_record_handoff_id}'
+                ) from exc
+            if (
+                persisted != record
+                or row['source_evidence_id'] != record.source_evidence_id
+            ):
+                raise PersistedIngestionIntegrityError(
+                    'authority record identity or source authority mismatch: '
+                    f'{record.authority_record_handoff_id}'
+                )
+
+        return CaptureIngestionCommitResult(
+            lineage_digest=lineage,
+            bundle_digest=plan.bundle.bundle_digest,
+            source_evidence_count=len(linked_source_ids),
+            roomplan_record_count=len(roomplan_rows),
+            raw_mesh_binding_count=len(linked_binding_ids),
+            authority_record_count=len(linked_authority_ids),
+            created=False,
+        )
+
+    def _verify_persisted_source_evidence(
+        self,
+        connection: sqlite3.Connection,
+        record: CaptureSourceEvidence,
+    ) -> None:
+        """Re-verify one evidence row's metadata and payload bytes."""
+
+        row = connection.execute(
+            '''
+            SELECT *
+            FROM capture_source_evidence
+            WHERE source_evidence_id=?
+            ''',
+            (record.source_evidence_id,),
+        ).fetchone()
+        if row is None:
+            raise PersistedIngestionIntegrityError(
+                'source evidence row is missing: '
+                f'{record.source_evidence_id}'
+            )
+        try:
+            persisted = CaptureSourceEvidence(
+                source_evidence_id=row['source_evidence_id'],
+                bundle_digest=row['bundle_digest'],
+                capture_revision_id=row['capture_revision_id'],
+                path=row['logical_path'],
+                payload_sha256=row['payload_sha256'],
+                bytes=row['byte_count'],
+                media_type=row['media_type'],
+                producer=row['producer'],
+                provenance_class=row['provenance_class'],
+                role=row['role'],
+                source_refs=tuple(json.loads(row['source_refs_json'])),
+            )
+        except (ValueError, TypeError) as exc:
+            raise PersistedIngestionIntegrityError(
+                'source evidence metadata is unreadable: '
+                f'{record.source_evidence_id}'
+            ) from exc
+        if (
+            _canonical_json(persisted.model_dump(mode='json'))
+            != _canonical_json(record.model_dump(mode='json'))
+        ):
+            raise PersistedIngestionIntegrityError(
+                'source evidence metadata mismatch: '
+                f'{record.source_evidence_id}'
+            )
+        try:
+            payload = self._evidence_payload(connection, row)
+        except (ValueError, sqlite3.Error) as exc:
+            raise PersistedIngestionIntegrityError(
+                'source evidence payload is missing or corrupt: '
+                f'{record.source_evidence_id}: {exc}'
+            ) from exc
+        if (
+            len(payload) != record.bytes
+            or sha256(payload).hexdigest() != record.payload_sha256
+        ):
+            raise PersistedIngestionIntegrityError(
+                'source evidence payload mismatch: '
+                f'{record.source_evidence_id}'
+            )
 
     @staticmethod
     def _result(
