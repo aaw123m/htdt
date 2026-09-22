@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from contextlib import closing
+import json
 from pathlib import Path
+import sqlite3
 
 import pytest
 
 from htdt.acoustic_benchmark import AcousticMaterial, GeometricAcousticBand
 from htdt.cad_acoustic_treatment import (
     AcousticTreatmentDefinition,
+    AcousticTreatmentPlacement,
     TreatmentAcousticModel,
     TreatmentAcousticModelSubject,
     TreatmentCoverage,
@@ -22,6 +26,7 @@ from htdt.cad_acoustic_treatment import (
     build_treatment_placement,
     evaluate_treatment_prediction_capability,
     revise_treatment_placement,
+    _digest,
 )
 from htdt.cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
 from htdt.cad_repository import SceneRepository
@@ -355,3 +360,166 @@ def test_proposed_to_installed_lifecycle_is_append_only_and_exact(tmp_path: Path
             lifecycle='installed',
             system_variant=variant_a,
         )
+
+
+def _installed_lineage(tmp_path: Path):
+    scene_repository, variant_repository, baseline, variant_a, _vb = _baseline(tmp_path)
+    repository = CadAcousticTreatmentRepository(scene_repository, variant_repository)
+    porous_definition, porous_evidence = _porous_definition()
+    porous = _save_definition(repository, porous_definition, porous_evidence)
+    proposed = build_treatment_placement(
+        definition=porous,
+        revision=baseline,
+        instance_id='panel-read-01',
+        position=Position3(x_m=0.05, y_m=1.0, z_m=1.2),
+        coverage=TreatmentCoverage(width_m=0.6, height_m=1.2),
+        system_variant=variant_a,
+        host_surface_id='wall-left',
+        host_surface_authority_sha256=SURFACE_AUTHORITY_SHA,
+    )
+    repository.save_placement(proposed)
+    installed = revise_treatment_placement(
+        proposed,
+        revision=baseline,
+        lifecycle='installed',
+        position=Position3(x_m=0.05, y_m=1.02, z_m=1.2),
+        system_variant=variant_a,
+    )
+    repository.save_placement(installed)
+    return repository, proposed, installed
+
+
+def _tamper(path: Path, *statements: tuple[str, tuple]) -> None:
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        for sql, params in statements:
+            connection.execute(sql, params)
+
+
+def _assert_all_reads_fail_closed(
+    repository: CadAcousticTreatmentRepository,
+    placement: AcousticTreatmentPlacement,
+) -> None:
+    with pytest.raises(ValueError):
+        repository.get_placement(placement.instance_id, placement.placement_version)
+    with pytest.raises(ValueError):
+        repository.latest_placement(placement.instance_id)
+    with pytest.raises(ValueError):
+        repository.list_placements_for_scene(placement.scene_revision_id)
+    if placement.system_variant_id is not None:
+        with pytest.raises(ValueError):
+            repository.list_placements_for_variant(placement.system_variant_id)
+
+
+def test_read_fails_closed_when_definition_authority_removed(tmp_path: Path) -> None:
+    repository, proposed, _installed = _installed_lineage(tmp_path)
+
+    _tamper(
+        repository.path,
+        (
+            'DELETE FROM cad_acoustic_treatment_definitions WHERE definition_id=?',
+            (proposed.definition_id,),
+        ),
+    )
+
+    _assert_all_reads_fail_closed(repository, proposed)
+
+
+def test_read_fails_closed_when_scene_revision_removed(tmp_path: Path) -> None:
+    repository, proposed, _installed = _installed_lineage(tmp_path)
+
+    _tamper(
+        repository.path,
+        (
+            'DELETE FROM scene_document_heads WHERE document_id=?',
+            (proposed.document_id,),
+        ),
+        (
+            'DELETE FROM scene_revisions WHERE revision_id=?',
+            (proposed.scene_revision_id,),
+        ),
+    )
+
+    _assert_all_reads_fail_closed(repository, proposed)
+
+
+def test_read_fails_closed_when_system_variant_removed(tmp_path: Path) -> None:
+    repository, proposed, _installed = _installed_lineage(tmp_path)
+
+    _tamper(
+        repository.path,
+        (
+            'DELETE FROM cad_system_variants WHERE variant_id=?',
+            (proposed.system_variant_id,),
+        ),
+    )
+
+    _assert_all_reads_fail_closed(repository, proposed)
+
+
+def test_read_fails_closed_when_predecessor_placement_removed(tmp_path: Path) -> None:
+    repository, proposed, installed = _installed_lineage(tmp_path)
+
+    _tamper(
+        repository.path,
+        (
+            'DELETE FROM cad_acoustic_treatment_placements '
+            'WHERE instance_id=? AND placement_version=?',
+            (proposed.instance_id, proposed.placement_version),
+        ),
+    )
+
+    with pytest.raises(ValueError):
+        repository.get_placement(installed.instance_id, installed.placement_version)
+    with pytest.raises(ValueError):
+        repository.latest_placement(installed.instance_id)
+
+
+def test_read_fails_closed_on_forged_version_after_installed_terminal(
+    tmp_path: Path,
+) -> None:
+    repository, _proposed, installed = _installed_lineage(tmp_path)
+
+    payload = installed.model_dump(mode='json')
+    payload['placement_version'] = 3
+    payload['previous_placement_version'] = installed.placement_version
+    payload['previous_placement_sha256'] = installed.placement_sha256
+    identity = dict(installed.identity_payload())
+    identity['placement_version'] = 3
+    identity['previous_placement_version'] = installed.placement_version
+    identity['previous_placement_sha256'] = installed.placement_sha256
+    payload['placement_sha256'] = _digest(identity)
+    forged = AcousticTreatmentPlacement.model_validate(payload)
+    payload = forged.model_dump(mode='json')
+    forged_sha = forged.placement_sha256
+
+    _tamper(
+        repository.path,
+        (
+            'INSERT INTO cad_acoustic_treatment_placements('
+            'instance_id, placement_version, lifecycle, '
+            'definition_id, definition_version, definition_sha256, '
+            'document_id, scene_revision_id, system_variant_id, '
+            'placement_sha256, previous_placement_sha256, payload_json'
+            ') VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+            (
+                installed.instance_id,
+                3,
+                forged.lifecycle,
+                installed.definition_id,
+                installed.definition_version,
+                installed.definition_sha256,
+                installed.document_id,
+                installed.scene_revision_id,
+                installed.system_variant_id,
+                forged_sha,
+                installed.placement_sha256,
+                json.dumps(payload),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match='terminal'):
+        repository.get_placement(installed.instance_id, 3)
+    with pytest.raises(ValueError):
+        repository.latest_placement(installed.instance_id)
