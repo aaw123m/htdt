@@ -8,6 +8,7 @@ import sqlite3
 from .cad_adaptive_extended import (
     CadAdaptiveExtendedObservation,
     CadAdaptiveExtendedPlan,
+    CadAdaptiveObservationSourceRef,
     build_adaptive_extended_plan,
 )
 from .cad_adaptive_planner import (
@@ -17,6 +18,7 @@ from .cad_adaptive_planner import (
 from .cad_extended_search import generate_extended_candidates
 from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_model_validation_repository import CadModelValidationRepository
+from .cad_objective_repository import CadObjectiveRepository
 
 
 class AdaptiveObservationConflictError(ValueError):
@@ -30,6 +32,7 @@ class CadAdaptiveExtendedRepository:
         self,
         extended_repository: CadExtendedSearchRepository,
         validation_repository: CadModelValidationRepository,
+        objective_repository: CadObjectiveRepository | None = None,
     ) -> None:
         self.extended_repository = extended_repository
         self.validation_repository = validation_repository
@@ -39,6 +42,17 @@ class CadAdaptiveExtendedRepository:
             raise ValueError(
                 'adaptive extended repositories must share one native CAD database'
             )
+        if objective_repository is None:
+            objective_repository = CadObjectiveRepository(
+                self.search_repository.scene_repository,
+                self.search_repository,
+            )
+        if Path(objective_repository.path) != self.path:
+            raise ValueError(
+                'adaptive extended and objective repositories must share one '
+                'native CAD database'
+            )
+        self.objective_repository = objective_repository
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -278,6 +292,15 @@ class CadAdaptiveExtendedRepository:
             raise ValueError(
                 'adaptive extended observation candidate is outside Extended SearchSpec'
             )
+        candidate = next(
+            item
+            for item in candidates
+            if item.candidate_id == observation.candidate_id
+        )
+        # Source refs are re-resolved before the write lock is taken: the
+        # resolvers open their own connections, which must not run while
+        # BEGIN IMMEDIATE is held.
+        self._validate_observation_sources(observation, candidate.base_candidate_id)
 
         with closing(self._connect()) as connection, connection:
             # BEGIN IMMEDIATE holds the write lock across the duplicate
@@ -314,7 +337,7 @@ class CadAdaptiveExtendedRepository:
                         'another record'
                     )
             else:
-                head = self._observation_from_row(head_row)
+                head = self._decode_observation_row(head_row)
                 if (
                     observation.supersedes_observation_sha256
                     != head.observation_sha256
@@ -344,12 +367,151 @@ class CadAdaptiveExtendedRepository:
                 ),
             )
 
+    def _resolve_observation_source(
+        self,
+        ref: CadAdaptiveObservationSourceRef,
+        observation: CadAdaptiveExtendedObservation,
+        base_candidate_id: str,
+        *,
+        role: str,
+        required_evidence_class: str,
+        claimed_value: float,
+    ) -> None:
+        """Require one typed source ref to resolve to exact authority (#382).
+
+        ``objective_evaluation`` refs load the persisted O30 evaluation and
+        require its exact semantic hash, the same base candidate the
+        extended candidate derives from, an input ref of the required
+        evidence class, and the referenced objective metric to reproduce
+        the observation's declared unit and value. A missing, tampered, or
+        unrelated source fails closed.
+
+        ``synthetic_fixture`` refs are declared-only development claims; they
+        cannot back ``owned_room`` evidence.
+        """
+        if ref.kind == 'synthetic_fixture':
+            if observation.evidence_scope != 'synthetic_fixture':
+                raise ValueError(
+                    f'adaptive extended {role} source is a declared synthetic '
+                    'fixture claim and cannot back owned-room evidence'
+                )
+            return
+
+        evaluation = self.objective_repository.get_evaluation(ref.source_id)
+        if evaluation is None:
+            raise ValueError(
+                f'adaptive extended {role} source does not resolve to a '
+                f'persisted objective evaluation: {ref.source_id}'
+            )
+        if evaluation.evaluation_sha256 != ref.source_sha256:
+            raise ValueError(
+                f'adaptive extended {role} source hash mismatch: '
+                f'{ref.source_id}'
+            )
+        # O30 evaluations are keyed by the base SearchSpec candidate the
+        # extended candidate is derived from; a source recorded for another
+        # candidate cannot back this observation.
+        if evaluation.candidate_id != base_candidate_id:
+            raise ValueError(
+                f'adaptive extended {role} source belongs to a different '
+                'candidate'
+            )
+        if not any(
+            input_ref.evidence_class == required_evidence_class
+            for input_ref in evaluation.input_refs
+        ):
+            raise ValueError(
+                f'adaptive extended {role} source evaluation carries no '
+                f'{required_evidence_class} evidence'
+            )
+        try:
+            metric = evaluation.vector.metric(observation.objective_id)
+        except KeyError as exc:
+            raise ValueError(
+                f'adaptive extended {role} source does not report objective '
+                f'{observation.objective_id}'
+            ) from exc
+        if metric.unit != observation.unit:
+            raise ValueError(
+                f'adaptive extended {role} source unit mismatch'
+            )
+        if metric.value != claimed_value:
+            raise ValueError(
+                f'adaptive extended {role} source value does not equal the '
+                'stored observation metric'
+            )
+
+    def _validate_observation_sources(
+        self,
+        observation: CadAdaptiveExtendedObservation,
+        base_candidate_id: str,
+    ) -> None:
+        """Replay the exact evidence authority behind every stored value."""
+
+        self._resolve_observation_source(
+            observation.prediction_source,
+            observation,
+            base_candidate_id,
+            role='prediction',
+            required_evidence_class='predicted',
+            claimed_value=float(observation.predicted_value),
+        )
+        if observation.measured_value is not None:
+            # The model validator guarantees a measurement source exists
+            # whenever a measured value does.
+            assert observation.measurement_source is not None
+            self._resolve_observation_source(
+                observation.measurement_source,
+                observation,
+                base_candidate_id,
+                role='measurement',
+                required_evidence_class='measured',
+                claimed_value=float(observation.measured_value),
+            )
+
+    def _extended_candidate_map(self, extended_search_id: str):
+        spec, base, _capability = self._authority(extended_search_id)
+        candidates, _candidate_set_sha256 = self._all_candidates(spec, base)
+        return {candidate.candidate_id: candidate for candidate in candidates}
+
+    def _read_observation_row(
+        self,
+        row: sqlite3.Row,
+        candidate_map: dict[str, object] | None = None,
+    ) -> CadAdaptiveExtendedObservation:
+        observation = self._decode_observation_row(row)
+        if candidate_map is None:
+            candidate_map = self._extended_candidate_map(
+                observation.extended_search_id
+            )
+        candidate = candidate_map.get(observation.candidate_id)
+        if candidate is None:
+            raise ValueError(
+                'persisted adaptive extended observation references a '
+                'candidate outside the Extended SearchSpec'
+            )
+        self._validate_observation_sources(
+            observation,
+            candidate.base_candidate_id,
+        )
+        return observation
+
     @staticmethod
-    def _observation_from_row(
+    def _decode_observation_row(
         row: sqlite3.Row,
     ) -> CadAdaptiveExtendedObservation:
-        """Deserialize one persisted observation row and verify its columns."""
+        """Deserialize one persisted observation row and verify its columns.
 
+        Rows written before #382 carried free-form source strings that never
+        resolved to authority; they cannot prove source binding and fail
+        closed on read instead of silently passing.
+        """
+
+        if '"prediction_source"' not in row['payload_json']:
+            raise ValueError(
+                'persisted adaptive extended observation uses pre-#382 '
+                'untyped source fields and cannot prove source authority'
+            )
         observation = CadAdaptiveExtendedObservation.model_validate_json(
             row['payload_json']
         )
@@ -380,7 +542,7 @@ class CadAdaptiveExtendedRepository:
                 'WHERE observation_id=?',
                 (observation_id,),
             ).fetchone()
-        return None if row is None else self._observation_from_row(row)
+        return None if row is None else self._read_observation_row(row)
 
     def current_observations(
         self,
@@ -429,7 +591,12 @@ class CadAdaptiveExtendedRepository:
                 'WHERE extended_search_id=? ORDER BY seq ASC',
                 (extended_search_id,),
             ).fetchall()
-        return tuple(self._observation_from_row(row) for row in rows)
+        if not rows:
+            return ()
+        candidate_map = self._extended_candidate_map(extended_search_id)
+        return tuple(
+            self._read_observation_row(row, candidate_map) for row in rows
+        )
 
     def _require_plan_authority(self, plan: CadAdaptiveExtendedPlan) -> None:
         """Replay the exact O80/O60/observation authority one plan binds to.
