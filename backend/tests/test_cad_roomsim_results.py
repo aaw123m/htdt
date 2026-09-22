@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import sqlite3
 
 import pytest
 
@@ -10,7 +11,17 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_roomsim import CadRoomSimBinding, CadRoomSimSourceBinding
 from htdt.cad_roomsim_batch_runner import build_cad_roomsim_batch_spec, run_cad_roomsim_batch
 from htdt.cad_roomsim_repository import CadRoomSimRepository
-from htdt.cad_roomsim_results import roomsim_attempt_frequency_response
+from htdt.cad_roomsim_results import (
+    CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION,
+    CAD_ROOMSIM_EXECUTION_SCHEMA_VERSION,
+    CadRoomSimCandidateAttempt,
+    CadRoomSimExecutionResult,
+    canonical_roomsim_result_json,
+    canonical_roomsim_result_sha256,
+    new_roomsim_attempt_id,
+    roomsim_attempt_frequency_response,
+    roomsim_result_timestamp_utc,
+)
 from htdt.cad_scene import (
     Offset3,
     Position3,
@@ -27,7 +38,11 @@ from htdt.cad_search_models import (
 )
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.rew_api import RewRoomSimFrequencyResponse, RewRoomSimSnapshot
-from htdt.rew_roomsim_batch import roomsim_state_sha256
+from htdt.rew_roomsim_batch import (
+    ROOMSIM_BATCH_ADAPTER_VERSION,
+    ROOMSIM_MODEL_ID,
+    roomsim_state_sha256,
+)
 
 
 def _scene() -> SceneDocument:
@@ -270,7 +285,7 @@ def test_roomsim_batch_failure_is_persisted_and_resume_creates_new_attempt(tmp_p
     assert len(attempts) == 1
     assert attempts[0].attempt_index == 1
     assert attempts[0].status == 'failed'
-    assert attempts[0].response_json is None
+    assert attempts[0].result is None
 
     control.fail_response_reads.clear()
     resumed = run_cad_roomsim_batch(repository, control, batch)
@@ -351,3 +366,270 @@ def test_roomsim_batch_identity_is_reproducible_for_same_exact_inputs(tmp_path) 
     assert first.batch_spec_sha256 == second.batch_spec_sha256
     assert first.binding_sha256 == second.binding_sha256
     assert first.requests == second.requests
+
+
+def _response_payload(**overrides) -> dict:
+    payload = {
+        'source_name': 'Left',
+        'mic_position': 'Main',
+        'message': 'fixture',
+        'unit': 'SPL',
+        'smoothing': 'None',
+        'start_frequency_hz': 20.0,
+        'points_per_octave': 96.0,
+        'frequency_step_hz': None,
+        'frequency_hz': [20.0, 40.0, 80.0],
+        'magnitude': [80.0, 81.0, 79.0],
+        'phase_deg': [0.0, 1.0, 2.0],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _execution_result(
+    batch,
+    candidate_id: str,
+    *,
+    request_sha256: str | None = None,
+    response: dict | None = None,
+    model_id: str = ROOMSIM_MODEL_ID,
+    model_version: str = 'fixture-rew-1',
+    adapter_version: str = ROOMSIM_BATCH_ADAPTER_VERSION,
+) -> CadRoomSimExecutionResult:
+    if request_sha256 is None:
+        request_sha256 = next(
+            item.request_sha256
+            for item in batch.requests
+            if item.candidate_id == candidate_id
+        )
+    if response is None:
+        response = _response_payload()
+    response_json = canonical_roomsim_result_json(response)
+    response_sha256 = canonical_roomsim_result_sha256(response)
+    identity = {
+        'schema_version': CAD_ROOMSIM_EXECUTION_SCHEMA_VERSION,
+        'request_sha256': request_sha256,
+        'candidate_id': candidate_id,
+        'model_id': model_id,
+        'model_version': model_version,
+        'adapter_version': adapter_version,
+        'pre_state_sha256': 'a' * 64,
+        'applied_state_sha256': 'b' * 64,
+        'restored_state_sha256': 'a' * 64,
+        'response': response,
+        'response_sha256': response_sha256,
+    }
+    return CadRoomSimExecutionResult(
+        request_sha256=request_sha256,
+        candidate_id=candidate_id,
+        model_id=model_id,
+        model_version=model_version,
+        adapter_version=adapter_version,
+        pre_state_sha256='a' * 64,
+        applied_state_sha256='b' * 64,
+        restored_state_sha256='a' * 64,
+        response_json=response_json,
+        response_sha256=response_sha256,
+        result_sha256=canonical_roomsim_result_sha256(identity),
+    )
+
+
+def _completed_attempt(batch, candidate_id: str, *, result) -> CadRoomSimCandidateAttempt:
+    started = roomsim_result_timestamp_utc()
+    completed = roomsim_result_timestamp_utc()
+    identity = {
+        'schema_version': CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION,
+        'batch_run_id': batch.batch_run_id,
+        'candidate_id': candidate_id,
+        'attempt_index': 1,
+        'status': 'completed',
+        'result': None if result is None else result.model_dump(mode='json'),
+        'result_sha256': None if result is None else result.result_sha256,
+        'error_type': None,
+        'error_message': None,
+        'started_at_utc': started,
+        'completed_at_utc': completed,
+    }
+    return CadRoomSimCandidateAttempt(
+        attempt_id=new_roomsim_attempt_id(),
+        batch_run_id=batch.batch_run_id,
+        candidate_id=candidate_id,
+        attempt_index=1,
+        status='completed',
+        result=result,
+        result_sha256=None if result is None else result.result_sha256,
+        started_at_utc=started,
+        completed_at_utc=completed,
+        attempt_sha256=canonical_roomsim_result_sha256(identity),
+    )
+
+
+def _saved_batch(tmp_path):
+    revision, spec, repository = _repositories(tmp_path)
+    batch = build_cad_roomsim_batch_spec(
+        revision,
+        spec,
+        candidate_set_sha256='f' * 64,
+        candidates=_candidates(),
+        binding=_binding(),
+    )
+    repository.save_batch_spec(batch)
+    return repository, batch
+
+
+def test_roomsim_completed_attempt_binds_exact_request_and_round_trips(tmp_path) -> None:
+    repository, batch = _saved_batch(tmp_path)
+
+    result = _execution_result(batch, 'candidate-a')
+    attempt = _completed_attempt(batch, 'candidate-a', result=result)
+    repository.save_attempt(attempt)
+
+    stored = repository.get_attempt(attempt.attempt_id)
+    assert stored == attempt
+    assert stored.result is not None
+    assert stored.result.request_sha256 == batch.requests[0].request_sha256
+    assert stored.result.model_id == ROOMSIM_MODEL_ID
+    assert stored.result.adapter_version == ROOMSIM_BATCH_ADAPTER_VERSION
+    response = roomsim_attempt_frequency_response(stored)
+    assert response.frequency_hz == (20.0, 40.0, 80.0)
+    assert response.level_db == (80.0, 81.0, 79.0)
+
+    listed = repository.list_candidate_attempts(batch.batch_run_id, 'candidate-a')
+    assert listed == (attempt,)
+    assert repository.completed_candidate_ids(batch.batch_run_id) == {'candidate-a'}
+
+
+def test_roomsim_attempt_rejects_result_bound_to_foreign_request_sha(tmp_path) -> None:
+    repository, batch = _saved_batch(tmp_path)
+
+    # A self-consistent fabricated result whose request sha matches nothing persisted.
+    forged = _completed_attempt(
+        batch,
+        'candidate-a',
+        result=_execution_result(batch, 'candidate-a', request_sha256='0' * 64),
+    )
+    with pytest.raises(ValueError, match='not bound to the exact candidate request'):
+        repository.save_attempt(forged)
+
+
+def test_roomsim_attempt_cannot_be_rebound_to_another_candidate_request(tmp_path) -> None:
+    repository, batch = _saved_batch(tmp_path)
+    request_b = next(
+        item for item in batch.requests if item.candidate_id == 'candidate-b'
+    )
+
+    forged = _completed_attempt(
+        batch,
+        'candidate-a',
+        result=_execution_result(
+            batch,
+            'candidate-a',
+            request_sha256=request_b.request_sha256,
+        ),
+    )
+    with pytest.raises(ValueError, match='not bound to the exact candidate request'):
+        repository.save_attempt(forged)
+
+
+def test_roomsim_attempt_rejects_response_selector_mismatch(tmp_path) -> None:
+    repository, batch = _saved_batch(tmp_path)
+
+    wrong_mic = _completed_attempt(
+        batch,
+        'candidate-a',
+        result=_execution_result(
+            batch,
+            'candidate-a',
+            response=_response_payload(mic_position='Side'),
+        ),
+    )
+    with pytest.raises(ValueError, match='does not match the exact candidate request'):
+        repository.save_attempt(wrong_mic)
+
+    wrong_source = _completed_attempt(
+        batch,
+        'candidate-a',
+        result=_execution_result(
+            batch,
+            'candidate-a',
+            response=_response_payload(source_name=None),
+        ),
+    )
+    with pytest.raises(ValueError, match='does not match the exact candidate request'):
+        repository.save_attempt(wrong_source)
+
+
+def test_roomsim_execution_result_rejects_schema_invalid_response(tmp_path) -> None:
+    _repository, batch = _saved_batch(tmp_path)
+
+    # Arbitrary canonical JSON is not Room Simulator response evidence.
+    with pytest.raises(ValueError):
+        _execution_result(
+            batch,
+            'candidate-a',
+            response={'frequency_hz': [20.0], 'magnitude': [80.0]},
+        )
+    # Aligned frequency/magnitude axes are required.
+    with pytest.raises(ValueError):
+        _execution_result(
+            batch,
+            'candidate-a',
+            response=_response_payload(magnitude=[80.0]),
+        )
+    # Unknown payload keys are rejected.
+    with pytest.raises(ValueError):
+        _execution_result(
+            batch,
+            'candidate-a',
+            response=_response_payload(unexpected='extra'),
+        )
+
+
+def test_roomsim_execution_result_rejects_wrong_model_or_adapter(tmp_path) -> None:
+    _repository, batch = _saved_batch(tmp_path)
+
+    with pytest.raises(ValueError, match='model_id mismatch'):
+        _execution_result(batch, 'candidate-a', model_id='other-model')
+    with pytest.raises(ValueError, match='adapter_version mismatch'):
+        _execution_result(batch, 'candidate-a', adapter_version='other-adapter')
+
+
+def test_roomsim_completed_attempt_requires_execution_result(tmp_path) -> None:
+    _repository, batch = _saved_batch(tmp_path)
+
+    with pytest.raises(ValueError, match='requires the execution result'):
+        _completed_attempt(batch, 'candidate-a', result=None)
+
+
+def test_roomsim_attempt_reads_fail_closed_on_payload_swap(tmp_path) -> None:
+    repository, batch = _saved_batch(tmp_path)
+    attempt_a = _completed_attempt(
+        batch,
+        'candidate-a',
+        result=_execution_result(batch, 'candidate-a'),
+    )
+    attempt_b = _completed_attempt(
+        batch,
+        'candidate-b',
+        result=_execution_result(batch, 'candidate-b'),
+    )
+    repository.save_attempt(attempt_a)
+    repository.save_attempt(attempt_b)
+
+    with sqlite3.connect(repository.path) as connection:
+        payload_b = connection.execute(
+            'SELECT payload_json FROM cad_roomsim_candidate_attempts WHERE attempt_id=?',
+            (attempt_b.attempt_id,),
+        ).fetchone()[0]
+        connection.execute(
+            'UPDATE cad_roomsim_candidate_attempts SET payload_json=? WHERE attempt_id=?',
+            (payload_b, attempt_a.attempt_id),
+        )
+
+    # attempt-a's row now carries a payload bound to candidate-b's exact request.
+    with pytest.raises(ValueError):
+        repository.get_attempt(attempt_a.attempt_id)
+    with pytest.raises(ValueError):
+        repository.list_candidate_attempts(batch.batch_run_id, 'candidate-a')
+    with pytest.raises(ValueError):
+        repository.list_attempts(batch.batch_run_id)

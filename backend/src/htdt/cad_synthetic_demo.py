@@ -48,7 +48,10 @@ from .cad_roomsim import CadRoomSimBinding, CadRoomSimSourceBinding
 from .cad_roomsim_batch_runner import build_cad_roomsim_batch_spec
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_roomsim_results import (
+    CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION,
+    CAD_ROOMSIM_EXECUTION_SCHEMA_VERSION,
     CadRoomSimCandidateAttempt,
+    CadRoomSimExecutionResult,
     canonical_roomsim_result_json,
     canonical_roomsim_result_sha256,
     new_roomsim_attempt_id,
@@ -77,7 +80,7 @@ from .optimization_objectives import (
     ResponseObjectiveSpec,
     target_response_objectives,
 )
-from .rew_roomsim_batch import ROOMSIM_MODEL_ID
+from .rew_roomsim_batch import ROOMSIM_BATCH_ADAPTER_VERSION, ROOMSIM_MODEL_ID
 
 
 SYNTHETIC_DEMO_DOCUMENT_ID = 'htdt-synthetic-o70-o80-demo-v1'
@@ -166,6 +169,7 @@ def _completed_attempt(
     *,
     batch_run_id: str,
     candidate_id: str,
+    request_sha256: str,
     index: int,
 ) -> CadRoomSimCandidateAttempt:
     started = roomsim_result_timestamp_utc()
@@ -177,18 +181,40 @@ def _completed_attempt(
     applied_hash = sha256(
         f'htdt-synthetic-applied:{candidate_id}'.encode('utf-8')
     ).hexdigest()
-    identity = {
-        'schema_version': 1,
-        'batch_run_id': batch_run_id,
+    result_identity = {
+        'schema_version': CAD_ROOMSIM_EXECUTION_SCHEMA_VERSION,
+        'request_sha256': request_sha256,
         'candidate_id': candidate_id,
-        'attempt_index': 1,
-        'status': 'completed',
+        'model_id': ROOMSIM_MODEL_ID,
         'model_version': SYNTHETIC_MODEL_VERSION,
+        'adapter_version': ROOMSIM_BATCH_ADAPTER_VERSION,
         'pre_state_sha256': pre_hash,
         'applied_state_sha256': applied_hash,
         'restored_state_sha256': pre_hash,
         'response': response,
         'response_sha256': response_sha,
+    }
+    result = CadRoomSimExecutionResult(
+        request_sha256=request_sha256,
+        candidate_id=candidate_id,
+        model_id=ROOMSIM_MODEL_ID,
+        model_version=SYNTHETIC_MODEL_VERSION,
+        adapter_version=ROOMSIM_BATCH_ADAPTER_VERSION,
+        pre_state_sha256=pre_hash,
+        applied_state_sha256=applied_hash,
+        restored_state_sha256=pre_hash,
+        response_json=response_json,
+        response_sha256=response_sha,
+        result_sha256=canonical_roomsim_result_sha256(result_identity),
+    )
+    identity = {
+        'schema_version': CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION,
+        'batch_run_id': batch_run_id,
+        'candidate_id': candidate_id,
+        'attempt_index': 1,
+        'status': 'completed',
+        'result': result.model_dump(mode='json'),
+        'result_sha256': result.result_sha256,
         'error_type': None,
         'error_message': None,
         'started_at_utc': started,
@@ -200,12 +226,8 @@ def _completed_attempt(
         candidate_id=candidate_id,
         attempt_index=1,
         status='completed',
-        model_version=SYNTHETIC_MODEL_VERSION,
-        pre_state_sha256=pre_hash,
-        applied_state_sha256=applied_hash,
-        restored_state_sha256=pre_hash,
-        response_json=response_json,
-        response_sha256=response_sha,
+        result=result,
+        result_sha256=result.result_sha256,
         started_at_utc=started,
         completed_at_utc=completed,
         attempt_sha256=canonical_roomsim_result_sha256(identity),
@@ -358,11 +380,15 @@ def seed_synthetic_optimization_demo(
     )
     roomsim_repository.save_batch_spec(batch)
 
+    request_sha_by_candidate = {
+        request.candidate_id: request.request_sha256 for request in batch.requests
+    }
     attempt_by_candidate = {}
     for index, candidate in enumerate(candidates):
         attempt = _completed_attempt(
             batch_run_id=batch.batch_run_id,
             candidate_id=candidate.candidate_id,
+            request_sha256=request_sha_by_candidate[candidate.candidate_id],
             index=index,
         )
         roomsim_repository.save_attempt(attempt)
@@ -430,7 +456,7 @@ def seed_synthetic_optimization_demo(
                     evidence_class='predicted',
                     source_kind='cad_roomsim_attempt',
                     source_id=attempt.attempt_id,
-                    source_sha256=attempt.response_sha256,
+                    source_sha256=attempt.result.response_sha256,
                 ),
             ),
         )

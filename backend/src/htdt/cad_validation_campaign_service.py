@@ -20,10 +20,7 @@ from .cad_model_validation_service import (
     CadValidationSensitivitySpec,
     CadValidationSeparationSpec,
 )
-from .cad_objective_models import (
-    CadObjectiveInputRef,
-    canonical_objective_sha256,
-)
+from .cad_objective_models import CadObjectiveInputRef
 from .cad_objectives import build_objective_evaluation
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_roomsim_repository import CadRoomSimRepository
@@ -146,7 +143,8 @@ class CadValidationCampaignService:
             ):
                 if (
                     attempt.status == 'completed'
-                    and attempt.model_version == campaign.model_version
+                    and attempt.result is not None
+                    and attempt.result.model_version == campaign.model_version
                 ):
                     attempts.append(attempt)
         return tuple(attempts)
@@ -330,15 +328,11 @@ class CadValidationCampaignService:
                     f'{assignment.candidate_id}: primary measurement has no frequency response'
                 )
 
-            attempt_response_sha = getattr(
-                attempts[0], 'response_sha256', None
-            )
-            if attempt_response_sha is None:
-                # Match the authority resolver fallback for attempts that only
-                # carry a canonical response payload.
-                attempt_response_sha = canonical_objective_sha256(
-                    json.loads(attempts[0].response_json)
+            if attempts[0].result is None:
+                raise ValueError(
+                    f'{assignment.candidate_id}: prediction attempt has no execution result'
                 )
+            attempt_response_sha = attempts[0].result.response_sha256
             evidence = (
                 (
                     'predicted',

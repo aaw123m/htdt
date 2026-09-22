@@ -618,8 +618,9 @@ class CadRobustnessValidationRepository:
         if (
             attempt is None
             or attempt.status != 'completed'
+            or attempt.result is None
             or attempt.candidate_id != candidate_id
-            or attempt.model_version != spec.model_version
+            or attempt.result.model_version != spec.model_version
         ):
             return None, list(dict.fromkeys(reasons + ['stale_model_or_result']))
         batch = self.roomsim_repository.get_batch_spec(attempt.batch_run_id)
@@ -650,7 +651,7 @@ class CadRobustnessValidationRepository:
             batch_spec_sha256=batch.batch_spec_sha256,
             binding_sha256=batch.binding_sha256,
             model_id=batch.model_id,
-            model_version=attempt.model_version,
+            model_version=attempt.result.model_version,
             adapter_version=batch.adapter_version,
         )
         return ref, list(dict.fromkeys(reasons))
@@ -1110,7 +1111,8 @@ class CadRobustnessValidationRepository:
             or attempt.attempt_sha256 != ref.prediction_attempt_sha256
             or attempt.batch_run_id != ref.batch_run_id
             or attempt.candidate_id != ref.candidate_id
-            or attempt.model_version != ref.model_version
+            or attempt.result is None
+            or attempt.result.model_version != ref.model_version
         ):
             raise ValueError('O90E decision prediction binding is stale or tampered')
         batch = self.roomsim_repository.get_batch_spec(ref.batch_run_id)

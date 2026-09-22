@@ -14,7 +14,10 @@ from htdt.cad_model_validation_service import (
 )
 from htdt.cad_objective_models import CadObjectiveInputRef, canonical_objective_sha256
 from htdt.cad_repository import SceneRepository
-from htdt.cad_roomsim_results import canonical_roomsim_result_sha256
+from htdt.cad_roomsim_results import (
+    canonical_roomsim_result_json,
+    canonical_roomsim_result_sha256,
+)
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
@@ -209,17 +212,28 @@ def _fixture(tmp_path):
         prediction_id = f'pred:{candidate_id}'
         frequency, predicted_levels = _response(float(index) * 2.0)
         response_payload = {
+            'source_name': None,
+            'mic_position': 'Main',
+            'message': 'fixture',
+            'unit': 'SPL',
+            'smoothing': 'None',
+            'start_frequency_hz': 20.0,
+            'points_per_octave': 96.0,
+            'frequency_step_hz': None,
             'frequency_hz': list(frequency),
             'magnitude': list(predicted_levels),
+            'phase_deg': None,
         }
         attempts.append(SimpleNamespace(
             attempt_id=prediction_id,
             batch_run_id='batch',
             candidate_id=candidate_id,
             status='completed',
-            model_version='fixture-1',
-            response_json=json.dumps(response_payload),
-            response_sha256=canonical_roomsim_result_sha256(response_payload),
+            result=SimpleNamespace(
+                model_version='fixture-1',
+                response_json=canonical_roomsim_result_json(response_payload),
+                response_sha256=canonical_roomsim_result_sha256(response_payload),
+            ),
         ))
 
         measurement_ids = [f'meas:{candidate_id}:1']

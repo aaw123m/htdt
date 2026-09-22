@@ -16,6 +16,7 @@ from htdt.cad_model_validation_service import (
     CadValidationSeparationSpec,
 )
 from htdt.cad_repository import SceneRepository
+from htdt.cad_roomsim_results import canonical_roomsim_result_json
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
@@ -28,9 +29,18 @@ def _binding_json() -> str:
 
 
 def _response_payload(offset: float) -> str:
-    return json.dumps({
+    return canonical_roomsim_result_json({
+        'source_name': None,
+        'mic_position': 'Main',
+        'message': 'fixture',
+        'unit': 'SPL',
+        'smoothing': 'None',
+        'start_frequency_hz': 20.0,
+        'points_per_octave': 96.0,
+        'frequency_step_hz': None,
         'frequency_hz': [20.0, 40.0, 80.0, 160.0],
         'magnitude': [80.0 + offset, 81.0 + offset, 79.0 + offset, 80.0 + offset],
+        'phase_deg': None,
     })
 
 
@@ -51,8 +61,10 @@ class _RoomSim:
             batch_run_id='batch',
             status='completed',
             candidate_id=candidate_id,
-            model_version='fixture-1',
-            response_json=_response_payload(float(index) * 2.0),
+            result=SimpleNamespace(
+                model_version='fixture-1',
+                response_json=_response_payload(float(index) * 2.0),
+            ),
         )
 
     def get_batch_spec(self, batch_run_id):

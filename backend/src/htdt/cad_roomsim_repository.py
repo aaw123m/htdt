@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
 from pathlib import Path
 import sqlite3
 
 from .cad_repository import SceneRepository
-from .cad_roomsim_results import CadRoomSimBatchSpec, CadRoomSimCandidateAttempt
+from .cad_roomsim_results import (
+    CadRoomSimBatchSpec,
+    CadRoomSimCandidateAttempt,
+    roomsim_result_response,
+)
 from .cad_search_repository import CadSearchRepository
 
 
@@ -131,6 +136,65 @@ class CadRoomSimRepository:
             ).fetchall()
         return tuple(CadRoomSimBatchSpec.model_validate_json(row['payload_json']) for row in rows)
 
+    def _verify_attempt_authority(
+        self,
+        attempt: CadRoomSimCandidateAttempt,
+        batch: CadRoomSimBatchSpec | None,
+    ) -> None:
+        """Fail closed unless a completed attempt binds the exact persisted request.
+
+        A self-consistent attempt hash alone cannot prove that the recorded
+        response came from executing the persisted candidate request, so the
+        exact request SHA, model/adapter identity and response selector are
+        re-verified against the immutable batch on every save and read.
+        """
+        if batch is None or attempt.batch_run_id != batch.batch_run_id:
+            raise ValueError('Room Simulator attempt batch authority is unavailable')
+        if attempt.status != 'completed':
+            return
+        result = attempt.result
+        if result is None:
+            raise ValueError('completed Room Simulator attempt has no execution result')
+        requests = {item.candidate_id: item for item in batch.requests}
+        request = requests.get(attempt.candidate_id)
+        if request is None:
+            raise ValueError('Room Simulator attempt candidate is not part of the batch')
+        if (
+            result.candidate_id != attempt.candidate_id
+            or result.request_sha256 != request.request_sha256
+        ):
+            raise ValueError(
+                'Room Simulator attempt result is not bound to the exact candidate request'
+            )
+        if result.model_id != batch.model_id or result.adapter_version != batch.adapter_version:
+            raise ValueError('Room Simulator attempt model/adapter authority mismatch')
+        request_payload = json.loads(request.request_json)
+        response = roomsim_result_response(result)
+        if (
+            response.mic_position != request_payload.get('mic_position', 'Main')
+            or response.source_name != request_payload.get('source_name')
+        ):
+            raise ValueError(
+                'Room Simulator attempt response does not match the exact candidate request'
+            )
+
+    def _decode_attempt(
+        self,
+        row: sqlite3.Row,
+        batch: CadRoomSimBatchSpec | None,
+    ) -> CadRoomSimCandidateAttempt:
+        attempt = CadRoomSimCandidateAttempt.model_validate_json(row['payload_json'])
+        if (
+            attempt.attempt_id != row['attempt_id']
+            or attempt.candidate_id != row['candidate_id']
+            or attempt.attempt_index != row['attempt_index']
+            or attempt.status != row['status']
+            or attempt.attempt_sha256 != row['attempt_sha256']
+        ):
+            raise ValueError('Room Simulator attempt row authority mismatch')
+        self._verify_attempt_authority(attempt, batch)
+        return attempt
+
     def save_attempt(self, attempt: CadRoomSimCandidateAttempt) -> None:
         batch = self.get_batch_spec(attempt.batch_run_id)
         if batch is None:
@@ -138,6 +202,7 @@ class CadRoomSimRepository:
         candidate_ids = {item.candidate_id for item in batch.requests}
         if attempt.candidate_id not in candidate_ids:
             raise ValueError('Room Simulator attempt candidate is not part of the batch')
+        self._verify_attempt_authority(attempt, batch)
 
         prior = self.list_candidate_attempts(attempt.batch_run_id, attempt.candidate_id)
         expected_index = len(prior) + 1
@@ -172,16 +237,26 @@ class CadRoomSimRepository:
                 'SELECT payload_json FROM cad_roomsim_candidate_attempts WHERE attempt_id=?',
                 (attempt_id,),
             ).fetchone()
-        return None if row is None else CadRoomSimCandidateAttempt.model_validate_json(row['payload_json'])
+        if row is None:
+            return None
+        attempt = CadRoomSimCandidateAttempt.model_validate_json(row['payload_json'])
+        if attempt.attempt_id != attempt_id:
+            raise ValueError('Room Simulator attempt identity authority mismatch')
+        self._verify_attempt_authority(attempt, self.get_batch_spec(attempt.batch_run_id))
+        return attempt
 
     def list_attempts(self, batch_run_id: str) -> tuple[CadRoomSimCandidateAttempt, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_roomsim_candidate_attempts '
+                'SELECT attempt_id, candidate_id, attempt_index, status, attempt_sha256, '
+                'payload_json FROM cad_roomsim_candidate_attempts '
                 'WHERE batch_run_id=? ORDER BY seq ASC',
                 (batch_run_id,),
             ).fetchall()
-        return tuple(CadRoomSimCandidateAttempt.model_validate_json(row['payload_json']) for row in rows)
+        if not rows:
+            return ()
+        batch = self.get_batch_spec(batch_run_id)
+        return tuple(self._decode_attempt(row, batch) for row in rows)
 
     def list_candidate_attempts(
         self,
@@ -190,20 +265,28 @@ class CadRoomSimRepository:
     ) -> tuple[CadRoomSimCandidateAttempt, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_roomsim_candidate_attempts '
+                'SELECT attempt_id, candidate_id, attempt_index, status, attempt_sha256, '
+                'payload_json FROM cad_roomsim_candidate_attempts '
                 'WHERE batch_run_id=? AND candidate_id=? ORDER BY attempt_index ASC',
                 (batch_run_id, candidate_id),
             ).fetchall()
-        return tuple(CadRoomSimCandidateAttempt.model_validate_json(row['payload_json']) for row in rows)
+        if not rows:
+            return ()
+        batch = self.get_batch_spec(batch_run_id)
+        return tuple(self._decode_attempt(row, batch) for row in rows)
 
     def completed_candidate_ids(self, batch_run_id: str) -> frozenset[str]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                "SELECT DISTINCT candidate_id FROM cad_roomsim_candidate_attempts "
+                "SELECT attempt_id, candidate_id, attempt_index, status, attempt_sha256, "
+                "payload_json FROM cad_roomsim_candidate_attempts "
                 "WHERE batch_run_id=? AND status='completed'",
                 (batch_run_id,),
             ).fetchall()
-        return frozenset(str(row['candidate_id']) for row in rows)
+        if not rows:
+            return frozenset()
+        batch = self.get_batch_spec(batch_run_id)
+        return frozenset(self._decode_attempt(row, batch).candidate_id for row in rows)
 
     def next_attempt_index(self, batch_run_id: str, candidate_id: str) -> int:
         return len(self.list_candidate_attempts(batch_run_id, candidate_id)) + 1

@@ -8,13 +8,16 @@ from .cad_repository import SceneRevision
 from .cad_roomsim import CadRoomSimBinding, build_cad_roomsim_batch_request
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_roomsim_results import (
+    CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION,
     CadRoomSimBatchSpec,
     CadRoomSimCandidateAttempt,
     CadRoomSimCandidateRequest,
+    CadRoomSimExecutionResult,
     canonical_roomsim_result_json,
     canonical_roomsim_result_sha256,
     new_roomsim_attempt_id,
     new_roomsim_batch_run_id,
+    roomsim_execution_result,
     roomsim_result_timestamp_utc,
 )
 from .cad_search_models import CadCandidate, CadSearchSpec
@@ -110,33 +113,19 @@ def _attempt(
     attempt_index: int,
     started_at_utc: str,
     status: str,
-    model_version: str | None = None,
-    pre_state_sha256: str | None = None,
-    applied_state_sha256: str | None = None,
-    restored_state_sha256: str | None = None,
-    response_payload: dict | None = None,
+    result: CadRoomSimExecutionResult | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
 ) -> CadRoomSimCandidateAttempt:
     completed_at_utc = roomsim_result_timestamp_utc()
-    response_json = (
-        None if response_payload is None else canonical_roomsim_result_json(response_payload)
-    )
-    response_sha256 = (
-        None if response_payload is None else canonical_roomsim_result_sha256(response_payload)
-    )
     identity = {
-        'schema_version': 1,
+        'schema_version': CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION,
         'batch_run_id': batch_run_id,
         'candidate_id': candidate_id,
         'attempt_index': attempt_index,
         'status': status,
-        'model_version': model_version,
-        'pre_state_sha256': pre_state_sha256,
-        'applied_state_sha256': applied_state_sha256,
-        'restored_state_sha256': restored_state_sha256,
-        'response': response_payload,
-        'response_sha256': response_sha256,
+        'result': None if result is None else result.model_dump(mode='json'),
+        'result_sha256': None if result is None else result.result_sha256,
         'error_type': error_type,
         'error_message': error_message,
         'started_at_utc': started_at_utc,
@@ -148,12 +137,8 @@ def _attempt(
         candidate_id=candidate_id,
         attempt_index=attempt_index,
         status=status,
-        model_version=model_version,
-        pre_state_sha256=pre_state_sha256,
-        applied_state_sha256=applied_state_sha256,
-        restored_state_sha256=restored_state_sha256,
-        response_json=response_json,
-        response_sha256=response_sha256,
+        result=result,
+        result_sha256=None if result is None else result.result_sha256,
         error_type=error_type,
         error_message=error_message,
         started_at_utc=started_at_utc,
@@ -228,11 +213,10 @@ def run_cad_roomsim_batch(
             attempt_index=attempt_index,
             started_at_utc=started_at_utc,
             status='completed',
-            model_version=result.model_version,
-            pre_state_sha256=result.pre_state_sha256,
-            applied_state_sha256=result.applied_state_sha256,
-            restored_state_sha256=result.restored_state_sha256,
-            response_payload=asdict(result.response),
+            result=roomsim_execution_result(
+                result,
+                request_sha256=frozen.request_sha256,
+            ),
         )
         repository.save_attempt(completed)
         attempt_ids.append(completed.attempt_id)
