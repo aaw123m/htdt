@@ -209,7 +209,7 @@ def test_quality_report_references_the_persisted_dataset_identity(tmp_path: Path
     report = build_measurement_quality_report(
         measurement=record,
         dataset=dataset,
-        evidence=CadMeasurementQualityEvidence(evidence_source='manual'),
+        evidence=CadMeasurementQualityEvidence(),
         profile=build_measurement_quality_profile(profile_version='integrity-1'),
         report_id='report-integrity',
         created_at_utc='2026-09-19T00:05:00+00:00',

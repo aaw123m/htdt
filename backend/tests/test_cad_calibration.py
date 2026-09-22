@@ -38,10 +38,14 @@ from htdt.cad_calibration_repository import (
 )
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
-    CadAcquisitionContextBinding,
     CadMeasurementQualityEvidence,
+    acquisition_context_binding,
+    build_acquisition_context,
+    build_measurement_observation,
     build_measurement_quality_profile,
     build_measurement_quality_report,
+    measurement_repeatability_rms_db,
+    observation_binding,
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
@@ -165,29 +169,63 @@ def _save_quality(
     usable_band: bool = True,
     repeat_with: str | None = None,
 ):
+    # Typed authorities (#392): timing fields must equal a persisted
+    # acquisition context covering this measurement, observation metadata
+    # must equal a persisted observation bound to it, and the repeatability
+    # RMS must equal the canonical recomputation over the exact datasets.
+    observation_fields = {
+        'usable_frequency_band_hz': (20.0, 20000.0) if usable_band else None,
+        'polarity_correct': True if polarity else None,
+        'polarity_confidence': 0.99 if polarity else None,
+    }
+    observation = None
+    if any(value is not None for value in observation_fields.values()):
+        record_observation = build_measurement_observation(
+            observation_id=f'obs-{report_id}',
+            measurement_id=measurement.measurement_id,
+            source_kind='manual',
+            observed_at_utc='2026-09-19T12:31:30+00:00',
+            **observation_fields,
+        )
+        quality_repository.save_observation(record_observation)
+        observation = observation_binding(record_observation)
+    acquisition = None
+    if common_timing:
+        context = build_acquisition_context(
+            acquisition_context_id=f'acq-{report_id}',
+            source_kind='manual',
+            subject_measurement_ids=(measurement.measurement_id,),
+            timing_reference_valid=True,
+            timing_reference_id='loopback-1',
+            clock_source='shared-clock-1',
+            sample_rate_hz=48000,
+            delay_correction_s=0.0,
+            created_at_utc='2026-09-19T12:31:30+00:00',
+        )
+        quality_repository.save_acquisition_context(context)
+        acquisition = acquisition_context_binding(context)
+    repeatability_rms = None
+    if repeat_with is not None:
+        repeat_dataset = (
+            quality_repository.measurement_repository.dataset_for_measurement(
+                repeat_with
+            )
+        )
+        repeatability_rms = measurement_repeatability_rms_db(
+            (dataset, repeat_dataset)
+        )
     evidence = CadMeasurementQualityEvidence(
-        usable_frequency_band_hz=(20.0, 20000.0) if usable_band else None,
+        **observation_fields,
         timing_reference_valid=True if common_timing else None,
         timing_reference_id='loopback-1' if common_timing else None,
         clock_source='shared-clock-1' if common_timing else None,
         sample_rate_hz=48000 if common_timing else None,
         delay_correction_s=0.0 if common_timing else None,
-        polarity_correct=True if polarity else None,
-        polarity_confidence=0.99 if polarity else None,
         repeat_measurement_ids=(
             (measurement.measurement_id, repeat_with) if repeat_with is not None else ()
         ),
-        repeatability_rms_db=0.2 if repeat_with is not None else None,
-        evidence_source='manual',
-    )
-    acquisition = (
-        CadAcquisitionContextBinding(
-            acquisition_context_id='acq-shared',
-            acquisition_context_sha256=sha256(b'acq-shared').hexdigest(),
-            source_kind='manual',
-        )
-        if common_timing
-        else None
+        repeatability_rms_db=repeatability_rms,
+        evidence_source='manual' if observation is not None else 'unknown',
     )
     profile = build_measurement_quality_profile(
         profile_version='calibration-fixture-quality-1',
@@ -200,6 +238,7 @@ def _save_quality(
         evidence=evidence,
         profile=profile,
         acquisition_context=acquisition,
+        observation=observation,
         report_id=report_id,
         created_at_utc='2026-09-19T12:32:00+00:00',
     )

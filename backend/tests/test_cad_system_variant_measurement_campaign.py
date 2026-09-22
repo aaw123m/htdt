@@ -10,8 +10,9 @@ import pytest
 import htdt.cad_system_variant_measurement_campaign as campaign_module
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
-    CadAcquisitionContextBinding,
     CadMeasurementQualityEvidence,
+    acquisition_context_binding,
+    build_acquisition_context,
     build_measurement_quality_profile,
     build_measurement_quality_report,
 )
@@ -274,15 +275,19 @@ def _save_evidence(
         raw_filename=f'{measurement_id}.json',
         raw_bytes=raw,
     )
-    context = (
-        CadAcquisitionContextBinding(
-            acquisition_context_id='acq:fixture',
-            acquisition_context_sha256=sha256(b'acq:fixture').hexdigest(),
+    context = None
+    if acquisition:
+        # The binding must resolve to a persisted acquisition-context
+        # authority covering this exact measurement (#392); an all-None
+        # timing attestation keeps the report's empty evidence verbatim.
+        persisted_context = build_acquisition_context(
+            acquisition_context_id=f'acq:fixture:{measurement_id}',
             source_kind='native',
+            subject_measurement_ids=(measurement_id,),
+            created_at_utc=CAPTURE_TIME,
         )
-        if acquisition
-        else None
-    )
+        fx['quality'].save_acquisition_context(persisted_context)
+        context = acquisition_context_binding(persisted_context)
     report = build_measurement_quality_report(
         measurement=record,
         dataset=dataset,

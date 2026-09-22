@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
-from math import isfinite
+from math import isfinite, sqrt
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -30,6 +30,50 @@ MeasurementCapabilityClaim = Literal[
     'repeatability',
     'polarity',
 ]
+
+AcquisitionContextSourceKind = Literal['native', 'legacy', 'manual', 'unknown']
+EvidenceSourceKind = Literal['rew_metadata', 'raw_asset', 'manual', 'mixed', 'unknown']
+
+# Evidence fields the persisted ``CadAcquisitionContext`` is the sole
+# authority for. A report's timing evidence must equal the resolved context's
+# values exactly; without a resolved context no timing evidence may be
+# claimed at all.
+TIMING_EVIDENCE_FIELDS: tuple[str, ...] = (
+    'timing_reference_valid',
+    'timing_reference_id',
+    'clock_source',
+    'sample_rate_hz',
+    'delay_correction_s',
+)
+
+# Per-measurement acquisition metadata a persisted ``CadMeasurementObservation``
+# is the sole authority for. Any non-default value here requires a resolved
+# observation whose field values equal the claimed evidence verbatim.
+OBSERVATION_EVIDENCE_FIELDS: tuple[str, ...] = (
+    'clipping_detected',
+    'peak_dbfs',
+    'noise_floor_db_spl',
+    'signal_level_db_spl',
+    'snr_db',
+    'usable_frequency_band_hz',
+    'polarity_correct',
+    'polarity_confidence',
+    'has_impulse_response',
+    'ir_window_start_s',
+    'ir_window_end_s',
+    'ir_truncated',
+)
+
+# Observation source kinds whose values were extracted from an exact machine
+# artifact: the observation must pin that artifact in ``source_asset_sha256``
+# and the pin must resolve to the subject measurement's verified raw asset.
+# ``manual``/``unknown`` observations are themselves the authority and must
+# not bind a source asset.
+MACHINE_OBSERVATION_SOURCES: tuple[EvidenceSourceKind, ...] = (
+    'rew_metadata',
+    'raw_asset',
+    'mixed',
+)
 
 _ALL_CAPABILITY_CLAIMS: tuple[MeasurementCapabilityClaim, ...] = (
     'magnitude_response',
@@ -192,7 +236,332 @@ class CadAcquisitionContextBinding(BaseModel):
 
     acquisition_context_id: str = Field(min_length=1)
     acquisition_context_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    source_kind: Literal['native', 'legacy', 'manual', 'unknown'] = 'unknown'
+    source_kind: AcquisitionContextSourceKind = 'unknown'
+
+
+def _require_iso8601(value: str, label: str) -> None:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f'{label} must be ISO-8601') from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f'{label} must be timezone-aware')
+
+
+def _validate_observation_field_values(
+    *,
+    usable_frequency_band_hz: tuple[float, float] | None,
+    ir_window_start_s: float | None,
+    ir_window_end_s: float | None,
+    numeric: tuple[tuple[str, float | None], ...],
+) -> None:
+    """Shared validity rules for acquisition-observation evidence fields."""
+    if usable_frequency_band_hz is not None:
+        low, high = usable_frequency_band_hz
+        if not isfinite(low) or not isfinite(high) or low <= 0 or high <= low:
+            raise ValueError('usable frequency band is invalid')
+    for name, value in numeric:
+        if value is not None and not isfinite(float(value)):
+            raise ValueError(f'{name} must be finite')
+    if (
+        ir_window_start_s is not None
+        and ir_window_end_s is not None
+        and ir_window_end_s <= ir_window_start_s
+    ):
+        raise ValueError('IR window end must be after start')
+
+
+class CadAcquisitionContext(BaseModel):
+    """Persisted acquisition-context authority a report binding resolves to.
+
+    The context is the sole authority for the ``TIMING_EVIDENCE_FIELDS`` it
+    carries: a quality report bound to it must claim the context's timing
+    values verbatim, and only for a measurement listed in
+    ``subject_measurement_ids``. The binding's ``source_kind`` must equal the
+    persisted kind — a caller cannot upgrade a ``manual``/``unknown`` context
+    into ``native`` provenance by editing the binding alone. A persisted
+    ``unknown`` context still resolves, but the capability algorithm keeps
+    context-dependent claims UNKNOWN for it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    acquisition_context_id: str = Field(min_length=1)
+    source_kind: AcquisitionContextSourceKind
+    subject_measurement_ids: tuple[str, ...] = Field(min_length=1)
+    timing_reference_valid: bool | None = None
+    timing_reference_id: str | None = None
+    clock_source: str | None = None
+    sample_rate_hz: int | None = Field(default=None, gt=0)
+    delay_correction_s: float | None = None
+    created_at_utc: str = Field(min_length=1)
+    notes: tuple[str, ...] = ()
+    provenance_json: str = '{}'
+    acquisition_context_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_context(self) -> 'CadAcquisitionContext':
+        ids = self.subject_measurement_ids
+        if len(ids) != len(set(ids)) or any(not item for item in ids):
+            raise ValueError(
+                'subject measurement ids must be unique non-empty values'
+            )
+        _require_iso8601(self.created_at_utc, 'acquisition context created_at_utc')
+        if self.delay_correction_s is not None and not isfinite(
+            float(self.delay_correction_s)
+        ):
+            raise ValueError('delay_correction_s must be finite')
+        if self.acquisition_context_sha256 != _hash(self.identity_payload()):
+            raise ValueError('acquisition context hash mismatch')
+        return self
+
+    def identity_payload(self) -> dict[str, Any]:
+        return {
+            'acquisition_context_id': self.acquisition_context_id,
+            'source_kind': self.source_kind,
+            'subject_measurement_ids': list(self.subject_measurement_ids),
+            'timing_reference_valid': self.timing_reference_valid,
+            'timing_reference_id': self.timing_reference_id,
+            'clock_source': self.clock_source,
+            'sample_rate_hz': self.sample_rate_hz,
+            'delay_correction_s': self.delay_correction_s,
+            'created_at_utc': self.created_at_utc,
+            'notes': list(self.notes),
+            'provenance_json': self.provenance_json,
+        }
+
+
+class CadMeasurementObservation(BaseModel):
+    """Immutable observation authority for per-measurement acquisition metadata.
+
+    Subject, timestamp and provenance are explicit: ``measurement_id`` binds
+    the exact measurement observed, ``observed_at_utc`` records when the
+    observation was taken, and ``source_kind`` declares where the values came
+    from. Machine-extracted observations (``MACHINE_OBSERVATION_SOURCES``)
+    must pin the exact artifact they were derived from in
+    ``source_asset_sha256`` — the repository requires that pin to equal the
+    subject measurement's verified raw asset. ``manual``/``unknown``
+    observations are themselves the authority and must not bind a source
+    asset. At least one evidence field must be attested.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    observation_id: str = Field(min_length=1)
+    measurement_id: str = Field(min_length=1)
+    observed_at_utc: str = Field(min_length=1)
+    source_kind: EvidenceSourceKind
+    source_asset_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
+
+    clipping_detected: bool | None = None
+    peak_dbfs: float | None = None
+    noise_floor_db_spl: float | None = None
+    signal_level_db_spl: float | None = None
+    snr_db: float | None = None
+    usable_frequency_band_hz: tuple[float, float] | None = None
+    polarity_correct: bool | None = None
+    polarity_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    has_impulse_response: bool = False
+    ir_window_start_s: float | None = None
+    ir_window_end_s: float | None = None
+    ir_truncated: bool | None = None
+
+    notes: tuple[str, ...] = ()
+    provenance_json: str = '{}'
+    observation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_observation(self) -> 'CadMeasurementObservation':
+        _require_iso8601(self.observed_at_utc, 'observation observed_at_utc')
+        if self.source_kind in MACHINE_OBSERVATION_SOURCES:
+            if self.source_asset_sha256 is None:
+                raise ValueError(
+                    'machine-derived observation must pin its source asset'
+                )
+        elif self.source_asset_sha256 is not None:
+            raise ValueError(
+                'manual/unknown observation must not bind a source asset'
+            )
+        _validate_observation_field_values(
+            usable_frequency_band_hz=self.usable_frequency_band_hz,
+            ir_window_start_s=self.ir_window_start_s,
+            ir_window_end_s=self.ir_window_end_s,
+            numeric=(
+                ('peak_dbfs', self.peak_dbfs),
+                ('noise_floor_db_spl', self.noise_floor_db_spl),
+                ('signal_level_db_spl', self.signal_level_db_spl),
+                ('snr_db', self.snr_db),
+                ('ir_window_start_s', self.ir_window_start_s),
+                ('ir_window_end_s', self.ir_window_end_s),
+            ),
+        )
+        if all(
+            getattr(self, name) == OBSERVATION_FIELD_DEFAULTS[name]
+            for name in OBSERVATION_EVIDENCE_FIELDS
+        ):
+            raise ValueError(
+                'measurement observation must attest at least one evidence field'
+            )
+        if self.observation_sha256 != _hash(self.identity_payload()):
+            raise ValueError('measurement observation hash mismatch')
+        return self
+
+    def identity_payload(self) -> dict[str, Any]:
+        return {
+            'observation_id': self.observation_id,
+            'measurement_id': self.measurement_id,
+            'observed_at_utc': self.observed_at_utc,
+            'source_kind': self.source_kind,
+            'source_asset_sha256': self.source_asset_sha256,
+            **{name: getattr(self, name) for name in OBSERVATION_EVIDENCE_FIELDS},
+            'notes': list(self.notes),
+            'provenance_json': self.provenance_json,
+        }
+
+
+class CadMeasurementObservationBinding(BaseModel):
+    """Reference to a persisted measurement-observation authority."""
+
+    model_config = ConfigDict(frozen=True)
+
+    observation_id: str = Field(min_length=1)
+    observation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+# Default (unattested) value of each observation evidence field. A report may
+# only carry a non-default value here by binding a persisted
+# ``CadMeasurementObservation`` that attests the same value verbatim.
+OBSERVATION_FIELD_DEFAULTS: dict[str, Any] = {
+    name: (False if name == 'has_impulse_response' else None)
+    for name in OBSERVATION_EVIDENCE_FIELDS
+}
+
+
+def build_acquisition_context(
+    *,
+    source_kind: AcquisitionContextSourceKind,
+    subject_measurement_ids: Sequence[str],
+    timing_reference_valid: bool | None = None,
+    timing_reference_id: str | None = None,
+    clock_source: str | None = None,
+    sample_rate_hz: int | None = None,
+    delay_correction_s: float | None = None,
+    acquisition_context_id: str | None = None,
+    created_at_utc: str | None = None,
+    notes: Sequence[str] = (),
+    provenance_json: str = '{}',
+) -> CadAcquisitionContext:
+    """Assemble a sealed acquisition-context authority record.
+
+    The returned record only becomes authoritative once persisted through the
+    quality repository, which re-validates that every subject measurement
+    exists before a report binding can resolve to it.
+    """
+    payload: dict[str, Any] = {
+        'acquisition_context_id': acquisition_context_id or str(uuid4()),
+        'source_kind': source_kind,
+        'subject_measurement_ids': tuple(subject_measurement_ids),
+        'timing_reference_valid': timing_reference_valid,
+        'timing_reference_id': timing_reference_id,
+        'clock_source': clock_source,
+        'sample_rate_hz': sample_rate_hz,
+        'delay_correction_s': delay_correction_s,
+        'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
+        'notes': tuple(notes),
+        'provenance_json': provenance_json,
+    }
+    provisional = CadAcquisitionContext.model_construct(
+        **payload,
+        acquisition_context_sha256='0' * 64,
+    )
+    return CadAcquisitionContext(
+        **payload,
+        acquisition_context_sha256=_hash(provisional.identity_payload()),
+    )
+
+
+def build_measurement_observation(
+    *,
+    measurement_id: str,
+    source_kind: EvidenceSourceKind,
+    source_asset_sha256: str | None = None,
+    observed_at_utc: str | None = None,
+    observation_id: str | None = None,
+    clipping_detected: bool | None = None,
+    peak_dbfs: float | None = None,
+    noise_floor_db_spl: float | None = None,
+    signal_level_db_spl: float | None = None,
+    snr_db: float | None = None,
+    usable_frequency_band_hz: tuple[float, float] | None = None,
+    polarity_correct: bool | None = None,
+    polarity_confidence: float | None = None,
+    has_impulse_response: bool = False,
+    ir_window_start_s: float | None = None,
+    ir_window_end_s: float | None = None,
+    ir_truncated: bool | None = None,
+    notes: Sequence[str] = (),
+    provenance_json: str = '{}',
+) -> CadMeasurementObservation:
+    """Assemble a sealed observation authority for one exact measurement.
+
+    The record only becomes authoritative once persisted through the quality
+    repository, which re-validates the subject binding and — for machine
+    ``source_kind`` values — that ``source_asset_sha256`` is the subject
+    measurement's verified raw asset.
+    """
+    payload: dict[str, Any] = {
+        'observation_id': observation_id or str(uuid4()),
+        'measurement_id': measurement_id,
+        'observed_at_utc': observed_at_utc or datetime.now(timezone.utc).isoformat(),
+        'source_kind': source_kind,
+        'source_asset_sha256': source_asset_sha256,
+        'clipping_detected': clipping_detected,
+        'peak_dbfs': peak_dbfs,
+        'noise_floor_db_spl': noise_floor_db_spl,
+        'signal_level_db_spl': signal_level_db_spl,
+        'snr_db': snr_db,
+        'usable_frequency_band_hz': usable_frequency_band_hz,
+        'polarity_correct': polarity_correct,
+        'polarity_confidence': polarity_confidence,
+        'has_impulse_response': has_impulse_response,
+        'ir_window_start_s': ir_window_start_s,
+        'ir_window_end_s': ir_window_end_s,
+        'ir_truncated': ir_truncated,
+        'notes': tuple(notes),
+        'provenance_json': provenance_json,
+    }
+    provisional = CadMeasurementObservation.model_construct(
+        **payload,
+        observation_sha256='0' * 64,
+    )
+    return CadMeasurementObservation(
+        **payload,
+        observation_sha256=_hash(provisional.identity_payload()),
+    )
+
+
+def observation_binding(
+    observation: CadMeasurementObservation,
+) -> CadMeasurementObservationBinding:
+    """Exact id/hash binding for a persisted observation authority."""
+    return CadMeasurementObservationBinding(
+        observation_id=observation.observation_id,
+        observation_sha256=observation.observation_sha256,
+    )
+
+
+def acquisition_context_binding(
+    context: CadAcquisitionContext,
+) -> CadAcquisitionContextBinding:
+    """Exact id/hash binding for a persisted acquisition-context authority."""
+    return CadAcquisitionContextBinding(
+        acquisition_context_id=context.acquisition_context_id,
+        acquisition_context_sha256=context.acquisition_context_sha256,
+        source_kind=context.source_kind,
+    )
 
 
 class CadMeasurementQualityEvidence(BaseModel):
@@ -242,29 +611,21 @@ class CadMeasurementQualityEvidence(BaseModel):
 
     @model_validator(mode='after')
     def valid_evidence(self) -> 'CadMeasurementQualityEvidence':
-        if self.usable_frequency_band_hz is not None:
-            low, high = self.usable_frequency_band_hz
-            if not isfinite(low) or not isfinite(high) or low <= 0 or high <= low:
-                raise ValueError('usable frequency band is invalid')
-        for name in (
-            'peak_dbfs',
-            'noise_floor_db_spl',
-            'signal_level_db_spl',
-            'snr_db',
-            'delay_correction_s',
-            'ir_window_start_s',
-            'ir_window_end_s',
-            'repeatability_rms_db',
-        ):
-            value = getattr(self, name)
-            if value is not None and not isfinite(float(value)):
-                raise ValueError(f'{name} must be finite')
-        if (
-            self.ir_window_start_s is not None
-            and self.ir_window_end_s is not None
-            and self.ir_window_end_s <= self.ir_window_start_s
-        ):
-            raise ValueError('IR window end must be after start')
+        _validate_observation_field_values(
+            usable_frequency_band_hz=self.usable_frequency_band_hz,
+            ir_window_start_s=self.ir_window_start_s,
+            ir_window_end_s=self.ir_window_end_s,
+            numeric=(
+                ('peak_dbfs', self.peak_dbfs),
+                ('noise_floor_db_spl', self.noise_floor_db_spl),
+                ('signal_level_db_spl', self.signal_level_db_spl),
+                ('snr_db', self.snr_db),
+                ('delay_correction_s', self.delay_correction_s),
+                ('ir_window_start_s', self.ir_window_start_s),
+                ('ir_window_end_s', self.ir_window_end_s),
+                ('repeatability_rms_db', self.repeatability_rms_db),
+            ),
+        )
         if len(self.repeat_measurement_ids) != len(set(self.repeat_measurement_ids)):
             raise ValueError('repeat measurement ids must be unique')
         if any(not item for item in self.repeat_measurement_ids):
@@ -307,6 +668,7 @@ class CadMeasurementQualityReport(BaseModel):
     measurement_entity_id: str = Field(min_length=1)
     measurement_position: Position3
     acquisition_context: CadAcquisitionContextBinding | None = None
+    observation: CadMeasurementObservationBinding | None = None
 
     algorithm_version: str = Field(min_length=1)
     algorithm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -340,7 +702,7 @@ class CadMeasurementQualityReport(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'report_id': self.report_id,
             'created_at_utc': self.created_at_utc,
             'measurement_id': self.measurement_id,
@@ -374,6 +736,14 @@ class CadMeasurementQualityReport(BaseModel):
             'retake_reasons': list(self.retake_reasons),
             'capabilities': [item.model_dump(mode='json') for item in self.capabilities],
         }
+        # ``observation`` joined the identity payload with typed observation
+        # authority (#392). Reports persisted before it existed carry no such
+        # key, so an unbound observation is omitted entirely — their sealed
+        # identity hash stays reproducible and honest legacy reports still
+        # self-verify on read.
+        if self.observation is not None:
+            payload['observation'] = self.observation.model_dump(mode='json')
+        return payload
 
     def capability(self, claim: MeasurementCapabilityClaim) -> CadMeasurementCapability:
         for item in self.capabilities:
@@ -915,6 +1285,61 @@ def measurement_retake_guidance(
     )
 
 
+REPEATABILITY_METRIC_VERSION = 'measurement-repeatability-1'
+
+# Canonical repeatability metric identity: the only repeatability RMS a
+# quality report may claim is this exact computation over the resolved
+# immutable repeat datasets. A caller-supplied value that diverges from the
+# recomputation is rejected by the repository rather than trusted.
+REPEATABILITY_METRIC_IDENTITY = {
+    'metric_version': REPEATABILITY_METRIC_VERSION,
+    'statistic': 'rms_db_of_per_sample_deviation_from_per_frequency_mean_level',
+    'band': 'full_shared_frequency_grid',
+    'grid_requirement': 'identical_frequency_hz_tuple',
+    'level_reference_requirement': 'identical_level_reference',
+    'minimum_datasets': 2,
+}
+REPEATABILITY_METRIC_SHA256 = _hash(REPEATABILITY_METRIC_IDENTITY)
+
+
+def measurement_repeatability_rms_db(
+    datasets: Sequence[CadFrequencyResponseDataset],
+) -> float:
+    """Canonical repeatability RMS (dB) over exact immutable repeat datasets.
+
+    For every shared frequency point, each dataset's level deviates from the
+    per-frequency mean level; the metric is the RMS of all such deviations
+    over the full shared grid — no band selection, no interpolation, no
+    smoothing. All datasets must sit on the identical frequency grid and
+    declare the same ``level_reference``; anything else fails closed instead
+    of comparing incomparable levels or silently narrowing the band.
+    """
+
+    if len(datasets) < 2:
+        raise ValueError('repeatability requires at least two repeat datasets')
+    grid = datasets[0].frequency_hz
+    level_reference = datasets[0].level_reference
+    for dataset in datasets[1:]:
+        if dataset.frequency_hz != grid:
+            raise ValueError(
+                'repeat datasets must share the identical frequency grid'
+            )
+        if dataset.level_reference != level_reference:
+            raise ValueError(
+                'repeat datasets must share the identical level reference'
+            )
+    count = len(datasets)
+    total = 0.0
+    samples = 0
+    for index in range(len(grid)):
+        mean = sum(dataset.level_db[index] for dataset in datasets) / count
+        for dataset in datasets:
+            deviation = dataset.level_db[index] - mean
+            total += deviation * deviation
+            samples += 1
+    return sqrt(total / samples)
+
+
 def build_measurement_quality_report(
     *,
     measurement: CadMeasurementRecord,
@@ -922,6 +1347,7 @@ def build_measurement_quality_report(
     evidence: CadMeasurementQualityEvidence,
     profile: CadMeasurementQualityProfile,
     acquisition_context: CadAcquisitionContextBinding | None = None,
+    observation: CadMeasurementObservationBinding | None = None,
     report_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> CadMeasurementQualityReport:
@@ -951,6 +1377,7 @@ def build_measurement_quality_report(
         'measurement_entity_id': measurement.measurement_entity_id,
         'measurement_position': measurement.measurement_position,
         'acquisition_context': acquisition_context,
+        'observation': observation,
         'algorithm_version': QUALITY_ALGORITHM_VERSION,
         'algorithm_sha256': QUALITY_ALGORITHM_SHA256,
         'profile': profile,
@@ -1011,6 +1438,7 @@ def replay_measurement_quality_report(
         evidence=report.evidence,
         profile=report.profile,
         acquisition_context=report.acquisition_context,
+        observation=report.observation,
         report_id=report.report_id,
         created_at_utc=report.created_at_utc,
     )
