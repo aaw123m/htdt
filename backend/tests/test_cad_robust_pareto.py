@@ -368,6 +368,24 @@ def _multifidelity_ref(kind: str, authority_id: str, digest: str):
     )
 
 
+def _multifidelity_authority_resolver(plan):
+    refs = {ref.key(): ref for ref in _multifidelity_plan_refs(plan)}
+
+    def resolve(ref, context=None):
+        return refs.get(ref.key())
+
+    return resolve
+
+
+def _multifidelity_plan_refs(plan):
+    refs = [plan.baseline_authority, *plan.candidates]
+    for stage in plan.stages:
+        refs.append(stage.evaluator_authority)
+        if stage.validated_screening_relationship_ref is not None:
+            refs.append(stage.validated_screening_relationship_ref)
+    return tuple(refs)
+
+
 def test_o90_multifidelity_finalization_requires_exact_survivor_hashes(
     tmp_path: Path,
 ) -> None:
@@ -457,6 +475,8 @@ def test_o90_multifidelity_finalization_requires_exact_survivor_hashes(
 
     multifidelity = CadMultiFidelityRepository(
         scene_repository,
+        authority_resolver=_multifidelity_authority_resolver(plan),
+        stage_evidence_resolver=_multifidelity_authority_resolver(plan),
         o90_robust_pareto_repository=_RobustParetoResolver(
             scene_repository.path,
             robust,
@@ -469,6 +489,8 @@ def test_o90_multifidelity_finalization_requires_exact_survivor_hashes(
 
     reopened = CadMultiFidelityRepository(
         SceneRepository(scene_repository.path),
+        authority_resolver=_multifidelity_authority_resolver(plan),
+        stage_evidence_resolver=_multifidelity_authority_resolver(plan),
         o90_robust_pareto_repository=_RobustParetoResolver(
             scene_repository.path,
             robust,

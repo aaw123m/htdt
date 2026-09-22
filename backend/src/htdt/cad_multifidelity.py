@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -750,21 +751,64 @@ def finalize_o90_multifidelity(
     )
 
 
+class MultiFidelityStageEvidenceContext(BaseModel):
+    """Exact binding a persisted stage-evidence authority must satisfy.
+
+    The shared lane is deliberately domain neutral: the resolver decides which
+    evidence kinds a hard gate accepts and which screening evidence is
+    compatible with the declared validated-screening relationship for this
+    exact plan, stage, and candidate. Evidence recorded for another candidate,
+    stage, plan, or screening relationship must not resolve under this
+    context; a merely existing ref is not evidence here.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    plan: MultiFidelityPlan
+    stage: MultiFidelityStageDefinition
+    outcome: MultiFidelityStageOutcome
+
+
+MultiFidelityAuthorityResolver = Callable[
+    [MultiFidelityAuthorityRef],
+    MultiFidelityAuthorityRef | None,
+]
+MultiFidelityStageEvidenceResolver = Callable[
+    [MultiFidelityAuthorityRef, MultiFidelityStageEvidenceContext],
+    MultiFidelityAuthorityRef | None,
+]
+
+
 class CadMultiFidelityRepository:
     """Append-only shared O90C/O100E audit persistence.
 
     This repository persists the generic stage plan/results. Domain-specific
     evaluation authorities remain in their own repositories.
+
+    Plan authorities (baseline, every candidate, every stage evaluator, and
+    every validated-screening relationship) are re-resolved through
+    `authority_resolver` on every save and every read; a self-hashed plan
+    payload alone is never treated as proof that its referenced authorities
+    exist.
+
+    Stage outcome evidence refs are re-resolved through
+    `stage_evidence_resolver` with the exact plan/stage/candidate binding on
+    every save and every read, so a PRUNED outcome can only remove a candidate
+    using evidence that exists for that exact binding.
     """
 
     def __init__(
         self,
         scene_repository: SceneRepository,
         *,
+        authority_resolver: MultiFidelityAuthorityResolver,
+        stage_evidence_resolver: MultiFidelityStageEvidenceResolver,
         topology_comparison_repository: TopologyComparisonEvaluationResolver | None = None,
         o90_robust_pareto_repository: O90RobustParetoEvaluationResolver | None = None,
     ) -> None:
         self.scene_repository = scene_repository
+        self.authority_resolver = authority_resolver
+        self.stage_evidence_resolver = stage_evidence_resolver
         self.topology_comparison_repository = topology_comparison_repository
         self.o90_robust_pareto_repository = o90_robust_pareto_repository
         self.path = Path(scene_repository.path)
@@ -845,8 +889,107 @@ class CadMultiFidelityRepository:
                 """
             )
 
-    def save_plan(self, plan: MultiFidelityPlan) -> MultiFidelityPlan:
+    def _resolve_authority(
+        self,
+        ref: MultiFidelityAuthorityRef,
+        *,
+        label: str,
+    ) -> MultiFidelityAuthorityRef:
+        resolved = self.authority_resolver(ref)
+        if resolved is None:
+            raise ValueError(f'{label} exact authority does not exist')
+        if resolved != ref:
+            raise ValueError(f'{label} exact authority mismatch')
+        return resolved
+
+    def _resolve_stage_evidence(
+        self,
+        *,
+        plan: MultiFidelityPlan,
+        stage: MultiFidelityStageDefinition,
+        outcome: MultiFidelityStageOutcome,
+    ) -> None:
+        if not outcome.evidence_refs:
+            return
+        context = MultiFidelityStageEvidenceContext(
+            plan=plan,
+            stage=stage,
+            outcome=outcome,
+        )
+        for ref in outcome.evidence_refs:
+            resolved = self.stage_evidence_resolver(ref, context)
+            if resolved is None:
+                raise ValueError(
+                    f'multi-fidelity stage {stage.stage_id} evidence exact '
+                    'authority does not exist for this stage/candidate binding'
+                )
+            if resolved != ref:
+                raise ValueError(
+                    f'multi-fidelity stage {stage.stage_id} evidence exact '
+                    'authority mismatch'
+                )
+
+    def _validate_plan(self, plan: MultiFidelityPlan) -> MultiFidelityPlan:
         plan = MultiFidelityPlan.model_validate(plan.model_dump(mode='python'))
+        self._resolve_authority(
+            plan.baseline_authority,
+            label='multi-fidelity baseline',
+        )
+        for candidate in plan.candidates:
+            self._resolve_authority(
+                candidate,
+                label='multi-fidelity candidate',
+            )
+        for stage in plan.stages:
+            self._resolve_authority(
+                stage.evaluator_authority,
+                label=f'multi-fidelity stage {stage.stage_id} evaluator',
+            )
+            if stage.validated_screening_relationship_ref is not None:
+                self._resolve_authority(
+                    stage.validated_screening_relationship_ref,
+                    label=(
+                        f'multi-fidelity stage {stage.stage_id} validated '
+                        'screening relationship'
+                    ),
+                )
+        return plan
+
+    def _validate_stage_result(
+        self,
+        result: MultiFidelityStageResult,
+    ) -> MultiFidelityStageResult:
+        result = MultiFidelityStageResult.model_validate(
+            result.model_dump(mode='python')
+        )
+        plan = self.get_plan(result.plan_id)
+        if plan is None:
+            raise ValueError(
+                'stage result references unpersisted multi-fidelity plan'
+            )
+        if result.plan_semantic_sha256 != plan.semantic_sha256:
+            raise ValueError('stage result multi-fidelity plan hash mismatch')
+        stage = plan.stage(result.stage_id)
+        regenerated = build_multifidelity_stage_result(
+            plan=plan,
+            stage_id=result.stage_id,
+            input_candidates=result.input_candidates,
+            outcomes=result.outcomes,
+        )
+        if regenerated != result:
+            raise ValueError(
+                'stage result does not reproduce from persisted plan'
+            )
+        for outcome in result.outcomes:
+            self._resolve_stage_evidence(
+                plan=plan,
+                stage=stage,
+                outcome=outcome,
+            )
+        return result
+
+    def save_plan(self, plan: MultiFidelityPlan) -> MultiFidelityPlan:
+        plan = self._validate_plan(plan)
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
                 'SELECT payload_json FROM cad_multifidelity_plans WHERE plan_id=?',
@@ -860,7 +1003,7 @@ class CadMultiFidelityRepository:
                     raise ValueError(
                         'MultiFidelityPlan id exists with different semantics'
                     )
-                return persisted
+                return self._validate_plan(persisted)
             connection.execute(
                 """
                 INSERT INTO cad_multifidelity_plans(
@@ -883,32 +1026,17 @@ class CadMultiFidelityRepository:
                 'SELECT payload_json FROM cad_multifidelity_plans WHERE plan_id=?',
                 (plan_id,),
             ).fetchone()
-        return (
-            None
-            if row is None
-            else MultiFidelityPlan.model_validate_json(row['payload_json'])
+        if row is None:
+            return None
+        return self._validate_plan(
+            MultiFidelityPlan.model_validate_json(row['payload_json'])
         )
 
     def save_stage_result(
         self,
         result: MultiFidelityStageResult,
     ) -> MultiFidelityStageResult:
-        result = MultiFidelityStageResult.model_validate(
-            result.model_dump(mode='python')
-        )
-        plan = self.get_plan(result.plan_id)
-        if plan is None:
-            raise ValueError('stage result references unpersisted multi-fidelity plan')
-        if result.plan_semantic_sha256 != plan.semantic_sha256:
-            raise ValueError('stage result multi-fidelity plan hash mismatch')
-        regenerated = build_multifidelity_stage_result(
-            plan=plan,
-            stage_id=result.stage_id,
-            input_candidates=result.input_candidates,
-            outcomes=result.outcomes,
-        )
-        if regenerated != result:
-            raise ValueError('stage result does not reproduce from persisted plan')
+        result = self._validate_stage_result(result)
 
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
@@ -927,7 +1055,7 @@ class CadMultiFidelityRepository:
                     raise ValueError(
                         'MultiFidelityStageResult id exists with different semantics'
                     )
-                return persisted
+                return self._validate_stage_result(persisted)
             connection.execute(
                 """
                 INSERT INTO cad_multifidelity_stage_results(
@@ -961,19 +1089,9 @@ class CadMultiFidelityRepository:
             ).fetchone()
         if row is None:
             return None
-        result = MultiFidelityStageResult.model_validate_json(row['payload_json'])
-        plan = self.get_plan(result.plan_id)
-        if plan is None:
-            raise ValueError('persisted stage result plan disappeared')
-        regenerated = build_multifidelity_stage_result(
-            plan=plan,
-            stage_id=result.stage_id,
-            input_candidates=result.input_candidates,
-            outcomes=result.outcomes,
+        return self._validate_stage_result(
+            MultiFidelityStageResult.model_validate_json(row['payload_json'])
         )
-        if regenerated != result:
-            raise ValueError('persisted stage result no longer reproduces')
-        return result
 
     def save_screening(
         self,
@@ -1074,7 +1192,6 @@ class CadMultiFidelityRepository:
         if regenerated != evaluation:
             raise ValueError('persisted screening no longer reproduces')
         return evaluation
-
 
     def _validate_finalization(
         self,
