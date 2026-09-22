@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
 from .cad_prediction_models import CadPredictionResult
+from .prediction_interpretation import PredictionSpatialLink
 from .cad_scene import (
     SceneDocument,
     SceneEntity,
@@ -328,8 +329,17 @@ class RoomViewport3D(QFrame):
     def render_prediction_results(
         self,
         results: tuple[CadPredictionResult, ...],
+        *,
+        highlight: PredictionSpatialLink | None = None,
     ) -> None:
-        """Render current N70 geometry evidence without becoming prediction authority."""
+        """Render current N70 geometry evidence without becoming prediction authority.
+
+        ``highlight`` is the spatial link of the selected interpretation
+        finding (Issue #469): a ``reflection_path`` link emphasises exactly the
+        stored path geometry, while ``receiver``/``source`` links mark the
+        referenced position. Everything drawn comes from the persisted result;
+        no geometry is invented here.
+        """
 
         document = self._document
         if document is None or not results:
@@ -344,57 +354,99 @@ class RoomViewport3D(QFrame):
             (item for item in results if item.result_kind == "geometry_reflections"),
             None,
         )
-        if reflection_result is None:
-            return
 
-        direct_seen: set[str] = set()
-        for index, reflection in enumerate(reflection_result.reflections):
-            source = domain_to_render(reflection.source_position)
-            receiver = domain_to_render(reflection.receiver_position)
-            point = domain_to_render(reflection.reflection_position)
-            if reflection.speaker_entity_id not in direct_seen:
-                direct_seen.add(reflection.speaker_entity_id)
+        highlight_index: int | None = None
+        marker_position = None
+        if highlight is not None:
+            if getattr(highlight, "kind", None) == "reflection_path":
+                highlight_index = getattr(highlight, "reflection_index", None)
+            else:
+                marker_position = (
+                    getattr(highlight, "reflection_position", None)
+                    or getattr(highlight, "source_position", None)
+                    or getattr(highlight, "receiver_position", None)
+                )
+        if highlight_index is not None and (
+            not isinstance(highlight_index, int)
+            or reflection_result is None
+            or not (0 <= highlight_index < len(reflection_result.reflections))
+        ):
+            # A persisted link that no longer matches the stored payload is
+            # non-authoritative: fall back to the plain overlay.
+            highlight_index = None
+
+        if reflection_result is not None:
+            direct_seen: set[str] = set()
+            for index, reflection in enumerate(reflection_result.reflections):
+                source = domain_to_render(reflection.source_position)
+                receiver = domain_to_render(reflection.receiver_position)
+                point = domain_to_render(reflection.reflection_position)
+                emphasized = highlight_index == index
+                dimmed = highlight_index is not None and not emphasized
+                if reflection.speaker_entity_id not in direct_seen:
+                    direct_seen.add(reflection.speaker_entity_id)
+                    self.plotter.add_mesh(
+                        pv.Line(source, receiver),
+                        color=DARK_THEME.scientific.primary_trace.hex,
+                        line_width=3 if emphasized else 2,
+                        opacity=0.25 if dimmed else 0.64,
+                        pickable=False,
+                        name=f"prediction-direct-{reflection.speaker_entity_id}",
+                        render=False,
+                    )
                 self.plotter.add_mesh(
-                    pv.Line(source, receiver),
-                    color=DARK_THEME.scientific.primary_trace.hex,
-                    line_width=2,
-                    opacity=0.64,
+                    pv.Line(source, point),
+                    color=(
+                        DARK_THEME.accent.primary.hex
+                        if emphasized
+                        else DARK_THEME.scientific.predicted.hex
+                    ),
+                    line_width=4 if emphasized else 2,
+                    opacity=0.25 if dimmed else 0.80,
                     pickable=False,
-                    name=f"prediction-direct-{reflection.speaker_entity_id}",
+                    name=f"prediction-reflection-a-{index}",
                     render=False,
                 )
+                self.plotter.add_mesh(
+                    pv.Line(point, receiver),
+                    color=(
+                        DARK_THEME.accent.primary.hex
+                        if emphasized
+                        else DARK_THEME.scientific.predicted.hex
+                    ),
+                    line_width=4 if emphasized else 2,
+                    opacity=0.25 if dimmed else 0.80,
+                    pickable=False,
+                    name=f"prediction-reflection-b-{index}",
+                    render=False,
+                )
+                self.plotter.add_mesh(
+                    pv.Sphere(radius=0.055 if emphasized else 0.035, center=point),
+                    color=(
+                        DARK_THEME.accent.primary.hex
+                        if emphasized
+                        else DARK_THEME.scientific.cursor.hex
+                    ),
+                    pickable=False,
+                    name=f"prediction-reflection-point-{index}",
+                    render=False,
+                )
+            if reflection_result.reflections:
+                self.plotter.add_text(
+                    "予測幾何 · 実測ではありません",
+                    name="prediction-overlay-label",
+                    position="lower_left",
+                    font_size=9,
+                    color=DARK_THEME.text.secondary.hex,
+                    render=False,
+                )
+        if marker_position is not None:
             self.plotter.add_mesh(
-                pv.Line(source, point),
-                color=DARK_THEME.scientific.predicted.hex,
-                line_width=2,
-                opacity=0.80,
+                pv.Sphere(radius=0.06, center=domain_to_render(marker_position)),
+                color=DARK_THEME.accent.primary.hex,
+                opacity=0.95,
                 pickable=False,
-                name=f"prediction-reflection-a-{index}",
-                render=False,
-            )
-            self.plotter.add_mesh(
-                pv.Line(point, receiver),
-                color=DARK_THEME.scientific.predicted.hex,
-                line_width=2,
-                opacity=0.80,
-                pickable=False,
-                name=f"prediction-reflection-b-{index}",
-                render=False,
-            )
-            self.plotter.add_mesh(
-                pv.Sphere(radius=0.035, center=point),
-                color=DARK_THEME.scientific.cursor.hex,
-                pickable=False,
-                name=f"prediction-reflection-point-{index}",
-                render=False,
-            )
-        if reflection_result.reflections:
-            self.plotter.add_text(
-                "予測幾何 · 実測ではありません",
-                name="prediction-overlay-label",
-                position="lower_left",
-                font_size=9,
-                color=DARK_THEME.text.secondary.hex,
+                name="prediction-focus-marker",
                 render=False,
             )
         self.plotter.render()

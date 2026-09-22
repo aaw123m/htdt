@@ -211,6 +211,11 @@ class WorkflowApplicationComposition:
                 workspace.set_prediction_results(())
 
         prediction.runSelected.connect(show_prediction_overlay)
+        prediction_panel.findingSelected.connect(
+            lambda finding: workspace.set_prediction_focus(
+                getattr(finding, "spatial", None)
+            )
+        )
 
         cad_input = CadInputController(
             shortcut_parent=workspace,

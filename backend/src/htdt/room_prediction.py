@@ -6,13 +6,19 @@ import sqlite3
 from threading import Event
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
+    QScrollArea,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -29,8 +35,14 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import acoustic_reference_position, scene_content_hash
 from .cad_search_models import constraint_workspace_snapshot
 from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
+from .prediction_interpretation import (
+    PredictionFinding,
+    PredictionInterpretation,
+    interpret_prediction_results,
+)
 from .room_workspace import RoomWorkspaceController
 from .ui_theme import (
+    DARK_THEME,
     SemanticState,
     SurfaceRole,
     TypographyRole,
@@ -390,6 +402,46 @@ class RoomPredictionController(QObject):
             and self._constraint_hash() == result.constraint_workspace_hash
         )
 
+    def _provider_evidence(
+        self,
+        results: tuple[CadPredictionResult, ...],
+    ) -> tuple[object, object] | None:
+        """Provider authority behind one run, as ``(provider, resolution)``.
+
+        Solver-neutral seam for the #457 provider path: the N70
+        rectangular-geometry lane persists no provider authority, so this
+        returns ``None`` and the interpretation keeps capability gaps explicit
+        instead of inventing provider-backed claims.
+        """
+        del results
+        return None
+
+    def interpretation_for(
+        self,
+        results: tuple[CadPredictionResult, ...],
+    ) -> PredictionInterpretation | None:
+        """Solver-neutral interpretation view model for one persisted run.
+
+        The view model only summarizes stored evidence — run payloads, the
+        canonical input snapshot, parameters, warnings/assumptions and any
+        provider authority — so the UI explains the result without turning
+        into prediction authority itself.
+        """
+        if not results:
+            return None
+        provider: object | None = None
+        provider_resolution: object | None = None
+        bundle = self._provider_evidence(results)
+        if bundle is not None:
+            provider, provider_resolution = bundle
+        return interpret_prediction_results(
+            results,
+            is_current=self.result_is_current(results[0]),
+            document=self.room_controller.committed_document,
+            provider=provider,
+            provider_resolution=provider_resolution,
+        )
+
     def select_run(self, run_id: str | None) -> tuple[CadPredictionResult, ...]:
         self._selected_run_id = run_id
         results = () if run_id is None else self.results_for_run(run_id)
@@ -432,10 +484,31 @@ class RoomPredictionController(QObject):
 
 
 class RoomPredictionPanel(QWidget):
-    """Dark-first prediction controls for the Room acoustics context."""
+    """Dark-first prediction controls for the Room acoustics context.
+
+    The result surface is driven by the solver-neutral interpretation view
+    model (Issue #469): finding cards, reliability/capability and neutral next
+    steps come first; model/provider/hash provenance stays under Advanced.
+    """
 
     runRequested = Signal()
     cancelRequested = Signal()
+    findingSelected = Signal(object)
+
+    _CAPABILITY_STATE_LABELS = {
+        "READY": "あり",
+        "UNSUPPORTED": "未評価",
+        "UNKNOWN": "不明",
+    }
+    _APPROXIMATION_LABELS = {
+        "exact_for_model_geometry": "対象geometryに対してexact",
+        "rectangular_approximation": "矩形近似",
+        "unsupported": "対象外",
+    }
+    _FINDING_TONE_COLORS = {
+        "attention": DARK_THEME.semantic.warning.hex,
+        "limitation": DARK_THEME.semantic.stale.hex,
+    }
 
     def __init__(
         self,
@@ -444,6 +517,7 @@ class RoomPredictionPanel(QWidget):
     ) -> None:
         super().__init__(parent)
         self.controller = controller
+        self._interpretation: PredictionInterpretation | None = None
         self.setMinimumWidth(300)
         self.setMaximumWidth(390)
         set_surface_role(self, SurfaceRole.RAISED)
@@ -489,21 +563,71 @@ class RoomPredictionPanel(QWidget):
         action_row.addWidget(self.cancel_button)
         layout.addLayout(action_row)
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(10)
+
         self.state = QLabel("保存済み予測なし")
         self.state.setWordWrap(True)
-        layout.addWidget(self.state)
+        body_layout.addWidget(self.state)
+
+        # Primary summary: freshness / evidence / evaluated band / capability.
+        self.reliability = QLabel()
+        self.reliability.setWordWrap(True)
+        body_layout.addWidget(self.reliability)
+
+        findings_title = QLabel("所見")
+        set_typography_role(findings_title, TypographyRole.SECONDARY)
+        body_layout.addWidget(findings_title)
+
+        self.findings = QListWidget()
+        self.findings.setMinimumHeight(80)
+        self.findings.setMaximumHeight(170)
+        self.findings.itemSelectionChanged.connect(self._finding_selected)
+        body_layout.addWidget(self.findings)
+
+        self.finding_detail = QLabel(
+            "所見を選択すると、根拠と空間リンクを表示します"
+        )
+        self.finding_detail.setWordWrap(True)
+        set_typography_role(self.finding_detail, TypographyRole.SECONDARY)
+        body_layout.addWidget(self.finding_detail)
+
+        self.next_steps = QLabel()
+        self.next_steps.setWordWrap(True)
+        set_typography_role(self.next_steps, TypographyRole.SECONDARY)
+        body_layout.addWidget(self.next_steps)
+
+        history_title = QLabel("保存済み予測")
+        set_typography_role(history_title, TypographyRole.SECONDARY)
+        body_layout.addWidget(history_title)
 
         self.runs = QTreeWidget()
         self.runs.setHeaderLabels(["予測", "状態"])
         self.runs.setMinimumHeight(150)
         self.runs.itemSelectionChanged.connect(self._selected)
-        layout.addWidget(self.runs)
+        body_layout.addWidget(self.runs)
 
-        self.detail = QLabel()
-        self.detail.setWordWrap(True)
-        set_typography_role(self.detail, TypographyRole.SECONDARY)
-        layout.addWidget(self.detail)
-        layout.addStretch(1)
+        self.advanced_toggle = QToolButton()
+        self.advanced_toggle.setText("Advanced · provenance")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setChecked(False)
+        self.advanced_toggle.toggled.connect(self._toggle_advanced)
+        body_layout.addWidget(self.advanced_toggle)
+
+        self.advanced = QLabel()
+        self.advanced.setWordWrap(True)
+        set_typography_role(self.advanced, TypographyRole.SECONDARY)
+        self.advanced.setVisible(False)
+        body_layout.addWidget(self.advanced)
+        body_layout.addStretch(1)
+
+        scroll.setWidget(body)
+        layout.addWidget(scroll, 1)
 
         controller.stateChanged.connect(self._state_changed)
         controller.resultsChanged.connect(self.refresh)
@@ -582,31 +706,117 @@ class RoomPredictionPanel(QWidget):
             return
         self._show_results(results)
 
+    def _toggle_advanced(self, checked: bool) -> None:
+        self.advanced.setVisible(checked)
+
+    def _band_text(self, interpretation: PredictionInterpretation) -> str:
+        parts: list[str] = []
+        for band in interpretation.reliability.valid_bands:
+            low = "0" if band.minimum_hz is None else f"{band.minimum_hz:g}"
+            high = "—" if band.maximum_hz is None else f"{band.maximum_hz:g}"
+            parts.append(f"{band.label} {low}–{high} Hz")
+        return " / ".join(parts) if parts else "評価帯域なし"
+
+    def _capability_text(self, interpretation: PredictionInterpretation) -> str:
+        return " · ".join(
+            f"{item.label}:"
+            f"{self._CAPABILITY_STATE_LABELS.get(item.state, item.state)}"
+            for item in interpretation.reliability.capabilities
+        )
+
     def _show_results(self, results: tuple[CadPredictionResult, ...]) -> None:
-        if not results:
-            self.detail.setText("予測結果を選択してください")
+        interpretation = self.controller.interpretation_for(results)
+        self._interpretation = interpretation
+        if interpretation is None:
+            self.reliability.setText("予測結果を選択してください")
+            set_semantic_state(self.reliability, None)
+            self.findings.clear()
+            self.finding_detail.setText(
+                "予測runを選択すると、所見・信頼性・次の一手を表示します"
+            )
+            self.next_steps.setText("")
+            self.advanced.setText("")
+            self.findingSelected.emit(None)
             return
-        first = results[0]
-        current = self.controller.result_is_current(first)
-        modes = next((item for item in results if item.result_kind == "geometry_modes"), None)
-        reflections = next(
-            (item for item in results if item.result_kind == "geometry_reflections"),
-            None,
-        )
-        mode_count = 0 if modes is None else len(modes.modes)
-        reflection_count = 0 if reflections is None else len(reflections.reflections)
-        state = "現在の条件に一致" if current else "条件が変更されています。再計算してください"
-        warning = " / ".join(first.warnings[:3]) or "なし"
-        self.detail.setText(
-            f"{state}\n"
-            f"model: {first.model_id} / {first.model_version}\n"
-            f"room mode: {mode_count} · 一次反射候補: {reflection_count}\n"
-            f"warning: {warning}"
-        )
+
+        reliability = interpretation.reliability
+        reliability_lines = [
+            reliability.freshness_detail,
+            f"evidence: {reliability.evidence_label}",
+            f"評価帯域: {self._band_text(interpretation)}",
+            (
+                "近似: "
+                + self._APPROXIMATION_LABELS.get(
+                    reliability.approximation_state,
+                    reliability.approximation_state,
+                )
+            ),
+            f"能力: {self._capability_text(interpretation)}",
+        ]
+        if reliability.provider_stale_state is not None:
+            stale = reliability.provider_stale_state
+            reasons = ", ".join(reliability.provider_stale_reasons)
+            reliability_lines.append(
+                f"provider鮮度: {stale}" + (f" ({reasons})" if reasons else "")
+            )
+        self.reliability.setText("\n".join(reliability_lines))
         set_semantic_state(
-            self.detail,
-            None if current else SemanticState.STALE,
+            self.reliability,
+            None if reliability.freshness == "current" else SemanticState.STALE,
         )
+
+        self.findings.clear()
+        for index, finding in enumerate(interpretation.findings):
+            item = QListWidgetItem(finding.title)
+            item.setData(Qt.ItemDataRole.UserRole, index)
+            item.setToolTip(finding.detail)
+            color = self._FINDING_TONE_COLORS.get(finding.tone)
+            if color is not None:
+                item.setForeground(QColor(color))
+            self.findings.addItem(item)
+
+        if interpretation.next_actions:
+            action_lines = ["次の一手(すべて仮説・自動推奨ではありません):"]
+            action_lines.extend(
+                f"・{action.label} — {action.detail}"
+                for action in interpretation.next_actions
+            )
+            self.next_steps.setText("\n".join(action_lines))
+        else:
+            self.next_steps.setText("次の一手: なし")
+        self.advanced.setText("\n".join(interpretation.advanced_lines))
+        self.finding_detail.setText(
+            "所見を選択すると、根拠と空間リンクを表示します"
+        )
+        self.findingSelected.emit(None)
+
+    def _finding_selected(self) -> None:
+        interpretation = self._interpretation
+        item = self.findings.currentItem()
+        finding: PredictionFinding | None = None
+        if item is not None and interpretation is not None:
+            index = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(index, int) and 0 <= index < len(interpretation.findings):
+                finding = interpretation.findings[index]
+        if finding is None:
+            self.finding_detail.setText(
+                "所見を選択すると、根拠と空間リンクを表示します"
+            )
+        else:
+            parts = [finding.detail]
+            link = finding.spatial
+            if link is not None:
+                if link.kind == "reflection_path":
+                    parts.append("3D: 対象の反射経路を強調表示します。")
+                elif link.kind == "source":
+                    parts.append("3D: speaker位置をマークします。")
+                else:
+                    parts.append("3D: 受音点位置をマークします。")
+            if finding.authorities:
+                ref = finding.authorities[0]
+                parts.append(f"根拠: {ref.kind} {ref.ref_id[:12]}…")
+            self.finding_detail.setText("\n".join(parts))
+        self.findingSelected.emit(finding)
 
     def _state_changed(self, state: RoomPredictionRunState) -> None:
         self.state.setText(state.message)

@@ -39,6 +39,7 @@ from .cad_scene import (
     quaternion_from_euler_deg,
 )
 from .command_palette import flush_focused_text_editor, focused_text_editor
+from .prediction_interpretation import PredictionSpatialLink
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .theater_document import TheaterWorkingDocument
 from .ui_theme import (
@@ -808,6 +809,8 @@ class RoomWorkspace(QWidget):
         self.geometry_panel: QWidget | None = None
         self.acoustics_panel: QWidget | None = None
         self.prediction_results: tuple = ()
+        # Spatial link of the selected interpretation finding (Issue #469).
+        self.prediction_focus: PredictionSpatialLink | None = None
         self._responsive_compact = False
         self._palette_user_open = False
         self._viewport_factory = viewport_factory or (lambda owner: RoomViewport3D(owner))
@@ -940,6 +943,12 @@ class RoomWorkspace(QWidget):
 
     def set_prediction_results(self, results: object) -> None:
         self.prediction_results = results if isinstance(results, tuple) else ()
+        self.prediction_focus = None
+        self._render()
+
+    def set_prediction_focus(self, link: PredictionSpatialLink | None) -> None:
+        """Highlight the spatial evidence behind the selected finding."""
+        self.prediction_focus = link
         self._render()
 
     def refresh(self, *, reset_camera: bool = False) -> None:
@@ -1274,7 +1283,10 @@ class RoomWorkspace(QWidget):
         if overlays.acoustics and self.prediction_results:
             render_prediction = getattr(self.viewport, "render_prediction_results", None)
             if callable(render_prediction):
-                render_prediction(self.prediction_results)
+                render_prediction(
+                    self.prediction_results,
+                    highlight=self.prediction_focus,
+                )
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status.setText(text)
