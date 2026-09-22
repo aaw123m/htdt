@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
+import sqlite3
+
+import pytest
 
 from htdt.acoustic_benchmark import (
     AcousticMaterial,
@@ -43,6 +47,9 @@ from htdt.semantic_geometry import (
 )
 from htdt.treatment_boundary_overlay import (
     TreatmentBoundaryCompileInput,
+    TreatmentBoundaryCompositionRequest,
+    TreatmentBoundaryOverlay,
+    _semantic_hash,
     compile_treatment_boundary_overlays,
 )
 from htdt.treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
@@ -614,3 +621,483 @@ def test_overlay_and_composition_save_reopen_reresolve_all_authorities(
         reopened.get_composition(result.composition_request.composition_id)
         == result.composition_request
     )
+
+
+def _overlay_repository(fixture) -> TreatmentBoundaryOverlayRepository:
+    return TreatmentBoundaryOverlayRepository(
+        fixture['scene_repository'],
+        fixture['treatment_repository'],
+        fixture['r120_repository'],
+    )
+
+
+def _rehashed_overlay(
+    overlay: TreatmentBoundaryOverlay,
+    **updates,
+) -> TreatmentBoundaryOverlay:
+    """Coherently recompute the self hash/id of a modified overlay."""
+
+    candidate = overlay.model_copy(update=updates)
+    core = candidate.model_dump(
+        mode='json',
+        exclude={'overlay_id', 'overlay_hash_sha256'},
+    )
+    digest = _semantic_hash(core)
+    return TreatmentBoundaryOverlay.model_validate(
+        {
+            **core,
+            'overlay_id': f'treatment-boundary-overlay:{digest}',
+            'overlay_hash_sha256': digest,
+        }
+    )
+
+
+def _rehashed_composition(
+    composition: TreatmentBoundaryCompositionRequest,
+    **updates,
+) -> TreatmentBoundaryCompositionRequest:
+    """Coherently recompute the self hash/id of a modified composition."""
+
+    candidate = composition.model_copy(update=updates)
+    core = candidate.model_dump(
+        mode='json',
+        exclude={'composition_id', 'composition_hash_sha256'},
+    )
+    digest = _semantic_hash(core)
+    return TreatmentBoundaryCompositionRequest.model_validate(
+        {
+            **core,
+            'composition_id': f'treatment-boundary-composition:{digest}',
+            'composition_hash_sha256': digest,
+        }
+    )
+
+
+def _insert_overlay_row(path: Path, overlay: TreatmentBoundaryOverlay) -> None:
+    """Insert a fully self-consistent overlay row, bypassing save validation."""
+
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            """
+            INSERT INTO cad_treatment_boundary_overlays(
+                overlay_id,
+                overlay_hash_sha256,
+                scene_revision_id,
+                compiled_geometry_id,
+                treatment_definition_id,
+                treatment_definition_version,
+                treatment_placement_instance_id,
+                treatment_placement_version,
+                surface_binding_evaluation_hash_sha256,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                overlay.overlay_id,
+                overlay.overlay_hash_sha256,
+                overlay.exact_scene_revision_id,
+                overlay.exact_r120_compiled_geometry_id,
+                overlay.treatment_definition_id,
+                overlay.treatment_definition_version,
+                overlay.treatment_placement_instance_id,
+                overlay.treatment_placement_version,
+                overlay.surface_binding_evaluation_hash_sha256,
+                overlay.model_dump_json(),
+                '2026-01-01T00:00:00+00:00',
+            ),
+        )
+
+
+def _insert_composition_row(
+    path: Path,
+    composition: TreatmentBoundaryCompositionRequest,
+) -> None:
+    """Insert a fully self-consistent composition row, bypassing save."""
+
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            """
+            INSERT INTO cad_treatment_boundary_compositions(
+                composition_id,
+                composition_hash_sha256,
+                scene_revision_id,
+                compiled_geometry_id,
+                host_surface_id,
+                target_domain,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                composition.composition_id,
+                composition.composition_hash_sha256,
+                composition.exact_scene_revision_id,
+                composition.exact_r120_compiled_geometry_id,
+                composition.host_surface_id,
+                composition.target_domain,
+                composition.model_dump_json(),
+                '2026-01-01T00:00:00+00:00',
+            ),
+        )
+
+
+def test_save_overlay_replays_canonical_compiler_and_rejects_tampering(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    item = _input(fixture, _definition('both'), instance_id='panel-tamper-save')
+    result = _compile(fixture, item, 'wave')
+    assert result.status == 'AVAILABLE'
+    repository = _overlay_repository(fixture)
+
+    repository.save_overlay(result.overlay)
+    repository.save_overlay(result.overlay)
+    assert repository.get_overlay(result.overlay.overlay_id) == result.overlay
+
+    overlay = result.overlay
+    tampered_variants = (
+        _rehashed_overlay(overlay, thickness_m=0.25),
+        _rehashed_overlay(overlay, air_gap_m=0.0),
+        _rehashed_overlay(
+            overlay,
+            treatment_coverage=TreatmentCoverage(
+                width_m=1.0,
+                height_m=1.0,
+                host_surface_fraction=0.5,
+            ),
+        ),
+        _rehashed_overlay(overlay, evidence_basis='inferred'),
+        _rehashed_overlay(
+            overlay,
+            valid_frequency_band=TreatmentFrequencyBand(
+                min_hz=100.0,
+                max_hz=2000.0,
+            ),
+        ),
+        _rehashed_overlay(overlay, treatment_acoustic_model_version='2'),
+        _rehashed_overlay(
+            overlay,
+            uncertainty=TreatmentUncertainty(
+                kind='quantified',
+                value=0.5,
+                unit='fixture',
+                note='tampered uncertainty',
+            ),
+        ),
+        _rehashed_overlay(
+            overlay,
+            wave_capability_state='UNKNOWN',
+            wave_material_candidate_ref=None,
+        ),
+        _rehashed_overlay(
+            overlay,
+            geometric_capability_state='UNKNOWN',
+            geometric_material_candidate_ref=None,
+        ),
+        _rehashed_overlay(
+            overlay,
+            wave_material_candidate_ref=_external(
+                'attacker-wave-material',
+                '9',
+            ),
+        ),
+        _rehashed_overlay(
+            overlay,
+            geometric_material_candidate_ref=_external(
+                'attacker-geometric-material',
+                '8',
+            ),
+        ),
+    )
+    for tampered in tampered_variants:
+        assert tampered.overlay_id != overlay.overlay_id
+        with pytest.raises(ValueError):
+            repository.save_overlay(tampered)
+
+
+def test_persisted_overlay_row_tampering_fails_closed_on_read(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    item = _input(fixture, _definition('both'), instance_id='panel-row-tamper')
+    result = _compile(fixture, item, 'wave')
+    repository = _overlay_repository(fixture)
+    repository.save_overlay(result.overlay)
+
+    tampered = _rehashed_overlay(result.overlay, thickness_m=0.25)
+    _insert_overlay_row(fixture['scene_repository'].path, tampered)
+
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.get_overlay(tampered.overlay_id)
+
+    # In-place payload tamper under the original overlay key is also rejected.
+    with closing(
+        sqlite3.connect(fixture['scene_repository'].path)
+    ) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_treatment_boundary_overlays
+            SET payload_json=?
+            WHERE overlay_id=?
+            """,
+            (tampered.model_dump_json(), result.overlay.overlay_id),
+        )
+    with pytest.raises(ValueError):
+        repository.get_overlay(result.overlay.overlay_id)
+    with pytest.raises(ValueError):
+        repository.save_overlay(result.overlay)
+
+
+def test_save_composition_replays_canonical_compiler_and_rejects_tampering(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    item = _input(fixture, _definition('both'), instance_id='panel-tamper-comp')
+    result = _compile(fixture, item, 'wave')
+    assert result.status == 'AVAILABLE'
+    repository = _overlay_repository(fixture)
+    repository.save_overlay(result.overlay)
+    repository.save_composition(result.composition_request)
+    repository.save_composition(result.composition_request)
+
+    composition = result.composition_request
+    assert repository.get_composition(composition.composition_id) == composition
+
+    forged_overlay = _rehashed_overlay(result.overlay, thickness_m=0.25)
+    # Another persisted overlay exposes a real but incorrect material authority.
+    other = _input(
+        fixture,
+        _definition('wave', '-other'),
+        instance_id='panel-other-material',
+    )
+    other_result = _compile(fixture, other, 'wave')
+    repository.save_overlay(other_result.overlay)
+    other_material_ref = other_result.overlay.wave_material_candidate_ref
+    assert other_material_ref != result.overlay.wave_material_candidate_ref
+    tampered_variants = (
+        # base material/boundary refs moved away from the exact R120 binding
+        _rehashed_composition(
+            composition,
+            base_material_authority=_external('attacker-base-material', '7'),
+        ),
+        _rehashed_composition(
+            composition,
+            base_boundary_physics_authority=_external(
+                'attacker-base-physics',
+                '6',
+            ),
+        ),
+        # selected treatment material replaced by another valid-looking ref
+        _rehashed_composition(
+            composition,
+            selected_treatment_material_authorities=(other_material_ref,),
+        ),
+        _rehashed_composition(
+            composition,
+            selected_treatment_material_authorities=(
+                _external('attacker-treatment-material', '5'),
+            ),
+        ),
+        # lifecycle flip away from the resolved overlay lifecycle
+        _rehashed_composition(
+            composition,
+            selected_treatment_lifecycle='installed',
+        ),
+        # a forged overlay cannot be substituted for the canonical one
+        _rehashed_composition(
+            composition,
+            attached_treatment_overlays=(
+                forged_overlay.as_external_authority_ref(),
+            ),
+        ),
+    )
+    for tampered in tampered_variants:
+        assert tampered.composition_id != composition.composition_id
+        with pytest.raises(ValueError):
+            repository.save_composition(tampered)
+
+    # The canonical composition for the sibling target domain remains valid.
+    geometric = _compile(fixture, item, 'geometric')
+    assert geometric.status == 'AVAILABLE'
+    assert geometric.composition_request.composition_id != composition.composition_id
+    repository.save_composition(geometric.composition_request)
+    assert (
+        repository.get_composition(geometric.composition_request.composition_id)
+        == geometric.composition_request
+    )
+
+
+def test_composition_rejects_multi_overlay_attachments(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    first = _input(
+        fixture,
+        _definition('both', '-first'),
+        instance_id='panel-multi-a',
+    )
+    second = _input(
+        fixture,
+        _definition('both', '-second'),
+        instance_id='panel-multi-b',
+    )
+    first_result = _compile(fixture, first, 'wave')
+    second_result = _compile(fixture, second, 'wave')
+    assert first_result.status == second_result.status == 'AVAILABLE'
+    repository = _overlay_repository(fixture)
+    repository.save_overlay(first_result.overlay)
+    repository.save_overlay(second_result.overlay)
+
+    composition = first_result.composition_request
+    multi_overlay = _rehashed_composition(
+        composition,
+        attached_treatment_overlays=(
+            first_result.overlay.as_external_authority_ref(),
+            second_result.overlay.as_external_authority_ref(),
+        ),
+        selected_treatment_material_authorities=(
+            first_result.overlay.wave_material_candidate_ref,
+            second_result.overlay.wave_material_candidate_ref,
+        ),
+    )
+    with pytest.raises(ValueError, match='exactly one canonical overlay'):
+        repository.save_composition(multi_overlay)
+
+
+def test_persisted_composition_row_tampering_fails_closed_on_read(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    item = _input(fixture, _definition('both'), instance_id='panel-comp-read')
+    result = _compile(fixture, item, 'wave')
+    repository = _overlay_repository(fixture)
+    repository.save_overlay(result.overlay)
+    repository.save_composition(result.composition_request)
+
+    tampered = _rehashed_composition(
+        result.composition_request,
+        base_material_authority=_external('attacker-base-material', '7'),
+    )
+    _insert_composition_row(fixture['scene_repository'].path, tampered)
+
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.get_composition(tampered.composition_id)
+
+    # In-place payload tamper under the original composition key is rejected.
+    with closing(
+        sqlite3.connect(fixture['scene_repository'].path)
+    ) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_treatment_boundary_compositions
+            SET payload_json=?
+            WHERE composition_id=?
+            """,
+            (
+                tampered.model_dump_json(),
+                result.composition_request.composition_id,
+            ),
+        )
+    with pytest.raises(ValueError):
+        repository.get_composition(result.composition_request.composition_id)
+
+
+def test_overlay_save_fails_closed_when_placement_authority_is_missing(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    treatment_repository = fixture['treatment_repository']
+    definition, evidence = _definition('both')
+    for item in evidence:
+        treatment_repository.save_evidence(item)
+    definition = treatment_repository.save_definition(definition)
+    placement = build_treatment_placement(
+        definition=definition,
+        revision=fixture['revision'],
+        instance_id='panel-unsaved-placement',
+        position=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+        coverage=TreatmentCoverage(
+            width_m=1.0,
+            height_m=1.0,
+            host_surface_fraction=1.0,
+        ),
+        host_surface_id=fixture['surface_id'],
+    )
+    evaluation = treatment_repository.evaluate_placement_surface_binding(
+        placement,
+        scene_revision_id=fixture['revision'].revision_id,
+    )
+    item = TreatmentBoundaryCompileInput(
+        definition=definition,
+        placement=placement,
+        surface_binding_evaluation=evaluation,
+    )
+    result = _compile(fixture, item, 'wave')
+    assert result.status == 'AVAILABLE'
+
+    repository = _overlay_repository(fixture)
+    with pytest.raises(ValueError, match='placement does not exist'):
+        repository.save_overlay(result.overlay)
+
+
+def test_overlay_and_composition_reads_fail_closed_when_authorities_disappear(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    item = _input(
+        fixture,
+        _definition('both'),
+        instance_id='panel-dangling-authority',
+    )
+    result = _compile(fixture, item, 'wave')
+    repository = _overlay_repository(fixture)
+    repository.save_overlay(result.overlay)
+    repository.save_composition(result.composition_request)
+    path = fixture['scene_repository'].path
+
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute(
+            'DELETE FROM cad_acoustic_treatment_placements WHERE instance_id=?',
+            (item.placement.instance_id,),
+        )
+    with pytest.raises(ValueError, match='placement does not exist'):
+        repository.get_overlay(result.overlay.overlay_id)
+    with pytest.raises(ValueError, match='placement does not exist'):
+        repository.get_composition(result.composition_request.composition_id)
+
+
+def test_composition_fails_closed_when_attached_overlay_disappears(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    item = _input(fixture, _definition('both'), instance_id='panel-lost-overlay')
+    result = _compile(fixture, item, 'wave')
+    repository = _overlay_repository(fixture)
+    repository.save_overlay(result.overlay)
+    repository.save_composition(result.composition_request)
+    path = fixture['scene_repository'].path
+
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute('DELETE FROM cad_treatment_boundary_overlays')
+
+    with pytest.raises(ValueError, match='unpersisted overlay'):
+        repository.get_composition(result.composition_request.composition_id)
+
+
+def test_composition_rejects_overlay_refs_that_do_not_resolve(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    item = _input(fixture, _definition('both'), instance_id='panel-ghost-ref')
+    result = _compile(fixture, item, 'wave')
+    repository = _overlay_repository(fixture)
+
+    forged_composition = _rehashed_composition(
+        result.composition_request,
+        attached_treatment_overlays=(
+            _external(f'treatment-boundary-overlay:{"0" * 64}', 'a'),
+        ),
+    )
+    with pytest.raises(ValueError, match='unpersisted overlay'):
+        repository.save_composition(forged_composition)
