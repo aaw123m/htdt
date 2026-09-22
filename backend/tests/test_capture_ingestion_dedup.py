@@ -583,13 +583,17 @@ def test_legacy_embedded_mesh_binding_row_reads_losslessly(
         connection.execute(
             '''
             INSERT INTO capture_raw_visual_mesh_bindings(
-                binding_id, handoff_id, payload_json
-            ) VALUES (?, ?, ?)
+                binding_id, handoff_id, payload_json,
+                anchor_index_source_evidence_id,
+                geometry_source_evidence_id
+            ) VALUES (?, ?, ?, ?, ?)
             ''',
             (
                 binding.binding_id,
                 handoff.raw_visual_mesh_handoff_id,
                 legacy_payload_json,
+                handoff.anchor_index_source_evidence_id,
+                handoff.geometry_source_evidence_id,
             ),
         )
 
@@ -836,6 +840,116 @@ def test_v3_database_migrates_capture_evidence_losslessly(
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute('VACUUM')
     assert path.stat().st_size * 2 < legacy_size
+
+
+def test_v3_binding_rows_gain_normalized_source_authority_columns(
+    tmp_path: Path,
+) -> None:
+    """Legacy binding rows backfill the exact source authorities on open."""
+    path = tmp_path / 'cad.sqlite3'
+    plan, payloads = _plan_and_payloads()
+    typed = CaptureIngestionPlan.model_validate(plan)
+    _legacy_database(path, plan, payloads)
+
+    repository = CaptureIngestionRepository(SceneRepository(path))
+
+    handoff = typed.raw_visual_mesh_handoffs[0]
+    rows = _query(
+        path,
+        'SELECT binding_id, anchor_index_source_evidence_id, '
+        'geometry_source_evidence_id FROM capture_raw_visual_mesh_bindings',
+    )
+    assert len(rows) == 1
+    assert (
+        rows[0]['anchor_index_source_evidence_id']
+        == handoff.anchor_index_source_evidence_id
+    )
+    assert (
+        rows[0]['geometry_source_evidence_id']
+        == handoff.geometry_source_evidence_id
+    )
+
+    # The normalized edges are real foreign keys into capture_source_evidence.
+    foreign_keys = _query(
+        path,
+        'PRAGMA foreign_key_list(capture_raw_visual_mesh_bindings)',
+    )
+    edges = {
+        (row['from'], row['table'], row['to']) for row in foreign_keys
+    }
+    assert (
+        'anchor_index_source_evidence_id',
+        'capture_source_evidence',
+        'source_evidence_id',
+    ) in edges
+    assert (
+        'geometry_source_evidence_id',
+        'capture_source_evidence',
+        'source_evidence_id',
+    ) in edges
+
+    # Migration is deterministic and idempotent: reopening revalidates.
+    reopened = CaptureIngestionRepository(SceneRepository(path))
+    binding = reopened.get_mesh_binding(rows[0]['binding_id'])
+    assert binding is not None
+    assert binding.handoff == handoff
+    assert repository.get_mesh_binding(rows[0]['binding_id']) == binding
+
+
+def test_v3_binding_with_unpersisted_source_authority_fails_migration(
+    tmp_path: Path,
+) -> None:
+    """A legacy row whose payload names missing evidence fails closed."""
+    path = tmp_path / 'cad.sqlite3'
+    plan, payloads = _plan_and_payloads()
+    _legacy_database(path, plan, payloads)
+
+    with closing(sqlite3.connect(path)) as connection, connection:
+        row = connection.execute(
+            'SELECT binding_id, payload_json '
+            'FROM capture_raw_visual_mesh_bindings'
+        ).fetchone()
+        data = json.loads(row[1])
+        data['handoff']['geometry_source_evidence_id'] = 'f' * 64
+        connection.execute(
+            'UPDATE capture_raw_visual_mesh_bindings '
+            'SET payload_json=? WHERE binding_id=?',
+            (_canonical_json(data), row[0]),
+        )
+
+    with pytest.raises(
+        CaptureIngestionTransactionError,
+        match='source evidence that is not persisted',
+    ):
+        CaptureIngestionRepository(SceneRepository(path))
+
+
+def test_v3_binding_with_invalid_handoff_fails_migration(
+    tmp_path: Path,
+) -> None:
+    """A legacy payload that cannot produce the canonical pair fails closed."""
+    path = tmp_path / 'cad.sqlite3'
+    plan, payloads = _plan_and_payloads()
+    _legacy_database(path, plan, payloads)
+
+    with closing(sqlite3.connect(path)) as connection, connection:
+        row = connection.execute(
+            'SELECT binding_id, payload_json '
+            'FROM capture_raw_visual_mesh_bindings'
+        ).fetchone()
+        data = json.loads(row[1])
+        del data['handoff']['anchor_index_source_evidence_id']
+        connection.execute(
+            'UPDATE capture_raw_visual_mesh_bindings '
+            'SET payload_json=? WHERE binding_id=?',
+            (_canonical_json(data), row[0]),
+        )
+
+    with pytest.raises(
+        CaptureIngestionTransactionError,
+        match='handoff record is invalid',
+    ):
+        CaptureIngestionRepository(SceneRepository(path))
 
 
 def test_backup_restore_round_trip_preserves_capture_provenance(

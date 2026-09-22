@@ -1,3 +1,4 @@
+from contextlib import closing
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -58,7 +59,9 @@ def _meshbin() -> bytes:
     return header + vertices + indices
 
 
-def _ingestion_fixture() -> tuple[dict, dict[str, bytes]]:
+def _ingestion_fixture(
+    bundle_digest: str = BUNDLE_DIGEST,
+) -> tuple[dict, dict[str, bytes]]:
     geometry_path = f'mesh/geometry/{ANCHOR_ID}.meshbin'
     payloads = {
         'mesh/anchors.json': b'{"fixture":"anchors"}',
@@ -71,13 +74,13 @@ def _ingestion_fixture() -> tuple[dict, dict[str, bytes]]:
         digest = sha256(payload).hexdigest()
         source_id = _hash_parts(
             'htdt.capture.source-evidence.v1',
-            BUNDLE_DIGEST,
+            bundle_digest,
             path,
             digest,
         )
         record = {
             'source_evidence_id': source_id,
-            'bundle_digest': BUNDLE_DIGEST,
+            'bundle_digest': bundle_digest,
             'capture_revision_id': REVISION_ID,
             'path': path,
             'payload_sha256': digest,
@@ -98,13 +101,13 @@ def _ingestion_fixture() -> tuple[dict, dict[str, bytes]]:
     geometry = by_path[geometry_path]
     handoff_id = _hash_parts(
         'htdt.capture.raw-visual-mesh-handoff.v1',
-        BUNDLE_DIGEST,
+        bundle_digest,
         ANCHOR_ID,
         geometry['payload_sha256'],
     )
     handoff = {
         'raw_visual_mesh_handoff_id': handoff_id,
-        'bundle_digest': BUNDLE_DIGEST,
+        'bundle_digest': bundle_digest,
         'anchor_id': ANCHOR_ID,
         'anchor_record_locator': f'mesh/anchors.json#anchor:{ANCHOR_ID}',
         'anchor_index_source_evidence_id':
@@ -129,7 +132,7 @@ def _ingestion_fixture() -> tuple[dict, dict[str, bytes]]:
     }
 
     lineage_projection = {
-        'bundle_digest': BUNDLE_DIGEST,
+        'bundle_digest': bundle_digest,
         'source_evidence_ids': sorted(
             item['source_evidence_id'] for item in source
         ),
@@ -154,7 +157,7 @@ def _ingestion_fixture() -> tuple[dict, dict[str, bytes]]:
                 'configuration_digest': INGESTOR_CONFIG,
             },
             'bundle': {
-                'bundle_digest': BUNDLE_DIGEST,
+                'bundle_digest': bundle_digest,
                 'capture_schema': 'htdt.capture.bundle',
                 'capture_schema_version': '1.0.0',
                 'capture_series_id': SERIES_ID,
@@ -341,3 +344,244 @@ def test_require_ready_policy_fails_before_scene_revision_commit(
             'SELECT COUNT(*) FROM capture_semantic_promotions'
         ).fetchone()[0]
     assert count == 0
+
+
+def _promoted_fixture(
+    tmp_path: Path,
+):
+    scene, capture, promotion, lineage, binding_id = _repositories(tmp_path)
+    source = scene.latest('capture-doc')
+    request = make_capture_semantic_promotion_request(
+        ingestion_lineage_digest=lineage,
+        raw_mesh_binding_id=binding_id,
+        target_document_id='capture-doc',
+        source_scene_revision_id=source.revision_id,
+        world_to_scene_authority=_identity_alignment(SPACE_ID),
+        readiness_policy='allow_blocked_semantic_authority',
+        reason='retain imported capture mesh as explicit semantic authority',
+    )
+    result = promotion.promote(request)
+    assert result.promotion_created
+    return scene, capture, promotion, lineage, binding_id, source, request
+
+
+def test_referenced_ingestion_mesh_link_cannot_be_deleted(
+    tmp_path: Path,
+) -> None:
+    """The composite FK rejects deleting a link a promotion depends on."""
+    scene, _capture, _promotion, lineage, binding_id, _source, _request = (
+        _promoted_fixture(tmp_path)
+    )
+
+    with closing(sqlite3.connect(scene.path)) as connection:
+        connection.execute('PRAGMA foreign_keys=ON')
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                '''
+                DELETE FROM capture_ingestion_mesh_links
+                WHERE lineage_digest=? AND binding_id=?
+                ''',
+                (lineage, binding_id),
+            )
+        connection.rollback()
+
+
+def test_promotion_insert_requires_the_exact_linked_pair(
+    tmp_path: Path,
+) -> None:
+    """A promotion whose run+binding both exist but are unlinked fails."""
+    scene, capture, _promotion, lineage, _binding, source, _request = (
+        _promoted_fixture(tmp_path)
+    )
+
+    # A second ingestion persists a relationally valid binding that is not
+    # linked to the first lineage digest.
+    plan2, payloads2 = _ingestion_fixture(bundle_digest='b' * 64)
+    second = capture.ingest(plan2, payloads2)
+    other_binding = capture.mesh_binding_ids_for_ingestion(
+        second.lineage_digest
+    )[0]
+
+    with closing(sqlite3.connect(scene.path)) as connection:
+        connection.execute('PRAGMA foreign_keys=ON')
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                '''
+                INSERT INTO capture_semantic_promotions(
+                    promotion_id,
+                    ingestion_lineage_digest,
+                    raw_mesh_binding_id,
+                    source_scene_revision_id,
+                    scene_revision_id,
+                    semantic_geometry_id,
+                    request_json,
+                    created_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    'capture-semantic-promotion:' + 'f' * 64,
+                    lineage,
+                    other_binding,
+                    source.revision_id,
+                    source.revision_id,
+                    'semantic-geometry:test',
+                    '{}',
+                    '2026-09-20T00:00:00+00:00',
+                ),
+            )
+        connection.rollback()
+
+
+def _downgrade_promotions_table(path: Path) -> None:
+    """Rewrite the promotions table to its pre-normalization shape.
+
+    Mirrors exactly what the pre-#439 ``CREATE TABLE`` produced: the same
+    eight columns and four independent foreign keys, but no composite edge
+    to ``capture_ingestion_mesh_links``.
+    """
+
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute('PRAGMA foreign_keys=ON')
+        connection.executescript(
+            '''
+            ALTER TABLE capture_semantic_promotions
+            RENAME TO capture_semantic_promotions_legacy;
+            CREATE TABLE capture_semantic_promotions (
+                promotion_id TEXT PRIMARY KEY,
+                ingestion_lineage_digest TEXT NOT NULL,
+                raw_mesh_binding_id TEXT NOT NULL,
+                source_scene_revision_id TEXT NOT NULL,
+                scene_revision_id TEXT NOT NULL,
+                semantic_geometry_id TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                created_at_utc TEXT NOT NULL,
+                FOREIGN KEY(ingestion_lineage_digest)
+                    REFERENCES capture_ingestion_runs(lineage_digest),
+                FOREIGN KEY(raw_mesh_binding_id)
+                    REFERENCES capture_raw_visual_mesh_bindings(binding_id),
+                FOREIGN KEY(source_scene_revision_id)
+                    REFERENCES scene_revisions(revision_id),
+                FOREIGN KEY(scene_revision_id)
+                    REFERENCES scene_revisions(revision_id)
+            );
+            INSERT INTO capture_semantic_promotions(
+                promotion_id,
+                ingestion_lineage_digest,
+                raw_mesh_binding_id,
+                source_scene_revision_id,
+                scene_revision_id,
+                semantic_geometry_id,
+                request_json,
+                created_at_utc
+            )
+            SELECT
+                promotion_id,
+                ingestion_lineage_digest,
+                raw_mesh_binding_id,
+                source_scene_revision_id,
+                scene_revision_id,
+                semantic_geometry_id,
+                request_json,
+                created_at_utc
+            FROM capture_semantic_promotions_legacy;
+            DROP TABLE capture_semantic_promotions_legacy;
+            CREATE INDEX idx_capture_semantic_promotion_ingestion
+            ON capture_semantic_promotions(
+                ingestion_lineage_digest,
+                raw_mesh_binding_id
+            );
+            '''
+        )
+
+
+def _promotion_link_fk_count(path: Path) -> int:
+    with closing(sqlite3.connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        return sum(
+            1
+            for row in connection.execute(
+                'PRAGMA foreign_key_list(capture_semantic_promotions)'
+            )
+            if row['table'] == 'capture_ingestion_mesh_links'
+        )
+
+
+def test_legacy_promotion_table_gains_composite_link_fk(
+    tmp_path: Path,
+) -> None:
+    scene, _capture, _promotion, lineage, binding_id, _source, request = (
+        _promoted_fixture(tmp_path)
+    )
+    _downgrade_promotions_table(scene.path)
+    assert _promotion_link_fk_count(scene.path) == 0
+
+    migrated = CaptureSemanticPromotionRepository(
+        scene, CaptureIngestionRepository(scene)
+    )
+
+    assert _promotion_link_fk_count(scene.path) == 2
+    with closing(sqlite3.connect(scene.path)) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            '''
+            SELECT *
+            FROM capture_semantic_promotions
+            ORDER BY promotion_id
+            '''
+        ).fetchall()
+        index_sql = connection.execute(
+            '''
+            SELECT sql
+            FROM sqlite_master
+            WHERE type='index'
+              AND name='idx_capture_semantic_promotion_ingestion'
+            '''
+        ).fetchone()
+    assert [row['promotion_id'] for row in rows] == [request.promotion_id]
+    assert index_sql is not None
+
+    # The migrated row still deduplicates a repeated promotion.
+    repeated = migrated.promote(request)
+    assert not repeated.promotion_created
+
+    # And the composite FK now blocks deleting the referenced link row.
+    with closing(sqlite3.connect(scene.path)) as connection:
+        connection.execute('PRAGMA foreign_keys=ON')
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                '''
+                DELETE FROM capture_ingestion_mesh_links
+                WHERE lineage_digest=? AND binding_id=?
+                ''',
+                (lineage, binding_id),
+            )
+        connection.rollback()
+
+
+def test_orphaned_legacy_promotion_fails_link_fk_migration(
+    tmp_path: Path,
+) -> None:
+    scene, _capture, _promotion, lineage, binding_id, _source, _request = (
+        _promoted_fixture(tmp_path)
+    )
+    _downgrade_promotions_table(scene.path)
+
+    # Simulate the provenance-orphaned state the composite FK prevents: the
+    # link row disappears while the promotion still references it. Foreign
+    # keys are off for this connection so the damage can be staged.
+    with closing(sqlite3.connect(scene.path)) as connection, connection:
+        connection.execute(
+            '''
+            DELETE FROM capture_ingestion_mesh_links
+            WHERE lineage_digest=? AND binding_id=?
+            ''',
+            (lineage, binding_id),
+        )
+
+    with pytest.raises(
+        CaptureSemanticPromotionError,
+        match='not backed by an ingestion-mesh link',
+    ):
+        CaptureSemanticPromotionRepository(
+            scene, CaptureIngestionRepository(scene)
+        )

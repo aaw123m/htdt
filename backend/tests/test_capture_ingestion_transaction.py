@@ -1,6 +1,8 @@
+from contextlib import closing
 from hashlib import sha256
 import json
 from pathlib import Path
+import sqlite3
 import struct
 
 import pytest
@@ -257,7 +259,6 @@ def test_transaction_commits_all_source_authorities_and_reopens(
         typed.lineage_digest
     ).raw_visual_mesh_handoffs[0].raw_visual_mesh_handoff_id
     # Binding ID is adapter-derived, so locate it through the persisted DB link.
-    import sqlite3
     with sqlite3.connect(scene.path) as connection:
         row = connection.execute(
             '''
@@ -363,3 +364,126 @@ def test_plan_rejects_unpinned_ingestor_configuration() -> None:
 
     with pytest.raises(ValueError):
         CaptureIngestionPlan.model_validate(plan)
+
+
+def _persisted_binding_row(
+    path: Path,
+    binding_id: str,
+) -> sqlite3.Row:
+    with closing(sqlite3.connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            '''
+            SELECT *
+            FROM capture_raw_visual_mesh_bindings
+            WHERE binding_id=?
+            ''',
+            (binding_id,),
+        ).fetchall()
+    assert len(rows) == 1
+    return rows[0]
+
+
+def test_mesh_binding_persists_normalized_source_authority_edges(
+    tmp_path: Path,
+) -> None:
+    repository = CaptureIngestionRepository(
+        SceneRepository(tmp_path / 'cad.sqlite3')
+    )
+    plan, payloads = _plan_and_payloads()
+    typed = CaptureIngestionPlan.model_validate(plan)
+    repository.ingest(plan, payloads)
+    handoff = typed.raw_visual_mesh_handoffs[0]
+    binding_id = repository.mesh_binding_ids_for_ingestion(
+        typed.lineage_digest
+    )[0]
+
+    row = _persisted_binding_row(repository.path, binding_id)
+    assert (
+        row['anchor_index_source_evidence_id']
+        == handoff.anchor_index_source_evidence_id
+    )
+    assert (
+        row['geometry_source_evidence_id']
+        == handoff.geometry_source_evidence_id
+    )
+
+    with closing(sqlite3.connect(repository.path)) as connection:
+        connection.execute('PRAGMA foreign_keys=ON')
+        # The normalized edge is FK-bound: a dangling authority id is
+        # rejected at the schema level.
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                '''
+                UPDATE capture_raw_visual_mesh_bindings
+                SET geometry_source_evidence_id=?
+                WHERE binding_id=?
+                ''',
+                ('f' * 64, binding_id),
+            )
+        connection.rollback()
+        # Deleting a source authority that backs a binding is rejected.
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                '''
+                DELETE FROM capture_source_evidence
+                WHERE source_evidence_id=?
+                ''',
+                (handoff.geometry_source_evidence_id,),
+            )
+        connection.rollback()
+
+
+def test_mesh_binding_read_fails_closed_on_diverged_source_column(
+    tmp_path: Path,
+) -> None:
+    repository = CaptureIngestionRepository(
+        SceneRepository(tmp_path / 'cad.sqlite3')
+    )
+    plan, payloads = _plan_and_payloads()
+    typed = CaptureIngestionPlan.model_validate(plan)
+    repository.ingest(plan, payloads)
+    handoff = typed.raw_visual_mesh_handoffs[0]
+    binding_id = repository.mesh_binding_ids_for_ingestion(
+        typed.lineage_digest
+    )[0]
+    other = next(
+        item
+        for item in typed.source_evidence
+        if item.source_evidence_id != handoff.geometry_source_evidence_id
+    )
+
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute('PRAGMA foreign_keys=ON')
+        connection.execute(
+            '''
+            UPDATE capture_raw_visual_mesh_bindings
+            SET geometry_source_evidence_id=?
+            WHERE binding_id=?
+            ''',
+            (other.source_evidence_id, binding_id),
+        )
+
+    with pytest.raises(
+        CaptureIngestionTransactionError,
+        match='normalized source authorities do not match',
+    ):
+        repository.get_mesh_binding(binding_id)
+
+    # A missing normalized authority fails closed the same way; the row can
+    # no longer attest its provenance.
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            '''
+            UPDATE capture_raw_visual_mesh_bindings
+            SET anchor_index_source_evidence_id=NULL
+            WHERE binding_id=?
+            ''',
+            (binding_id,),
+        )
+
+    with pytest.raises(
+        CaptureIngestionTransactionError,
+        match='missing its normalized',
+    ):
+        repository.get_mesh_binding(binding_id)

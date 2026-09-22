@@ -237,6 +237,34 @@ def _matmul4(
     return result  # type: ignore[return-value]
 
 
+_CAPTURE_SEMANTIC_PROMOTIONS_DDL = '''
+                CREATE TABLE IF NOT EXISTS capture_semantic_promotions (
+                    promotion_id TEXT PRIMARY KEY,
+                    ingestion_lineage_digest TEXT NOT NULL,
+                    raw_mesh_binding_id TEXT NOT NULL,
+                    source_scene_revision_id TEXT NOT NULL,
+                    scene_revision_id TEXT NOT NULL,
+                    semantic_geometry_id TEXT NOT NULL,
+                    request_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    FOREIGN KEY(ingestion_lineage_digest)
+                        REFERENCES capture_ingestion_runs(lineage_digest),
+                    FOREIGN KEY(raw_mesh_binding_id)
+                        REFERENCES capture_raw_visual_mesh_bindings(binding_id),
+                    FOREIGN KEY(ingestion_lineage_digest, raw_mesh_binding_id)
+                        REFERENCES capture_ingestion_mesh_links(
+                            lineage_digest,
+                            binding_id
+                        )
+                        ON DELETE RESTRICT,
+                    FOREIGN KEY(source_scene_revision_id)
+                        REFERENCES scene_revisions(revision_id),
+                    FOREIGN KEY(scene_revision_id)
+                        REFERENCES scene_revisions(revision_id)
+                )
+                '''
+
+
 class CaptureSemanticPromotionRepository:
     """Explicit Capture RawVisualMesh -> SemanticAcousticGeometry promotion."""
 
@@ -260,28 +288,8 @@ class CaptureSemanticPromotionRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS capture_semantic_promotions (
-                    promotion_id TEXT PRIMARY KEY,
-                    ingestion_lineage_digest TEXT NOT NULL,
-                    raw_mesh_binding_id TEXT NOT NULL,
-                    source_scene_revision_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    semantic_geometry_id TEXT NOT NULL,
-                    request_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(ingestion_lineage_digest)
-                        REFERENCES capture_ingestion_runs(lineage_digest),
-                    FOREIGN KEY(raw_mesh_binding_id)
-                        REFERENCES capture_raw_visual_mesh_bindings(binding_id),
-                    FOREIGN KEY(source_scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id)
-                )
-                '''
-            )
+            self._migrate_promotion_link_fk(connection)
+            connection.execute(_CAPTURE_SEMANTIC_PROMOTIONS_DDL)
             connection.execute(
                 '''
                 CREATE INDEX IF NOT EXISTS idx_capture_semantic_promotion_ingestion
@@ -291,6 +299,106 @@ class CaptureSemanticPromotionRepository:
                 )
                 '''
             )
+
+    @staticmethod
+    def _migrate_promotion_link_fk(connection: sqlite3.Connection) -> None:
+        """Rebuild a pre-normalization promotions table with the exact link FK.
+
+        ``capture_semantic_promotions`` originally enforced the ingestion run
+        and the mesh binding through two independent foreign keys, so the
+        database could persist a promotion whose (lineage, binding) pair was
+        never linked — or lose the link row afterwards while every individual
+        FK stayed valid. The durable provenance edge is the pair itself:
+        rebuild the table so it references
+        ``capture_ingestion_mesh_links(lineage_digest, binding_id)`` and fail
+        closed — naming the offending promotions — when a persisted row is
+        already provenance-orphaned, rather than silently adopting it.
+        """
+
+        tables = {
+            str(row['name'])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if 'capture_semantic_promotions' not in tables:
+            return
+        foreign_keys = connection.execute(
+            'PRAGMA foreign_key_list(capture_semantic_promotions)'
+        ).fetchall()
+        if any(
+            str(row['table']) == 'capture_ingestion_mesh_links'
+            for row in foreign_keys
+        ):
+            return
+        if 'capture_ingestion_mesh_links' not in tables:
+            raise CaptureSemanticPromotionError(
+                'cannot normalize capture semantic promotions: '
+                'capture_ingestion_mesh_links is missing'
+            )
+        orphans = connection.execute(
+            '''
+            SELECT p.promotion_id
+            FROM capture_semantic_promotions AS p
+            LEFT JOIN capture_ingestion_mesh_links AS l
+              ON l.lineage_digest = p.ingestion_lineage_digest
+             AND l.binding_id = p.raw_mesh_binding_id
+            WHERE l.lineage_digest IS NULL
+            ORDER BY p.promotion_id
+            '''
+        ).fetchall()
+        if orphans:
+            ids = ', '.join(str(row['promotion_id']) for row in orphans)
+            raise CaptureSemanticPromotionError(
+                'persisted capture semantic promotions are not backed by an '
+                'ingestion-mesh link; refusing to normalize provenance '
+                f'foreign keys: {ids}'
+            )
+
+        # RENAME/CREATE/DROP are autocommitted when no transaction is open,
+        # so the rebuild runs inside an explicit transaction: either the
+        # whole normalized table replaces the legacy one or nothing changes
+        # and a later open retries the migration deterministically.
+        if connection.in_transaction:
+            connection.commit()
+        connection.execute('BEGIN IMMEDIATE')
+        try:
+            connection.execute(
+                '''
+                ALTER TABLE capture_semantic_promotions
+                RENAME TO capture_semantic_promotions_legacy
+                '''
+            )
+            connection.execute(_CAPTURE_SEMANTIC_PROMOTIONS_DDL)
+            connection.execute(
+                '''
+                INSERT INTO capture_semantic_promotions(
+                    promotion_id,
+                    ingestion_lineage_digest,
+                    raw_mesh_binding_id,
+                    source_scene_revision_id,
+                    scene_revision_id,
+                    semantic_geometry_id,
+                    request_json,
+                    created_at_utc
+                )
+                SELECT
+                    promotion_id,
+                    ingestion_lineage_digest,
+                    raw_mesh_binding_id,
+                    source_scene_revision_id,
+                    scene_revision_id,
+                    semantic_geometry_id,
+                    request_json,
+                    created_at_utc
+                FROM capture_semantic_promotions_legacy
+                '''
+            )
+            connection.execute('DROP TABLE capture_semantic_promotions_legacy')
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
     def inspect_capture_mesh(
         self,
