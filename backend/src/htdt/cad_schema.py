@@ -3,13 +3,17 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 import sqlite3
 
 from .content_blobs import CONTENT_BLOB_DDL
 
 
-NATIVE_SCHEMA_VERSION = 4
+_LOGGER = logging.getLogger('htdt.native')
+
+
+NATIVE_SCHEMA_VERSION = 5
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -438,6 +442,8 @@ _LEGACY_TABLE_SIGNATURES = {
             ('created_at_utc', 'TEXT', 1, None, 0),
             ('content_hash', 'TEXT', 1, None, 0),
             ('payload_json', 'TEXT', 1, None, 0),
+            ('detached', 'INTEGER', 1, '0', 0),
+            ('detached_reason', 'TEXT', 0, None, 0),
         ),
         foreign_keys=frozenset({
             ('parent_revision_id', 'scene_revisions', 'revision_id'),
@@ -445,6 +451,10 @@ _LEGACY_TABLE_SIGNATURES = {
         unique_sets=frozenset({
             frozenset({'revision_id'}),
         }),
+        # Detached-lineage markers are appended by schema v5 / lazily by
+        # SceneRepository._initialize: a pre-versioning database may lack the
+        # columns but must match the signature exactly when they are present.
+        optional_columns=frozenset({'detached', 'detached_reason'}),
     ),
 }
 
@@ -731,11 +741,130 @@ def _migrate_3_to_4(connection: sqlite3.Connection) -> None:
     connection.execute(CONTENT_BLOB_DDL)
 
 
+_SCENE_DOCUMENT_HEADS_DDL = '''
+CREATE TABLE IF NOT EXISTS scene_document_heads (
+    document_id TEXT PRIMARY KEY,
+    head_revision_id TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    FOREIGN KEY(head_revision_id) REFERENCES scene_revisions(revision_id)
+)
+'''
+
+
+def ensure_scene_revision_lineage_columns(connection: sqlite3.Connection) -> None:
+    """Lazily append detached-lineage marker columns to ``scene_revisions``.
+
+    Schema v5 adds them for databases that already carried the table; fresh
+    databases get them either from this ALTER path or from the repository's
+    CREATE TABLE. Safe to call whenever ``scene_revisions`` exists.
+    """
+    columns = {
+        str(row[1])
+        for row in connection.execute('PRAGMA table_info(scene_revisions)')
+    }
+    if 'detached' not in columns:
+        connection.execute(
+            'ALTER TABLE scene_revisions '
+            'ADD COLUMN detached INTEGER NOT NULL DEFAULT 0'
+        )
+    if 'detached_reason' not in columns:
+        connection.execute(
+            'ALTER TABLE scene_revisions ADD COLUMN detached_reason TEXT'
+        )
+
+
+def backfill_scene_document_heads(connection: sqlite3.Connection) -> None:
+    """Initialize ``scene_document_heads`` for documents missing a head row.
+
+    Replays every unheaded document's revisions in ``seq`` order while
+    tracking the acknowledged mainline head: a row advances the head only
+    when it is not marked detached and its parent is the running mainline
+    head (equivalently, when it was a normal compare-and-swap save). Rows
+    that violate that — pre-#626 ``allow_branch`` rows, duplicate roots, or
+    children of detached lineage — are marked ``detached`` and can never
+    become head. This is a deterministic, conservative reconstruction from
+    single-head ancestry; it reports detached rows through the diagnostics
+    log instead of silently choosing ``MAX(seq)``.
+    """
+    tables = _table_names(connection)
+    if 'scene_revisions' not in tables or 'scene_document_heads' not in tables:
+        return
+    rows = connection.execute(
+        '''
+        SELECT r.seq, r.revision_id, r.document_id, r.parent_revision_id,
+               r.created_at_utc, r.detached
+        FROM scene_revisions r
+        LEFT JOIN scene_document_heads h ON h.document_id = r.document_id
+        WHERE h.document_id IS NULL
+        ORDER BY r.seq
+        ''',
+    ).fetchall()
+    if not rows:
+        return
+    # document_id -> (head_revision_id, updated_at_utc, generation)
+    heads: dict[str, tuple[str, str, int]] = {}
+    detached_seqs: list[int] = []
+    detached_refs: list[str] = []
+    for row in rows:
+        # Index access: this helper also runs inside ensure_native_schema,
+        # whose connection has no Row factory.
+        seq, revision_id, document_id = int(row[0]), str(row[1]), str(row[2])
+        parent_id, created_at = row[3], str(row[4])
+        head = heads.get(document_id)
+        mainline = not row[5] and (
+            (parent_id is None and head is None)
+            or (head is not None and parent_id == head[0])
+        )
+        if mainline:
+            heads[document_id] = (
+                revision_id,
+                created_at,
+                (head[2] if head is not None else 0) + 1,
+            )
+        else:
+            detached_seqs.append(seq)
+            detached_refs.append(f'{document_id}:{revision_id}')
+    for document_id, (revision_id, updated_at, generation) in heads.items():
+        connection.execute(
+            '''
+            INSERT INTO scene_document_heads(
+                document_id, head_revision_id, updated_at_utc, generation
+            ) VALUES (?, ?, ?, ?)
+            ''',
+            (document_id, revision_id, updated_at, generation),
+        )
+    for seq in detached_seqs:
+        connection.execute(
+            'UPDATE scene_revisions SET detached=1 WHERE seq=?',
+            (seq,),
+        )
+    if detached_refs:
+        _LOGGER.warning(
+            'reconstructed scene document heads excluding detached '
+            'SceneRevision lineage (revisions remain bound by exact id): %s',
+            ', '.join(detached_refs),
+        )
+
+
+def _migrate_4_to_5(connection: sqlite3.Connection) -> None:
+    # Explicit current-head authority for SceneRevision documents (#626):
+    # detached analytical/fixture lineage may be persisted but must never
+    # redefine the document's current head by insertion order. Backfill
+    # replays single-head ancestry so pre-existing branch rows are excluded
+    # from — and flagged off — the reconstructed head.
+    connection.execute(_SCENE_DOCUMENT_HEADS_DDL)
+    if 'scene_revisions' in _table_names(connection):
+        ensure_scene_revision_lineage_columns(connection)
+        backfill_scene_document_heads(connection)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
     3: _migrate_2_to_3,
     4: _migrate_3_to_4,
+    5: _migrate_4_to_5,
 }
 
 

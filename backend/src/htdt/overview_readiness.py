@@ -178,7 +178,7 @@ class OverviewReadinessService:
         *,
         constraint_workspace_hash: str | None = None,
     ) -> OverviewReadinessViewModel:
-        revision = self._scene_source.latest(document_id)
+        revision = self._scene_source.current_head(document_id)
         if revision is None:
             action = _action('room.create', '部屋を作成', ROOM_GEOMETRY)
             blocker = OverviewNotice(

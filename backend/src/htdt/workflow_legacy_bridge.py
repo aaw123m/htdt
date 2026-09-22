@@ -48,7 +48,7 @@ def refresh_legacy_editor_revision(window: Any) -> bool:
     if working is None or repository is None or document_id is None:
         return False
 
-    latest = repository.latest(document_id)
+    latest = repository.current_head(document_id)
     if latest is None or latest.revision_id == getattr(working, "source_revision_id", None):
         return False
 

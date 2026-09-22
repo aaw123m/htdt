@@ -54,7 +54,7 @@ def test_legacy_bridge_blocks_dirty_or_preview_state() -> None:
 
 def test_clean_stale_legacy_workspace_reloads_latest_revision() -> None:
     latest = SimpleNamespace(revision_id="revision-new")
-    repository = SimpleNamespace(latest=lambda _document_id: latest)
+    repository = SimpleNamespace(current_head=lambda _document_id: latest)
     calls: list[str] = []
     window = SimpleNamespace(
         working=SimpleNamespace(

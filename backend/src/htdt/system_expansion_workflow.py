@@ -704,7 +704,7 @@ class SystemExpansionWorkflowService:
             )
         proposed_roles = set(roles)
 
-        baseline = self.scene_repository.latest(self.document_id)
+        baseline = self.scene_repository.current_head(self.document_id)
         if baseline is None:
             raise ValueError("現在の部屋状態がありません。")
         baseline_speakers = tuple(
@@ -1134,7 +1134,7 @@ class SystemExpansionWorkflowService:
 
     def variant_presentation(self, variant_id: str) -> VariantPresentation:
         variant = self.variant(variant_id)
-        latest = self.scene_repository.latest(self.document_id)
+        latest = self.scene_repository.current_head(self.document_id)
         stale = bool(
             latest is None
             or (
@@ -1197,7 +1197,7 @@ class SystemExpansionWorkflowService:
 
     def apply_preview(self, variant_id: str) -> ApplyPreview:
         variant = self.variant(variant_id)
-        latest = self.scene_repository.latest(self.document_id)
+        latest = self.scene_repository.current_head(self.document_id)
         stale = bool(
             latest is None
             or latest.revision_id != variant.baseline_revision_id
@@ -1394,7 +1394,7 @@ class SystemExpansionWorkflowService:
         if rows is None:
             return None
         spec, evaluation, bundle_by_variant = rows
-        latest = self.scene_repository.latest(self.document_id)
+        latest = self.scene_repository.current_head(self.document_id)
         stale = bool(
             latest is None
             or spec.baseline_scene_revision_id != latest.revision_id
@@ -1614,7 +1614,7 @@ class SystemExpansionWorkflowService:
             ):
                 raise ValueError("提案のばらつきevaluation authorityが一致しません。")
 
-        latest = self.scene_repository.latest(self.document_id)
+        latest = self.scene_repository.current_head(self.document_id)
         current = bool(
             latest is not None
             and latest.revision_id == spec.scene_revision_id

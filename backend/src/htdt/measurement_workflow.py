@@ -224,7 +224,7 @@ class MeasurementWorkflowController:
         return self._pending
 
     def latest_revision(self) -> SceneRevision:
-        revision = self.scene_repository.latest(self.document_id)
+        revision = self.scene_repository.current_head(self.document_id)
         if revision is None:
             raise MeasurementWorkflowError(
                 "測定を読み込む前に、部屋を一度保存してください"
@@ -377,7 +377,7 @@ class MeasurementWorkflowController:
         return record
 
     def measurement_views(self) -> tuple[MeasurementView, ...]:
-        latest = self.scene_repository.latest(self.document_id)
+        latest = self.scene_repository.current_head(self.document_id)
         # Retake lineage is append-only validated evidence; resolving the chain
         # once keeps the per-row topology identical to
         # CadMeasurementQualityRepository.selected_measurement_for_lineage.

@@ -231,7 +231,7 @@ def run_gate(app: QApplication, root: Path) -> bool:
         if not applied:
             return False
         click_action(window, window.save_action, app)
-        saved_revision = repository.latest(FIXTURE_ID)
+        saved_revision = repository.current_head(FIXTURE_ID)
         save_ok = (
             saved_revision is not None
             and not window.working.is_dirty

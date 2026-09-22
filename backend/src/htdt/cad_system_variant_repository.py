@@ -489,15 +489,17 @@ class CadSystemVariantRepository:
             if existing_row is not None:
                 return self._validated_application(existing_row)
 
-            latest_row = connection.execute(
-                'SELECT revision_id, content_hash FROM scene_revisions '
-                'WHERE document_id=? ORDER BY seq DESC LIMIT 1',
-                (variant.document_id,),
-            ).fetchone()
+            # The apply baseline must be the document's explicit current head,
+            # not merely the newest inserted row: detached lineage must not
+            # satisfy or break this check (#626).
+            head_row = self.scene_repository._head_revision_row(
+                connection,
+                variant.document_id,
+            )
             if (
-                latest_row is None
-                or latest_row['revision_id'] != baseline.revision_id
-                or latest_row['content_hash'] != baseline.content_hash
+                head_row is None
+                or head_row['revision_id'] != baseline.revision_id
+                or head_row['content_hash'] != baseline.content_hash
             ):
                 raise ValueError(
                     'cannot apply SystemVariant from a stale baseline SceneRevision'

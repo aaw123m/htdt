@@ -14,7 +14,7 @@ from htdt.overview_readiness import OverviewReadinessService
 class _SceneSource:
     revision: SceneRevision | None
 
-    def latest(self, document_id: str) -> SceneRevision | None:
+    def current_head(self, document_id: str) -> SceneRevision | None:
         if self.revision is None or self.revision.document_id != document_id:
             return None
         return self.revision

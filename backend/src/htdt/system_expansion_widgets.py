@@ -593,7 +593,7 @@ class SystemExpansionRoomPanel(QFrame):
         return rows
 
     def _default_zone(self) -> tuple[str, float, float, float, float, float, float] | None:
-        latest = self.service.scene_repository.latest(self.service.document_id)
+        latest = self.service.scene_repository.current_head(self.service.document_id)
         if latest is None or latest.document.room is None:
             return None
         min_x, min_y, max_x, max_y = latest.document.room.bounds_m
@@ -728,7 +728,7 @@ class SystemExpansionRoomPanel(QFrame):
             if widget is not None:
                 widget.deleteLater()
         self._existing_rows = []
-        latest = self.service.scene_repository.latest(self.service.document_id)
+        latest = self.service.scene_repository.current_head(self.service.document_id)
         if latest is None:
             return
         choices = self.service.equipment_choices()
@@ -825,7 +825,7 @@ class SystemExpansionRoomPanel(QFrame):
         self._initialize_zone_from_room()
         self._refresh_existing_ops()
         self._refresh_link_rows()
-        latest = self.service.scene_repository.latest(self.service.document_id)
+        latest = self.service.scene_repository.current_head(self.service.document_id)
         if latest is None:
             self.current_label.setText("現在構成: SceneRevisionがありません")
         else:

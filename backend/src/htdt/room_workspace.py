@@ -204,7 +204,7 @@ class RoomWorkspaceController:
         )
 
     def _load_latest_or_seed(self) -> None:
-        revision = self.repository.latest(self.document_id)
+        revision = self.repository.current_head(self.document_id)
         if revision is None:
             seed = (
                 make_f1_scene()
@@ -231,7 +231,7 @@ class RoomWorkspaceController:
     def reload_if_clean(self) -> bool:
         if self.working.is_dirty or self.working.has_preview or self.recovery_candidate is not None:
             return False
-        revision = self.repository.latest(self.document_id)
+        revision = self.repository.current_head(self.document_id)
         if revision is None or revision.revision_id == self.working.source_revision_id:
             return False
         self.working = TheaterWorkingDocument(

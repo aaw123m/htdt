@@ -44,7 +44,7 @@ entity selection が必要な action は `entity_id` を metadata として返�
 
 | Rule | Overview 表示 | Authority source | 判定 |
 | --- | --- | --- | --- |
-| 保存済み Scene がない | blocker | `SceneRepository.latest()` | revision がない |
+| 保存済み Scene がない | blocker | `SceneRepository.current_head()` | revision がない |
 | 部屋形状未完成 | blocker | `SceneRevision.document.room` | `room is None` |
 | speaker がない | blocker | `SceneRevision.document.entities` | `kind == "speaker"` が 0 件 |
 | speaker role 未設定 | blocker | `SceneEntity.speaker_role` | falsey role を defensive に検出 |

@@ -11,7 +11,7 @@ import tracemalloc
 import pytest
 
 from htdt.cad_repository import SceneRepository
-from htdt.cad_schema import read_native_schema_version
+from htdt.cad_schema import NATIVE_SCHEMA_VERSION, read_native_schema_version
 from htdt.capture_ingestion_transaction import (
     CaptureIngestionBudget,
     CaptureIngestionPlan,
@@ -790,7 +790,7 @@ def test_v3_database_migrates_capture_evidence_losslessly(
 
     repository = CaptureIngestionRepository(SceneRepository(path))
 
-    assert read_native_schema_version(path) == 4
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
     # Inline payloads were externalized exactly once into the blob store.
     inline_lengths = _query(
         path,

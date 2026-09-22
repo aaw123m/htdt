@@ -542,10 +542,10 @@ def _fixture(tmp_path, *, measured: bool = True):
         # Measurement plans require each applied revision to descend directly
         # from the SearchSpec source, so the fixture deliberately writes
         # non-head sibling lineage.
-        revision = scene_repository.save(
+        revision = scene_repository.save_detached_revision(
             preview,
             parent_revision_id=source.revision_id,
-            allow_branch=True,
+            reason='measurement_plan_fixture',
         ).revision
         applied[candidate.candidate_id] = revision
         plan = build_measurement_plan(

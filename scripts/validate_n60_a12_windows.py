@@ -210,7 +210,7 @@ def run_a12(app: QApplication, root: Path) -> bool:
         position_after = window.working.committed_document.entity('speaker-fl').position
         dirty_after_move = window.working.is_dirty
         click_action(window, window.save_action, app)
-        revision_b = repository.latest(FIXTURE_ID)
+        revision_b = repository.current_head(FIXTURE_ID)
         move_save_ok = (
             moved
             and position_after != position_before
