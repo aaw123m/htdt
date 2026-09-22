@@ -7,7 +7,9 @@ import pytest
 from htdt.cad_multifidelity import (
     CadMultiFidelityRepository,
     MultiFidelityAuthorityRef,
+    MultiFidelityPlan,
     MultiFidelityStageDefinition,
+    MultiFidelityStageEvidenceContext,
     MultiFidelityStageOutcome,
     build_multifidelity_plan,
     build_multifidelity_stage_result,
@@ -45,6 +47,128 @@ class _TopologyComparisonResolver:
         if evaluation_id == self._evaluation.evaluation_id:
             return self._evaluation
         return None
+
+
+class _AuthorityRegistry:
+    """Exact registry for plan-level multi-fidelity authorities."""
+
+    def __init__(self, *refs: MultiFidelityAuthorityRef) -> None:
+        self._refs = {ref.key(): ref for ref in refs}
+
+    def register(self, ref: MultiFidelityAuthorityRef) -> None:
+        self._refs[ref.key()] = ref
+
+    def remove(self, ref: MultiFidelityAuthorityRef) -> None:
+        self._refs.pop(ref.key(), None)
+
+    def __call__(
+        self,
+        ref: MultiFidelityAuthorityRef,
+    ) -> MultiFidelityAuthorityRef | None:
+        return self._refs.get(ref.key())
+
+
+class _StageEvidenceRegistry:
+    """Evidence refs bound to an exact plan/stage/candidate/relationship."""
+
+    def __init__(self) -> None:
+        self._bindings: dict[
+            tuple[str, str, str | None, str],
+            tuple[
+                str,
+                str,
+                tuple[str, str, str | None, str],
+                tuple[str, str, str | None, str] | None,
+            ],
+        ] = {}
+
+    def register(
+        self,
+        ref: MultiFidelityAuthorityRef,
+        *,
+        plan: MultiFidelityPlan,
+        stage_id: str,
+        candidate: MultiFidelityAuthorityRef,
+        relationship: MultiFidelityAuthorityRef | None = None,
+    ) -> None:
+        self._bindings[ref.key()] = (
+            plan.plan_id,
+            stage_id,
+            candidate.key(),
+            None if relationship is None else relationship.key(),
+        )
+
+    def remove(self, ref: MultiFidelityAuthorityRef) -> None:
+        self._bindings.pop(ref.key(), None)
+
+    def __call__(
+        self,
+        ref: MultiFidelityAuthorityRef,
+        context: MultiFidelityStageEvidenceContext,
+    ) -> MultiFidelityAuthorityRef | None:
+        binding = self._bindings.get(ref.key())
+        if binding is None:
+            return None
+        plan_id, stage_id, candidate_key, relationship_key = binding
+        if plan_id != context.plan.plan_id:
+            return None
+        if stage_id != context.stage.stage_id:
+            return None
+        if candidate_key != context.outcome.candidate.key():
+            return None
+        stage_relationship = context.stage.validated_screening_relationship_ref
+        if relationship_key != (
+            None
+            if stage_relationship is None
+            else stage_relationship.key()
+        ):
+            return None
+        return ref
+
+
+def _plan_authority_refs(
+    plan: MultiFidelityPlan,
+) -> tuple[MultiFidelityAuthorityRef, ...]:
+    refs: list[MultiFidelityAuthorityRef] = [
+        plan.baseline_authority,
+        *plan.candidates,
+    ]
+    for stage in plan.stages:
+        refs.append(stage.evaluator_authority)
+        if stage.validated_screening_relationship_ref is not None:
+            refs.append(stage.validated_screening_relationship_ref)
+    return tuple(refs)
+
+
+def _register_stage_evidence(
+    evidence: _StageEvidenceRegistry,
+    plan: MultiFidelityPlan,
+    *stage_results,
+) -> None:
+    for result in stage_results:
+        stage = plan.stage(result.stage_id)
+        for outcome in result.outcomes:
+            for ref in outcome.evidence_refs:
+                evidence.register(
+                    ref,
+                    plan=plan,
+                    stage_id=stage.stage_id,
+                    candidate=outcome.candidate,
+                    relationship=stage.validated_screening_relationship_ref,
+                )
+
+
+def _scene_repository(tmp_path: Path, document_id: str) -> SceneRepository:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    scene_repository.save(
+        SceneDocument(
+            document_id=document_id,
+            room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+            entities=(),
+        ),
+        parent_revision_id=None,
+    )
+    return scene_repository
 
 
 def _ref(
@@ -390,15 +514,7 @@ def test_final_comparison_candidate_set_must_equal_exact_survivors() -> None:
 def test_multifidelity_plan_stage_results_and_screening_save_reopen(
     tmp_path: Path,
 ) -> None:
-    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
-    scene_repository.save(
-        SceneDocument(
-            document_id='multifidelity-fixture',
-            room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
-            entities=(),
-        ),
-        parent_revision_id=None,
-    )
+    scene_repository = _scene_repository(tmp_path, 'multifidelity-fixture')
     plan = _plan()
     geometry, coverage, screening = _screening(plan)
     final_comparison = _final_comparison()
@@ -406,8 +522,13 @@ def test_multifidelity_plan_stage_results_and_screening_save_reopen(
         scene_repository.path,
         final_comparison,
     )
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    _register_stage_evidence(evidence, plan, geometry, coverage)
     repository = CadMultiFidelityRepository(
         scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
         topology_comparison_repository=resolver,
     )
 
@@ -429,6 +550,8 @@ def test_multifidelity_plan_stage_results_and_screening_save_reopen(
     )
     reopened = CadMultiFidelityRepository(
         reopened_scene,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
         topology_comparison_repository=reopened_resolver,
     )
     assert reopened.get_plan(plan.plan_id) == plan
@@ -441,14 +564,9 @@ def test_multifidelity_plan_stage_results_and_screening_save_reopen(
 def test_o100_finalization_reopen_requires_typed_final_comparison_resolver(
     tmp_path: Path,
 ) -> None:
-    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
-    scene_repository.save(
-        SceneDocument(
-            document_id='multifidelity-finalization-fixture',
-            room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
-            entities=(),
-        ),
-        parent_revision_id=None,
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-finalization-fixture',
     )
     plan = _plan()
     geometry, coverage, screening = _screening(plan)
@@ -457,8 +575,13 @@ def test_o100_finalization_reopen_requires_typed_final_comparison_resolver(
         scene_repository.path,
         final_comparison,
     )
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    _register_stage_evidence(evidence, plan, geometry, coverage)
     repository = CadMultiFidelityRepository(
         scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
         topology_comparison_repository=resolver,
     )
     repository.save_plan(plan)
@@ -473,7 +596,9 @@ def test_o100_finalization_reopen_requires_typed_final_comparison_resolver(
     repository.save_finalization(finalization)
 
     unresolved = CadMultiFidelityRepository(
-        SceneRepository(scene_repository.path)
+        SceneRepository(scene_repository.path),
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
     )
     with pytest.raises(
         ValueError,
@@ -519,3 +644,397 @@ def test_final_common_fidelity_requires_exact_bundle_for_each_survivor() -> None
             screening=screening,
             final_comparison=missing_bundle,
         )
+
+
+@pytest.mark.parametrize(
+    'role',
+    ('baseline', 'candidate', 'evaluator', 'relationship'),
+)
+def test_save_plan_rejects_unresolvable_plan_authority(
+    tmp_path: Path,
+    role: str,
+) -> None:
+    plan = _plan()
+    dropped = {
+        'baseline': plan.baseline_authority,
+        'candidate': plan.candidates[0],
+        'evaluator': plan.stages[0].evaluator_authority,
+        'relationship': plan.stages[1].validated_screening_relationship_ref,
+    }[role]
+    authorities = _AuthorityRegistry(
+        *(ref for ref in _plan_authority_refs(plan) if ref != dropped)
+    )
+    repository = CadMultiFidelityRepository(
+        _scene_repository(tmp_path, f'multifidelity-unresolved-{role}'),
+        authority_resolver=authorities,
+        stage_evidence_resolver=_StageEvidenceRegistry(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='exact authority does not exist',
+    ):
+        repository.save_plan(plan)
+
+
+def test_save_plan_rejects_mismatched_resolved_authority(
+    tmp_path: Path,
+) -> None:
+    plan = _plan()
+    mismatched = plan.candidates[0].model_copy(
+        update={'authority_id': 'variant-other'}
+    )
+
+    def resolver(ref: MultiFidelityAuthorityRef):
+        if ref == plan.candidates[0]:
+            return mismatched
+        return ref
+
+    repository = CadMultiFidelityRepository(
+        _scene_repository(tmp_path, 'multifidelity-mismatch'),
+        authority_resolver=resolver,
+        stage_evidence_resolver=_StageEvidenceRegistry(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='multi-fidelity candidate exact authority mismatch',
+    ):
+        repository.save_plan(plan)
+
+
+def test_get_plan_fails_closed_when_candidate_authority_dropped(
+    tmp_path: Path,
+) -> None:
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-dropped-candidate',
+    )
+    plan = _plan()
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=_StageEvidenceRegistry(),
+    )
+    repository.save_plan(plan)
+
+    authorities.remove(plan.candidates[0])
+    with pytest.raises(
+        ValueError,
+        match='multi-fidelity candidate exact authority does not exist',
+    ):
+        repository.get_plan(plan.plan_id)
+
+
+def test_save_stage_result_rejects_fabricated_pruned_evidence(
+    tmp_path: Path,
+) -> None:
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-fabricated-evidence',
+    )
+    plan = _plan()
+    geometry, _coverage, _screening_evaluation = _screening(plan)
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    stage = plan.stage('geometry')
+    # Register the honest ADVANCE evidence only; the PRUNED outcome's
+    # 'constraint' evidence ref is never registered, so it is fabricated
+    # authority even though the stage result self-hash is coherent.
+    for outcome in geometry.outcomes:
+        if outcome.decision == 'PRUNED':
+            continue
+        for ref in outcome.evidence_refs:
+            evidence.register(
+                ref,
+                plan=plan,
+                stage_id=stage.stage_id,
+                candidate=outcome.candidate,
+            )
+    repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
+    )
+    repository.save_plan(plan)
+
+    with pytest.raises(
+        ValueError,
+        match='evidence exact authority does not exist',
+    ):
+        repository.save_stage_result(geometry)
+    assert repository.get_plan(plan.plan_id) == plan
+
+
+def test_stage_evidence_bound_to_other_candidate_cannot_prune(
+    tmp_path: Path,
+) -> None:
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-cross-candidate-evidence',
+    )
+    plan = _plan()
+    a, b, c = plan.candidates
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    shared_evidence = _ref('constraint', 'shared-collision', '6')
+    # The collision evidence is honestly bound to candidate c's geometry
+    # outcome; it must not be reusable to prune candidate a.
+    evidence.register(
+        shared_evidence,
+        plan=plan,
+        stage_id='geometry',
+        candidate=c,
+    )
+    for candidate in (a, b):
+        evidence.register(
+            _ref('geometry', f'{candidate.authority_id}-geometry', '4'),
+            plan=plan,
+            stage_id='geometry',
+            candidate=candidate,
+        )
+    result = build_multifidelity_stage_result(
+        plan=plan,
+        stage_id='geometry',
+        input_candidates=(a, b, c),
+        outcomes=(
+            MultiFidelityStageOutcome(
+                candidate=a,
+                decision='PRUNED',
+                evidence_refs=(shared_evidence,),
+                reasons=('borrowed collision evidence',),
+            ),
+            MultiFidelityStageOutcome(
+                candidate=b,
+                decision='ADVANCE',
+                evidence_refs=(
+                    _ref('geometry', 'variant-b-geometry', '4'),
+                ),
+            ),
+            MultiFidelityStageOutcome(
+                candidate=c,
+                decision='ADVANCE',
+                evidence_refs=(
+                    _ref('geometry', 'variant-c-geometry', '5'),
+                ),
+            ),
+        ),
+    )
+    repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
+    )
+    repository.save_plan(plan)
+
+    with pytest.raises(
+        ValueError,
+        match='evidence exact authority does not exist',
+    ):
+        repository.save_stage_result(result)
+
+
+def test_stage_evidence_bound_to_other_stage_cannot_prune(
+    tmp_path: Path,
+) -> None:
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-cross-stage-evidence',
+    )
+    plan = _plan()
+    a, b, c = plan.candidates
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    coverage_evidence = _ref('coverage', 'c-coverage-deficit', '8')
+    # The coverage deficit evidence is bound to the coverage stage; it must
+    # not authorize pruning inside the geometry hard-gate stage.
+    evidence.register(
+        coverage_evidence,
+        plan=plan,
+        stage_id='coverage',
+        candidate=c,
+        relationship=plan.stages[1].validated_screening_relationship_ref,
+    )
+    for candidate in (a, b):
+        evidence.register(
+            _ref('geometry', f'{candidate.authority_id}-geometry', '4'),
+            plan=plan,
+            stage_id='geometry',
+            candidate=candidate,
+        )
+    result = build_multifidelity_stage_result(
+        plan=plan,
+        stage_id='geometry',
+        input_candidates=(a, b, c),
+        outcomes=(
+            MultiFidelityStageOutcome(
+                candidate=a,
+                decision='ADVANCE',
+                evidence_refs=(
+                    _ref('geometry', 'variant-a-geometry', '4'),
+                ),
+            ),
+            MultiFidelityStageOutcome(
+                candidate=b,
+                decision='ADVANCE',
+                evidence_refs=(
+                    _ref('geometry', 'variant-b-geometry', '4'),
+                ),
+            ),
+            MultiFidelityStageOutcome(
+                candidate=c,
+                decision='PRUNED',
+                evidence_refs=(coverage_evidence,),
+                reasons=('borrowed coverage evidence',),
+            ),
+        ),
+    )
+    repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
+    )
+    repository.save_plan(plan)
+
+    with pytest.raises(
+        ValueError,
+        match='evidence exact authority does not exist',
+    ):
+        repository.save_stage_result(result)
+
+
+def test_validated_screening_evidence_must_match_declared_relationship(
+    tmp_path: Path,
+) -> None:
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-relationship-evidence',
+    )
+    plan = _plan()
+    a, b, _c = plan.candidates
+    geometry, _coverage, _screening_evaluation = _screening(plan)
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    _register_stage_evidence(evidence, plan, geometry)
+    stage = plan.stage('coverage')
+    other_relationship = _ref(
+        'screening_relationship',
+        'other-relationship',
+        'e',
+    )
+    coverage_prune = _ref('coverage', 'b-coverage-deficit', '9')
+    # Evidence bound to a different screening relationship than the one the
+    # stage declares must not authorize pruning.
+    evidence.register(
+        coverage_prune,
+        plan=plan,
+        stage_id='coverage',
+        candidate=b,
+        relationship=other_relationship,
+    )
+    evidence.register(
+        _ref('coverage', 'a-coverage', '8'),
+        plan=plan,
+        stage_id='coverage',
+        candidate=a,
+        relationship=stage.validated_screening_relationship_ref,
+    )
+    coverage = build_multifidelity_stage_result(
+        plan=plan,
+        stage_id='coverage',
+        input_candidates=(a, b),
+        outcomes=(
+            MultiFidelityStageOutcome(
+                candidate=a,
+                decision='ADVANCE',
+                evidence_refs=(_ref('coverage', 'a-coverage', '8'),),
+            ),
+            MultiFidelityStageOutcome(
+                candidate=b,
+                decision='PRUNED',
+                evidence_refs=(coverage_prune,),
+                reasons=('coverage deficit under unvalidated relationship',),
+            ),
+        ),
+    )
+    repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
+    )
+    repository.save_plan(plan)
+    repository.save_stage_result(geometry)
+
+    with pytest.raises(
+        ValueError,
+        match='evidence exact authority does not exist',
+    ):
+        repository.save_stage_result(coverage)
+
+
+def test_get_stage_result_fails_closed_when_evidence_dropped(
+    tmp_path: Path,
+) -> None:
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-dropped-evidence',
+    )
+    plan = _plan()
+    geometry, _coverage, _screening_evaluation = _screening(plan)
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    _register_stage_evidence(evidence, plan, geometry)
+    repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
+    )
+    repository.save_plan(plan)
+    repository.save_stage_result(geometry)
+
+    pruned = next(
+        outcome
+        for outcome in geometry.outcomes
+        if outcome.decision == 'PRUNED'
+    )
+    evidence.remove(pruned.evidence_refs[0])
+    with pytest.raises(
+        ValueError,
+        match='evidence exact authority does not exist',
+    ):
+        repository.get_stage_result(geometry.result_id)
+
+
+def test_screening_rejects_stage_result_with_dropped_evidence(
+    tmp_path: Path,
+) -> None:
+    scene_repository = _scene_repository(
+        tmp_path,
+        'multifidelity-screening-dropped-evidence',
+    )
+    plan = _plan()
+    geometry, coverage, screening = _screening(plan)
+    authorities = _AuthorityRegistry(*_plan_authority_refs(plan))
+    evidence = _StageEvidenceRegistry()
+    _register_stage_evidence(evidence, plan, geometry, coverage)
+    repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=authorities,
+        stage_evidence_resolver=evidence,
+    )
+    repository.save_plan(plan)
+    repository.save_stage_result(geometry)
+    repository.save_stage_result(coverage)
+
+    pruned = next(
+        outcome
+        for outcome in geometry.outcomes
+        if outcome.decision == 'PRUNED'
+    )
+    evidence.remove(pruned.evidence_refs[0])
+    with pytest.raises(
+        ValueError,
+        match='evidence exact authority does not exist',
+    ):
+        repository.save_screening(screening)

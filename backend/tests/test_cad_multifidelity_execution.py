@@ -129,10 +129,19 @@ def _task(plan, candidate, *, config_char: str, estimate_char: str):
 def _registry(*refs: MultiFidelityAuthorityRef):
     values = {ref.key(): ref for ref in refs}
 
-    def resolve(ref: MultiFidelityAuthorityRef):
+    def resolve(ref: MultiFidelityAuthorityRef, context=None):
         return values.get(ref.key())
 
     return values, resolve
+
+
+def _plan_authority_refs(plan):
+    refs = [plan.baseline_authority, *plan.candidates]
+    for stage in plan.stages:
+        refs.append(stage.evaluator_authority)
+        if stage.validated_screening_relationship_ref is not None:
+            refs.append(stage.validated_screening_relationship_ref)
+    return tuple(refs)
 
 
 def _task_refs(task):
@@ -254,9 +263,7 @@ def test_r140_cache_resume_reopens_exact_result_and_fails_when_stale(
     tmp_path: Path,
 ) -> None:
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
-    multifidelity_repository = CadMultiFidelityRepository(scene_repository)
     plan = _plan()
-    multifidelity_repository.save_plan(plan)
 
     task_a = _task(
         plan,
@@ -284,6 +291,7 @@ def test_r140_cache_resume_reopens_exact_result_and_fails_when_stale(
     provenance_ref = _ref('execution_provenance', 'execution-a', '7')
 
     all_refs = (
+        *_plan_authority_refs(plan),
         *_task_refs(task_a),
         *_task_refs(task_b),
         capacity_ref,
@@ -291,6 +299,12 @@ def test_r140_cache_resume_reopens_exact_result_and_fails_when_stale(
         provenance_ref,
     )
     values, resolver = _registry(*all_refs)
+    multifidelity_repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=resolver,
+        stage_evidence_resolver=resolver,
+    )
+    multifidelity_repository.save_plan(plan)
     repository = CadMultiFidelityExecutionRepository(
         scene_repository,
         multifidelity_repository=multifidelity_repository,
@@ -318,7 +332,11 @@ def test_r140_cache_resume_reopens_exact_result_and_fails_when_stale(
     assert pending == (task_b,)
 
     reopened_scene = SceneRepository(scene_repository.path)
-    reopened_multifidelity = CadMultiFidelityRepository(reopened_scene)
+    reopened_multifidelity = CadMultiFidelityRepository(
+        reopened_scene,
+        authority_resolver=resolver,
+        stage_evidence_resolver=resolver,
+    )
     reopened = CadMultiFidelityExecutionRepository(
         reopened_scene,
         multifidelity_repository=reopened_multifidelity,
@@ -352,16 +370,20 @@ def test_r140_task_reopen_requires_exact_evaluator_authority(
     tmp_path: Path,
 ) -> None:
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
-    multifidelity_repository = CadMultiFidelityRepository(scene_repository)
     plan = _plan()
-    multifidelity_repository.save_plan(plan)
     task = _task(
         plan,
         plan.candidates[0],
         config_char='1',
         estimate_char='2',
     )
-    values, resolver = _registry(*_task_refs(task))
+    values, resolver = _registry(*_plan_authority_refs(plan), *_task_refs(task))
+    multifidelity_repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=resolver,
+        stage_evidence_resolver=resolver,
+    )
+    multifidelity_repository.save_plan(plan)
     repository = CadMultiFidelityExecutionRepository(
         scene_repository,
         multifidelity_repository=multifidelity_repository,
@@ -372,7 +394,7 @@ def test_r140_task_reopen_requires_exact_evaluator_authority(
     values.pop(task.evaluator_authority.key())
     with pytest.raises(
         ValueError,
-        match='stage evaluator exact external authority does not exist',
+        match='evaluator exact authority does not exist',
     ):
         repository.get_task(task.task_id)
 
@@ -388,3 +410,80 @@ def test_r140_resource_vector_requires_compute_slot() -> None:
             memory_bytes=1_000_000,
             scratch_bytes=1_000,
         )
+
+
+def test_r140_task_cannot_execute_candidate_inside_unverified_plan(
+    tmp_path: Path,
+) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    plan = _plan()
+    task = _task(
+        plan,
+        plan.candidates[0],
+        config_char='1',
+        estimate_char='2',
+    )
+    # The candidate refs only exist inside the self-hashed plan payload; the
+    # registry holds every other plan authority, so the plan cannot persist.
+    values, resolver = _registry(
+        plan.baseline_authority,
+        *(stage.evaluator_authority for stage in plan.stages),
+        *_task_refs(task),
+    )
+    multifidelity_repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=resolver,
+        stage_evidence_resolver=resolver,
+    )
+    with pytest.raises(
+        ValueError,
+        match='multi-fidelity candidate exact authority does not exist',
+    ):
+        multifidelity_repository.save_plan(plan)
+
+    repository = CadMultiFidelityExecutionRepository(
+        scene_repository,
+        multifidelity_repository=multifidelity_repository,
+        external_authority_resolver=resolver,
+    )
+    with pytest.raises(
+        ValueError,
+        match='R140 task references missing MultiFidelityPlan',
+    ):
+        repository.save_task(task)
+
+
+def test_r140_task_rejected_when_plan_candidate_authority_dropped(
+    tmp_path: Path,
+) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    plan = _plan()
+    task = _task(
+        plan,
+        plan.candidates[0],
+        config_char='1',
+        estimate_char='2',
+    )
+    values, resolver = _registry(
+        *_plan_authority_refs(plan),
+        *_task_refs(task),
+    )
+    multifidelity_repository = CadMultiFidelityRepository(
+        scene_repository,
+        authority_resolver=resolver,
+        stage_evidence_resolver=resolver,
+    )
+    multifidelity_repository.save_plan(plan)
+    repository = CadMultiFidelityExecutionRepository(
+        scene_repository,
+        multifidelity_repository=multifidelity_repository,
+        external_authority_resolver=resolver,
+    )
+    repository.save_task(task)
+
+    values.pop(plan.candidates[0].key())
+    with pytest.raises(
+        ValueError,
+        match='multi-fidelity candidate exact authority does not exist',
+    ):
+        repository.save_task(task)

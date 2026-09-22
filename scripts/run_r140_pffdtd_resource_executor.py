@@ -182,11 +182,6 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             ),
         )
-        multifidelity_repository = CadMultiFidelityRepository(
-            fixture['scene_repository']
-        )
-        multifidelity_repository.save_plan(plan)
-
         registry: dict[
             tuple[str, str, str | None, str],
             MultiFidelityAuthorityRef,
@@ -195,12 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         def register(ref: MultiFidelityAuthorityRef) -> None:
             registry[ref.key()] = ref
 
-        register(evaluator_ref)
-        register(estimate.execution_backend_ref)
-        register(estimate.execution_configuration_ref)
-        register(estimate.authority_ref())
-
-        def resolve(ref: MultiFidelityAuthorityRef):
+        def resolve(ref: MultiFidelityAuthorityRef, context=None):
             exact = registry.get(ref.key())
             if exact is not None:
                 return exact
@@ -225,6 +215,23 @@ def main(argv: list[str] | None = None) -> int:
                     return None
                 return ref
             return None
+
+        for ref in (
+            plan.baseline_authority,
+            *plan.candidates,
+            *(stage.evaluator_authority for stage in plan.stages),
+        ):
+            register(ref)
+        register(estimate.execution_backend_ref)
+        register(estimate.execution_configuration_ref)
+        register(estimate.authority_ref())
+
+        multifidelity_repository = CadMultiFidelityRepository(
+            fixture['scene_repository'],
+            authority_resolver=resolve,
+            stage_evidence_resolver=resolve,
+        )
+        multifidelity_repository.save_plan(plan)
 
         execution_repository = CadMultiFidelityExecutionRepository(
             fixture['scene_repository'],

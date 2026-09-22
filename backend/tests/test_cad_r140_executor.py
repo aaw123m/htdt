@@ -104,18 +104,33 @@ def _plan(candidate_count: int = 3):
     )
 
 
+def _plan_authority_refs(plan):
+    refs = [plan.baseline_authority, *plan.candidates]
+    for stage in plan.stages:
+        refs.append(stage.evaluator_authority)
+        if stage.validated_screening_relationship_ref is not None:
+            refs.append(stage.validated_screening_relationship_ref)
+    return tuple(refs)
+
+
 class Fixture:
     def __init__(self, tmp_path: Path, *, candidate_count: int = 3) -> None:
         self.scene = SceneRepository(tmp_path / 'cad.sqlite3')
-        self.multifidelity = CadMultiFidelityRepository(self.scene)
-        self.plan = _plan(candidate_count)
-        self.multifidelity.save_plan(self.plan)
         self.authorities: dict[tuple[str, str, str | None, str], MultiFidelityAuthorityRef] = {}
 
-        def resolve(ref: MultiFidelityAuthorityRef):
+        def resolve(ref: MultiFidelityAuthorityRef, context=None):
             return self.authorities.get(ref.key())
 
         self.resolve = resolve
+        self.multifidelity = CadMultiFidelityRepository(
+            self.scene,
+            authority_resolver=resolve,
+            stage_evidence_resolver=resolve,
+        )
+        self.plan = _plan(candidate_count)
+        for ref in _plan_authority_refs(self.plan):
+            self.register(ref)
+        self.multifidelity.save_plan(self.plan)
         self.execution = CadMultiFidelityExecutionRepository(
             self.scene,
             multifidelity_repository=self.multifidelity,
