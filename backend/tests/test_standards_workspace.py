@@ -11,12 +11,16 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_f1_scene
 from htdt.cad_standards import (
     CriterionDefinition,
-    CriterionEvidenceRef,
     CriterionObservation,
     CriterionRule,
     CriterionSource,
+    StandardsEvaluationTarget,
     build_user_standards_profile,
     evaluate_standards_profile,
+)
+from htdt.cad_standards_evidence import (
+    StandardsObservationAuthority,
+    build_standards_observation_authority,
 )
 from htdt.cad_standards_repository import CadStandardsRepository
 from htdt.cad_system_variant import ChannelRoleBinding, build_system_variant
@@ -77,10 +81,38 @@ def _profile(version: str = "1.0", *, maximum: float = 1.0):
     )
 
 
+def _authority(
+    repository: CadStandardsRepository,
+    target: StandardsEvaluationTarget,
+    criterion_id: str,
+    value: float,
+    *,
+    capability: bool = True,
+    evidence_basis: str = "predicted",
+) -> StandardsObservationAuthority:
+    authority = build_standards_observation_authority(
+        document_id=target.document_id,
+        scene_revision_id=target.scene_revision_id,
+        scene_content_hash=target.scene_content_hash,
+        system_variant_id=target.system_variant_id,
+        system_variant_sha256=target.system_variant_sha256,
+        quantity=f"{criterion_id}_quantity",
+        unit="m",
+        observed_value=value,
+        evidence_basis=evidence_basis,
+        provided_inputs=(f"{criterion_id}_input",),
+        capabilities=(("fixture-capability-v1",) if capability else ()),
+        observed_at_utc=NOW,
+    )
+    repository.save_observation_authority(authority)
+    return authority
+
+
 def _observation(
     criterion_id: str,
     value: float,
     *,
+    authority: StandardsObservationAuthority,
     capability: bool = True,
     evidence_basis: str = "predicted",
 ) -> CriterionObservation:
@@ -89,12 +121,7 @@ def _observation(
         observed_value=value,
         unit="m",
         evidence_basis=evidence_basis,
-        evidence_refs=(
-            CriterionEvidenceRef(
-                evidence_id=f"evidence-{criterion_id}",
-                evidence_sha256=("a" * 64),
-            ),
-        ),
+        evidence_refs=(authority.ref(),),
         provided_inputs=(f"{criterion_id}_input",),
         capabilities=(("fixture-capability-v1",) if capability else ()),
     )
@@ -138,13 +165,32 @@ def test_s130_room_panel_renders_exact_statuses_japanese_and_provenance(tmp_path
 
     model = StandardsWorkspaceModel(scene_repository, revision.document_id)
     target = model.target_view(None).target
+    fail_authority = _authority(
+        repository, target, "fail", 2.0, evidence_basis="measured"
+    )
     evaluation = evaluate_standards_profile(
         profile=profile,
         target=target,
         observations=(
-            _observation("pass", 0.5),
-            _observation("fail", 2.0, evidence_basis="measured"),
-            _observation("unknown", 0.5, capability=False),
+            _observation(
+                "pass",
+                0.5,
+                authority=_authority(repository, target, "pass", 0.5),
+            ),
+            _observation(
+                "fail",
+                2.0,
+                authority=fail_authority,
+                evidence_basis="measured",
+            ),
+            _observation(
+                "unknown",
+                0.5,
+                authority=_authority(
+                    repository, target, "unknown", 0.5, capability=False
+                ),
+                capability=False,
+            ),
         ),
         created_at_utc=NOW,
     )
@@ -174,7 +220,7 @@ def test_s130_room_panel_renders_exact_statuses_japanese_and_provenance(tmp_path
     assert revision.revision_id in advanced
     assert profile.profile_id in advanced
     assert profile.version in advanced
-    assert "evidence-fail" in advanced
+    assert fail_authority.authority_id in advanced
     assert "Evaluation SHA-256" in advanced
 
     panel.close()
@@ -193,9 +239,24 @@ def test_s130_hard_constraint_opt_in_is_explicit_and_fail_closed(tmp_path) -> No
         profile=profile,
         target=target,
         observations=(
-            _observation("pass", 0.5),
-            _observation("fail", 2.0),
-            _observation("unknown", 0.5, capability=False),
+            _observation(
+                "pass",
+                0.5,
+                authority=_authority(repository, target, "pass", 0.5),
+            ),
+            _observation(
+                "fail",
+                2.0,
+                authority=_authority(repository, target, "fail", 2.0),
+            ),
+            _observation(
+                "unknown",
+                0.5,
+                authority=_authority(
+                    repository, target, "unknown", 0.5, capability=False
+                ),
+                capability=False,
+            ),
         ),
         created_at_utc=NOW,
     )
@@ -272,7 +333,13 @@ def test_s130_profile_version_reevaluation_preserves_old_evaluation(tmp_path) ->
     old = evaluate_standards_profile(
         profile=profile_v1,
         target=target,
-        observations=(_observation("pass", 0.5),),
+        observations=(
+            _observation(
+                "pass",
+                0.5,
+                authority=_authority(repository, target, "pass", 0.5),
+            ),
+        ),
         created_at_utc=NOW,
     )
     repository.save_evaluation(old)
@@ -325,7 +392,15 @@ def test_s130_system_variant_matrix_binds_exact_variant_without_ranking(tmp_path
     variant_eval = evaluate_standards_profile(
         profile=profile,
         target=variant_target,
-        observations=(_observation("fail", 2.0),),
+        observations=(
+            _observation(
+                "fail",
+                2.0,
+                authority=_authority(
+                    repository, variant_target, "fail", 2.0
+                ),
+            ),
+        ),
         created_at_utc=NOW,
     )
     repository.save_evaluation(baseline_eval)
@@ -392,7 +467,13 @@ def test_s130_profile_switch_clears_explicit_hard_constraint_opt_in(tmp_path) ->
         evaluate_standards_profile(
             profile=profile_a,
             target=target,
-            observations=(_observation("only-a", 2.0),),
+            observations=(
+                _observation(
+                    "only-a",
+                    2.0,
+                    authority=_authority(repository, target, "only-a", 2.0),
+                ),
+            ),
             created_at_utc=NOW,
         )
     )
@@ -400,7 +481,13 @@ def test_s130_profile_switch_clears_explicit_hard_constraint_opt_in(tmp_path) ->
         evaluate_standards_profile(
             profile=profile_b,
             target=target,
-            observations=(_observation("only-b", 0.5),),
+            observations=(
+                _observation(
+                    "only-b",
+                    0.5,
+                    authority=_authority(repository, target, "only-b", 0.5),
+                ),
+            ),
             created_at_utc=NOW,
         )
     )
