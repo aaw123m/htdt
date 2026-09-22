@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import json
 from typing import Callable, Iterable
 
 from .cad_repository import SceneRevision
-from .cad_roomsim import CadRoomSimBinding, build_cad_roomsim_batch_request
+from .cad_roomsim import (
+    CadRoomSimBinding,
+    build_cad_roomsim_candidate_request,
+)
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_roomsim_results import (
     CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION,
     CadRoomSimBatchSpec,
     CadRoomSimCandidateAttempt,
-    CadRoomSimCandidateRequest,
     CadRoomSimExecutionResult,
     canonical_roomsim_result_json,
     canonical_roomsim_result_sha256,
@@ -41,24 +43,6 @@ class CadRoomSimBatchRunOutcome:
     cancelled: bool
 
 
-def _candidate_request(
-    revision: SceneRevision,
-    spec: CadSearchSpec,
-    candidate: CadCandidate,
-    binding: CadRoomSimBinding,
-) -> CadRoomSimCandidateRequest:
-    request = build_cad_roomsim_batch_request(revision, spec, candidate, binding)
-    payload = asdict(request)
-    request_json = canonical_roomsim_result_json(payload)
-    return CadRoomSimCandidateRequest(
-        candidate_id=candidate.candidate_id,
-        raw_index=candidate.raw_index,
-        feasible_index=candidate.feasible_index,
-        request_json=request_json,
-        request_sha256=canonical_roomsim_result_sha256(payload),
-    )
-
-
 def build_cad_roomsim_batch_spec(
     revision: SceneRevision,
     spec: CadSearchSpec,
@@ -74,7 +58,7 @@ def build_cad_roomsim_batch_spec(
     binding_payload = binding.model_dump(mode='json')
     binding_json = canonical_roomsim_result_json(binding_payload)
     requests = tuple(
-        _candidate_request(revision, spec, candidate, binding)
+        build_cad_roomsim_candidate_request(revision, spec, candidate, binding)
         for candidate in candidate_tuple
     )
     identity = {

@@ -14,6 +14,7 @@ from htdt.cad_equipment import (
     InterpolationProvenance,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Offset3, Size3
@@ -98,6 +99,22 @@ def _repositories(tmp_path: Path, *, db_name: str = 'cad.sqlite3'):
         equipment_repository=equipment_repository,
     )
     return scene_repository, equipment_repository, wave_repository
+
+
+def _save_definition(equipment_repository, definition) -> None:
+    """Persist manual evidence for every cited provenance, then the definition.
+
+    ``save_definition`` requires each provenance claim to resolve to a
+    retained ``EquipmentEvidenceAuthority``, so the fixture records the
+    manual-entry authorities first.
+    """
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='wave-excitation-test-fixture',
+        recorded_at_utc=NOW,
+    ):
+        equipment_repository.save_evidence(evidence)
+    equipment_repository.save_definition(definition)
 
 
 def _imported(
@@ -216,7 +233,7 @@ def _evidence_rows(path: Path) -> list[tuple]:
 def test_imported_excitation_persists_reopens_and_replays(tmp_path: Path) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
 
@@ -274,7 +291,7 @@ def test_identical_evidence_and_source_asset_are_stored_once(
 ) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
 
@@ -304,7 +321,7 @@ def test_save_evidence_without_source_bytes_requires_managed_asset(
 ) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
 
     with pytest.raises(ValueError, match='not registered'):
@@ -322,7 +339,7 @@ def test_save_evidence_without_source_bytes_requires_managed_asset(
 def test_source_bytes_must_match_evidence_digest(tmp_path: Path) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, _samples = _imported(definition)
 
     with pytest.raises(ValueError, match='do not match'):
@@ -344,7 +361,7 @@ def test_fabricated_source_sha_cannot_authorize_excitation(
 ) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
     repository.save_evidence(
@@ -409,7 +426,7 @@ def test_fabricated_source_sha_cannot_authorize_excitation(
 def test_missing_or_tampered_source_asset_fails_closed(tmp_path: Path) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
     repository.save_evidence(
@@ -440,7 +457,7 @@ def test_missing_or_tampered_source_asset_fails_closed(tmp_path: Path) -> None:
 def test_persisted_excitation_must_replay_from_evidence(tmp_path: Path) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
     repository.save_evidence(
@@ -481,7 +498,7 @@ def test_persisted_excitation_must_replay_from_evidence(tmp_path: Path) -> None:
 def test_unregistered_converter_or_model_fails_closed(tmp_path: Path) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, _samples = _imported(definition)
 
     stale_derivation = WaveExcitationSourceAssetDerivation(
@@ -532,7 +549,7 @@ def test_unregistered_converter_or_model_fails_closed(tmp_path: Path) -> None:
 def test_analytic_excitation_regenerates_and_reopens(tmp_path: Path) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
 
     parameters = {
         'frequencies_hz': [100.0, 200.0],
@@ -616,7 +633,7 @@ def test_manual_evidence_authority_retains_exact_values(
 ) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     samples = (
         ComplexVolumeVelocitySample(
             frequency_hz=40.0, real_m3_s=1.0e-4, imag_m3_s=0.0
@@ -675,7 +692,7 @@ def test_interpolation_provenance_resolves_to_retained_evidence(
 ) -> None:
     definition = _definition()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
     repository.save_evidence(
@@ -734,8 +751,8 @@ def test_wrong_equipment_subject_never_authorizes(tmp_path: Path) -> None:
     definition = _definition()
     other_definition = _definition('other-speaker')
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
-    equipment_repository.save_definition(other_definition)
+    _save_definition(equipment_repository, definition)
+    _save_definition(equipment_repository, other_definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
     repository.save_evidence(
@@ -841,7 +858,7 @@ def test_native_backup_preserves_excitation_source_assets(
         data_dir,
         db_name='cad-scenes.sqlite3',
     )
-    equipment_repository.save_definition(definition)
+    _save_definition(equipment_repository, definition)
     source_bytes, evidence, samples = _imported(definition)
     excitation = _excitation(definition, evidence, samples)
     repository.save_evidence(

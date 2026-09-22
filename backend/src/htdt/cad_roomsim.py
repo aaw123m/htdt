@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_predictions import RectangularRoomFrame, exact_rectangular_room_frame
 from .cad_repository import SceneRevision
+from .cad_roomsim_results import (
+    CadRoomSimCandidateRequest,
+    canonical_roomsim_result_json,
+    canonical_roomsim_result_sha256,
+)
 from .cad_scene import Position3, acoustic_reference_position
 from .cad_search import candidate_preview_document
 from .cad_search_models import CadCandidate, CadSearchSpec
@@ -124,4 +130,29 @@ def build_cad_roomsim_batch_request(
         source_positions_htdt=sources,
         mic_position=binding.mic_position,
         source_name=binding.response_source_name,
+    )
+
+
+def build_cad_roomsim_candidate_request(
+    revision: SceneRevision,
+    spec: CadSearchSpec,
+    candidate: CadCandidate,
+    binding: CadRoomSimBinding,
+) -> CadRoomSimCandidateRequest:
+    """Freeze the canonical Room Simulator request for one exact candidate.
+
+    The batch-input compiler and the repository authority replay share this
+    builder, so a persisted ``CadRoomSimCandidateRequest`` is provably the
+    canonical compilation of ``candidate`` under ``binding`` rather than a
+    caller-supplied payload that merely hashes consistently.
+    """
+    request = build_cad_roomsim_batch_request(revision, spec, candidate, binding)
+    payload = asdict(request)
+    request_json = canonical_roomsim_result_json(payload)
+    return CadRoomSimCandidateRequest(
+        candidate_id=candidate.candidate_id,
+        raw_index=candidate.raw_index,
+        feasible_index=candidate.feasible_index,
+        request_json=request_json,
+        request_sha256=canonical_roomsim_result_sha256(payload),
     )
