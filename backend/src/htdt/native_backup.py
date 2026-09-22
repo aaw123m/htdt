@@ -21,7 +21,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import __version__
 from .build_info import get_build_info
-from .cad_schema import NativeSchemaError, check_native_schema_compatibility
+from .cad_schema import (
+    NativeSchemaError,
+    check_native_schema_compatibility,
+    ensure_native_schema,
+)
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     canonical_data_path as _canonical_data_path,
@@ -229,6 +233,46 @@ def _sqlite_health(path: Path) -> None:
             raise ValueError(f'native backup database schema is incompatible: {exc}') from exc
     except sqlite3.DatabaseError as exc:
         raise ValueError(f'native backup database is invalid: {exc}') from exc
+
+
+def _assert_staged_database_openable(database_path: Path) -> None:
+    """Prove a staged database actually opens under the product's authorities.
+
+    ``_sqlite_health`` is a read-only gate: a staged database can satisfy it
+    yet still fail the moment live data handles are reopened — a versioned
+    database whose concrete shape breaks a migration statement, an unversioned
+    database shadowing a migration target with a view, or a database already
+    stamped at the current version whose objects trip repository
+    initialization (``ensure_native_schema`` runs no migrations there).
+    Failing only then would strand the restore: the destructive swap already
+    moved live data out and the archive reported success.
+
+    The staged bytes are pinned by the manifest hash (recovery verifies them
+    against ``restored_manifest``), so the proof runs on a disposable clone
+    exercised by the same authorities that open live data:
+    ``ensure_native_schema`` plus the ``SceneRepository`` open the application
+    performs when it rebinds data handles after a restore.
+    """
+    with tempfile.TemporaryDirectory(
+        prefix='.staged-db-probe-',
+        dir=database_path.parent,
+        ignore_cleanup_errors=True,
+    ) as probe_name:
+        probe_path = Path(probe_name) / database_path.name
+        shutil.copyfile(database_path, probe_path)
+        try:
+            ensure_native_schema(probe_path)
+            # Deferred import keeps the backup authority independent of the
+            # repository stack at module load, mirroring the deferred
+            # native_backup import inside ensure_native_schema().
+            from .cad_repository import SceneRepository
+
+            SceneRepository(probe_path)
+        except (NativeSchemaError, sqlite3.DatabaseError) as exc:
+            raise ValueError(
+                'native backup database cannot be opened by this application: '
+                f'{exc}'
+            ) from exc
 
 
 def _asset_rows(database_path: Path) -> tuple[tuple[str, str, int], ...]:
@@ -506,6 +550,7 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> BackupManifest:
 
     database_path = stage_root / DATABASE_NAME
     _sqlite_health(database_path)
+    _assert_staged_database_openable(database_path)
     _validate_asset_contract(
         data_dir=stage_root,
         database_path=database_path,
