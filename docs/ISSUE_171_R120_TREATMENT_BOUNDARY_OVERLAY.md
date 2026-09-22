@@ -74,7 +74,7 @@ automatic prediction truth.
 ## Persistence
 
 `TreatmentBoundaryOverlayRepository` adds append-only overlay and composition tables. On
-reopen it re-resolves and verifies:
+save and on authoritative reads it re-resolves and verifies:
 
 - exact SceneRevision/content hash
 - exact SemanticAcousticGeometry
@@ -84,7 +84,12 @@ reopen it re-resolves and verifies:
 - recomputed TreatmentSurfaceBindingEvaluation/hash
 - exact host SemanticSurface presence
 
-Stale R120 geometry or stale surface bindings are rejected.
+The repository then replays the canonical compiler helpers
+(`compile_treatment_boundary_overlay` / `compile_treatment_boundary_composition`)
+from those exact resolved authorities — including the exact R120 host-surface
+base binding — and requires exact semantic equality with the persisted record.
+Stale R120 geometry, stale surface bindings, or any coherently rehashed derived
+overlay/composition field are rejected.
 
 ## Focused fixtures
 
@@ -103,6 +108,15 @@ Stale R120 geometry or stale surface bindings are rejected.
 11. base material/boundary preservation
 12. deterministic overlay/composition hashing
 13. save/reopen with authority re-resolution
+14. canonical-compiler replay on save/read rejecting coherently rehashed
+    derived overlay fields (thickness, air gap, coverage, model metadata,
+    capability states, material candidate refs)
+15. canonical-compiler replay rejecting rehashed compositions (base
+    material/boundary refs moved off the exact R120 host binding, substituted
+    treatment material authorities, lifecycle flips, forged overlay refs,
+    multi-overlay attachments)
+16. fail-closed reads when persisted rows or referenced authorities
+    disappear or are tampered in place
 
 ## Files
 

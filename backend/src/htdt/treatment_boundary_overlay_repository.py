@@ -8,10 +8,13 @@ import sqlite3
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema
+from .r120_geometry_compiler import SurfaceBoundaryAuthorityBinding
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from .treatment_boundary_overlay import (
     TreatmentBoundaryCompositionRequest,
     TreatmentBoundaryOverlay,
+    compile_treatment_boundary_composition,
+    compile_treatment_boundary_overlay,
 )
 
 
@@ -166,12 +169,20 @@ class TreatmentBoundaryOverlayRepository:
     def get_overlay(self, overlay_id: str) -> TreatmentBoundaryOverlay | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_treatment_boundary_overlays WHERE overlay_id=?',
+                'SELECT overlay_hash_sha256, payload_json '
+                'FROM cad_treatment_boundary_overlays WHERE overlay_id=?',
                 (overlay_id,),
             ).fetchone()
         if row is None:
             return None
         overlay = TreatmentBoundaryOverlay.model_validate_json(row['payload_json'])
+        if (
+            overlay.overlay_id != overlay_id
+            or overlay.overlay_hash_sha256 != row['overlay_hash_sha256']
+        ):
+            raise ValueError(
+                'persisted treatment boundary overlay identity mismatch'
+            )
         self._validate_overlay_bindings(overlay)
         return overlay
 
@@ -242,7 +253,8 @@ class TreatmentBoundaryOverlayRepository:
     ) -> TreatmentBoundaryCompositionRequest | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_treatment_boundary_compositions '
+                'SELECT composition_hash_sha256, payload_json '
+                'FROM cad_treatment_boundary_compositions '
                 'WHERE composition_id=?',
                 (composition_id,),
             ).fetchone()
@@ -251,6 +263,13 @@ class TreatmentBoundaryOverlayRepository:
         composition = TreatmentBoundaryCompositionRequest.model_validate_json(
             row['payload_json']
         )
+        if (
+            composition.composition_id != composition_id
+            or composition.composition_hash_sha256 != row['composition_hash_sha256']
+        ):
+            raise ValueError(
+                'persisted treatment boundary composition identity mismatch'
+            )
         self._validate_composition_bindings(composition)
         return composition
 
@@ -333,6 +352,18 @@ class TreatmentBoundaryOverlayRepository:
         ):
             raise ValueError('treatment overlay surface binding is stale or mismatched')
 
+        canonical = compile_treatment_boundary_overlay(
+            definition,
+            placement,
+            evaluation,
+            revision,
+            compiled,
+        )
+        if canonical != overlay:
+            raise ValueError(
+                'treatment overlay is not reproducible from exact persisted authority'
+            )
+
     def _validate_composition_bindings(
         self,
         composition: TreatmentBoundaryCompositionRequest,
@@ -365,6 +396,7 @@ class TreatmentBoundaryOverlayRepository:
         ):
             raise ValueError('treatment composition references stale R120CompiledGeometry')
 
+        resolved_overlays: list[TreatmentBoundaryOverlay] = []
         for overlay_ref in composition.attached_treatment_overlays:
             overlay = self.get_overlay(overlay_ref.authority_id)
             if overlay is None:
@@ -378,3 +410,34 @@ class TreatmentBoundaryOverlayRepository:
                 or overlay.lifecycle != composition.selected_treatment_lifecycle
             ):
                 raise ValueError('treatment composition overlay authority mismatch')
+            resolved_overlays.append(overlay)
+
+        if len(resolved_overlays) != 1:
+            raise ValueError(
+                'treatment composition must attach exactly one canonical overlay'
+            )
+        host_mappings = [
+            item
+            for item in compiled.surface_mapping
+            if item.source_surface_id == composition.host_surface_id
+        ]
+        if len(host_mappings) != 1:
+            raise ValueError(
+                'treatment composition host surface is absent from '
+                'R120CompiledGeometry'
+            )
+        host_mapping = host_mappings[0]
+        canonical = compile_treatment_boundary_composition(
+            resolved_overlays[0],
+            target_domain=composition.target_domain,
+            base_binding=SurfaceBoundaryAuthorityBinding(
+                source_surface_id=host_mapping.source_surface_id,
+                material_authority=host_mapping.material_authority,
+                boundary_physics_authority=host_mapping.boundary_physics_authority,
+            ),
+        )
+        if canonical != composition:
+            raise ValueError(
+                'treatment composition is not reproducible from exact persisted '
+                'authority'
+            )

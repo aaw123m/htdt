@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -59,6 +61,10 @@ from htdt.semantic_geometry import (
 )
 from htdt.treatment_boundary_overlay import (
     TreatmentBoundaryCompileInput,
+    TreatmentBoundaryCompositionRequest,
+    TreatmentBoundaryOverlay,
+    _semantic_hash,
+    adapt_treatment_boundary_composition_to_r120,
     compile_treatment_boundary_overlays,
 )
 from htdt.treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
@@ -905,6 +911,48 @@ def _forged_snapshot(snapshot, **updates) -> AcousticSceneSnapshot:
     )
 
 
+def _rehashed_overlay(
+    overlay: TreatmentBoundaryOverlay,
+    **updates,
+) -> TreatmentBoundaryOverlay:
+    """Coherently recompute the self hash/id of a modified overlay."""
+
+    candidate = overlay.model_copy(update=updates)
+    core = candidate.model_dump(
+        mode='json',
+        exclude={'overlay_id', 'overlay_hash_sha256'},
+    )
+    digest = _semantic_hash(core)
+    return TreatmentBoundaryOverlay.model_validate(
+        {
+            **core,
+            'overlay_id': f'treatment-boundary-overlay:{digest}',
+            'overlay_hash_sha256': digest,
+        }
+    )
+
+
+def _rehashed_composition(
+    composition: TreatmentBoundaryCompositionRequest,
+    **updates,
+) -> TreatmentBoundaryCompositionRequest:
+    """Coherently recompute the self hash/id of a modified composition."""
+
+    candidate = composition.model_copy(update=updates)
+    core = candidate.model_dump(
+        mode='json',
+        exclude={'composition_id', 'composition_hash_sha256'},
+    )
+    digest = _semantic_hash(core)
+    return TreatmentBoundaryCompositionRequest.model_validate(
+        {
+            **core,
+            'composition_id': f'treatment-boundary-composition:{digest}',
+            'composition_hash_sha256': digest,
+        }
+    )
+
+
 def test_incomplete_treatment_composition_cannot_claim_boundary_ready(
     tmp_path: Path,
 ) -> None:
@@ -965,3 +1013,107 @@ def test_incomplete_treatment_composition_cannot_claim_boundary_ready(
         match='unresolved conditions do not reproduce from exact authorities',
     ):
         repository.save_snapshot(forged_clean)
+
+
+def test_snapshot_consumes_only_replay_validated_treatment_authorities(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    result, _item = _compile_result(
+        fx,
+        kind='both',
+        instance_id='panel-snapshot-replay',
+        target_domain='wave',
+    )
+    _persist_result(fx, result)
+    snapshot = _snapshot(fx, result)
+    repository = CadAcousticSnapshotRepository(
+        fx['scene_repository'],
+        r120_repository=fx['r120_repository'],
+        treatment_boundary_repository=fx['overlay_repository'],
+        authority_resolvers=_authority_resolvers(snapshot),
+    )
+    repository.save_snapshot(snapshot)
+
+    # A self-hash-valid forged overlay/composition pair that alters derived
+    # treatment capability must not become solver-facing snapshot authority.
+    forged_overlay = _rehashed_overlay(result.overlay, thickness_m=0.25)
+    forged_composition = _rehashed_composition(
+        result.composition_request,
+        attached_treatment_overlays=(
+            forged_overlay.as_external_authority_ref(),
+        ),
+    )
+    forged_result = result.model_copy(
+        update={
+            'overlay': forged_overlay,
+            'composition_request': forged_composition,
+            'r120_surface_binding': (
+                adapt_treatment_boundary_composition_to_r120(forged_composition)
+            ),
+        }
+    )
+    forged_snapshot = _snapshot(fx, forged_result)
+
+    path = fx['scene_repository'].path
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            """
+            INSERT INTO cad_treatment_boundary_overlays(
+                overlay_id,
+                overlay_hash_sha256,
+                scene_revision_id,
+                compiled_geometry_id,
+                treatment_definition_id,
+                treatment_definition_version,
+                treatment_placement_instance_id,
+                treatment_placement_version,
+                surface_binding_evaluation_hash_sha256,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                forged_overlay.overlay_id,
+                forged_overlay.overlay_hash_sha256,
+                forged_overlay.exact_scene_revision_id,
+                forged_overlay.exact_r120_compiled_geometry_id,
+                forged_overlay.treatment_definition_id,
+                forged_overlay.treatment_definition_version,
+                forged_overlay.treatment_placement_instance_id,
+                forged_overlay.treatment_placement_version,
+                forged_overlay.surface_binding_evaluation_hash_sha256,
+                forged_overlay.model_dump_json(),
+                '2026-01-01T00:00:00+00:00',
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO cad_treatment_boundary_compositions(
+                composition_id,
+                composition_hash_sha256,
+                scene_revision_id,
+                compiled_geometry_id,
+                host_surface_id,
+                target_domain,
+                payload_json,
+                recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                forged_composition.composition_id,
+                forged_composition.composition_hash_sha256,
+                forged_composition.exact_scene_revision_id,
+                forged_composition.exact_r120_compiled_geometry_id,
+                forged_composition.host_surface_id,
+                forged_composition.target_domain,
+                forged_composition.model_dump_json(),
+                '2026-01-01T00:00:00+00:00',
+            ),
+        )
+
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.save_snapshot(forged_snapshot)
+
+    # The honest snapshot remains readable and valid.
+    assert repository.get_snapshot(snapshot.snapshot_id) == snapshot

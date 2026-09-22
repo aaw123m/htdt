@@ -297,13 +297,21 @@ def adapt_treatment_boundary_composition_to_r120(
     )
 
 
-def _make_overlay(
+def compile_treatment_boundary_overlay(
     definition: AcousticTreatmentDefinition,
     placement: AcousticTreatmentPlacement,
     evaluation: TreatmentSurfaceBindingEvaluation,
     revision: SceneRevision,
     compiled: R120CompiledGeometry,
 ) -> TreatmentBoundaryOverlay:
+    """Deterministically derive the canonical overlay from exact authorities.
+
+    Persistence layers replay this builder against the resolved SceneRevision,
+    R120CompiledGeometry, TreatmentDefinition, TreatmentPlacement and
+    surface-binding evaluation so a persisted overlay is never trusted beyond
+    what those exact inputs derive.
+    """
+
     geometry = revision.document.r120_semantic_geometry
     if geometry is None:
         raise ValueError('exact SceneRevision has no SemanticAcousticGeometry')
@@ -437,12 +445,19 @@ def _base_binding_for_surface(
     return SurfaceBoundaryAuthorityBinding(source_surface_id=surface_id)
 
 
-def _make_composition(
+def compile_treatment_boundary_composition(
     overlay: TreatmentBoundaryOverlay,
     *,
     target_domain: TreatmentBoundaryTarget,
     base_binding: SurfaceBoundaryAuthorityBinding,
 ) -> TreatmentBoundaryCompositionRequest:
+    """Deterministically derive the canonical composition from exact authorities.
+
+    Persistence layers replay this builder against the resolved persisted
+    overlay and the exact R120 host-surface base binding so a persisted
+    composition is never trusted beyond what those exact inputs derive.
+    """
+
     selected = (
         overlay.wave_material_candidate_ref
         if target_domain == 'wave'
@@ -550,7 +565,13 @@ def compile_treatment_boundary_overlays(
             )
             continue
 
-        overlay = _make_overlay(definition, placement, evaluation, revision, compiled)
+        overlay = compile_treatment_boundary_overlay(
+            definition,
+            placement,
+            evaluation,
+            revision,
+            compiled,
+        )
 
         if placement.coverage.host_surface_fraction != 1.0:
             results.append(
@@ -607,7 +628,7 @@ def compile_treatment_boundary_overlays(
             continue
 
         base_binding = _base_binding_for_surface(host, base_surface_bindings)
-        composition = _make_composition(
+        composition = compile_treatment_boundary_composition(
             overlay,
             target_domain=target_domain,
             base_binding=base_binding,
