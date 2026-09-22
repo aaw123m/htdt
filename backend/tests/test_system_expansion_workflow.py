@@ -12,6 +12,7 @@ from htdt.cad_equipment import (
     EquipmentDataProvenance,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
     Offset3,
@@ -50,6 +51,17 @@ from htdt.workflow_navigation import (
 
 DOCUMENT_ID = "o100g-workflow-ux"
 NOW = "2026-09-20T02:00:00+00:00"
+
+
+def _save_equipment(repository, definition) -> None:
+    """Persist explicit manual evidence for every cited provenance, then save."""
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='equipment-test-fixture',
+        recorded_at_utc=NOW,
+    ):
+        repository.save_evidence(evidence)
+    repository.save_definition(definition)
 
 
 def _speaker(entity_id: str, role: str, x_m: float) -> SceneEntity:
@@ -121,7 +133,7 @@ def _save_fixture_equipment(service: SystemExpansionWorkflowService):
             provenance=provenance,
         ),
     )
-    service.equipment_repository.save_definition(definition)
+    _save_equipment(service.equipment_repository, definition)
     return definition
 
 

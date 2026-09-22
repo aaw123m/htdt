@@ -62,6 +62,7 @@ from htdt.cad_equipment import (
     InterpolationProvenance,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_r110_source import compile_r110_source_model
 from htdt.cad_r110_source_repository import CadR110SourceRepository
@@ -313,6 +314,13 @@ def _fixture(
             provenance=equipment_provenance,
         ),
     )
+    for _evidence in build_equipment_manual_evidence(
+        equipment,
+        actor='r130a-candidate-fixture',
+        recorded_at_utc=NOW,
+        citation=equipment_provenance.source_reference,
+    ):
+        equipment_repository.save_evidence(_evidence)
     equipment_repository.save_definition(equipment)
 
     variant = build_system_variant(

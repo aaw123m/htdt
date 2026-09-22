@@ -23,6 +23,7 @@ from htdt.cad_equipment import (
     evaluate_equipment_capability,
 )
 from htdt.cad_equipment_catalog import EquipmentCatalogSnapshot
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
@@ -194,6 +195,20 @@ def _speaker(entity_id: str, role: str, x_m: float) -> SceneEntity:
     )
 
 
+def _save_equipment(
+    repository: CadEquipmentRepository,
+    definition,
+) -> None:
+    """Persist explicit manual evidence for every cited provenance, then save."""
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='equipment-test-fixture',
+        recorded_at_utc=NOW,
+    ):
+        repository.save_evidence(evidence)
+    repository.save_definition(definition)
+
+
 def _baseline(tmp_path: Path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
@@ -216,8 +231,8 @@ def test_representative_manufacturer_and_user_definitions_persist_deterministica
     manufacturer = _manufacturer_complex()
     user_defined = _user_defined_unknown()
 
-    repository.save_definition(manufacturer)
-    repository.save_definition(user_defined)
+    _save_equipment(repository, manufacturer)
+    _save_equipment(repository, user_defined)
 
     reopened = CadEquipmentRepository(scene_repository)
     persisted_manufacturer = reopened.get_definition(
@@ -325,7 +340,7 @@ def test_system_variant_binds_exact_persisted_equipment_definition(
         variant_repository,
     )
     definition = _magnitude_only()
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
 
     proposed = ProposedEntitySpec(
         spec_id='proposal-sl',
@@ -455,7 +470,7 @@ def _equipment_bound_variant(tmp_path: Path):
         variant_repository,
     )
     definition = _magnitude_only()
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     variant = build_system_variant(
         baseline=baseline,
         name='Add SL with exact equipment',
@@ -540,8 +555,8 @@ def test_equipment_catalog_snapshot_is_deterministic_exact_reference_surface(
     first = _manufacturer_complex()
     second = _user_defined_unknown()
 
-    repository.save_definition(second)
-    repository.save_definition(first)
+    _save_equipment(repository, second)
+    _save_equipment(repository, first)
 
     snapshot = repository.catalog_snapshot()
     reopened = EquipmentCatalogSnapshot.model_validate_json(

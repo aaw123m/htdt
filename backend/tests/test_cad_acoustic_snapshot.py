@@ -31,6 +31,7 @@ from htdt.cad_equipment import (
     InterpolationProvenance,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_prediction_request import rectangular_geometry_request_identity
 from htdt.cad_r110_source import compile_r110_source_model
@@ -84,6 +85,17 @@ f 2 3 4
 '''
 
 NOW = '2026-09-19T13:30:00+00:00'
+
+
+def _save_equipment(repository, definition) -> None:
+    """Persist explicit manual evidence for every cited provenance, then save."""
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='equipment-test-fixture',
+        recorded_at_utc=NOW,
+    ):
+        repository.save_evidence(evidence)
+    repository.save_definition(definition)
 
 
 def _ref(name: str, char: str) -> ExactExternalAuthorityRef:
@@ -437,8 +449,8 @@ def _fixture(
         complex_definition,
         complex_dataset,
     ) = _persisted_directivity('fixture-complex', 'complex')
-    equipment_repository.save_definition(magnitude_definition)
-    equipment_repository.save_definition(complex_definition)
+    _save_equipment(equipment_repository, magnitude_definition)
+    _save_equipment(equipment_repository, complex_definition)
     directivity_repository.save_dataset(
         magnitude_dataset,
         source_bytes=magnitude_bytes,
