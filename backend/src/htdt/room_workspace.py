@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol, cast
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -31,10 +33,17 @@ from .cad_objects import (
     orientation_aligning_forward,
     speaker_aim_replacements,
 )
+from .cad_orientation_constraints import entity_collision_geometry_authority
 from .cad_repository import RecoverySnapshot, SceneRepository
 from .cad_scene import (
     F1_DOCUMENT_ID,
     PHYSICAL_ENTITY_KINDS,
+    BodyGeometryKind,
+    BodyMeshAsset,
+    BodyMeshTriangle,
+    BodyMeshVertex,
+    EntityBodyGeometry,
+    FootprintVertex,
     Offset3,
     Position3,
     Quaternion4,
@@ -48,6 +57,7 @@ from .cad_scene import (
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
 )
+from .raw_mesh import RawMeshImportError, import_raw_visual_mesh
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .prediction_interpretation import PredictionSpatialLink
 from .room_viewport import RoomOverlayState, RoomViewport3D
@@ -72,6 +82,42 @@ from .standards_workspace import StandardsCriterionPanel
 ROOM_CONTEXT_IDS = ("geometry", "objects", "placement", "acoustics")
 
 SPEAKER_ROLE_UNASSIGNED_LABEL = "未設定"
+
+# Sentinel for "caller did not pass body_geometry" — distinct from an explicit
+# None, which downgrades the entity back to the plain box envelope.
+_UNSET: object = object()
+
+BODY_SHAPE_ITEMS: tuple[tuple[BodyGeometryKind, str], ...] = (
+    ("box", "直方体（包絡）"),
+    ("cylinder", "円柱"),
+    ("extruded_polygon", "多角形フットプリント"),
+    ("mesh_asset", "メッシュアセット"),
+)
+
+
+def parse_footprint_vertices(text: str) -> tuple[FootprintVertex, ...]:
+    """Parse ``x,y; x,y; …`` entity-local footprint text into vertices."""
+
+    vertices: list[FootprintVertex] = []
+    for chunk in text.split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        parts = chunk.replace(",", " ").split()
+        if len(parts) != 2:
+            raise ValueError("フットプリントは「x,y; x,y; …」（物体ローカル m）で入力してください")
+        try:
+            x_m, y_m = float(parts[0]), float(parts[1])
+        except ValueError as exc:
+            raise ValueError("フットプリント頂点は数値で入力してください") from exc
+        vertices.append(FootprintVertex(x_m=x_m, y_m=y_m))
+    if len(vertices) < 3:
+        raise ValueError("フットプリントには3頂点以上が必要です")
+    return tuple(vertices)
+
+
+def format_footprint_vertices(vertices: tuple[FootprintVertex, ...]) -> str:
+    return "; ".join(f"{vertex.x_m:g},{vertex.y_m:g}" for vertex in vertices)
 # Inspector suggestions only — not a persisted enum. Custom roles remain
 # free-form text and are stored verbatim.
 SPEAKER_ROLE_SUGGESTIONS = (
@@ -286,6 +332,7 @@ class RoomWorkspaceController:
         speaker_role: str | None,
         orientation: Quaternion4 | None = None,
         aim_yaw_pitch_deg: tuple[float, float] | None = None,
+        body_geometry: EntityBodyGeometry | None | object = _UNSET,
     ) -> bool:
         entity_id = self.selected_id
         if entity_id is None:
@@ -303,6 +350,9 @@ class RoomWorkspaceController:
             if size_m is None:
                 raise EditStateError("物理オブジェクトには寸法が必要です")
             updates["size_m"] = size_m
+        if body_geometry is not _UNSET:
+            # None here is an explicit downgrade back to the box envelope.
+            updates["body_geometry"] = body_geometry
         if entity.kind == "speaker":
             role = (speaker_role or "").strip()
             if is_unassigned_speaker_role(role):
@@ -399,6 +449,47 @@ class RoomWorkspaceController:
         if changed:
             self._sync_recovery()
         return changed
+
+    def attach_mesh_asset(self, entity_id: str, file_path: str | Path) -> SceneEntity:
+        """Import a mesh file as the entity's asset-backed body geometry.
+
+        The original bytes land in the project content-addressed blob store;
+        the entity persists the parsed local-coordinate mesh plus exact asset
+        hash/provenance, so the body is reproducible and auditable.
+        """
+
+        if not self.can_edit:
+            raise EditStateError("現在の状態ではメッシュを設定できません")
+        if self.view_state.is_locked(entity_id):
+            raise EditStateError("ロック中のオブジェクトは編集できません")
+        entity = self.document.entity(entity_id)
+        if entity.size_m is None:
+            raise EditStateError("メッシュボディは物理オブジェクトのみに設定できます")
+        path = Path(file_path)
+        data = path.read_bytes()
+        imported = import_raw_visual_mesh(data, source_name=path.name)
+        self.repository.store_blob(data)
+        geometry = EntityBodyGeometry(
+            kind="mesh_asset",
+            mesh=BodyMeshAsset(
+                asset_sha256=imported.provenance.original_asset_sha256,
+                source_name=imported.provenance.source_name,
+                asset_format=imported.provenance.asset_format,
+                original_size_bytes=imported.provenance.original_size_bytes,
+                vertices=tuple(
+                    BodyMeshVertex(x_m=vertex.x, y_m=vertex.y, z_m=vertex.z)
+                    for vertex in imported.vertices
+                ),
+                triangles=tuple(
+                    BodyMeshTriangle(a=triangle.a, b=triangle.b, c=triangle.c)
+                    for triangle in imported.triangles
+                ),
+            ),
+        )
+        if not self.working.update_entity(entity_id, body_geometry=geometry):
+            raise EditStateError("メッシュボディを設定できませんでした")
+        self._sync_recovery()
+        return self.document.entity(entity_id)
 
     def recover_draft(self) -> bool:
         recovery = self.recovery_candidate
@@ -583,6 +674,7 @@ class SelectionInspector(QFrame):
     aimTargetRequested = Signal(str)
     aimClearRequested = Signal()
     alignCabinetRequested = Signal()
+    meshImportRequested = Signal()
 
     KIND_LABELS = {
         "speaker": "スピーカー",
@@ -639,6 +731,53 @@ class SelectionInspector(QFrame):
             field = self._metric_field(minimum=0.001)
             self.size_fields[axis] = field
             self.form.addRow(f"寸法 {axis}", field)
+
+        # Issue-464 body geometry authoring: shape picker plus per-kind
+        # parameters. ``size_m`` stays the bounding envelope; richer bodies
+        # must fit inside it.
+        self._entity: SceneEntity | None = None
+        self._shape_label = QLabel("形状")
+        self.shape_field = QComboBox()
+        for shape_kind, shape_label in BODY_SHAPE_ITEMS:
+            self.shape_field.addItem(shape_label, userData=shape_kind)
+        self.form.addRow(self._shape_label, self.shape_field)
+
+        self._radius_label = QLabel("半径")
+        self.radius_field = self._metric_field(minimum=0.001)
+        self.form.addRow(self._radius_label, self.radius_field)
+
+        self._footprint_label = QLabel("フットプリント")
+        self.footprint_field = QLineEdit()
+        self.footprint_field.setPlaceholderText("x,y; x,y; …（物体ローカル m）")
+        self.form.addRow(self._footprint_label, self.footprint_field)
+
+        self._mesh_label = QLabel("メッシュ")
+        self.mesh_summary = QLabel("未設定")
+        self.mesh_summary.setWordWrap(True)
+        set_typography_role(self.mesh_summary, TypographyRole.SECONDARY)
+        self.mesh_button = QPushButton("メッシュを選択…")
+        set_control_size(self.mesh_button, ControlSize.COMPACT)
+        mesh_row = QWidget()
+        mesh_row_layout = QHBoxLayout(mesh_row)
+        mesh_row_layout.setContentsMargins(0, 0, 0, 0)
+        mesh_row_layout.setSpacing(6)
+        mesh_row_layout.addWidget(self.mesh_summary, 1)
+        mesh_row_layout.addWidget(self.mesh_button)
+        self.mesh_row = mesh_row
+        self.form.addRow(self._mesh_label, mesh_row)
+
+        self.shape_field.activated.connect(lambda _index=-1: self._shape_activated())
+        self.radius_field.editingFinished.connect(self.editCommitted.emit)
+        self.footprint_field.editingFinished.connect(self.editCommitted.emit)
+        self._basis_label = QLabel("衝突・クリアランス")
+        self.basis_value = QLabel("—")
+        self.basis_value.setWordWrap(True)
+        set_typography_role(self.basis_value, TypographyRole.SECONDARY)
+        self.form.addRow(self._basis_label, self.basis_value)
+
+        self.mesh_button.clicked.connect(
+            lambda checked=False: self.meshImportRequested.emit()
+        )
 
         # Transform — numeric physical orientation (#470). Backed by the exact
         # persisted quaternion; one field commit is one Undo transaction.
@@ -782,6 +921,47 @@ class SelectionInspector(QFrame):
         field.setKeyboardTracking(False)
         return field
 
+    def _sync_shape_visibility(self, shape_kind: str | None) -> None:
+        physical = self._entity is not None and self._entity.size_m is not None
+        show = physical and shape_kind is not None
+        self._shape_label.setVisible(physical)
+        self.shape_field.setVisible(physical)
+        self._radius_label.setVisible(bool(show and shape_kind == "cylinder"))
+        self.radius_field.setVisible(bool(show and shape_kind == "cylinder"))
+        self._footprint_label.setVisible(bool(show and shape_kind == "extruded_polygon"))
+        self.footprint_field.setVisible(bool(show and shape_kind == "extruded_polygon"))
+        self._mesh_label.setVisible(bool(show and shape_kind == "mesh_asset"))
+        self.mesh_row.setVisible(bool(show and shape_kind == "mesh_asset"))
+        self._basis_label.setVisible(physical)
+        self.basis_value.setVisible(physical)
+
+    def _refresh_basis_label(self) -> None:
+        """Show whether clearance/collision consumes the exact authored body.
+
+        The label follows the currently selected shape so users see the basis
+        before committing; invalid parameter text degrades to "—".
+        """
+
+        entity = self._entity
+        if entity is None or entity.size_m is None:
+            self.basis_value.setText("—")
+            return
+        try:
+            _name, _pos, _size, _role, _orientation, _aim, body = self.values(entity)
+        except ValueError:
+            self.basis_value.setText("—")
+            return
+        candidate = entity.model_copy(update={"body_geometry": body})
+        authority = entity_collision_geometry_authority(candidate)
+        self.basis_value.setText(
+            "実形状（厳密）" if authority == "exact_body_geometry" else "包絡近似"
+        )
+
+    def _shape_activated(self) -> None:
+        self._sync_shape_visibility(self.shape_field.currentData())
+        self._refresh_basis_label()
+        self.editCommitted.emit()
+
     def set_entity(
         self,
         entity: SceneEntity | None,
@@ -789,6 +969,7 @@ class SelectionInspector(QFrame):
         editable: bool,
         aim_targets: tuple[SceneEntity, ...] = (),
     ) -> None:
+        self._entity = entity
         self.empty_label.setVisible(entity is None)
         self.form_host.setVisible(entity is not None)
         if entity is None:
@@ -797,6 +978,9 @@ class SelectionInspector(QFrame):
         blockers = [
             QSignalBlocker(self.name_field),
             QSignalBlocker(self.role_field),
+            QSignalBlocker(self.shape_field),
+            QSignalBlocker(self.radius_field),
+            QSignalBlocker(self.footprint_field),
             *(QSignalBlocker(field) for field in self.position_fields.values()),
             *(QSignalBlocker(field) for field in self.size_fields.values()),
             *(QSignalBlocker(field) for field in self.orientation_fields.values()),
@@ -856,6 +1040,50 @@ class SelectionInspector(QFrame):
             self.aim_section.setVisible(entity.kind == "speaker")
             if entity.kind == "speaker":
                 self._set_aim_state(entity, editable=editable, aim_targets=aim_targets)
+
+            # Body geometry authoring (Issue #464): ``size_m`` stays the
+            # bounding envelope; shape fields edit the refined body.
+            body = entity.body_geometry
+            body_kind = body.kind if body is not None else "box"
+            index = self.shape_field.findData(body_kind)
+            self.shape_field.setCurrentIndex(index if index >= 0 else 0)
+            self.shape_field.setEnabled(editable)
+            radius_default = (
+                min(entity.size_m.x_m, entity.size_m.y_m) * 0.5
+                if entity.size_m is not None
+                else 0.5
+            )
+            if body is not None and body.radius_m is not None:
+                radius_default = float(body.radius_m)
+            self.radius_field.setValue(radius_default)
+            if body is not None and body.footprint_vertices:
+                self.footprint_field.setText(
+                    format_footprint_vertices(body.footprint_vertices)
+                )
+            elif entity.size_m is not None:
+                half_x = entity.size_m.x_m * 0.5
+                half_y = entity.size_m.y_m * 0.5
+                self.footprint_field.setText(format_footprint_vertices((
+                    FootprintVertex(x_m=-half_x, y_m=-half_y),
+                    FootprintVertex(x_m=half_x, y_m=-half_y),
+                    FootprintVertex(x_m=half_x, y_m=half_y),
+                    FootprintVertex(x_m=-half_x, y_m=half_y),
+                )))
+            else:
+                self.footprint_field.clear()
+            self.radius_field.setEnabled(editable)
+            self.footprint_field.setEnabled(editable)
+            if body is not None and body.mesh is not None:
+                self.mesh_summary.setText(
+                    f"{body.mesh.source_name} · {body.mesh.asset_format} · "
+                    f"{len(body.mesh.vertices)}頂点/{len(body.mesh.triangles)}面 · "
+                    f"sha256:{body.mesh.asset_sha256[:12]}…"
+                )
+            else:
+                self.mesh_summary.setText("未設定")
+            self.mesh_button.setEnabled(editable and entity.size_m is not None)
+            self._sync_shape_visibility(body_kind)
+            self._refresh_basis_label()
         finally:
             del blockers
 
@@ -958,6 +1186,7 @@ class SelectionInspector(QFrame):
         str | None,
         Quaternion4 | None,
         tuple[float, float] | None,
+        EntityBodyGeometry | None,
     ]:
         position = Position3(
             x_m=self.position_fields["X"].value(),
@@ -975,6 +1204,30 @@ class SelectionInspector(QFrame):
         if entity.kind == "speaker":
             text = self.role_field.currentText().strip()
             role = "" if not text or text == SPEAKER_ROLE_UNASSIGNED_LABEL else text
+        body_geometry: EntityBodyGeometry | None = None
+        if entity.size_m is not None:
+            shape = str(self.shape_field.currentData() or "box")
+            if shape == "cylinder":
+                body_geometry = EntityBodyGeometry(
+                    kind="cylinder",
+                    radius_m=self.radius_field.value(),
+                )
+            elif shape == "extruded_polygon":
+                body_geometry = EntityBodyGeometry(
+                    kind="extruded_polygon",
+                    footprint_vertices=parse_footprint_vertices(
+                        self.footprint_field.text()
+                    ),
+                )
+            elif shape == "mesh_asset":
+                existing = entity.body_geometry
+                if existing is not None and existing.kind == "mesh_asset":
+                    body_geometry = existing
+                else:
+                    raise ValueError(
+                        "メッシュボディは「メッシュを選択…」からインポートしてください"
+                    )
+            # "box" downgrades to no explicit body geometry (legacy envelope).
         return (
             self.name_field.text(),
             position,
@@ -982,6 +1235,7 @@ class SelectionInspector(QFrame):
             role,
             self._edited_orientation(entity),
             self._edited_aim_angles(entity),
+            body_geometry,
         )
 
 
@@ -1211,6 +1465,7 @@ class RoomWorkspace(QWidget):
         self.inspector.aimTargetRequested.connect(self._aim_target_committed)
         self.inspector.aimClearRequested.connect(self._aim_clear_committed)
         self.inspector.alignCabinetRequested.connect(self._cabinet_align_committed)
+        self.inspector.meshImportRequested.connect(self._import_mesh_for_selected)
         self.right_stack = QStackedWidget()
         self.right_stack.setMinimumWidth(248)
         self.right_stack.setMaximumWidth(320)
@@ -1545,7 +1800,15 @@ class RoomWorkspace(QWidget):
             return
         entity = self.controller.document.entity(entity_id)
         try:
-            name, position, size, role, orientation, aim_angles = self.inspector.values(entity)
+            (
+                name,
+                position,
+                size,
+                role,
+                orientation,
+                aim_angles,
+                body_geometry,
+            ) = self.inspector.values(entity)
             changed = self.controller.update_selected(
                 name=name,
                 position=position,
@@ -1553,6 +1816,7 @@ class RoomWorkspace(QWidget):
                 speaker_role=role,
                 orientation=orientation,
                 aim_yaw_pitch_deg=aim_angles,
+                body_geometry=body_geometry,
             )
         except (EditStateError, ValueError) as exc:
             self._pending_editor_rejected = True
@@ -1601,6 +1865,34 @@ class RoomWorkspace(QWidget):
             self._set_status("本体を音響方向に合わせました")
         else:
             self._set_status("本体の向きは変更されませんでした")
+
+    def import_mesh_for_selected(self, file_path: str | Path) -> bool:
+        """Attach an imported mesh as the selected entity's body geometry."""
+
+        entity_id = self.controller.selected_id
+        if entity_id is None:
+            self._set_status("メッシュを設定するオブジェクトを選択してください", error=True)
+            return False
+        try:
+            entity = self.controller.attach_mesh_asset(entity_id, file_path)
+        except (EditStateError, RawMeshImportError, ValueError, OSError) as exc:
+            self._pending_editor_rejected = True
+            self._set_status(str(exc), error=True)
+            return False
+        self._refresh()
+        self._set_status(f"{entity.name}にメッシュボディを設定しました")
+        return True
+
+    def _import_mesh_for_selected(self) -> None:
+        file_path, _filter = QFileDialog.getOpenFileName(
+            self,
+            "ボディメッシュを選択",
+            "",
+            "メッシュ (*.obj *.glb *.meshbin);;すべてのファイル (*)",
+        )
+        if not file_path:
+            return
+        self.import_mesh_for_selected(file_path)
 
     def _recover(self) -> None:
         try:

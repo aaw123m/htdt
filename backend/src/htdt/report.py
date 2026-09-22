@@ -26,6 +26,7 @@ from .cad_calibration_repository import (
     _LIFECYCLE_ORDER as CALIBRATION_LIFECYCLE_ORDER,
     _lifecycle_chain_violation,
 )
+from .cad_orientation_constraints import entity_collision_geometry_authority
 from .cad_repository import SceneRevision
 from .cad_scene import (
     SceneDocument,
@@ -194,8 +195,8 @@ section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20
 </main></body></html>'''
 
 
-INSTALLATION_OUTPUT_SCHEMA_VERSION = 3
-INSTALLATION_OUTPUT_AUTHORITY_VERSION = 'installation-output-3'
+INSTALLATION_OUTPUT_SCHEMA_VERSION = 4
+INSTALLATION_OUTPUT_AUTHORITY_VERSION = 'installation-output-4'
 INSTALLATION_REPORT_RENDERER_VERSION = 'installation-report-3'
 
 
@@ -263,6 +264,10 @@ class InstallationEntityOutput(BaseModel):
     mounting_height_m: float | None = None
     mounting_height_reference: Literal['scene_entity_origin_z'] | None = None
     aim_xyz: tuple[float, float, float] | None = None
+    # Issue #464: which body shape authored the entity and whether clearance was
+    # evaluated against the exact body geometry or its bounding envelope.
+    body_geometry_kind: Literal['box', 'cylinder', 'extruded_polygon', 'mesh_asset'] | None = None
+    collision_geometry_authority: Literal['exact_body_geometry', 'bounding_envelope'] | None = None
 
 
 class InstallationDimensionPoint(BaseModel):
@@ -316,6 +321,7 @@ class InstallationCollisionSummary(BaseModel):
     entity_b: str = Field(min_length=1)
     status: Literal['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE']
     intersects_or_violates_clearance: bool
+    geometry_authority: Literal['exact_body_geometry', 'bounding_envelope', 'mixed_body_geometry'] | None = None
 
 
 class InstallationProjectorSummary(BaseModel):
@@ -521,16 +527,18 @@ class InstallationOutput(BaseModel):
 
     Generation metadata such as exported_at is intentionally absent from this
     model and therefore cannot alter semantic_sha256. Serialized v1/v2 remain
-    loadable; new generation uses v3 treatment/calibration summaries.
+    loadable; new generation uses v3 treatment/calibration summaries and v4
+    body-geometry/clearance-basis fields (issue #464).
     """
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal[1, 2, 3] = INSTALLATION_OUTPUT_SCHEMA_VERSION
+    schema_version: Literal[1, 2, 3, 4] = INSTALLATION_OUTPUT_SCHEMA_VERSION
     authority_version: Literal[
         'installation-output-1',
         'installation-output-2',
         'installation-output-3',
+        'installation-output-4',
     ] = INSTALLATION_OUTPUT_AUTHORITY_VERSION
     coordinate_system: Literal['htdt-x-right-y-rear-z-up-m'] = 'htdt-x-right-y-rear-z-up-m'
     authority: InstallationAuthorityBinding
@@ -563,14 +571,23 @@ class InstallationOutput(BaseModel):
                 raise ValueError('InstallationOutput v2 requires projector/standards summaries')
             if self.treatment is not None or self.calibration is not None:
                 raise ValueError('InstallationOutput v2 cannot contain v3 authority summaries')
-        else:
-            if self.authority_version != INSTALLATION_OUTPUT_AUTHORITY_VERSION:
+        elif self.schema_version == 3:
+            if self.authority_version != 'installation-output-3':
                 raise ValueError('InstallationOutput v3 authority version mismatch')
             if any(item is None for item in (
                 self.projector, self.standards, self.treatment, self.calibration
             )):
                 raise ValueError(
                     'InstallationOutput v3 requires explicit projector/standards/treatment/calibration summaries'
+                )
+        else:
+            if self.authority_version != INSTALLATION_OUTPUT_AUTHORITY_VERSION:
+                raise ValueError('InstallationOutput v4 authority version mismatch')
+            if any(item is None for item in (
+                self.projector, self.standards, self.treatment, self.calibration
+            )):
+                raise ValueError(
+                    'InstallationOutput v4 requires explicit projector/standards/treatment/calibration summaries'
                 )
         if self.semantic_sha256 != _semantic_digest(self.identity_payload()):
             raise ValueError('InstallationOutput semantic hash mismatch')
@@ -622,6 +639,14 @@ def _installation_entity(entity: SceneEntity) -> InstallationEntityOutput:
         mounting_height_m=float(entity.position.z_m) if is_speaker else None,
         mounting_height_reference='scene_entity_origin_z' if is_speaker else None,
         aim_xyz=aim,
+        body_geometry_kind=(
+            None
+            if entity.size_m is None
+            else ('box' if entity.body_geometry is None else entity.body_geometry.kind)
+        ),
+        collision_geometry_authority=(
+            None if entity.size_m is None else entity_collision_geometry_authority(entity)
+        ),
     )
 
 
@@ -820,6 +845,7 @@ def _projector_summary(
                 entity_b=item.entity_b,
                 status=item.status,
                 intersects_or_violates_clearance=item.intersects_or_violates_clearance,
+                geometry_authority=item.geometry_authority,
             )
             for item in evaluation.collisions
         ),
@@ -1448,6 +1474,7 @@ def render_installation_csv(output: InstallationOutput) -> str:
         'body_yaw_deg', 'body_pitch_deg', 'body_roll_deg',
         'mounting_height_m', 'mounting_height_reference',
         'aim_x', 'aim_y', 'aim_z',
+        'body_geometry_kind', 'collision_geometry_authority',
         'scene_revision_id', 'scene_content_hash',
         'system_variant_id', 'system_variant_sha256',
         'semantic_sha256',
@@ -1470,6 +1497,8 @@ def render_installation_csv(output: InstallationOutput) -> str:
             _csv_number(aim[0]),
             _csv_number(aim[1]),
             _csv_number(aim[2]),
+            item.body_geometry_kind or '',
+            item.collision_geometry_authority or '',
             output.authority.scene_revision_id,
             output.authority.scene_content_hash,
             output.authority.system_variant_id or '',
@@ -1576,9 +1605,10 @@ def _projector_report_block(summary: InstallationProjectorSummary | None) -> str
         f'<td><code>{escape(item.entity_b)}</code></td>'
         f'<td>{escape(item.status)}</td>'
         f'<td>{escape(str(item.intersects_or_violates_clearance))}</td>'
+        f'<td>{escape(item.geometry_authority or "UNKNOWN")}</td>'
         '</tr>'
         for item in summary.collisions
-    ) or '<tr><td colspan="4">None</td></tr>'
+    ) or '<tr><td colspan="5">None</td></tr>'
     return (
         '<section><h2>Projector / video geometry</h2>'
         f'<p>ProjectorSpecification: <code>{escape(summary.specification_id or "UNKNOWN")}</code> '
@@ -1605,7 +1635,7 @@ def _projector_report_block(summary: InstallationProjectorSummary | None) -> str
         '<th>Seat</th><th>Row</th><th>Status</th><th>Blocking seats</th><th>Min clearance (m)</th>'
         f'</tr></thead><tbody>{sightlines}</tbody></table>'
         '<h3>Collision / clearance</h3><table><thead><tr>'
-        '<th>A</th><th>B</th><th>Status</th><th>Intersects/violates clearance</th>'
+        '<th>A</th><th>B</th><th>Status</th><th>Intersects/violates clearance</th><th>Geometry</th>'
         f'</tr></thead><tbody>{collisions}</tbody></table>'
         '<details><summary>Exact projector authority summary</summary><pre>'
         f'{escape(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))}'
@@ -1738,9 +1768,11 @@ def render_installation_report_html(
         f'<td>{_metric(item.x_m)}</td><td>{_metric(item.y_m)}</td><td>{_metric(item.z_m)}</td>'
         f'<td>{_metric(item.body_yaw_deg)}</td><td>{_metric(item.body_pitch_deg)}</td>'
         f'<td>{_metric(item.mounting_height_m)}</td>'
+        f'<td>{escape(item.body_geometry_kind or "—")}</td>'
+        f'<td>{escape(item.collision_geometry_authority or "—")}</td>'
         '</tr>'
         for item in output.entities
-    ) or '<tr><td colspan="9">No installation-coordinate entities in this authority.</td></tr>'
+    ) or '<tr><td colspan="11">No installation-coordinate entities in this authority.</td></tr>'
     section_rows = ''.join(
         '<tr>'
         f'<td>{escape(item.section)}</td><td>{escape(item.status)}</td><td>{escape(item.reason)}</td>'
@@ -1787,7 +1819,7 @@ section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20
 <p>Effective scene hash: <code>{escape(authority.effective_scene_content_hash)}</code></p>
 <p>Installation semantic hash: <code>{escape(output.semantic_sha256)}</code></p></section>
 <section><h2>Installation coordinates</h2><table><thead><tr>
-<th>Entity</th><th>Kind</th><th>Role</th><th>X (m)</th><th>Y (m)</th><th>Z (m)</th><th>Body yaw (°)</th><th>Body pitch (°)</th><th>Mount height (m)</th>
+<th>Entity</th><th>Kind</th><th>Role</th><th>X (m)</th><th>Y (m)</th><th>Z (m)</th><th>Body yaw (°)</th><th>Body pitch (°)</th><th>Mount height (m)</th><th>Body geometry</th><th>Clearance basis</th>
 </tr></thead><tbody>{entity_rows}</tbody></table>
 <p class="muted">Speaker mounting height is the exact Scene entity-origin Z coordinate; no separate bracket/mount reference is inferred.</p></section>
 {dimension_blocks}

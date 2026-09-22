@@ -294,8 +294,8 @@ def test_projector_and_standards_are_exact_authority_summaries(tmp_path: Path) -
     )
     output = _build(revision, specification, video, profile, standards)
 
-    assert output.schema_version == 3
-    assert output.authority_version == 'installation-output-3'
+    assert output.schema_version == 4
+    assert output.authority_version == 'installation-output-4'
     assert output.projector is not None
     assert output.projector.status == 'AVAILABLE'
     assert output.projector.specification_id == specification.specification_id

@@ -203,7 +203,7 @@ def test_installation_csv_neutralizes_formula_prefixed_entity_cells(tmp_path: Pa
     entity_rows = {
         row[0]: row
         for row in rows[1:]
-        if len(row) == 20
+        if len(row) == 22
     }
     speaker = entity_rows["'=HYPERLINK(\"https://example.invalid\",\"speaker\")"]
     assert speaker[2] == "'  =2+1"

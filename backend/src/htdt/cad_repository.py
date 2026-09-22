@@ -11,6 +11,11 @@ from uuid import uuid4
 
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
 from .cad_schema import ensure_native_schema
+from .content_blobs import (
+    ensure_content_blob_store,
+    read_content_blob,
+    store_content_blob,
+)
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -399,6 +404,24 @@ class SceneRepository:
                 'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
                 (document_id,),
             )
+
+    def store_blob(self, payload: bytes) -> str:
+        """Persist immutable bytes in the project content-addressed blob store.
+
+        Returns the SHA-256 digest that authoritatively identifies the stored
+        payload (Issue-464 mesh body assets use this for exact provenance).
+        """
+
+        with closing(self._connect()) as connection, connection:
+            ensure_content_blob_store(connection)
+            return store_content_blob(connection, payload)
+
+    def read_blob(self, payload_sha256: str) -> bytes | None:
+        """Return canonical blob bytes for a digest, or ``None`` when absent."""
+
+        with closing(self._connect()) as connection:
+            ensure_content_blob_store(connection)
+            return read_content_blob(connection, payload_sha256)
 
     def save_view_state(
         self,

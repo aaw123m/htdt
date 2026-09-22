@@ -42,6 +42,7 @@ from .cad_scene import (
 )
 from .native_editor import ROLE
 from .room_editor import _room_wireframe
+from .room_viewport import _entity_local_mesh
 
 
 class TheaterEditorWindow(CadEditorWindow):
@@ -231,6 +232,11 @@ class TheaterEditorWindow(CadEditorWindow):
         size = entity.size_m
         if size is None:
             raise ValueError(f'{entity.entity_id} requires size_m for rendering')
+        # Issue #464: an explicitly authored body shape (cylinder, polygon
+        # extrusion, mesh asset) overrides the stylized per-kind placeholder.
+        authored = _entity_local_mesh(entity)
+        if authored is not None:
+            return authored
         if entity.kind == 'speaker':
             body = pv.Cube(x_length=size.x_m, y_length=size.y_m, z_length=size.z_m)
             marker = pv.Cone(

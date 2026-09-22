@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from math import sqrt
-from typing import Iterable
+from typing import Iterable, Literal
 
-from shapely.geometry import LineString, MultiPoint, Point
+from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 
 from .cad_constraint_models import (
@@ -19,17 +19,97 @@ from .geometry import polygon_from_vertices
 
 _EPS = 1e-9
 
+# Segments per quarter circle in the shapely ``Point.buffer`` polygon
+# approximation used for circular footprints.
+_CIRCLE_BUFFER_QUAD_SEGS = 32
+
+BodyCollisionAuthority = Literal['exact_body_geometry', 'bounding_envelope']
+
+
+def _local_z_is_world_up(entity: SceneEntity) -> bool:
+    """True when the entity-local +Z axis maps to world +Z (upright pose).
+
+    Extruded/prism body geometry is only exact in XY while the body stays
+    upright; any pitch/roll tilt widens the true XY projection, so tilted
+    bodies fall back to the conservative bounding-envelope hull.
+    """
+
+    matrix = quaternion_to_matrix3(entity.orientation)
+    return (
+        abs(matrix[0][2]) <= _EPS
+        and abs(matrix[1][2]) <= _EPS
+        and matrix[2][2] >= 1.0 - 1e-6
+    )
+
+
+def entity_exact_body_footprint(entity: SceneEntity) -> BaseGeometry | None:
+    """Exact world XY footprint of an authored body shape, or ``None``.
+
+    Returns ``None`` for entities without exact extrusion geometry (box,
+    mesh_asset, missing size) and for tilted bodies whose exact footprint is
+    no longer their extruded XY profile — callers then use the
+    bounding-envelope hull.
+    """
+
+    body = entity.body_geometry
+    if (
+        entity.size_m is None
+        or body is None
+        or body.kind not in ('cylinder', 'extruded_polygon')
+        or not _local_z_is_world_up(entity)
+    ):
+        return None
+
+    x_m = float(entity.position.x_m)
+    y_m = float(entity.position.y_m)
+    if body.kind == 'cylinder':
+        assert body.radius_m is not None
+        return Point(x_m, y_m).buffer(
+            float(body.radius_m),
+            quad_segs=_CIRCLE_BUFFER_QUAD_SEGS,
+        )
+
+    matrix = quaternion_to_matrix3(entity.orientation)
+    coords = []
+    for vertex in body.footprint_vertices or ():
+        local_x = float(vertex.x_m)
+        local_y = float(vertex.y_m)
+        coords.append((
+            x_m + matrix[0][0] * local_x + matrix[0][1] * local_y,
+            y_m + matrix[1][0] * local_x + matrix[1][1] * local_y,
+        ))
+    polygon = Polygon(coords)
+    if not polygon.is_valid or polygon.is_empty:  # defensive: authorship validates already
+        return None
+    return polygon
+
+
+def entity_collision_geometry_authority(entity: SceneEntity) -> BodyCollisionAuthority:
+    """Whether collision/clearance uses the exact body or the envelope."""
+
+    return (
+        'exact_body_geometry'
+        if entity_exact_body_footprint(entity) is not None
+        else 'bounding_envelope'
+    )
+
 
 def entity_horizontal_footprint(entity: SceneEntity) -> BaseGeometry:
     """Return the exact XY projection of the oriented entity body.
 
-    Physical entities use the convex hull of all eight oriented box corners so
+    Entities with authored extrusion body geometry (cylinder, polygon
+    footprint) contribute their exact upright footprint. Other physical
+    entities use the convex hull of all eight oriented box corners so
     pitch/roll remain conservative in XY. Non-physical entities degrade to a
     point at their world position.
     """
 
     if entity.size_m is None:
         return Point(float(entity.position.x_m), float(entity.position.y_m))
+
+    exact = entity_exact_body_footprint(entity)
+    if exact is not None:
+        return exact
 
     hx = float(entity.size_m.x_m) * 0.5
     hy = float(entity.size_m.y_m) * 0.5
