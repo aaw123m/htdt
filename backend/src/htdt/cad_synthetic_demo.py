@@ -317,7 +317,7 @@ def seed_synthetic_optimization_demo(
     Campaign is created, so production recommendation gates stay closed.
     """
 
-    if scene_repository.latest(SYNTHETIC_DEMO_DOCUMENT_ID) is not None:
+    if scene_repository.current_head(SYNTHETIC_DEMO_DOCUMENT_ID) is not None:
         raise ValueError(
             'synthetic optimization demo already exists in this data directory'
         )
@@ -483,10 +483,11 @@ def seed_synthetic_optimization_demo(
         # O50 measurement plans require each applied candidate revision to
         # descend directly from the SearchSpec source revision, so this
         # development fixture deliberately writes non-head sibling lineage.
-        applied_revision = scene_repository.save(
+        # The detached save never moves the document head (#626).
+        applied_revision = scene_repository.save_detached_revision(
             applied_document,
             parent_revision_id=source.revision_id,
-            allow_branch=True,
+            reason='o50_measurement_plan_fixture',
         ).revision
         plan = build_measurement_plan(
             scene_repository,

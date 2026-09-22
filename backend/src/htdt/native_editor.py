@@ -262,7 +262,7 @@ class NativeEditorWindow(QMainWindow):
             self.angle_step_field.setValue(self.view_state.angle_step_deg)
 
     def _load_or_seed(self) -> None:
-        revision = self.repository.latest(self.document_id)
+        revision = self.repository.current_head(self.document_id)
         if revision is None:
             revision = self.repository.save(make_f1_scene(), parent_revision_id=None).revision
         self.working = WorkingDocument(

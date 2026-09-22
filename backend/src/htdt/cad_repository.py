@@ -10,7 +10,12 @@ import sqlite3
 from uuid import uuid4
 
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    _SCENE_DOCUMENT_HEADS_DDL,
+    backfill_scene_document_heads,
+    ensure_native_schema,
+    ensure_scene_revision_lineage_columns,
+)
 from .content_blobs import (
     ensure_content_blob_store,
     read_content_blob,
@@ -39,6 +44,13 @@ class SceneRevision:
     created_at_utc: str
     content_hash: str
     document: SceneDocument
+    #: True when the revision is deliberate non-head lineage: it was written
+    #: by ``save_detached_revision`` (or reconstructed as off-mainline during
+    #: head migration) and never became the document's current head.
+    detached: bool = False
+    #: Optional provenance note for detached lineage (fixture, analytical
+    #: candidate materialization, historical comparison, ...).
+    detached_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +129,8 @@ class SceneRepository:
                     created_at_utc TEXT NOT NULL,
                     content_hash TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
+                    detached INTEGER NOT NULL DEFAULT 0,
+                    detached_reason TEXT,
                     FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
                 )
                 '''
@@ -125,6 +139,17 @@ class SceneRepository:
                 'CREATE INDEX IF NOT EXISTS idx_scene_revisions_document_seq '
                 'ON scene_revisions(document_id, seq DESC)'
             )
+            # Explicit current-head authority (#626): current document state
+            # is whatever this table points at, never MAX(scene_revisions.seq).
+            connection.execute(_SCENE_DOCUMENT_HEADS_DDL)
+            # Detached-lineage markers; already present on v5-migrated
+            # databases, appended here for databases created before the
+            # columns existed (and for any exotic path that skipped the
+            # versioned migration).
+            ensure_scene_revision_lineage_columns(connection)
+            # Reconstruct explicit heads for databases written before the
+            # head authority existed; a no-op once every document has one.
+            backfill_scene_document_heads(connection)
             connection.execute(
                 '''
                 CREATE TABLE IF NOT EXISTS scene_recovery_snapshots (
@@ -154,7 +179,37 @@ class SceneRepository:
                     "ALTER TABLE editor_view_states ADD COLUMN selected_ids_json TEXT NOT NULL DEFAULT '[]'"
                 )
 
+    def current_head(self, document_id: str) -> SceneRevision | None:
+        """Return the document's explicit current head SceneRevision.
+
+        This is the product authority for "the current Scene": the head only
+        advances when a normal ``save`` commits a new mainline revision.
+        Detached lineage written by ``save_detached_revision`` never appears
+        here regardless of insertion order.
+        """
+        with closing(self._connect()) as connection, connection:
+            row = self._head_revision_row(connection, document_id)
+            if row is None:
+                return None
+            return self._row_to_revision(row)
+
     def latest(self, document_id: str) -> SceneRevision | None:
+        """Compatibility alias for :meth:`current_head`.
+
+        Before #626 this resolved ``ORDER BY seq DESC LIMIT 1``, which let a
+        detached branch row hijack the current-document position merely by
+        being newest. It now resolves the explicit head authority; use
+        :meth:`most_recently_created_revision` for pure insertion chronology.
+        """
+        return self.current_head(document_id)
+
+    def most_recently_created_revision(self, document_id: str) -> SceneRevision | None:
+        """Return the newest revision by insertion order (chronology only).
+
+        This is NOT the current-head authority — a detached revision may be
+        newer than the head. Product code must consume :meth:`current_head`;
+        this exists for rare chronology/diagnostic queries.
+        """
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM scene_revisions WHERE document_id=? ORDER BY seq DESC LIMIT 1',
@@ -163,6 +218,19 @@ class SceneRepository:
             if row is None:
                 return None
             return self._row_to_revision(row)
+
+    @staticmethod
+    def _head_revision_row(
+        connection: sqlite3.Connection,
+        document_id: str,
+    ) -> sqlite3.Row | None:
+        """Return the ``scene_revisions`` row of the document's current head."""
+        return connection.execute(
+            'SELECT r.* FROM scene_document_heads h '
+            'JOIN scene_revisions r ON r.revision_id = h.head_revision_id '
+            'WHERE h.document_id=?',
+            (document_id,),
+        ).fetchone()
 
     def get(self, revision_id: str) -> SceneRevision | None:
         with closing(self._connect()) as connection, connection:
@@ -179,20 +247,20 @@ class SceneRepository:
         document: SceneDocument,
         *,
         parent_revision_id: str | None,
-        allow_branch: bool = False,
     ) -> SaveResult:
         """Persist one immutable SceneRevision as the document's current head.
 
         This is an optimistic compare-and-swap boundary on the single-head
         lineage: the first revision of a document requires
         ``parent_revision_id=None`` and no existing revision, and every later
-        revision requires ``parent_revision_id`` to equal the document's latest
-        revision. The head check runs inside the same ``BEGIN IMMEDIATE``
-        transaction as the insert, so two writers racing from the same head
-        cannot both advance it. Violations raise ``SceneRevisionConflictError``.
+        revision requires ``parent_revision_id`` to equal the document's
+        explicit current head. The head check runs inside the same
+        ``BEGIN IMMEDIATE`` transaction as the insert and the head advance,
+        so two writers racing from the same head cannot both advance it.
+        Violations raise ``SceneRevisionConflictError``.
 
-        ``allow_branch=True`` deliberately relaxes the head check for explicit
-        non-head lineage; see ``_save_in_transaction`` for the full contract.
+        For deliberate non-head lineage that must not become the current
+        document, use ``save_detached_revision``.
         """
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -200,7 +268,39 @@ class SceneRepository:
                 connection,
                 document,
                 parent_revision_id=parent_revision_id,
-                allow_branch=allow_branch,
+            )
+
+    def save_detached_revision(
+        self,
+        document: SceneDocument,
+        *,
+        parent_revision_id: str,
+        reason: str | None = None,
+    ) -> SaveResult:
+        """Persist one immutable SceneRevision as detached, non-head lineage.
+
+        The parent must exist and belong to the document, but it does not
+        have to be the current head — detached revisions may descend from a
+        historical revision (for example O50 measurement-plan fixtures that
+        must descend directly from the SearchSpec source revision). The
+        insert NEVER advances ``scene_document_heads``: ``current_head``
+        keeps returning the true editing head and the detached row stays
+        retrievable only by exact id via ``get``. A detached save also
+        leaves the document's recovery snapshot untouched, since it does not
+        change the editing session's committed source.
+
+        ``reason`` records why the detached lineage exists (analytical
+        candidate materialization, fixture/test, historical comparison) and
+        is persisted on the revision for history/audit surfaces.
+        """
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            return self._save_in_transaction(
+                connection,
+                document,
+                parent_revision_id=parent_revision_id,
+                detached=True,
+                detached_reason=reason,
             )
 
     def _save_in_transaction(
@@ -211,7 +311,8 @@ class SceneRepository:
         parent_revision_id: str | None,
         revision_id: str | None = None,
         created_at_utc: str | None = None,
-        allow_branch: bool = False,
+        detached: bool = False,
+        detached_reason: str | None = None,
     ) -> SaveResult:
         """Persist one immutable SceneRevision inside the caller's transaction.
 
@@ -223,29 +324,34 @@ class SceneRepository:
 
         Lineage contract: the first revision of a document requires
         ``parent_revision_id=None`` and no existing revision; every later
-        revision requires ``parent_revision_id`` to equal the document's latest
-        (highest seq) revision. Stale-parent and duplicate-root saves raise
-        ``SceneRevisionConflictError`` rather than silently branching history.
+        current revision requires ``parent_revision_id`` to equal the
+        document's explicit head (``scene_document_heads``). Stale-parent and
+        duplicate-root saves raise ``SceneRevisionConflictError`` rather than
+        silently branching history.
 
-        ``allow_branch=True`` permits a non-head parent for deliberate detached
-        lineage (for example O50 measurement-plan fixture revisions that must
-        descend directly from the SearchSpec source revision). A branch row
-        still wins ``latest()`` by insertion order, so callers must bind the
-        returned revision by id and must not treat it as the document's current
-        head. A second root (``parent_revision_id=None`` with existing history)
-        is always rejected.
+        ``detached=True`` records deliberate non-head lineage: the
+        head-equality check is relaxed, the inserted row is flagged
+        ``detached``/``detached_reason``, and the document head is NOT
+        advanced, so detached revisions never become the current document
+        regardless of insertion order. Detached inserts also leave recovery
+        snapshots alone — they are not the editing session's committed
+        source. A second root (``parent_revision_id=None`` with existing
+        history) is always rejected, and a detached save always requires a
+        parent.
         """
 
         payload_json = canonical_scene_json(document)
         content_hash = scene_content_hash(document)
-        head = connection.execute(
-            'SELECT revision_id FROM scene_revisions '
-            'WHERE document_id=? ORDER BY seq DESC LIMIT 1',
-            (document.document_id,),
-        ).fetchone()
+        head = self._head_revision_row(connection, document.document_id)
         parent = None
         if parent_revision_id is None:
-            if head is not None:
+            if detached:
+                raise ValueError('detached SceneRevision requires a parent revision')
+            has_history = head is not None or connection.execute(
+                'SELECT 1 FROM scene_revisions WHERE document_id=? LIMIT 1',
+                (document.document_id,),
+            ).fetchone() is not None
+            if has_history:
                 raise SceneRevisionConflictError(
                     'duplicate root SceneRevision rejected: document '
                     f'{document.document_id} already has revision history'
@@ -259,18 +365,19 @@ class SceneRepository:
                 raise ValueError(f'unknown parent revision: {parent_revision_id}')
             if parent['document_id'] != document.document_id:
                 raise ValueError('parent revision belongs to a different document')
-            if not allow_branch and (
+            if not detached and (
                 head is None or head['revision_id'] != parent_revision_id
             ):
                 raise SceneRevisionConflictError(
                     f'stale parent SceneRevision: {parent_revision_id} is not the '
-                    f'latest revision of document {document.document_id}'
+                    f'current head of document {document.document_id}'
                 )
             if parent['content_hash'] == content_hash:
-                connection.execute(
-                    'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
-                    (document.document_id,),
-                )
+                if not detached:
+                    connection.execute(
+                        'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
+                        (document.document_id,),
+                    )
                 return SaveResult(self._row_to_revision(parent), created=False)
 
         geometry = document.r120_semantic_geometry
@@ -294,8 +401,9 @@ class SceneRepository:
         connection.execute(
             '''
             INSERT INTO scene_revisions(
-                revision_id, document_id, parent_revision_id, created_at_utc, content_hash, payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                revision_id, document_id, parent_revision_id, created_at_utc,
+                content_hash, payload_json, detached, detached_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 revision_id,
@@ -304,12 +412,32 @@ class SceneRepository:
                 created_at,
                 content_hash,
                 payload_json,
+                1 if detached else 0,
+                detached_reason if detached else None,
             ),
         )
-        connection.execute(
-            'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
-            (document.document_id,),
-        )
+        if detached:
+            # Detached lineage never advances the document head and never
+            # disturbs the editing session's recovery snapshot: it is not
+            # the document's current state.
+            pass
+        else:
+            connection.execute(
+                'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
+                (document.document_id,),
+            )
+            connection.execute(
+                '''
+                INSERT INTO scene_document_heads(
+                    document_id, head_revision_id, updated_at_utc, generation
+                ) VALUES (?, ?, ?, 1)
+                ON CONFLICT(document_id) DO UPDATE SET
+                    head_revision_id=excluded.head_revision_id,
+                    updated_at_utc=excluded.updated_at_utc,
+                    generation=scene_document_heads.generation + 1
+                ''',
+                (document.document_id, revision_id, created_at),
+            )
         row = connection.execute(
             'SELECT * FROM scene_revisions WHERE revision_id=?',
             (revision_id,),
@@ -528,4 +656,6 @@ class SceneRepository:
             created_at_utc=row['created_at_utc'],
             content_hash=row['content_hash'],
             document=document,
+            detached=bool(row['detached']),
+            detached_reason=row['detached_reason'],
         )

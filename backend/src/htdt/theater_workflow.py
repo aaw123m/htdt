@@ -30,7 +30,7 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
         self._update_actions()
 
     def _load_or_seed(self) -> None:
-        revision = self.repository.latest(self.document_id)
+        revision = self.repository.current_head(self.document_id)
         if revision is None:
             seed = make_f1_scene() if self.document_id == F1_DOCUMENT_ID else make_empty_scene(self.document_id)
             revision = self.repository.save(seed, parent_revision_id=None).revision

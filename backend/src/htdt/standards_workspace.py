@@ -142,7 +142,7 @@ class StandardsWorkspaceModel:
 
     def target_view(self, variant_id: str | None) -> StandardsTargetView:
         if variant_id is None:
-            revision = self.scene_repository.latest(self.document_id)
+            revision = self.scene_repository.current_head(self.document_id)
             if revision is None:
                 raise ValueError("保存済みの部屋状態がありません")
             document = revision.document

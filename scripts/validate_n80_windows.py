@@ -295,7 +295,7 @@ def run_a13(app: QApplication, root: Path) -> bool:
             stale_release.set()
             return False
         click_action(window, window.save_action, app)
-        revision_b = repository.latest(FIXTURE_ID)
+        revision_b = repository.current_head(FIXTURE_ID)
         save_changed_revision = revision_b is not None and revision_b.revision_id != revision_a.revision_id
         print('A13_N80_SAVE_CHANGED_REVISION', save_changed_revision, flush=True)
         stale_release.set()

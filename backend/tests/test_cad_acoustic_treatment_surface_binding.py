@@ -127,10 +127,10 @@ def _save_geometry_revision(
     # Alternative geometry outcomes for the same parent are deliberate
     # non-head lineage: the R120 binding rule requires the parent to equal the
     # geometry's source revision, so siblings off one parent are intended.
-    return repository.save(
+    return repository.save_detached_revision(
         document,
         parent_revision_id=parent.revision_id,
-        allow_branch=True,
+        reason='alternative_geometry_outcome',
     ).revision
 
 

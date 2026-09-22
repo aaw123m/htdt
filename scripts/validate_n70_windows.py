@@ -77,7 +77,7 @@ def run_a13_latched(app: QApplication, root: Path) -> bool:
             stale_release.set()
             return False
         base.click_action(window, window.save_action, app)
-        revision_b = repository.latest(base.FIXTURE_ID)
+        revision_b = repository.current_head(base.FIXTURE_ID)
         save_changed_revision = revision_b is not None and revision_b.revision_id != revision_a.revision_id
         print('A13_N70_SAVE_CHANGED_REVISION', save_changed_revision, flush=True)
         stale_release.set()

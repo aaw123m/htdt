@@ -79,7 +79,7 @@ class MeasurementPlanControllerMixin:
         if self.search_selected_spec_id is None or self.search_selected_candidate_id is None:
             self.statusBar().showMessage('探索設定と候補を選択してください')
             return
-        latest = self.repository.latest(self.document_id)
+        latest = self.repository.current_head(self.document_id)
         if latest is None or self.working is None or self.working.is_dirty:
             self.statusBar().showMessage('候補を適用した部屋を保存してから実測候補を記録してください')
             return

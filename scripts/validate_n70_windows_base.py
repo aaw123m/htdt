@@ -223,7 +223,7 @@ def run_a13(app: QApplication, root: Path) -> bool:
             return False
         moved = drag_selected_x(window, app, scale=1.05)
         click_action(window, window.save_action, app)
-        revision_b = repository.latest(FIXTURE_ID)
+        revision_b = repository.current_head(FIXTURE_ID)
         stale_finished = wait_jobs_empty(window, app, 2.8)
         stale_not_saved = (
             moved

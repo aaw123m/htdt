@@ -155,10 +155,10 @@ def _campaign(
 
 def _applied_revision(scene_repository, source, candidate):
     preview = candidate_preview_document(source.document, candidate)
-    return scene_repository.save(
+    return scene_repository.save_detached_revision(
         preview,
         parent_revision_id=source.revision_id,
-        allow_branch=True,
+        reason='measurement_plan_fixture',
     ).revision
 
 

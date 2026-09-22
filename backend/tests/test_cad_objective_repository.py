@@ -587,10 +587,10 @@ def test_measured_objective_evaluation_replays_from_persisted_dataset(tmp_path) 
     scene_repository, revision, spec, candidates, repository, _responses = _fixture(tmp_path)
     measurement_repository = CadMeasurementRepository(scene_repository)
     candidate = candidates[1]
-    applied_revision = scene_repository.save(
+    applied_revision = scene_repository.save_detached_revision(
         candidate_preview_document(revision.document, candidate),
         parent_revision_id=revision.revision_id,
-        allow_branch=True,
+        reason='measurement_plan_fixture',
     ).revision
     dataset = _save_measurement(
         measurement_repository,
@@ -624,10 +624,10 @@ def test_measured_objective_evaluation_replays_from_persisted_dataset(tmp_path) 
 
     # A measurement bound to a different candidate's applied revision is not
     # evidence for this evaluation.
-    other_revision = scene_repository.save(
+    other_revision = scene_repository.save_detached_revision(
         candidate_preview_document(revision.document, candidates[0]),
         parent_revision_id=revision.revision_id,
-        allow_branch=True,
+        reason='measurement_plan_fixture',
     ).revision
     other_dataset = _save_measurement(
         measurement_repository,

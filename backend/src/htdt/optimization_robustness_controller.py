@@ -236,7 +236,7 @@ class RobustnessControllerMixin:
             )
             return
 
-        current_revision = self.repository.latest(self.document_id)
+        current_revision = self.repository.current_head(self.document_id)
         _, current_constraint_workspace_hash = constraint_workspace_snapshot(
             self.constraint_set
         )

@@ -1054,7 +1054,7 @@ def test_application_read_rejects_unreproduced_applied_revision(
     baseline = scene_repository.get(application.baseline_revision_id)
     assert baseline is not None
 
-    sibling = scene_repository.save(
+    sibling = scene_repository.save_detached_revision(
         baseline.document.model_copy(
             update={
                 'entities': tuple(
@@ -1072,7 +1072,7 @@ def test_application_read_rejects_unreproduced_applied_revision(
             }
         ),
         parent_revision_id=baseline.revision_id,
-        allow_branch=True,
+        reason='application_integrity_fixture',
     ).revision
 
     _rewrite_application_row(
