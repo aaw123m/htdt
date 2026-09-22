@@ -4,6 +4,7 @@ from .cad_adaptive_planner import (
     AdaptiveExecutionScope,
     CadAdaptivePlan,
     build_adaptive_plan,
+    select_predicted_evaluations,
 )
 from .cad_adaptive_repository import CadAdaptivePlanRepository
 from .cad_model_validation_repository import CadModelValidationRepository
@@ -35,11 +36,6 @@ class CadAdaptivePlannerService:
         if len(paths) != 1:
             raise ValueError('adaptive planner repositories must share one native CAD database')
 
-    @staticmethod
-    def _is_predicted(evaluation) -> bool:
-        classes = {ref.evidence_class for ref in evaluation.input_refs}
-        return 'predicted' in classes and 'measured' not in classes
-
     def build_and_save(
         self,
         *,
@@ -61,18 +57,14 @@ class CadAdaptivePlannerService:
             )
         )
         evaluations = self.objective_repository.list_evaluations(spec.search_spec_id)
-        latest_predicted = {}
-        for evaluation in evaluations:
-            if not self._is_predicted(evaluation):
-                continue
-            try:
-                for objective_id in objective_ids:
-                    evaluation.vector.metric(objective_id)
-            except KeyError:
-                continue
-            latest_predicted[evaluation.candidate_id] = evaluation
+        predicted_evaluations = select_predicted_evaluations(
+            evaluations,
+            objective_ids,
+        )
 
-        required_ids = set(latest_predicted)
+        required_ids = {
+            evaluation.candidate_id for evaluation in predicted_evaluations
+        }
         required_ids.update(pair.candidate_id for pair in validation.pairs)
         if not required_ids:
             raise ValueError('adaptive planner has no candidate evidence')
@@ -103,7 +95,7 @@ class CadAdaptivePlannerService:
             candidate_set_sha256=candidate_set_sha256,
             validation=validation,
             candidates=tuple(candidate_map.values()),
-            predicted_evaluations=tuple(latest_predicted.values()),
+            predicted_evaluations=predicted_evaluations,
             execution_scope=execution_scope,
             length_scale_m=length_scale_m,
             proposal_limit=proposal_limit,

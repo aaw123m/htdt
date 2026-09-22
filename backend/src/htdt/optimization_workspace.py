@@ -120,6 +120,7 @@ class OptimizationWorkspaceWindow(
         self.adaptive_repository = CadAdaptivePlanRepository(
             self.search_repository,
             self.validation_repository,
+            self.objective_repository,
         )
         self.adaptive_service = CadAdaptivePlannerService(
             self.search_repository,

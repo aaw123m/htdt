@@ -357,7 +357,15 @@ def test_adaptive_candidate_authority_spans_pages(tmp_path):
         scene_repository,
         search_repository,
     )
-    repository = CadAdaptivePlanRepository(search_repository, validation_repository)
+    objective_repository = CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+    )
+    repository = CadAdaptivePlanRepository(
+        search_repository,
+        validation_repository,
+        objective_repository,
+    )
 
     def plan(candidate_ids, candidate_set_sha256):
         return SimpleNamespace(
@@ -366,19 +374,25 @@ def test_adaptive_candidate_authority_spans_pages(tmp_path):
                 SimpleNamespace(candidate_id=candidate_id)
                 for candidate_id in candidate_ids
             ],
+            training_candidate_ids=(),
+            excluded_measured_candidate_ids=(),
+            predicted_evaluation_refs=(),
         )
 
-    repository._validate_candidate_authority(
+    resolved, resolved_sha = repository._require_candidate_authority(
         plan(wanted, canonical.candidate_set_sha256),
         spec,
     )
+    assert resolved_sha == canonical.candidate_set_sha256
+    assert {candidate.candidate_id for candidate in resolved} >= set(wanted)
+    assert len(resolved) == canonical.feasible_candidate_count
     with pytest.raises(ValueError, match='no longer matches SearchSpec'):
-        repository._validate_candidate_authority(
+        repository._require_candidate_authority(
             plan(wanted, '0' * 64),
             spec,
         )
     with pytest.raises(ValueError, match='outside SearchSpec'):
-        repository._validate_candidate_authority(
+        repository._require_candidate_authority(
             plan(['not-a-candidate'], canonical.candidate_set_sha256),
             spec,
         )

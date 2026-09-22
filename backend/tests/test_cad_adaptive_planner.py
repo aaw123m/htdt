@@ -4,9 +4,12 @@ import json
 
 import pytest
 
+from htdt import cad_adaptive_planner
 from htdt.cad_adaptive_planner import (
+    build_adaptive_plan,
     development_validation_ready,
     production_validation_ready,
+    select_predicted_evaluations,
 )
 from htdt.cad_adaptive_repository import CadAdaptivePlanRepository
 from htdt.cad_adaptive_service import CadAdaptivePlannerService
@@ -303,6 +306,7 @@ def _fixture(tmp_path, *, applicability_pass: bool = True):
     adaptive_repository = CadAdaptivePlanRepository(
         search_repository,
         validation_repository,
+        objective_repository,
     )
     service = CadAdaptivePlannerService(
         search_repository,
@@ -316,11 +320,23 @@ def _fixture(tmp_path, *, applicability_pass: bool = True):
         adaptive_repository,
         service,
         candidate_ids,
+        objective_repository,
+        spec,
+        revision,
     )
 
 
 def test_synthetic_development_plan_reaches_o70_without_unlocking_production(tmp_path):
-    record, _page, repository, service, candidate_ids = _fixture(tmp_path)
+    (
+        record,
+        _page,
+        repository,
+        service,
+        candidate_ids,
+        objectives,
+        spec,
+        _revision,
+    ) = _fixture(tmp_path)
 
     assert development_validation_ready(record)
     assert not production_validation_ready(record)
@@ -336,12 +352,32 @@ def test_synthetic_development_plan_reaches_o70_without_unlocking_production(tmp
     assert plan.execution_scope == 'development_synthetic'
     assert plan.source_evidence_scope == 'synthetic_fixture'
     assert plan.validation_recommendation_gate == 'disabled'
+    assert plan.proposal_limit == 10
     assert plan.training_candidate_ids == candidate_ids[:2]
     assert set(plan.excluded_measured_candidate_ids) == set(candidate_ids[:4])
     assert {proposal.candidate_id for proposal in plan.proposals} == set(candidate_ids[4:])
     assert plan.selected_candidate_id == candidate_ids[-1]
     assert plan.proposals[0].acquisition_score >= plan.proposals[1].acquisition_score
+
+    # Every predicted objective input is identity-bound in the plan.
+    assert len(plan.predicted_evaluation_refs) == plan.candidate_pool_count
+    assert {
+        ref.candidate_id for ref in plan.predicted_evaluation_refs
+    } == set(candidate_ids[4:])
+    for ref in plan.predicted_evaluation_refs:
+        evaluation = objectives.get_evaluation(ref.evaluation_id)
+        assert evaluation is not None
+        assert evaluation.evaluation_sha256 == ref.evaluation_sha256
+        assert evaluation.candidate_id == ref.candidate_id
+        assert evaluation.search_spec_sha256 == spec.search_spec_sha256
+
+    # Authoritative reads replay the canonical planner and reopen the plan.
     assert repository.get(plan.plan_id) == plan
+    assert (
+        repository.find_by_sha(plan.search_spec_id, plan.adaptive_sha256)
+        == plan
+    )
+    assert repository.list_for_search_spec(plan.search_spec_id) == (plan,)
 
     repeated = service.build_and_save(
         validation_id=record.validation_id,
@@ -354,7 +390,9 @@ def test_synthetic_development_plan_reaches_o70_without_unlocking_production(tmp
 
 
 def test_production_scope_rejects_synthetic_o60_even_when_all_technical_gates_pass(tmp_path):
-    record, _page, _repository, service, _candidate_ids = _fixture(tmp_path)
+    record, _page, _repository, service, _candidate_ids, _o, _s, _r = _fixture(
+        tmp_path
+    )
 
     with pytest.raises(ValueError, match='production adaptive planning requires'):
         service.build_and_save(
@@ -364,7 +402,7 @@ def test_production_scope_rejects_synthetic_o60_even_when_all_technical_gates_pa
 
 
 def test_development_scope_still_fails_closed_on_non_scope_o60_failure(tmp_path):
-    record, _page, _repository, service, _candidate_ids = _fixture(
+    record, _page, _repository, service, _candidate_ids, _o, _s, _r = _fixture(
         tmp_path,
         applicability_pass=False,
     )
@@ -376,3 +414,302 @@ def test_development_scope_still_fails_closed_on_non_scope_o60_failure(tmp_path)
             validation_id=record.validation_id,
             execution_scope='development_synthetic',
         )
+
+
+def _rebound_plan(plan, **updates):
+    """Rehash a tampered plan so only canonical replay can reject it."""
+
+    tampered = plan.model_copy(update=updates)
+    return tampered.model_copy(update={
+        'adaptive_sha256': cad_adaptive_planner._digest(
+            tampered.identity_payload()
+        ),
+    })
+
+
+def _save_newer_predicted(objectives, revision, spec, candidate_id, value):
+    """Persist a newer predicted O30 evaluation for the same candidate."""
+
+    evaluation = build_objective_evaluation(
+        revision,
+        spec,
+        candidate_id,
+        ObjectiveVector(
+            candidate_id=candidate_id,
+            metrics=(
+                ObjectiveMetric(
+                    objective_id='response.shape_rms_db',
+                    value=value,
+                    unit='dB',
+                ),
+            ),
+        ),
+        evaluation_spec={
+            'algorithm_version': 'objective-vector-1',
+            'objective_method': 'fixture-metrics-1',
+            'objectives': ['response.shape_rms_db'],
+            'metrics': [
+                {
+                    'objective_id': 'response.shape_rms_db',
+                    'value': value,
+                    'unit': 'dB',
+                    'direction': 'minimize',
+                },
+            ],
+        },
+        input_refs=(
+            CadObjectiveInputRef(
+                evidence_class='predicted',
+                source_kind='prediction_fixture',
+                source_id=f'pred-superseding:{candidate_id}:{value}',
+            ),
+        ),
+    )
+    objectives.save_evaluation(evaluation)
+    return evaluation
+
+
+def test_save_rejects_rehashed_fabricated_planner_output(tmp_path):
+    (
+        record,
+        _page,
+        repository,
+        service,
+        _candidate_ids,
+        _objectives,
+        _spec,
+        _revision,
+    ) = _fixture(tmp_path)
+    plan = service.build_and_save(
+        validation_id=record.validation_id,
+        execution_scope='development_synthetic',
+        length_scale_m=0.35,
+        proposal_limit=10,
+    )
+    proposals = plan.proposals
+
+    # Caller-fabricated acquisition score.
+    forged = _rebound_plan(
+        plan,
+        proposals=(
+            proposals[0].model_copy(update={
+                'acquisition_score': proposals[0].acquisition_score + 0.5,
+            }),
+        )
+        + proposals[1:],
+    )
+    with pytest.raises(ValueError, match='canonical planner replay'):
+        repository.save(forged)
+
+    # Caller-fabricated GP corrected mean / residual uncertainty.
+    estimate = proposals[0].objectives[0]
+    forged = _rebound_plan(
+        plan,
+        proposals=(
+            proposals[0].model_copy(update={
+                'objectives': (
+                    estimate.model_copy(update={
+                        'corrected_mean': estimate.corrected_mean + 1.0,
+                        'residual_uncertainty': 0.0,
+                    }),
+                )
+                + proposals[0].objectives[1:],
+            }),
+        )
+        + proposals[1:],
+    )
+    with pytest.raises(ValueError, match='canonical planner replay'):
+        repository.save(forged)
+
+    # Caller-fabricated proposal order and selected candidate.
+    reversed_order = tuple(reversed(proposals))
+    forged = _rebound_plan(
+        plan,
+        proposals=reversed_order,
+        selected_candidate_id=reversed_order[0].candidate_id,
+    )
+    with pytest.raises(ValueError, match='canonical planner replay'):
+        repository.save(forged)
+
+    # Caller-fabricated training and measured-exclusion lists.
+    forged = _rebound_plan(
+        plan,
+        training_candidate_ids=(
+            proposals[0].candidate_id,
+        )
+        + plan.training_candidate_ids[1:],
+    )
+    with pytest.raises(ValueError, match='canonical planner replay'):
+        repository.save(forged)
+    forged = _rebound_plan(
+        plan,
+        excluded_measured_candidate_ids=plan.excluded_measured_candidate_ids[1:],
+    )
+    with pytest.raises(ValueError, match='canonical planner replay'):
+        repository.save(forged)
+
+    # A proposal whose predicted evidence ref is dropped is not constructible.
+    forged = _rebound_plan(
+        plan,
+        predicted_evaluation_refs=plan.predicted_evaluation_refs[1:],
+    )
+    with pytest.raises(
+        ValueError,
+        match='must bind their predicted objective evidence',
+    ):
+        repository.save(forged)
+
+    # An inflated candidate pool disagrees with the bound evidence.
+    forged = _rebound_plan(
+        plan,
+        candidate_pool_count=plan.candidate_pool_count + 1,
+    )
+    with pytest.raises(
+        ValueError,
+        match='must cover the candidate pool',
+    ):
+        repository.save(forged)
+
+
+def test_save_rejects_plan_built_on_superseded_predicted_evidence(tmp_path):
+    (
+        record,
+        page,
+        repository,
+        _service,
+        _candidate_ids,
+        objectives,
+        spec,
+        revision,
+    ) = _fixture(tmp_path)
+
+    predicted = select_predicted_evaluations(
+        objectives.list_evaluations(spec.search_spec_id),
+        ('response.shape_rms_db',),
+    )
+    stale_plan = build_adaptive_plan(
+        spec=spec,
+        candidate_set_sha256=page.candidate_set_sha256,
+        validation=record,
+        candidates=page.candidates,
+        predicted_evaluations=predicted,
+        execution_scope='development_synthetic',
+        length_scale_m=0.35,
+        proposal_limit=10,
+    )
+
+    target = stale_plan.predicted_evaluation_refs[0]
+    _save_newer_predicted(
+        objectives,
+        revision,
+        spec,
+        target.candidate_id,
+        99.0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match='predicted objective evidence is not current',
+    ):
+        repository.save(stale_plan)
+
+
+def test_save_rejects_plan_built_on_partial_objective_evidence(tmp_path):
+    (
+        record,
+        page,
+        repository,
+        _service,
+        candidate_ids,
+        objectives,
+        spec,
+        _revision,
+    ) = _fixture(tmp_path)
+
+    predicted = select_predicted_evaluations(
+        objectives.list_evaluations(spec.search_spec_id),
+        ('response.shape_rms_db',),
+    )
+    subset = tuple(
+        evaluation
+        for evaluation in predicted
+        if evaluation.candidate_id == candidate_ids[4]
+    )
+    partial_plan = build_adaptive_plan(
+        spec=spec,
+        candidate_set_sha256=page.candidate_set_sha256,
+        validation=record,
+        candidates=page.candidates,
+        predicted_evaluations=subset,
+        execution_scope='development_synthetic',
+        length_scale_m=0.35,
+        proposal_limit=10,
+    )
+    assert len(partial_plan.proposals) == 1
+
+    with pytest.raises(ValueError, match='canonical planner replay'):
+        repository.save(partial_plan)
+
+
+def test_authoritative_reads_fail_closed_on_superseded_evidence(tmp_path):
+    (
+        record,
+        _page,
+        repository,
+        service,
+        _candidate_ids,
+        objectives,
+        spec,
+        revision,
+    ) = _fixture(tmp_path)
+    plan = service.build_and_save(
+        validation_id=record.validation_id,
+        execution_scope='development_synthetic',
+        length_scale_m=0.35,
+        proposal_limit=10,
+    )
+
+    _save_newer_predicted(
+        objectives,
+        revision,
+        spec,
+        plan.selected_candidate_id,
+        99.0,
+    )
+
+    # Every authoritative read fails closed on the stale persisted row.
+    with pytest.raises(
+        ValueError,
+        match='predicted objective evidence is not current',
+    ):
+        repository.get(plan.plan_id)
+    with pytest.raises(
+        ValueError,
+        match='predicted objective evidence is not current',
+    ):
+        repository.find_by_sha(plan.search_spec_id, plan.adaptive_sha256)
+    with pytest.raises(
+        ValueError,
+        match='predicted objective evidence is not current',
+    ):
+        repository.list_for_search_spec(plan.search_spec_id)
+
+    # The canonical rebuild over current evidence still persists/reopens.
+    rebuilt = service.build_and_save(
+        validation_id=record.validation_id,
+        execution_scope='development_synthetic',
+        length_scale_m=0.35,
+        proposal_limit=10,
+    )
+    assert rebuilt.adaptive_sha256 != plan.adaptive_sha256
+    assert repository.get(rebuilt.plan_id) == rebuilt
+    assert (
+        repository.find_by_sha(rebuilt.search_spec_id, rebuilt.adaptive_sha256)
+        == rebuilt
+    )
+    # The stale row remains in history, so the listing still fails closed.
+    with pytest.raises(
+        ValueError,
+        match='predicted objective evidence is not current',
+    ):
+        repository.list_for_search_spec(plan.search_spec_id)
