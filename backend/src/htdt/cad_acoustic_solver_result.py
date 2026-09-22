@@ -77,11 +77,13 @@ def _domain_contains(
 
 
 class AcousticSolverObservableArtifact(BaseModel):
-    """One exact externally persisted solver-output artifact manifest.
+    """One exact externally persisted solver-output artifact manifest binding.
 
     The artifact bytes and their encoding/schema remain external authorities.
-    HTDT does not infer numerical semantics beyond the observable and valid band
-    declared by this exact binding.
+    ``observable``, ``encoding_schema_ref`` and ``valid_frequency_domain`` must
+    reproduce the resolved :class:`AcousticSolverArtifactManifest` of
+    ``artifact_authority`` exactly; HTDT never trusts them from the caller
+    alone and does not infer numerical semantics beyond that manifest.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -90,6 +92,75 @@ class AcousticSolverObservableArtifact(BaseModel):
     artifact_authority: ExactExternalAuthorityRef
     encoding_schema_ref: ExactExternalAuthorityRef
     valid_frequency_domain: FrequencyDomain
+
+
+class AcousticSolverArtifactManifest(BaseModel):
+    """Typed manifest resolved from the exact solver-artifact authority.
+
+    The manifest is the artifact storage system's own declaration — reproduced
+    by an :data:`AcousticSolverArtifactManifestResolver`, never trusted from a
+    caller submission — of which observable the exact artifact encodes, which
+    exact encoding schema governs it and which frequency domain the artifact
+    actually covers. ``channel_identity``/``solver_lineage`` carry
+    observable-specific grid/channel/receiver identity and deterministic
+    solver-input/result lineage for downstream consumers; binding equality is
+    enforced over ``artifact_ref``, ``observable``, ``encoding_schema_ref`` and
+    ``valid_frequency_domain``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    artifact_ref: ExactExternalAuthorityRef
+    observable: str = Field(min_length=1)
+    encoding_schema_ref: ExactExternalAuthorityRef
+    valid_frequency_domain: FrequencyDomain
+    channel_identity: dict[str, Any] = Field(default_factory=dict)
+    solver_lineage: dict[str, str] = Field(default_factory=dict)
+
+
+AcousticSolverArtifactManifestResolver = Callable[
+    [ExactExternalAuthorityRef],
+    AcousticSolverArtifactManifest | None,
+]
+
+
+def _require_manifest_binding(
+    binding: AcousticSolverObservableArtifact,
+    manifest: AcousticSolverArtifactManifest,
+) -> None:
+    """Fail closed unless the submitted binding equals the resolved manifest."""
+    if manifest.artifact_ref != binding.artifact_authority:
+        raise ValueError(
+            f'{binding.observable} artifact manifest resolves a different '
+            'exact artifact authority'
+        )
+    if manifest.observable != binding.observable:
+        raise ValueError(
+            f'{binding.observable} artifact manifest observable mismatch'
+        )
+    if manifest.encoding_schema_ref != binding.encoding_schema_ref:
+        raise ValueError(
+            f'{binding.observable} artifact manifest encoding schema mismatch'
+        )
+    if manifest.valid_frequency_domain != binding.valid_frequency_domain:
+        raise ValueError(
+            f'{binding.observable} artifact manifest valid frequency domain '
+            'mismatch'
+        )
+
+
+def _resolve_artifact_manifest(
+    resolver: AcousticSolverArtifactManifestResolver,
+    binding: AcousticSolverObservableArtifact,
+) -> AcousticSolverArtifactManifest:
+    manifest = resolver(binding.artifact_authority)
+    if manifest is None:
+        raise ValueError(
+            f'{binding.observable} artifact manifest exact external authority '
+            'does not exist'
+        )
+    _require_manifest_binding(binding, manifest)
+    return manifest
 
 
 class AcousticSolverResultEnvelope(BaseModel):
@@ -170,6 +241,7 @@ def build_acoustic_solver_result_envelope(
     execution_provenance_ref: ExactExternalAuthorityRef,
     artifacts: Sequence[AcousticSolverObservableArtifact],
     completed_at_utc: str,
+    artifact_manifest_resolver: AcousticSolverArtifactManifestResolver | None = None,
 ) -> AcousticSolverResultEnvelope:
     dispatch = AcousticSolverDispatchBinding.model_validate(
         dispatch.model_dump(mode='python')
@@ -221,8 +293,14 @@ def build_acoustic_solver_result_envelope(
             f'(missing={missing}, extra={extra})'
         )
     for item in artifact_tuple:
+        coverage = item.valid_frequency_domain
+        if artifact_manifest_resolver is not None:
+            coverage = _resolve_artifact_manifest(
+                artifact_manifest_resolver,
+                item,
+            ).valid_frequency_domain
         if not _domain_contains(
-            item.valid_frequency_domain,
+            coverage,
             request.requested_frequency_domain,
         ):
             raise ValueError(
@@ -287,7 +365,13 @@ def build_acoustic_solver_result_envelope(
 
 
 class CadAcousticSolverResultRepository:
-    """Append-only exact arbitrary-room solver-result persistence."""
+    """Append-only exact arbitrary-room solver-result persistence.
+
+    Every artifact binding is re-resolved against the typed
+    ``artifact_manifest_resolver`` on save and on read; the declared
+    observable, encoding schema and valid frequency domain must reproduce the
+    resolved :class:`AcousticSolverArtifactManifest` exactly.
+    """
 
     def __init__(
         self,
@@ -296,11 +380,13 @@ class CadAcousticSolverResultRepository:
         dispatch_resolver: AcousticDispatchResolver,
         request_resolver: AcousticPredictionRequestResolver,
         external_authority_resolver: ExternalAuthorityResolver,
+        artifact_manifest_resolver: AcousticSolverArtifactManifestResolver,
     ) -> None:
         self.scene_repository = scene_repository
         self.dispatch_resolver = dispatch_resolver
         self.request_resolver = request_resolver
         self.external_authority_resolver = external_authority_resolver
+        self.artifact_manifest_resolver = artifact_manifest_resolver
         self.path = Path(scene_repository.path)
         for label, resolver in (
             ('solver dispatch', dispatch_resolver),
@@ -403,6 +489,18 @@ class CadAcousticSolverResultRepository:
                 item.encoding_schema_ref,
                 label=f'{item.observable} encoding schema',
             )
+            manifest = _resolve_artifact_manifest(
+                self.artifact_manifest_resolver,
+                item,
+            )
+            if not _domain_contains(
+                manifest.valid_frequency_domain,
+                request.requested_frequency_domain,
+            ):
+                raise ValueError(
+                    'solver result artifact manifest does not cover requested '
+                    f'frequency domain: {item.observable}'
+                )
 
         regenerated = build_acoustic_solver_result_envelope(
             dispatch=dispatch,

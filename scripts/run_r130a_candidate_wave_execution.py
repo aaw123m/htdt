@@ -1043,6 +1043,9 @@ def _fixture(
         dispatch_resolver=dispatch_repository,
         request_resolver=snapshot_repository,
         external_authority_resolver=store.resolve,
+        artifact_manifest_resolver=store.solver_artifact_manifest_resolver(
+            encoding_schema_ref=output_schema_ref,
+        ),
     )
     executor = PffdtdCandidateWaveExecutor(
         snapshot_repository=snapshot_repository,
@@ -1318,6 +1321,9 @@ def _verify_reopen_and_tamper(
         dispatch_resolver=reopened_dispatch,
         request_resolver=reopened_snapshot,
         external_authority_resolver=store.resolve,
+        artifact_manifest_resolver=store.solver_artifact_manifest_resolver(
+            encoding_schema_ref=fixture['output_schema_ref'],
+        ),
     )
     assert reopened_result.get(result.result_id) == result
 
