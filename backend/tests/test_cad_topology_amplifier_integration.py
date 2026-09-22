@@ -27,6 +27,7 @@ from htdt.cad_equipment import (
     SplCapability,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Offset3, Position3, RoomPrism, SceneDocument, SceneEntity, Size3
@@ -49,6 +50,18 @@ from htdt.cad_topology_comparison import (
 from htdt.cad_topology_comparison_repository import CadTopologyComparisonRepository
 from htdt.optimization_objectives import ObjectiveVector
 
+
+
+
+def _save_equipment(repository, definition) -> None:
+    """Persist explicit manual evidence for every cited provenance, then save."""
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='equipment-test-fixture',
+        recorded_at_utc='2026-01-01T00:00:00+00:00',
+    ):
+        repository.save_evidence(evidence)
+    repository.save_definition(definition)
 
 DOCUMENT_ID = 'o100d-topology-amplifier-integration'
 
@@ -163,7 +176,7 @@ def _fixture(tmp_path: Path, *, count: int = 6):
     variant_repository = CadSystemVariantRepository(scene_repository)
     equipment_repository = CadEquipmentRepository(scene_repository, variant_repository)
     definition = _equipment()
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     variants = []
     for index in range(count):
         variant = build_system_variant(

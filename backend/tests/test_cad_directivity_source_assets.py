@@ -21,6 +21,7 @@ from htdt.cad_equipment import (
     InterpolationProvenance,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Offset3, Size3
@@ -189,6 +190,17 @@ def _imported(
     return source_bytes, definition, dataset
 
 
+def _save_equipment(equipment_repository, definition) -> None:
+    """Persist explicit manual evidence for every cited provenance, then save."""
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='issue357-fixture',
+        recorded_at_utc='2026-01-01T00:00:00+00:00',
+    ):
+        equipment_repository.save_evidence(evidence)
+    equipment_repository.save_definition(definition)
+
+
 def _repositories(tmp_path: Path, *, db_name: str = 'cad.sqlite3'):
     scene_repository = SceneRepository(tmp_path / db_name)
     equipment_repository = CadEquipmentRepository(scene_repository)
@@ -229,7 +241,7 @@ def _metadata_rows(path: Path) -> list[tuple]:
 def test_persisted_dataset_reopens_exact_source_bytes(tmp_path: Path) -> None:
     source_bytes, definition, dataset = _imported()
     scene_repository, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     _save(repository, dataset, source_bytes)
 
     digest = dataset.source_asset_sha256
@@ -275,7 +287,7 @@ def test_persisted_dataset_reopens_exact_source_bytes(tmp_path: Path) -> None:
 def test_identical_source_bytes_are_stored_once(tmp_path: Path) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     _save(repository, dataset, source_bytes)
 
     # Re-saving the same evidence reuses the one installed asset and one
@@ -295,7 +307,7 @@ def test_already_installed_identical_digest_is_a_dedup_hit(
 ) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
 
     # An identical digest file already installed by another managed-asset
     # writer is adopted instead of rewritten; only its registry rows are
@@ -318,7 +330,7 @@ def test_resave_binds_existing_managed_asset_without_bytes(
 ) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     _save(repository, dataset, source_bytes)
 
     # A later save may bind to the already-managed asset without resupplying
@@ -331,7 +343,7 @@ def test_save_without_source_or_managed_asset_fails_closed(
 ) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
 
     with pytest.raises(ValueError, match='not registered'):
         repository.save_dataset(dataset)
@@ -351,7 +363,7 @@ def test_missing_or_tampered_source_asset_fails_closed(
 ) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     _save(repository, dataset, source_bytes)
 
     asset_file = repository.assets_dir / dataset.source_asset_sha256
@@ -372,7 +384,7 @@ def test_missing_or_tampered_source_asset_fails_closed(
 def test_recorded_adapter_replays_persisted_dataset(tmp_path: Path) -> None:
     source_bytes, definition, dataset = _imported(kind='complex')
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     _save(repository, dataset, source_bytes)
 
     reopened = repository.read_source_asset(dataset.source_asset_sha256)
@@ -402,7 +414,7 @@ def test_dataset_that_does_not_replay_from_source_fails_closed(
 ) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     _save(repository, dataset, source_bytes)
 
     # Replace the persisted payload with a different internally-consistent
@@ -481,8 +493,8 @@ def test_conflicting_dataset_identity_still_fails_closed(
         source_name='Other source fixture',
     )
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
-    equipment_repository.save_definition(other_definition)
+    _save_equipment(equipment_repository, definition)
+    _save_equipment(equipment_repository, other_definition)
     _save(repository, dataset, source_bytes)
 
     with pytest.raises(
@@ -495,7 +507,7 @@ def test_conflicting_dataset_identity_still_fails_closed(
 def test_foreign_bytes_at_digest_path_fail_closed(tmp_path: Path) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
 
     target = repository.assets_dir / dataset.source_asset_sha256
     target.write_bytes(b'foreign payload at the digest path')
@@ -510,7 +522,7 @@ def test_interrupted_asset_write_never_leaves_poisoned_digest_path(
 ) -> None:
     source_bytes, definition, dataset = _imported()
     _scene, equipment_repository, repository = _repositories(tmp_path)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     digest = dataset.source_asset_sha256
     target = repository.assets_dir / digest
 
@@ -546,7 +558,7 @@ def test_native_backup_preserves_and_verifies_source_assets(
         data_dir,
         db_name='cad-scenes.sqlite3',
     )
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     _save(repository, dataset, source_bytes)
 
     backup_path = tmp_path / 'directivity.htdt-backup'

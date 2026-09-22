@@ -25,10 +25,23 @@ from htdt.cad_equipment import (
     InterpolationProvenance,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Offset3, Size3
 
+
+
+
+def _save_equipment(repository, definition) -> None:
+    """Persist explicit manual evidence for every cited provenance, then save."""
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='equipment-test-fixture',
+        recorded_at_utc='2026-01-01T00:00:00+00:00',
+    ):
+        repository.save_evidence(evidence)
+    repository.save_definition(definition)
 
 def _asset_payload(
     *,
@@ -354,7 +367,7 @@ def test_save_reopen_preserves_dataset_and_evaluation_identity(
     source_bytes, definition, dataset = _imported_dataset()
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     equipment_repository = CadEquipmentRepository(scene_repository)
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     repository = CadDirectivityRepository(
         scene_repository,
         equipment_repository,

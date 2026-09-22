@@ -38,6 +38,7 @@ from htdt.cad_equipment import (
     SplCapability,
     build_equipment_definition,
 )
+from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
@@ -77,6 +78,19 @@ from htdt.optimization_objectives import ObjectiveMetric, ObjectiveVector
 
 
 NOW = '2026-09-22T10:00:00+00:00'
+
+
+def _save_equipment(repository, definition) -> None:
+    """Persist explicit manual evidence for every cited provenance, then save."""
+    for evidence in build_equipment_manual_evidence(
+        definition,
+        actor='equipment-test-fixture',
+        recorded_at_utc=NOW,
+    ):
+        repository.save_evidence(evidence)
+    repository.save_definition(definition)
+
+
 DOCUMENT_ID = 'o100d-bundle-authority-fixture'
 
 
@@ -257,7 +271,7 @@ def _fixture(tmp_path: Path):
         equipment_repository,
     )
     source_bytes, definition, dataset = _authority()
-    equipment_repository.save_definition(definition)
+    _save_equipment(equipment_repository, definition)
     directivity_repository.save_dataset(
         dataset,
         source_bytes=source_bytes,
