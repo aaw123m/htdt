@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from hashlib import sha256
+import json
 from pathlib import Path
 
 import pytest
 
 from htdt.cad_directivity import (
+    NORMALIZED_JSON_DIRECTIVITY_ADAPTER,
     DirectivityCoordinateConvention,
     DirectivityNormalization,
     DirectivitySample,
@@ -183,6 +186,83 @@ def _dataset(definition, *, kind: str):
             else None
         ),
     )
+
+
+def _persisted_directivity(definition_id: str, kind: str):
+    """Build real imported source bytes, a bound definition and the parsed
+    dataset so repository persistence can verify and replay the source."""
+    samples = []
+    for frequency_hz in (500.0, 1000.0):
+        for horizontal_angle_deg in (-30.0, 0.0, 30.0):
+            samples.append(
+                {
+                    'frequency_hz': frequency_hz,
+                    'horizontal_angle_deg': horizontal_angle_deg,
+                    'vertical_angle_deg': 0.0,
+                    'magnitude': (
+                        0.0 if horizontal_angle_deg == 0.0 else -6.0
+                    ),
+                    'phase_deg': (
+                        horizontal_angle_deg / 3.0
+                        if kind == 'complex'
+                        else None
+                    ),
+                }
+            )
+    payload = {
+        'schema': 'htdt.normalized-directivity.v1',
+        'dataset_id': f'{definition_id}-dataset',
+        'version': '1',
+        'source_format': 'custom',
+        'evidence_kind': 'measured',
+        'source_name': definition_id,
+        'source_version': '2026-09-19',
+        'source_reference': f'{definition_id}-fixture',
+        'kind': kind,
+        'coordinate_convention': {
+            'angle_semantics': 'horizontal_vertical',
+            'horizontal_wrap': 'none',
+            'reference_axis': 'equipment_acoustic_reference_axis',
+            'azimuth_positive': 'left',
+            'elevation_positive': 'up',
+            'angle_unit': 'degree',
+        },
+        'normalization': {
+            'source_magnitude_unit': 'db',
+            'normalized_magnitude_unit': 'db',
+            'reference': 'on_axis_per_frequency',
+            'reference_level_db': None,
+            'conversion_version': 'pressure-amplitude-db20-v1',
+        },
+        'phase_reference': (
+            'acoustic_reference_point/source-t0'
+            if kind == 'complex'
+            else None
+        ),
+        'interpolation_method': 'linear',
+        'interpolation_implementation': 'r110-test-grid-linear',
+        'interpolation_version': '1',
+        'frequencies_hz': [500.0, 1000.0],
+        'horizontal_angles_deg': [-30.0, 0.0, 30.0],
+        'vertical_angles_deg': [0.0],
+        'samples': samples,
+    }
+    source_bytes = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+    definition = _definition(
+        definition_id=definition_id,
+        tier=kind,
+        source_asset_sha256=sha256(source_bytes).hexdigest(),
+    )
+    dataset = NORMALIZED_JSON_DIRECTIVITY_ADAPTER.parse(
+        source_bytes,
+        definition,
+    )
+    return source_bytes, definition, dataset
 
 
 def _speaker(
@@ -540,14 +620,18 @@ def test_save_reopen_reresolves_all_exact_authorities(tmp_path: Path) -> None:
         scene_repository,
         equipment_repository,
     )
-    definition = _definition(
-        definition_id='persisted-r110-speaker',
-        tier='complex',
-        source_asset_sha256='8' * 64,
+    source_bytes, definition, dataset = _persisted_directivity(
+        'persisted-r110-speaker',
+        'complex',
     )
     equipment_repository.save_definition(definition)
-    dataset = _dataset(definition, kind='complex')
-    directivity_repository.save_dataset(dataset)
+    directivity_repository.save_dataset(
+        dataset,
+        source_bytes=source_bytes,
+        source_filename='persisted-r110-speaker.normalized.json',
+        media_type='application/json',
+        declared_schema='htdt.normalized-directivity.v1',
+    )
     variant = _variant(baseline, definition)
     variant_repository.save_variant(variant)
 

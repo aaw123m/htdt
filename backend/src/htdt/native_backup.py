@@ -23,6 +23,7 @@ from . import __version__
 from .build_info import get_build_info
 from .cad_schema import NativeSchemaError, check_native_schema_compatibility
 from .managed_assets import (
+    MANAGED_ASSETS_DIRNAME,
     canonical_data_path as _canonical_data_path,
     sha256_file as _sha256_file,
     verify_managed_asset,
@@ -40,7 +41,9 @@ from .limits import (
 BACKUP_SCHEMA_VERSION = 1
 DATABASE_NAME = 'cad-scenes.sqlite3'
 MANIFEST_NAME = 'manifest.json'
-MEASUREMENT_ASSETS_NAME = 'measurement-assets'
+# Shared managed asset directory; also holds non-measurement content-addressed
+# assets (treatment evidence, directivity sources) under the same contract.
+MEASUREMENT_ASSETS_NAME = MANAGED_ASSETS_DIRNAME
 
 # An in-flight restore keeps a durable journal inside its rollback directory
 # (``.<data-dir>-restore-rollback-<id>`` next to the managed data directory).

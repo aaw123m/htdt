@@ -27,12 +27,7 @@ from htdt.cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
 from htdt.cad_acoustic_solver_result import CadAcousticSolverResultRepository
-from htdt.cad_directivity import (
-    DirectivityCoordinateConvention,
-    DirectivityNormalization,
-    DirectivitySample,
-    build_directivity_dataset,
-)
+from htdt.cad_directivity import NORMALIZED_JSON_DIRECTIVITY_ADAPTER
 from htdt.cad_directivity_repository import CadDirectivityRepository
 from htdt.cad_equipment import (
     AngleDomain,
@@ -850,7 +845,59 @@ def _portal_chain_fixture(
     )
 
 def _directivity_definition(*, narrow: bool):
-    source_hash = 'd' * 64
+    horizontal_grid = (-30.0, 0.0, 30.0) if narrow else (-180.0, 0.0, 180.0)
+    source_payload = {
+        'schema': 'htdt.normalized-directivity.v1',
+        'dataset_id': 'r150-ga-speaker-dataset',
+        'version': '1',
+        'source_format': 'custom',
+        'evidence_kind': 'measured',
+        'source_name': 'r150-ga-fixture',
+        'source_version': '1',
+        'source_reference': 'unit-fixture',
+        'kind': 'magnitude_only',
+        'coordinate_convention': {
+            'angle_semantics': 'horizontal_vertical',
+            'horizontal_wrap': 'none',
+            'reference_axis': 'equipment_acoustic_reference_axis',
+            'azimuth_positive': 'left',
+            'elevation_positive': 'up',
+            'angle_unit': 'degree',
+        },
+        'normalization': {
+            'source_magnitude_unit': 'db',
+            'normalized_magnitude_unit': 'db',
+            'reference': 'on_axis_per_frequency',
+            'reference_level_db': None,
+            'conversion_version': 'pressure-amplitude-db20-v1',
+        },
+        'phase_reference': None,
+        'interpolation_method': 'linear',
+        'interpolation_implementation': 'r150-ga-fixture-linear',
+        'interpolation_version': '1',
+        'frequencies_hz': [500.0, 1000.0],
+        'horizontal_angles_deg': list(horizontal_grid),
+        'vertical_angles_deg': [-90.0, 0.0, 90.0],
+        'samples': [
+            {
+                'frequency_hz': frequency,
+                'horizontal_angle_deg': horizontal_angle,
+                'vertical_angle_deg': vertical_angle,
+                'magnitude': 0.0,
+                'phase_deg': None,
+            }
+            for frequency in (500.0, 1000.0)
+            for horizontal_angle in horizontal_grid
+            for vertical_angle in (-90.0, 0.0, 90.0)
+        ],
+    }
+    source_bytes = json.dumps(
+        source_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+    source_hash = sha256(source_bytes).hexdigest()
     provenance = EquipmentDataProvenance(
         evidence_kind='measured',
         source_name='r150-ga-fixture',
@@ -858,7 +905,9 @@ def _directivity_definition(*, narrow: bool):
         source_reference='unit-fixture',
         source_sha256=source_hash,
     )
-    horizontal = (-30.0, 30.0) if narrow else (-180.0, 180.0)
+    horizontal = (
+        (-30.0, 30.0) if narrow else (-180.0, 180.0)
+    )
     domain = DirectivityDomain(
         frequency=FrequencyDomain(minimum_hz=500.0, maximum_hz=1000.0),
         horizontal=AngleDomain(
@@ -891,46 +940,11 @@ def _directivity_definition(*, narrow: bool):
             coherent_phase=False,
         ),
     )
-    horizontal_grid = (-30.0, 0.0, 30.0) if narrow else (-180.0, 0.0, 180.0)
-    samples = tuple(
-        DirectivitySample(
-            frequency_hz=frequency,
-            horizontal_angle_deg=horizontal_angle,
-            vertical_angle_deg=vertical_angle,
-            magnitude_db=0.0,
-        )
-        for frequency in (500.0, 1000.0)
-        for horizontal_angle in horizontal_grid
-        for vertical_angle in (-90.0, 0.0, 90.0)
+    dataset = NORMALIZED_JSON_DIRECTIVITY_ADAPTER.parse(
+        source_bytes,
+        definition,
     )
-    dataset = build_directivity_dataset(
-        dataset_id='r150-ga-speaker-dataset',
-        version='1',
-        definition=definition,
-        source_asset_sha256=source_hash,
-        source_format='custom',
-        parser_id='fixture',
-        parser_version='1',
-        adapter_id='fixture',
-        adapter_version='1',
-        evidence_kind='measured',
-        source_provenance=provenance,
-        kind='magnitude_only',
-        coordinate_convention=DirectivityCoordinateConvention(
-            angle_semantics='horizontal_vertical',
-            horizontal_wrap='none',
-        ),
-        normalization=DirectivityNormalization(
-            source_magnitude_unit='db',
-            reference='on_axis_per_frequency',
-        ),
-        frequencies_hz=(500.0, 1000.0),
-        horizontal_angles_deg=horizontal_grid,
-        vertical_angles_deg=(-90.0, 0.0, 90.0),
-        samples=samples,
-        interpolation=interpolation,
-    )
-    return definition, dataset
+    return source_bytes, definition, dataset
 
 
 class FixtureImageEngine:
@@ -1043,9 +1057,17 @@ def _fixture(
     )
     r120_repository = R120GeometryCompilerRepository(scene_repository)
 
-    definition, dataset = _directivity_definition(narrow=narrow_directivity)
+    source_bytes, definition, dataset = _directivity_definition(
+        narrow=narrow_directivity,
+    )
     equipment_repository.save_definition(definition)
-    directivity_repository.save_dataset(dataset)
+    directivity_repository.save_dataset(
+        dataset,
+        source_bytes=source_bytes,
+        source_filename='r150-ga-speaker.normalized.json',
+        media_type='application/json',
+        declared_schema='htdt.normalized-directivity.v1',
+    )
     variant = build_system_variant(
         baseline=revision,
         name='R150 GA fixture current',

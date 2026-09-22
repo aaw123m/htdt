@@ -423,15 +423,38 @@ def test_imported_dataset_save_and_reopen_reuses_existing_repository(
         scene_repository,
         equipment_repository,
     )
-    directivity_repository.save_dataset(result.dataset)
+    directivity_repository.save_dataset(
+        result.dataset,
+        source_bytes=raw,
+        source_filename='polar-fixture.csv',
+        media_type='text/csv',
+        declared_schema=POLAR_TABLE_SCHEMA,
+    )
 
     reopened_scene = SceneRepository(scene_repository.path)
     reopened_equipment = CadEquipmentRepository(reopened_scene)
-    reopened = CadDirectivityRepository(
+    reopened_repository = CadDirectivityRepository(
         reopened_scene,
         reopened_equipment,
-    ).get_dataset(result.dataset.dataset_id, result.dataset.version)
+    )
+    reopened = reopened_repository.get_dataset(
+        result.dataset.dataset_id,
+        result.dataset.version,
+    )
     assert reopened == result.dataset
+    assert (
+        reopened_repository.read_source_asset(
+            result.dataset.source_asset_sha256
+        )
+        == raw
+    )
+    metadata = reopened_repository.get_source_metadata(
+        result.dataset.source_asset_sha256
+    )
+    assert metadata is not None
+    assert metadata.filename == 'polar-fixture.csv'
+    assert metadata.media_type == 'text/csv'
+    assert metadata.declared_schema == POLAR_TABLE_SCHEMA
 
 
 def _scene_and_variant(tmp_path: Path, definition):

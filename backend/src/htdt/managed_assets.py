@@ -21,6 +21,9 @@ from __future__ import annotations
 
 from hashlib import sha256
 import os
+import tempfile
+import time
+
 from pathlib import Path, PurePosixPath
 
 
@@ -139,3 +142,129 @@ def verify_managed_asset(
             f'measurement asset SHA-256 mismatch: {relative_path}'
         )
     return asset_path
+
+
+# The shared managed asset directory next to the native CAD database. The
+# name predates the second store consumer and is kept for backward
+# compatibility with the native backup/restore contract; it holds every
+# content-addressed managed asset, not only measurement sources.
+MANAGED_ASSETS_DIRNAME = 'measurement-assets'
+
+
+class ManagedAssetStore:
+    """Content-addressed managed asset files with atomic installs.
+
+    Assets are named by their SHA-256 digest under ``assets_dir`` and are
+    installed with the #305 atomic-write strategy: the payload is written to
+    a unique temporary file in the same filesystem, flushed, fsynced and
+    re-verified before ``os.replace`` publishes it, so the digest path never
+    exposes a partially written file. A directory fsync makes the rename
+    durable on POSIX. Identical content is installed once; a digest path
+    holding different bytes is a hash collision and fails closed. Reads
+    re-verify the digest so tampered assets never serve as evidence.
+    """
+
+    def __init__(self, assets_dir: Path) -> None:
+        self.assets_dir = Path(assets_dir)
+        self.assets_dir.mkdir(parents=True, exist_ok=True)
+
+    def asset_path(self, digest: str) -> Path:
+        return self.assets_dir / digest
+
+    @staticmethod
+    def fsync_directory(directory: Path) -> None:
+        # Making a rename durable requires a directory fsync, which is only
+        # meaningful on POSIX filesystems.
+        if os.name != 'posix':
+            return
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def read_file(target: Path, attempts: int = 100) -> bytes:
+        # A file being atomically replaced may briefly refuse reads on
+        # Windows while the previous handle is pending deletion.
+        for attempt in range(attempts):
+            try:
+                return target.read_bytes()
+            except PermissionError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.01)
+        raise RuntimeError('unreachable')
+
+    def install(self, digest: str, raw_bytes: bytes) -> None:
+        """Durably install *raw_bytes* at the content-addressed digest path.
+
+        The payload is written to a unique temporary file in the same
+        filesystem, flushed, fsynced and verified before being atomically
+        renamed onto the digest path, so the final path never exposes a
+        partially written file. Only the private temporary file is removed
+        on failure; an already-installed digest path is never touched.
+        """
+
+        target = self.asset_path(digest)
+        descriptor, temp_name = tempfile.mkstemp(
+            dir=self.assets_dir, prefix='.asset-', suffix='.tmp'
+        )
+        temp = Path(temp_name)
+        try:
+            with os.fdopen(descriptor, 'wb') as handle:
+                handle.write(raw_bytes)
+                handle.flush()
+                os.fsync(handle.fileno())
+            persisted = temp.read_bytes()
+            if len(persisted) != len(raw_bytes) or sha256(persisted).hexdigest() != digest:
+                raise RuntimeError('managed asset write verification failed')
+            try:
+                os.replace(temp, target)
+            except PermissionError:
+                # Windows can refuse a replace while a racing install holds
+                # the destination; an identical already-installed digest is a
+                # success, anything else means the install genuinely failed.
+                try:
+                    installed = self.read_file(target) == raw_bytes
+                except OSError:
+                    installed = False
+                if not installed:
+                    raise
+            self.fsync_directory(self.assets_dir)
+        finally:
+            temp.unlink(missing_ok=True)
+
+    def ensure_installed(self, digest: str, raw_bytes: bytes) -> None:
+        """Install *raw_bytes* unless the identical digest is already stored.
+
+        An already-installed identical digest is a successful dedup hit;
+        anything else at the path is corrupt or a genuine collision and
+        fails closed.
+        """
+
+        target = self.asset_path(digest)
+        if target.exists():
+            if self.read_file(target) != raw_bytes:
+                raise ValueError(
+                    'content-addressed managed asset hash collision'
+                )
+        else:
+            self.install(digest, raw_bytes)
+
+    def read_verified(self, digest: str) -> bytes | None:
+        """Return the managed bytes for *digest*, or None when absent.
+
+        The content-addressed contract is self-verifying: stored bytes must
+        hash back to their digest before they are returned.
+        """
+
+        try:
+            raw = self.read_file(self.asset_path(digest))
+        except FileNotFoundError:
+            return None
+        if sha256(raw).hexdigest() != digest:
+            raise ValueError(
+                'managed asset content does not match its content address'
+            )
+        return raw
