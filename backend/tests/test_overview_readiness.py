@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from htdt.cad_measurement_quality import CadMeasurementCapability
 from htdt.cad_repository import SceneRevision
 from htdt.overview_readiness import OverviewReadinessService
 
@@ -29,6 +30,32 @@ class _MeasurementSource:
 
     def dataset_for_measurement(self, measurement_id: str):
         return (self.datasets or {}).get(measurement_id)
+
+
+@dataclass
+class _QualitySource:
+    reports: dict | None = None
+
+    def latest_report(self, measurement_id: str):
+        return (self.reports or {}).get(measurement_id)
+
+
+class _Report:
+    """Minimal stand-in exposing the report surface Overview consumes."""
+
+    def __init__(self, dataset_id: str, decisions: dict[str, str]) -> None:
+        self.dataset_id = dataset_id
+        self._claims = {
+            claim: CadMeasurementCapability(
+                claim=claim,  # type: ignore[arg-type]
+                decision=decision,  # type: ignore[arg-type]
+                reasons=('fixture',),
+            )
+            for claim, decision in decisions.items()
+        }
+
+    def capability(self, claim: str):
+        return self._claims[claim]
 
 
 @dataclass
@@ -87,6 +114,7 @@ def _service(
     predictions: tuple = (),
     specs: tuple = (),
     validations: dict | None = None,
+    reports: dict | None = None,
 ) -> OverviewReadinessService:
     return OverviewReadinessService(
         _SceneSource(revision),
@@ -94,6 +122,7 @@ def _service(
         _PredictionSource(predictions),
         _SearchSource(specs),
         _ValidationSource(validations),
+        _QualitySource(reports),
     )
 
 
@@ -136,7 +165,7 @@ def test_missing_speaker_role_deep_links_to_entity_without_showing_internal_id()
 def test_measurement_phase_capability_uses_authority_status(phase_status: str) -> None:
     revision = _revision()
     measurement = SimpleNamespace(measurement_id='measurement-1')
-    dataset = SimpleNamespace(phase_status=phase_status)
+    dataset = SimpleNamespace(dataset_id='dataset-1', phase_status=phase_status)
 
     view = _service(
         revision,
@@ -152,6 +181,119 @@ def test_measurement_phase_capability_uses_authority_status(phase_status: str) -
     assert warning.action is not None
     assert warning.action.target.workspace == 'measurement'
     assert warning.action.target.subsection == 'quality'
+
+
+def test_valid_phase_without_quality_report_does_not_imply_common_timing() -> None:
+    revision = _revision()
+    measurement = SimpleNamespace(measurement_id='measurement-1')
+    dataset = SimpleNamespace(
+        dataset_id='dataset-1',
+        phase_status='valid',
+        phase_deg=(10.0, 20.0, 30.0),
+    )
+
+    view = _service(
+        revision,
+        measurements=(measurement,),
+        datasets={'measurement-1': dataset},
+        predictions=(_current_prediction(revision),),
+    ).read('project-1')
+
+    assert not any(
+        item.code == 'measurement.phase_timing_unavailable' for item in view.warnings
+    )
+    warning = next(
+        item for item in view.warnings if item.code == 'measurement.common_timing_unverified'
+    )
+    assert '共通タイミング' in warning.message
+    assert warning.action is not None
+    assert warning.action.target.workspace == 'measurement'
+    assert warning.action.target.subsection == 'quality'
+
+
+def test_report_with_unverified_common_timing_still_warns() -> None:
+    revision = _revision()
+    measurement = SimpleNamespace(measurement_id='measurement-1')
+    dataset = SimpleNamespace(
+        dataset_id='dataset-1',
+        phase_status='valid',
+        phase_deg=(10.0, 20.0, 30.0),
+    )
+    report = _Report(
+        'dataset-1',
+        {'phase_response': 'ALLOWED', 'common_timing': 'UNKNOWN'},
+    )
+
+    view = _service(
+        revision,
+        measurements=(measurement,),
+        datasets={'measurement-1': dataset},
+        predictions=(_current_prediction(revision),),
+        reports={'measurement-1': report},
+    ).read('project-1')
+
+    assert any(
+        item.code == 'measurement.common_timing_unverified' for item in view.warnings
+    )
+
+
+def test_report_establishing_common_timing_clears_phase_timing_warning() -> None:
+    revision = _revision()
+    measurement = SimpleNamespace(measurement_id='measurement-1')
+    dataset = SimpleNamespace(
+        dataset_id='dataset-1',
+        phase_status='valid',
+        phase_deg=(10.0, 20.0, 30.0),
+    )
+    report = _Report(
+        'dataset-1',
+        {'phase_response': 'ALLOWED', 'common_timing': 'ALLOWED'},
+    )
+
+    view = _service(
+        revision,
+        measurements=(measurement,),
+        datasets={'measurement-1': dataset},
+        predictions=(_current_prediction(revision),),
+        reports={'measurement-1': report},
+    ).read('project-1')
+
+    assert not any(
+        item.code
+        in {
+            'measurement.phase_timing_unavailable',
+            'measurement.common_timing_unverified',
+        }
+        for item in view.warnings
+    )
+
+
+def test_report_bound_to_other_dataset_fails_closed() -> None:
+    revision = _revision()
+    measurement = SimpleNamespace(measurement_id='measurement-1')
+    dataset = SimpleNamespace(
+        dataset_id='dataset-1',
+        phase_status='valid',
+        phase_deg=(10.0, 20.0, 30.0),
+    )
+    # A report pinned to a different dataset must not lend its timing
+    # authority to this one.
+    report = _Report(
+        'dataset-other',
+        {'phase_response': 'ALLOWED', 'common_timing': 'ALLOWED'},
+    )
+
+    view = _service(
+        revision,
+        measurements=(measurement,),
+        datasets={'measurement-1': dataset},
+        predictions=(_current_prediction(revision),),
+        reports={'measurement-1': report},
+    ).read('project-1')
+
+    assert any(
+        item.code == 'measurement.common_timing_unverified' for item in view.warnings
+    )
 
 
 def test_stale_prediction_becomes_primary_recompute_action() -> None:

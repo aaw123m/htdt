@@ -12,6 +12,7 @@ from .cad_input import (
     bind_cad_input_commands,
     unbind_cad_input_commands,
 )
+from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_objective_repository import CadObjectiveRepository
@@ -154,6 +155,7 @@ class WorkflowApplicationComposition:
             prediction_repository,
             search_repository,
             validation_repository,
+            quality_source=CadMeasurementQualityRepository(measurement_repository),
         )
 
     def _navigate_target(self, target: WorkspaceDeepLink) -> bool:

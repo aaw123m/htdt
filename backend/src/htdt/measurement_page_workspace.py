@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from .cad_measurement_models import CadMeasurementComparison
+from .cad_measurement_quality import CadMeasurementCapability
 from .cad_repository import SceneRepository
 from .ingress import read_file_bounded
 from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
@@ -85,12 +86,28 @@ def _channel_role_label(value: str) -> str:
 
 
 def _phase_label(value: str | None) -> str:
+    """Raw dataset phase evidence state — says nothing about common timing."""
     return {
-        "valid": "位相・タイミング利用可",
+        "valid": "位相データ有効",
         "absent": "位相データなし",
-        "unknown": "位相・タイミング未確認",
+        "unknown": "位相データ未確認",
         None: "データなし",
     }.get(value, str(value))
+
+
+def _capability_decision_label(capability: CadMeasurementCapability | None) -> str:
+    """User-facing label for one canonical capability claim decision."""
+    if capability is None:
+        return "データなし"
+    return {
+        "ALLOWED": "利用可能",
+        "BLOCKED": "利用不可",
+        "UNKNOWN": "未確認",
+    }.get(capability.decision, str(capability.decision))
+
+
+def _capability_decision(capability: CadMeasurementCapability | None) -> str:
+    return "UNKNOWN" if capability is None else capability.decision
 
 
 def _quality_label(value: str) -> str:
@@ -551,17 +568,23 @@ class MeasurementPageWorkspace(QWidget):
         magnitude_layout.addWidget(self.magnitude_capability)
         capability_row.addWidget(magnitude_card, 1)
 
-        phase_card, phase_layout = _card("位相・タイミング", host)
+        phase_card, phase_layout = _card("位相応答", host)
         self.phase_capability = QLabel("測定データなし", phase_card)
         self.phase_capability.setWordWrap(True)
         phase_layout.addWidget(self.phase_capability)
         capability_row.addWidget(phase_card, 1)
+
+        timing_card, timing_layout = _card("共通タイミング", host)
+        self.timing_capability = QLabel("測定データなし", timing_card)
+        self.timing_capability.setWordWrap(True)
+        timing_layout.addWidget(self.timing_capability)
+        capability_row.addWidget(timing_card, 1)
         layout.addLayout(capability_row)
 
         table_card, table_layout = _card("保存済み測定", host)
-        self.quality_table = QTableWidget(0, 7, table_card)
+        self.quality_table = QTableWidget(0, 8, table_card)
         self.quality_table.setHorizontalHeaderLabels(
-            ["入力", "証拠", "測定位置", "品質", "位相・タイミング", "配置", "帯域"]
+            ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域"]
         )
         self.quality_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -609,7 +632,8 @@ class MeasurementPageWorkspace(QWidget):
                 _evidence_label(row.evidence_type),
                 row.target_name,
                 _quality_label(row.quality_status),
-                _phase_label(row.phase_status),
+                _capability_decision_label(row.phase_response_capability),
+                _capability_decision_label(row.common_timing_capability),
                 "現在の配置" if row.scene_matches_current else "測定時の配置",
                 _format_band(row.frequency_band_hz),
             )
@@ -621,7 +645,21 @@ class MeasurementPageWorkspace(QWidget):
                 self.quality_table.selectRow(row_index)
 
         dataset_count = sum(1 for row in views if row.dataset_id is not None)
-        phase_count = sum(1 for row in views if row.phase_timing_available)
+        phase_count = sum(
+            1
+            for row in views
+            if _capability_decision(row.phase_response_capability) == "ALLOWED"
+        )
+        timing_count = sum(
+            1
+            for row in views
+            if _capability_decision(row.common_timing_capability) == "ALLOWED"
+        )
+        timing_blocked = sum(
+            1
+            for row in views
+            if _capability_decision(row.common_timing_capability) == "BLOCKED"
+        )
         self.magnitude_capability.setText(
             "周波数応答の比較に使用できます"
             if dataset_count
@@ -632,7 +670,7 @@ class MeasurementPageWorkspace(QWidget):
             SemanticState.SUCCESS if dataset_count else SemanticState.UNSUPPORTED,
         )
         self.phase_capability.setText(
-            f"{phase_count} 件で利用できます"
+            f"{phase_count} 件で位相応答を利用できます"
             if phase_count
             else "有効と確認された位相データがありません"
         )
@@ -640,6 +678,20 @@ class MeasurementPageWorkspace(QWidget):
             self.phase_capability,
             SemanticState.SUCCESS if phase_count else SemanticState.UNSUPPORTED,
         )
+        if timing_count:
+            timing_text = f"{timing_count} 件で共通タイミング基準が確立しています"
+            timing_state = SemanticState.SUCCESS
+        elif timing_blocked:
+            timing_text = "共通タイミング基準が無効と報告された測定があります"
+            timing_state = SemanticState.UNSUPPORTED
+        else:
+            timing_text = (
+                "共通タイミング基準は未確認です。"
+                "位相データの有効性だけでは測定間の共通時間基準は成立しません"
+            )
+            timing_state = SemanticState.UNSUPPORTED
+        self.timing_capability.setText(timing_text)
+        set_semantic_state(self.timing_capability, timing_state)
 
         if not views:
             self.quality_detail.setText("保存済み測定はありません")
@@ -667,7 +719,10 @@ class MeasurementPageWorkspace(QWidget):
             f"{row.target_name} · {_evidence_label(row.evidence_type)} · "
             f"{_channel_role_label(row.channel_role)}\n"
             f"品質: {_quality_label(row.quality_status)} · {reasons}\n"
-            f"{_phase_label(row.phase_status)} · {scene}\n"
+            f"{_phase_label(row.phase_status)} · "
+            f"位相応答: {_capability_decision_label(row.phase_response_capability)} · "
+            f"共通タイミング: {_capability_decision_label(row.common_timing_capability)} · "
+            f"{scene}\n"
             f"音源: {source_speakers} · {captured}"
         )
         self.quality_plot.clear()
