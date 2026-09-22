@@ -13,10 +13,13 @@ from hashlib import sha256
 from htdt.cad_document import WorkingDocument
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
-    CadAcquisitionContextBinding,
     CadMeasurementQualityEvidence,
+    acquisition_context_binding,
+    build_acquisition_context,
+    build_measurement_observation,
     build_measurement_quality_profile,
     build_measurement_quality_report,
+    observation_binding,
 )
 from htdt.cad_measurement_quality_repository import (
     CadMeasurementQualityRepository,
@@ -265,6 +268,18 @@ def test_capability_claims_come_from_replay_validated_quality_report(tmp_path: P
     timed_record, timed_dataset = _save_phase_dataset(
         measurement_repository, revision, "phase-with-timing"
     )
+    timed_context = build_acquisition_context(
+        acquisition_context_id="acq-1",
+        source_kind="native",
+        subject_measurement_ids=(timed_record.measurement_id,),
+        timing_reference_valid=True,
+        timing_reference_id="loopback-1",
+        clock_source="umik-1-usb",
+        sample_rate_hz=48000,
+        delay_correction_s=0.00025,
+        created_at_utc="2026-09-22T01:00:00+00:00",
+    )
+    quality_repository.save_acquisition_context(timed_context)
     quality_repository.save_report(
         build_measurement_quality_report(
             measurement=timed_record,
@@ -277,11 +292,7 @@ def test_capability_claims_come_from_replay_validated_quality_report(tmp_path: P
                 delay_correction_s=0.00025,
             ),
             profile=build_measurement_quality_profile(),
-            acquisition_context=CadAcquisitionContextBinding(
-                acquisition_context_id="acq-1",
-                acquisition_context_sha256=sha256(b"acq-1").hexdigest(),
-                source_kind="native",
-            ),
+            acquisition_context=acquisition_context_binding(timed_context),
         )
     )
 
@@ -315,6 +326,15 @@ def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Pat
     record, dataset = _save_phase_dataset(
         measurement_repository, revision, "clipped-measurement"
     )
+    clipped_observation = build_measurement_observation(
+        observation_id="obs-clipped",
+        measurement_id=record.measurement_id,
+        source_kind="manual",
+        observed_at_utc="2026-09-22T01:02:00+00:00",
+        clipping_detected=True,
+        snr_db=12.0,
+    )
+    quality_repository.save_observation(clipped_observation)
     quality_repository.save_report(
         build_measurement_quality_report(
             measurement=record,
@@ -322,11 +342,13 @@ def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Pat
             evidence=CadMeasurementQualityEvidence(
                 clipping_detected=True,
                 snr_db=12.0,
+                evidence_source="manual",
             ),
             profile=build_measurement_quality_profile(
                 profile_version="strict-2",
                 minimum_snr_db=20.0,
             ),
+            observation=observation_binding(clipped_observation),
             created_at_utc="2026-09-22T01:02:03+00:00",
         )
     )
@@ -461,6 +483,18 @@ def test_stale_report_does_not_drive_current_dataset_claims(tmp_path: Path) -> N
     )
     # The report honestly binds the donor measurement's dataset; replayed
     # against "stale-bound" it must not leak into that dataset's claims.
+    donor_context = build_acquisition_context(
+        acquisition_context_id="acq-donor",
+        source_kind="native",
+        subject_measurement_ids=(other_record.measurement_id,),
+        timing_reference_valid=True,
+        timing_reference_id="loopback-1",
+        clock_source="umik-1-usb",
+        sample_rate_hz=48000,
+        delay_correction_s=0.00025,
+        created_at_utc="2026-09-22T01:00:00+00:00",
+    )
+    quality_repository.save_acquisition_context(donor_context)
     report = build_measurement_quality_report(
         measurement=other_record,
         dataset=other_dataset,
@@ -472,11 +506,7 @@ def test_stale_report_does_not_drive_current_dataset_claims(tmp_path: Path) -> N
             delay_correction_s=0.00025,
         ),
         profile=build_measurement_quality_profile(),
-        acquisition_context=CadAcquisitionContextBinding(
-            acquisition_context_id="acq-1",
-            acquisition_context_sha256=sha256(b"acq-1").hexdigest(),
-            source_kind="native",
-        ),
+        acquisition_context=acquisition_context_binding(donor_context),
     )
     quality_repository.save_report(report)
 
@@ -582,12 +612,24 @@ def test_retake_button_guides_to_import_and_commit_records_lineage(tmp_path: Pat
     record, dataset = _save_phase_dataset(
         measurement_repository, revision, "ui-retake-source"
     )
+    retake_observation = build_measurement_observation(
+        observation_id="obs-ui-retake-source",
+        measurement_id=record.measurement_id,
+        source_kind="manual",
+        observed_at_utc="2026-09-22T01:03:00+00:00",
+        clipping_detected=True,
+    )
+    quality_repository.save_observation(retake_observation)
     quality_repository.save_report(
         build_measurement_quality_report(
             measurement=record,
             dataset=dataset,
-            evidence=CadMeasurementQualityEvidence(clipping_detected=True),
+            evidence=CadMeasurementQualityEvidence(
+                clipping_detected=True,
+                evidence_source="manual",
+            ),
             profile=build_measurement_quality_profile(),
+            observation=observation_binding(retake_observation),
         )
     )
 

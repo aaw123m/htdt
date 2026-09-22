@@ -1,19 +1,36 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import closing
+from hashlib import sha256
 from pathlib import Path
 import sqlite3
 
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_quality import (
+    MACHINE_OBSERVATION_SOURCES,
+    OBSERVATION_EVIDENCE_FIELDS,
+    OBSERVATION_FIELD_DEFAULTS,
+    TIMING_EVIDENCE_FIELDS,
+    CadAcquisitionContext,
     CadMeasurementLineageRecord,
+    CadMeasurementObservation,
     CadMeasurementQualityReport,
     dataset_sha256,
+    measurement_repeatability_rms_db,
     measurement_sha256,
     replay_measurement_quality_report,
 )
-from .cad_measurement_repository import CadMeasurementRepository
+from .cad_measurement_repository import (
+    CadMeasurementRepository,
+    VerifiedMeasurementAsset,
+)
 from .cad_schema import check_native_schema_compatibility
+from .managed_assets import (
+    ManagedAssetError,
+    ManagedAssetStore,
+    verify_managed_asset,
+)
 
 
 class MeasurementLineageConflictError(ValueError):
@@ -26,6 +43,8 @@ class CadMeasurementQualityRepository:
     def __init__(self, measurement_repository: CadMeasurementRepository) -> None:
         self.measurement_repository = measurement_repository
         self.path = Path(measurement_repository.path)
+        self.assets_dir = Path(measurement_repository.assets_dir)
+        self._asset_store = ManagedAssetStore(self.assets_dir)
         check_native_schema_compatibility(self.path)
         self._initialize()
 
@@ -73,7 +92,439 @@ class CadMeasurementQualityRepository:
                     ON cad_measurement_lineage(measurement_id, seq ASC);
                 CREATE INDEX IF NOT EXISTS idx_measurement_lineage_supersedes
                     ON cad_measurement_lineage(supersedes_measurement_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_acquisition_contexts (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    acquisition_context_id TEXT NOT NULL UNIQUE,
+                    acquisition_context_sha256 TEXT NOT NULL,
+                    source_kind TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_observations (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    observation_id TEXT NOT NULL UNIQUE,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    observation_sha256 TEXT NOT NULL,
+                    source_kind TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_observations_measurement_seq
+                    ON cad_measurement_observations(measurement_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_quality_calibration_files (
+                    sha256 TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    relative_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL
+                );
                 '''
+            )
+
+    def _validate_acquisition_context(self, context: CadAcquisitionContext) -> None:
+        """Every subject must be an existing measurement in one document."""
+        documents: set[str] = set()
+        for subject_id in context.subject_measurement_ids:
+            subject = self.measurement_repository.get_measurement(subject_id)
+            if subject is None:
+                raise ValueError(
+                    'acquisition context references unknown subject '
+                    f'measurement: {subject_id}'
+                )
+            documents.add(subject.document_id)
+        if len(documents) != 1:
+            raise ValueError(
+                'acquisition context subjects must belong to one document'
+            )
+
+    def save_acquisition_context(self, context: CadAcquisitionContext) -> None:
+        """Persist an immutable acquisition-context authority.
+
+        Subject measurements are revalidated before the insert and on every
+        later resolution, so a context can never attest timing evidence for a
+        measurement that does not exist.
+        """
+        self._validate_acquisition_context(context)
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_acquisition_contexts WHERE acquisition_context_id=?',
+                (context.acquisition_context_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'acquisition context already exists: {context.acquisition_context_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_acquisition_contexts(
+                    acquisition_context_id, acquisition_context_sha256,
+                    source_kind, created_at_utc, payload_json
+                ) VALUES (?, ?, ?, ?, ?)
+                ''',
+                (
+                    context.acquisition_context_id,
+                    context.acquisition_context_sha256,
+                    context.source_kind,
+                    context.created_at_utc,
+                    context.model_dump_json(),
+                ),
+            )
+
+    def get_acquisition_context(
+        self,
+        acquisition_context_id: str,
+    ) -> CadAcquisitionContext | None:
+        """Resolve a persisted context, re-validating its subject bindings."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_acquisition_contexts WHERE acquisition_context_id=?',
+                (acquisition_context_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        context = CadAcquisitionContext.model_validate_json(row['payload_json'])
+        self._validate_acquisition_context(context)
+        return context
+
+    def _validate_observation(self, observation: CadMeasurementObservation) -> None:
+        """The subject must exist; machine observations pin its raw asset."""
+        subject = self.measurement_repository.get_measurement(
+            observation.measurement_id
+        )
+        if subject is None:
+            raise ValueError(
+                'measurement observation references unknown measurement: '
+                f'{observation.measurement_id}'
+            )
+        if observation.source_kind in MACHINE_OBSERVATION_SOURCES:
+            # The pinned artifact must be the subject's own verified raw
+            # asset: the authoritative dataset read re-runs the managed
+            # asset contract and the pinned importer replay, so an
+            # observation cannot claim metadata extracted from foreign or
+            # fabricated bytes.
+            dataset = self.measurement_repository.dataset_for_measurement(
+                observation.measurement_id
+            )
+            if dataset is None:
+                raise ValueError(
+                    'machine-derived observation requires the subject '
+                    'measurement dataset'
+                )
+            if observation.source_asset_sha256 != dataset.source_sha256:
+                raise ValueError(
+                    'machine-derived observation must pin the subject '
+                    'measurement raw asset'
+                )
+
+    def save_observation(self, observation: CadMeasurementObservation) -> None:
+        """Persist an immutable measurement-observation authority."""
+        self._validate_observation(observation)
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_measurement_observations WHERE observation_id=?',
+                (observation.observation_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'measurement observation already exists: {observation.observation_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_measurement_observations(
+                    observation_id, measurement_id, observation_sha256,
+                    source_kind, observed_at_utc, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    observation.observation_id,
+                    observation.measurement_id,
+                    observation.observation_sha256,
+                    observation.source_kind,
+                    observation.observed_at_utc,
+                    observation.model_dump_json(),
+                ),
+            )
+
+    def get_observation(
+        self,
+        observation_id: str,
+    ) -> CadMeasurementObservation | None:
+        """Resolve a persisted observation, re-validating its subject binding."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_measurement_observations WHERE observation_id=?',
+                (observation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        observation = CadMeasurementObservation.model_validate_json(row['payload_json'])
+        self._validate_observation(observation)
+        return observation
+
+    def list_observations(
+        self,
+        measurement_id: str,
+    ) -> tuple[CadMeasurementObservation, ...]:
+        """Return every persisted observation authority for one measurement."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''
+                SELECT payload_json
+                FROM cad_measurement_observations
+                WHERE measurement_id=?
+                ORDER BY seq ASC
+                ''',
+                (measurement_id,),
+            ).fetchall()
+        observations = tuple(
+            CadMeasurementObservation.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+        for observation in observations:
+            self._validate_observation(observation)
+        return observations
+
+    def save_calibration_file(self, *, filename: str, raw_bytes: bytes) -> str:
+        """Retain a calibration file as a content-addressed managed asset.
+
+        Returns the file's SHA-256 — the only hash a report may claim as
+        applied or expected calibration authority. The bytes live in the
+        shared managed asset store and the registry row mirrors the
+        ``cad_measurement_assets`` contract, so ``validate_calibration_file``
+        re-proves path containment, size and content hash on every
+        resolution.
+        """
+        if not filename:
+            raise ValueError('calibration filename must not be empty')
+        digest = sha256(raw_bytes).hexdigest()
+        target = self._asset_store.asset_path(digest)
+        self._asset_store.ensure_installed(digest, raw_bytes)
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                '''INSERT OR IGNORE INTO cad_quality_calibration_files(
+                    sha256, filename, relative_path, size_bytes
+                ) VALUES (?, ?, ?, ?)''',
+                (
+                    digest,
+                    filename,
+                    str(target.relative_to(self.path.parent)),
+                    len(raw_bytes),
+                ),
+            )
+        return digest
+
+    def validate_calibration_file(self, digest: str) -> VerifiedMeasurementAsset:
+        """Resolve a retained calibration file through the managed asset contract.
+
+        The registry row must exist and the declared file must be a
+        contained regular file named by its content address whose stored
+        size and streamed SHA-256 match. Any gap raises
+        ``ManagedAssetError`` — a typed fail-closed error, never a silent
+        pass.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''SELECT sha256, filename, relative_path, size_bytes
+                   FROM cad_quality_calibration_files WHERE sha256=?''',
+                (digest,),
+            ).fetchone()
+        if row is None:
+            raise ManagedAssetError(
+                'calibration file has no retained authority row: '
+                f'{digest}'
+            )
+        sha256_text = str(row['sha256'])
+        relative_path = str(row['relative_path'])
+        asset_path = verify_managed_asset(
+            data_dir=self.path.parent,
+            digest=sha256_text,
+            relative_path=relative_path,
+            size_bytes=int(row['size_bytes']),
+            required_root=self.assets_dir,
+        )
+        if asset_path.name != sha256_text:
+            raise ManagedAssetError(
+                'calibration file path does not match its content address: '
+                f'{relative_path}'
+            )
+        return VerifiedMeasurementAsset(
+            sha256=sha256_text,
+            filename=str(row['filename']),
+            relative_path=relative_path.replace('\\', '/'),
+            size_bytes=int(row['size_bytes']),
+            path=asset_path,
+        )
+
+    def _resolve_acquisition_context(
+        self,
+        report: CadMeasurementQualityReport,
+        measurement: CadMeasurementRecord,
+    ) -> None:
+        """Resolve the report's context binding against the persisted authority.
+
+        A non-``unknown`` ``source_kind`` string is never proof of existence:
+        the binding must resolve to a persisted ``CadAcquisitionContext`` with
+        the exact content hash and source kind, covering this measurement, and
+        the report's timing evidence must equal the context's attested values
+        verbatim. Timing evidence without a bound context — or diverging from
+        the resolved one — fails closed.
+        """
+        binding = report.acquisition_context
+        if binding is None:
+            if any(
+                getattr(report.evidence, field) is not None
+                for field in TIMING_EVIDENCE_FIELDS
+            ):
+                raise ValueError(
+                    'timing reference evidence requires a bound acquisition context'
+                )
+            return
+        context = self.get_acquisition_context(binding.acquisition_context_id)
+        if context is None:
+            raise ValueError(
+                'quality report references unknown acquisition context: '
+                f'{binding.acquisition_context_id}'
+            )
+        if context.acquisition_context_sha256 != binding.acquisition_context_sha256:
+            raise ValueError('quality report acquisition context hash mismatch')
+        if context.source_kind != binding.source_kind:
+            raise ValueError(
+                'quality report acquisition context source kind mismatch'
+            )
+        if measurement.measurement_id not in context.subject_measurement_ids:
+            raise ValueError(
+                'acquisition context does not cover the report measurement'
+            )
+        for field in TIMING_EVIDENCE_FIELDS:
+            if getattr(report.evidence, field) != getattr(context, field):
+                raise ValueError(
+                    f'timing evidence field {field} diverges from the resolved '
+                    'acquisition context'
+                )
+
+    def _resolve_observation(
+        self,
+        report: CadMeasurementQualityReport,
+        measurement: CadMeasurementRecord,
+        dataset: CadFrequencyResponseDataset,
+    ) -> None:
+        """Resolve the report's observation binding against the persisted authority.
+
+        Every non-default observation evidence field requires a persisted
+        ``CadMeasurementObservation`` whose subject is this exact measurement
+        and whose attested values equal the claimed evidence verbatim. The
+        report's free-form ``evidence_source`` must equal the resolved
+        observation's typed ``source_kind`` (and stay ``unknown`` when no
+        observation is bound) so provenance labels can never outrun the
+        authority they describe.
+        """
+        evidence = report.evidence
+        binding = report.observation
+        if binding is None:
+            if any(
+                getattr(evidence, field) != OBSERVATION_FIELD_DEFAULTS[field]
+                for field in OBSERVATION_EVIDENCE_FIELDS
+            ):
+                raise ValueError(
+                    'observation evidence requires a bound measurement observation'
+                )
+            if evidence.evidence_source != 'unknown':
+                raise ValueError(
+                    'evidence_source requires a bound measurement observation'
+                )
+            return
+        observation = self.get_observation(binding.observation_id)
+        if observation is None:
+            raise ValueError(
+                'quality report references unknown measurement observation: '
+                f'{binding.observation_id}'
+            )
+        if observation.observation_sha256 != binding.observation_sha256:
+            raise ValueError('quality report observation hash mismatch')
+        if observation.measurement_id != measurement.measurement_id:
+            raise ValueError(
+                'measurement observation subject does not match the report '
+                'measurement'
+            )
+        if (
+            observation.source_kind in MACHINE_OBSERVATION_SOURCES
+            and observation.source_asset_sha256 != dataset.source_sha256
+        ):
+            raise ValueError(
+                'machine-derived observation does not resolve to the subject '
+                'raw asset'
+            )
+        for field in OBSERVATION_EVIDENCE_FIELDS:
+            if getattr(evidence, field) != getattr(observation, field):
+                raise ValueError(
+                    f'observation evidence field {field} diverges from the '
+                    'resolved measurement observation'
+                )
+        if evidence.evidence_source != observation.source_kind:
+            raise ValueError(
+                'evidence_source diverges from the resolved observation authority'
+            )
+
+    def _resolve_calibration_authority(
+        self,
+        report: CadMeasurementQualityReport,
+    ) -> None:
+        """Every claimed calibration-file hash must resolve to a retained file.
+
+        The calibration check can only PASS when the applied and expected
+        hashes match; resolution additionally requires each claimed hash to
+        be an exact retained calibration authority that still passes the
+        managed asset contract, so provenance can never be invented from a
+        bare digest. A descriptive filename must match the retained file's
+        registered name.
+        """
+        evidence = report.evidence
+        applied = evidence.calibration_file_sha256
+        expected = evidence.expected_calibration_file_sha256
+        assets: dict[str, VerifiedMeasurementAsset] = {}
+        for digest in {applied, expected} - {None}:
+            assets[digest] = self.validate_calibration_file(digest)
+        if evidence.calibration_filename is not None:
+            if applied is None:
+                raise ValueError(
+                    'calibration filename requires an applied calibration file hash'
+                )
+            if assets[applied].filename != evidence.calibration_filename:
+                raise ValueError(
+                    'calibration filename does not match the retained '
+                    'calibration file'
+                )
+
+    def _resolve_repeatability(
+        self,
+        report: CadMeasurementQualityReport,
+        repeat_datasets: Sequence[CadFrequencyResponseDataset],
+    ) -> None:
+        """Recompute the canonical repeatability metric from exact datasets.
+
+        ``repeatability_rms_db`` is never caller-trusted: with two or more
+        resolved repeat datasets the persisted value must equal the canonical
+        recomputation bit-for-bit; with fewer than two repeats no metric may
+        be claimed at all.
+        """
+        claimed = report.evidence.repeatability_rms_db
+        if len(repeat_datasets) >= 2:
+            recomputed = measurement_repeatability_rms_db(repeat_datasets)
+            if claimed is None or claimed != recomputed:
+                raise ValueError(
+                    'repeatability RMS diverges from the exact repeat datasets'
+                )
+        elif claimed is not None:
+            raise ValueError(
+                'repeatability RMS requires at least two repeat measurements'
             )
 
     def _validate_report_bindings(
@@ -110,6 +561,7 @@ class CadMeasurementQualityRepository:
         ):
             raise ValueError('quality report SceneRevision/entity/measurement-point binding mismatch')
 
+        repeat_datasets: list[CadFrequencyResponseDataset] = []
         for repeat_id in report.evidence.repeat_measurement_ids:
             repeat = self.measurement_repository.get_measurement(repeat_id)
             if repeat is None:
@@ -125,6 +577,24 @@ class CadMeasurementQualityRepository:
                 or repeat.radiation_scope != measurement.radiation_scope
             ):
                 raise ValueError('repeatability measurement binding mismatch')
+            # The repeatability claim is recomputed from the exact immutable
+            # datasets — the authoritative read re-verifies each persisted
+            # dataset seal, managed raw asset and importer replay — so a
+            # claimed RMS can never outrun the bound evidence.
+            repeat_dataset = self.measurement_repository.dataset_for_measurement(
+                repeat_id
+            )
+            if repeat_dataset is None:
+                raise ValueError(
+                    'repeat measurement has no frequency-response dataset: '
+                    f'{repeat_id}'
+                )
+            repeat_datasets.append(repeat_dataset)
+
+        self._resolve_acquisition_context(report, measurement)
+        self._resolve_observation(report, measurement, dataset)
+        self._resolve_calibration_authority(report)
+        self._resolve_repeatability(report, repeat_datasets)
         return measurement, dataset
 
     def _validate_current_report(self, report: CadMeasurementQualityReport) -> None:

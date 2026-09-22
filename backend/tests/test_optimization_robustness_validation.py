@@ -17,10 +17,13 @@ from htdt.cad_measurement_loop import (
 )
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
-    CadAcquisitionContextBinding,
     CadMeasurementQualityEvidence,
+    acquisition_context_binding,
+    build_acquisition_context,
+    build_measurement_observation,
     build_measurement_quality_profile,
     build_measurement_quality_report,
+    observation_binding,
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
@@ -239,6 +242,38 @@ def _save_quality(
         minimum_snr_db=20.0,
         required_usable_band_hz=(20.0, 160.0),
     )
+    # Typed authorities (#392): machine-derived observation metadata pins the
+    # subject's exact raw asset; the context binding resolves to a persisted
+    # acquisition context covering this measurement.
+    record_observation = build_measurement_observation(
+        observation_id=f'obs:{report_id or measurement_id}',
+        measurement_id=measurement_id,
+        source_kind='rew_metadata',
+        source_asset_sha256=dataset.source_sha256,
+        observed_at_utc='2030-01-01T01:30:00+00:00',
+        clipping_detected=False,
+        peak_dbfs=-6.0,
+        noise_floor_db_spl=30.0,
+        signal_level_db_spl=70.0,
+        snr_db=40.0,
+        usable_frequency_band_hz=usable_band,
+    )
+    env.quality_repository.save_observation(record_observation)
+    context = None
+    if acquisition:
+        context_id = f'acq:{measurement_id}'
+        persisted_context = env.quality_repository.get_acquisition_context(
+            context_id
+        )
+        if persisted_context is None:
+            persisted_context = build_acquisition_context(
+                acquisition_context_id=context_id,
+                source_kind='native',
+                subject_measurement_ids=(measurement_id,),
+                created_at_utc='2030-01-01T01:30:00+00:00',
+            )
+            env.quality_repository.save_acquisition_context(persisted_context)
+        context = acquisition_context_binding(persisted_context)
     evidence = CadMeasurementQualityEvidence(
         clipping_detected=False,
         peak_dbfs=-6.0,
@@ -248,23 +283,13 @@ def _save_quality(
         usable_frequency_band_hz=usable_band,
         evidence_source='rew_metadata',
     )
-    context = (
-        CadAcquisitionContextBinding(
-            acquisition_context_id=f'acq:{measurement_id}',
-            acquisition_context_sha256=sha256(
-                f'acq:{measurement_id}'.encode()
-            ).hexdigest(),
-            source_kind='native',
-        )
-        if acquisition
-        else None
-    )
     report = build_measurement_quality_report(
         measurement=measurement,
         dataset=dataset,
         evidence=evidence,
         profile=profile,
         acquisition_context=context,
+        observation=observation_binding(record_observation),
         report_id=report_id or f'quality:{measurement_id}',
         created_at_utc='2030-01-01T02:00:00+00:00',
     )
@@ -1190,6 +1215,27 @@ def test_o90e_explicit_quality_failure_is_not_interpolated_to_pass(tmp_path) -> 
     measurement_id = env.measurement_ids[env.plus.candidate_id]
     measurement = env.measurement_repository.get_measurement(measurement_id)
     dataset = env.measurement_repository.dataset_for_measurement(measurement_id)
+    failure_observation = build_measurement_observation(
+        observation_id='obs:quality-failure',
+        measurement_id=measurement_id,
+        source_kind='rew_metadata',
+        source_asset_sha256=dataset.source_sha256,
+        observed_at_utc='2030-01-01T02:00:00+00:00',
+        clipping_detected=True,
+        peak_dbfs=0.0,
+        noise_floor_db_spl=30.0,
+        signal_level_db_spl=70.0,
+        snr_db=40.0,
+        usable_frequency_band_hz=(20.0, 160.0),
+    )
+    env.quality_repository.save_observation(failure_observation)
+    failure_context = build_acquisition_context(
+        acquisition_context_id='acq:quality-failure',
+        source_kind='native',
+        subject_measurement_ids=(measurement_id,),
+        created_at_utc='2030-01-01T02:00:00+00:00',
+    )
+    env.quality_repository.save_acquisition_context(failure_context)
     report = build_measurement_quality_report(
         measurement=measurement,
         dataset=dataset,
@@ -1207,11 +1253,8 @@ def test_o90e_explicit_quality_failure_is_not_interpolated_to_pass(tmp_path) -> 
             minimum_snr_db=20.0,
             required_usable_band_hz=(20.0, 160.0),
         ),
-        acquisition_context=CadAcquisitionContextBinding(
-            acquisition_context_id='acq:quality-failure',
-            acquisition_context_sha256=sha256(b'acq:quality-failure').hexdigest(),
-            source_kind='native',
-        ),
+        acquisition_context=acquisition_context_binding(failure_context),
+        observation=observation_binding(failure_observation),
         report_id='quality:plus:explicit-failure',
         created_at_utc='2030-01-01T02:30:00+00:00',
     )

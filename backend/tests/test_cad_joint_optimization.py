@@ -31,10 +31,13 @@ from htdt.cad_joint_optimization import (
 from htdt.cad_joint_optimization_repository import CadJointOptimizationRepository
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
-    CadAcquisitionContextBinding,
     CadMeasurementQualityEvidence,
+    acquisition_context_binding,
+    build_acquisition_context,
+    build_measurement_observation,
     build_measurement_quality_profile,
     build_measurement_quality_report,
+    observation_binding,
 )
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
@@ -244,6 +247,34 @@ def _save_quality(
     common_timing: bool = True,
     polarity: bool = True,
 ):
+    # Typed authorities (#392): observation metadata resolves to a persisted
+    # observation bound to this measurement; timing evidence resolves to a
+    # persisted acquisition context covering it.
+    record_observation = build_measurement_observation(
+        observation_id=f'obs-{report_id}',
+        measurement_id=measurement.measurement_id,
+        source_kind='manual',
+        observed_at_utc=NOW,
+        usable_frequency_band_hz=(20.0, 20000.0),
+        polarity_correct=True if polarity else None,
+        polarity_confidence=0.99 if polarity else None,
+    )
+    quality_repository.save_observation(record_observation)
+    acquisition = None
+    if common_timing:
+        context = build_acquisition_context(
+            acquisition_context_id=f'issue174-acquisition-{report_id}',
+            source_kind='manual',
+            subject_measurement_ids=(measurement.measurement_id,),
+            timing_reference_valid=True,
+            timing_reference_id='loopback-174',
+            clock_source='fixture-clock',
+            sample_rate_hz=48000,
+            delay_correction_s=0.0,
+            created_at_utc=NOW,
+        )
+        quality_repository.save_acquisition_context(context)
+        acquisition = acquisition_context_binding(context)
     evidence = CadMeasurementQualityEvidence(
         usable_frequency_band_hz=(20.0, 20000.0),
         timing_reference_valid=True if common_timing else None,
@@ -255,17 +286,6 @@ def _save_quality(
         polarity_confidence=0.99 if polarity else None,
         evidence_source='manual',
     )
-    acquisition = (
-        CadAcquisitionContextBinding(
-            acquisition_context_id='issue174-acquisition',
-            acquisition_context_sha256=sha256(
-                b'issue174-acquisition'
-            ).hexdigest(),
-            source_kind='manual',
-        )
-        if common_timing
-        else None
-    )
     profile = build_measurement_quality_profile(
         profile_version='issue174-quality-1',
         minimum_polarity_confidence=0.9,
@@ -276,6 +296,7 @@ def _save_quality(
         evidence=evidence,
         profile=profile,
         acquisition_context=acquisition,
+        observation=observation_binding(record_observation),
         report_id=report_id,
         created_at_utc=NOW,
     )

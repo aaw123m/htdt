@@ -1,6 +1,6 @@
 # Measurement quality authority — Issue #172
 
-Tracking: Issue #172  
+Tracking: Issue #172; evidence-authority resolution extended by #392  
 Base: main `c205e4dbb772a8a8efc95b5178655cebfa934f4a`  
 Scope: immutable per-measurement quality evidence and downstream capability gates
 
@@ -16,7 +16,13 @@ The quality layer consumes one already-persisted native measurement/dataset and 
 - `FAIL` means contrary evidence exists and remains distinct from missing evidence;
 - quality is not reduced to one score.
 
-`CadAcquisitionContextBinding` is an immutable reference (ID + content hash + source kind) to an acquisition-context authority. It is intentionally not a second AcquisitionContext implementation. A binding with `source_kind=unknown` is not sufficient to open context-dependent claims. When no authoritative binding exists, timing/calibration claims that need it remain unknown rather than fabricating microphone/AVR state.
+`CadAcquisitionContextBinding` is an immutable reference (ID + content hash + source kind) to a persisted `CadAcquisitionContext` authority — it is intentionally not a second AcquisitionContext implementation. Since #392 the repository resolves that reference against the persisted authority on save and on every read: a non-`unknown` `source_kind` string is never proof of existence, the context's content hash and source kind must match the binding exactly, the context must list the report's measurement as a subject, and the report's timing evidence must equal the context's attested values verbatim. Timing evidence without a resolvable context — or diverging from the resolved one — fails closed rather than fabricating microphone/AVR state.
+
+The same authority pattern covers the remaining caller-supplied evidence:
+
+- `CadMeasurementObservation` is an immutable per-measurement observation authority (subject measurement, observation timestamp, typed `source_kind`, provenance). A report binds it through `CadMeasurementObservationBinding`; every non-default observation evidence field (clipping, peak, noise floor, signal level, SNR, usable band, polarity, IR window/truncation) must equal the resolved observation verbatim, and the free-form `evidence_source` label must equal the resolved typed `source_kind`. Machine-derived observations (`rew_metadata`, `raw_asset`, `mixed`) must pin the subject measurement's verified raw asset; `manual`/`unknown` observations are themselves the authority and may not bind a source asset.
+- `repeatability_rms_db` is recomputed at save and read from the exact immutable repeat datasets via `measurement_repeatability_rms_db` (identical frequency grid and level reference required); a submitted value that diverges from the canonical recomputation is rejected.
+- calibration-file claims must resolve to a retained calibration asset (`save_calibration_file`/`validate_calibration_file`) that still passes the managed asset contract — a bare matching hash pair cannot reach calibration PASS.
 
 ## Immutable identity
 
@@ -26,12 +32,12 @@ Every `CadMeasurementQualityReport` is bound to:
 - dataset ID and deterministic hash of the immutable `CadFrequencyResponseDataset`;
 - exact raw-asset SHA-256 already used by N60 content-addressed storage;
 - document ID, SceneRevision ID/content hash, measurement entity ID, and frozen measurement position;
-- optional exact AcquisitionContext ID/hash reference;
+- optional exact AcquisitionContext ID/hash reference and optional measurement-observation ID/hash reference;
 - quality algorithm version plus deterministic semantics SHA-256;
 - complete quality profile plus deterministic profile SHA-256;
 - complete explicit evidence payload and per-check decisions.
 
-Repository save re-reads the N60 measurement/dataset authority, verifies every binding/hash, validates repeat measurements against the same acquisition binding, reconstructs the canonical report from its inputs, and rejects a report whose stored decisions/capabilities do not match the algorithm output.
+Repository save re-reads the N60 measurement/dataset authority, verifies every binding/hash, resolves the persisted acquisition-context/observation/calibration-file authorities, recomputes derivable repeatability claims from the exact repeat datasets, validates repeat measurements against the same acquisition binding, reconstructs the canonical report from its inputs, and rejects a report whose stored decisions/capabilities do not match the algorithm output. The same resolution and replay run on every read.
 
 Changing a threshold/profile creates another report. Existing reports are append-only and are never rewritten.
 Historical reports validate their own stored report/profile hashes and may reopen with the canonical claim subset that existed when they were created; they are not re-evaluated under a newer algorithm merely by reading them. A downstream request for a claim absent from such a historical report resolves to `UNKNOWN`, not an exception or implicit PASS. New saves must match the current algorithm output.
@@ -103,10 +109,13 @@ The lineage repository does not update O50 MeasurementPlan or O60 campaign/calib
 
 ## Persistence
 
-Two additive tables live in the same native SQLite database:
+Additive tables live in the same native SQLite database:
 
 - `cad_measurement_quality_reports`
 - `cad_measurement_lineage`
+- `cad_acquisition_contexts` (#392)
+- `cad_measurement_observations` (#392)
+- `cad_quality_calibration_files` (#392 — content-addressed retained calibration assets)
 
 The repository passes through the existing native schema compatibility gate before DDL/read/write and uses foreign keys to the existing N60 measurement/dataset/raw-asset rows. Stored payloads deserialize back to frozen Pydantic models; identity hashes are revalidated on reopen.
 
@@ -135,5 +144,5 @@ Remaining work is intentionally outside Issue #172:
 
 - #173 consumes the per-claim/band capability gate when building CalibrationPlan authority;
 - #174 consumes the same capability interface for joint DSP optimization;
-- a future native AcquisitionContext implementation may supply the ID/hash binding directly; this quality layer must reference it rather than migrate or duplicate it;
+- #392 resolved evidence inputs to typed persisted authorities: acquisition contexts, measurement observations, retained calibration files, and canonical repeatability recomputation; a richer native AcquisitionContext provenance (capture-session export) may later populate `CadAcquisitionContext` directly rather than being recorded manually;
 - GUI presentation of quality evidence and retake actions is separate work.
