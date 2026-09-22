@@ -9,7 +9,6 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
 from htdt.cad_standards import (
     CriterionDefinition,
-    CriterionEvidenceRef,
     CriterionObservation,
     CriterionRule,
     CriterionSource,
@@ -17,6 +16,7 @@ from htdt.cad_standards import (
     build_user_standards_profile,
     evaluate_standards_profile,
 )
+from htdt.cad_standards_evidence import build_standards_observation_authority
 from htdt.cad_standards_repository import CadStandardsRepository
 from htdt.cad_system_variant import (
     ChannelRoleBinding,
@@ -197,6 +197,19 @@ def _standards_evaluation(
     timestamp: str,
     observed_value: float,
 ):
+    authority = build_standards_observation_authority(
+        document_id=baseline.document_id,
+        scene_revision_id=baseline.revision_id,
+        scene_content_hash=baseline.content_hash,
+        system_variant_id=variant.variant_id,
+        system_variant_sha256=variant.variant_sha256,
+        quantity='clearance',
+        unit='m',
+        observed_value=observed_value,
+        evidence_basis='predicted',
+        observed_at_utc=timestamp,
+    )
+    standards_repository.save_observation_authority(authority)
     evaluation = evaluate_standards_profile(
         profile=profile,
         target=StandardsEvaluationTarget(
@@ -214,14 +227,7 @@ def _standards_evaluation(
                 observed_value=observed_value,
                 unit='m',
                 evidence_basis='predicted',
-                evidence_refs=(
-                    CriterionEvidenceRef(
-                        evidence_id=f'clearance:{variant.variant_id}',
-                        evidence_sha256=_hash(
-                            f'clearance:{variant.variant_id}:{observed_value}'
-                        ),
-                    ),
-                ),
+                evidence_refs=(authority.ref(),),
             ),
         ),
         created_at_utc=timestamp,

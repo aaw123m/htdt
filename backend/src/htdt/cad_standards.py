@@ -497,8 +497,20 @@ class StandardsEvaluationTarget(BaseModel):
 
 
 class CriterionEvidenceRef(BaseModel):
+    """Typed reference to one exact criterion-observation evidence authority.
+
+    ``kind`` selects the registered evidence resolver (for example
+    ``standards_manual_observation``); ``evidence_id`` names the authority
+    inside that source and ``evidence_sha256`` optionally pins its exact
+    semantic hash. At the persistence boundary and on every authoritative
+    read, each ref is re-resolved against the declared source: an id that
+    cannot be resolved to an authority bound to the evaluation target is
+    never evidence.
+    """
+
     model_config = ConfigDict(frozen=True)
 
+    kind: str = Field(min_length=1)
     evidence_id: str = Field(min_length=1)
     evidence_sha256: str | None = Field(
         default=None,
@@ -523,7 +535,9 @@ class CriterionObservation(BaseModel):
         cls,
         values: tuple[CriterionEvidenceRef, ...],
     ) -> tuple[CriterionEvidenceRef, ...]:
-        return tuple(sorted(values, key=lambda item: item.evidence_id))
+        return tuple(
+            sorted(values, key=lambda item: (item.kind, item.evidence_id))
+        )
 
     criterion_id: str = Field(min_length=1)
     entity_ids: tuple[str, ...] = ()
@@ -539,7 +553,12 @@ class CriterionObservation(BaseModel):
     def valid_observation(self) -> 'CriterionObservation':
         for label, values in (
             ('entity ids', self.entity_ids),
-            ('evidence refs', tuple(item.evidence_id for item in self.evidence_refs)),
+            (
+                'evidence refs',
+                tuple(
+                    (item.kind, item.evidence_id) for item in self.evidence_refs
+                ),
+            ),
             ('provided inputs', self.provided_inputs),
             ('capabilities', self.capabilities),
         ):

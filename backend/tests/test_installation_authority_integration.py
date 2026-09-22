@@ -25,6 +25,7 @@ from htdt.cad_standards import (
     build_user_standards_profile,
     evaluate_standards_profile,
 )
+from htdt.cad_standards_evidence import build_standards_observation_authority
 from htdt.cad_standards_repository import CadStandardsRepository
 from htdt.cad_system_variant import (
     ChannelRoleBinding,
@@ -234,6 +235,32 @@ def _standards(revision, *, variant=None):
         entity_ids=('projector-main', 'screen-main'),
         applicable_domains=('video',),
     )
+    angle_authority = build_standards_observation_authority(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        system_variant_id=None if variant is None else variant.variant_id,
+        system_variant_sha256=None if variant is None else variant.variant_sha256,
+        quantity='angle',
+        unit='deg',
+        observed_value=10.0,
+        evidence_basis='predicted',
+        entity_ids=('projector-main',),
+        observed_at_utc=NOW,
+    )
+    clearance_authority = build_standards_observation_authority(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        system_variant_id=None if variant is None else variant.variant_id,
+        system_variant_sha256=None if variant is None else variant.variant_sha256,
+        quantity='clearance',
+        unit='m',
+        observed_value=0.04,
+        evidence_basis='predicted',
+        entity_ids=('screen-main',),
+        observed_at_utc=NOW,
+    )
     evaluation = evaluate_standards_profile(
         profile=profile,
         target=target,
@@ -243,23 +270,30 @@ def _standards(revision, *, variant=None):
                 entity_ids=('projector-main',),
                 observed_value=10.0,
                 unit='deg',
+                evidence_basis='predicted',
+                evidence_refs=(angle_authority.ref(),),
             ),
             CriterionObservation(
                 criterion_id='fail-angle',
                 entity_ids=('projector-main',),
                 observed_value=10.0,
                 unit='deg',
+                evidence_basis='predicted',
+                evidence_refs=(angle_authority.ref(),),
             ),
             CriterionObservation(
                 criterion_id='unknown-clearance',
                 entity_ids=('screen-main',),
                 observed_value=0.04,
                 unit='m',
+                evidence_basis='predicted',
+                evidence_refs=(clearance_authority.ref(),),
             ),
         ),
         created_at_utc=NOW,
     )
-    return profile, evaluation
+    authorities = (angle_authority, clearance_authority)
+    return profile, evaluation, authorities
 
 
 def _authorities(tmp_path: Path):
@@ -273,8 +307,17 @@ def _authorities(tmp_path: Path):
         projector_specification=specification,
         request=_video_request(specification),
     )
-    profile, standards = _standards(saved.revision)
-    return database, scene_repository, saved.revision, specification, video, profile, standards
+    profile, standards, observation_authorities = _standards(saved.revision)
+    return (
+        database,
+        scene_repository,
+        saved.revision,
+        specification,
+        video,
+        profile,
+        standards,
+        observation_authorities,
+    )
 
 
 def _build(revision, specification, video, profile, standards, *, variant=None):
@@ -289,9 +332,16 @@ def _build(revision, specification, video, profile, standards, *, variant=None):
 
 
 def test_projector_and_standards_are_exact_authority_summaries(tmp_path: Path) -> None:
-    _database, _repo, revision, specification, video, profile, standards = _authorities(
-        tmp_path
-    )
+    (
+        _database,
+        _repo,
+        revision,
+        specification,
+        video,
+        profile,
+        standards,
+        _observation_authorities,
+    ) = _authorities(tmp_path)
     output = _build(revision, specification, video, profile, standards)
 
     assert output.schema_version == 4
@@ -368,9 +418,16 @@ def test_scene_presence_does_not_promote_missing_authority_from_unknown(
 
 
 def test_scene_revision_and_system_variant_mismatch_fail_closed(tmp_path: Path) -> None:
-    _database, scene_repository, revision, specification, video, profile, standards = (
-        _authorities(tmp_path)
-    )
+    (
+        _database,
+        scene_repository,
+        revision,
+        specification,
+        video,
+        profile,
+        standards,
+        _observation_authorities,
+    ) = _authorities(tmp_path)
 
     moved_projector = revision.document.entity('projector-main').model_copy(
         update={'position': Position3(x_m=3.1, y_m=4.0, z_m=1.8)}
@@ -423,9 +480,16 @@ def test_scene_revision_and_system_variant_mismatch_fail_closed(tmp_path: Path) 
 def test_projector_specification_evaluation_hash_binding_mismatch_is_rejected(
     tmp_path: Path,
 ) -> None:
-    _database, _repo, revision, specification, _video, profile, standards = _authorities(
-        tmp_path
-    )
+    (
+        _database,
+        _repo,
+        revision,
+        specification,
+        _video,
+        profile,
+        standards,
+        _observation_authorities,
+    ) = _authorities(tmp_path)
     other_specification = _projector_spec('projector-spec-other')
     other_video = evaluate_video_geometry(
         baseline=revision,
@@ -446,9 +510,16 @@ def test_projector_specification_evaluation_hash_binding_mismatch_is_rejected(
 def test_csv_html_and_export_timestamp_keep_semantic_identity_deterministic(
     tmp_path: Path,
 ) -> None:
-    _database, _repo, revision, specification, video, profile, standards = _authorities(
-        tmp_path
-    )
+    (
+        _database,
+        _repo,
+        revision,
+        specification,
+        video,
+        profile,
+        standards,
+        _observation_authorities,
+    ) = _authorities(tmp_path)
     output = _build(revision, specification, video, profile, standards)
     semantic_hash = output.semantic_sha256
 
@@ -485,14 +556,23 @@ def test_csv_html_and_export_timestamp_keep_semantic_identity_deterministic(
 
 
 def test_save_reopen_and_regeneration_preserve_semantic_output(tmp_path: Path) -> None:
-    database, scene_repository, revision, specification, video, profile, standards = (
-        _authorities(tmp_path)
-    )
+    (
+        database,
+        scene_repository,
+        revision,
+        specification,
+        video,
+        profile,
+        standards,
+        observation_authorities,
+    ) = _authorities(tmp_path)
     video_repository = CadVideoGeometryRepository(scene_repository)
     standards_repository = CadStandardsRepository(scene_repository)
     video_repository.save_projector_specification(specification)
     video_repository.save_evaluation(video)
     standards_repository.save_profile(profile)
+    for authority in observation_authorities:
+        standards_repository.save_observation_authority(authority)
     standards_repository.save_evaluation(standards)
 
     before = _build(revision, specification, video, profile, standards)

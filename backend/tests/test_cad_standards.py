@@ -25,6 +25,7 @@ from htdt.cad_standards_profiles import (
     dolby_atmos_home_5_1_2_profile,
     rp22_spatial_profile,
 )
+from htdt.cad_standards_evidence import build_standards_observation_authority
 from htdt.cad_standards_repository import CadStandardsRepository
 from htdt.cad_system_variant import ChannelRoleBinding, build_system_variant
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
@@ -78,7 +79,9 @@ def _target(
 
 
 def _evidence(evidence_id: str) -> tuple[CriterionEvidenceRef, ...]:
-    return (CriterionEvidenceRef(evidence_id=evidence_id),)
+    return (
+        CriterionEvidenceRef(kind='fixture-evidence', evidence_id=evidence_id),
+    )
 
 
 def test_status_evidence_basis_and_explicit_hard_constraint_semantics() -> None:
@@ -470,13 +473,29 @@ def test_persistence_exact_variant_binding_and_historical_reevaluation(
         variant=variant,
         entity_ids=('speaker-fl',),
     )
+    authority = build_standards_observation_authority(
+        document_id=baseline.document_id,
+        scene_revision_id=baseline.revision_id,
+        scene_content_hash=baseline.content_hash,
+        system_variant_id=variant.variant_id,
+        system_variant_sha256=variant.variant_sha256,
+        quantity='distance_quantity',
+        unit='m',
+        observed_value=0.8,
+        evidence_basis='predicted',
+        entity_ids=('speaker-fl',),
+        provided_inputs=('distance_input',),
+        capabilities=('fixture-capability-v1',),
+        observed_at_utc=NOW,
+    )
+    repository.save_observation_authority(authority)
     observation = CriterionObservation(
         criterion_id='distance',
         entity_ids=('speaker-fl',),
         observed_value=0.8,
         unit='m',
         evidence_basis='predicted',
-        evidence_refs=_evidence('exact-scene-observation'),
+        evidence_refs=(authority.ref(),),
         provided_inputs=('distance_input',),
         capabilities=('fixture-capability-v1',),
     )

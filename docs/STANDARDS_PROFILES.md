@@ -48,7 +48,25 @@ published profile versions remain auditable after external resolvers change.
 Fabricated thresholds, dangling refs/extraction ids, and citations of another
 document/version are rejected. `user_defined` profiles remain functional
 without authority bindings; when they do declare a ref, it is held to the same
-exact-match contract. Observation/evidence evaluation (#410) is unchanged.
+exact-match contract.
+
+Criterion observations are held to the same exact-authority contract (#410):
+every `CriterionEvidenceRef` is a typed reference whose `kind` selects a
+registered resolver and whose `evidence_id`/`evidence_sha256` pin one exact
+authority record. `CadStandardsRepository` re-resolves every ref at save and on
+every authoritative read (`get_evaluation`,
+`list_evaluations_for_scene`): the resolved evidence must prove it belongs to
+the exact SceneRevision/SystemVariant/entities of the evaluation target, and
+the claimed observed value, unit, evidence basis, provided inputs, and
+capabilities must match the canonical projection the evidence attests. Only
+then is `evaluate_standards_profile` replayed and required to reproduce the
+persisted record exactly; any divergence — fabricated refs, foreign-scope
+evidence, inflated inputs/capabilities, or coherently rehashed result edits —
+fails closed. The built-in `standards_manual_observation` kind resolves against
+`StandardsObservationAuthority` records retained via
+`save_observation_authority`; richer evidence sources register resolvers
+through `CadStandardsRepository(evidence_resolvers=...)`. A kind without a
+registered resolver is never evidence.
 
 The built-in authorities live in `backend/src/htdt/cad_standards_authorities.py`;
 the built-in profiles in `cad_standards_profiles.py` derive their citation text,
