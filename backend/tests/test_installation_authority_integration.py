@@ -32,6 +32,7 @@ from htdt.cad_system_variant import (
     build_system_variant,
 )
 from htdt.cad_video_geometry import (
+    PROJECTOR_SPEC_EVIDENCED_FIELDS,
     AngleRange,
     AspectRatio,
     LensShiftRange,
@@ -40,9 +41,12 @@ from htdt.cad_video_geometry import (
     SeatGeometryBinding,
     SightlineSample,
     VideoGeometryPolicy,
+    build_projector_spec_document_evidence,
+    build_projector_spec_field_assertions,
     build_projector_specification,
     build_video_geometry_request,
     evaluate_video_geometry,
+    projector_spec_optical_values,
 )
 from htdt.cad_video_geometry_repository import CadVideoGeometryRepository
 from htdt.report import (
@@ -91,7 +95,69 @@ def _scene():
     return base.model_copy(update={'entities': base.entities + additions})
 
 
+SPEC_SOURCE_FILENAME = 'p1-installation-manual.json'
+SPEC_SOURCE_MEDIA_TYPE = 'application/json'
+
+
+def _spec_optical_values() -> dict:
+    return projector_spec_optical_values(
+        lens_reference_offset_m=Offset3(),
+        optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
+        throw_ratio_min=1.0,
+        throw_ratio_max=3.0,
+        optical_zoom_ratio=2.0,
+        horizontal_lens_shift=LensShiftRange(
+            minimum_fraction=-1.0,
+            maximum_fraction=1.0,
+        ),
+        vertical_lens_shift=LensShiftRange(
+            minimum_fraction=-1.0,
+            maximum_fraction=1.0,
+        ),
+        supported_aspect_ratios=(AspectRatio(width_units=16, height_units=9),),
+    )
+
+
+def _spec_source_bytes() -> bytes:
+    return json.dumps(
+        {
+            'schema': 'example.projector-installation.v1',
+            'manufacturer': 'Example',
+            'model': 'P1',
+            'document_version': '1.0',
+            'optical': _spec_optical_values(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+
+
+def _projector_spec_evidence():
+    return build_projector_spec_document_evidence(
+        evidence_kind='manufacturer_document',
+        manufacturer='Example',
+        model='P1',
+        publisher='Example',
+        document_title='P1 installation manual',
+        document_version='1.0',
+        reference='projection specifications',
+        source_uri='https://example.invalid/p1',
+        source_sha256=sha256(_spec_source_bytes()).hexdigest(),
+        extractor_id='htdt-test-spec-table',
+        extractor_version='1.0',
+        field_assertions=build_projector_spec_field_assertions(
+            optical_values=_spec_optical_values(),
+            field_locators={
+                field: f'manual p.9, row "{field}"'
+                for field in PROJECTOR_SPEC_EVIDENCED_FIELDS
+            },
+        ),
+    )
+
+
 def _projector_spec(specification_id: str = 'projector-spec-main'):
+    evidence = _projector_spec_evidence()
     return build_projector_specification(
         specification_id=specification_id,
         version='1',
@@ -104,7 +170,8 @@ def _projector_spec(specification_id: str = 'projector-spec-main'):
             document_version='1.0',
             reference='projection specifications',
             source_uri='https://example.invalid/p1',
-            source_sha256='b' * 64,
+            source_sha256=evidence.source_sha256,
+            evidence=evidence.ref(),
         ),
         lens_reference_offset_m=Offset3(),
         optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
@@ -120,6 +187,16 @@ def _projector_spec(specification_id: str = 'projector-spec-main'):
             maximum_fraction=1.0,
         ),
         supported_aspect_ratios=(AspectRatio(width_units=16, height_units=9),),
+    )
+
+
+def _save_projector_specification(repository, specification):
+    return repository.save_projector_specification(
+        specification,
+        evidence=_projector_spec_evidence(),
+        source_bytes=_spec_source_bytes(),
+        source_filename=SPEC_SOURCE_FILENAME,
+        media_type=SPEC_SOURCE_MEDIA_TYPE,
     )
 
 
@@ -490,7 +567,7 @@ def test_save_reopen_and_regeneration_preserve_semantic_output(tmp_path: Path) -
     )
     video_repository = CadVideoGeometryRepository(scene_repository)
     standards_repository = CadStandardsRepository(scene_repository)
-    video_repository.save_projector_specification(specification)
+    _save_projector_specification(video_repository, specification)
     video_repository.save_evaluation(video)
     standards_repository.save_profile(profile)
     standards_repository.save_evaluation(standards)

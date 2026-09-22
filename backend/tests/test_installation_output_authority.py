@@ -91,17 +91,23 @@ from htdt.cad_system_variant import (
 )
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.cad_video_geometry import (
+    PROJECTOR_SPEC_EVIDENCED_FIELDS,
     AngleRange,
     AspectRatio,
     LensShiftRange,
+    ProjectorSpecification,
+    ProjectorSpecificationEvidence,
     ProjectorSpecificationProvenance,
     ScreenGeometryBinding,
     SeatGeometryBinding,
     SightlineSample,
     VideoGeometryPolicy,
+    build_projector_spec_document_evidence,
+    build_projector_spec_field_assertions,
     build_projector_specification,
     build_video_geometry_request,
     evaluate_video_geometry,
+    projector_spec_optical_values,
 )
 from htdt.cad_video_geometry_repository import CadVideoGeometryRepository
 from htdt.installation_output_authority import (
@@ -217,7 +223,79 @@ f 2 3 4
     return SceneDocument.model_validate(payload), geometry
 
 
+def _projector_spec_optical_values() -> dict:
+    return projector_spec_optical_values(
+        lens_reference_offset_m=Offset3(),
+        optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
+        throw_ratio_min=1.0,
+        throw_ratio_max=3.0,
+        optical_zoom_ratio=2.0,
+        horizontal_lens_shift=LensShiftRange(
+            minimum_fraction=-1.0,
+            maximum_fraction=1.0,
+        ),
+        vertical_lens_shift=LensShiftRange(
+            minimum_fraction=-1.0,
+            maximum_fraction=1.0,
+        ),
+        supported_aspect_ratios=(AspectRatio(width_units=16, height_units=9),),
+    )
+
+
+def _projector_spec_source_bytes() -> bytes:
+    return json.dumps(
+        {
+            'schema': 'example.projector-spec-sheet.v1',
+            'manufacturer': 'Example',
+            'model': 'P1',
+            'document_version': '1.0',
+            'optical': _projector_spec_optical_values(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+
+
+def _projector_spec_evidence() -> ProjectorSpecificationEvidence:
+    return build_projector_spec_document_evidence(
+        evidence_kind='manufacturer_document',
+        manufacturer='Example',
+        model='P1',
+        publisher='Example',
+        document_title='P1 installation manual',
+        document_version='1.0',
+        reference='projection specifications',
+        source_uri='https://example.invalid/p1',
+        source_sha256=sha256(_projector_spec_source_bytes()).hexdigest(),
+        extractor_id='htdt-test-spec-table',
+        extractor_version='1.0',
+        field_assertions=build_projector_spec_field_assertions(
+            optical_values=_projector_spec_optical_values(),
+            field_locators={
+                field: 'installation manual p.2, optical table'
+                for field in PROJECTOR_SPEC_EVIDENCED_FIELDS
+            },
+        ),
+    )
+
+
+def _save_projector_specification(
+    repository: CadVideoGeometryRepository,
+    specification: ProjectorSpecification,
+) -> ProjectorSpecification:
+    """Persist the fixture spec together with its exact retained evidence."""
+    return repository.save_projector_specification(
+        specification,
+        evidence=_projector_spec_evidence(),
+        source_bytes=_projector_spec_source_bytes(),
+        source_filename='example-p1-installation-manual.json',
+        media_type='application/json',
+    )
+
+
 def _projector_spec(specification_id: str = 'projector-spec-main'):
+    evidence = _projector_spec_evidence()
     return build_projector_specification(
         specification_id=specification_id,
         version='1',
@@ -230,7 +308,8 @@ def _projector_spec(specification_id: str = 'projector-spec-main'):
             document_version='1.0',
             reference='projection specifications',
             source_uri='https://example.invalid/p1',
-            source_sha256='b' * 64,
+            source_sha256=evidence.source_sha256,
+            evidence=evidence.ref(),
         ),
         lens_reference_offset_m=Offset3(),
         optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
@@ -757,7 +836,7 @@ def _authorities(tmp_path: Path, *, with_semantic_geometry: bool = True):
         system_variant_repository,
     )
     specification = _projector_spec()
-    video_repository.save_projector_specification(specification)
+    _save_projector_specification(video_repository, specification)
     video = evaluate_video_geometry(
         baseline=revision,
         variant=None,

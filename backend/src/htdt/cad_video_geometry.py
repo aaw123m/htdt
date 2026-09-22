@@ -3,7 +3,7 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 from math import acos, atan2, degrees, isfinite, sqrt
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from shapely.geometry import Point
@@ -29,9 +29,39 @@ VIDEO_GEOMETRY_SCHEMA_VERSION = 1
 VIDEO_GEOMETRY_AUTHORITY_VERSION = 'video-geometry-1'
 PROJECTOR_SPEC_SCHEMA_VERSION = 1
 PROJECTOR_SPEC_AUTHORITY_VERSION = 'projector-spec-1'
+PROJECTOR_SPEC_EVIDENCE_SCHEMA_VERSION = 1
+PROJECTOR_SPEC_EVIDENCE_AUTHORITY_VERSION = 'projector-spec-evidence-1'
 
 EvaluationStatus = Literal['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE']
 ProjectorSpecSourceKind = Literal['manufacturer', 'user_defined']
+ProjectorSpecEvidenceKind = Literal[
+    'manufacturer_document',
+    'external_authority',
+    'manual_record',
+]
+ProjectorSpecOpticalField = Literal[
+    'horizontal_lens_shift',
+    'lens_reference_offset_m',
+    'optical_axis_local',
+    'optical_zoom_ratio',
+    'supported_aspect_ratios',
+    'throw_ratio_max',
+    'throw_ratio_min',
+    'vertical_lens_shift',
+]
+# The complete optical datum set a specification claims. Evidence must attest
+# every one of these fields exactly once (explicit nulls included) so a
+# specification re-derives entirely from its bound evidence.
+PROJECTOR_SPEC_EVIDENCED_FIELDS: tuple[ProjectorSpecOpticalField, ...] = (
+    'horizontal_lens_shift',
+    'lens_reference_offset_m',
+    'optical_axis_local',
+    'optical_zoom_ratio',
+    'supported_aspect_ratios',
+    'throw_ratio_max',
+    'throw_ratio_min',
+    'vertical_lens_shift',
+)
 
 _EPS = 1e-9
 
@@ -195,7 +225,30 @@ class LensShiftRange(BaseModel):
         return self.minimum_fraction <= value <= self.maximum_fraction
 
 
+class ProjectorSpecEvidenceRef(BaseModel):
+    """Typed reference to the exact persisted evidence authority.
+
+    The reference pins both the evidence kind and the evidence record's
+    self-hash, so a specification cannot silently re-point at a different
+    evidence record — resolution is content-addressed and fails closed.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    evidence_kind: ProjectorSpecEvidenceKind
+    evidence_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class ProjectorSpecificationProvenance(BaseModel):
+    """Declared source identity plus the typed evidence ref behind it.
+
+    ``source_kind`` selects the admissible evidence kind: manufacturer data
+    must resolve to a retained manufacturer document or a typed immutable
+    external authority (never a manual record), while user-defined data must
+    resolve to an explicit manual evidence record. For manufacturer data an
+    exact ``source_sha256`` of the source document/data is required.
+    """
+
     model_config = ConfigDict(frozen=True)
 
     source_kind: ProjectorSpecSourceKind
@@ -205,6 +258,345 @@ class ProjectorSpecificationProvenance(BaseModel):
     reference: str = Field(min_length=1)
     source_uri: str | None = Field(default=None, min_length=1)
     source_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    evidence: ProjectorSpecEvidenceRef
+
+    @model_validator(mode='after')
+    def valid_evidence_binding(self) -> 'ProjectorSpecificationProvenance':
+        if self.source_kind == 'manufacturer':
+            if self.source_sha256 is None:
+                raise ValueError(
+                    'manufacturer projector data requires an exact source_sha256'
+                )
+            if self.evidence.evidence_kind == 'manual_record':
+                raise ValueError(
+                    'manufacturer projector data must not use manual_record '
+                    'evidence; requires manufacturer_document or '
+                    'external_authority evidence'
+                )
+        elif self.evidence.evidence_kind != 'manual_record':
+            raise ValueError(
+                'user_defined projector data requires manual_record evidence'
+            )
+        return self
+
+
+class ProjectorSpecFieldAssertion(BaseModel):
+    """One optical datum attested by evidence: canonical value plus locator.
+
+    ``value`` is normalized to canonical JSON at validation time so equality
+    and hashing never depend on input container/number spellings. ``locator``
+    is the exact position inside the bound evidence — a page/table/row or a
+    JSON-pointer style path for extracted data, or the citation/basis note
+    for manual entries.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    field: ProjectorSpecOpticalField
+    value: Any
+    locator: str = Field(min_length=1)
+
+    @field_validator('value')
+    @classmethod
+    def canonical_json_value(cls, value: Any) -> Any:
+        try:
+            return json.loads(_canonical(value))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                'evidence field assertion value must be canonical JSON'
+            ) from exc
+
+
+class ProjectorSpecificationEvidence(BaseModel):
+    """Typed immutable evidence authority behind a ProjectorSpecification.
+
+    One record binds the exact source identity (manufacturer/model/document
+    metadata) to the evidenced value and exact locator of every optical datum
+    a specification claims. ``manufacturer_document`` evidence is bound to
+    retained source bytes in the managed asset store; ``external_authority``
+    evidence is the persisted typed authority when source bytes cannot be
+    retained; ``manual_record`` evidence attests user-entered data with
+    subject, fields/values, source citation, actor/time and evidence basis.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema_version: Literal[1] = PROJECTOR_SPEC_EVIDENCE_SCHEMA_VERSION
+    authority_version: Literal[
+        'projector-spec-evidence-1'
+    ] = PROJECTOR_SPEC_EVIDENCE_AUTHORITY_VERSION
+    evidence_kind: ProjectorSpecEvidenceKind
+
+    # Exact subject/source identity the evidence describes.
+    manufacturer: str | None = Field(default=None, min_length=1)
+    model: str | None = Field(default=None, min_length=1)
+    publisher: str = Field(min_length=1)
+    document_title: str = Field(min_length=1)
+    document_version: str = Field(min_length=1)
+    reference: str = Field(min_length=1)
+    source_uri: str | None = Field(default=None, min_length=1)
+    source_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+
+    # Extraction authority — required for extracted (non-manual) evidence.
+    extractor_id: str | None = Field(default=None, min_length=1)
+    extractor_version: str | None = Field(default=None, min_length=1)
+
+    # Attested optical values: canonical value + exact locator per field.
+    field_assertions: tuple[ProjectorSpecFieldAssertion, ...] = Field(
+        min_length=1
+    )
+
+    # Manual-evidence basis — required for manual_record evidence.
+    actor: str | None = Field(default=None, min_length=1)
+    recorded_at_utc: str | None = Field(default=None, min_length=1)
+    source_citation: str | None = Field(default=None, min_length=1)
+    evidence_basis: str | None = Field(default=None, min_length=1)
+
+    evidence_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @field_validator('field_assertions')
+    @classmethod
+    def canonical_field_assertions(
+        cls,
+        values: tuple[ProjectorSpecFieldAssertion, ...],
+    ) -> tuple[ProjectorSpecFieldAssertion, ...]:
+        return tuple(sorted(values, key=lambda item: item.field))
+
+    @model_validator(mode='after')
+    def valid_evidence(self) -> 'ProjectorSpecificationEvidence':
+        fields = [item.field for item in self.field_assertions]
+        if len(fields) != len(set(fields)):
+            raise ValueError('evidence field assertions must be unique')
+        if set(fields) != set(PROJECTOR_SPEC_EVIDENCED_FIELDS):
+            raise ValueError(
+                'evidence must attest every optical field exactly once'
+            )
+        manual_fields = (
+            'actor',
+            'recorded_at_utc',
+            'source_citation',
+            'evidence_basis',
+        )
+        extraction_fields = ('extractor_id', 'extractor_version')
+        if self.evidence_kind == 'manual_record':
+            for name in manual_fields:
+                if getattr(self, name) is None:
+                    raise ValueError(f'manual_record evidence requires {name}')
+            for name in extraction_fields:
+                if getattr(self, name) is not None:
+                    raise ValueError(
+                        f'manual_record evidence must not carry {name}'
+                    )
+        else:
+            for name in ('manufacturer', 'model', 'source_sha256') + extraction_fields:
+                if getattr(self, name) is None:
+                    raise ValueError(
+                        f'{self.evidence_kind} evidence requires {name}'
+                    )
+            for name in manual_fields:
+                if getattr(self, name) is not None:
+                    raise ValueError(
+                        f'{self.evidence_kind} evidence must not carry {name}'
+                    )
+        if self.evidence_sha256 != _digest(self.semantic_payload()):
+            raise ValueError(
+                'ProjectorSpecificationEvidence semantic hash mismatch'
+            )
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode='json', exclude={'evidence_sha256'})
+
+    def attested_optical_payload(self) -> dict[str, Any]:
+        """Canonical optical payload this evidence attests."""
+        return {item.field: item.value for item in self.field_assertions}
+
+    def ref(self) -> ProjectorSpecEvidenceRef:
+        """The typed reference a specification embeds in its provenance."""
+        return ProjectorSpecEvidenceRef(
+            evidence_kind=self.evidence_kind,
+            evidence_sha256=self.evidence_sha256,
+        )
+
+
+def projector_spec_optical_values(
+    *,
+    lens_reference_offset_m: Offset3,
+    optical_axis_local: Direction3,
+    throw_ratio_min: float,
+    throw_ratio_max: float,
+    optical_zoom_ratio: float | None = None,
+    horizontal_lens_shift: LensShiftRange | None = None,
+    vertical_lens_shift: LensShiftRange | None = None,
+    supported_aspect_ratios: Sequence[AspectRatio] = (),
+) -> dict[str, Any]:
+    """Canonical optical payload shared by evidence attestation and spec
+    re-derivation — the same shape ``ProjectorSpecification.optical_payload``
+    produces for a built specification."""
+    return {
+        'horizontal_lens_shift': (
+            None
+            if horizontal_lens_shift is None
+            else horizontal_lens_shift.model_dump(mode='json')
+        ),
+        'lens_reference_offset_m': lens_reference_offset_m.model_dump(mode='json'),
+        'optical_axis_local': optical_axis_local.model_dump(mode='json'),
+        'optical_zoom_ratio': optical_zoom_ratio,
+        'supported_aspect_ratios': [
+            item.model_dump(mode='json')
+            for item in supported_aspect_ratios
+        ],
+        'throw_ratio_max': float(throw_ratio_max),
+        'throw_ratio_min': float(throw_ratio_min),
+        'vertical_lens_shift': (
+            None
+            if vertical_lens_shift is None
+            else vertical_lens_shift.model_dump(mode='json')
+        ),
+    }
+
+
+def build_projector_spec_field_assertions(
+    *,
+    optical_values: Mapping[str, Any],
+    field_locators: Mapping[str, str],
+) -> tuple[ProjectorSpecFieldAssertion, ...]:
+    """Build the complete assertion set over the canonical optical payload.
+
+    Every evidenced field needs both its canonical value and an exact locator
+    inside the bound source evidence; partial attestation is rejected so a
+    missing optical datum can never ride along as unevaluated provenance.
+    """
+    expected = set(PROJECTOR_SPEC_EVIDENCED_FIELDS)
+    if set(optical_values) != expected:
+        raise ValueError(
+            'optical values must cover every evidenced field exactly once'
+        )
+    if set(field_locators) != expected:
+        raise ValueError(
+            'field locators must cover every evidenced field exactly once'
+        )
+    return tuple(
+        ProjectorSpecFieldAssertion(
+            field=field,
+            value=optical_values[field],
+            locator=field_locators[field],
+        )
+        for field in PROJECTOR_SPEC_EVIDENCED_FIELDS
+    )
+
+
+def _build_evidence(**kwargs: Any) -> ProjectorSpecificationEvidence:
+    """Construct a self-hashed evidence record without duplicating payload shape."""
+    # Sort exactly like the ``canonical_field_assertions`` validator so the
+    # probe digest already reflects the persisted canonical order.
+    assertions = tuple(
+        sorted(
+            (
+                ProjectorSpecFieldAssertion.model_validate(item)
+                for item in kwargs['field_assertions']
+            ),
+            key=lambda item: item.field,
+        )
+    )
+    probe = ProjectorSpecificationEvidence.model_construct(
+        field_assertions=assertions,
+        evidence_sha256='0' * 64,
+        **{key: value for key, value in kwargs.items() if key != 'field_assertions'},
+    )
+    digest = _digest(probe.semantic_payload())
+    return ProjectorSpecificationEvidence(
+        field_assertions=assertions,
+        evidence_sha256=digest,
+        **{key: value for key, value in kwargs.items() if key != 'field_assertions'},
+    )
+
+
+def build_projector_spec_document_evidence(
+    *,
+    evidence_kind: Literal['manufacturer_document', 'external_authority'],
+    manufacturer: str,
+    model: str,
+    publisher: str,
+    document_title: str,
+    document_version: str,
+    reference: str,
+    source_sha256: str,
+    extractor_id: str,
+    extractor_version: str,
+    field_assertions: Sequence[ProjectorSpecFieldAssertion],
+    source_uri: str | None = None,
+) -> ProjectorSpecificationEvidence:
+    """Build extracted-evidence authority for manufacturer-sourced data.
+
+    ``manufacturer_document`` binds evidence to source bytes retained in the
+    managed asset store; ``external_authority`` is the typed immutable
+    authority persisted when the source bytes themselves cannot be retained.
+    ``extractor_id``/``extractor_version`` pin the parser/extraction version
+    and each assertion's ``locator`` pins the field/page/table position the
+    datum was extracted from.
+    """
+    return _build_evidence(
+        evidence_kind=evidence_kind,
+        manufacturer=manufacturer,
+        model=model,
+        publisher=publisher,
+        document_title=document_title,
+        document_version=document_version,
+        reference=reference,
+        source_uri=source_uri,
+        source_sha256=source_sha256,
+        extractor_id=extractor_id,
+        extractor_version=extractor_version,
+        field_assertions=field_assertions,
+        actor=None,
+        recorded_at_utc=None,
+        source_citation=None,
+        evidence_basis=None,
+    )
+
+
+def build_projector_spec_manual_evidence(
+    *,
+    publisher: str,
+    document_title: str,
+    document_version: str,
+    reference: str,
+    field_assertions: Sequence[ProjectorSpecFieldAssertion],
+    source_citation: str,
+    actor: str,
+    recorded_at_utc: str,
+    evidence_basis: str,
+    manufacturer: str | None = None,
+    model: str | None = None,
+    source_uri: str | None = None,
+    source_sha256: str | None = None,
+) -> ProjectorSpecificationEvidence:
+    """Build the explicit typed manual evidence record for user-entered data.
+
+    The record preserves subject identity, the attested fields/values with
+    per-field locators, the source citation, the actor and time, and the
+    evidence basis distinguishing user measurement/override from
+    manufacturer-certified data.
+    """
+    return _build_evidence(
+        evidence_kind='manual_record',
+        manufacturer=manufacturer,
+        model=model,
+        publisher=publisher,
+        document_title=document_title,
+        document_version=document_version,
+        reference=reference,
+        source_uri=source_uri,
+        source_sha256=source_sha256,
+        extractor_id=None,
+        extractor_version=None,
+        field_assertions=field_assertions,
+        actor=actor,
+        recorded_at_utc=recorded_at_utc,
+        source_citation=source_citation,
+        evidence_basis=evidence_basis,
+    )
 
 
 class ProjectorSpecification(BaseModel):
@@ -280,6 +672,62 @@ class ProjectorSpecification(BaseModel):
                 for item in self.supported_aspect_ratios
             ],
         }
+
+    def optical_payload(self) -> dict[str, Any]:
+        """Canonical optical data the bound evidence must attest in full.
+
+        Every value here directly determines PASS/FAIL geometry feasibility,
+        so the resolved evidence record must re-derive all of it — field
+        presence alone is not equivalent provenance.
+        """
+        payload = self.semantic_payload()
+        return {key: payload[key] for key in PROJECTOR_SPEC_EVIDENCED_FIELDS}
+
+
+def verify_projector_specification_evidence(
+    *,
+    specification: ProjectorSpecification,
+    evidence: ProjectorSpecificationEvidence,
+) -> None:
+    """Fail-closed re-resolution of a specification's typed evidence ref.
+
+    The resolved evidence must be the exact record the provenance ref pins
+    (kind + self-hash), must describe the same manufacturer/model and source
+    document identity the provenance declares, and must re-derive every
+    optical value the specification claims. Any divergence raises instead of
+    letting unsupported optical values serve as authority.
+    """
+    provenance = specification.provenance
+    ref = provenance.evidence
+    if evidence.evidence_kind != ref.evidence_kind:
+        raise ValueError(
+            'projector specification evidence kind does not match provenance ref'
+        )
+    if evidence.evidence_sha256 != ref.evidence_sha256:
+        raise ValueError(
+            'projector specification evidence hash does not match provenance ref'
+        )
+    expected_identity = {
+        'manufacturer': specification.manufacturer,
+        'model': specification.model,
+        'publisher': provenance.publisher,
+        'document_title': provenance.document_title,
+        'document_version': provenance.document_version,
+        'reference': provenance.reference,
+        'source_uri': provenance.source_uri,
+        'source_sha256': provenance.source_sha256,
+    }
+    for name, wanted in expected_identity.items():
+        if getattr(evidence, name) != wanted:
+            raise ValueError(
+                f'projector specification evidence {name} diverges from '
+                'the specification provenance'
+            )
+    if evidence.attested_optical_payload() != specification.optical_payload():
+        raise ValueError(
+            'projector specification optical values do not re-derive from '
+            'the resolved evidence record'
+        )
 
 
 def build_projector_specification(
