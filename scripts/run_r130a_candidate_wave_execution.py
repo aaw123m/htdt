@@ -84,8 +84,11 @@ from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.cad_wave_excitation import (
     CadWaveExcitationRepository,
     ComplexVolumeVelocitySample,
+    WaveExcitationEvidenceSubject,
+    WaveExcitationManualDerivation,
     bind_wave_excitation_to_r110_source,
     build_acoustic_wave_excitation_authority,
+    build_wave_excitation_evidence_authority,
 )
 from htdt.r120_geometry_compiler import (
     AcousticRegionDeclaration,
@@ -339,43 +342,40 @@ def _fixture(
     )
     r110_repository.save_model(source)
 
-    excitation_source_sha = _hash_json(
-        {
-            'fixture_id': fixture_id,
-            'quantity': 'complex_volume_velocity_m3_s',
-            'samples': [
-                [40.0, 1.0e-4, 0.0],
-                [80.0, 0.0, 1.0e-4],
-            ],
-            'statement': (
-                'Explicit synthetic acoustic excitation for candidate execution '
-                'only; it is not derived from speaker sensitivity.'
-            ),
-        }
+    excitation_samples = (
+        ComplexVolumeVelocitySample(
+            frequency_hz=40.0,
+            real_m3_s=1.0e-4,
+            imag_m3_s=0.0,
+        ),
+        ComplexVolumeVelocitySample(
+            frequency_hz=80.0,
+            real_m3_s=0.0,
+            imag_m3_s=1.0e-4,
+        ),
     )
-    excitation_provenance = EquipmentDataProvenance(
+    excitation_evidence = build_wave_excitation_evidence_authority(
         evidence_kind='user_defined',
         source_name='HTDT R130A explicit acoustic wave excitation',
         source_version='1',
         source_reference='synthetic candidate fixture; not owned-room evidence',
-        source_sha256=excitation_source_sha,
+        derivation=WaveExcitationManualDerivation(
+            author='HTDT R130A candidate fixture',
+            authored_at_utc=NOW,
+        ),
+        subject=WaveExcitationEvidenceSubject(
+            definition_id=equipment.definition_id,
+            definition_version=equipment.version,
+            definition_sha256=equipment.semantic_sha256,
+            samples=excitation_samples,
+        ),
     )
+    excitation_provenance = excitation_evidence.provenance
     excitation = build_acoustic_wave_excitation_authority(
         definition_id=equipment.definition_id,
         definition_version=equipment.version,
         definition_sha256=equipment.semantic_sha256,
-        samples=(
-            ComplexVolumeVelocitySample(
-                frequency_hz=40.0,
-                real_m3_s=1.0e-4,
-                imag_m3_s=0.0,
-            ),
-            ComplexVolumeVelocitySample(
-                frequency_hz=80.0,
-                real_m3_s=0.0,
-                imag_m3_s=1.0e-4,
-            ),
-        ),
+        samples=excitation_samples,
         interpolation=InterpolationProvenance(
             method='linear',
             implementation='fixture-exact-sample-linear',
@@ -383,11 +383,13 @@ def _fixture(
             provenance=excitation_provenance,
         ),
         provenance=(excitation_provenance,),
+        evidence=(excitation_evidence,),
         approximation_note=(
             'No sensitivity conversion is used. Candidate execution consumes '
             'the two explicit complex volume-velocity samples directly.'
         ),
     )
+    wave_repository.save_evidence(excitation_evidence)
     wave_repository.save_excitation(excitation)
     wave_binding = bind_wave_excitation_to_r110_source(
         source=source,

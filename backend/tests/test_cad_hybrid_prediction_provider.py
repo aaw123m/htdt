@@ -67,7 +67,10 @@ from htdt.cad_search_models import CadSearchAxis
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_wave_excitation import (
     ComplexVolumeVelocitySample,
+    WaveExcitationEvidenceSubject,
+    WaveExcitationManualDerivation,
     build_acoustic_wave_excitation_authority,
+    build_wave_excitation_evidence_authority,
 )
 from htdt.comparison import FrequencyResponse
 from htdt.optimization_objectives import ResponseObjectiveSpec
@@ -532,37 +535,61 @@ def test_exact_identity_absolute_pressure_db_phase_and_phasor_conversion(
     assert first.excitation_phasor_convention == 'exp(-i*omega*t)'
 
 
-def test_q_linear_evaluation_and_unsupported_missing_frequency_rejection() -> None:
-    provenance = EquipmentDataProvenance(
+def _manual_excitation_evidence(
+    *,
+    definition_id: str,
+    definition_sha256: str,
+    samples: tuple[ComplexVolumeVelocitySample, ...],
+):
+    return build_wave_excitation_evidence_authority(
         evidence_kind='user_defined',
         source_name='R170B Q evaluator',
         source_version='1',
         source_reference='synthetic unit test',
-        source_sha256=_hash('q-evaluator'),
+        derivation=WaveExcitationManualDerivation(
+            author='r170b-fixture',
+            authored_at_utc='2026-09-20T00:00:00+00:00',
+        ),
+        subject=WaveExcitationEvidenceSubject(
+            definition_id=definition_id,
+            definition_version='1',
+            definition_sha256=definition_sha256,
+            samples=samples,
+        ),
+    )
+
+
+def test_q_linear_evaluation_and_unsupported_missing_frequency_rejection() -> None:
+    linear_samples = (
+        ComplexVolumeVelocitySample(
+            frequency_hz=40.0,
+            real_m3_s=1.0,
+            imag_m3_s=1.0,
+        ),
+        ComplexVolumeVelocitySample(
+            frequency_hz=80.0,
+            real_m3_s=3.0,
+            imag_m3_s=-1.0,
+        ),
+    )
+    linear_evidence = _manual_excitation_evidence(
+        definition_id='equipment:q',
+        definition_sha256=_hash('equipment-q'),
+        samples=linear_samples,
     )
     linear = build_acoustic_wave_excitation_authority(
         definition_id='equipment:q',
         definition_version='1',
         definition_sha256=_hash('equipment-q'),
-        samples=(
-            ComplexVolumeVelocitySample(
-                frequency_hz=40.0,
-                real_m3_s=1.0,
-                imag_m3_s=1.0,
-            ),
-            ComplexVolumeVelocitySample(
-                frequency_hz=80.0,
-                real_m3_s=3.0,
-                imag_m3_s=-1.0,
-            ),
-        ),
+        samples=linear_samples,
         interpolation=InterpolationProvenance(
             method='linear',
             implementation='cartesian-linear-test',
             implementation_version='1',
-            provenance=provenance,
+            provenance=linear_evidence.provenance,
         ),
-        provenance=(provenance,),
+        provenance=(linear_evidence.provenance,),
+        evidence=(linear_evidence,),
         approximation_note='explicit complex Cartesian linear interpolation test',
     )
     assert evaluate_excitation_volume_velocity(linear, 60.0) == pytest.approx(
@@ -571,6 +598,11 @@ def test_q_linear_evaluation_and_unsupported_missing_frequency_rejection() -> No
     with pytest.raises(ValueError, match='extrapolation'):
         evaluate_excitation_volume_velocity(linear, 100.0)
 
+    custom_evidence = _manual_excitation_evidence(
+        definition_id='equipment:q-custom',
+        definition_sha256=_hash('equipment-q-custom'),
+        samples=linear.samples,
+    )
     custom = build_acoustic_wave_excitation_authority(
         definition_id='equipment:q-custom',
         definition_version='1',
@@ -580,9 +612,10 @@ def test_q_linear_evaluation_and_unsupported_missing_frequency_rejection() -> No
             method='custom',
             implementation='not-supported-by-r170b',
             implementation_version='1',
-            provenance=provenance,
+            provenance=custom_evidence.provenance,
         ),
-        provenance=(provenance,),
+        provenance=(custom_evidence.provenance,),
+        evidence=(custom_evidence,),
         approximation_note='custom method intentionally unsupported by R170B',
     )
     with pytest.raises(ValueError, match='not exactly evaluable'):

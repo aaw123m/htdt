@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+import json
 from pathlib import Path
 
 import pytest
@@ -47,10 +49,17 @@ from htdt.cad_system_variant import (
 )
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.cad_wave_excitation import (
+    WAVE_EXCITATION_TABLE_CONVERTER_ID,
+    WAVE_EXCITATION_TABLE_CONVERTER_VERSION,
+    WAVE_EXCITATION_TABLE_SCHEMA,
     CadWaveExcitationRepository,
     ComplexVolumeVelocitySample,
+    WaveExcitationEvidenceSubject,
+    WaveExcitationManualDerivation,
+    WaveExcitationSourceAssetDerivation,
     bind_wave_excitation_to_r110_source,
     build_acoustic_wave_excitation_authority,
+    build_wave_excitation_evidence_authority,
 )
 from htdt.r120_geometry_compiler import (
     AcousticRegionDeclaration,
@@ -313,29 +322,64 @@ def _fixture(tmp_path: Path):
         boundary_termination_authority=terminations,
     )
 
+    source_bytes = json.dumps(
+        {
+            'schema': WAVE_EXCITATION_TABLE_SCHEMA,
+            'rows': [
+                {'frequency': 100.0, 'real': 1.0e-4, 'imag': 0.0},
+                {'frequency': 200.0, 'real': 8.0e-5, 'imag': -2.0e-5},
+            ],
+        },
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+    samples = (
+        ComplexVolumeVelocitySample(
+            frequency_hz=100.0,
+            real_m3_s=1.0e-4,
+            imag_m3_s=0.0,
+        ),
+        ComplexVolumeVelocitySample(
+            frequency_hz=200.0,
+            real_m3_s=8.0e-5,
+            imag_m3_s=-2.0e-5,
+        ),
+    )
+    excitation_evidence = build_wave_excitation_evidence_authority(
+        evidence_kind='measured',
+        source_name='explicit-volume-velocity-fixture',
+        source_version='1',
+        source_reference='fixture authority; not derived from sensitivity',
+        derivation=WaveExcitationSourceAssetDerivation(
+            source_asset_sha256=sha256(source_bytes).hexdigest(),
+            converter_id=WAVE_EXCITATION_TABLE_CONVERTER_ID,
+            converter_version=WAVE_EXCITATION_TABLE_CONVERTER_VERSION,
+            conversion_parameters={
+                'frequency_unit': 'Hz',
+                'value_unit': 'm3_s',
+                'value_form': 'rectangular',
+            },
+        ),
+        subject=WaveExcitationEvidenceSubject(
+            definition_id=definition.definition_id,
+            definition_version=definition.version,
+            definition_sha256=definition.semantic_sha256,
+            samples=samples,
+        ),
+    )
     excitation = build_acoustic_wave_excitation_authority(
         definition_id=definition.definition_id,
         definition_version=definition.version,
         definition_sha256=definition.semantic_sha256,
-        samples=(
-            ComplexVolumeVelocitySample(
-                frequency_hz=100.0,
-                real_m3_s=1.0e-4,
-                imag_m3_s=0.0,
-            ),
-            ComplexVolumeVelocitySample(
-                frequency_hz=200.0,
-                real_m3_s=8.0e-5,
-                imag_m3_s=-2.0e-5,
-            ),
-        ),
+        samples=samples,
         interpolation=InterpolationProvenance(
             method='linear',
             implementation='wave-excitation-fixture-linear',
             implementation_version='1',
-            provenance=provenance,
+            provenance=excitation_evidence.provenance,
         ),
-        provenance=(provenance,),
+        provenance=(excitation_evidence.provenance,),
+        evidence=(excitation_evidence,),
         approximation_note=(
             'Explicit measured equivalent-monopole volume velocity over the '
             'declared low-frequency band; no electrical sensitivity conversion.'
@@ -345,6 +389,13 @@ def _fixture(tmp_path: Path):
         scene_repository,
         equipment_repository=equipment_repository,
         r110_repository=r110_repository,
+    )
+    wave_repository.save_evidence(
+        excitation_evidence,
+        source_bytes=source_bytes,
+        source_filename='excitation-volume-velocity.json',
+        media_type='application/json',
+        declared_schema=WAVE_EXCITATION_TABLE_SCHEMA,
     )
     wave_repository.save_excitation(excitation)
     binding = bind_wave_excitation_to_r110_source(
@@ -402,6 +453,8 @@ def _fixture(tmp_path: Path):
         'source': source,
         'compiled': compiled,
         'excitation': excitation,
+        'excitation_evidence': excitation_evidence,
+        'excitation_source_bytes': source_bytes,
         'binding': binding,
         'snapshot': snapshot,
     }
@@ -429,30 +482,47 @@ def test_explicit_wave_excitation_is_deterministic_and_not_inferred_from_r110(
 
 def test_wave_excitation_rejects_wrong_equipment_source(tmp_path: Path) -> None:
     fx = _fixture(tmp_path)
-    provenance = _provenance('2')
+    other_samples = (
+        ComplexVolumeVelocitySample(
+            frequency_hz=100.0,
+            real_m3_s=1.0e-4,
+            imag_m3_s=0.0,
+        ),
+        ComplexVolumeVelocitySample(
+            frequency_hz=200.0,
+            real_m3_s=1.0e-4,
+            imag_m3_s=0.0,
+        ),
+    )
+    other_evidence = build_wave_excitation_evidence_authority(
+        evidence_kind='user_defined',
+        source_name='other-equipment-fixture',
+        source_version='1',
+        source_reference='explicit unrelated source authority',
+        derivation=WaveExcitationManualDerivation(
+            author='fixture-operator',
+            authored_at_utc=NOW,
+        ),
+        subject=WaveExcitationEvidenceSubject(
+            definition_id='other-equipment',
+            definition_version='1',
+            definition_sha256='f' * 64,
+            samples=other_samples,
+        ),
+    )
     other = build_acoustic_wave_excitation_authority(
         definition_id='other-equipment',
         definition_version='1',
         definition_sha256='f' * 64,
-        samples=(
-            ComplexVolumeVelocitySample(
-                frequency_hz=100.0,
-                real_m3_s=1.0e-4,
-                imag_m3_s=0.0,
-            ),
-            ComplexVolumeVelocitySample(
-                frequency_hz=200.0,
-                real_m3_s=1.0e-4,
-                imag_m3_s=0.0,
-            ),
-        ),
+        samples=other_samples,
         interpolation=InterpolationProvenance(
             method='linear',
             implementation='fixture-linear',
             implementation_version='1',
-            provenance=provenance,
+            provenance=other_evidence.provenance,
         ),
-        provenance=(provenance,),
+        provenance=(other_evidence.provenance,),
+        evidence=(other_evidence,),
         approximation_note='explicit unrelated source authority',
     )
 
