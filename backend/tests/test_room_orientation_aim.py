@@ -59,9 +59,17 @@ class FakeRoomViewport(QFrame):
         pass
 
 
+def _controller_repository(tmp_path) -> SceneRepository:
+    """Repository with the F1 fixture persisted explicitly (#627)."""
+
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    return repository
+
+
 def _workspace(tmp_path) -> RoomWorkspace:
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _controller_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -244,7 +252,7 @@ def test_aim_at_measurement_point_establishes_known_aim(tmp_path) -> None:
 
 
 def test_aim_at_seat_uses_acoustic_reference_position(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _controller_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     seat = controller.add_object("seat")
     controller.set_selection("speaker-fl")
@@ -396,7 +404,7 @@ def test_unknown_aim_is_not_fabricated_by_numeric_edits(tmp_path) -> None:
 
 
 def test_aim_actions_fail_closed(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _controller_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
 
     with pytest.raises(EditStateError):
@@ -422,7 +430,7 @@ def test_aim_actions_fail_closed(tmp_path) -> None:
 
 
 def test_update_selected_rejects_orientation_and_aim_for_wrong_kinds(tmp_path) -> None:
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository = _controller_repository(tmp_path)
     controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     point = controller.document.entity("point-mlp")
     controller.set_selection("point-mlp")

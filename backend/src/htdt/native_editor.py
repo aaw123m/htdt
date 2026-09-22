@@ -37,7 +37,7 @@ from .cad_scene import (
     SceneEntity,
     domain_pose_to_render_matrix,
     domain_to_render,
-    make_f1_scene,
+    make_empty_scene,
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
     render_delta_to_domain,
@@ -264,7 +264,13 @@ class NativeEditorWindow(QMainWindow):
     def _load_or_seed(self) -> None:
         revision = self.repository.current_head(self.document_id)
         if revision is None:
-            revision = self.repository.save(make_f1_scene(), parent_revision_id=None).revision
+            # A previously unseen document opens as an empty scene under its own
+            # identity. Even the legacy F1 default must not silently persist the
+            # synthetic fixture; demo data requires the explicit seed command
+            # (#627).
+            revision = self.repository.save(
+                make_empty_scene(self.document_id), parent_revision_id=None
+            ).revision
         self.working = WorkingDocument(
             revision.document,
             source_revision_id=revision.revision_id,
@@ -365,15 +371,18 @@ class NativeEditorWindow(QMainWindow):
         self.items.clear()
         document = self.working.committed_document
 
-        room_item = QTreeWidgetItem(['Room · F1 6×4×2.4 m'])
-        self.tree.addTopLevelItem(room_item)
-        room_actor = self.viewport.add_mesh(
-            pv.Box(bounds=(0.0, document.room.width_m, -document.room.depth_m, 0.0, 0.0, document.room.height_m)),
-            style='wireframe',
-            line_width=2,
-            pickable=False,
-        )
-        room_actor.prop.opacity = 0.45
+        if document.room is None:
+            self.tree.addTopLevelItem(QTreeWidgetItem(['Room · not created']))
+        else:
+            room_item = QTreeWidgetItem(['Room · F1 6×4×2.4 m'])
+            self.tree.addTopLevelItem(room_item)
+            room_actor = self.viewport.add_mesh(
+                pv.Box(bounds=(0.0, document.room.width_m, -document.room.depth_m, 0.0, 0.0, document.room.height_m)),
+                style='wireframe',
+                line_width=2,
+                pickable=False,
+            )
+            room_actor.prop.opacity = 0.45
 
         groups: dict[str, QTreeWidgetItem] = {}
         for key, label in (

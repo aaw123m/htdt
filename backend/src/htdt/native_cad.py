@@ -13,6 +13,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
 from .cad_synthetic_demo import seed_synthetic_optimization_demo
 from .constraint_editor import ConstraintEditorWindow
+from .default_document import log_default_document_classification
 from .measurement_editor import MeasurementEditorWindow
 from .measurement_workspace import MeasurementWorkspaceWindow
 from .native_backup import create_backup, restore_backup
@@ -84,6 +85,10 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if args.workflow_shell:
             apply_dark_theme(app)
         repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
+        # #627: surface what the legacy default document actually holds
+        # (untouched synthetic fixture vs. real user project) in diagnostics.
+        # Read-only; the report never alters persisted data.
+        log_default_document_classification(repository, diagnostics.logger)
         window = (
             build_workflow_shell(repository, args.document_id)
             if args.workflow_shell

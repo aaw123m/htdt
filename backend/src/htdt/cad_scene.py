@@ -733,14 +733,33 @@ def render_delta_to_domain(delta_xyz: tuple[float, float, float], base: Position
     return Position3(x_m=base.x_m + dx, y_m=base.y_m - dy, z_m=base.z_m + dz)
 
 
+# F1_DOCUMENT_ID is the historical default document identity kept only for
+# backward compatibility with existing data directories and as a test fixture
+# identifier. Its value must never implicitly select synthetic content: the
+# normal repository/Room path opens an unknown document — this one included —
+# as an empty scene (#627). The synthetic development demo uses the separate
+# SYNTHETIC_DEMO_DOCUMENT_ID identity in cad_synthetic_demo.py.
 F1_DOCUMENT_ID = 'fixture-f1'
 
 
 def make_empty_scene(document_id: str) -> SceneDocument:
+    """The honest initial state of a fresh project: no room, no entities.
+
+    An empty scene still reports truthful readiness (room/system undefined)
+    instead of appearing complete through borrowed fixture geometry.
+    """
+
     return SceneDocument(document_id=document_id, schema_version=2, room=None, entities=())
 
 
 def make_f1_scene() -> SceneDocument:
+    """The legacy F1 development fixture scene.
+
+    Test/backward-compatibility helper only. Production startup must not call
+    this implicitly for a missing document — callers that want this content
+    (tests, fixtures, migrations) persist it explicitly.
+    """
+
     return SceneDocument(
         document_id=F1_DOCUMENT_ID,
         room=RoomPrism(width_m=6.0, depth_m=4.0, height_m=2.4),

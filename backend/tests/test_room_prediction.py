@@ -8,7 +8,7 @@ import pytest
 from htdt.cad_constraint_models import CadConstraintSet, CadPairDistanceConstraint
 from htdt.cad_constraint_repository import CadConstraintRepository
 from htdt.cad_prediction_repository import CadPredictionRepository
-from htdt.cad_scene import F1_DOCUMENT_ID, acoustic_reference_position
+from htdt.cad_scene import F1_DOCUMENT_ID, acoustic_reference_position, make_f1_scene
 from htdt.room_prediction import RoomPredictionController
 from htdt.room_workspace import RoomWorkspaceController
 from htdt.cad_repository import SceneRepository
@@ -16,6 +16,8 @@ from htdt.cad_repository import SceneRepository
 
 def _controller(tmp_path):
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    # #627: the F1 fixture is explicit test content now, never auto-seeded.
+    repository.save(make_f1_scene(), parent_revision_id=None)
     room = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     prediction = RoomPredictionController(repository, room)
     receiver = next(

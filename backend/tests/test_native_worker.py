@@ -282,6 +282,8 @@ def test_repeated_cancel_shutdown_cycles_do_not_corrupt_teardown() -> None:
 
 def _prediction_controller(tmp_path: Path, operation):
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    # #627: the F1 fixture is explicit test content now, never auto-seeded.
+    repository.save(make_f1_scene(), parent_revision_id=None)
     room = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
     prediction = RoomPredictionController(repository, room, operation=operation)
     receiver = next(
@@ -375,6 +377,7 @@ def test_workflow_controller_dispose_leaves_slow_rew_thread_alive(
     """Controller disposal during an in-flight REW read detaches the thread."""
     _app()
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
     controller = OptimizationWorkflowController(repository, F1_DOCUMENT_ID)
     controller._rew_pool._shutdown_timeout_ms = 100
     started = Event()

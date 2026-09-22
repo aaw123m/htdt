@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QWidget
 import htdt.optimization_workflow_workspace as optimization_workflow
 import htdt.workflow_application as workflow_application
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID
+from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene
 from htdt.command_registry import (
     CommandRegistry,
     WorkspaceDeepLink,
@@ -100,6 +100,8 @@ def test_candidate_compare_command_targets_comparison_page() -> None:
 def test_ux140_real_workspace_has_no_legacy_mainwindow_or_docks(tmp_path) -> None:
     app = _app()
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    # #627: the F1 fixture is explicit test content now, never auto-seeded.
+    repository.save(make_f1_scene(), parent_revision_id=None)
     workspace = OptimizationWorkflowWorkspace(
         repository,
         F1_DOCUMENT_ID,

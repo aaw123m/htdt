@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QToolBar
 from .cad_document import EditStateError, EditorViewState
 from .cad_objects import TheaterObjectError, speaker_aim_replacements
 from .cad_repository import SceneRepository
-from .cad_scene import F1_DOCUMENT_ID, Position3, Size3, make_empty_scene, make_f1_scene
+from .cad_scene import F1_DOCUMENT_ID, Position3, Size3, make_empty_scene
 from .theater_document import TheaterWorkingDocument
 from .theater_editor import TheaterEditorWindow
 
@@ -32,8 +32,12 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
     def _load_or_seed(self) -> None:
         revision = self.repository.current_head(self.document_id)
         if revision is None:
-            seed = make_f1_scene() if self.document_id == F1_DOCUMENT_ID else make_empty_scene(self.document_id)
-            revision = self.repository.save(seed, parent_revision_id=None).revision
+            # Unknown document identities — including the legacy F1 default —
+            # open as an empty scene. Synthetic demo content is only ever
+            # persisted through the explicit development seed command (#627).
+            revision = self.repository.save(
+                make_empty_scene(self.document_id), parent_revision_id=None
+            ).revision
         self.working = TheaterWorkingDocument(
             revision.document,
             source_revision_id=revision.revision_id,
