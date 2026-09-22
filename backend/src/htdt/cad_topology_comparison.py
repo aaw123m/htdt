@@ -378,6 +378,23 @@ class ObjectiveEvidenceBinding(BaseModel):
     source_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 
+class ResolvedObjectiveAuthority(BaseModel):
+    """Resolver result for an objective-bearing extension authority.
+
+    An opaque ``ExactAuthorityRef`` proves only that an authority exists; it
+    does not prove that a bundle's bound objective metric is the authority's
+    actual output. Resolvers for authorities that contribute bundle objective
+    metrics must return the resolved ref together with the canonical
+    ``ObjectiveVector`` that authority produced for the bundle's
+    SystemVariant.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    ref: ExactAuthorityRef
+    objective_vector: ObjectiveVector
+
+
 class VariantEvaluationBundle(BaseModel):
     """Exact per-variant references plus an already-computed ObjectiveVector."""
 

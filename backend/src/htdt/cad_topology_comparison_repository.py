@@ -7,7 +7,9 @@ import sqlite3
 
 from .cad_amplifier_headroom import amplifier_headroom_objective_vector
 from .cad_amplifier_headroom_repository import CadAmplifierHeadroomRepository
+from .cad_coverage import coverage_objective_vector
 from .cad_coverage_repository import CadCoverageRepository
+from .cad_direct_level import direct_level_objective_vector
 from .cad_direct_level_repository import CadDirectLevelRepository
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema
@@ -15,6 +17,7 @@ from .cad_standards_repository import CadStandardsRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_topology_comparison import (
     ExactAuthorityRef,
+    ResolvedObjectiveAuthority,
     SystemTopologyComparisonSpec,
     TopologyComparisonEvaluation,
     TopologyComparisonSelection,
@@ -26,9 +29,13 @@ from .cad_topology_comparison import (
     evaluate_topology_comparison,
     standards_evaluation_ref,
 )
+from .optimization_objectives import ObjectiveVector
 
 
-AuthorityResolver = Callable[[str], ExactAuthorityRef | None]
+AuthorityResolver = Callable[
+    [str],
+    ExactAuthorityRef | ResolvedObjectiveAuthority | None,
+]
 
 
 class CadTopologyComparisonRepository:
@@ -36,6 +43,17 @@ class CadTopologyComparisonRepository:
 
     This repository resolves exact authority hashes on every save/reopen. It has
     no method that applies a SystemVariant or changes installed/measured state.
+
+    Bundle objective metrics are never trusted as caller-supplied numbers: for
+    every authority kind that contributes ``objective_evidence`` entries the
+    repository re-resolves the exact authority, re-derives the canonical
+    ``ObjectiveVector`` from it (typed repositories replay their pinned
+    evaluators; extension resolvers must return a
+    ``ResolvedObjectiveAuthority`` carrying the canonical vector), and
+    requires each bound metric — definition, unit, direction, state and value —
+    to equal the canonical source metric exactly. An opaque
+    ``ExactAuthorityRef`` is accepted only for refs that bind no objective
+    metrics.
     """
 
     def __init__(
@@ -158,7 +176,17 @@ class CadTopologyComparisonRepository:
     ) -> bool:
         return expected == actual
 
-    def _resolve_external_ref(self, ref: ExactAuthorityRef) -> None:
+    def _resolve_external_ref(
+        self,
+        ref: ExactAuthorityRef,
+    ) -> ObjectiveVector | None:
+        """Resolve an extension authority and return its canonical metrics.
+
+        Resolvers may answer with a bare ``ExactAuthorityRef`` — an opaque
+        existence proof that is sufficient only for refs binding no objective
+        metrics — or with a ``ResolvedObjectiveAuthority`` carrying the
+        canonical ``ObjectiveVector`` the authority produced.
+        """
         resolver = self.external_resolvers.get(ref.authority_kind)
         if resolver is None:
             raise ValueError(
@@ -170,10 +198,69 @@ class CadTopologyComparisonRepository:
             raise ValueError(
                 f'{ref.authority_kind} authority does not exist: {ref.authority_id}'
             )
-        if not self._same_exact_ref(ref, resolved):
+        canonical_vector: ObjectiveVector | None = None
+        if isinstance(resolved, ExactAuthorityRef):
+            resolved_ref = resolved
+        else:
+            resolved_authority = ResolvedObjectiveAuthority.model_validate(
+                resolved
+            )
+            resolved_ref = resolved_authority.ref
+            canonical_vector = resolved_authority.objective_vector
+        if not self._same_exact_ref(ref, resolved_ref):
             raise ValueError(
                 f'{ref.authority_kind} exact authority identity/hash/version mismatch'
             )
+        return canonical_vector
+
+    @staticmethod
+    def _require_canonical_objective_metrics(
+        ref: ExactAuthorityRef,
+        *,
+        bundle: VariantEvaluationBundle,
+        canonical_vector: ObjectiveVector | None,
+        label: str,
+    ) -> None:
+        """Require every bound objective metric to equal the canonical output.
+
+        A real exact ref is not sufficient evidence for an arbitrary
+        caller-supplied number: each ``ObjectiveEvidenceBinding`` pointing at
+        ``ref`` must resolve to exactly one canonical source metric whose
+        definition, unit, direction, state and value match the bundle's
+        ``objective_vector`` entry exactly.
+        """
+        bound_objective_ids = [
+            binding.objective_id
+            for binding in bundle.objective_evidence
+            if (
+                binding.source_authority_kind == ref.authority_kind
+                and binding.source_authority_id == ref.authority_id
+                and binding.source_semantic_sha256 == ref.semantic_sha256
+            )
+        ]
+        if not bound_objective_ids:
+            return
+        if canonical_vector is None:
+            raise ValueError(
+                f'bundle {label} objective evidence is not canonical: '
+                'no canonical objective metrics resolved'
+            )
+        if canonical_vector.candidate_id != bundle.variant_id:
+            raise ValueError(
+                f'bundle {label} canonical ObjectiveVector variant mismatch'
+            )
+        for objective_id in bound_objective_ids:
+            try:
+                expected_metric = canonical_vector.metric(objective_id)
+                actual_metric = bundle.objective_vector.metric(objective_id)
+            except KeyError as exc:
+                raise ValueError(
+                    f'bundle {label} objective evidence is not canonical'
+                ) from exc
+            if actual_metric != expected_metric:
+                raise ValueError(
+                    f'bundle {label} objective metric mismatch'
+                )
 
     def _validate_spec_authorities(
         self,
@@ -289,83 +376,106 @@ class CadTopologyComparisonRepository:
         bundle: VariantEvaluationBundle,
         spec: SystemTopologyComparisonSpec,
     ) -> None:
+        canonical_vector: ObjectiveVector | None
         if ref.authority_kind == 'coverage_evaluation':
             if self.coverage_repository is None:
-                self._resolve_external_ref(ref)
-                return
-            evaluation = self.coverage_repository.get_evaluation(ref.authority_id)
-            if evaluation is None:
-                raise ValueError('bundle CoverageEvaluation does not exist')
-            resolved = coverage_evaluation_ref(evaluation)
-            if resolved != ref:
-                raise ValueError('bundle CoverageEvaluation exact authority mismatch')
-            if (
-                evaluation.variant_id != bundle.variant_id
-                or evaluation.variant_sha256 != bundle.variant_sha256
-                or evaluation.scene_revision_id != spec.baseline_scene_revision_id
-                or evaluation.scene_content_hash != spec.baseline_scene_content_hash
-            ):
-                raise ValueError('bundle CoverageEvaluation variant/baseline mismatch')
+                canonical_vector = self._resolve_external_ref(ref)
+            else:
+                evaluation = self.coverage_repository.get_evaluation(
+                    ref.authority_id
+                )
+                if evaluation is None:
+                    raise ValueError('bundle CoverageEvaluation does not exist')
+                resolved = coverage_evaluation_ref(evaluation)
+                if resolved != ref:
+                    raise ValueError(
+                        'bundle CoverageEvaluation exact authority mismatch'
+                    )
+                if (
+                    evaluation.variant_id != bundle.variant_id
+                    or evaluation.variant_sha256 != bundle.variant_sha256
+                    or evaluation.scene_revision_id
+                    != spec.baseline_scene_revision_id
+                    or evaluation.scene_content_hash
+                    != spec.baseline_scene_content_hash
+                ):
+                    raise ValueError(
+                        'bundle CoverageEvaluation variant/baseline mismatch'
+                    )
+                canonical_vector = coverage_objective_vector(evaluation)
+            self._require_canonical_objective_metrics(
+                ref,
+                bundle=bundle,
+                canonical_vector=canonical_vector,
+                label='CoverageEvaluation',
+            )
             return
 
         if ref.authority_kind == 'direct_level_evaluation':
             if self.direct_level_repository is None:
-                self._resolve_external_ref(ref)
-                return
-            evaluation = self.direct_level_repository.get_evaluation(ref.authority_id)
-            if evaluation is None:
-                raise ValueError('bundle DirectLevelEvaluation does not exist')
-            resolved = direct_level_evaluation_ref(evaluation)
-            if resolved != ref:
-                raise ValueError('bundle DirectLevelEvaluation exact authority mismatch')
-            if (
-                evaluation.variant_id != bundle.variant_id
-                or evaluation.variant_sha256 != bundle.variant_sha256
-                or evaluation.scene_revision_id != spec.baseline_scene_revision_id
-                or evaluation.scene_content_hash != spec.baseline_scene_content_hash
-            ):
-                raise ValueError('bundle DirectLevelEvaluation variant/baseline mismatch')
+                canonical_vector = self._resolve_external_ref(ref)
+            else:
+                evaluation = self.direct_level_repository.get_evaluation(
+                    ref.authority_id
+                )
+                if evaluation is None:
+                    raise ValueError('bundle DirectLevelEvaluation does not exist')
+                resolved = direct_level_evaluation_ref(evaluation)
+                if resolved != ref:
+                    raise ValueError(
+                        'bundle DirectLevelEvaluation exact authority mismatch'
+                    )
+                if (
+                    evaluation.variant_id != bundle.variant_id
+                    or evaluation.variant_sha256 != bundle.variant_sha256
+                    or evaluation.scene_revision_id
+                    != spec.baseline_scene_revision_id
+                    or evaluation.scene_content_hash
+                    != spec.baseline_scene_content_hash
+                ):
+                    raise ValueError(
+                        'bundle DirectLevelEvaluation variant/baseline mismatch'
+                    )
+                canonical_vector = direct_level_objective_vector(evaluation)
+            self._require_canonical_objective_metrics(
+                ref,
+                bundle=bundle,
+                canonical_vector=canonical_vector,
+                label='DirectLevelEvaluation',
+            )
             return
 
         if ref.authority_kind == 'amplifier_headroom_evaluation':
             if self.amplifier_headroom_repository is None:
-                self._resolve_external_ref(ref)
-                return
-            evaluation = self.amplifier_headroom_repository.resolve_evaluation_exact(
-                ref.authority_id,
-                evaluation_sha256=ref.semantic_sha256,
-                document_id=spec.document_id,
-                scene_revision_id=spec.baseline_scene_revision_id,
-                scene_content_hash=spec.baseline_scene_content_hash,
-                variant_id=bundle.variant_id,
-                variant_sha256=bundle.variant_sha256,
-            )
-            if evaluation is None:
-                raise ValueError('bundle PlaybackChainEvaluation does not exist')
-            resolved = amplifier_headroom_evaluation_ref(evaluation)
-            if resolved != ref:
-                raise ValueError(
-                    'bundle PlaybackChainEvaluation exact authority mismatch'
-                )
-            canonical_vector = amplifier_headroom_objective_vector(evaluation)
-            for binding in bundle.objective_evidence:
-                if (
-                    binding.source_authority_kind != ref.authority_kind
-                    or binding.source_authority_id != ref.authority_id
-                    or binding.source_semantic_sha256 != ref.semantic_sha256
-                ):
-                    continue
-                try:
-                    expected_metric = canonical_vector.metric(binding.objective_id)
-                    actual_metric = bundle.objective_vector.metric(binding.objective_id)
-                except KeyError as exc:
-                    raise ValueError(
-                        'bundle PlaybackChainEvaluation objective evidence is not canonical'
-                    ) from exc
-                if actual_metric != expected_metric:
-                    raise ValueError(
-                        'bundle PlaybackChainEvaluation objective metric mismatch'
+                canonical_vector = self._resolve_external_ref(ref)
+            else:
+                evaluation = (
+                    self.amplifier_headroom_repository.resolve_evaluation_exact(
+                        ref.authority_id,
+                        evaluation_sha256=ref.semantic_sha256,
+                        document_id=spec.document_id,
+                        scene_revision_id=spec.baseline_scene_revision_id,
+                        scene_content_hash=spec.baseline_scene_content_hash,
+                        variant_id=bundle.variant_id,
+                        variant_sha256=bundle.variant_sha256,
                     )
+                )
+                if evaluation is None:
+                    raise ValueError(
+                        'bundle PlaybackChainEvaluation does not exist'
+                    )
+                resolved = amplifier_headroom_evaluation_ref(evaluation)
+                if resolved != ref:
+                    raise ValueError(
+                        'bundle PlaybackChainEvaluation exact authority mismatch'
+                    )
+                canonical_vector = amplifier_headroom_objective_vector(evaluation)
+            self._require_canonical_objective_metrics(
+                ref,
+                bundle=bundle,
+                canonical_vector=canonical_vector,
+                label='PlaybackChainEvaluation',
+            )
             return
 
         if ref.authority_kind == 'standards_evaluation':
@@ -392,9 +502,21 @@ class CadTopologyComparisonRepository:
                 or target.system_variant_sha256 != bundle.variant_sha256
             ):
                 raise ValueError('bundle StandardsEvaluation variant/baseline mismatch')
+            self._require_canonical_objective_metrics(
+                ref,
+                bundle=bundle,
+                canonical_vector=None,
+                label='StandardsEvaluation',
+            )
             return
 
-        self._resolve_external_ref(ref)
+        canonical_vector = self._resolve_external_ref(ref)
+        self._require_canonical_objective_metrics(
+            ref,
+            bundle=bundle,
+            canonical_vector=canonical_vector,
+            label=ref.authority_kind,
+        )
 
     def _validate_bundle_authorities(
         self,
