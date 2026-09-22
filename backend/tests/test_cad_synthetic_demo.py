@@ -35,7 +35,7 @@ def _repositories(scene_repository):
         measurements,
         objectives,
     )
-    adaptive = CadAdaptivePlanRepository(search, validation)
+    adaptive = CadAdaptivePlanRepository(search, validation, objectives)
     extended = CadExtendedSearchRepository(search, validation)
     adaptive_extended = CadAdaptiveExtendedRepository(extended, validation)
     return (

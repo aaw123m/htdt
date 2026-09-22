@@ -117,6 +117,16 @@ class CadAdaptiveProposal(BaseModel):
         return self
 
 
+class CadAdaptiveEvaluationRef(BaseModel):
+    """Identity binding to one exact predicted O30 evaluation consumed by O70."""
+
+    model_config = ConfigDict(frozen=True)
+
+    evaluation_id: str = Field(min_length=1)
+    evaluation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    candidate_id: str = Field(min_length=1)
+
+
 class CadAdaptivePlan(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -135,10 +145,14 @@ class CadAdaptivePlan(BaseModel):
     model_id: str = Field(min_length=1)
     model_version: str = Field(min_length=1)
     objective_ids: tuple[str, ...] = Field(min_length=1)
+    predicted_evaluation_refs: tuple[CadAdaptiveEvaluationRef, ...] = Field(
+        min_length=1
+    )
     training_candidate_ids: tuple[str, ...] = Field(min_length=1)
     excluded_measured_candidate_ids: tuple[str, ...] = Field(min_length=1)
     candidate_pool_count: int = Field(ge=1)
     length_scale_m: float = Field(gt=0.0)
+    proposal_limit: int = Field(ge=1)
     seed: int = 0
     acquisition_function: Literal['max_normalized_residual_uncertainty'] = (
         'max_normalized_residual_uncertainty'
@@ -166,6 +180,20 @@ class CadAdaptivePlan(BaseModel):
         ):
             raise ValueError('adaptive measured candidate ids must be unique')
 
+        ref_ids = [ref.evaluation_id for ref in self.predicted_evaluation_refs]
+        ref_shas = [ref.evaluation_sha256 for ref in self.predicted_evaluation_refs]
+        ref_candidates = [ref.candidate_id for ref in self.predicted_evaluation_refs]
+        if len(ref_ids) != len(set(ref_ids)) or len(ref_shas) != len(set(ref_shas)):
+            raise ValueError('adaptive predicted evaluation refs must be unique')
+        if len(ref_candidates) != len(set(ref_candidates)):
+            raise ValueError(
+                'adaptive predicted evaluation refs must be unique per candidate'
+            )
+        if set(ref_candidates) & set(self.excluded_measured_candidate_ids):
+            raise ValueError(
+                'adaptive predicted evidence must exclude measured candidates'
+            )
+
         proposal_ids = [item.candidate_id for item in self.proposals]
         if len(proposal_ids) != len(set(proposal_ids)):
             raise ValueError('adaptive proposal candidate ids must be unique')
@@ -173,12 +201,22 @@ class CadAdaptivePlan(BaseModel):
             raise ValueError('adaptive selected candidate must be the first proposal')
         if set(proposal_ids) & set(self.excluded_measured_candidate_ids):
             raise ValueError('adaptive proposals must exclude already measured candidates')
+        if set(proposal_ids) - set(ref_candidates):
+            raise ValueError(
+                'adaptive proposals must bind their predicted objective evidence'
+            )
+        if len(self.predicted_evaluation_refs) != self.candidate_pool_count:
+            raise ValueError(
+                'adaptive predicted evidence must cover the candidate pool'
+            )
         if any(
             tuple(item.objective_id for item in proposal.objectives)
             != self.objective_ids
             for proposal in self.proposals
         ):
             raise ValueError('adaptive proposals must share the plan objective ordering')
+        if len(self.proposals) > self.proposal_limit:
+            raise ValueError('adaptive proposals exceed proposal limit')
 
         if self.adaptive_sha256 != _digest(self.identity_payload()):
             raise ValueError('adaptive plan identity hash mismatch')
@@ -200,12 +238,17 @@ class CadAdaptivePlan(BaseModel):
             'model_id': self.model_id,
             'model_version': self.model_version,
             'objective_ids': list(self.objective_ids),
+            'predicted_evaluation_refs': [
+                ref.model_dump(mode='json')
+                for ref in self.predicted_evaluation_refs
+            ],
             'training_candidate_ids': list(self.training_candidate_ids),
             'excluded_measured_candidate_ids': list(
                 self.excluded_measured_candidate_ids
             ),
             'candidate_pool_count': self.candidate_pool_count,
             'length_scale_m': self.length_scale_m,
+            'proposal_limit': self.proposal_limit,
             'seed': self.seed,
             'acquisition_function': self.acquisition_function,
             'algorithm_version': self.algorithm_version,
@@ -291,6 +334,32 @@ def _predicted_evaluation(
     return selected
 
 
+def select_predicted_evaluations(
+    evaluations: Sequence[CadObjectiveEvaluation],
+    objective_ids: Sequence[str],
+) -> tuple[CadObjectiveEvaluation, ...]:
+    """Canonical O30 evidence selection consumed by the adaptive planner.
+
+    Keeps the latest predicted-only evaluation per candidate that carries
+    every required objective, preserving evaluation order. Both the planner
+    service and the repository replay use this selection so persisted plans
+    stay bound to current exact evidence.
+    """
+
+    selected: dict[str, CadObjectiveEvaluation] = {}
+    for evaluation in evaluations:
+        classes = {ref.evidence_class for ref in evaluation.input_refs}
+        if 'predicted' not in classes or 'measured' in classes:
+            continue
+        try:
+            for objective_id in objective_ids:
+                evaluation.vector.metric(objective_id)
+        except KeyError:
+            continue
+        selected[evaluation.candidate_id] = evaluation
+    return tuple(selected.values())
+
+
 def build_adaptive_plan(
     *,
     spec: CadSearchSpec,
@@ -367,6 +436,7 @@ def build_adaptive_plan(
         training_arrays[objective_id] = (train_x, train_y)
 
     proposals: list[CadAdaptiveProposal] = []
+    evidence_refs: dict[str, CadAdaptiveEvaluationRef] = {}
     measured_set = set(measured_ids)
     for candidate in candidates:
         if candidate.candidate_id in measured_set:
@@ -411,6 +481,11 @@ def build_adaptive_plan(
             acquisition_score=score,
             objectives=tuple(estimates),
         ))
+        evidence_refs[candidate.candidate_id] = CadAdaptiveEvaluationRef(
+            evaluation_id=evaluation.evaluation_id,
+            evaluation_sha256=evaluation.evaluation_sha256,
+            candidate_id=candidate.candidate_id,
+        )
 
     if not proposals:
         raise ValueError(
@@ -435,10 +510,15 @@ def build_adaptive_plan(
         model_id=validation.model_id,
         model_version=validation.model_version,
         objective_ids=objective_ids,
+        predicted_evaluation_refs=tuple(
+            evidence_refs[candidate_id]
+            for candidate_id in sorted(evidence_refs)
+        ),
         training_candidate_ids=training_ids,
         excluded_measured_candidate_ids=measured_ids,
         candidate_pool_count=candidate_pool_count,
         length_scale_m=float(length_scale_m),
+        proposal_limit=int(proposal_limit),
         seed=0,
         acquisition_function='max_normalized_residual_uncertainty',
         algorithm_version=ADAPTIVE_ALGORITHM_VERSION,

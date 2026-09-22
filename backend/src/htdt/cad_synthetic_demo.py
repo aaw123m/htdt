@@ -668,6 +668,7 @@ def seed_synthetic_optimization_demo(
     adaptive_repository = CadAdaptivePlanRepository(
         search_repository,
         validation_repository,
+        objective_repository,
     )
     adaptive_service = CadAdaptivePlannerService(
         search_repository,
