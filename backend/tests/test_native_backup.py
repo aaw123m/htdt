@@ -18,6 +18,12 @@ from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, make_f1_scene
 import htdt.native_backup as native_backup
+from htdt.cad_schema import (
+    NATIVE_SCHEMA_VERSION,
+    check_native_schema_compatibility,
+    ensure_native_schema,
+    read_native_schema_version,
+)
 from htdt.native_backup import (
     RestoreRecoveryError,
     create_backup,
@@ -75,6 +81,67 @@ def _rewrite_zip(source: Path, destination: Path, replacements: dict[str, bytes]
         for info in original.infolist():
             payload = replacements.get(info.filename, original.read(info.filename))
             rewritten.writestr(info.filename, payload)
+
+
+_METADATA_TABLE_DDL = '''CREATE TABLE native_schema_metadata (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    schema_version INTEGER NOT NULL
+)'''
+
+# The exact pre-versioning CREATE TABLE shapes the adoption gate accepts;
+# mirrors the independent fixture DDL in test_cad_schema.py.
+_LEGACY_SCENE_REVISIONS_DDL = '''CREATE TABLE scene_revisions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    revision_id TEXT NOT NULL UNIQUE,
+    document_id TEXT NOT NULL,
+    parent_revision_id TEXT,
+    created_at_utc TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
+)'''
+
+_LEGACY_EDITOR_VIEW_STATES_DDL = '''CREATE TABLE editor_view_states (
+    document_id TEXT PRIMARY KEY,
+    selected_id TEXT,
+    hidden_ids_json TEXT NOT NULL,
+    locked_ids_json TEXT NOT NULL,
+    updated_at_utc TEXT NOT NULL
+)'''
+
+
+def _database_bytes(path: Path, *statements: str) -> bytes:
+    with sqlite3.connect(path) as connection:
+        for statement in statements:
+            connection.execute(statement)
+    return path.read_bytes()
+
+
+def _archive_with_database(archive: Path, database_bytes: bytes) -> Path:
+    """Write a structurally valid backup archive around a crafted database."""
+    entry = {
+        'path': native_backup.DATABASE_NAME,
+        'kind': 'database',
+        'size_bytes': len(database_bytes),
+        'sha256': sha256(database_bytes).hexdigest(),
+    }
+    payload = {
+        'schema_version': native_backup.BACKUP_SCHEMA_VERSION,
+        'application_version': '0.0.0-test',
+        'created_at_utc': '2026-09-21T00:00:00+00:00',
+        'files': [entry],
+    }
+    manifest = native_backup.BackupManifest(
+        **payload,
+        manifest_sha256=native_backup._manifest_hash(payload),
+    )
+    with ZipFile(archive, 'w', compression=ZIP_DEFLATED) as zipped:
+        zipped.writestr(
+            native_backup.MANIFEST_NAME,
+            native_backup._canonical_json(manifest.model_dump(mode='json')).encode('utf-8'),
+        )
+        zipped.writestr(native_backup.DATABASE_NAME, database_bytes)
+    return archive
 
 
 def test_native_backup_round_trip_restores_database_and_content_addressed_assets(tmp_path: Path):
@@ -162,6 +229,187 @@ def test_failed_restore_leaves_current_native_data_unchanged(tmp_path: Path):
 
     reopened = SceneRepository(data_dir / 'cad-scenes.sqlite3')
     assert reopened.latest(first.document_id).revision_id == second.revision_id
+
+
+def test_restore_refuses_versioned_database_that_cannot_complete_migration(
+    tmp_path: Path,
+):
+    """Compatibility reads version 1 and accepts, but the real migration
+    writes native_schema_migrations — absent here — and fails. Restore must
+    refuse before live data moves, and preview must agree with restore."""
+    data_dir = tmp_path / 'data'
+    repository, first, digest, raw = _seed_data(data_dir)
+    second = _mutate_scene(repository, first.revision_id)
+
+    database_path = tmp_path / 'v1-unmigratable.sqlite3'
+    database_bytes = _database_bytes(
+        database_path,
+        _METADATA_TABLE_DDL,
+        'INSERT INTO native_schema_metadata(singleton, schema_version) '
+        'VALUES (1, 1)',
+    )
+    # The read-only compatibility gate really does accept this database; only
+    # the open/migration authority discovers the missing migrations ledger.
+    assert check_native_schema_compatibility(database_path) == 1
+    archive = _archive_with_database(
+        tmp_path / 'unmigratable.htdt-backup', database_bytes
+    )
+
+    with pytest.raises(ValueError, match='cannot be opened'):
+        validate_backup(archive)
+    with pytest.raises(ValueError, match='cannot be opened'):
+        restore_backup(data_dir, archive)
+
+    _assert_live_state(data_dir, first.document_id, second.revision_id, digest, raw)
+    # The refusal happened before the swap was armed: no journal, no rollback
+    # payload, no pre-restore archive, nothing for recovery to resolve.
+    _assert_no_restore_artifacts(data_dir)
+    assert not list(tmp_path.glob('*-pre-restore-*.htdt-backup'))
+    assert recover_interrupted_restore(data_dir) == []
+
+
+def test_restore_refuses_current_version_database_repository_cannot_open(
+    tmp_path: Path,
+):
+    """A database stamped at the current version runs no migrations, so the
+    schema authority alone accepts it; only the repository open discovers the
+    view shadowing scene_revisions."""
+    data_dir = tmp_path / 'data'
+    _repository, first, digest, raw = _seed_data(data_dir)
+
+    database_path = tmp_path / 'poisoned-view.sqlite3'
+    database_bytes = _database_bytes(
+        database_path,
+        _METADATA_TABLE_DDL,
+        'INSERT INTO native_schema_metadata(singleton, schema_version) '
+        f'VALUES (1, {NATIVE_SCHEMA_VERSION})',
+        'CREATE VIEW scene_revisions AS SELECT 1 AS seq',
+    )
+    assert check_native_schema_compatibility(database_path) == NATIVE_SCHEMA_VERSION
+    # Migration alone cannot catch this: a current-version stamp short-circuits
+    # ensure_native_schema, which is why the probe also opens the repository.
+    migrated_copy = tmp_path / 'migrated-copy.sqlite3'
+    migrated_copy.write_bytes(database_bytes)
+    assert ensure_native_schema(migrated_copy) == NATIVE_SCHEMA_VERSION
+
+    archive = _archive_with_database(
+        tmp_path / 'unopenable.htdt-backup', database_bytes
+    )
+
+    with pytest.raises(ValueError, match='cannot be opened'):
+        validate_backup(archive)
+    with pytest.raises(ValueError, match='cannot be opened'):
+        restore_backup(data_dir, archive)
+
+    _assert_live_state(data_dir, first.document_id, first.revision_id, digest, raw)
+    _assert_no_restore_artifacts(data_dir)
+
+
+def test_restore_refuses_legacy_database_shadowing_a_migration_target(
+    tmp_path: Path,
+):
+    """An unversioned database whose tables match legacy signatures still
+    fails when a view shadows the table a migration creates."""
+    data_dir = tmp_path / 'data'
+    _repository, first, digest, raw = _seed_data(data_dir)
+
+    database_path = tmp_path / 'shadowed-legacy.sqlite3'
+    database_bytes = _database_bytes(
+        database_path,
+        _LEGACY_SCENE_REVISIONS_DDL,
+        'CREATE VIEW cad_adaptive_extended_observations AS SELECT 1 AS seq',
+    )
+    # Legacy signature validation only inspects tables, so compatibility
+    # accepts the database; the CREATE INDEX in the v1->v2 migration cannot
+    # run on the shadowing view.
+    assert check_native_schema_compatibility(database_path) == 0
+    archive = _archive_with_database(
+        tmp_path / 'shadowed.htdt-backup', database_bytes
+    )
+
+    with pytest.raises(ValueError, match='cannot be opened'):
+        restore_backup(data_dir, archive)
+
+    _assert_live_state(data_dir, first.document_id, first.revision_id, digest, raw)
+    _assert_no_restore_artifacts(data_dir)
+
+
+def test_restore_rejects_unversioned_foreign_database_before_swap(tmp_path: Path):
+    data_dir = tmp_path / 'data'
+    _repository, first, digest, raw = _seed_data(data_dir)
+
+    database_path = tmp_path / 'foreign.sqlite3'
+    database_bytes = _database_bytes(
+        database_path,
+        'CREATE TABLE unrelated(value TEXT NOT NULL)',
+    )
+    archive = _archive_with_database(tmp_path / 'foreign.htdt-backup', database_bytes)
+
+    with pytest.raises(ValueError, match='unrelated tables'):
+        restore_backup(data_dir, archive)
+
+    _assert_live_state(data_dir, first.document_id, first.revision_id, digest, raw)
+    _assert_no_restore_artifacts(data_dir)
+
+
+def test_restore_rejects_newer_schema_database_before_swap(tmp_path: Path):
+    data_dir = tmp_path / 'data'
+    _repository, first, digest, raw = _seed_data(data_dir)
+
+    database_path = tmp_path / 'future.sqlite3'
+    database_bytes = _database_bytes(
+        database_path,
+        _METADATA_TABLE_DDL,
+        'INSERT INTO native_schema_metadata(singleton, schema_version) '
+        f'VALUES (1, {NATIVE_SCHEMA_VERSION + 1})',
+    )
+    archive = _archive_with_database(tmp_path / 'future.htdt-backup', database_bytes)
+
+    with pytest.raises(ValueError, match='newer than this application'):
+        restore_backup(data_dir, archive)
+
+    _assert_live_state(data_dir, first.document_id, first.revision_id, digest, raw)
+    _assert_no_restore_artifacts(data_dir)
+
+
+def test_restore_migratable_legacy_database_preserves_staged_bytes(tmp_path: Path):
+    """A supported pre-versioning database proves migratable on a clone, then
+    the original staged bytes — still hash-identical to the manifest — move in
+    and migrate for real when data handles reopen."""
+    data_dir = tmp_path / 'data'
+    _repository, _first, _digest, _raw = _seed_data(data_dir)
+
+    database_bytes = _database_bytes(
+        tmp_path / 'legacy.sqlite3',
+        _LEGACY_SCENE_REVISIONS_DDL,
+        _LEGACY_EDITOR_VIEW_STATES_DDL,
+        "INSERT INTO scene_revisions(revision_id, document_id, "
+        "parent_revision_id, created_at_utc, content_hash, payload_json) "
+        "VALUES ('rev-1', 'doc-1', NULL, '2026-09-17T00:00:00+00:00', 'hash', '{}')",
+        "INSERT INTO editor_view_states(document_id, selected_id, "
+        "hidden_ids_json, locked_ids_json, updated_at_utc) "
+        "VALUES ('doc-1', 'speaker-fl', '[]', '[]', '2026-09-17T00:00:00+00:00')",
+    )
+    archive = _archive_with_database(tmp_path / 'legacy.htdt-backup', database_bytes)
+
+    manifest = validate_backup(archive)
+    restored, pre_restore = restore_backup(data_dir, archive)
+
+    assert restored == manifest
+    assert pre_restore is not None and pre_restore.is_file()
+    # The probe migrated a clone, not the staged file: the swapped-in database
+    # is still byte-identical to the archived manifest entry.
+    live_database = data_dir / 'cad-scenes.sqlite3'
+    database_entry = next(
+        entry for entry in manifest.files if entry.kind == 'database'
+    )
+    assert sha256(live_database.read_bytes()).hexdigest() == database_entry.sha256
+
+    reopened = SceneRepository(live_database)
+    state = reopened.view_state('doc-1')
+    assert state is not None and state.selected_id == 'speaker-fl'
+    assert read_native_schema_version(live_database) == NATIVE_SCHEMA_VERSION
+    _assert_no_restore_artifacts(data_dir)
 
 
 def test_backup_normalizes_existing_windows_asset_relative_paths(tmp_path: Path):
