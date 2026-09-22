@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from htdt.cad_equipment import (
     DirectivityCapability,
@@ -32,6 +35,9 @@ from htdt.optimization_objectives import (
 from htdt.system_expansion_workflow import (
     ComparisonPresentation,
     ComparisonVariantPresentation,
+    ProposalEquipmentChange,
+    ProposalLinkInput,
+    ProposalSpeakerInput,
     SystemExpansionWorkflowService,
     lifecycle_presentation,
     proposed_ghosts,
@@ -501,3 +507,435 @@ def test_workflow_navigation_uses_semantic_sections_without_internal_ids() -> No
         )
         == "validation"
     )
+
+
+def _surround_inputs(equipment_sha256: str) -> tuple[ProposalSpeakerInput, ...]:
+    return (
+        ProposalSpeakerInput(
+            role_id="SL",
+            equipment_sha256=equipment_sha256,
+            zone_name="left surround wall",
+            min_x_m=0.5,
+            max_x_m=1.5,
+            min_y_m=2.0,
+            max_y_m=3.0,
+            min_z_m=1.0,
+            max_z_m=1.2,
+            step_m=0.5,
+        ),
+        ProposalSpeakerInput(
+            role_id="SR",
+            equipment_sha256=equipment_sha256,
+            zone_name="right surround wall",
+            min_x_m=4.5,
+            max_x_m=5.5,
+            min_y_m=2.0,
+            max_y_m=3.0,
+            min_z_m=1.0,
+            max_z_m=1.2,
+            step_m=0.5,
+        ),
+    )
+
+
+def _mirror_pair_rules() -> tuple[ProposalLinkInput, ...]:
+    return (
+        ProposalLinkInput(
+            master_role_id="SL",
+            slave_role_id="SR",
+            relation="mirror_x",
+        ),
+        ProposalLinkInput(
+            master_role_id="SL",
+            slave_role_id="SR",
+            relation="equal_y",
+        ),
+        ProposalLinkInput(
+            master_role_id="SL",
+            slave_role_id="SR",
+            relation="equal_z",
+        ),
+    )
+
+
+def test_multi_speaker_linked_proposal_builds_one_variant_lineage(
+    tmp_path: Path,
+) -> None:
+    scene, baseline, repository, _existing, service = _fixture(tmp_path)
+    equipment = _save_fixture_equipment(service)
+
+    result = service.create_topology_proposal(
+        proposal_name="proposed 5.0.2 B",
+        speakers=_surround_inputs(equipment.semantic_sha256),
+        linked_rules=_mirror_pair_rules(),
+        max_returned_candidates=24,
+    )
+
+    template = repository.get_variant(result.template_variant_id)
+    assert template is not None
+    assert template.name == "proposed 5.0.2 B"
+    assert template.parent_variant_id is None
+    assert [
+        item.entity.speaker_role for item in template.proposed_entities
+    ] == ["SL", "SR"]
+    # Every proposed entity carries an exact persisted equipment binding.
+    bound = {
+        item.entity_id: item.equipment_definition_sha256
+        for item in template.equipment_bindings
+    }
+    for proposal in template.proposed_entities:
+        assert bound[proposal.entity.entity_id] == equipment.semantic_sha256
+    assert {
+        item.role_id for item in template.role_bindings
+    } == {"FL", "FR", "SL", "SR"}
+    # Authoring never mutates the current topology.
+    assert scene.latest(DOCUMENT_ID).revision_id == baseline.revision_id
+
+    spec = service.topology_repository.get_spec(result.placement_search_id)
+    assert spec is not None
+    assert spec.template_variant_id == template.variant_id
+    placements = {item.role_id: item for item in spec.placement_specs}
+    assert set(placements) == {"SL", "SR"}
+    # The master keeps independent grid axes; every slave coordinate is derived
+    # by the existing linked authority, so it has no searched axis.
+    assert sorted(axis.axis for axis in placements["SL"].xyz_axes) == [
+        "x",
+        "y",
+        "z",
+    ]
+    assert placements["SR"].xyz_axes == ()
+    sl_entity = placements["SL"].entity_id
+    sr_entity = placements["SR"].entity_id
+    assert {
+        (rule.master_entity_id, rule.relation, rule.slave_entity_id)
+        for rule in spec.linked_rules
+    } == {
+        (sl_entity, "mirror_x", sr_entity),
+        (sl_entity, "equal_y", sr_entity),
+        (sl_entity, "equal_z", sr_entity),
+    }
+
+    # Deterministic candidates remain children of the same template lineage.
+    assert result.candidate_variant_ids
+    assert result.feasible_candidate_count > 0
+    for variant_id in result.candidate_variant_ids:
+        candidate = repository.get_variant(variant_id)
+        assert candidate is not None
+        assert candidate.parent_variant_id == template.variant_id
+        assert [
+            item.entity.speaker_role for item in candidate.proposed_entities
+        ] == ["SL", "SR"]
+        assert candidate.equipment_bindings == template.equipment_bindings
+
+    view = service.variant_presentation(template.variant_id)
+    zones = {item.name: item.install_zone for item in view.entities}
+    assert zones == {
+        "SL": "left surround wall",
+        "SR": "right surround wall",
+    }
+
+
+def test_applying_linked_pair_candidate_creates_one_complete_revision(
+    tmp_path: Path,
+) -> None:
+    scene, baseline, repository, _existing, service = _fixture(tmp_path)
+    equipment = _save_fixture_equipment(service)
+    result = service.create_topology_proposal(
+        proposal_name="proposed 5.0.2 C",
+        speakers=_surround_inputs(equipment.semantic_sha256),
+        linked_rules=_mirror_pair_rules(),
+        max_returned_candidates=8,
+    )
+    assert result.candidate_variant_ids
+
+    application = service.apply(result.candidate_variant_ids[0])
+    applied = scene.get(application.applied_revision_id)
+    assert applied is not None
+    assert applied.parent_revision_id == baseline.revision_id
+    # One SceneRevision carries the complete topology change.
+    assert [entity.speaker_role for entity in applied.document.entities] == [
+        "FL",
+        "FR",
+        "SL",
+        "SR",
+    ]
+    sl = next(
+        entity
+        for entity in applied.document.entities
+        if entity.speaker_role == "SL"
+    )
+    sr = next(
+        entity
+        for entity in applied.document.entities
+        if entity.speaker_role == "SR"
+    )
+    # Existing O100B linked authority derived SR around the room-center axis.
+    assert sr.position.x_m == pytest.approx(6.0 - sl.position.x_m)
+    assert sr.position.y_m == pytest.approx(sl.position.y_m)
+    assert sr.position.z_m == pytest.approx(sl.position.z_m)
+
+
+def test_independent_multi_speaker_proposal_keeps_full_search_axes(
+    tmp_path: Path,
+) -> None:
+    _scene, _baseline, repository, _existing, service = _fixture(tmp_path)
+    equipment = _save_fixture_equipment(service)
+
+    result = service.create_topology_proposal(
+        proposal_name="independent surrounds",
+        speakers=_surround_inputs(equipment.semantic_sha256),
+        max_returned_candidates=8,
+    )
+
+    spec = service.topology_repository.get_spec(result.placement_search_id)
+    assert spec is not None
+    assert spec.linked_rules == ()
+    for placement in spec.placement_specs:
+        assert sorted(axis.axis for axis in placement.xyz_axes) == [
+            "x",
+            "y",
+            "z",
+        ]
+    assert result.candidate_variant_ids
+
+
+def test_topology_proposal_removes_and_rebinds_existing_speakers(
+    tmp_path: Path,
+) -> None:
+    scene, baseline, repository, _existing, service = _fixture(tmp_path)
+    equipment = _save_fixture_equipment(service)
+
+    result = service.create_topology_proposal(
+        proposal_name="swap FR for SL",
+        speakers=(
+            ProposalSpeakerInput(
+                role_id="SL",
+                equipment_sha256=equipment.semantic_sha256,
+                zone_name="left surround wall",
+                min_x_m=0.5,
+                max_x_m=1.5,
+                min_y_m=2.0,
+                max_y_m=3.0,
+                min_z_m=1.0,
+                max_z_m=1.2,
+                step_m=0.5,
+            ),
+        ),
+        remove_role_ids=("FR",),
+        equipment_overrides=(
+            ProposalEquipmentChange(
+                role_id="FL",
+                equipment_sha256=equipment.semantic_sha256,
+            ),
+        ),
+        max_returned_candidates=8,
+    )
+
+    template = repository.get_variant(result.template_variant_id)
+    assert template is not None
+    removed = {
+        item.entity_id for item in template.diff if item.kind == "remove"
+    }
+    assert removed == {"fr"}
+    assert {
+        item.role_id for item in template.role_bindings
+    } == {"FL", "SL"}
+    sl_entity = template.proposed_entities[0].entity.entity_id
+    bound = {
+        item.entity_id: item.equipment_definition_sha256
+        for item in template.equipment_bindings
+    }
+    assert bound == {
+        sl_entity: equipment.semantic_sha256,
+        "fl": equipment.semantic_sha256,
+    }
+
+    application = service.apply(result.candidate_variant_ids[0])
+    applied = scene.get(application.applied_revision_id)
+    assert [entity.speaker_role for entity in applied.document.entities] == [
+        "FL",
+        "SL",
+    ]
+
+
+class _CapturedTemplate(Exception):
+    def __init__(self, variant) -> None:
+        super().__init__()
+        self.variant = variant
+
+
+def test_single_speaker_wrapper_matches_one_row_topology_proposal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # The second equivalent call would collide on the UNIQUE variant_sha256
+    # constraint, so the multi-entity template is captured before persistence.
+    _scene, _baseline, repository, _existing, service = _fixture(tmp_path)
+    equipment = _save_fixture_equipment(service)
+
+    single = service.create_single_speaker_proposal(
+        proposal_name="proposed 3.0.0 + SL",
+        role_id="SL",
+        equipment_sha256=equipment.semantic_sha256,
+        zone_name="left surround wall",
+        min_x_m=0.5,
+        max_x_m=1.5,
+        min_y_m=2.0,
+        max_y_m=3.0,
+        z_m=1.2,
+        step_m=0.5,
+        max_returned_candidates=24,
+    )
+    single_template = repository.get_variant(single.template_variant_id)
+    assert single_template is not None
+
+    def capture(variant) -> None:
+        raise _CapturedTemplate(variant)
+
+    monkeypatch.setattr(service.variant_repository, "save_variant", capture)
+    with pytest.raises(_CapturedTemplate) as captured:
+        service.create_topology_proposal(
+            proposal_name="proposed 3.0.0 + SL",
+            speakers=(
+                ProposalSpeakerInput(
+                    role_id="SL",
+                    equipment_sha256=equipment.semantic_sha256,
+                    zone_name="left surround wall",
+                    min_x_m=0.5,
+                    max_x_m=1.5,
+                    min_y_m=2.0,
+                    max_y_m=3.0,
+                    min_z_m=1.2,
+                    max_z_m=1.2,
+                    step_m=0.5,
+                ),
+            ),
+            max_returned_candidates=24,
+        )
+
+    multi_template = captured.value.variant
+    # The compatibility wrapper composes the same builder and authority set,
+    # so both calls produce the identical canonical proposal identity.
+    assert multi_template.variant_sha256 == single_template.variant_sha256
+    assert multi_template.proposed_entities == single_template.proposed_entities
+    assert multi_template.equipment_bindings == single_template.equipment_bindings
+    assert multi_template.role_bindings == single_template.role_bindings
+
+
+def test_topology_proposal_input_validation_fails_closed(tmp_path: Path) -> None:
+    _scene, _baseline, _repository, _existing, service = _fixture(tmp_path)
+    equipment = _save_fixture_equipment(service)
+    speakers = _surround_inputs(equipment.semantic_sha256)
+
+    def create(**overrides):
+        kwargs = {
+            "proposal_name": "invalid proposal",
+            "speakers": speakers,
+        }
+        kwargs.update(overrides)
+        return service.create_topology_proposal(**kwargs)
+
+    with pytest.raises(ValueError, match="提案名"):
+        create(proposal_name="  ")
+    with pytest.raises(ValueError, match="1つ以上"):
+        create(speakers=())
+    with pytest.raises(ValueError, match="役割を入力"):
+        create(speakers=(replace(speakers[0], role_id=" "),))
+    with pytest.raises(ValueError, match="プレースホルダー"):
+        create(speakers=(replace(speakers[0], role_id="UNASSIGNED-1"),))
+    with pytest.raises(ValueError, match="重複"):
+        create(speakers=(speakers[0], speakers[0]))
+    with pytest.raises(ValueError, match="最小値/最大値"):
+        create(speakers=(replace(speakers[0], max_x_m=0.0),))
+    with pytest.raises(ValueError, match="探索刻み"):
+        create(speakers=(replace(speakers[0], step_m=0.0),))
+    with pytest.raises(ValueError, match="機器定義"):
+        create(speakers=(replace(speakers[0], equipment_sha256="0" * 64),))
+    with pytest.raises(ValueError, match="現在の構成に存在します"):
+        create(speakers=(replace(speakers[0], role_id="FL"),))
+    with pytest.raises(ValueError, match="基準役割"):
+        create(
+            linked_rules=(
+                ProposalLinkInput(
+                    master_role_id="SBL",
+                    slave_role_id="SR",
+                    relation="mirror_x",
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="対象役割"):
+        create(
+            linked_rules=(
+                ProposalLinkInput(
+                    master_role_id="SL",
+                    slave_role_id="SBR",
+                    relation="equal_y",
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="異なる2つ"):
+        create(
+            linked_rules=(
+                ProposalLinkInput(
+                    master_role_id="SL",
+                    slave_role_id="SL",
+                    relation="equal_y",
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="ミラー軸"):
+        create(
+            linked_rules=(
+                ProposalLinkInput(
+                    master_role_id="SL",
+                    slave_role_id="SR",
+                    relation="equal_y",
+                    mirror_axis_x_m=3.0,
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="重複"):
+        create(
+            linked_rules=(
+                ProposalLinkInput(
+                    master_role_id="SL",
+                    slave_role_id="SR",
+                    relation="equal_y",
+                ),
+                ProposalLinkInput(
+                    master_role_id="SL",
+                    slave_role_id="SR",
+                    relation="equal_y",
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="削除対象"):
+        create(remove_role_ids=("TFL",))
+    with pytest.raises(ValueError, match="機器変更対象"):
+        create(
+            equipment_overrides=(
+                ProposalEquipmentChange(
+                    role_id="TFL",
+                    equipment_sha256=equipment.semantic_sha256,
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="追加スピーカー"):
+        create(
+            equipment_overrides=(
+                ProposalEquipmentChange(
+                    role_id="SL",
+                    equipment_sha256=equipment.semantic_sha256,
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="削除対象のため機器"):
+        create(
+            remove_role_ids=("FL",),
+            equipment_overrides=(
+                ProposalEquipmentChange(
+                    role_id="FL",
+                    equipment_sha256=equipment.semantic_sha256,
+                ),
+            ),
+        )

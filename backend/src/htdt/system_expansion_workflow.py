@@ -8,7 +8,7 @@ import json
 from math import hypot
 from pathlib import Path
 import sqlite3
-from typing import Literal
+from typing import Literal, Sequence
 
 from .cad_amplifier_headroom import PlaybackChainEvaluation
 from .cad_constraint_models import CadConstraintPoint2D, CadConstraintSet
@@ -58,6 +58,9 @@ from .cad_topology_comparison import (
     VariantEvaluationBundle,
 )
 from .cad_topology_search import (
+    LinkRelation,
+    LinkedPlacementRule,
+    PlacementAngleAxis,
     ProposedPlacementSpec,
     build_topology_placement_search_spec,
     generate_topology_placement_candidates,
@@ -231,6 +234,68 @@ class ProposalAuthoringResult:
     placement_search_id: str
     candidate_variant_ids: tuple[str, ...]
     feasible_candidate_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalSpeakerInput:
+    """One add-speaker operation inside a multi-entity topology proposal.
+
+    Fields are human-facing Room inputs only; the service maps them to the
+    exact O100A/B/C authorities (ProposedEntitySpec, EquipmentBindingRef,
+    ProposedPlacementSpec). ``angle_axes`` passes through the existing
+    PlacementAngleAxis authority so aim/toe-in ranges stay canonical.
+    """
+
+    role_id: str
+    equipment_sha256: str
+    zone_name: str
+    min_x_m: float
+    max_x_m: float
+    min_y_m: float
+    max_y_m: float
+    min_z_m: float
+    max_z_m: float
+    step_m: float
+    optional_role: bool = False
+    angle_axes: tuple[PlacementAngleAxis, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalLinkInput:
+    """One linked placement relation between two proposed speaker roles.
+
+    ``relation`` is the existing O100B LinkRelation authority. ``mirror_axis_x_m``
+    is valid only for ``mirror_x``; ``None`` derives the room-center axis inside
+    the existing search authority.
+    """
+
+    master_role_id: str
+    slave_role_id: str
+    relation: LinkRelation
+    mirror_axis_x_m: float | None = None
+    tolerance_m: float = 1e-6
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalEquipmentChange:
+    """Re-bind one existing kept speaker to a different EquipmentDefinition."""
+
+    role_id: str
+    equipment_sha256: str
+
+
+# Mirrors the O10 linked-derivation axis for each LinkRelation so the adapter
+# can omit grid axes for coordinates the linked authority derives. Position
+# synthesis itself stays inside the O10/O100B authorities.
+_LINKED_RELATION_AXIS: dict[str, str] = {
+    "mirror_x": "x",
+    "equal_x": "x",
+    "equal_delta_x": "x",
+    "equal_y": "y",
+    "equal_delta_y": "y",
+    "equal_z": "z",
+    "equal_delta_z": "z",
+}
 
 
 def _utc_now() -> str:
@@ -555,123 +620,393 @@ class SystemExpansionWorkflowService:
         step_m: float,
         max_returned_candidates: int = 200,
     ) -> ProposalAuthoringResult:
-        """Create O100A/B/C authorities from human-facing Room inputs.
+        """Create a one-speaker topology proposal from human-facing Room inputs.
 
-        This is deliberately bounded to one added speaker per authoring action.
-        It composes existing domain builders; it does not create an alternate
-        topology/search/equipment authority in the UI layer.
+        This is the single-row form of create_topology_proposal(): the same
+        builder represents one added speaker without extra complexity, and
+        composes the same existing domain authorities.
+        """
+        return self.create_topology_proposal(
+            proposal_name=proposal_name,
+            speakers=(
+                ProposalSpeakerInput(
+                    role_id=role_id,
+                    equipment_sha256=equipment_sha256,
+                    zone_name=zone_name,
+                    min_x_m=min_x_m,
+                    max_x_m=max_x_m,
+                    min_y_m=min_y_m,
+                    max_y_m=max_y_m,
+                    min_z_m=z_m,
+                    max_z_m=z_m,
+                    step_m=step_m,
+                ),
+            ),
+            max_returned_candidates=max_returned_candidates,
+        )
+
+    def create_topology_proposal(
+        self,
+        *,
+        proposal_name: str,
+        speakers: Sequence[ProposalSpeakerInput],
+        linked_rules: Sequence[ProposalLinkInput] = (),
+        remove_role_ids: Sequence[str] = (),
+        equipment_overrides: Sequence[ProposalEquipmentChange] = (),
+        max_returned_candidates: int = 200,
+    ) -> ProposalAuthoringResult:
+        """Create O100A/B/C authorities for a multi-speaker topology proposal.
+
+        One authoring action builds one named SystemVariant template holding
+        every added speaker (with exact equipment bindings), every removal of
+        an existing speaker, and every equipment re-binding on kept speakers;
+        one TopologySearchSpec option; one TopologyPlacementSearchSpec carrying
+        the declared linked-placement rules; and the deterministic O100B
+        candidate page plus candidate SystemVariants in the same proposal
+        lineage. The adapter composes existing domain builders only — it never
+        synthesizes pair positions or creates a second constraint authority.
         """
         name = proposal_name.strip()
-        role = role_id.strip()
-        zone = zone_name.strip()
         if not name:
             raise ValueError("提案名を入力してください。")
-        if not role:
-            raise ValueError("スピーカーの役割を入力してください。")
-        if is_unassigned_speaker_role(role):
+        drafts = tuple(speakers)
+        if not drafts:
             raise ValueError(
-                f"役割 {role} は未設定のプレースホルダーです。実際のチャンネル役割を指定してください。"
+                "追加するスピーカー / チャンネルを1つ以上指定してください。"
             )
-        if not zone:
-            raise ValueError("設置可能領域の名前を入力してください。")
-        if max_x_m < min_x_m or max_y_m < min_y_m:
-            raise ValueError("設置可能領域の最小値/最大値を確認してください。")
-        if step_m <= 0.0:
-            raise ValueError("探索刻みは0より大きくしてください。")
+        cleaned: list[tuple[ProposalSpeakerInput, str, str]] = []
+        for draft in drafts:
+            role = draft.role_id.strip()
+            zone = draft.zone_name.strip()
+            if not role:
+                raise ValueError("スピーカーの役割を入力してください。")
+            if is_unassigned_speaker_role(role):
+                raise ValueError(
+                    f"役割 {role} は未設定のプレースホルダーです。"
+                    "実際のチャンネル役割を指定してください。"
+                )
+            if not zone:
+                raise ValueError("設置可能領域の名前を入力してください。")
+            if draft.max_x_m < draft.min_x_m or draft.max_y_m < draft.min_y_m:
+                raise ValueError("設置可能領域の最小値/最大値を確認してください。")
+            if draft.max_z_m < draft.min_z_m:
+                raise ValueError("高さ範囲の最小値/最大値を確認してください。")
+            if draft.step_m <= 0.0:
+                raise ValueError("探索刻みは0より大きくしてください。")
+            cleaned.append((draft, role, zone))
+        roles = [role for _draft, role, _zone in cleaned]
+        duplicated = sorted(
+            {role for role in roles if roles.count(role) > 1}
+        )
+        if duplicated:
+            raise ValueError(
+                f"役割 {' / '.join(duplicated)} が提案内で重複しています。"
+            )
+        proposed_roles = set(roles)
 
         baseline = self.scene_repository.latest(self.document_id)
         if baseline is None:
             raise ValueError("現在の部屋状態がありません。")
-        definition = self.equipment_repository.get_definition_by_hash(
-            equipment_sha256
+        baseline_speakers = tuple(
+            entity
+            for entity in baseline.document.entities
+            if entity.kind == "speaker"
         )
-        if definition is None:
-            raise ValueError("選択した機器定義を読み込めません。")
-
         # Placeholder tokens are not real channel identities: exclude them so a
         # SystemVariant never binds an unassigned speaker as a ChannelRoleBinding.
         existing_roles = tuple(
             entity.speaker_role
-            for entity in baseline.document.entities
-            if entity.kind == "speaker"
-            and entity.speaker_role
+            for entity in baseline_speakers
+            if entity.speaker_role
             and not is_unassigned_speaker_role(entity.speaker_role)
         )
-        if role in existing_roles:
-            raise ValueError(
-                f"役割 {role} は現在の構成に存在します。追加スピーカーには未使用の役割を指定してください。"
-            )
+        existing_role_set = set(existing_roles)
 
-        entity_id = _short_semantic_id(
-            "proposal-speaker",
-            {
-                "baseline": baseline.content_hash,
-                "name": name,
-                "role": role,
-                "equipment": equipment_sha256,
-                "zone": zone,
-                "bounds": [min_x_m, max_x_m, min_y_m, max_y_m, z_m],
-            },
+        # Removals resolve a declared role to exactly one baseline speaker;
+        # missing or duplicated roles fail closed instead of guessing a target.
+        remove_roles = tuple(
+            dict.fromkeys(role.strip() for role in remove_role_ids if role.strip())
         )
-        x_m = (min_x_m + max_x_m) * 0.5
-        y_m = (min_y_m + max_y_m) * 0.5
-        room = baseline.document.room
-        if room is None:
-            aim = Direction3(x=0.0, y=1.0, z=0.0)
-        else:
-            room_min_x, room_min_y, room_max_x, room_max_y = room.bounds_m
-            dx = ((room_min_x + room_max_x) * 0.5) - x_m
-            dy = ((room_min_y + room_max_y) * 0.5) - y_m
-            magnitude = hypot(dx, dy)
-            aim = (
-                Direction3(x=0.0, y=1.0, z=0.0)
-                if magnitude <= 1e-9
-                else Direction3(x=dx / magnitude, y=dy / magnitude, z=0.0)
+        remove_entity_ids: list[str] = []
+        removed_role_set: set[str] = set()
+        for role in remove_roles:
+            matches = [
+                entity
+                for entity in baseline_speakers
+                if (entity.speaker_role or "").strip() == role
+            ]
+            if not matches:
+                raise ValueError(
+                    f"削除対象の役割 {role} は現在の構成に存在しません。"
+                )
+            if len(matches) > 1:
+                raise ValueError(
+                    f"役割 {role} は現在の構成で重複しているため、"
+                    "削除対象を一意に特定できません。"
+                )
+            remove_entity_ids.append(matches[0].entity_id)
+            removed_role_set.add(role)
+
+        definitions: list = []
+        for draft, role, _zone in cleaned:
+            definition = self.equipment_repository.get_definition_by_hash(
+                draft.equipment_sha256
+            )
+            if definition is None:
+                raise ValueError("選択した機器定義を読み込めません。")
+            if role in existing_role_set and role not in removed_role_set:
+                raise ValueError(
+                    f"役割 {role} は現在の構成に存在します。"
+                    "追加スピーカーには未使用の役割を指定するか、"
+                    "既存役割の削除と組み合わせてください。"
+                )
+            definitions.append(definition)
+
+        # Equipment changes re-bind kept baseline speakers inside the same
+        # variant; they never silently retarget added or removed speakers.
+        override_bindings: list[EquipmentBindingRef] = []
+        override_targets: set[str] = set()
+        for change in equipment_overrides:
+            role = change.role_id.strip()
+            if not role:
+                raise ValueError("機器変更対象の役割を入力してください。")
+            if role in proposed_roles:
+                raise ValueError(
+                    f"役割 {role} は追加スピーカーです。"
+                    "機器は追加行で直接選択してください。"
+                )
+            matches = [
+                entity
+                for entity in baseline_speakers
+                if (entity.speaker_role or "").strip() == role
+            ]
+            if not matches:
+                raise ValueError(
+                    f"機器変更対象の役割 {role} は現在の構成に存在しません。"
+                )
+            if len(matches) > 1:
+                raise ValueError(
+                    f"役割 {role} は現在の構成で重複しているため、"
+                    "機器変更対象を一意に特定できません。"
+                )
+            target = matches[0]
+            if target.entity_id in remove_entity_ids:
+                raise ValueError(
+                    f"役割 {role} は削除対象のため機器を変更できません。"
+                )
+            if target.entity_id in override_targets:
+                raise ValueError(
+                    f"役割 {role} の機器変更が重複しています。"
+                )
+            definition = self.equipment_repository.get_definition_by_hash(
+                change.equipment_sha256
+            )
+            if definition is None:
+                raise ValueError("選択した機器定義を読み込めません。")
+            override_targets.add(target.entity_id)
+            override_bindings.append(
+                EquipmentBindingRef(
+                    entity_id=target.entity_id,
+                    equipment_definition_id=definition.definition_id,
+                    equipment_definition_version=definition.version,
+                    equipment_definition_sha256=definition.semantic_sha256,
+                )
             )
 
-        proposed_entity = SceneEntity(
-            entity_id=entity_id,
-            kind="speaker",
-            name=role,
-            speaker_role=role,
-            position=Position3(x_m=x_m, y_m=y_m, z_m=z_m),
-            size_m=definition.cabinet_envelope_m,
-            aim_xyz=aim,
+        entity_ids: dict[str, str] = {}
+        for draft, role, zone in cleaned:
+            entity_ids[role] = _short_semantic_id(
+                "proposal-speaker",
+                {
+                    "baseline": baseline.content_hash,
+                    "name": name,
+                    "role": role,
+                    "equipment": draft.equipment_sha256,
+                    "zone": zone,
+                    "bounds": [
+                        draft.min_x_m,
+                        draft.max_x_m,
+                        draft.min_y_m,
+                        draft.max_y_m,
+                        draft.min_z_m,
+                        draft.max_z_m,
+                    ],
+                },
+            )
+
+        # Linked rules bind two proposed roles to the existing O10/G10 linked
+        # derivation authority. The slave's derived coordinate must not also be
+        # a searched grid axis, so it is omitted when the axes are compiled.
+        links: list[LinkedPlacementRule] = []
+        link_keys: set[tuple[str, str, str]] = set()
+        derived_axes: dict[str, set[str]] = {}
+        for rule in linked_rules:
+            master = rule.master_role_id.strip()
+            slave = rule.slave_role_id.strip()
+            if master not in proposed_roles:
+                raise ValueError(
+                    f"連動ルールの基準役割 {master} は追加スピーカーに存在しません。"
+                )
+            if slave not in proposed_roles:
+                raise ValueError(
+                    f"連動ルールの対象役割 {slave} は追加スピーカーに存在しません。"
+                )
+            if master == slave:
+                raise ValueError(
+                    "連動ルールは異なる2つの追加スピーカーが必要です。"
+                )
+            if rule.relation not in _LINKED_RELATION_AXIS:
+                raise ValueError(f"未対応の連動関係です: {rule.relation}")
+            if rule.relation != "mirror_x" and rule.mirror_axis_x_m is not None:
+                raise ValueError(
+                    "ミラー軸は mirror_x 関係でのみ指定できます。"
+                )
+            key = (master, slave, rule.relation)
+            if key in link_keys:
+                raise ValueError(
+                    f"連動ルール {master} → {slave} ({rule.relation}) "
+                    "が重複しています。"
+                )
+            link_keys.add(key)
+            axis = _LINKED_RELATION_AXIS[rule.relation]
+            if axis in derived_axes.get(slave, set()):
+                raise ValueError(
+                    f"役割 {slave} の{axis}軸には複数の連動ルールを指定できません。"
+                )
+            derived_axes.setdefault(slave, set()).add(axis)
+            links.append(
+                LinkedPlacementRule(
+                    constraint_id=_short_semantic_id(
+                        "proposal-link",
+                        {
+                            "master": master,
+                            "slave": slave,
+                            "relation": rule.relation,
+                            "mirror_axis_x_m": rule.mirror_axis_x_m,
+                            "tolerance_m": rule.tolerance_m,
+                        },
+                    ),
+                    master_entity_id=entity_ids[master],
+                    slave_entity_id=entity_ids[slave],
+                    relation=rule.relation,
+                    mirror_axis_x_m=rule.mirror_axis_x_m,
+                    tolerance_m=rule.tolerance_m,
+                )
+            )
+
+        room = baseline.document.room
+        proposals: list[ProposedEntitySpec] = []
+        equipment_bindings: list[EquipmentBindingRef] = []
+        placements: list[ProposedPlacementSpec] = []
+        for (draft, role, zone), definition in zip(cleaned, definitions):
+            entity_id = entity_ids[role]
+            x_m = (draft.min_x_m + draft.max_x_m) * 0.5
+            y_m = (draft.min_y_m + draft.max_y_m) * 0.5
+            z_m = (draft.min_z_m + draft.max_z_m) * 0.5
+            if room is None:
+                aim = Direction3(x=0.0, y=1.0, z=0.0)
+            else:
+                room_min_x, room_min_y, room_max_x, room_max_y = room.bounds_m
+                dx = ((room_min_x + room_max_x) * 0.5) - x_m
+                dy = ((room_min_y + room_max_y) * 0.5) - y_m
+                magnitude = hypot(dx, dy)
+                aim = (
+                    Direction3(x=0.0, y=1.0, z=0.0)
+                    if magnitude <= 1e-9
+                    else Direction3(x=dx / magnitude, y=dy / magnitude, z=0.0)
+                )
+            proposals.append(
+                ProposedEntitySpec(
+                    spec_id=_short_semantic_id(
+                        "proposal-spec",
+                        {"entity": entity_id, "baseline": baseline.content_hash},
+                    ),
+                    entity=SceneEntity(
+                        entity_id=entity_id,
+                        kind="speaker",
+                        name=role,
+                        speaker_role=role,
+                        position=Position3(x_m=x_m, y_m=y_m, z_m=z_m),
+                        size_m=definition.cabinet_envelope_m,
+                        aim_xyz=aim,
+                    ),
+                    role_binding_id=role,
+                    provenance=(
+                        VariantProvenanceItem(
+                            key="o100g.authoring_surface",
+                            value="room-placement",
+                        ),
+                        VariantProvenanceItem(
+                            key="o100g.install_zone",
+                            value=zone,
+                        ),
+                    ),
+                )
+            )
+            equipment_bindings.append(
+                EquipmentBindingRef(
+                    entity_id=entity_id,
+                    equipment_definition_id=definition.definition_id,
+                    equipment_definition_version=definition.version,
+                    equipment_definition_sha256=definition.semantic_sha256,
+                )
+            )
+            region = (
+                CadConstraintPoint2D(x_m=draft.min_x_m, y_m=draft.min_y_m),
+                CadConstraintPoint2D(x_m=draft.max_x_m, y_m=draft.min_y_m),
+                CadConstraintPoint2D(x_m=draft.max_x_m, y_m=draft.max_y_m),
+                CadConstraintPoint2D(x_m=draft.min_x_m, y_m=draft.max_y_m),
+            )
+            derived = derived_axes.get(role, set())
+            axes = tuple(
+                CadSearchAxis(
+                    entity_id=entity_id,
+                    axis=axis,
+                    min_m=low,
+                    max_m=high,
+                    step_m=draft.step_m,
+                )
+                for axis, low, high in (
+                    ("x", draft.min_x_m, draft.max_x_m),
+                    ("y", draft.min_y_m, draft.max_y_m),
+                    ("z", draft.min_z_m, draft.max_z_m),
+                )
+                if axis not in derived
+            )
+            placements.append(
+                ProposedPlacementSpec(
+                    entity_id=entity_id,
+                    role_id=role,
+                    zone_id=zone,
+                    allowed_region=region,
+                    min_z_m=draft.min_z_m,
+                    max_z_m=draft.max_z_m,
+                    xyz_axes=axes,
+                    angle_axes=draft.angle_axes,
+                )
+            )
+
+        # A removed role that is not re-added drops out of the declared channel
+        # vocabulary; a removed role that is re-added is an explicit replace.
+        final_roles = sorted(
+            (existing_role_set - removed_role_set) | proposed_roles
         )
         role_bindings = tuple(
             ChannelRoleBinding(role_id=item, display_name=item)
-            for item in sorted({*existing_roles, role})
-        )
-        proposal = ProposedEntitySpec(
-            spec_id=_short_semantic_id(
-                "proposal-spec",
-                {"entity": entity_id, "baseline": baseline.content_hash},
-            ),
-            entity=proposed_entity,
-            role_binding_id=role,
-            provenance=(
-                VariantProvenanceItem(
-                    key="o100g.authoring_surface",
-                    value="room-placement",
-                ),
-            ),
-        )
-        equipment = EquipmentBindingRef(
-            entity_id=entity_id,
-            equipment_definition_id=definition.definition_id,
-            equipment_definition_version=definition.version,
-            equipment_definition_sha256=definition.semantic_sha256,
+            for item in final_roles
         )
         template = build_system_variant(
             baseline=baseline,
             name=name,
             role_bindings=role_bindings,
-            proposed_entities=(proposal,),
-            equipment_bindings=(equipment,),
+            proposed_entities=tuple(proposals),
+            remove_entity_ids=tuple(remove_entity_ids),
+            equipment_bindings=tuple(equipment_bindings)
+            + tuple(override_bindings),
             provenance=(
                 VariantProvenanceItem(
                     key="o100g.install_zone",
-                    value=zone,
+                    value=" / ".join(zone for _d, _r, zone in cleaned),
                 ),
             ),
             created_at_utc=_utc_now(),
@@ -681,54 +1016,21 @@ class SystemExpansionWorkflowService:
         topology = build_topology_search_spec(
             baseline=baseline,
             template_variants=(template,),
+            optional_role_ids=tuple(
+                role for draft, role, _zone in cleaned if draft.optional_role
+            ),
             created_at_utc=_utc_now(),
         )
         self.topology_repository.save_topology_spec(topology)
         option = topology.options[0]
 
-        region = (
-            CadConstraintPoint2D(x_m=min_x_m, y_m=min_y_m),
-            CadConstraintPoint2D(x_m=max_x_m, y_m=min_y_m),
-            CadConstraintPoint2D(x_m=max_x_m, y_m=max_y_m),
-            CadConstraintPoint2D(x_m=min_x_m, y_m=max_y_m),
-        )
-        placement = ProposedPlacementSpec(
-            entity_id=entity_id,
-            role_id=role,
-            zone_id=zone,
-            allowed_region=region,
-            min_z_m=z_m,
-            max_z_m=z_m,
-            xyz_axes=(
-                CadSearchAxis(
-                    entity_id=entity_id,
-                    axis="x",
-                    min_m=min_x_m,
-                    max_m=max_x_m,
-                    step_m=step_m,
-                ),
-                CadSearchAxis(
-                    entity_id=entity_id,
-                    axis="y",
-                    min_m=min_y_m,
-                    max_m=max_y_m,
-                    step_m=step_m,
-                ),
-                CadSearchAxis(
-                    entity_id=entity_id,
-                    axis="z",
-                    min_m=z_m,
-                    max_m=z_m,
-                    step_m=step_m,
-                ),
-            ),
-        )
         search = build_topology_placement_search_spec(
             baseline=baseline,
             template_variant=template,
             topology_spec=topology,
             topology_option_id=option.option_id,
-            placement_specs=(placement,),
+            placement_specs=tuple(placements),
+            linked_rules=tuple(links),
             constraint_set=CadConstraintSet(
                 document_id=self.document_id,
                 constraints=(),
@@ -791,8 +1093,25 @@ class SystemExpansionWorkflowService:
 
     def _install_zone(self, variant: SystemVariant, entity_id: str) -> str:
         provenance = {item.key: item.value for item in variant.provenance}
-        authored_zone = provenance.get("o100g.install_zone")
         candidate_id = provenance.get("o100b.candidate_id")
+        if candidate_id is None:
+            # Multi-speaker proposals record the authored zone on each
+            # ProposedEntitySpec so every entity keeps its own install region.
+            proposed = next(
+                (
+                    item
+                    for item in variant.proposed_entities
+                    if item.entity.entity_id == entity_id
+                ),
+                None,
+            )
+            if proposed is not None:
+                entity_zone = {
+                    item.key: item.value for item in proposed.provenance
+                }.get("o100g.install_zone")
+                if entity_zone:
+                    return entity_zone
+        authored_zone = provenance.get("o100g.install_zone")
         if candidate_id is None and authored_zone:
             return authored_zone
         if candidate_id is None and variant.parent_variant_id:
