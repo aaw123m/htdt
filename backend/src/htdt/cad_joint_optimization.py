@@ -13,14 +13,19 @@ from .cad_calibration import (
     CadDeviceCapabilityConstraints,
     evaluate_calibration_support,
 )
-from .cad_extended_search import CadExtendedSearchSpec
+from .cad_extended_search import (
+    CadExtendedSearchSpec,
+    aim_horizontal_yaw_deg,
+    body_horizontal_yaw_deg,
+)
 from .cad_measurement_quality import (
     CadMeasurementQualityReport,
     gate_measurement_claim,
 )
 from .cad_repository import SceneRevision
+from .cad_scene import SceneDocument
 from .cad_search_models import CadSearchSpec
-from .cad_system_variant import SystemVariant
+from .cad_system_variant import SystemVariant, materialize_system_variant
 from .optimization_objectives import (
     ObjectiveDefinition,
     ObjectiveMetric,
@@ -1119,6 +1124,176 @@ def build_joint_candidate(
         production_eligibility=production_eligibility,
         objective_vector_ref=None,
     )
+
+
+_MATERIALIZED_VALUE_TOLERANCE = 1e-9
+
+
+def _wrapped_yaw_delta_deg(target_deg: float, actual_deg: float) -> float:
+    return (float(target_deg) - float(actual_deg) + 180.0) % 360.0 - 180.0
+
+
+def _materialized_physical_value(
+    variable: JointPhysicalVariableRef,
+    document: SceneDocument,
+) -> float:
+    """Derive one physical decision value from the materialized scene."""
+
+    try:
+        entity = document.entity(variable.entity_id)
+    except KeyError as exc:
+        raise ValueError(
+            f'physical decision variable {variable.variable_id} references an '
+            'entity missing from the materialized SystemVariant scene'
+        ) from exc
+    if variable.parameter == 'x_m':
+        return float(entity.position.x_m)
+    if variable.parameter == 'y_m':
+        return float(entity.position.y_m)
+    if variable.parameter == 'z_m':
+        return float(entity.position.z_m)
+    if variable.parameter == 'aim_yaw_deg':
+        if entity.aim_xyz is None:
+            raise ValueError(
+                f'physical decision variable {variable.variable_id} requires an '
+                'explicit speaker aim in the materialized SystemVariant scene'
+            )
+        return float(aim_horizontal_yaw_deg(entity.aim_xyz))
+    if variable.parameter == 'body_yaw_deg':
+        return float(body_horizontal_yaw_deg(entity))
+    raise ValueError(
+        f'unsupported physical decision parameter: {variable.parameter}'
+    )
+
+
+def _materialized_dsp_value(
+    variable: JointDspVariable,
+    plan: CadCalibrationPlan,
+) -> float | str:
+    """Derive one DSP decision value from the exact candidate CalibrationPlan."""
+
+    channel = next(
+        (item for item in plan.channels if item.channel_id == variable.channel_id),
+        None,
+    )
+    if channel is None:
+        raise ValueError(
+            f'DSP decision variable {variable.variable_id} references channel '
+            f'{variable.channel_id} missing from the candidate CalibrationPlan'
+        )
+    if variable.parameter == 'gain_db':
+        return float(channel.gain_db)
+    if variable.parameter == 'delay_s':
+        return float(channel.delay_s)
+    if variable.parameter == 'polarity':
+        return channel.polarity
+    if variable.parameter.startswith('peq_'):
+        peq = next(
+            (item for item in channel.peq if item.filter_id == variable.filter_id),
+            None,
+        )
+        if peq is None:
+            raise ValueError(
+                f'DSP decision variable {variable.variable_id} references filter '
+                f'{variable.filter_id} missing from the candidate CalibrationPlan'
+            )
+        if variable.parameter == 'peq_frequency_hz':
+            return float(peq.frequency_hz)
+        if variable.parameter == 'peq_q':
+            return float(peq.q)
+        if variable.parameter == 'peq_gain_db':
+            return float(peq.gain_db)
+        raise ValueError(
+            f'unsupported DSP decision parameter: {variable.parameter}'
+        )
+    if variable.parameter.startswith('crossover_'):
+        index = variable.crossover_index
+        if index is None or index >= len(channel.crossovers):
+            raise ValueError(
+                f'DSP decision variable {variable.variable_id} references a '
+                'crossover index missing from the candidate CalibrationPlan'
+            )
+        crossover = channel.crossovers[index]
+        if variable.parameter == 'crossover_frequency_hz':
+            return float(crossover.frequency_hz)
+        if variable.parameter == 'crossover_order':
+            return float(crossover.filter_order)
+    raise ValueError(f'unsupported DSP decision parameter: {variable.parameter}')
+
+
+def require_joint_decision_materialization(
+    *,
+    spec: JointOptimizationSpec,
+    baseline: SceneRevision,
+    physical_system_variant: SystemVariant,
+    calibration_plan: CadCalibrationPlan | None,
+    decisions: Sequence[JointDecisionValue],
+) -> None:
+    """Re-derive every submitted decision value from exact materialized authorities.
+
+    A persisted JointCandidate must not merely carry in-range values: each
+    physical decision must equal the entity state the referenced SystemVariant
+    actually materializes over the baseline SceneRevision, and each DSP
+    decision must equal the gain/PEQ/crossover/delay/polarity setting in the
+    exact candidate CalibrationPlan. Unknown variables, unresolvable
+    materialization targets, and value mismatches all fail closed.
+    """
+
+    physical_by_id = {item.variable_id: item for item in spec.physical_variables}
+    dsp_by_id = {item.variable_id: item for item in spec.dsp_variables}
+    materialized: SceneDocument | None = None
+    for decision in decisions:
+        if decision.domain == 'physical':
+            variable = physical_by_id.get(decision.variable_id)
+            if variable is None:
+                raise ValueError(
+                    f'unknown physical decision variable: {decision.variable_id}'
+                )
+            if not isinstance(decision.value, (float, int)):
+                raise ValueError('physical decision values must be numeric')
+            if materialized is None:
+                materialized = materialize_system_variant(
+                    baseline,
+                    physical_system_variant,
+                )
+            actual = _materialized_physical_value(variable, materialized)
+            if variable.unit == 'deg':
+                delta = abs(_wrapped_yaw_delta_deg(float(decision.value), actual))
+            else:
+                delta = abs(float(decision.value) - actual)
+            if delta > _MATERIALIZED_VALUE_TOLERANCE:
+                raise ValueError(
+                    f'{decision.variable_id} does not match the materialized '
+                    'SystemVariant scene'
+                )
+            continue
+        variable = dsp_by_id.get(decision.variable_id)
+        if variable is None:
+            raise ValueError(
+                f'unknown DSP decision variable: {decision.variable_id}'
+            )
+        if calibration_plan is None:
+            raise ValueError(
+                'DSP decision values require an exact candidate CalibrationPlan'
+            )
+        actual = _materialized_dsp_value(variable, calibration_plan)
+        if variable.parameter == 'polarity':
+            if str(decision.value) != actual:
+                raise ValueError(
+                    f'{decision.variable_id} does not match the candidate '
+                    'CalibrationPlan materialization'
+                )
+            continue
+        if not isinstance(decision.value, (float, int)):
+            raise ValueError('numeric DSP decision values must be numeric')
+        if (
+            abs(float(decision.value) - float(actual))
+            > _MATERIALIZED_VALUE_TOLERANCE
+        ):
+            raise ValueError(
+                f'{decision.variable_id} does not match the candidate '
+                'CalibrationPlan materialization'
+            )
 
 
 class JointEvaluationInputRef(BaseModel):

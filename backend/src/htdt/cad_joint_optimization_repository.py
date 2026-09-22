@@ -3,24 +3,43 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+from typing import NamedTuple
 
+from .cad_calibration import CadCalibrationPlan
 from .cad_calibration_repository import CadCalibrationRepository
+from .cad_extended_search import CadExtendedSearchSpec
 from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_joint_optimization import (
     JointCandidate,
     JointCandidateEvaluationBinding,
     JointCandidateSelection,
     JointOptimizationSpec,
+    build_joint_candidate,
     build_joint_optimization_spec,
     device_capability_sha256,
     physical_variables_from_authority,
+    require_joint_decision_materialization,
 )
-from .cad_repository import SceneRepository
+from .cad_measurement_quality import CadMeasurementQualityReport
+from .cad_repository import SceneRepository, SceneRevision
 from .cad_robustness_repository import CadRobustnessRepository
 from .cad_schema import ensure_native_schema
+from .cad_search_models import CadSearchSpec
 from .cad_search_repository import CadSearchRepository
+from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .optimization_robustness import RobustnessAxisParameter
+
+
+class _ResolvedSpecAuthorities(NamedTuple):
+    """Exact persisted authorities resolved by JointOptimizationSpec replay."""
+
+    scene_revision: SceneRevision
+    base_system_variant: SystemVariant
+    physical_search_spec: CadSearchSpec
+    extended_search_spec: CadExtendedSearchSpec | None
+    base_calibration_plan: CadCalibrationPlan | None
+    measurement_quality_report: CadMeasurementQualityReport | None
 
 
 _O90_AXIS_PARAMETERS: dict[str, frozenset[RobustnessAxisParameter]] = {
@@ -143,7 +162,10 @@ class CadJointOptimizationRepository:
                 """
             )
 
-    def _require_spec_authority(self, spec: JointOptimizationSpec) -> None:
+    def _require_spec_authority(
+        self,
+        spec: JointOptimizationSpec,
+    ) -> _ResolvedSpecAuthorities:
         """Recompile the declared JointOptimizationSpec from exact authorities.
 
         Resolves the baseline SceneRevision, base SystemVariant, the exact base
@@ -155,6 +177,10 @@ class CadJointOptimizationRepository:
         and the submitted record must equal the canonical compilation of its
         declared inputs. Dangling, mismatched, or non-canonical authority fails
         closed; used by both save-time validation and authoritative reads.
+
+        Returns the resolved authorities so dependent records (e.g. joint
+        candidates) can replay their own canonical semantics against the same
+        exact objects without trusting any payload-embedded copies.
         """
 
         revision = self.scene_repository.get(spec.scene_revision_id)
@@ -383,8 +409,19 @@ class CadJointOptimizationRepository:
                 'JointOptimizationSpec is not the canonical compilation of its '
                 'declared search, DSP, and constraint authorities'
             )
+        return _ResolvedSpecAuthorities(
+            scene_revision=revision,
+            base_system_variant=variant,
+            physical_search_spec=search_spec,
+            extended_search_spec=extended_search_spec,
+            base_calibration_plan=plan,
+            measurement_quality_report=quality_report,
+        )
 
-    def _validated_spec(self, row: sqlite3.Row) -> JointOptimizationSpec:
+    def _validated_spec_authorities(
+        self,
+        row: sqlite3.Row,
+    ) -> tuple[JointOptimizationSpec, _ResolvedSpecAuthorities]:
         """Deserialize one persisted spec row and replay its exact authority."""
 
         spec = JointOptimizationSpec.model_validate_json(row['payload_json'])
@@ -398,7 +435,10 @@ class CadJointOptimizationRepository:
             raise ValueError(
                 'persisted JointOptimizationSpec row disagrees with its payload'
             )
-        self._require_spec_authority(spec)
+        return spec, self._require_spec_authority(spec)
+
+    def _validated_spec(self, row: sqlite3.Row) -> JointOptimizationSpec:
+        spec, _authorities = self._validated_spec_authorities(row)
         return spec
 
     def save_spec(self, spec: JointOptimizationSpec) -> JointOptimizationSpec:
@@ -442,9 +482,9 @@ class CadJointOptimizationRepository:
             )
         return spec
 
-    def get_spec(self, spec_id: str) -> JointOptimizationSpec | None:
+    def _spec_row(self, spec_id: str) -> sqlite3.Row | None:
         with closing(self._connect()) as connection, connection:
-            row = connection.execute(
+            return connection.execute(
                 """
                 SELECT *
                 FROM cad_joint_optimization_specs
@@ -452,6 +492,9 @@ class CadJointOptimizationRepository:
                 """,
                 (spec_id,),
             ).fetchone()
+
+    def get_spec(self, spec_id: str) -> JointOptimizationSpec | None:
+        row = self._spec_row(spec_id)
         return None if row is None else self._validated_spec(row)
 
     def list_specs(
@@ -473,21 +516,22 @@ class CadJointOptimizationRepository:
     def _persisted_spec_for_candidate(
         self,
         candidate: JointCandidate,
-    ) -> JointOptimizationSpec:
-        spec = self.get_spec(candidate.parent_spec_id)
-        if spec is None:
+    ) -> tuple[JointOptimizationSpec, _ResolvedSpecAuthorities]:
+        row = self._spec_row(candidate.parent_spec_id)
+        if row is None:
             raise ValueError('JointCandidate references unpersisted JointOptimizationSpec')
+        spec, authorities = self._validated_spec_authorities(row)
         if spec.semantic_sha256 != candidate.parent_spec_sha256:
             raise ValueError('JointCandidate parent spec hash mismatch')
         if candidate.evaluator != spec.evaluator:
             raise ValueError('JointCandidate evaluator authority mismatch')
-        return spec
+        return spec, authorities
 
     def _require_candidate_authority(
         self,
         candidate: JointCandidate,
     ) -> JointOptimizationSpec:
-        spec = self._persisted_spec_for_candidate(candidate)
+        spec, spec_authorities = self._persisted_spec_for_candidate(candidate)
         variant = self.system_variant_repository.get_variant(
             candidate.physical_system_variant_id
         )
@@ -502,6 +546,8 @@ class CadJointOptimizationRepository:
         ):
             raise ValueError('JointCandidate physical SystemVariant baseline mismatch')
 
+        plan = None
+        quality_report = None
         calibration = candidate.calibration_candidate
         if calibration is not None:
             plan = self.calibration_repository.get_plan(calibration.plan_id)
@@ -528,6 +574,44 @@ class CadJointOptimizationRepository:
                 raise ValueError(
                     'JointCandidate CalibrationPlan quality authority mismatch'
                 )
+            quality_report = self.calibration_repository.quality_repository.get_report(
+                plan.measurement_quality_report_id
+            )
+            if (
+                quality_report is None
+                or quality_report.report_sha256
+                != plan.measurement_quality_report_sha256
+            ):
+                raise ValueError(
+                    'JointCandidate CalibrationPlan quality authority is not '
+                    'resolvable'
+                )
+
+        # Rebuild the canonical candidate from the exact resolved authorities:
+        # decision-variable existence, declared bounds/step grid, candidate
+        # class, base-vs-changed SystemVariant semantics, CalibrationPlan
+        # measurement/device/routing authority, recomputed support and
+        # capability gates, eligibility/blocked reasons, and production
+        # eligibility must all match the submitted payload exactly.
+        expected = build_joint_candidate(
+            spec=spec,
+            physical_system_variant=variant,
+            decisions=candidate.decision_vector,
+            calibration_plan=plan,
+            measurement_quality_report=quality_report,
+        )
+        if expected != candidate:
+            raise ValueError(
+                'JointCandidate is not the canonical compilation of its '
+                'declared decision vector and physical/DSP authorities'
+            )
+        require_joint_decision_materialization(
+            spec=spec,
+            baseline=spec_authorities.scene_revision,
+            physical_system_variant=variant,
+            calibration_plan=plan,
+            decisions=candidate.decision_vector,
+        )
         return spec
 
     def save_candidate(self, candidate: JointCandidate) -> JointCandidate:
