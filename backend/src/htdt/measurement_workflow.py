@@ -22,7 +22,7 @@ from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurements import normalize_rew_api_snapshot, normalize_rew_text
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_scene import acoustic_reference_position
+from .cad_scene import acoustic_reference_position, is_unassigned_speaker_role
 from .comparison import FrequencyResponse, compare_frequency_responses
 from .rew_api import RewFrequencyResponseSnapshot
 from .rew_parser import parse_rew_frequency_response
@@ -254,7 +254,11 @@ class MeasurementWorkflowController:
             SpeakerTarget(
                 entity_id=entity.entity_id,
                 name=entity.name,
-                role=entity.speaker_role or "unknown",
+                role=(
+                    "未設定"
+                    if is_unassigned_speaker_role(entity.speaker_role)
+                    else entity.speaker_role or "unknown"
+                ),
             )
             for entity in revision.document.entities
             if entity.kind == "speaker"

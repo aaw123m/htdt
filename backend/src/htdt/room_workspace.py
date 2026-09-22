@@ -7,6 +7,7 @@ from uuid import uuid4
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
@@ -31,8 +32,10 @@ from .cad_scene import (
     SceneDocument,
     SceneEntity,
     Size3,
+    is_unassigned_speaker_role,
     make_empty_scene,
     make_f1_scene,
+    next_unassigned_speaker_role,
     quaternion_from_euler_deg,
 )
 from .command_palette import flush_focused_text_editor, focused_text_editor
@@ -56,6 +59,26 @@ from .standards_workspace import StandardsCriterionPanel
 
 
 ROOM_CONTEXT_IDS = ("geometry", "objects", "placement", "acoustics")
+
+SPEAKER_ROLE_UNASSIGNED_LABEL = "未設定"
+# Inspector suggestions only — not a persisted enum. Custom roles remain
+# free-form text and are stored verbatim.
+SPEAKER_ROLE_SUGGESTIONS = (
+    "FL",
+    "C",
+    "FR",
+    "SL",
+    "SR",
+    "SBL",
+    "SBR",
+    "SUB",
+    "TFL",
+    "TFR",
+    "TML",
+    "TMR",
+    "TRL",
+    "TRR",
+)
 
 
 class RoomViewportPort(Protocol):
@@ -269,8 +292,14 @@ class RoomWorkspaceController:
             updates["size_m"] = size_m
         if entity.kind == "speaker":
             role = (speaker_role or "").strip()
-            if not role:
-                raise EditStateError("スピーカーの役割を入力してください")
+            if is_unassigned_speaker_role(role):
+                # Clearing the role (or picking 未設定) keeps a unique reserved
+                # placeholder instead of a plausible-looking fake channel role.
+                role = next_unassigned_speaker_role(
+                    item.speaker_role
+                    for item in self.document.entities
+                    if item.kind == "speaker" and item.entity_id != entity_id
+                )
             updates["speaker_role"] = role
         changed = self.working.update_entity(entity_id, **updates)
         if changed:
@@ -356,7 +385,11 @@ class RoomWorkspaceController:
                 entity_id=f"speaker-{token}",
                 kind="speaker",
                 name="スピーカー",
-                speaker_role="SPK",
+                speaker_role=next_unassigned_speaker_role(
+                    entity.speaker_role
+                    for entity in self.document.entities
+                    if entity.kind == "speaker"
+                ),
                 position=self._default_position(kind, size),
                 size_m=size,
                 acoustic_reference_offset_m=Offset3(y_m=size.y_m * 0.5),
@@ -486,7 +519,14 @@ class SelectionInspector(QFrame):
         self.form.setContentsMargins(0, 0, 0, 0)
         self.kind_label = QLabel("—")
         self.name_field = QLineEdit()
-        self.role_field = QLineEdit()
+        self.role_field = QComboBox()
+        self.role_field.setEditable(True)
+        self.role_field.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.role_field.addItem(SPEAKER_ROLE_UNASSIGNED_LABEL)
+        self.role_field.addItems(SPEAKER_ROLE_SUGGESTIONS)
+        role_edit = self.role_field.lineEdit()
+        if role_edit is not None:
+            role_edit.setPlaceholderText("役割を選択または入力（例: FL / C / TFL）")
         self.form.addRow("種類", self.kind_label)
         self.form.addRow("名前", self.name_field)
         self.form.addRow("役割", self.role_field)
@@ -504,7 +544,11 @@ class SelectionInspector(QFrame):
             self.form.addRow(f"寸法 {axis}", field)
 
         self.name_field.editingFinished.connect(self.editCommitted.emit)
-        self.role_field.editingFinished.connect(self.editCommitted.emit)
+        self.role_field.activated.connect(
+            lambda _index=-1: self.editCommitted.emit()
+        )
+        if self.role_field.lineEdit() is not None:
+            self.role_field.lineEdit().editingFinished.connect(self.editCommitted.emit)
         for field in (*self.position_fields.values(), *self.size_fields.values()):
             field.editingFinished.connect(self.editCommitted.emit)
 
@@ -528,16 +572,27 @@ class SelectionInspector(QFrame):
         self.form_host.setVisible(entity is not None)
         if entity is None:
             return
+        role_edit = self.role_field.lineEdit()
         blockers = [
             QSignalBlocker(self.name_field),
             QSignalBlocker(self.role_field),
             *(QSignalBlocker(field) for field in self.position_fields.values()),
             *(QSignalBlocker(field) for field in self.size_fields.values()),
+            *([QSignalBlocker(role_edit)] if role_edit is not None else []),
         ]
         try:
             self.kind_label.setText(self.KIND_LABELS.get(entity.kind, entity.kind))
             self.name_field.setText(entity.name)
-            self.role_field.setText(entity.speaker_role or "")
+            role = entity.speaker_role or ""
+            if is_unassigned_speaker_role(role):
+                self.role_field.setCurrentIndex(0)
+            else:
+                index = self.role_field.findText(role)
+                if index >= 0:
+                    self.role_field.setCurrentIndex(index)
+                else:
+                    self.role_field.setCurrentIndex(-1)
+                    self.role_field.setEditText(role)
             self.role_field.setVisible(entity.kind == "speaker")
             self.name_field.setEnabled(editable)
             self.role_field.setEnabled(editable and entity.kind == "speaker")
@@ -576,7 +631,10 @@ class SelectionInspector(QFrame):
                 y_m=self.size_fields["Y"].value(),
                 z_m=self.size_fields["Z"].value(),
             )
-        role = self.role_field.text() if entity.kind == "speaker" else None
+        role = None
+        if entity.kind == "speaker":
+            text = self.role_field.currentText().strip()
+            role = "" if not text or text == SPEAKER_ROLE_UNASSIGNED_LABEL else text
         return self.name_field.text(), position, size, role
 
 
@@ -1120,7 +1178,8 @@ class RoomWorkspace(QWidget):
             self._set_status(str(exc), error=True)
             return
         self._refresh()
-        self._set_status(f"{entity.name}を追加しました")
+        hint = " · 役割を選択してください" if entity.kind == "speaker" else ""
+        self._set_status(f"{entity.name}を追加しました{hint}")
 
     def _commit_inspector(self) -> None:
         entity_id = self.controller.selected_id

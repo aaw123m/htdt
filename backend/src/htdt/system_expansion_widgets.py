@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_scene import is_unassigned_speaker_role
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .ui_theme import (
     ControlSize,
@@ -298,7 +299,15 @@ class SystemExpansionRoomPanel(QFrame):
                 entity for entity in latest.document.entities
                 if entity.kind == "speaker"
             ]
-            roles = [item.speaker_role or item.name for item in speakers]
+            roles = [
+                (
+                    item.speaker_role
+                    if item.speaker_role
+                    and not is_unassigned_speaker_role(item.speaker_role)
+                    else "未設定"
+                )
+                for item in speakers
+            ]
             summary = " / ".join(roles) if roles else "speakerなし"
             self.current_label.setText(f"現在構成: {summary}")
         self.selector.refresh()

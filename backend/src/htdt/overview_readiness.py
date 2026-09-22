@@ -12,6 +12,7 @@ from .cad_measurement_quality import (
 from .cad_model_validation import CadModelValidationRecord
 from .cad_prediction_models import CadPredictionResult
 from .cad_repository import SceneRevision
+from .cad_scene import duplicated_speaker_roles, is_unassigned_speaker_role
 from .cad_search_models import CadSearchSpec
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
@@ -221,7 +222,14 @@ class OverviewReadinessService:
                 )
             )
         else:
-            missing_roles = tuple(speaker for speaker in speakers if not speaker.speaker_role)
+            # Reserved placeholder tokens (UNASSIGNED-<n>, legacy SPK) are not
+            # channel identities: they fail the role prerequisite just like an
+            # empty role, so "not yet assigned" can never pass as a real role.
+            missing_roles = tuple(
+                speaker
+                for speaker in speakers
+                if is_unassigned_speaker_role(speaker.speaker_role)
+            )
             if missing_roles:
                 speaker = missing_roles[0]
                 action = _action(
@@ -238,6 +246,33 @@ class OverviewReadinessService:
                         code='speaker.role_missing',
                         severity='blocker',
                         message='役割が未設定のスピーカーがあります。',
+                        action=action,
+                    )
+                )
+            duplicated = duplicated_speaker_roles(speakers)
+            if duplicated:
+                target = next(
+                    (
+                        speaker
+                        for speaker in speakers
+                        if (speaker.speaker_role or '').strip() == duplicated[0]
+                    ),
+                    speakers[0],
+                )
+                action = _action(
+                    'room.resolve_speaker_role',
+                    '役割を整理',
+                    OverviewNavigationTarget(
+                        'room',
+                        'placement',
+                        entity_id=target.entity_id,
+                    ),
+                )
+                blockers.append(
+                    OverviewNotice(
+                        code='speaker.role_duplicate',
+                        severity='blocker',
+                        message='同じ役割が複数のスピーカーに割り当てられています。',
                         action=action,
                     )
                 )
@@ -401,6 +436,7 @@ class OverviewReadinessService:
                 'room.geometry_incomplete',
                 'speaker.missing',
                 'speaker.role_missing',
+                'speaker.role_duplicate',
             }
             for notice in blockers
         )
@@ -465,6 +501,7 @@ class OverviewReadinessService:
             'room.geometry_incomplete',
             'speaker.missing',
             'speaker.role_missing',
+            'speaker.role_duplicate',
         }
         for notice in blockers:
             if notice.code in setup_codes and notice.action is not None:
@@ -489,6 +526,7 @@ class OverviewReadinessService:
             'room.geometry_incomplete': '部屋形状を完成させてください。',
             'speaker.missing': '次にスピーカーを追加してください。',
             'speaker.role_missing': 'スピーカーの役割を設定してください。',
+            'speaker.role_duplicate': '重複するスピーカー役割を解決してください。',
         }
         for notice in blockers:
             summary = setup_codes.get(notice.code)
