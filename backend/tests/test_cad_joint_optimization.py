@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import closing
 from hashlib import sha256
 from pathlib import Path
+import sqlite3
 import threading
 from types import SimpleNamespace
 
@@ -15,17 +17,26 @@ from htdt.cad_calibration import (
 )
 from htdt.cad_calibration_repository import CadCalibrationRepository
 from htdt.cad_constraint_models import CadConstraintSet
+from htdt.cad_extended_search import (
+    CadExtendedSearchAxis,
+    build_extended_model_capability,
+    build_extended_search_spec,
+)
+from htdt.cad_extended_search_repository import CadExtendedSearchRepository
 from htdt.cad_joint_optimization import (
     JointDecisionValue,
     JointDspVariable,
     JointEvaluationInputRef,
     JointEvaluatorIdentity,
+    JointHardConstraintRef,
+    JointOptimizationSpec,
     JointRobustnessSpecRef,
     JointRobustnessVariableMapping,
     bind_joint_candidate_evaluation,
     build_joint_candidate,
     build_joint_candidate_selection,
     build_joint_optimization_spec,
+    canonical_joint_sha256,
     joint_pareto_front,
 )
 from htdt.cad_joint_optimization_repository import CadJointOptimizationRepository
@@ -44,10 +55,23 @@ from htdt.cad_measurements import (
     declared_fr_raw,
     measurement_record_for_revision,
 )
+from htdt.cad_objective_authority import ResolvedObjectiveInput
+from htdt.cad_objective_models import CadObjectiveInputRef, canonical_objective_sha256
+from htdt.cad_objective_repository import CadObjectiveRepository
+from htdt.cad_objectives import build_objective_evaluation
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
-from htdt.cad_search import build_cad_search_spec
+from htdt.cad_robustness_repository import CadRobustnessRepository
+from htdt.cad_scene import (
+    Direction3,
+    Position3,
+    RoomPrism,
+    SceneDocument,
+    SceneEntity,
+    Size3,
+)
+from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
+from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_system_variant import (
     ChannelRoleBinding,
     ProposedEntitySpec,
@@ -60,6 +84,7 @@ from htdt.optimization_objectives import (
     ObjectiveValidDomain,
     ObjectiveVector,
 )
+from htdt.optimization_robustness import UncertaintyAxis, build_robustness_spec
 
 
 NOW = '2026-09-19T13:00:00+00:00'
@@ -79,6 +104,7 @@ def _scene() -> SceneDocument:
                 position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
                 size_m=Size3(x_m=0.22, y_m=0.28, z_m=0.42),
                 speaker_role='FL',
+                aim_xyz=Direction3(x=0.0, y=1.0, z=0.0),
             ),
             SceneEntity(
                 entity_id='point-mlp',
@@ -312,6 +338,64 @@ def _save_plan(
     return plan
 
 
+def _prediction_fixture_resolver(context, ref):
+    """Evaluator-owned fixture evidence pinned by exact source identity."""
+
+    return ResolvedObjectiveInput(
+        ref=ref,
+        source_sha256=canonical_objective_sha256(
+            {'source_kind': ref.source_kind, 'source_id': ref.source_id}
+        ),
+    )
+
+
+def _spec_metrics_evaluator(context):
+    """Evaluator-owned fixture: replay objective metrics from the versioned spec."""
+
+    metrics = context.spec.get('metrics')
+    if not isinstance(metrics, list) or not metrics:
+        raise ValueError('fixture metrics spec requires a non-empty metrics list')
+    resolved = []
+    for entry in metrics:
+        definition = entry.get('definition')
+        resolved.append(
+            ObjectiveMetric(
+                objective_id=str(entry['objective_id']),
+                value=float(entry['value']),
+                unit=str(entry['unit']),
+                direction=str(entry.get('direction', 'minimize')),
+                definition=(
+                    ObjectiveDefinition.model_validate(definition)
+                    if isinstance(definition, dict)
+                    else definition
+                ),
+            )
+        )
+    return ObjectiveVector(
+        candidate_id=context.evaluation.candidate_id,
+        metrics=tuple(resolved),
+    )
+
+
+def _robustness_ref(fixture, *, mapping=None) -> JointRobustnessSpecRef:
+    spec = fixture.robustness_spec
+    return JointRobustnessSpecRef(
+        robustness_spec_id=spec.robustness_spec_id,
+        robustness_spec_sha256=spec.robustness_spec_sha256,
+        variable_mapping=(
+            mapping
+            if mapping is not None
+            else (
+                JointRobustnessVariableMapping(
+                    joint_variable_id='physical:speaker-fl:x_m',
+                    o90_axis_id='speaker-x',
+                ),
+            )
+        ),
+        dsp_perturbation_policy='none',
+    )
+
+
 def _build_spec(
     fixture,
     *,
@@ -320,31 +404,26 @@ def _build_spec(
     evaluator=None,
     spec_id='joint-spec-fixture',
     candidate_budget=32,
+    physical_search_spec=None,
+    extended_search_spec=None,
+    robustness=None,
+    hard_constraints=(),
 ):
     return build_joint_optimization_spec(
         scene_revision=fixture.revision,
         base_system_variant=fixture.base_variant,
-        physical_search_spec=fixture.search_spec,
-        extended_search_spec=None,
+        physical_search_spec=physical_search_spec or fixture.search_spec,
+        extended_search_spec=extended_search_spec,
         base_calibration_plan=base_plan or fixture.base_plan,
         measurement_quality_report=report or fixture.quality_report,
         dsp_variables=_dsp_variables(),
         objectives=_objectives(),
-        robustness=JointRobustnessSpecRef(
-            robustness_spec_id='o90-fixture-spec',
-            robustness_spec_sha256='9' * 64,
-            variable_mapping=(
-                JointRobustnessVariableMapping(
-                    joint_variable_id='physical:speaker-fl:x_m',
-                    o90_axis_id='speaker_x_m',
-                ),
-            ),
-            dsp_perturbation_policy='none',
-        ),
+        robustness=robustness or _robustness_ref(fixture),
         evaluator=evaluator or _evaluator(),
         candidate_budget=candidate_budget,
         created_at_utc=NOW,
         spec_id=spec_id,
+        hard_constraints=hard_constraints,
     )
 
 
@@ -401,6 +480,109 @@ def _fixture(tmp_path: Path):
         candidate_limit=8,
         name='Issue 174 physical authority',
     )
+    search_repository = CadSearchRepository(scene_repository)
+    search_repository.save(search_spec)
+    extended_search_repository = CadExtendedSearchRepository(search_repository)
+    base_page = generate_cad_candidates(scene_repository, search_spec)
+    base_candidate = base_page.candidates[0]
+    prediction_ref = f'prediction:{base_candidate.candidate_id}'
+    nominal_objective = build_objective_evaluation(
+        revision,
+        search_spec,
+        base_candidate.candidate_id,
+        ObjectiveVector(
+            candidate_id=base_candidate.candidate_id,
+            metrics=(
+                ObjectiveMetric(
+                    objective_id='fixture.response_error_db',
+                    value=1.0,
+                    unit='dB',
+                ),
+            ),
+        ),
+        evaluation_spec={
+            'algorithm_version': 'objective-vector-1',
+            'objective_method': 'fixture-metrics-1',
+            'objectives': ['fixture.response_error_db'],
+            'metrics': [
+                {
+                    'objective_id': 'fixture.response_error_db',
+                    'value': 1.0,
+                    'unit': 'dB',
+                    'direction': 'minimize',
+                },
+            ],
+        },
+        input_refs=(
+            CadObjectiveInputRef(
+                evidence_class='derived',
+                source_kind='candidate_geometry',
+                source_id=base_candidate.candidate_id,
+            ),
+            CadObjectiveInputRef(
+                evidence_class='predicted',
+                source_kind='prediction_fixture',
+                source_id=prediction_ref,
+            ),
+        ),
+    )
+    objective_repository = CadObjectiveRepository(
+        scene_repository,
+        search_repository,
+        input_resolvers={'prediction_fixture': _prediction_fixture_resolver},
+        vector_evaluators={'fixture-metrics-1': _spec_metrics_evaluator},
+    )
+    objective_repository.save_evaluation(nominal_objective)
+    robustness_repository = CadRobustnessRepository(
+        scene_repository=scene_repository,
+        search_repository=search_repository,
+        objective_repository=objective_repository,
+        extended_search_repository=extended_search_repository,
+    )
+    robustness_spec = build_robustness_spec(
+        source_revision=revision,
+        search_spec=search_spec,
+        candidate=base_candidate,
+        candidate_set_sha256=base_page.candidate_set_sha256,
+        nominal_objective=nominal_objective,
+        nominal_prediction_result_ref=prediction_ref,
+        model_id='issue174-fixture-robustness-model',
+        model_version='1',
+        prediction_provider_id='issue174-fixture-provider',
+        fidelity='deterministic-fixture',
+        axes=(
+            UncertaintyAxis(
+                axis_id='speaker-x',
+                entity_id='speaker-fl',
+                parameter='speaker_x_m',
+                unit='m',
+                nominal_value=base_candidate.positions['speaker-fl']['x_m'],
+                minus_delta=0.05,
+                plus_delta=0.05,
+            ),
+            UncertaintyAxis(
+                axis_id='speaker-y',
+                entity_id='speaker-fl',
+                parameter='speaker_y_m',
+                unit='m',
+                nominal_value=base_candidate.positions['speaker-fl']['y_m'],
+                minus_delta=0.05,
+                plus_delta=0.05,
+            ),
+            UncertaintyAxis(
+                axis_id='aim-yaw',
+                entity_id='speaker-fl',
+                parameter='aim_yaw_deg',
+                unit='deg',
+                nominal_value=0.0,
+                minus_delta=2.0,
+                plus_delta=2.0,
+            ),
+        ),
+        software_version='issue174-fixture',
+        created_at_utc=NOW,
+    )
+    robustness_repository.save_spec(robustness_spec)
 
     measurement_repository = CadMeasurementRepository(scene_repository)
     raw = declared_fr_raw(
@@ -462,7 +644,14 @@ def _fixture(tmp_path: Path):
         system_variant_repository=system_variant_repository,
         base_variant=base_variant,
         moved_variant=moved_variant,
+        search_repository=search_repository,
         search_spec=search_spec,
+        base_page=base_page,
+        base_candidate=base_candidate,
+        extended_search_repository=extended_search_repository,
+        objective_repository=objective_repository,
+        robustness_repository=robustness_repository,
+        robustness_spec=robustness_spec,
         measurement_repository=measurement_repository,
         measurement=measurement,
         dataset=dataset,
@@ -876,11 +1065,7 @@ def test_spec_candidate_evaluation_and_selection_save_reopen_deterministically(
         selection_id='selection-persist-174',
     )
 
-    repository = CadJointOptimizationRepository(
-        scene_repository=fixture.scene_repository,
-        system_variant_repository=fixture.system_variant_repository,
-        calibration_repository=fixture.calibration_repository,
-    )
+    repository = _repository(fixture)
     repository.save_spec(fixture.spec)
     repository.save_candidate(candidate)
     repository.save_evaluation(evaluation)
@@ -896,10 +1081,29 @@ def test_spec_candidate_evaluation_and_selection_save_reopen_deterministically(
         measurement_repository=reopened_measurements,
         quality_repository=reopened_quality,
     )
+    reopened_search = CadSearchRepository(reopened_scene)
+    reopened_extended = CadExtendedSearchRepository(reopened_search)
     reopened = CadJointOptimizationRepository(
         scene_repository=reopened_scene,
         system_variant_repository=reopened_variants,
         calibration_repository=reopened_calibration,
+        search_repository=reopened_search,
+        extended_search_repository=reopened_extended,
+        robustness_repository=CadRobustnessRepository(
+            scene_repository=reopened_scene,
+            search_repository=reopened_search,
+            objective_repository=CadObjectiveRepository(
+                reopened_scene,
+                reopened_search,
+                input_resolvers={
+                    'prediction_fixture': _prediction_fixture_resolver,
+                },
+                vector_evaluators={
+                    'fixture-metrics-1': _spec_metrics_evaluator,
+                },
+            ),
+            extended_search_repository=reopened_extended,
+        ),
     )
 
     assert reopened.get_spec(fixture.spec.spec_id) == fixture.spec
@@ -923,11 +1127,7 @@ def test_selected_candidate_does_not_mutate_scene_revision(tmp_path: Path) -> No
         selected_at_utc=NOW,
         selection_id='selection-no-apply-174',
     )
-    repository = CadJointOptimizationRepository(
-        scene_repository=fixture.scene_repository,
-        system_variant_repository=fixture.system_variant_repository,
-        calibration_repository=fixture.calibration_repository,
-    )
+    repository = _repository(fixture)
     repository.save_spec(fixture.spec)
     repository.save_candidate(candidate)
 
@@ -965,11 +1165,7 @@ def test_selected_dsp_candidate_does_not_auto_export_or_advance_apply_state(
         selected_at_utc=NOW,
         selection_id='selection-no-export-174',
     )
-    repository = CadJointOptimizationRepository(
-        scene_repository=fixture.scene_repository,
-        system_variant_repository=fixture.system_variant_repository,
-        calibration_repository=fixture.calibration_repository,
-    )
+    repository = _repository(fixture)
     repository.save_spec(fixture.spec)
     repository.save_candidate(candidate)
     repository.save_selection(selection)
@@ -988,6 +1184,9 @@ def _repository(fixture) -> CadJointOptimizationRepository:
         scene_repository=fixture.scene_repository,
         system_variant_repository=fixture.system_variant_repository,
         calibration_repository=fixture.calibration_repository,
+        search_repository=fixture.search_repository,
+        extended_search_repository=fixture.extended_search_repository,
+        robustness_repository=fixture.robustness_repository,
     )
 
 
@@ -1122,3 +1321,392 @@ def test_concurrent_candidate_admission_serializes_last_budget_slot(
         admitted.candidate_id,
         saved[0].candidate_id,
     }
+
+
+def _resigned(spec: JointOptimizationSpec, **updates) -> JointOptimizationSpec:
+    """Return a mutated spec whose semantic_sha256 is honestly recomputed.
+
+    This produces the strongest forgery shape: an attacker-controlled payload
+    that still passes the model-level self-hash check.
+    """
+
+    mutated = spec.model_copy(update=updates)
+    unsigned = mutated.model_copy(update={'semantic_sha256': '0' * 64})
+    return unsigned.model_copy(
+        update={
+            'semantic_sha256': canonical_joint_sha256(
+                unsigned.semantic_payload()
+            )
+        }
+    )
+
+
+def _other_search_spec(fixture):
+    spec, _estimate = build_cad_search_spec(
+        fixture.revision,
+        CadConstraintSet(document_id=DOCUMENT_ID, constraints=()),
+        (
+            CadSearchAxis(
+                entity_id='speaker-fl',
+                axis='y',
+                min_m=1.0,
+                max_m=2.0,
+                step_m=1.0,
+            ),
+        ),
+        candidate_limit=8,
+        name='Issue 388 unrelated physical authority',
+    )
+    fixture.search_repository.save(spec)
+    return spec
+
+
+def _save_extended_spec(fixture, *, base_spec, base_page):
+    capability = build_extended_model_capability(
+        model_id='issue388-fixture-aim-model',
+        model_version='1',
+        evidence_scope='synthetic_fixture',
+        supported_parameters=('aim_yaw_deg',),
+        detail=f'issue388 fixture aim capability for {base_spec.search_spec_id}',
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_capability(capability)
+    extended = build_extended_search_spec(
+        source_revision=fixture.revision,
+        base_spec=base_spec,
+        base_candidate_set_sha256=base_page.candidate_set_sha256,
+        base_candidate_count=len(base_page.candidates),
+        capability=capability,
+        axes=(
+            CadExtendedSearchAxis(
+                entity_id='speaker-fl',
+                parameter='aim_yaw_deg',
+                min_value=-5.0,
+                max_value=5.0,
+                step=5.0,
+            ),
+        ),
+        candidate_limit=64,
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_spec(extended)
+    return extended
+
+
+def test_spec_rejects_nonexistent_or_mismatched_physical_search_authority(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+
+    unknown = _resigned(
+        fixture.spec,
+        physical_search_spec_id='search-spec-does-not-exist',
+    )
+    with pytest.raises(ValueError, match='unknown physical SearchSpec'):
+        repository.save_spec(unknown)
+
+    mismatched = _resigned(
+        fixture.spec,
+        physical_search_spec_sha256='0' * 64,
+    )
+    with pytest.raises(ValueError, match='physical SearchSpec hash mismatch'):
+        repository.save_spec(mismatched)
+
+    # A real persisted SearchSpec that is not the declared derivation authority
+    # is still rejected when the physical variables are rederived.
+    other = _other_search_spec(fixture)
+    unrelated = _resigned(
+        fixture.spec,
+        physical_search_spec_id=other.search_spec_id,
+        physical_search_spec_sha256=other.search_spec_sha256,
+    )
+    with pytest.raises(ValueError, match='not the canonical derivation'):
+        repository.save_spec(unrelated)
+
+
+def test_spec_rejects_modified_physical_bounds_with_recomputed_hash(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+
+    widened = fixture.spec.physical_variables[0].model_copy(
+        update={'maximum': fixture.spec.physical_variables[0].maximum + 1.0}
+    )
+    forged = _resigned(
+        fixture.spec,
+        physical_variables=(widened,) + fixture.spec.physical_variables[1:],
+    )
+    with pytest.raises(ValueError, match='not the canonical derivation'):
+        repository.save_spec(forged)
+
+    slower = fixture.spec.physical_variables[0].model_copy(
+        update={'step': fixture.spec.physical_variables[0].step * 2.0}
+    )
+    forged_step = _resigned(
+        fixture.spec,
+        physical_variables=(slower,) + fixture.spec.physical_variables[1:],
+    )
+    with pytest.raises(ValueError, match='not the canonical derivation'):
+        repository.save_spec(forged_step)
+
+
+def test_spec_rejects_unrelated_extended_search_authority(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+
+    unknown = _resigned(
+        fixture.spec,
+        extended_search_spec_id='extended-spec-does-not-exist',
+        extended_search_spec_sha256='1' * 64,
+    )
+    with pytest.raises(ValueError, match='unknown extended SearchSpec'):
+        repository.save_spec(unknown)
+
+    extended = _save_extended_spec(
+        fixture,
+        base_spec=fixture.search_spec,
+        base_page=fixture.base_page,
+    )
+    mismatched = _resigned(
+        fixture.spec,
+        extended_search_spec_id=extended.extended_search_id,
+        extended_search_spec_sha256='1' * 64,
+    )
+    with pytest.raises(ValueError, match='extended SearchSpec hash mismatch'):
+        repository.save_spec(mismatched)
+
+    # An extended spec persisted against a different base search is unrelated.
+    other_base = _other_search_spec(fixture)
+    other_page = generate_cad_candidates(fixture.scene_repository, other_base)
+    unrelated_extended = _save_extended_spec(
+        fixture,
+        base_spec=other_base,
+        base_page=other_page,
+    )
+    forged = _resigned(
+        fixture.spec,
+        extended_search_spec_id=unrelated_extended.extended_search_id,
+        extended_search_spec_sha256=unrelated_extended.extended_search_sha256,
+    )
+    with pytest.raises(ValueError, match='exact base physical search'):
+        repository.save_spec(forged)
+
+
+def test_spec_with_exact_extended_authority_saves_and_reopens(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+
+    extended = _save_extended_spec(
+        fixture,
+        base_spec=fixture.search_spec,
+        base_page=fixture.base_page,
+    )
+    spec = _build_spec(
+        fixture,
+        extended_search_spec=extended,
+        spec_id='joint-spec-extended-388',
+    )
+
+    variable_ids = {item.variable_id for item in spec.physical_variables}
+    assert 'physical:speaker-fl:aim_yaw_deg' in variable_ids
+
+    repository.save_spec(spec)
+    assert repository.get_spec(spec.spec_id) == spec
+    assert repository.list_specs(DOCUMENT_ID) == (spec,)
+
+
+def test_spec_rejects_missing_or_fabricated_hard_constraint_refs(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+
+    # Fabricated workspace hash.
+    forged_workspace = _resigned(
+        fixture.spec,
+        hard_constraints=(
+            JointHardConstraintRef(
+                constraint_kind='physical_search_workspace',
+                authority_id=fixture.search_spec.search_spec_id,
+                authority_sha256='0' * 64,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='does not resolve'):
+        repository.save_spec(forged_workspace)
+
+    # Fabricated device-capability authority.
+    fabricated_capability = _resigned(
+        fixture.spec,
+        hard_constraints=fixture.spec.hard_constraints
+        + (
+            JointHardConstraintRef(
+                constraint_kind='device_capability',
+                authority_id='capability-does-not-exist',
+                authority_sha256='2' * 64,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='does not resolve'):
+        repository.save_spec(fabricated_capability)
+
+    # External refs have no resolvable authority in this slice: fail closed.
+    external = _resigned(
+        fixture.spec,
+        hard_constraints=fixture.spec.hard_constraints
+        + (
+            JointHardConstraintRef(
+                constraint_kind='external',
+                authority_id='policy-external-1',
+                authority_sha256='3' * 64,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='no .*resolvable authority'):
+        repository.save_spec(external)
+
+    # Dropping a declared constraint ref is equally non-canonical.
+    dropped = _resigned(
+        fixture.spec,
+        hard_constraints=fixture.spec.hard_constraints[1:],
+    )
+    with pytest.raises(ValueError, match='not the canonical compilation'):
+        repository.save_spec(dropped)
+
+
+def test_spec_rejects_unknown_or_unrelated_robustness_authority(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+
+    unknown_ref = JointRobustnessSpecRef(
+        robustness_spec_id='o90-spec-does-not-exist',
+        robustness_spec_sha256='4' * 64,
+        variable_mapping=fixture.spec.robustness.variable_mapping,
+        dsp_perturbation_policy='none',
+    )
+    with pytest.raises(ValueError, match='unknown O90 RobustnessSpec'):
+        repository.save_spec(_resigned(fixture.spec, robustness=unknown_ref))
+
+    mismatched_ref = JointRobustnessSpecRef(
+        robustness_spec_id=fixture.robustness_spec.robustness_spec_id,
+        robustness_spec_sha256='4' * 64,
+        variable_mapping=fixture.spec.robustness.variable_mapping,
+        dsp_perturbation_policy='none',
+    )
+    with pytest.raises(ValueError, match='O90 RobustnessSpec hash mismatch'):
+        repository.save_spec(_resigned(fixture.spec, robustness=mismatched_ref))
+
+    # Mapping to an axis that does not exist on the resolved O90 spec.
+    unknown_axis = _robustness_ref(
+        fixture,
+        mapping=(
+            JointRobustnessVariableMapping(
+                joint_variable_id='physical:speaker-fl:x_m',
+                o90_axis_id='axis-does-not-exist',
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='unknown robustness axis'):
+        repository.save_spec(_resigned(fixture.spec, robustness=unknown_axis))
+
+    # Mapping to a real axis whose subject (unit) does not match the variable.
+    unrelated_axis = _robustness_ref(
+        fixture,
+        mapping=(
+            JointRobustnessVariableMapping(
+                joint_variable_id='physical:speaker-fl:x_m',
+                o90_axis_id='aim-yaw',
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='does not match the joint variable subject'):
+        repository.save_spec(_resigned(fixture.spec, robustness=unrelated_axis))
+
+    # Mapping to a real axis whose parameter is unrelated to the joint variable.
+    other_parameter = _robustness_ref(
+        fixture,
+        mapping=(
+            JointRobustnessVariableMapping(
+                joint_variable_id='physical:speaker-fl:x_m',
+                o90_axis_id='speaker-y',
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='unrelated to the joint variable'):
+        repository.save_spec(_resigned(fixture.spec, robustness=other_parameter))
+
+    # Mapping must name a physical joint decision variable.
+    not_a_variable = JointRobustnessSpecRef(
+        robustness_spec_id=fixture.robustness_spec.robustness_spec_id,
+        robustness_spec_sha256=fixture.robustness_spec.robustness_spec_sha256,
+        variable_mapping=(
+            JointRobustnessVariableMapping(
+                joint_variable_id='dsp:gain',
+                o90_axis_id='speaker-x',
+            ),
+        ),
+        dsp_perturbation_policy='none',
+    )
+    with pytest.raises(ValueError, match='does not resolve to a physical'):
+        repository.save_spec(_resigned(fixture.spec, robustness=not_a_variable))
+
+
+def test_get_spec_replays_authority_validation_on_tampered_persistence(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+
+    forged = _resigned(
+        fixture.spec,
+        physical_search_spec_sha256='0' * 64,
+    )
+    with closing(
+        sqlite3.connect(fixture.scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_joint_optimization_specs
+            SET payload_json=?, semantic_sha256=?
+            WHERE spec_id=?
+            """,
+            (
+                forged.model_dump_json(),
+                forged.semantic_sha256,
+                fixture.spec.spec_id,
+            ),
+        )
+
+    with pytest.raises(ValueError, match='physical SearchSpec hash mismatch'):
+        repository.get_spec(fixture.spec.spec_id)
+    with pytest.raises(ValueError, match='physical SearchSpec hash mismatch'):
+        repository.list_specs(DOCUMENT_ID)
+
+
+def test_get_spec_replays_authority_after_authority_row_removed(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+
+    with closing(
+        sqlite3.connect(fixture.scene_repository.path)
+    ) as connection, connection:
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute(
+            'DELETE FROM cad_search_specs WHERE search_spec_id=?',
+            (fixture.search_spec.search_spec_id,),
+        )
+
+    with pytest.raises(ValueError, match='unknown physical SearchSpec'):
+        repository.get_spec(fixture.spec.spec_id)

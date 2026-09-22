@@ -5,15 +5,31 @@ from pathlib import Path
 import sqlite3
 
 from .cad_calibration_repository import CadCalibrationRepository
+from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_joint_optimization import (
     JointCandidate,
     JointCandidateEvaluationBinding,
     JointCandidateSelection,
     JointOptimizationSpec,
+    build_joint_optimization_spec,
+    device_capability_sha256,
+    physical_variables_from_authority,
 )
 from .cad_repository import SceneRepository
+from .cad_robustness_repository import CadRobustnessRepository
 from .cad_schema import ensure_native_schema
+from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .optimization_robustness import RobustnessAxisParameter
+
+
+_O90_AXIS_PARAMETERS: dict[str, frozenset[RobustnessAxisParameter]] = {
+    'x_m': frozenset({'speaker_x_m', 'listener_x_m'}),
+    'y_m': frozenset({'speaker_y_m', 'listener_y_m'}),
+    'z_m': frozenset({'speaker_z_m', 'listener_z_m'}),
+    'aim_yaw_deg': frozenset({'aim_yaw_deg'}),
+    'body_yaw_deg': frozenset({'body_yaw_deg'}),
+}
 
 
 class CadJointOptimizationRepository:
@@ -29,11 +45,17 @@ class CadJointOptimizationRepository:
         scene_repository: SceneRepository,
         system_variant_repository: CadSystemVariantRepository,
         calibration_repository: CadCalibrationRepository,
+        search_repository: CadSearchRepository,
+        extended_search_repository: CadExtendedSearchRepository,
+        robustness_repository: CadRobustnessRepository,
     ) -> None:
         paths = {
             Path(scene_repository.path),
             Path(system_variant_repository.path),
             Path(calibration_repository.path),
+            Path(search_repository.path),
+            Path(extended_search_repository.path),
+            Path(robustness_repository.db_path),
         }
         if len(paths) != 1:
             raise ValueError(
@@ -42,6 +64,9 @@ class CadJointOptimizationRepository:
         self.scene_repository = scene_repository
         self.system_variant_repository = system_variant_repository
         self.calibration_repository = calibration_repository
+        self.search_repository = search_repository
+        self.extended_search_repository = extended_search_repository
+        self.robustness_repository = robustness_repository
         self.path = paths.pop()
         ensure_native_schema(self.path)
         self._initialize()
@@ -118,7 +143,20 @@ class CadJointOptimizationRepository:
                 """
             )
 
-    def _validate_spec_authorities(self, spec: JointOptimizationSpec) -> None:
+    def _require_spec_authority(self, spec: JointOptimizationSpec) -> None:
+        """Recompile the declared JointOptimizationSpec from exact authorities.
+
+        Resolves the baseline SceneRevision, base SystemVariant, the exact base
+        SearchSpec and declared Extended SearchSpec, the base CalibrationPlan
+        (and its measurement-quality authority) when DSP search is enabled, and
+        the O90 RobustnessSpec. The physical decision variables, DSP authority,
+        and hard-constraint refs are regenerated from those exact authorities,
+        each O90 variable mapping is validated against the real robustness axes,
+        and the submitted record must equal the canonical compilation of its
+        declared inputs. Dangling, mismatched, or non-canonical authority fails
+        closed; used by both save-time validation and authoritative reads.
+        """
+
         revision = self.scene_repository.get(spec.scene_revision_id)
         if revision is None:
             raise ValueError('JointOptimizationSpec references unknown SceneRevision')
@@ -144,6 +182,64 @@ class CadJointOptimizationRepository:
                 'JointOptimizationSpec base SystemVariant baseline authority mismatch'
             )
 
+        search_spec = self.search_repository.get(spec.physical_search_spec_id)
+        if search_spec is None:
+            raise ValueError(
+                'JointOptimizationSpec references unknown physical SearchSpec'
+            )
+        if search_spec.search_spec_sha256 != spec.physical_search_spec_sha256:
+            raise ValueError(
+                'JointOptimizationSpec physical SearchSpec hash mismatch'
+            )
+        if (
+            search_spec.document_id != spec.document_id
+            or search_spec.scene_revision_id != spec.scene_revision_id
+            or search_spec.scene_content_hash != spec.scene_content_hash
+        ):
+            raise ValueError(
+                'JointOptimizationSpec physical SearchSpec must bind the exact '
+                'baseline SceneRevision'
+            )
+
+        extended_search_spec = None
+        if spec.extended_search_spec_id is not None:
+            extended_search_spec = self.extended_search_repository.get_spec(
+                spec.extended_search_spec_id
+            )
+            if extended_search_spec is None:
+                raise ValueError(
+                    'JointOptimizationSpec references unknown extended SearchSpec'
+                )
+            if (
+                extended_search_spec.extended_search_sha256
+                != spec.extended_search_spec_sha256
+            ):
+                raise ValueError(
+                    'JointOptimizationSpec extended SearchSpec hash mismatch'
+                )
+            if (
+                extended_search_spec.document_id != spec.document_id
+                or extended_search_spec.base_search_spec_id
+                != spec.physical_search_spec_id
+                or extended_search_spec.base_search_spec_sha256
+                != spec.physical_search_spec_sha256
+            ):
+                raise ValueError(
+                    'JointOptimizationSpec extended SearchSpec must bind the '
+                    'exact base physical search'
+                )
+
+        if spec.physical_variables != physical_variables_from_authority(
+            search_spec,
+            extended_search_spec,
+        ):
+            raise ValueError(
+                'JointOptimizationSpec physical variables are not the canonical '
+                'derivation of the resolved search authorities'
+            )
+
+        plan = None
+        quality_report = None
         if spec.dsp_authority is not None:
             plan = self.calibration_repository.get_plan(
                 spec.dsp_authority.base_calibration_plan_id
@@ -169,23 +265,160 @@ class CadJointOptimizationRepository:
                 raise ValueError(
                     'JointOptimizationSpec base CalibrationPlan authority mismatch'
                 )
+            quality_report = self.calibration_repository.quality_repository.get_report(
+                plan.measurement_quality_report_id
+            )
+            if (
+                quality_report is None
+                or quality_report.report_sha256
+                != plan.measurement_quality_report_sha256
+            ):
+                raise ValueError(
+                    'JointOptimizationSpec base CalibrationPlan quality authority '
+                    'is not resolvable'
+                )
+
+        for ref in spec.hard_constraints:
+            if ref.constraint_kind == 'physical_search_workspace':
+                if (
+                    ref.authority_id != search_spec.search_spec_id
+                    or ref.authority_sha256 != search_spec.constraint_workspace_hash
+                ):
+                    raise ValueError(
+                        'JointOptimizationSpec physical-search hard constraint '
+                        'does not resolve to the base SearchSpec workspace'
+                    )
+            elif ref.constraint_kind == 'device_capability':
+                if plan is None:
+                    raise ValueError(
+                        'JointOptimizationSpec device-capability hard constraint '
+                        'requires DSP CalibrationPlan authority'
+                    )
+                capability = plan.device_constraints
+                if (
+                    ref.authority_id != capability.capability_id
+                    or ref.authority_sha256 != device_capability_sha256(capability)
+                ):
+                    raise ValueError(
+                        'JointOptimizationSpec device-capability hard constraint '
+                        'does not resolve to the base CalibrationPlan capability'
+                    )
+            else:
+                raise ValueError(
+                    'JointOptimizationSpec external hard constraint has no '
+                    'resolvable authority'
+                )
+
+        try:
+            robustness_spec = self.robustness_repository.get_spec(
+                spec.robustness.robustness_spec_id
+            )
+        except KeyError as exc:
+            raise ValueError(
+                'JointOptimizationSpec references unknown O90 RobustnessSpec'
+            ) from exc
+        if (
+            robustness_spec.robustness_spec_sha256
+            != spec.robustness.robustness_spec_sha256
+        ):
+            raise ValueError('JointOptimizationSpec O90 RobustnessSpec hash mismatch')
+        if (
+            robustness_spec.document_id != spec.document_id
+            or robustness_spec.scene_revision_id != spec.scene_revision_id
+            or robustness_spec.scene_content_hash != spec.scene_content_hash
+            or robustness_spec.search_spec_id != spec.physical_search_spec_id
+            or robustness_spec.search_spec_sha256
+            != spec.physical_search_spec_sha256
+        ):
+            raise ValueError(
+                'JointOptimizationSpec O90 RobustnessSpec must bind the exact '
+                'baseline and physical search authority'
+            )
+
+        axes_by_id = {axis.axis_id: axis for axis in robustness_spec.axes}
+        physical_by_id = {
+            item.variable_id: item for item in spec.physical_variables
+        }
+        for mapping in spec.robustness.variable_mapping:
+            variable = physical_by_id.get(mapping.joint_variable_id)
+            if variable is None:
+                raise ValueError(
+                    'JointOptimizationSpec O90 mapping does not resolve to a '
+                    'physical joint decision variable'
+                )
+            axis = axes_by_id.get(mapping.o90_axis_id)
+            if axis is None:
+                raise ValueError(
+                    'JointOptimizationSpec O90 mapping references an unknown '
+                    'robustness axis'
+                )
+            if axis.entity_id != variable.entity_id or axis.unit != variable.unit:
+                raise ValueError(
+                    'JointOptimizationSpec O90 axis does not match the joint '
+                    'variable subject'
+                )
+            if axis.parameter not in _O90_AXIS_PARAMETERS[variable.parameter]:
+                raise ValueError(
+                    'JointOptimizationSpec O90 axis parameter is unrelated to '
+                    'the joint variable'
+                )
+
+        expected = build_joint_optimization_spec(
+            scene_revision=revision,
+            base_system_variant=variant,
+            physical_search_spec=search_spec,
+            extended_search_spec=extended_search_spec,
+            base_calibration_plan=plan,
+            measurement_quality_report=quality_report,
+            dsp_variables=spec.dsp_variables,
+            objectives=spec.objectives,
+            robustness=spec.robustness,
+            evaluator=spec.evaluator,
+            candidate_budget=spec.candidate_budget,
+            created_at_utc=spec.created_at_utc,
+            spec_id=spec.spec_id,
+        )
+        if expected != spec:
+            raise ValueError(
+                'JointOptimizationSpec is not the canonical compilation of its '
+                'declared search, DSP, and constraint authorities'
+            )
+
+    def _validated_spec(self, row: sqlite3.Row) -> JointOptimizationSpec:
+        """Deserialize one persisted spec row and replay its exact authority."""
+
+        spec = JointOptimizationSpec.model_validate_json(row['payload_json'])
+        if (
+            row['spec_id'] != spec.spec_id
+            or row['semantic_sha256'] != spec.semantic_sha256
+            or row['document_id'] != spec.document_id
+            or row['scene_revision_id'] != spec.scene_revision_id
+            or row['base_system_variant_id'] != spec.base_system_variant_id
+        ):
+            raise ValueError(
+                'persisted JointOptimizationSpec row disagrees with its payload'
+            )
+        self._require_spec_authority(spec)
+        return spec
 
     def save_spec(self, spec: JointOptimizationSpec) -> JointOptimizationSpec:
         spec = JointOptimizationSpec.model_validate(spec.model_dump(mode='python'))
-        self._validate_spec_authorities(spec)
+        self._require_spec_authority(spec)
         with closing(self._connect()) as connection, connection:
+            # BEGIN IMMEDIATE holds the write lock so the duplicate recheck and
+            # the insert are serialized: racing writers cannot both observe the
+            # spec_id as absent.
+            connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute(
                 """
-                SELECT payload_json
+                SELECT *
                 FROM cad_joint_optimization_specs
                 WHERE spec_id=?
                 """,
                 (spec.spec_id,),
             ).fetchone()
             if existing is not None:
-                persisted = JointOptimizationSpec.model_validate_json(
-                    existing['payload_json']
-                )
+                persisted = self._validated_spec(existing)
                 if persisted != spec:
                     raise ValueError(
                         'JointOptimizationSpec ID already exists with different semantics'
@@ -213,17 +446,13 @@ class CadJointOptimizationRepository:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
-                SELECT payload_json
+                SELECT *
                 FROM cad_joint_optimization_specs
                 WHERE spec_id=?
                 """,
                 (spec_id,),
             ).fetchone()
-        if row is None:
-            return None
-        spec = JointOptimizationSpec.model_validate_json(row['payload_json'])
-        self._validate_spec_authorities(spec)
-        return spec
+        return None if row is None else self._validated_spec(row)
 
     def list_specs(
         self,
@@ -232,20 +461,14 @@ class CadJointOptimizationRepository:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT *
                 FROM cad_joint_optimization_specs
                 WHERE document_id=?
                 ORDER BY seq ASC
                 """,
                 (document_id,),
             ).fetchall()
-        specs = tuple(
-            JointOptimizationSpec.model_validate_json(row['payload_json'])
-            for row in rows
-        )
-        for spec in specs:
-            self._validate_spec_authorities(spec)
-        return specs
+        return tuple(self._validated_spec(row) for row in rows)
 
     def _persisted_spec_for_candidate(
         self,
@@ -260,7 +483,7 @@ class CadJointOptimizationRepository:
             raise ValueError('JointCandidate evaluator authority mismatch')
         return spec
 
-    def _validate_candidate_authorities(
+    def _require_candidate_authority(
         self,
         candidate: JointCandidate,
     ) -> JointOptimizationSpec:
@@ -311,7 +534,7 @@ class CadJointOptimizationRepository:
         candidate = JointCandidate.model_validate(
             candidate.model_dump(mode='python')
         )
-        spec = self._validate_candidate_authorities(candidate)
+        spec = self._require_candidate_authority(candidate)
         calibration_plan_id = (
             None
             if candidate.calibration_candidate is None
@@ -386,7 +609,7 @@ class CadJointOptimizationRepository:
         if row is None:
             return None
         candidate = JointCandidate.model_validate_json(row['payload_json'])
-        self._validate_candidate_authorities(candidate)
+        self._require_candidate_authority(candidate)
         return candidate
 
     def list_candidates(
@@ -408,10 +631,10 @@ class CadJointOptimizationRepository:
             for row in rows
         )
         for candidate in candidates:
-            self._validate_candidate_authorities(candidate)
+            self._require_candidate_authority(candidate)
         return candidates
 
-    def _validate_evaluation(
+    def _require_evaluation_authority(
         self,
         evaluation: JointCandidateEvaluationBinding,
     ) -> None:
@@ -437,7 +660,7 @@ class CadJointOptimizationRepository:
         evaluation = JointCandidateEvaluationBinding.model_validate(
             evaluation.model_dump(mode='python')
         )
-        self._validate_evaluation(evaluation)
+        self._require_evaluation_authority(evaluation)
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
                 """
@@ -491,7 +714,7 @@ class CadJointOptimizationRepository:
         evaluation = JointCandidateEvaluationBinding.model_validate_json(
             row['payload_json']
         )
-        self._validate_evaluation(evaluation)
+        self._require_evaluation_authority(evaluation)
         return evaluation
 
     def list_evaluations(
@@ -513,10 +736,10 @@ class CadJointOptimizationRepository:
             for row in rows
         )
         for evaluation in evaluations:
-            self._validate_evaluation(evaluation)
+            self._require_evaluation_authority(evaluation)
         return evaluations
 
-    def _validate_selection(
+    def _require_selection_authority(
         self,
         selection: JointCandidateSelection,
     ) -> None:
@@ -554,7 +777,7 @@ class CadJointOptimizationRepository:
         selection = JointCandidateSelection.model_validate(
             selection.model_dump(mode='python')
         )
-        self._validate_selection(selection)
+        self._require_selection_authority(selection)
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
                 """
@@ -609,7 +832,7 @@ class CadJointOptimizationRepository:
         selection = JointCandidateSelection.model_validate_json(
             row['payload_json']
         )
-        self._validate_selection(selection)
+        self._require_selection_authority(selection)
         return selection
 
     def latest_selection(
@@ -632,5 +855,5 @@ class CadJointOptimizationRepository:
         selection = JointCandidateSelection.model_validate_json(
             row['payload_json']
         )
-        self._validate_selection(selection)
+        self._require_selection_authority(selection)
         return selection
