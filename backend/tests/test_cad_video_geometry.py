@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import closing
+from hashlib import sha256
+import json
 from pathlib import Path
 import sqlite3
 
@@ -25,9 +27,12 @@ from htdt.cad_system_variant import (
 )
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.cad_video_geometry import (
+    PROJECTOR_SPEC_EVIDENCED_FIELDS,
     AngleRange,
     AspectRatio,
     LensShiftRange,
+    ProjectorSpecification,
+    ProjectorSpecificationEvidence,
     ProjectorSpecificationProvenance,
     ScreenGeometryBinding,
     SeatGeometryBinding,
@@ -36,15 +41,22 @@ from htdt.cad_video_geometry import (
     VideoGeometryPolicy,
     VideoGeometryRequest,
     _digest,
+    build_projector_spec_document_evidence,
+    build_projector_spec_field_assertions,
+    build_projector_spec_manual_evidence,
     build_projector_specification,
     build_video_geometry_request,
     evaluate_video_geometry,
+    projector_spec_optical_values,
 )
 from htdt.cad_video_geometry_repository import CadVideoGeometryRepository
 
 
 DOCUMENT_ID = 'video-geometry-fixture'
 NOW = '2026-09-19T07:30:00+00:00'
+
+SPEC_SOURCE_FILENAME = 'example-projector-p-spec.json'
+SPEC_SOURCE_MEDIA_TYPE = 'application/json'
 
 
 def _screen() -> SceneEntity:
@@ -108,7 +120,69 @@ def _baseline(tmp_path: Path):
     return scene_repository, revision
 
 
-def _projector_spec():
+def _spec_optical_values() -> dict:
+    return projector_spec_optical_values(
+        lens_reference_offset_m=Offset3(x_m=0.0, y_m=-0.25, z_m=0.0),
+        optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
+        throw_ratio_min=1.2,
+        throw_ratio_max=1.6,
+        optical_zoom_ratio=1.33,
+        horizontal_lens_shift=LensShiftRange(
+            minimum_fraction=-0.25,
+            maximum_fraction=0.25,
+        ),
+        vertical_lens_shift=LensShiftRange(
+            minimum_fraction=-0.65,
+            maximum_fraction=0.65,
+        ),
+        supported_aspect_ratios=(AspectRatio(width_units=16, height_units=9),),
+    )
+
+
+def _spec_locators() -> dict:
+    return {
+        field: f'datasheet p.4, optical table, row "{field}"'
+        for field in PROJECTOR_SPEC_EVIDENCED_FIELDS
+    }
+
+
+def _spec_source_bytes() -> bytes:
+    return json.dumps(
+        {
+            'schema': 'example.projector-spec-sheet.v1',
+            'manufacturer': 'Example Projection Co.',
+            'model': 'P',
+            'document_version': '2026.1',
+            'optical': _spec_optical_values(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+
+
+def _projector_spec_evidence() -> ProjectorSpecificationEvidence:
+    return build_projector_spec_document_evidence(
+        evidence_kind='manufacturer_document',
+        manufacturer='Example Projection Co.',
+        model='P',
+        publisher='Example Projection Co.',
+        document_title='Model P Optical Installation Specification',
+        document_version='2026.1',
+        reference='Throw and lens-shift table',
+        source_uri='https://example.invalid/projector-p/spec',
+        source_sha256=sha256(_spec_source_bytes()).hexdigest(),
+        extractor_id='htdt-test-spec-table',
+        extractor_version='1.0',
+        field_assertions=build_projector_spec_field_assertions(
+            optical_values=_spec_optical_values(),
+            field_locators=_spec_locators(),
+        ),
+    )
+
+
+def _projector_spec() -> ProjectorSpecification:
+    evidence = _projector_spec_evidence()
     provenance = ProjectorSpecificationProvenance(
         source_kind='manufacturer',
         publisher='Example Projection Co.',
@@ -116,7 +190,8 @@ def _projector_spec():
         document_version='2026.1',
         reference='Throw and lens-shift table',
         source_uri='https://example.invalid/projector-p/spec',
-        source_sha256='a' * 64,
+        source_sha256=evidence.source_sha256,
+        evidence=evidence.ref(),
     )
     return build_projector_specification(
         specification_id='example-projector-p',
@@ -138,6 +213,20 @@ def _projector_spec():
             maximum_fraction=0.65,
         ),
         supported_aspect_ratios=(AspectRatio(width_units=16, height_units=9),),
+    )
+
+
+def _save_projector_specification(
+    repository: CadVideoGeometryRepository,
+    specification: ProjectorSpecification,
+) -> ProjectorSpecification:
+    """Persist the fixture spec together with its exact retained evidence."""
+    return repository.save_projector_specification(
+        specification,
+        evidence=_projector_spec_evidence(),
+        source_bytes=_spec_source_bytes(),
+        source_filename=SPEC_SOURCE_FILENAME,
+        media_type=SPEC_SOURCE_MEDIA_TYPE,
     )
 
 
@@ -267,7 +356,7 @@ def _persisted_baseline_evaluation(tmp_path: Path):
         request=_request(specification),
     )
     repository = CadVideoGeometryRepository(scene_repository)
-    repository.save_projector_specification(specification)
+    _save_projector_specification(repository, specification)
     repository.save_evaluation(evaluation)
     return scene_repository, repository, baseline, evaluation
 
@@ -285,7 +374,7 @@ def _persisted_variant_evaluation(tmp_path: Path):
     variant_repository = CadSystemVariantRepository(scene_repository)
     variant_repository.save_variant(variant)
     repository = CadVideoGeometryRepository(scene_repository, variant_repository)
-    repository.save_projector_specification(specification)
+    _save_projector_specification(repository, specification)
     repository.save_evaluation(evaluation)
     return scene_repository, repository, baseline, variant, evaluation
 
@@ -334,8 +423,32 @@ def test_projector_specification_identity_and_user_defined_source_are_explicit()
     assert first == second
     assert first.specification_sha256 == second.specification_sha256
     assert first.provenance.source_kind == 'manufacturer'
+    assert first.provenance.evidence.evidence_kind == 'manufacturer_document'
     assert first.lens_reference_offset_m.y_m == pytest.approx(-0.25)
 
+    manual_optical = projector_spec_optical_values(
+        lens_reference_offset_m=Offset3(),
+        optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
+        throw_ratio_min=1.0,
+        throw_ratio_max=2.0,
+    )
+    manual_evidence = build_projector_spec_manual_evidence(
+        publisher='HTDT user',
+        document_title='Measured placement envelope',
+        document_version='1',
+        reference='manual entry',
+        field_assertions=build_projector_spec_field_assertions(
+            optical_values=manual_optical,
+            field_locators={
+                field: 'tape measurement notes'
+                for field in PROJECTOR_SPEC_EVIDENCED_FIELDS
+            },
+        ),
+        source_citation='site measurement worksheet 2026-09-19',
+        actor='installer-a',
+        recorded_at_utc=NOW,
+        evidence_basis='user_measurement',
+    )
     user_defined = build_projector_specification(
         specification_id='custom-projector-envelope',
         version='1',
@@ -345,6 +458,7 @@ def test_projector_specification_identity_and_user_defined_source_are_explicit()
             document_title='Measured placement envelope',
             document_version='1',
             reference='manual entry',
+            evidence=manual_evidence.ref(),
         ),
         lens_reference_offset_m=Offset3(),
         optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
@@ -354,6 +468,11 @@ def test_projector_specification_identity_and_user_defined_source_are_explicit()
     assert user_defined.manufacturer is None
     assert user_defined.model is None
     assert user_defined.provenance.source_kind == 'user_defined'
+    assert user_defined.provenance.evidence.evidence_kind == 'manual_record'
+    assert (
+        user_defined.provenance.evidence.evidence_sha256
+        == manual_evidence.evidence_sha256
+    )
 
 
 def test_baseline_projection_and_viewing_are_deterministic_but_rear_sightline_fails(
@@ -433,7 +552,7 @@ def test_system_variant_can_raise_rear_row_on_riser_and_replace_projector_withou
     variant_repository = CadSystemVariantRepository(scene_repository)
     variant_repository.save_variant(variant)
     repository = CadVideoGeometryRepository(scene_repository, variant_repository)
-    assert repository.save_projector_specification(specification) == specification
+    assert _save_projector_specification(repository, specification) == specification
     assert repository.save_evaluation(evaluation) == evaluation
 
     reopened = CadVideoGeometryRepository(scene_repository, variant_repository)

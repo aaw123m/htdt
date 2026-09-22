@@ -56,6 +56,7 @@ from htdt.cad_video_geometry import (
     AngleRange,
     AspectRatio,
     LensShiftRange,
+    ProjectorSpecEvidenceRef,
     ProjectorSpecificationProvenance,
     ScreenGeometryBinding,
     SeatGeometryBinding,
@@ -339,6 +340,10 @@ def _projector_spec():
         reference='Throw and lens-shift table',
         source_uri='https://example.invalid/projector-p/spec',
         source_sha256='a' * 64,
+        evidence=ProjectorSpecEvidenceRef(
+            evidence_kind='external_authority',
+            evidence_sha256='b' * 64,
+        ),
     )
     return build_projector_specification(
         specification_id='example-projector-p',
