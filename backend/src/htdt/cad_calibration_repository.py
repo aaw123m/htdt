@@ -448,6 +448,34 @@ class CadCalibrationRepository:
             self._validate_export(snapshot)
         return snapshots
 
+    def list_verification_plans(
+        self,
+        plan_id: str,
+    ) -> tuple[CadVerificationMeasurementPlan, ...]:
+        """Return every persisted re-measure contract for a plan, revalidated.
+
+        Each row is replayed through ``_validate_verification`` so a stored
+        contract whose plan/export/scene authority moved fails closed on read,
+        matching ``list_exports``/``list_verification_completions`` semantics.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_calibration_verification_plans
+                WHERE plan_id=?
+                ORDER BY seq ASC
+                """,
+                (plan_id,),
+            ).fetchall()
+        verifications = tuple(
+            CadVerificationMeasurementPlan.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+        for verification in verifications:
+            self._validate_verification(verification)
+        return verifications
+
     def _validate_verification(
         self,
         verification: CadVerificationMeasurementPlan,
