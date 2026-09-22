@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -9,14 +10,25 @@ from .cad_calibration import CadCalibrationPlan
 from .cad_calibration_repository import CadCalibrationRepository
 from .cad_extended_search import CadExtendedSearchSpec
 from .cad_extended_search_repository import CadExtendedSearchRepository
+from .cad_joint_evaluation_authority import (
+    JOINT_DECLARED_ONLY_EVIDENCE_CLASSES,
+    JOINT_EVALUATION_INPUT_RESOLVERS,
+    JointEvaluationAuthorityContext,
+    JointEvaluationInputResolver,
+    JointObjectiveVectorEvaluator,
+    ResolvedJointEvaluationInput,
+)
 from .cad_joint_optimization import (
     JointCandidate,
     JointCandidateEvaluationBinding,
     JointCandidateSelection,
+    JointEvaluationInputRef,
     JointOptimizationSpec,
+    bind_joint_candidate_evaluation,
     build_joint_candidate,
     build_joint_optimization_spec,
     device_capability_sha256,
+    joint_pareto_front,
     physical_variables_from_authority,
     require_joint_decision_materialization,
 )
@@ -28,7 +40,9 @@ from .cad_search_models import CadSearchSpec
 from .cad_search_repository import CadSearchRepository
 from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .optimization_objectives import ObjectiveVector
 from .optimization_robustness import RobustnessAxisParameter
+from .pareto import ParetoResult
 
 
 class _ResolvedSpecAuthorities(NamedTuple):
@@ -56,6 +70,18 @@ class CadJointOptimizationRepository:
 
     Selection is deliberately non-applying: no SceneRevision mutation and no
     CalibrationPlan export/lifecycle transition occurs in this repository.
+
+    Evaluation bindings are never trusted as caller-supplied metrics: at
+    save and on every authoritative read the repository resolves each
+    declared ``input_refs`` entry through a typed resolver (built-in kinds
+    cover the candidate, the parent spec and its baseline SceneRevision, the
+    candidate's physical SystemVariant and CalibrationPlan, the spec's
+    pinned measurement/dataset/quality authorities, and the search/O90
+    authorities; ``measured``/``predicted`` refs without a registered
+    resolver fail closed), then invokes the evaluator registered under the
+    spec-pinned ``JointEvaluatorIdentity.evaluator_id`` and requires the
+    stored ``ObjectiveVector`` to equal the canonically derived one —
+    definition, unit, direction, state and value per metric.
     """
 
     def __init__(
@@ -67,6 +93,8 @@ class CadJointOptimizationRepository:
         search_repository: CadSearchRepository,
         extended_search_repository: CadExtendedSearchRepository,
         robustness_repository: CadRobustnessRepository,
+        input_resolvers: Mapping[str, JointEvaluationInputResolver] | None = None,
+        vector_evaluators: Mapping[str, JointObjectiveVectorEvaluator] | None = None,
     ) -> None:
         paths = {
             Path(scene_repository.path),
@@ -86,6 +114,11 @@ class CadJointOptimizationRepository:
         self.search_repository = search_repository
         self.extended_search_repository = extended_search_repository
         self.robustness_repository = robustness_repository
+        self._input_resolvers = {
+            **JOINT_EVALUATION_INPUT_RESOLVERS,
+            **dict(input_resolvers or {}),
+        }
+        self._vector_evaluators = dict(vector_evaluators or {})
         self.path = paths.pop()
         ensure_native_schema(self.path)
         self._initialize()
@@ -718,10 +751,121 @@ class CadJointOptimizationRepository:
             self._require_candidate_authority(candidate)
         return candidates
 
+    def _evaluation_context(
+        self,
+        *,
+        spec: JointOptimizationSpec,
+        candidate: JointCandidate,
+        evaluation: JointCandidateEvaluationBinding,
+    ) -> JointEvaluationAuthorityContext:
+        """Resolve the exact persisted authorities resolvers/evaluators use.
+
+        The parent spec and candidate were already replayed by
+        ``_require_evaluation_authority``; this resolves the candidate's
+        physical SystemVariant, CalibrationPlan and MeasurementQualityReport
+        again so read-side replay fails closed when evidence disappeared
+        after the candidate was admitted.
+        """
+
+        revision = self.scene_repository.get(spec.scene_revision_id)
+        if revision is None:
+            raise ValueError(
+                'joint evaluation baseline SceneRevision evidence disappeared'
+            )
+        variant = self.system_variant_repository.get_variant(
+            candidate.physical_system_variant_id
+        )
+        if variant is None:
+            raise ValueError(
+                'joint evaluation physical SystemVariant evidence disappeared'
+            )
+        plan = None
+        quality_report = None
+        if candidate.calibration_candidate is not None:
+            plan = self.calibration_repository.get_plan(
+                candidate.calibration_candidate.plan_id
+            )
+            if plan is None:
+                raise ValueError(
+                    'joint evaluation CalibrationPlan evidence disappeared'
+                )
+            quality_report = self.calibration_repository.quality_repository.get_report(
+                plan.measurement_quality_report_id
+            )
+            if quality_report is None:
+                raise ValueError(
+                    'joint evaluation MeasurementQualityReport evidence '
+                    'disappeared'
+                )
+        return JointEvaluationAuthorityContext(
+            evaluation=evaluation,
+            spec=spec,
+            candidate=candidate,
+            scene_revision=revision,
+            physical_variant=variant,
+            calibration_plan=plan,
+            measurement_quality_report=quality_report,
+            scene_repository=self.scene_repository,
+            system_variant_repository=self.system_variant_repository,
+            calibration_repository=self.calibration_repository,
+            search_repository=self.search_repository,
+            extended_search_repository=self.extended_search_repository,
+            robustness_repository=self.robustness_repository,
+        )
+
+    def _resolve_evaluation_input(
+        self,
+        context: JointEvaluationAuthorityContext,
+        ref: JointEvaluationInputRef,
+    ) -> ResolvedJointEvaluationInput:
+        """Resolve one declared input ref against exact persisted evidence."""
+
+        resolver = self._input_resolvers.get(ref.source_kind)
+        if resolver is None:
+            if ref.evidence_class not in JOINT_DECLARED_ONLY_EVIDENCE_CLASSES:
+                raise ValueError(
+                    f'joint evaluation {ref.evidence_class} input has no '
+                    f'registered authority for source kind: {ref.source_kind}'
+                )
+            return ResolvedJointEvaluationInput(
+                ref=ref,
+                source_sha256=ref.source_sha256,
+            )
+        resolved = resolver(context, ref)
+        if not isinstance(resolved, ResolvedJointEvaluationInput):
+            raise ValueError(
+                'joint evaluation input resolver must return '
+                'ResolvedJointEvaluationInput'
+            )
+        if resolved.ref != ref:
+            raise ValueError(
+                'joint evaluation input resolver must return the declared ref'
+            )
+        if resolved.source_sha256 != ref.source_sha256:
+            raise ValueError(
+                'joint evaluation input source hash mismatch: '
+                f'{ref.source_kind}:{ref.source_id}'
+            )
+        return resolved
+
     def _require_evaluation_authority(
         self,
         evaluation: JointCandidateEvaluationBinding,
     ) -> None:
+        """Replay the exact evidence/evaluator authority one binding claims.
+
+        Revalidates the parent JointOptimizationSpec and JointCandidate
+        (including their own full authority graphs), requires the binding to
+        equal the canonical ``bind_joint_candidate_evaluation`` compilation
+        of its declared inputs, resolves every ``input_refs`` entry through
+        its typed resolver and requires the resolved semantic hash to equal
+        the declared ``source_sha256``, then invokes the evaluator registered
+        under the spec-pinned ``JointEvaluatorIdentity.evaluator_id`` and
+        requires the derived ``ObjectiveVector`` to equal the stored one
+        exactly. Shared by save-time validation and every authoritative read,
+        so disappeared or tampered evidence fails closed.
+        """
+
         spec = self.get_spec(evaluation.parent_spec_id)
         if spec is None:
             raise ValueError(
@@ -736,6 +880,78 @@ class CadJointOptimizationRepository:
             raise ValueError('joint evaluation references unpersisted JointCandidate')
         if candidate.candidate_sha256 != evaluation.candidate_sha256:
             raise ValueError('joint evaluation candidate hash mismatch')
+        if (
+            candidate.parent_spec_id != spec.spec_id
+            or candidate.parent_spec_sha256 != spec.semantic_sha256
+        ):
+            raise ValueError(
+                'joint evaluation candidate does not belong to the parent spec'
+            )
+
+        regenerated = bind_joint_candidate_evaluation(
+            spec=spec,
+            candidate=candidate,
+            objective_vector=evaluation.objective_vector,
+            input_refs=evaluation.input_refs,
+            created_at_utc=evaluation.created_at_utc,
+        )
+        if regenerated != evaluation:
+            raise ValueError(
+                'joint evaluation is not the canonical binding of its '
+                'declared inputs'
+            )
+
+        context = self._evaluation_context(
+            spec=spec,
+            candidate=candidate,
+            evaluation=evaluation,
+        )
+        resolved = tuple(
+            self._resolve_evaluation_input(context, ref)
+            for ref in evaluation.input_refs
+        )
+        context = context._replace(inputs=resolved)
+
+        evaluator = self._vector_evaluators.get(
+            evaluation.evaluator.evaluator_id
+        )
+        if evaluator is None:
+            raise ValueError(
+                'joint evaluation evaluator is not registered for replay: '
+                f'{evaluation.evaluator.evaluator_id}'
+            )
+        derived = evaluator(context)
+        if not isinstance(derived, ObjectiveVector):
+            raise ValueError(
+                'joint objective evaluator must return an ObjectiveVector'
+            )
+        if derived != evaluation.objective_vector:
+            raise ValueError(
+                'joint objective vector does not reproduce from resolved '
+                'evidence'
+            )
+
+    def _validated_evaluation(
+        self,
+        row: sqlite3.Row,
+    ) -> JointCandidateEvaluationBinding:
+        """Deserialize one persisted evaluation row and replay its authority."""
+
+        evaluation = JointCandidateEvaluationBinding.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['evaluation_binding_id'] != evaluation.evaluation_binding_id
+            or row['evaluation_binding_sha256']
+            != evaluation.evaluation_binding_sha256
+            or row['spec_id'] != evaluation.parent_spec_id
+            or row['candidate_id'] != evaluation.candidate_id
+        ):
+            raise ValueError(
+                'persisted joint evaluation row disagrees with its payload'
+            )
+        self._require_evaluation_authority(evaluation)
+        return evaluation
 
     def save_evaluation(
         self,
@@ -746,18 +962,19 @@ class CadJointOptimizationRepository:
         )
         self._require_evaluation_authority(evaluation)
         with closing(self._connect()) as connection, connection:
+            # BEGIN IMMEDIATE holds the write lock so the duplicate recheck
+            # and the insert are serialized, matching spec/candidate saves.
+            connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute(
                 """
-                SELECT payload_json
+                SELECT *
                 FROM cad_joint_candidate_evaluations
                 WHERE evaluation_binding_id=?
                 """,
                 (evaluation.evaluation_binding_id,),
             ).fetchone()
             if existing is not None:
-                persisted = JointCandidateEvaluationBinding.model_validate_json(
-                    existing['payload_json']
-                )
+                persisted = self._validated_evaluation(existing)
                 if persisted != evaluation:
                     raise ValueError(
                         'joint evaluation ID already exists with different semantics'
@@ -787,19 +1004,13 @@ class CadJointOptimizationRepository:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
-                SELECT payload_json
+                SELECT *
                 FROM cad_joint_candidate_evaluations
                 WHERE evaluation_binding_id=?
                 """,
                 (evaluation_binding_id,),
             ).fetchone()
-        if row is None:
-            return None
-        evaluation = JointCandidateEvaluationBinding.model_validate_json(
-            row['payload_json']
-        )
-        self._require_evaluation_authority(evaluation)
-        return evaluation
+        return None if row is None else self._validated_evaluation(row)
 
     def list_evaluations(
         self,
@@ -808,20 +1019,46 @@ class CadJointOptimizationRepository:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT *
                 FROM cad_joint_candidate_evaluations
                 WHERE spec_id=?
                 ORDER BY seq ASC
                 """,
                 (spec_id,),
             ).fetchall()
+        return tuple(self._validated_evaluation(row) for row in rows)
+
+    def pareto_front(
+        self,
+        spec_id: str,
+        objective_ids: Sequence[str] | None = None,
+    ) -> ParetoResult:
+        """Compute the joint Pareto front from canonically bound evaluations.
+
+        Candidates and evaluations are reloaded through the authoritative
+        reads that replay evidence resolution and canonical vector
+        derivation, so fabricated or stale bindings fail closed instead of
+        feeding the front; evaluations of blocked candidates are excluded
+        before comparison.
+        """
+
+        spec = self.get_spec(spec_id)
+        if spec is None:
+            raise ValueError(
+                'joint Pareto references unpersisted JointOptimizationSpec'
+            )
+        candidates = self.list_candidates(spec_id)
+        eligible_ids = {
+            item.candidate_id
+            for item in candidates
+            if item.eligibility_state == 'ELIGIBLE'
+        }
         evaluations = tuple(
-            JointCandidateEvaluationBinding.model_validate_json(row['payload_json'])
-            for row in rows
+            evaluation
+            for evaluation in self.list_evaluations(spec_id)
+            if evaluation.candidate_id in eligible_ids
         )
-        for evaluation in evaluations:
-            self._require_evaluation_authority(evaluation)
-        return evaluations
+        return joint_pareto_front(evaluations, candidates, objective_ids)
 
     def _require_selection_authority(
         self,
