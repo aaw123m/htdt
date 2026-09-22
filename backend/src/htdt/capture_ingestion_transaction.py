@@ -148,6 +148,40 @@ def _validate_logical_path(value: str) -> str:
     return value
 
 
+def _binding_handoff_source_ids(
+    payload_json: str,
+    *,
+    binding_id: str,
+) -> tuple[str, str]:
+    """Extract the canonical source authorities from a persisted binding.
+
+    Both persisted representations (legacy embedded binding dump and the
+    compact handoff record) carry the validated handoff under ``handoff``;
+    the pair is revalidated through the typed model so a payload that cannot
+    produce the canonical ids fails migration instead of guessing.
+    """
+
+    try:
+        data = json.loads(payload_json)
+    except (TypeError, ValueError) as exc:
+        raise CaptureIngestionTransactionError(
+            f'persisted mesh binding {binding_id} payload is not valid JSON; '
+            'cannot normalize provenance columns'
+        ) from exc
+    handoff = data.get('handoff') if isinstance(data, dict) else None
+    try:
+        typed = CaptureMeshHandoff.model_validate(handoff)
+    except ValueError as exc:
+        raise CaptureIngestionTransactionError(
+            f'persisted mesh binding {binding_id} handoff record is invalid; '
+            'cannot normalize provenance columns'
+        ) from exc
+    return (
+        typed.anchor_index_source_evidence_id,
+        typed.geometry_source_evidence_id,
+    )
+
+
 class CaptureIngestorIdentity(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -557,7 +591,13 @@ class CaptureIngestionRepository:
                 CREATE TABLE IF NOT EXISTS capture_raw_visual_mesh_bindings (
                     binding_id TEXT PRIMARY KEY,
                     handoff_id TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL
+                    payload_json TEXT NOT NULL,
+                    anchor_index_source_evidence_id TEXT
+                        REFERENCES capture_source_evidence(source_evidence_id)
+                        ON DELETE RESTRICT,
+                    geometry_source_evidence_id TEXT
+                        REFERENCES capture_source_evidence(source_evidence_id)
+                        ON DELETE RESTRICT
                 );
 
                 CREATE TABLE IF NOT EXISTS capture_ingestion_mesh_links (
@@ -594,6 +634,23 @@ class CaptureIngestionRepository:
             ensure_content_blob_store(connection)
             self._externalize_inline_source_payloads(connection)
             self._compact_legacy_mesh_bindings(connection)
+            self._normalize_mesh_binding_sources(connection)
+            connection.execute(
+                '''
+                CREATE INDEX IF NOT EXISTS idx_capture_mesh_binding_anchor_source
+                ON capture_raw_visual_mesh_bindings(
+                    anchor_index_source_evidence_id
+                )
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE INDEX IF NOT EXISTS idx_capture_mesh_binding_geometry_source
+                ON capture_raw_visual_mesh_bindings(
+                    geometry_source_evidence_id
+                )
+                '''
+            )
 
     @staticmethod
     def _externalize_inline_source_payloads(
@@ -711,6 +768,126 @@ class CaptureIngestionRepository:
                 WHERE binding_id=?
                 ''',
                 (compact, row['binding_id']),
+            )
+
+    @staticmethod
+    def _normalize_mesh_binding_sources(
+        connection: sqlite3.Connection,
+    ) -> None:
+        """Backfill normalized source-authority edges on mesh bindings.
+
+        Rows written before the normalized columns existed carry the exact
+        anchor-index / geometry source evidence ids only inside payload_json.
+        The columns are appended lazily (matching the fresh CREATE TABLE
+        shape) and reparsed from each persisted payload. Columns stay
+        NULLable at the schema level — ``ALTER TABLE ADD COLUMN`` cannot add
+        a NOT NULL column without a default — so reads fail closed on NULL
+        or on any divergence between the columns and the typed payload. A
+        row whose payload cannot produce the canonical pair, or whose
+        recorded pair contradicts the payload, fails migration rather than
+        guessing a provenance edge.
+        """
+
+        columns = {
+            row['name']
+            for row in connection.execute(
+                'PRAGMA table_info(capture_raw_visual_mesh_bindings)'
+            )
+        }
+        if 'anchor_index_source_evidence_id' not in columns:
+            connection.execute(
+                '''
+                ALTER TABLE capture_raw_visual_mesh_bindings
+                ADD COLUMN anchor_index_source_evidence_id TEXT
+                    REFERENCES capture_source_evidence(source_evidence_id)
+                    ON DELETE RESTRICT
+                '''
+            )
+        if 'geometry_source_evidence_id' not in columns:
+            connection.execute(
+                '''
+                ALTER TABLE capture_raw_visual_mesh_bindings
+                ADD COLUMN geometry_source_evidence_id TEXT
+                    REFERENCES capture_source_evidence(source_evidence_id)
+                    ON DELETE RESTRICT
+                '''
+            )
+        rows = connection.execute(
+            '''
+            SELECT binding_id, payload_json,
+                   anchor_index_source_evidence_id,
+                   geometry_source_evidence_id
+            FROM capture_raw_visual_mesh_bindings
+            WHERE anchor_index_source_evidence_id IS NULL
+               OR geometry_source_evidence_id IS NULL
+            '''
+        ).fetchall()
+        for row in rows:
+            anchor_id, geometry_id = _binding_handoff_source_ids(
+                row['payload_json'],
+                binding_id=row['binding_id'],
+            )
+            if (
+                (
+                    row['anchor_index_source_evidence_id'] is not None
+                    and row['anchor_index_source_evidence_id'] != anchor_id
+                )
+                or (
+                    row['geometry_source_evidence_id'] is not None
+                    and row['geometry_source_evidence_id'] != geometry_id
+                )
+            ):
+                raise CaptureIngestionTransactionError(
+                    f'persisted mesh binding {row["binding_id"]} normalized '
+                    'source authorities disagree with its payload; refusing '
+                    'to rewrite provenance'
+                )
+            try:
+                connection.execute(
+                    '''
+                    UPDATE capture_raw_visual_mesh_bindings
+                    SET anchor_index_source_evidence_id=?,
+                        geometry_source_evidence_id=?
+                    WHERE binding_id=?
+                    ''',
+                    (anchor_id, geometry_id, row['binding_id']),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise CaptureIngestionTransactionError(
+                    f'persisted mesh binding {row["binding_id"]} references '
+                    'source evidence that is not persisted; refusing to '
+                    'normalize provenance columns'
+                ) from exc
+        try:
+            mismatched = connection.execute(
+                '''
+                SELECT binding_id
+                FROM capture_raw_visual_mesh_bindings
+                WHERE anchor_index_source_evidence_id IS NULL
+                   OR geometry_source_evidence_id IS NULL
+                   OR anchor_index_source_evidence_id
+                      != json_extract(
+                          payload_json,
+                          '$.handoff.anchor_index_source_evidence_id'
+                      )
+                   OR geometry_source_evidence_id
+                      != json_extract(
+                          payload_json,
+                          '$.handoff.geometry_source_evidence_id'
+                      )
+                ORDER BY binding_id
+                '''
+            ).fetchall()
+        except sqlite3.DatabaseError as exc:
+            raise CaptureIngestionTransactionError(
+                'persisted mesh binding payloads could not be verified '
+                f'against normalized provenance columns: {exc}'
+            ) from exc
+        if mismatched:
+            ids = ', '.join(str(row['binding_id']) for row in mismatched)
+            raise CaptureIngestionTransactionError(
+                'persisted mesh binding normalized source authorities do '
+                f'not match their payloads: {ids}'
             )
 
     def ingest(
@@ -934,7 +1111,9 @@ class CaptureIngestionRepository:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 '''
-                SELECT payload_json
+                SELECT payload_json,
+                       anchor_index_source_evidence_id,
+                       geometry_source_evidence_id
                 FROM capture_raw_visual_mesh_bindings
                 WHERE binding_id=?
                 ''',
@@ -946,6 +1125,10 @@ class CaptureIngestionRepository:
                 connection,
                 row['payload_json'],
                 binding_id=binding_id,
+                normalized_source_ids=(
+                    row['anchor_index_source_evidence_id'],
+                    row['geometry_source_evidence_id'],
+                ),
             )
 
     def mesh_binding_ids_for_ingestion(
@@ -1071,13 +1254,25 @@ class CaptureIngestionRepository:
         payload_json = serialize_mesh_binding_record(binding)
         existing = connection.execute(
             '''
-            SELECT payload_json
+            SELECT payload_json,
+                   anchor_index_source_evidence_id,
+                   geometry_source_evidence_id
             FROM capture_raw_visual_mesh_bindings
             WHERE binding_id=?
             ''',
             (binding.binding_id,),
         ).fetchone()
         if existing is not None:
+            if (
+                existing['anchor_index_source_evidence_id']
+                != binding.handoff.anchor_index_source_evidence_id
+                or existing['geometry_source_evidence_id']
+                != binding.handoff.geometry_source_evidence_id
+            ):
+                raise CaptureIngestionTransactionError(
+                    'persisted mesh binding normalized source authorities do '
+                    'not match the ingestion plan'
+                )
             if existing['payload_json'] != payload_json:
                 # The persisted representation changed from an embedded mesh
                 # dump to a compact handoff record. Compare semantic identity
@@ -1088,6 +1283,10 @@ class CaptureIngestionRepository:
                     connection,
                     existing['payload_json'],
                     binding_id=binding.binding_id,
+                    normalized_source_ids=(
+                        existing['anchor_index_source_evidence_id'],
+                        existing['geometry_source_evidence_id'],
+                    ),
                 )
                 if persisted.handoff != binding.handoff:
                     raise CaptureIngestionTransactionError(
@@ -1097,12 +1296,17 @@ class CaptureIngestionRepository:
         connection.execute(
             '''
             INSERT INTO capture_raw_visual_mesh_bindings(
-                binding_id, handoff_id, payload_json
-            ) VALUES (?, ?, ?)
+                binding_id, handoff_id,
+                anchor_index_source_evidence_id,
+                geometry_source_evidence_id,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?)
             ''',
             (
                 binding.binding_id,
                 binding.handoff.raw_visual_mesh_handoff_id,
+                binding.handoff.anchor_index_source_evidence_id,
+                binding.handoff.geometry_source_evidence_id,
                 payload_json,
             ),
         )
@@ -1284,6 +1488,7 @@ class CaptureIngestionRepository:
         payload_json: str,
         *,
         binding_id: str | None = None,
+        normalized_source_ids: tuple[object, object] | None = None,
     ) -> CaptureRawVisualMeshBinding:
         """Rebuild a persisted binding from either storage representation.
 
@@ -1291,7 +1496,9 @@ class CaptureIngestionRepository:
         of the source bytes). Compact rows keep only the handoff; the mesh is
         re-adapted from the canonical content-addressed source bytes, which
         re-validates the hash and declared counts and reproduces the identical
-        binding identity.
+        binding identity. When the row's normalized source-authority columns
+        are supplied they must equal the canonical ids inside the typed
+        payload — a missing or divergent edge fails closed.
         """
 
         try:
@@ -1301,24 +1508,46 @@ class CaptureIngestionRepository:
                 f'persisted mesh binding record is invalid: {exc}'
             ) from exc
         if record is None:
-            return CaptureRawVisualMeshBinding.model_validate_json(payload_json)
-        stored_binding_id, handoff = record
-        if binding_id is not None and stored_binding_id != binding_id:
-            raise CaptureIngestionTransactionError(
-                'persisted mesh binding record identity mismatch'
+            binding = CaptureRawVisualMeshBinding.model_validate_json(
+                payload_json
             )
-        asset = self._canonical_geometry_bytes(connection, handoff)
-        try:
-            binding = adapt_capture_mesh_handoff(handoff, asset)
-        except (CaptureMeshIngestionError, ValueError) as exc:
-            raise CaptureIngestionTransactionError(
-                'persisted mesh binding cannot be rebuilt from the canonical '
-                f'geometry payload: {exc}'
-            ) from exc
-        if binding.binding_id != stored_binding_id:
-            raise CaptureIngestionTransactionError(
-                'persisted mesh binding does not reproduce its recorded identity'
-            )
+        else:
+            stored_binding_id, handoff = record
+            if binding_id is not None and stored_binding_id != binding_id:
+                raise CaptureIngestionTransactionError(
+                    'persisted mesh binding record identity mismatch'
+                )
+            asset = self._canonical_geometry_bytes(connection, handoff)
+            try:
+                binding = adapt_capture_mesh_handoff(handoff, asset)
+            except (CaptureMeshIngestionError, ValueError) as exc:
+                raise CaptureIngestionTransactionError(
+                    'persisted mesh binding cannot be rebuilt from the '
+                    f'canonical geometry payload: {exc}'
+                ) from exc
+            if binding.binding_id != stored_binding_id:
+                raise CaptureIngestionTransactionError(
+                    'persisted mesh binding does not reproduce its recorded '
+                    'identity'
+                )
+        if normalized_source_ids is not None:
+            anchor_index_id, geometry_id = normalized_source_ids
+            if not isinstance(anchor_index_id, str) or not isinstance(
+                geometry_id, str
+            ):
+                raise CaptureIngestionTransactionError(
+                    'persisted mesh binding is missing its normalized '
+                    'source-evidence authorities'
+                )
+            if (
+                binding.handoff.anchor_index_source_evidence_id
+                != anchor_index_id
+                or binding.handoff.geometry_source_evidence_id != geometry_id
+            ):
+                raise CaptureIngestionTransactionError(
+                    'persisted mesh binding normalized source authorities do '
+                    'not match its payload'
+                )
         return binding
 
     @staticmethod
