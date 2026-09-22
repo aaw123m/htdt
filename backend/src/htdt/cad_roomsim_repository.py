@@ -6,11 +6,17 @@ from pathlib import Path
 import sqlite3
 
 from .cad_repository import SceneRepository
+from .cad_roomsim import (
+    CadRoomSimBinding,
+    build_cad_roomsim_candidate_request,
+)
 from .cad_roomsim_results import (
     CadRoomSimBatchSpec,
     CadRoomSimCandidateAttempt,
     roomsim_result_response,
 )
+from .cad_search import iter_cad_candidate_pages
+from .cad_search_models import CAD_SEARCH_ALGORITHM_VERSION, CadCandidate
 from .cad_search_repository import CadSearchRepository
 
 
@@ -77,7 +83,36 @@ class CadRoomSimRepository:
                 '''
             )
 
-    def save_batch_spec(self, spec: CadRoomSimBatchSpec) -> None:
+    def _require_batch_authority(self, spec: CadRoomSimBatchSpec) -> None:
+        """Replay the exact batch-input compiler over declared authority.
+
+        ``CadRoomSimBatchSpec`` self-hashes its submitted requests, so a
+        coherently rehashed payload is not proof of authority. The persisted
+        batch must instead reproduce its candidate request set from the exact
+        SearchSpec candidate enumeration: the exact SceneRevision and
+        SearchSpec are re-resolved (the SearchSpec read already replays its
+        own compiler authority), the pinned search algorithm regenerates the
+        exact candidate set and ``candidate_set_sha256``, the persisted
+        binding parses as a ``CadRoomSimBinding``, and every persisted
+        request must equal ``build_cad_roomsim_candidate_request`` for the
+        exact resolved candidate.
+
+        The persisted ``requests`` tuple is the explicit ordered subset
+        selection: every member must resolve to a canonical candidate with
+        matching raw/feasible indices, and the sequence must follow canonical
+        enumeration order (strictly increasing ``feasible_index``) rather
+        than trusting whatever order was submitted.
+
+        Replay policy for historical search algorithms: only the pinned
+        ``deterministic_grid``/``search-space-grid-1`` enumeration is
+        replayable. Persisted SearchSpec rows on an older schema version
+        already fail closed inside ``CadSearchRepository``, so a batch
+        anchored to them can never authorize attempts.
+
+        This runs before every batch write and on every batch read, so a
+        stale or tampered row cannot authorize candidate attempts.
+        """
+
         revision = self.scene_repository.get(spec.scene_revision_id)
         if revision is None:
             raise ValueError('Room Simulator batch source revision does not exist')
@@ -98,8 +133,96 @@ class CadRoomSimRepository:
             raise ValueError('Room Simulator batch SearchSpec source binding mismatch')
         if search_spec.search_spec_sha256 != spec.search_spec_sha256:
             raise ValueError('Room Simulator batch SearchSpec hash mismatch')
+        if (
+            search_spec.algorithm != 'deterministic_grid'
+            or search_spec.algorithm_version != CAD_SEARCH_ALGORITHM_VERSION
+        ):
+            raise ValueError(
+                'Room Simulator batch cannot replay the pinned search algorithm'
+            )
+
+        binding = CadRoomSimBinding.model_validate(json.loads(spec.binding_json))
+
+        remaining = {item.candidate_id for item in spec.requests}
+        resolved: dict[str, CadCandidate] = {}
+        candidate_set_sha256: str | None = None
+        with closing(
+            iter_cad_candidate_pages(self.scene_repository, search_spec)
+        ) as pages:
+            for page in pages:
+                candidate_set_sha256 = page.candidate_set_sha256
+                for candidate in page.candidates:
+                    if candidate.candidate_id in remaining:
+                        resolved[candidate.candidate_id] = candidate
+                        remaining.discard(candidate.candidate_id)
+                if not remaining:
+                    break
+        if candidate_set_sha256 != spec.candidate_set_sha256:
+            raise ValueError('Room Simulator batch candidate-set hash mismatch')
+
+        last_feasible_index = -1
+        for persisted in spec.requests:
+            candidate = resolved.get(persisted.candidate_id)
+            if candidate is None:
+                raise ValueError(
+                    'Room Simulator batch request candidate is not in the '
+                    'regenerated SearchSpec candidate set'
+                )
+            if (
+                candidate.raw_index != persisted.raw_index
+                or candidate.feasible_index != persisted.feasible_index
+            ):
+                raise ValueError(
+                    'Room Simulator batch request raw/feasible index mismatch'
+                )
+            if candidate.feasible_index <= last_feasible_index:
+                raise ValueError(
+                    'Room Simulator batch requests must follow canonical '
+                    'candidate enumeration order'
+                )
+            last_feasible_index = candidate.feasible_index
+            if (
+                build_cad_roomsim_candidate_request(
+                    revision,
+                    search_spec,
+                    candidate,
+                    binding,
+                )
+                != persisted
+            ):
+                raise ValueError(
+                    'Room Simulator batch request is not the canonical '
+                    'candidate request'
+                )
+
+    def _validated_batch_spec(self, row: sqlite3.Row) -> CadRoomSimBatchSpec:
+        """Deserialize one persisted batch row and replay its exact authority."""
+        spec = CadRoomSimBatchSpec.model_validate_json(row['payload_json'])
+        if (
+            row['batch_run_id'] != spec.batch_run_id
+            or row['document_id'] != spec.document_id
+            or row['scene_revision_id'] != spec.scene_revision_id
+            or row['scene_content_hash'] != spec.scene_content_hash
+            or row['search_spec_id'] != spec.search_spec_id
+            or row['search_spec_sha256'] != spec.search_spec_sha256
+            or row['candidate_set_sha256'] != spec.candidate_set_sha256
+            or row['batch_spec_sha256'] != spec.batch_spec_sha256
+            or row['created_at_utc'] != spec.created_at_utc
+        ):
+            raise ValueError(
+                'persisted Room Simulator batch row disagrees with its payload'
+            )
+        self._require_batch_authority(spec)
+        return spec
+
+    def save_batch_spec(self, spec: CadRoomSimBatchSpec) -> None:
+        if not isinstance(spec, CadRoomSimBatchSpec):
+            raise TypeError('spec must be CadRoomSimBatchSpec')
+        spec = CadRoomSimBatchSpec.model_validate(spec.model_dump(mode='python'))
+        self._require_batch_authority(spec)
 
         with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
             connection.execute(
                 '''INSERT INTO cad_roomsim_batch_specs(
                     batch_run_id, document_id, scene_revision_id, scene_content_hash,
@@ -123,18 +246,18 @@ class CadRoomSimRepository:
     def get_batch_spec(self, batch_run_id: str) -> CadRoomSimBatchSpec | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_roomsim_batch_specs WHERE batch_run_id=?',
+                'SELECT * FROM cad_roomsim_batch_specs WHERE batch_run_id=?',
                 (batch_run_id,),
             ).fetchone()
-        return None if row is None else CadRoomSimBatchSpec.model_validate_json(row['payload_json'])
+        return None if row is None else self._validated_batch_spec(row)
 
     def list_batch_specs(self, search_spec_id: str) -> tuple[CadRoomSimBatchSpec, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_roomsim_batch_specs WHERE search_spec_id=? ORDER BY seq ASC',
+                'SELECT * FROM cad_roomsim_batch_specs WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),
             ).fetchall()
-        return tuple(CadRoomSimBatchSpec.model_validate_json(row['payload_json']) for row in rows)
+        return tuple(self._validated_batch_spec(row) for row in rows)
 
     def _verify_attempt_authority(
         self,
@@ -214,6 +337,7 @@ class CadRoomSimRepository:
             raise ValueError('Room Simulator candidate already has a completed attempt')
 
         with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
             connection.execute(
                 '''INSERT INTO cad_roomsim_candidate_attempts(
                     attempt_id, batch_run_id, candidate_id, attempt_index, status,

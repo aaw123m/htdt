@@ -65,7 +65,14 @@ class CadRoomSimCandidateRequest(BaseModel):
 
 
 class CadRoomSimBatchSpec(BaseModel):
-    """Immutable O20 batch input bound to exact native authority and candidate requests."""
+    """Immutable O20 batch input bound to exact native authority and candidate requests.
+
+    ``requests`` is the explicit ordered subset-selection authority: each
+    member must resolve to a canonical SearchSpec candidate and reproduce
+    ``build_cad_roomsim_candidate_request`` exactly, in canonical
+    enumeration order. The self-hash alone is not authority — persistence
+    replays the batch-input compiler on save and on every read.
+    """
 
     model_config = ConfigDict(frozen=True)
 
