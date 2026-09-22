@@ -70,13 +70,13 @@ def canonical_joint_sha256(value: Any) -> str:
     return sha256(canonical_joint_json(value).encode('utf-8')).hexdigest()
 
 
-def _device_capability_sha256(
+def device_capability_sha256(
     constraints: CadDeviceCapabilityConstraints,
 ) -> str:
     return canonical_joint_sha256(constraints.model_dump(mode='json'))
 
 
-def _routing_snapshot_sha256(plan: CadCalibrationPlan) -> str:
+def routing_snapshot_sha256(plan: CadCalibrationPlan) -> str:
     payload = [
         {
             'channel_id': channel.channel_id,
@@ -426,7 +426,7 @@ class JointOptimizationSpec(BaseModel):
         }
 
 
-def _physical_variables_from_authority(
+def physical_variables_from_authority(
     search_spec: CadSearchSpec,
     extended_search_spec: CadExtendedSearchSpec | None,
 ) -> tuple[JointPhysicalVariableRef, ...]:
@@ -566,15 +566,15 @@ def build_joint_optimization_spec(
             measurement_quality_report_sha256=measurement_quality_report.report_sha256,
             device_capability_id=constraints.capability_id,
             device_capability_version=constraints.capability_version,
-            device_capability_sha256=_device_capability_sha256(constraints),
-            routing_snapshot_sha256=_routing_snapshot_sha256(base_calibration_plan),
+            device_capability_sha256=device_capability_sha256(constraints),
+            routing_snapshot_sha256=routing_snapshot_sha256(base_calibration_plan),
         )
     elif base_calibration_plan is not None or measurement_quality_report is not None:
         raise ValueError(
             'base calibration/quality authority must not be attached without DSP variables'
         )
 
-    physical_variables = _physical_variables_from_authority(
+    physical_variables = physical_variables_from_authority(
         physical_search_spec,
         extended_search_spec,
     )
@@ -963,7 +963,7 @@ def _validate_dsp_candidate_authority(
     ):
         raise ValueError('candidate MeasurementQualityReport authority mismatch')
     if (
-        _device_capability_sha256(calibration_plan.device_constraints)
+        device_capability_sha256(calibration_plan.device_constraints)
         != authority.device_capability_sha256
         or calibration_plan.device_constraints.capability_id
         != authority.device_capability_id
@@ -991,7 +991,7 @@ def _validate_dsp_candidate_authority(
 
     reasons = list(support_reasons)
     reasons.extend(_device_resolution_reasons(calibration_plan))
-    if _routing_snapshot_sha256(calibration_plan) != authority.routing_snapshot_sha256:
+    if routing_snapshot_sha256(calibration_plan) != authority.routing_snapshot_sha256:
         reasons.append(
             'routing/output mapping rewrite is forbidden in Issue #174 initial slice'
         )
