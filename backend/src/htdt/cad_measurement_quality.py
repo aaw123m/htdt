@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -39,6 +40,20 @@ _ALL_CAPABILITY_CLAIMS: tuple[MeasurementCapabilityClaim, ...] = (
     'calibrated_response',
     'repeatability',
     'polarity',
+)
+
+# Canonical independent-check ordering surfaced to read models/UX. The pinned
+# QUALITY_ALGORITHM_IDENTITY below keeps its own literal list because that
+# payload feeds the algorithm hash and must never drift.
+MEASUREMENT_QUALITY_CHECKS: tuple[str, ...] = (
+    'clipping',
+    'noise_snr',
+    'usable_frequency_band',
+    'timing_reference',
+    'polarity',
+    'ir_window',
+    'calibration',
+    'repeatability',
 )
 
 
@@ -618,6 +633,41 @@ def unestablished_common_timing_capability() -> CadMeasurementCapability:
     )
 
 
+def unestablished_capability_claims(
+    dataset: CadFrequencyResponseDataset,
+) -> tuple[CadMeasurementCapability, ...]:
+    """Fail-closed claim matrix used when no quality report exists.
+
+    Only claims decidable from the dataset alone keep their dataset-only
+    verdicts (the immutable FR samples support magnitude inspection, and
+    phase_response follows the canonical dataset rule). Every claim that
+    needs acquisition evidence fails closed at UNKNOWN — never implicit
+    ALLOWED/BLOCKED — in canonical claim order.
+    """
+
+    def _unestablished(claim: MeasurementCapabilityClaim) -> CadMeasurementCapability:
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='UNKNOWN',
+            reasons=('no measurement quality report is bound to this dataset',),
+        )
+
+    return (
+        CadMeasurementCapability(
+            claim='magnitude_response',
+            decision='ALLOWED',
+            reasons=('immutable frequency/level dataset is present',),
+        ),
+        phase_response_capability(dataset),
+        unestablished_common_timing_capability(),
+        _unestablished('arrival_time'),
+        _unestablished('decay'),
+        _unestablished('calibrated_response'),
+        _unestablished('repeatability'),
+        _unestablished('polarity'),
+    )
+
+
 def derive_measurement_capabilities(
     *,
     dataset: CadFrequencyResponseDataset,
@@ -740,6 +790,129 @@ def _retake(checks: dict[str, CadMeasurementQualityCheck]) -> tuple[RetakeRecomm
     if unknown:
         return 'UNKNOWN', unknown
     return 'NOT_NEEDED', ()
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementRetakeGuidance:
+    """Structured retake guidance derived from a replay-validated report.
+
+    All fields are stable machine-readable codes/identifiers so read models
+    and UX layers can localize without re-interpreting authority reasons:
+
+    - ``failed_checks`` / ``unknown_checks`` / ``not_evaluated_checks``:
+      independent-check names grouped by outcome;
+    - ``missing_evidence``: which acquisition context/evidence is absent —
+      ``'clipping_metadata'``, ``'snr_evidence'``, ``'usable_band_evidence'``,
+      ``'timing_reference_evidence'``, ``'polarity_evidence'``,
+      ``'impulse_response'``, ``'ir_window_evidence'``,
+      ``'calibration_provenance'``, ``'repeat_measurements'`` or
+      ``'acquisition_context'``;
+    - ``remeasure``: what to re-measure — ``'same_binding'``,
+      ``'timed_acquisition'``, ``'calibrated_microphone'``,
+      ``'repeat_measurement'``, ``'impulse_response_capture'`` or
+      ``'acquisition_metadata'``.
+    """
+
+    recommendation: RetakeRecommendation
+    reasons: tuple[str, ...]
+    failed_checks: tuple[str, ...]
+    unknown_checks: tuple[str, ...]
+    not_evaluated_checks: tuple[str, ...]
+    missing_evidence: tuple[str, ...]
+    remeasure: tuple[str, ...]
+
+
+def measurement_retake_guidance(
+    report: CadMeasurementQualityReport,
+) -> MeasurementRetakeGuidance:
+    """Explain what a report's retake recommendation means for acquisition.
+
+    The guidance never upgrades missing evidence: checks stay FAIL / UNKNOWN /
+    NOT_EVALUATED and the missing-evidence list names exactly which explicit
+    inputs were absent so the user knows what a retake must capture.
+    """
+
+    evidence = report.evidence
+    checks = {name: getattr(report, name) for name in MEASUREMENT_QUALITY_CHECKS}
+    failed = tuple(name for name, check in checks.items() if check.status == 'FAIL')
+    unknown = tuple(name for name, check in checks.items() if check.status == 'UNKNOWN')
+    not_evaluated = tuple(
+        name for name, check in checks.items() if check.status == 'NOT_EVALUATED'
+    )
+
+    missing: list[str] = []
+    if evidence.clipping_detected is None:
+        missing.append('clipping_metadata')
+    if evidence.snr_db is None:
+        missing.append('snr_evidence')
+    if evidence.usable_frequency_band_hz is None:
+        missing.append('usable_band_evidence')
+    if not (
+        evidence.timing_reference_valid
+        and evidence.timing_reference_id
+        and evidence.clock_source
+        and evidence.sample_rate_hz is not None
+        and evidence.delay_correction_s is not None
+    ):
+        missing.append('timing_reference_evidence')
+    if evidence.polarity_correct is None or evidence.polarity_confidence is None:
+        missing.append('polarity_evidence')
+    if not evidence.has_impulse_response:
+        missing.append('impulse_response')
+    elif (
+        evidence.ir_truncated is None
+        or evidence.ir_window_start_s is None
+        or evidence.ir_window_end_s is None
+    ):
+        missing.append('ir_window_evidence')
+    if (
+        evidence.calibration_file_sha256 is None
+        or evidence.expected_calibration_file_sha256 is None
+    ):
+        missing.append('calibration_provenance')
+    if (
+        len(evidence.repeat_measurement_ids) < 2
+        or evidence.repeatability_rms_db is None
+    ):
+        missing.append('repeat_measurements')
+    authoritative_context = (
+        report.acquisition_context is not None
+        and report.acquisition_context.source_kind != 'unknown'
+    )
+    if not authoritative_context:
+        missing.append('acquisition_context')
+
+    remeasure: list[str] = []
+    if report.retake_recommendation == 'RETAKE':
+        remeasure.append('same_binding')
+    if 'timing_reference_evidence' in missing or 'acquisition_context' in missing:
+        remeasure.append('timed_acquisition')
+    if 'calibration_provenance' in missing:
+        remeasure.append('calibrated_microphone')
+    if 'repeat_measurements' in missing:
+        remeasure.append('repeat_measurement')
+    if 'impulse_response' in missing or 'ir_window_evidence' in missing:
+        remeasure.append('impulse_response_capture')
+    if any(
+        code in missing
+        for code in (
+            'clipping_metadata',
+            'snr_evidence',
+            'usable_band_evidence',
+            'polarity_evidence',
+        )
+    ):
+        remeasure.append('acquisition_metadata')
+
+    return MeasurementRetakeGuidance(
+        recommendation=report.retake_recommendation,
+        reasons=report.retake_reasons,
+        failed_checks=failed,
+        unknown_checks=unknown,
+        not_evaluated_checks=not_evaluated,
+        missing_evidence=tuple(missing),
+        remeasure=tuple(remeasure),
+    )
 
 
 def build_measurement_quality_report(
