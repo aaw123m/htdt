@@ -19,13 +19,11 @@ from htdt.cad_scene import (
     SceneEntity,
     Size3,
 )
+from htdt.cad_search import build_cad_search_spec
 from htdt.cad_search_models import (
     CadCandidate,
     CadSearchAxis,
     CadSearchSpec,
-    canonical_search_json,
-    canonical_search_sha256,
-    constraint_workspace_snapshot,
 )
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.rew_api import RewRoomSimFrequencyResponse, RewRoomSimSnapshot
@@ -64,43 +62,24 @@ def _scene() -> SceneDocument:
 
 def _spec(revision) -> CadSearchSpec:
     constraint = CadConstraintSet(document_id=revision.document_id, constraints=())
-    snapshot_json, snapshot_hash = constraint_workspace_snapshot(constraint)
-    engine = {}
-    engine_json = canonical_search_json(engine)
-    engine_hash = canonical_search_sha256(engine)
-    axis = CadSearchAxis(
-        entity_id='speaker-fl',
-        axis='x',
-        min_m=1.0,
-        max_m=1.5,
-        step_m=0.25,
-    )
-    identity = {
-        'schema_version': 1,
-        'document_id': revision.document_id,
-        'scene_revision_id': revision.revision_id,
-        'scene_content_hash': revision.content_hash,
-        'constraint_workspace_hash': snapshot_hash,
-        'algorithm': 'deterministic_grid',
-        'algorithm_version': 'search-space-grid-1',
-        'axes': [axis.model_dump(mode='json')],
-        'candidate_limit': 10,
-    }
-    return CadSearchSpec(
-        search_spec_id='roomsim-search',
-        document_id=revision.document_id,
-        scene_revision_id=revision.revision_id,
-        scene_content_hash=revision.content_hash,
-        constraint_workspace_hash=snapshot_hash,
-        constraint_snapshot_json=snapshot_json,
-        constraint_engine_spec_json=engine_json,
-        constraint_engine_spec_sha256=engine_hash,
-        axes=(axis,),
+    spec, _estimate = build_cad_search_spec(
+        revision,
+        constraint,
+        (
+            CadSearchAxis(
+                entity_id='speaker-fl',
+                axis='x',
+                min_m=1.0,
+                max_m=1.5,
+                step_m=0.25,
+            ),
+        ),
         candidate_limit=10,
-        o10_spec_json='{}',
-        search_spec_sha256=canonical_search_sha256(identity),
-        created_at_utc='2026-09-18T00:00:00+00:00',
     )
+    return spec.model_copy(update={
+        'search_spec_id': 'roomsim-search',
+        'created_at_utc': '2026-09-18T00:00:00+00:00',
+    })
 
 
 def _candidates() -> tuple[CadCandidate, CadCandidate]:

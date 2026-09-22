@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import sqlite3
+
 import pytest
 
 from htdt.cad_constraint_models import (
@@ -18,7 +21,12 @@ from htdt.cad_search import (
     search_spec_current,
     search_spec_current_working,
 )
-from htdt.cad_search_models import CadSearchAxis
+from htdt.cad_search_models import (
+    CadSearchAxis,
+    CadSearchSpec,
+    canonical_search_json,
+    canonical_search_sha256,
+)
 from htdt.cad_search_repository import CadSearchRepository
 
 
@@ -79,6 +87,15 @@ def _build(repository: SceneRepository):
         name='FL X sweep',
     )
     return revision, spec, estimate
+
+
+def _rebound(spec: CadSearchSpec, **updates) -> CadSearchSpec:
+    """Rehash a spec so tampered payloads keep self-consistent hashes."""
+
+    tampered = spec.model_copy(update=updates)
+    return tampered.model_copy(update={
+        'search_spec_sha256': canonical_search_sha256(tampered.identity_payload()),
+    })
 
 
 def test_native_search_spec_round_trip_and_deterministic_generation(tmp_path) -> None:
@@ -231,3 +248,165 @@ def test_working_search_spec_rejects_current_document_switch(tmp_path) -> None:
             current_constraint_set=_constraints(),
             current_document_id='other-document',
         )
+
+
+def test_search_spec_identity_binds_executable_o10_and_engine_payloads(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    _revision, spec, _estimate = _build(scene_repository)
+
+    # Altering o10_spec_json alone breaks the outer identity hash.
+    o10_spec = json.loads(spec.o10_spec_json)
+    o10_spec['candidate_limit'] = 99
+    with pytest.raises(ValueError, match='identity hash mismatch'):
+        CadSearchSpec.model_validate({
+            **spec.model_dump(mode='json'),
+            'o10_spec_json': canonical_search_json(o10_spec),
+        })
+
+    # Altering the engine spec and recomputing only its local SHA still
+    # breaks the outer identity hash.
+    engine_spec = json.loads(spec.constraint_engine_spec_json)
+    engine_spec['constraints'] = []
+    with pytest.raises(ValueError, match='identity hash mismatch'):
+        CadSearchSpec.model_validate({
+            **spec.model_dump(mode='json'),
+            'constraint_engine_spec_json': canonical_search_json(engine_spec),
+            'constraint_engine_spec_sha256': canonical_search_sha256(engine_spec),
+        })
+
+    # The executable payloads must be canonical JSON, not just parseable.
+    o10_padded = json.dumps(json.loads(spec.o10_spec_json), indent=2)
+    with pytest.raises(ValueError, match='canonical JSON'):
+        CadSearchSpec.model_validate({
+            **spec.model_dump(mode='json'),
+            'o10_spec_json': o10_padded,
+        })
+
+
+def test_search_repository_rejects_noncanonical_payloads_on_save_and_read(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    _revision, spec, _estimate = _build(scene_repository)
+    search_repository = CadSearchRepository(scene_repository)
+    search_repository.save(spec)
+
+    # Canonical spec round-trips unchanged.
+    assert search_repository.get(spec.search_spec_id) == spec
+    assert search_repository.list_specs(DOCUMENT_ID) == (spec,)
+
+    # A coherently rehashed o10 payload is rejected on save.
+    o10_spec = json.loads(spec.o10_spec_json)
+    o10_spec['candidate_limit'] = 99
+    tampered_o10 = _rebound(spec, o10_spec_json=canonical_search_json(o10_spec))
+    with pytest.raises(ValueError, match='canonical compilation'):
+        search_repository.save(tampered_o10)
+
+    # A coherently rehashed engine payload is rejected on save.
+    engine_spec = json.loads(spec.constraint_engine_spec_json)
+    engine_spec['constraints'] = []
+    tampered_engine = _rebound(
+        spec,
+        constraint_engine_spec_json=canonical_search_json(engine_spec),
+        constraint_engine_spec_sha256=canonical_search_sha256(engine_spec),
+    )
+    with pytest.raises(ValueError, match='canonical compilation'):
+        search_repository.save(tampered_engine)
+
+    # Fully self-consistent tampered rows (payload + hash column rewritten
+    # together) still fail closed on every authoritative read.
+    for tampered in (tampered_o10, tampered_engine):
+        with sqlite3.connect(search_repository.path) as connection:
+            connection.execute(
+                'UPDATE cad_search_specs SET payload_json=?, search_spec_sha256=? '
+                'WHERE search_spec_id=?',
+                (
+                    tampered.model_dump_json(),
+                    tampered.search_spec_sha256,
+                    spec.search_spec_id,
+                ),
+            )
+        with pytest.raises(ValueError, match='canonical compilation'):
+            search_repository.get(spec.search_spec_id)
+        with pytest.raises(ValueError, match='canonical compilation'):
+            search_repository.list_specs(DOCUMENT_ID)
+        with sqlite3.connect(search_repository.path) as connection:
+            connection.execute(
+                'UPDATE cad_search_specs SET payload_json=?, search_spec_sha256=? '
+                'WHERE search_spec_id=?',
+                (spec.model_dump_json(), spec.search_spec_sha256, spec.search_spec_id),
+            )
+    assert search_repository.get(spec.search_spec_id) == spec
+
+
+def test_search_repository_rejects_row_payload_disagreement(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    _revision, spec, _estimate = _build(scene_repository)
+    search_repository = CadSearchRepository(scene_repository)
+    search_repository.save(spec)
+
+    with sqlite3.connect(search_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_search_specs SET search_spec_sha256=? WHERE search_spec_id=?',
+            ('0' * 64, spec.search_spec_id),
+        )
+    with pytest.raises(ValueError, match='disagrees with its payload'):
+        search_repository.get(spec.search_spec_id)
+
+
+def test_prior_schema_version_spec_fails_closed_on_read(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    _revision, spec, _estimate = _build(scene_repository)
+    search_repository = CadSearchRepository(scene_repository)
+    search_repository.save(spec)
+
+    # A historical v1 payload hashed under the old identity layout is a prior
+    # schema version: it fails closed rather than being silently reinterpreted.
+    v1_payload = spec.model_dump(mode='json')
+    v1_payload['schema_version'] = 1
+    v1_payload['search_spec_sha256'] = canonical_search_sha256({
+        'schema_version': 1,
+        'document_id': spec.document_id,
+        'scene_revision_id': spec.scene_revision_id,
+        'scene_content_hash': spec.scene_content_hash,
+        'constraint_workspace_hash': spec.constraint_workspace_hash,
+        'algorithm': 'deterministic_grid',
+        'algorithm_version': 'search-space-grid-1',
+        'axes': [item.model_dump(mode='json') for item in spec.axes],
+        'candidate_limit': spec.candidate_limit,
+    })
+    with sqlite3.connect(search_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_search_specs SET payload_json=?, search_spec_sha256=? '
+            'WHERE search_spec_id=?',
+            (json.dumps(v1_payload), v1_payload['search_spec_sha256'], spec.search_spec_id),
+        )
+    with pytest.raises(ValueError, match='prior schema_version'):
+        search_repository.get(spec.search_spec_id)
+    with pytest.raises(ValueError, match='prior schema_version'):
+        search_repository.list_specs(DOCUMENT_ID)
+
+
+def test_candidate_generation_executes_only_canonical_executable_payload(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    _revision, spec, _estimate = _build(scene_repository)
+    canonical = generate_cad_candidates(scene_repository, spec)
+
+    # A coherently rehashed o10 payload is rejected before generation.
+    o10_spec = json.loads(spec.o10_spec_json)
+    o10_spec['candidate_limit'] = 99
+    tampered_o10 = _rebound(spec, o10_spec_json=canonical_search_json(o10_spec))
+    with pytest.raises(ValueError, match='canonical compilation'):
+        generate_cad_candidates(scene_repository, tampered_o10)
+
+    # A coherently rehashed engine payload is rejected before generation.
+    engine_spec = json.loads(spec.constraint_engine_spec_json)
+    engine_spec['constraints'] = []
+    tampered_engine = _rebound(
+        spec,
+        constraint_engine_spec_json=canonical_search_json(engine_spec),
+        constraint_engine_spec_sha256=canonical_search_sha256(engine_spec),
+    )
+    with pytest.raises(ValueError, match='canonical compilation'):
+        generate_cad_candidates(scene_repository, tampered_engine)
+
+    # The canonical spec still generates deterministically.
+    assert generate_cad_candidates(scene_repository, spec) == canonical
