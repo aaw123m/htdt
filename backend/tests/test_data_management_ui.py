@@ -32,7 +32,10 @@ class _FakeController(QObject):
 
     def __init__(self, data_dir: Path) -> None:
         super().__init__()
-        self.backend = SimpleNamespace(data_dir=data_dir)
+        self.backend = SimpleNamespace(
+            data_dir=data_dir,
+            current_native_schema_version=lambda: 5,
+        )
         self.lifecycle = SimpleNamespace(restart_required=False)
         self._busy = False
         self.backup_requests: list[Path] = []
@@ -103,6 +106,9 @@ def _metadata(path: Path) -> BackupMetadata:
         created_at_utc="2026-09-18T15:00:00+00:00",
         application_version="0.1.0",
         backup_schema_version=1,
+        native_schema_version=5,
+        supported_native_schema_version=5,
+        native_schema_compatibility="current",
         archive_size_bytes=12 * 1024 * 1024,
         database_size_bytes=4 * 1024 * 1024,
         measurement_asset_count=3,

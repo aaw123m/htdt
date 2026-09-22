@@ -8,9 +8,17 @@ from uuid import uuid4
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
+from .cad_schema import (
+    NATIVE_SCHEMA_VERSION,
+    NativeSchemaCompatibility,
+    native_schema_compatibility,
+    read_native_schema_version,
+)
 from .native_backup import (
+    DATABASE_NAME,
     BackupManifest,
     create_backup as native_create_backup,
+    inspect_backup as native_inspect_backup,
     restore_backup as native_restore_backup,
     validate_backup as native_validate_backup,
 )
@@ -50,6 +58,12 @@ class BackupMetadata:
     created_at_utc: str
     application_version: str
     backup_schema_version: int
+    # The native DB schema actually stored in the snapshotted/staged
+    # database — a different authority from the archive-format
+    # ``backup_schema_version``. ``0`` means a pre-versioning database.
+    native_schema_version: int
+    supported_native_schema_version: int
+    native_schema_compatibility: NativeSchemaCompatibility
     archive_size_bytes: int
     database_size_bytes: int
     measurement_asset_count: int
@@ -100,7 +114,12 @@ class DataOperationFailure:
     data_restored: bool = False
 
 
-def _metadata_from_manifest(backup_path: Path, manifest: BackupManifest) -> BackupMetadata:
+def _metadata_from_manifest(
+    backup_path: Path,
+    manifest: BackupManifest,
+    *,
+    native_schema_version: int,
+) -> BackupMetadata:
     database = next(entry for entry in manifest.files if entry.kind == 'database')
     assets = tuple(entry for entry in manifest.files if entry.kind == 'measurement_asset')
     return BackupMetadata(
@@ -108,6 +127,9 @@ def _metadata_from_manifest(backup_path: Path, manifest: BackupManifest) -> Back
         created_at_utc=manifest.created_at_utc,
         application_version=manifest.application_version,
         backup_schema_version=manifest.schema_version,
+        native_schema_version=native_schema_version,
+        supported_native_schema_version=NATIVE_SCHEMA_VERSION,
+        native_schema_compatibility=native_schema_compatibility(native_schema_version),
         archive_size_bytes=Path(backup_path).stat().st_size,
         database_size_bytes=database.size_bytes,
         measurement_asset_count=len(assets),
@@ -128,20 +150,36 @@ class DataManagementBackend:
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = Path(data_dir)
 
+    def current_native_schema_version(self) -> int:
+        """Native DB schema version of the live data directory (0 if absent)."""
+
+        return read_native_schema_version(self.data_dir / DATABASE_NAME)
+
     def create_backup(self, destination: Path) -> BackupCreateResult:
         destination = Path(destination)
         manifest = native_create_backup(self.data_dir, destination)
+        # The live database is the snapshot source, so its stored version is
+        # the version the archive actually contains — the manifest field was
+        # verified against the staged snapshot during creation.
         return BackupCreateResult(
             manifest=manifest,
-            metadata=_metadata_from_manifest(destination, manifest),
+            metadata=_metadata_from_manifest(
+                destination,
+                manifest,
+                native_schema_version=self.current_native_schema_version(),
+            ),
         )
 
     def preview_restore(self, backup_path: Path) -> RestorePreview:
         backup_path = Path(backup_path)
-        manifest = native_validate_backup(backup_path)
+        manifest, staged_schema_version = native_inspect_backup(backup_path)
         return RestorePreview(
             manifest=manifest,
-            metadata=_metadata_from_manifest(backup_path, manifest),
+            metadata=_metadata_from_manifest(
+                backup_path,
+                manifest,
+                native_schema_version=staged_schema_version,
+            ),
         )
 
     def restore(
@@ -168,7 +206,11 @@ class DataManagementBackend:
         )
         return RestoreResult(
             manifest=manifest,
-            metadata=_metadata_from_manifest(backup_path, manifest),
+            metadata=_metadata_from_manifest(
+                backup_path,
+                manifest,
+                native_schema_version=self.current_native_schema_version(),
+            ),
             pre_restore_backup=pre_restore_backup,
         )
 

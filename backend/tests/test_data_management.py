@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import closing
 from hashlib import sha256
+import json
 from pathlib import Path
 import sqlite3
+from zipfile import ZipFile, ZIP_DEFLATED
 
 import pytest
 
@@ -11,13 +13,21 @@ from htdt.cad_document import WorkingDocument
 from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, make_f1_scene
+from htdt.cad_schema import NATIVE_SCHEMA_VERSION
 from htdt.data_management import (
     ApplicationDataLifecycle,
     DataLifecycleState,
     DataManagementBackend,
     RestorePreviewStaleError,
 )
-from htdt.native_backup import validate_backup
+from htdt.native_backup import (
+    BACKUP_SCHEMA_VERSION,
+    BackupManifest,
+    inspect_backup,
+    validate_backup,
+    _canonical_json,
+    _manifest_hash,
+)
 
 
 def _seed_data(data_dir: Path):
@@ -192,3 +202,129 @@ def test_application_data_lifecycle_keeps_old_handles_detached_when_reload_fails
     assert lifecycle.restart_required
     assert lifecycle.generation == 0
     assert events == ['freeze', 'release', 'reopen']
+
+
+def _rewrite_manifest(backup_path: Path, mutate) -> Path:
+    """Rewrite an archive with a mutated but hash-valid manifest."""
+    source = ZipFile(backup_path, 'r')
+    manifest = BackupManifest.model_validate_json(source.read('manifest.json'))
+    members = {info.filename: source.read(info) for info in source.infolist()}
+    source.close()
+
+    payload = manifest.model_dump(mode='json')
+    mutate(payload)
+    identity = {
+        'schema_version': payload['schema_version'],
+        'application_version': payload['application_version'],
+        'created_at_utc': payload['created_at_utc'],
+        'files': payload['files'],
+    }
+    if payload.get('build') is not None:
+        identity['build'] = {
+            key: value for key, value in payload['build'].items() if value is not None
+        }
+    if payload.get('native_schema_version') is not None:
+        identity['native_schema_version'] = payload['native_schema_version']
+    payload['manifest_sha256'] = _manifest_hash(identity)
+    final = BackupManifest.model_validate(payload)
+    members['manifest.json'] = _canonical_json(
+        final.model_dump(mode='json')
+    ).encode('utf-8')
+
+    rewritten = backup_path.parent / f'{backup_path.stem}-rewritten{backup_path.suffix}'
+    with ZipFile(rewritten, 'w', compression=ZIP_DEFLATED) as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    return rewritten
+
+
+def test_metadata_distinguishes_native_db_schema_from_archive_schema(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    backend = DataManagementBackend(data_dir)
+    backup_path = tmp_path / 'schemas.htdt-backup'
+
+    created = backend.create_backup(backup_path)
+    preview = backend.preview_restore(backup_path)
+
+    for metadata in (created.metadata, preview.metadata):
+        # Archive-format schema and native DB schema are different
+        # authorities with different values; conflating them fails here.
+        assert metadata.backup_schema_version == BACKUP_SCHEMA_VERSION
+        assert metadata.native_schema_version == NATIVE_SCHEMA_VERSION
+        assert metadata.native_schema_version != metadata.backup_schema_version
+        assert metadata.supported_native_schema_version == NATIVE_SCHEMA_VERSION
+        assert metadata.native_schema_compatibility == 'current'
+    assert preview.manifest.native_schema_version == NATIVE_SCHEMA_VERSION
+
+
+def test_older_native_schema_backup_reports_migration_required(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    older_version = NATIVE_SCHEMA_VERSION - 1
+    with closing(sqlite3.connect(data_dir / 'cad-scenes.sqlite3')) as connection, connection:
+        connection.execute(
+            'UPDATE native_schema_metadata SET schema_version=? WHERE singleton=1',
+            (older_version,),
+        )
+        connection.execute(
+            'DELETE FROM native_schema_migrations WHERE schema_version>?',
+            (older_version,),
+        )
+
+    backend = DataManagementBackend(data_dir)
+    backup_path = tmp_path / 'older.htdt-backup'
+    created = backend.create_backup(backup_path)
+    preview = backend.preview_restore(backup_path)
+
+    assert created.metadata.native_schema_version == older_version
+    assert created.metadata.native_schema_compatibility == 'migration_required'
+    assert preview.metadata.native_schema_version == older_version
+    assert preview.metadata.native_schema_compatibility == 'migration_required'
+
+
+def test_manifest_native_schema_version_is_verified_against_staged_database(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    backend = DataManagementBackend(data_dir)
+    backup_path = tmp_path / 'forged.htdt-backup'
+    backend.create_backup(backup_path)
+
+    forged = _rewrite_manifest(
+        backup_path,
+        lambda payload: payload.__setitem__(
+            'native_schema_version', NATIVE_SCHEMA_VERSION - 1
+        ),
+    )
+
+    with pytest.raises(ValueError, match='native schema version does not match'):
+        backend.preview_restore(forged)
+
+
+def test_archive_without_native_schema_field_reports_staged_db_version(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    backend = DataManagementBackend(data_dir)
+    backup_path = tmp_path / 'legacy.htdt-backup'
+    backend.create_backup(backup_path)
+
+    legacy = _rewrite_manifest(
+        backup_path,
+        lambda payload: payload.pop('native_schema_version'),
+    )
+
+    manifest, staged_version = inspect_backup(legacy)
+    assert manifest.native_schema_version is None
+    assert staged_version == NATIVE_SCHEMA_VERSION
+
+    preview = backend.preview_restore(legacy)
+    assert preview.metadata.native_schema_version == NATIVE_SCHEMA_VERSION
+    assert preview.metadata.native_schema_compatibility == 'current'
