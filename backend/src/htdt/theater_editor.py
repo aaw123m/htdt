@@ -36,6 +36,8 @@ from .cad_scene import (
     acoustic_reference_position,
     domain_pose_to_render_matrix,
     domain_to_render,
+    is_unassigned_speaker_role,
+    next_unassigned_speaker_role,
     quaternion_from_euler_deg,
 )
 from .native_editor import ROLE
@@ -133,7 +135,7 @@ class TheaterEditorWindow(CadEditorWindow):
             form.addRow(f'寸法 {axis}', field)
 
         self.speaker_role_field = QLineEdit()
-        self.speaker_role_field.setPlaceholderText('例: FL / C / TFL')
+        self.speaker_role_field.setPlaceholderText('未設定 · 例: FL / C / TFL')
         self.speaker_role_field.editingFinished.connect(self._speaker_role_edited)
         form.addRow('スピーカー役割', self.speaker_role_field)
 
@@ -280,7 +282,10 @@ class TheaterEditorWindow(CadEditorWindow):
         if self.view_state.is_locked(entity.entity_id):
             flags.append('ロック')
         if entity.kind == 'speaker':
-            flags.append(f'役割 {entity.speaker_role}')
+            role = entity.speaker_role
+            flags.append(
+                '役割 未設定' if is_unassigned_speaker_role(role) else f'役割 {role}'
+            )
             flags.append('向き未設定' if entity.aim_xyz is None else '向き設定済み')
         suffix = f" · {' · '.join(flags)}" if flags else ''
         item = QTreeWidgetItem([f'{entity.name}{suffix}'])
@@ -347,11 +352,20 @@ class TheaterEditorWindow(CadEditorWindow):
         token = uuid4().hex[:10]
         if kind == 'speaker':
             size = Size3(x_m=0.24, y_m=0.28, z_m=0.42)
+            existing_roles = (
+                ()
+                if self.working is None
+                else (
+                    entity.speaker_role
+                    for entity in self.working.committed_document.entities
+                    if entity.kind == 'speaker'
+                )
+            )
             return SceneEntity(
                 entity_id=f'speaker-{token}',
                 kind='speaker',
                 name='スピーカー',
-                speaker_role='SPK',
+                speaker_role=next_unassigned_speaker_role(existing_roles),
                 position=self._object_position(kind, size),
                 size_m=size,
                 acoustic_reference_offset_m=Offset3(y_m=size.y_m * 0.5),
@@ -566,7 +580,10 @@ class TheaterEditorWindow(CadEditorWindow):
                 del blockers
         if entity.kind == 'speaker':
             with QSignalBlocker(self.speaker_role_field):
-                self.speaker_role_field.setText(entity.speaker_role or '')
+                role = entity.speaker_role
+                self.speaker_role_field.setText(
+                    '' if is_unassigned_speaker_role(role) else (role or '')
+                )
             self.speaker_role_field.setEnabled(editable)
         if entity.kind != 'measurement_point':
             has_reference = entity.acoustic_reference_offset_m is not None
@@ -624,6 +641,14 @@ class TheaterEditorWindow(CadEditorWindow):
         if entity.kind != 'speaker' or self.view_state.is_locked(self.selected_id):
             return
         role = self.speaker_role_field.text().strip()
+        if is_unassigned_speaker_role(role):
+            # An emptied field means "unassigned", not a literal placeholder
+            # string: store a fresh unique reserved token instead.
+            role = next_unassigned_speaker_role(
+                item.speaker_role
+                for item in self.working.committed_document.entities
+                if item.kind == 'speaker' and item.entity_id != self.selected_id
+            )
         try:
             changed = self.working.update_entity(self.selected_id, speaker_role=role)
         except (ValidationError, ValueError, EditStateError) as exc:
@@ -633,7 +658,8 @@ class TheaterEditorWindow(CadEditorWindow):
         if changed:
             self._sync_recovery()
             self._rebuild()
-            self.statusBar().showMessage(f'スピーカー役割を {role} に変更しました')
+            label = '未設定' if is_unassigned_speaker_role(role) else role
+            self.statusBar().showMessage(f'スピーカー役割を {label} に変更しました')
 
     def _reference_enabled_toggled(self, checked: bool) -> None:
         if self.selected_id is None or self.working is None or not self._object_edit_available():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from hashlib import sha256
 import json
 from math import asin, atan2, cos, degrees, isfinite, radians, sin, sqrt
@@ -343,6 +344,68 @@ class SceneEntity(BaseModel):
             if self.acoustic_reference_offset_m is not None:
                 raise ValueError('measurement points are already acoustic reference positions')
         return self
+
+
+# --- Speaker channel-role authority -----------------------------------------
+#
+# SceneEntity keeps its persisted invariant that a speaker carries a non-empty
+# speaker_role. The authoring "not assigned yet" state is therefore stored as a
+# reserved placeholder token (``UNASSIGNED-<n>``) rather than as None. Every
+# token in that family — plus the legacy ``SPK`` default written by older
+# builds — denotes "no channel role chosen yet" and must never be presented or
+# consumed as a real channel identity. Uniqueness of the suffix keeps each
+# unassigned speaker distinguishable and prevents downstream authorities that
+# require unique role ids (SystemVariant role bindings, topology final roles)
+# from collapsing several placeholders into one fake channel.
+UNASSIGNED_SPEAKER_ROLE_PREFIX = 'UNASSIGNED'
+LEGACY_UNASSIGNED_SPEAKER_ROLES = frozenset({'SPK'})
+
+
+def is_unassigned_speaker_role(role: str | None) -> bool:
+    """True when ``role`` is missing or is a reserved authoring placeholder."""
+
+    if role is None:
+        return True
+    normalized = role.strip()
+    return (
+        not normalized
+        or normalized in LEGACY_UNASSIGNED_SPEAKER_ROLES
+        or normalized == UNASSIGNED_SPEAKER_ROLE_PREFIX
+        or normalized.startswith(f'{UNASSIGNED_SPEAKER_ROLE_PREFIX}-')
+    )
+
+
+def next_unassigned_speaker_role(existing_roles: Iterable[str | None]) -> str:
+    """Smallest free reserved placeholder token across the given roles."""
+
+    taken = {
+        role.strip()
+        for role in existing_roles
+        if role is not None and role.strip()
+    }
+    index = 1
+    while f'{UNASSIGNED_SPEAKER_ROLE_PREFIX}-{index}' in taken:
+        index += 1
+    return f'{UNASSIGNED_SPEAKER_ROLE_PREFIX}-{index}'
+
+
+def duplicated_speaker_roles(entities: Iterable[SceneEntity]) -> tuple[str, ...]:
+    """Sorted exclusive channel roles claimed by more than one speaker.
+
+    Unassigned placeholders are ignored: they are reported through the
+    missing-role path instead of being counted as duplicate channel claims.
+    """
+
+    counts: dict[str, int] = {}
+    for entity in entities:
+        role = getattr(entity, 'speaker_role', None)
+        if getattr(entity, 'kind', None) != 'speaker' or is_unassigned_speaker_role(role):
+            continue
+        normalized = (role or '').strip()
+        if not normalized:
+            continue
+        counts[normalized] = counts.get(normalized, 0) + 1
+    return tuple(sorted(role for role, count in counts.items() if count > 1))
 
 
 def acoustic_reference_position(entity: SceneEntity) -> Position3 | None:

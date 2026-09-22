@@ -27,7 +27,13 @@ from .cad_calibration_repository import (
     _lifecycle_chain_violation,
 )
 from .cad_repository import SceneRevision
-from .cad_scene import SceneDocument, SceneEntity, quaternion_to_euler_deg, scene_content_hash
+from .cad_scene import (
+    SceneDocument,
+    SceneEntity,
+    is_unassigned_speaker_role,
+    quaternion_to_euler_deg,
+    scene_content_hash,
+)
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_standards import StandardsEvaluation, StandardsProfile
 from .cad_video_geometry import ProjectorSpecification, VideoGeometryEvaluation
@@ -600,7 +606,13 @@ def _installation_entity(entity: SceneEntity) -> InstallationEntityOutput:
         entity_id=entity.entity_id,
         entity_kind=str(entity.kind),
         name=entity.name,
-        speaker_role=entity.speaker_role,
+        # Reserved placeholder tokens are authoring state, not channel identity:
+        # reports present them as no-role instead of a plausible-looking role.
+        speaker_role=(
+            None
+            if is_unassigned_speaker_role(entity.speaker_role)
+            else entity.speaker_role
+        ),
         x_m=float(entity.position.x_m),
         y_m=float(entity.position.y_m),
         z_m=float(entity.position.z_m),

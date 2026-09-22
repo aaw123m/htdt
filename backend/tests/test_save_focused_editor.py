@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 
 import htdt.workflow_application as workflow_application
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID, room_vertices
+from htdt.cad_scene import F1_DOCUMENT_ID, is_unassigned_speaker_role, room_vertices
 from htdt.command_registry import CommandRegistry, register_default_commands
 from htdt.native_editor import NativeEditorWindow
 from htdt.room_geometry_input import RoomGeometryInputController
@@ -230,7 +230,7 @@ def test_save_commits_focused_vertex_coordinate(tmp_path) -> None:
     app.processEvents()
 
 
-def test_save_refuses_rejected_inspector_edit(tmp_path) -> None:
+def test_save_commits_cleared_speaker_role_as_unassigned(tmp_path) -> None:
     app = _app()
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
     workspace = _room_workspace(repository)
@@ -241,15 +241,19 @@ def test_save_refuses_rejected_inspector_edit(tmp_path) -> None:
     workspace.select_entity("speaker-fl")
     field = workspace.inspector.role_field
     field.setFocus()
-    field.setText("")
+    field.lineEdit().setText("")
     app.processEvents()
 
-    # A speaker role may not be empty: the pending edit is rejected, so Save
-    # must refuse rather than persist a revision that omits the visible edit.
-    assert workspace.save() is False
-    assert repository.latest(F1_DOCUMENT_ID).revision_id == original.revision_id
-    assert not workspace.controller.is_dirty
-    assert field.text() == "FL"
+    # Clearing the role is a valid explicit choice: the pending edit commits,
+    # storing a unique unassigned placeholder instead of a fake channel role.
+    assert workspace.save() is True
+    saved = repository.latest(F1_DOCUMENT_ID)
+    assert saved is not None
+    assert saved.revision_id != original.revision_id
+    stored = saved.document.entity("speaker-fl").speaker_role
+    assert is_unassigned_speaker_role(stored)
+    assert stored != "FL"
+    assert field.currentText() == "未設定"
 
     workspace.close()
     workspace.deleteLater()

@@ -21,7 +21,12 @@ from .cad_proposal_robustness import (
     ProposalRobustnessSpec,
 )
 from .cad_repository import SceneRepository
-from .cad_scene import Direction3, Position3, SceneEntity
+from .cad_scene import (
+    Direction3,
+    Position3,
+    SceneEntity,
+    is_unassigned_speaker_role,
+)
 from .cad_search_models import CadSearchAxis
 from .cad_schema import ensure_native_schema
 from .cad_system_variant import (
@@ -563,6 +568,10 @@ class SystemExpansionWorkflowService:
             raise ValueError("提案名を入力してください。")
         if not role:
             raise ValueError("スピーカーの役割を入力してください。")
+        if is_unassigned_speaker_role(role):
+            raise ValueError(
+                f"役割 {role} は未設定のプレースホルダーです。実際のチャンネル役割を指定してください。"
+            )
         if not zone:
             raise ValueError("設置可能領域の名前を入力してください。")
         if max_x_m < min_x_m or max_y_m < min_y_m:
@@ -579,10 +588,14 @@ class SystemExpansionWorkflowService:
         if definition is None:
             raise ValueError("選択した機器定義を読み込めません。")
 
+        # Placeholder tokens are not real channel identities: exclude them so a
+        # SystemVariant never binds an unassigned speaker as a ChannelRoleBinding.
         existing_roles = tuple(
             entity.speaker_role
             for entity in baseline.document.entities
-            if entity.kind == "speaker" and entity.speaker_role
+            if entity.kind == "speaker"
+            and entity.speaker_role
+            and not is_unassigned_speaker_role(entity.speaker_role)
         )
         if role in existing_roles:
             raise ValueError(
@@ -876,7 +889,13 @@ class SystemExpansionWorkflowService:
             label = {"add": "追加", "remove": "削除", "replace": "置換"}[item.kind]
             entity = item.after_entity or item.before_entity
             name = item.entity_id if entity is None else entity.name
-            role = "" if entity is None or not entity.speaker_role else f" / {entity.speaker_role}"
+            role = ""
+            if entity is not None and entity.speaker_role:
+                role = (
+                    " / 未設定"
+                    if is_unassigned_speaker_role(entity.speaker_role)
+                    else f" / {entity.speaker_role}"
+                )
             lines.append(f"{label}: {name}{role}")
         return ApplyPreview(
             variant_id=variant.variant_id,

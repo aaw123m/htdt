@@ -132,6 +132,66 @@ def test_missing_speaker_role_deep_links_to_entity_without_showing_internal_id()
     assert view.next_action == blocker.action
 
 
+def test_placeholder_speaker_roles_fail_role_prerequisite() -> None:
+    """Legacy 'SPK' and 'UNASSIGNED-<n>' placeholders are not channel identities."""
+
+    revision = _revision(
+        speakers=(('speaker-a', 'SPK'), ('speaker-b', 'UNASSIGNED-2')),
+    )
+
+    view = _service(
+        revision,
+        predictions=(_current_prediction(revision),),
+    ).read('project-1')
+
+    blocker = next(item for item in view.blockers if item.code == 'speaker.role_missing')
+    assert blocker.action is not None
+    assert blocker.action.target.entity_id == 'speaker-a'
+    # Distinct placeholders are unassigned, not a duplicate channel claim.
+    assert not any(item.code == 'speaker.role_duplicate' for item in view.blockers)
+    assert view.summary == 'スピーカーの役割を設定してください。'
+    assert view.optimization_ready is False
+
+
+def test_duplicate_speaker_role_is_a_setup_blocker_with_deep_link() -> None:
+    revision = _revision(
+        speakers=(
+            ('speaker-a', 'FL'),
+            ('speaker-b', 'FL'),
+            ('speaker-c', 'FR'),
+        ),
+    )
+
+    view = _service(
+        revision,
+        predictions=(_current_prediction(revision),),
+    ).read('project-1')
+
+    blocker = next(item for item in view.blockers if item.code == 'speaker.role_duplicate')
+    assert blocker.message == '同じ役割が複数のスピーカーに割り当てられています。'
+    assert blocker.action is not None
+    assert blocker.action.target.workspace == 'room'
+    assert blocker.action.target.subsection == 'placement'
+    assert blocker.action.target.entity_id == 'speaker-a'
+    assert view.summary == '重複するスピーカー役割を解決してください。'
+    assert view.next_action == blocker.action
+    assert view.optimization_ready is False
+
+
+def test_distinct_speaker_roles_satisfy_role_prerequisite() -> None:
+    revision = _revision(
+        speakers=(('speaker-a', 'FL'), ('speaker-b', 'FR')),
+    )
+
+    view = _service(
+        revision,
+        predictions=(_current_prediction(revision),),
+    ).read('project-1')
+
+    assert not any(item.code.startswith('speaker.role') for item in view.blockers)
+    assert view.optimization_ready is True
+
+
 @pytest.mark.parametrize('phase_status', ['absent', 'unknown'])
 def test_measurement_phase_capability_uses_authority_status(phase_status: str) -> None:
     revision = _revision()

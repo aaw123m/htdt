@@ -13,7 +13,12 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QApplication, QDockWidget, QFrame
 
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID, RoomVertex, make_f1_scene
+from htdt.cad_scene import (
+    F1_DOCUMENT_ID,
+    RoomVertex,
+    is_unassigned_speaker_role,
+    make_f1_scene,
+)
 from htdt.cad_wall_models import WallOpening
 from htdt.cad_walls import add_opening
 from htdt.cad_input import CadAxis
@@ -136,9 +141,70 @@ def test_room_controller_reuses_repository_working_document_and_recovery(tmp_pat
     saved = repository.latest(F1_DOCUMENT_ID)
     assert saved is not None
     assert saved.revision_id != original.revision_id
-    assert saved.document.entity(added.entity_id).speaker_role == "SPK"
+    # A new speaker starts unassigned: a reserved placeholder token, never a
+    # plausible-looking fake channel role like 'SPK'.
+    assert is_unassigned_speaker_role(
+        saved.document.entity(added.entity_id).speaker_role
+    )
     assert repository.recovery(F1_DOCUMENT_ID) is None
     assert not controller.is_dirty
+
+
+def test_room_controller_assigns_distinct_unassigned_roles_to_new_speakers(tmp_path) -> None:
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+
+    first = controller.add_object("speaker")
+    second = controller.add_object("speaker")
+
+    assert first.speaker_role != second.speaker_role
+    assert is_unassigned_speaker_role(first.speaker_role)
+    assert is_unassigned_speaker_role(second.speaker_role)
+    roles = [
+        entity.speaker_role
+        for entity in controller.document.entities
+        if entity.kind == "speaker"
+    ]
+    assert len(roles) == len(set(roles))
+
+
+def test_room_controller_role_edit_accepts_choice_and_returns_to_unassigned(tmp_path) -> None:
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    added = controller.add_object("speaker")
+    controller.set_selection(added.entity_id)
+
+    assert controller.update_selected(
+        name="Front",
+        position=added.position,
+        size_m=added.size_m,
+        speaker_role="FL2",
+    )
+    assert controller.document.entity(added.entity_id).speaker_role == "FL2"
+
+    # Clearing the role is an explicit unassign: a fresh reserved placeholder is
+    # stored instead of an empty string or a literal 'SPK'.
+    assert controller.update_selected(
+        name="Front",
+        position=added.position,
+        size_m=added.size_m,
+        speaker_role="",
+    )
+    cleared = controller.document.entity(added.entity_id).speaker_role
+    assert is_unassigned_speaker_role(cleared)
+    assert cleared == added.speaker_role
+
+    # Typing a placeholder token is normalized to a canonical placeholder too
+    # (a no-op here because the speaker is already unassigned).
+    controller.update_selected(
+        name="Front",
+        position=added.position,
+        size_m=added.size_m,
+        speaker_role="SPK",
+    )
+    normalized = controller.document.entity(added.entity_id).speaker_role
+    assert is_unassigned_speaker_role(normalized)
+    assert normalized != "SPK"
 
 
 def test_room_controller_opens_with_default_view_state_when_row_corrupt(tmp_path, caplog) -> None:
@@ -603,6 +669,56 @@ def test_room_workspace_compact_layout_prioritizes_viewport_and_toggles_palette(
     workspace.set_context("geometry")
     app.processEvents()
     assert workspace.object_palette.isHidden()
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
+def test_room_inspector_role_picker_shows_unassigned_and_commits_choice(tmp_path) -> None:
+    app = _app()
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    workspace = RoomWorkspace(
+        repository,
+        F1_DOCUMENT_ID,
+        viewport_factory=lambda parent: FakeRoomViewport(parent),
+    )
+    workspace.resize(1100, 700)
+    workspace.show()
+    app.processEvents()
+
+    added = workspace.controller.add_object("speaker")
+    workspace.select_entity(added.entity_id)
+    app.processEvents()
+
+    # A newly added speaker is visibly unassigned until the user picks a role.
+    assert workspace.inspector.role_field.currentText() == "未設定"
+
+    index = workspace.inspector.role_field.findText("SL")
+    assert index >= 0
+    workspace.inspector.role_field.setCurrentIndex(index)
+    workspace.inspector.role_field.activated.emit(index)
+    app.processEvents()
+    assert (
+        workspace.controller.document.entity(added.entity_id).speaker_role == "SL"
+    )
+
+    # Custom roles remain free-form text without touching the suggestion list.
+    workspace.inspector.role_field.setEditText("WIDE")
+    workspace.inspector.role_field.lineEdit().editingFinished.emit()
+    app.processEvents()
+    assert (
+        workspace.controller.document.entity(added.entity_id).speaker_role
+        == "WIDE"
+    )
+
+    # Choosing 未設定 again stores a fresh reserved placeholder.
+    workspace.inspector.role_field.setCurrentIndex(0)
+    workspace.inspector.role_field.activated.emit(0)
+    app.processEvents()
+    role = workspace.controller.document.entity(added.entity_id).speaker_role
+    assert is_unassigned_speaker_role(role)
+    assert workspace.inspector.role_field.currentText() == "未設定"
 
     workspace.close()
     workspace.deleteLater()
