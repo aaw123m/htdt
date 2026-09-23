@@ -738,7 +738,7 @@ class PlaybackChainScalarResult(BaseModel):
 
     state: ObjectiveState
     value: float | None
-    unit: Literal['V RMS', 'W', 'dB', 'dB SPL']
+    unit: Literal['V RMS', 'W', 'dB', 'dB SPL', 'ohm', 'A']
     reason: str | None = None
 
     @model_validator(mode='after')

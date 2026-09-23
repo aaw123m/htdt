@@ -363,6 +363,14 @@ class StandardsCriterionPanel(QFrame):
         self.evaluate_button.clicked.connect(self.evaluate_selected)
         layout.addWidget(self.evaluate_button)
 
+        self.editor_button = QPushButton("プロファイルを編集 / 複製…")
+        set_control_size(self.editor_button, ControlSize.COMPACT)
+        self.editor_button.setToolTip(
+            "ユーザー定義プロファイルの作成・複製・新バージョン発行・JSON入出力"
+        )
+        self.editor_button.clicked.connect(self._open_profile_editor)
+        layout.addWidget(self.editor_button)
+
         constraint_note = QLabel(
             "チェックした基準だけを配置制約として使用します。"
             " 未選択の不適合は候補を除外しません。"
@@ -422,6 +430,17 @@ class StandardsCriterionPanel(QFrame):
         # authority must never carry criterion IDs into another evaluation.
         self._selected_constraints.clear()
         self.refresh()
+
+    def _open_profile_editor(self) -> None:
+        from .standards_profile_editor import (
+            StandardsProfileEditorDialog,
+            StandardsProfileLibraryService,
+        )
+
+        service = StandardsProfileLibraryService(self.model.repository)
+        dialog = StandardsProfileEditorDialog(service, parent=self)
+        dialog.exec()
+        self.refresh_profiles()
 
     def refresh_targets(self) -> None:
         current = self.target_combo.currentData()
@@ -684,6 +703,10 @@ class StandardsVariantComparisonPanel(QFrame):
         self.evaluate_button = QPushButton("各構成を評価")
         self.evaluate_button.clicked.connect(self.evaluate_all)
         controls.addWidget(self.evaluate_button)
+        self.editor_button = QPushButton("プロファイル編集…")
+        set_control_size(self.editor_button, ControlSize.COMPACT)
+        self.editor_button.clicked.connect(self._open_profile_editor)
+        controls.addWidget(self.editor_button)
         layout.addLayout(controls)
 
         self.matrix = QTreeWidget()
@@ -695,6 +718,17 @@ class StandardsVariantComparisonPanel(QFrame):
         self.gate_label.setWordWrap(True)
         layout.addWidget(self.gate_label)
 
+        self._load_profiles()
+
+    def _open_profile_editor(self) -> None:
+        from .standards_profile_editor import (
+            StandardsProfileEditorDialog,
+            StandardsProfileLibraryService,
+        )
+
+        service = StandardsProfileLibraryService(self.model.repository)
+        dialog = StandardsProfileEditorDialog(service, parent=self)
+        dialog.exec()
         self._load_profiles()
 
     def _load_profiles(self) -> None:

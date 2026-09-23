@@ -18,6 +18,13 @@ from .cad_equipment import EquipmentDefinition
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_schema import ensure_native_schema
+from .cad_speaker_impedance import (
+    FREQUENCY_RESOLVED_EVALUATION_VERSION,
+    AmplifierElectricalLimitAuthority,
+    FrequencyResolvedElectricalEvaluation,
+    SpeakerElectricalImpedanceAuthority,
+    evaluate_frequency_resolved_load,
+)
 from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
 
@@ -28,6 +35,12 @@ PlaybackChainEvaluator = Callable[..., PlaybackChainEvaluation]
 # evaluation model; a recorded version without a pinned evaluator fails closed.
 PLAYBACK_CHAIN_EVALUATORS: dict[str, PlaybackChainEvaluator] = {
     PLAYBACK_CHAIN_EVALUATION_VERSION: evaluate_playback_chain,
+}
+
+FrequencyResolvedEvaluator = Callable[..., FrequencyResolvedElectricalEvaluation]
+
+FREQUENCY_RESOLVED_EVALUATORS: dict[str, FrequencyResolvedEvaluator] = {
+    FREQUENCY_RESOLVED_EVALUATION_VERSION: evaluate_frequency_resolved_load,
 }
 
 
@@ -142,6 +155,42 @@ class CadAmplifierHeadroomRepository:
                     ON cad_playback_chain_evaluations(variant_id, seq ASC);
                 CREATE INDEX IF NOT EXISTS idx_amplifier_headroom_scenario_seq
                     ON cad_playback_chain_evaluations(scenario_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_speaker_impedances (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    impedance_id TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    semantic_sha256 TEXT NOT NULL UNIQUE,
+                    equipment_definition_sha256 TEXT NOT NULL,
+                    tier TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    UNIQUE(impedance_id, version)
+                );
+                CREATE INDEX IF NOT EXISTS idx_speaker_impedance_seq
+                    ON cad_speaker_impedances(seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_amplifier_electrical_limits (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    limit_id TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    semantic_sha256 TEXT NOT NULL UNIQUE,
+                    amplifier_capability_sha256 TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    UNIQUE(limit_id, version)
+                );
+                CREATE INDEX IF NOT EXISTS idx_amplifier_electrical_limit_seq
+                    ON cad_amplifier_electrical_limits(seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_frequency_resolved_evaluations (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    evaluation_id TEXT NOT NULL UNIQUE,
+                    evaluation_sha256 TEXT NOT NULL UNIQUE,
+                    impedance_sha256 TEXT NOT NULL,
+                    amplifier_capability_sha256 TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_frequency_resolved_eval_seq
+                    ON cad_frequency_resolved_evaluations(seq ASC);
                 """
             )
 
@@ -227,6 +276,23 @@ class CadAmplifierHeadroomRepository:
             else AmplifierOutputCapability.model_validate_json(
                 row['payload_json']
             )
+        )
+
+    def list_amplifier_capabilities(
+        self,
+    ) -> tuple[AmplifierOutputCapability, ...]:
+        """Every persisted amplifier output capability (library scope)."""
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_amplifier_output_capabilities
+                ORDER BY seq ASC
+                """
+            ).fetchall()
+        return tuple(
+            AmplifierOutputCapability.model_validate_json(row['payload_json'])
+            for row in rows
         )
 
     def save_speaker_load(
@@ -325,6 +391,25 @@ class CadAmplifierHeadroomRepository:
             else SpeakerElectricalLoadAuthority.model_validate_json(
                 row['payload_json']
             )
+        )
+
+    def list_speaker_loads(
+        self,
+    ) -> tuple[SpeakerElectricalLoadAuthority, ...]:
+        """Every persisted speaker load authority (library scope)."""
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_speaker_electrical_loads
+                ORDER BY seq ASC
+                """
+            ).fetchall()
+        return tuple(
+            SpeakerElectricalLoadAuthority.model_validate_json(
+                row['payload_json']
+            )
+            for row in rows
         )
 
     def _resolve_scenario_authorities(
@@ -695,4 +780,404 @@ class CadAmplifierHeadroomRepository:
         )
         for evaluation in evaluations:
             self._validate_evaluation_binding(evaluation)
+        return evaluations
+
+    # ------------------------------------------------------------------
+    # Frequency-dependent speaker load authority (#544)
+
+    def save_speaker_impedance(
+        self,
+        impedance: SpeakerElectricalImpedanceAuthority,
+    ) -> SpeakerElectricalImpedanceAuthority:
+        impedance = SpeakerElectricalImpedanceAuthority.model_validate(
+            impedance.model_dump(mode='python')
+        )
+        definition = self.equipment_repository.get_definition_by_hash(
+            impedance.equipment_definition_sha256
+        )
+        if definition is None:
+            raise ValueError(
+                'speaker impedance references an unpersisted EquipmentDefinition'
+            )
+        if (
+            definition.definition_id != impedance.equipment_definition_id
+            or definition.version != impedance.equipment_definition_version
+        ):
+            raise ValueError(
+                'speaker impedance EquipmentDefinition identity mismatch'
+            )
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_speaker_impedances
+                WHERE impedance_id=? AND version=?
+                """,
+                (impedance.impedance_id, impedance.version),
+            ).fetchone()
+            if existing is not None:
+                persisted = SpeakerElectricalImpedanceAuthority.model_validate_json(
+                    existing['payload_json']
+                )
+                if persisted != impedance:
+                    raise ValueError(
+                        'speaker impedance id/version already exists with '
+                        'different semantics'
+                    )
+                return persisted
+            connection.execute(
+                """
+                INSERT INTO cad_speaker_impedances(
+                    impedance_id, version, semantic_sha256,
+                    equipment_definition_sha256, tier, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    impedance.impedance_id,
+                    impedance.version,
+                    impedance.semantic_sha256,
+                    impedance.equipment_definition_sha256,
+                    impedance.tier,
+                    impedance.model_dump_json(),
+                ),
+            )
+        return impedance
+
+    def get_speaker_impedance(
+        self,
+        impedance_id: str,
+        version: str,
+    ) -> SpeakerElectricalImpedanceAuthority | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_speaker_impedances
+                WHERE impedance_id=? AND version=?
+                """,
+                (impedance_id, version),
+            ).fetchone()
+        return (
+            None
+            if row is None
+            else SpeakerElectricalImpedanceAuthority.model_validate_json(
+                row['payload_json']
+            )
+        )
+
+    def get_speaker_impedance_by_hash(
+        self,
+        semantic_sha256: str,
+    ) -> SpeakerElectricalImpedanceAuthority | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_speaker_impedances
+                WHERE semantic_sha256=?
+                """,
+                (semantic_sha256,),
+            ).fetchone()
+        return (
+            None
+            if row is None
+            else SpeakerElectricalImpedanceAuthority.model_validate_json(
+                row['payload_json']
+            )
+        )
+
+    def list_speaker_impedances(
+        self,
+        equipment_definition_sha256: str,
+    ) -> tuple[SpeakerElectricalImpedanceAuthority, ...]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_speaker_impedances
+                WHERE equipment_definition_sha256=?
+                ORDER BY seq ASC
+                """,
+                (equipment_definition_sha256,),
+            ).fetchall()
+        return tuple(
+            SpeakerElectricalImpedanceAuthority.model_validate_json(
+                row['payload_json']
+            )
+            for row in rows
+        )
+
+    def save_amplifier_limit(
+        self,
+        limit: AmplifierElectricalLimitAuthority,
+    ) -> AmplifierElectricalLimitAuthority:
+        limit = AmplifierElectricalLimitAuthority.model_validate(
+            limit.model_dump(mode='python')
+        )
+        capability = self.get_amplifier_capability_by_hash(
+            limit.amplifier_capability.semantic_sha256
+        )
+        if capability is None:
+            raise ValueError(
+                'amplifier electrical limit references an unpersisted '
+                'capability'
+            )
+        if (
+            capability.capability_id != limit.amplifier_capability.authority_id
+            or capability.version != limit.amplifier_capability.version
+        ):
+            raise ValueError(
+                'amplifier electrical limit capability identity mismatch'
+            )
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_amplifier_electrical_limits
+                WHERE limit_id=? AND version=?
+                """,
+                (limit.limit_id, limit.version),
+            ).fetchone()
+            if existing is not None:
+                persisted = AmplifierElectricalLimitAuthority.model_validate_json(
+                    existing['payload_json']
+                )
+                if persisted != limit:
+                    raise ValueError(
+                        'amplifier electrical limit id/version already exists '
+                        'with different semantics'
+                    )
+                return persisted
+            connection.execute(
+                """
+                INSERT INTO cad_amplifier_electrical_limits(
+                    limit_id, version, semantic_sha256,
+                    amplifier_capability_sha256, payload_json
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    limit.limit_id,
+                    limit.version,
+                    limit.semantic_sha256,
+                    limit.amplifier_capability.semantic_sha256,
+                    limit.model_dump_json(),
+                ),
+            )
+        return limit
+
+    def get_amplifier_limit(
+        self,
+        limit_id: str,
+        version: str,
+    ) -> AmplifierElectricalLimitAuthority | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_amplifier_electrical_limits
+                WHERE limit_id=? AND version=?
+                """,
+                (limit_id, version),
+            ).fetchone()
+        return (
+            None
+            if row is None
+            else AmplifierElectricalLimitAuthority.model_validate_json(
+                row['payload_json']
+            )
+        )
+
+    def get_amplifier_limit_by_hash(
+        self,
+        semantic_sha256: str,
+    ) -> AmplifierElectricalLimitAuthority | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_amplifier_electrical_limits
+                WHERE semantic_sha256=?
+                """,
+                (semantic_sha256,),
+            ).fetchone()
+        return (
+            None
+            if row is None
+            else AmplifierElectricalLimitAuthority.model_validate_json(
+                row['payload_json']
+            )
+        )
+
+    def _resolve_frequency_resolved_authorities(
+        self,
+        evaluation: FrequencyResolvedElectricalEvaluation,
+    ) -> tuple[
+        SpeakerElectricalImpedanceAuthority,
+        AmplifierOutputCapability,
+        AmplifierElectricalLimitAuthority | None,
+    ]:
+        impedance = self.get_speaker_impedance_by_hash(
+            evaluation.impedance_ref.semantic_sha256
+        )
+        if impedance is None:
+            raise ValueError(
+                'frequency-resolved evaluation references an unpersisted '
+                'impedance authority'
+            )
+        if (
+            impedance.impedance_id != evaluation.impedance_ref.authority_id
+            or impedance.version != evaluation.impedance_ref.version
+        ):
+            raise ValueError(
+                'frequency-resolved evaluation impedance identity mismatch'
+            )
+        capability = self.get_amplifier_capability_by_hash(
+            evaluation.amplifier_capability.semantic_sha256
+        )
+        if capability is None:
+            raise ValueError(
+                'frequency-resolved evaluation references an unpersisted '
+                'amplifier capability'
+            )
+        if (
+            capability.capability_id
+            != evaluation.amplifier_capability.authority_id
+            or capability.version != evaluation.amplifier_capability.version
+        ):
+            raise ValueError(
+                'frequency-resolved evaluation capability identity mismatch'
+            )
+        limit: AmplifierElectricalLimitAuthority | None = None
+        if evaluation.amplifier_limit is not None:
+            limit = self.get_amplifier_limit_by_hash(
+                evaluation.amplifier_limit.semantic_sha256
+            )
+            if limit is None:
+                raise ValueError(
+                    'frequency-resolved evaluation references an unpersisted '
+                    'amplifier electrical limit'
+                )
+            if (
+                limit.limit_id != evaluation.amplifier_limit.authority_id
+                or limit.version != evaluation.amplifier_limit.version
+            ):
+                raise ValueError(
+                    'frequency-resolved evaluation limit identity mismatch'
+                )
+        return impedance, capability, limit
+
+    def _validate_frequency_resolved_binding(
+        self,
+        evaluation: FrequencyResolvedElectricalEvaluation,
+    ) -> None:
+        impedance, capability, limit = (
+            self._resolve_frequency_resolved_authorities(evaluation)
+        )
+        evaluator = FREQUENCY_RESOLVED_EVALUATORS.get(
+            evaluation.authority_version
+        )
+        if evaluator is None:
+            raise ValueError(
+                'frequency-resolved evaluator authority version is not pinned'
+            )
+        regenerated = evaluator(
+            impedance=impedance,
+            amplifier_capability=capability,
+            frequency_band=evaluation.frequency_band,
+            required_voltage_v_rms=evaluation.required_voltage_v_rms,
+            amplifier_limit=limit,
+        )
+        if regenerated != evaluation:
+            raise ValueError(
+                'frequency-resolved evaluation does not match evaluator '
+                'authority'
+            )
+
+    def save_frequency_resolved_evaluation(
+        self,
+        evaluation: FrequencyResolvedElectricalEvaluation,
+    ) -> FrequencyResolvedElectricalEvaluation:
+        evaluation = FrequencyResolvedElectricalEvaluation.model_validate(
+            evaluation.model_dump(mode='python')
+        )
+        self._validate_frequency_resolved_binding(evaluation)
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_frequency_resolved_evaluations
+                WHERE evaluation_id=?
+                """,
+                (evaluation.evaluation_id,),
+            ).fetchone()
+            if existing is not None:
+                persisted = FrequencyResolvedElectricalEvaluation.model_validate_json(
+                    existing['payload_json']
+                )
+                if persisted != evaluation:
+                    raise ValueError(
+                        'frequency-resolved evaluation ID already exists with '
+                        'different semantics'
+                    )
+                return persisted
+            connection.execute(
+                """
+                INSERT INTO cad_frequency_resolved_evaluations(
+                    evaluation_id, evaluation_sha256, impedance_sha256,
+                    amplifier_capability_sha256, payload_json
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    evaluation.evaluation_id,
+                    evaluation.evaluation_sha256,
+                    evaluation.impedance_ref.semantic_sha256,
+                    evaluation.amplifier_capability.semantic_sha256,
+                    evaluation.model_dump_json(),
+                ),
+            )
+        return evaluation
+
+    def get_frequency_resolved_evaluation(
+        self,
+        evaluation_id: str,
+    ) -> FrequencyResolvedElectricalEvaluation | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_frequency_resolved_evaluations
+                WHERE evaluation_id=?
+                """,
+                (evaluation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        evaluation = FrequencyResolvedElectricalEvaluation.model_validate_json(
+            row['payload_json']
+        )
+        self._validate_frequency_resolved_binding(evaluation)
+        return evaluation
+
+    def list_frequency_resolved_evaluations(
+        self,
+        impedance_sha256: str,
+    ) -> tuple[FrequencyResolvedElectricalEvaluation, ...]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_frequency_resolved_evaluations
+                WHERE impedance_sha256=?
+                ORDER BY seq ASC
+                """,
+                (impedance_sha256,),
+            ).fetchall()
+        evaluations = tuple(
+            FrequencyResolvedElectricalEvaluation.model_validate_json(
+                row['payload_json']
+            )
+            for row in rows
+        )
+        for evaluation in evaluations:
+            self._validate_frequency_resolved_binding(evaluation)
         return evaluations

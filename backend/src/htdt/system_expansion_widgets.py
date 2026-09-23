@@ -528,6 +528,23 @@ class SystemExpansionRoomPanel(QFrame):
         set_primary_action(self.create_proposal_button)
         self.create_proposal_button.clicked.connect(self._create_proposal)
         author_layout.addWidget(self.create_proposal_button)
+        library_row = QHBoxLayout()
+        library_row.setContentsMargins(0, 0, 0, 0)
+        library_row.setSpacing(6)
+        self.library_button = QPushButton("機器・音源ライブラリ…")
+        self.library_button.setToolTip(
+            "機器定義の作成・新バージョン発行・指向性インポート"
+        )
+        self.library_button.clicked.connect(self._open_equipment_library)
+        library_row.addWidget(self.library_button)
+        self.playback_button = QPushButton("再生チェーン / ヘッドルーム…")
+        self.playback_button.setToolTip(
+            "アンプ出力能力・スピーカー負荷・ルーティングの作成と評価"
+        )
+        self.playback_button.clicked.connect(self._open_playback_chain)
+        library_row.addWidget(self.playback_button)
+        library_row.addStretch(1)
+        author_layout.addLayout(library_row)
         self.authoring_status = QLabel()
         self.authoring_status.setWordWrap(True)
         author_layout.addWidget(self.authoring_status)
@@ -854,6 +871,34 @@ class SystemExpansionRoomPanel(QFrame):
 
     def current_variant_id(self) -> str | None:
         return self.selector.current_variant_id()
+
+    def _open_equipment_library(self) -> None:
+        from .equipment_library import (
+            EquipmentLibraryDialog,
+            EquipmentLibraryService,
+        )
+
+        service = EquipmentLibraryService(
+            self.service.scene_repository,
+            self.service.variant_repository,
+        )
+        dialog = EquipmentLibraryDialog(service, parent=self)
+        dialog.definitionsChanged.connect(self._refresh_equipment)
+        dialog.exec()
+        self._refresh_equipment()
+
+    def _open_playback_chain(self) -> None:
+        from .playback_chain_widgets import (
+            PlaybackChainDialog,
+            PlaybackChainService,
+        )
+
+        service = PlaybackChainService(
+            self.service.scene_repository,
+            self.service.document_id,
+        )
+        dialog = PlaybackChainDialog(service, parent=self)
+        dialog.exec()
 
     def _variant_changed(self, variant_id: str) -> None:
         self._show_variant(variant_id)

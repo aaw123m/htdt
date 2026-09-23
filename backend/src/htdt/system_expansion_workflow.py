@@ -15,6 +15,7 @@ from .cad_constraint_models import CadConstraintPoint2D, CadConstraintSet
 from .cad_coverage import CoverageEvaluation
 from .cad_direct_level import DirectLevelEvaluation
 from .cad_equipment_repository import CadEquipmentRepository
+from .cad_layout_profile import LayoutProfile
 from .cad_proposal_robustness import (
     ProposalMultidimensionalRobustnessSpec,
     ProposalPerturbationSample,
@@ -653,6 +654,7 @@ class SystemExpansionWorkflowService:
         linked_rules: Sequence[ProposalLinkInput] = (),
         remove_role_ids: Sequence[str] = (),
         equipment_overrides: Sequence[ProposalEquipmentChange] = (),
+        layout_profile: LayoutProfile | None = None,
         max_returned_candidates: int = 200,
     ) -> ProposalAuthoringResult:
         """Create O100A/B/C authorities for a multi-speaker topology proposal.
@@ -988,11 +990,42 @@ class SystemExpansionWorkflowService:
 
         # A removed role that is not re-added drops out of the declared channel
         # vocabulary; a removed role that is re-added is an explicit replace.
+        # #505: when a LayoutProfile is the declared channel vocabulary, role
+        # bindings carry its exact id/version instead of free strings.
+        if layout_profile is not None:
+            profile_role_set = set(layout_profile.role_ids)
+        else:
+            profile_role_set = None
         final_roles = sorted(
             (existing_role_set - removed_role_set) | proposed_roles
         )
+        if profile_role_set is not None:
+            undeclared = sorted(set(final_roles) - profile_role_set)
+            if undeclared:
+                raise ValueError(
+                    "役割 "
+                    + " / ".join(undeclared)
+                    + " は選択されたLayoutProfileで宣言されていません。"
+                )
         role_bindings = tuple(
-            ChannelRoleBinding(role_id=item, display_name=item)
+            ChannelRoleBinding(
+                role_id=item,
+                display_name=(
+                    layout_profile.role(item).display_name
+                    if layout_profile is not None
+                    else item
+                ),
+                layout_profile_id=(
+                    layout_profile.profile_id
+                    if layout_profile is not None
+                    else None
+                ),
+                layout_profile_version=(
+                    layout_profile.version
+                    if layout_profile is not None
+                    else None
+                ),
+            )
             for item in final_roles
         )
         template = build_system_variant(
