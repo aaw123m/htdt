@@ -225,6 +225,14 @@ def _plan_and_payloads() -> tuple[dict, dict[str, bytes]]:
     return plan, payloads
 
 
+def _run_id(repository, lineage_digest: str) -> str:
+    """The single persisted run id for a lineage in these fixtures."""
+
+    runs = repository.list_ingestion_runs(lineage_digest=lineage_digest)
+    assert len(runs) == 1
+    return runs[0].ingestion_run_id
+
+
 def test_transaction_commits_all_source_authorities_and_reopens(
     tmp_path: Path,
 ) -> None:
@@ -241,7 +249,7 @@ def test_transaction_commits_all_source_authorities_and_reopens(
     assert result.authority_record_count == 1
 
     typed = CaptureIngestionPlan.model_validate(plan)
-    reopened = repository.get_ingestion(typed.lineage_digest)
+    reopened = repository.get_ingestion_run_plan(result.ingestion_run_id)
     assert reopened == typed
 
     geometry_source = next(
@@ -256,8 +264,8 @@ def test_transaction_commits_all_source_authorities_and_reopens(
     assert persisted.payload == payloads[geometry_source.path]
 
     handoff = typed.raw_visual_mesh_handoffs[0]
-    binding_id = repository.get_ingestion(
-        typed.lineage_digest
+    binding_id = repository.get_ingestion_run_plan(
+        result.ingestion_run_id
     ).raw_visual_mesh_handoffs[0].raw_visual_mesh_handoff_id
     # Binding ID is adapter-derived, so locate it through the persisted DB link.
     with sqlite3.connect(scene.path) as connection:
@@ -265,9 +273,9 @@ def test_transaction_commits_all_source_authorities_and_reopens(
             '''
             SELECT binding_id
             FROM capture_ingestion_mesh_links
-            WHERE lineage_digest=?
+            WHERE ingestion_run_id=?
             ''',
-            (typed.lineage_digest,),
+            (result.ingestion_run_id,),
         ).fetchone()
     assert row is not None
     binding = repository.get_mesh_binding(row[0])
@@ -316,7 +324,9 @@ def test_payload_failure_leaves_no_partial_source_evidence(
     ):
         repository.ingest(typed, bad)
 
-    assert repository.get_ingestion(typed.lineage_digest) is None
+    assert not repository.list_ingestion_runs(
+        lineage_digest=typed.lineage_digest
+    )
     assert repository.source_evidence_count() == 0
 
 
@@ -395,7 +405,7 @@ def test_mesh_binding_persists_normalized_source_authority_edges(
     typed = CaptureIngestionPlan.model_validate(plan)
     repository.ingest(plan, payloads)
     handoff = typed.raw_visual_mesh_handoffs[0]
-    binding_id = repository.mesh_binding_ids_for_ingestion(
+    binding_id = repository.mesh_binding_ids_for_lineage(
         typed.lineage_digest
     )[0]
 
@@ -445,7 +455,7 @@ def test_mesh_binding_read_fails_closed_on_diverged_source_column(
     typed = CaptureIngestionPlan.model_validate(plan)
     repository.ingest(plan, payloads)
     handoff = typed.raw_visual_mesh_handoffs[0]
-    binding_id = repository.mesh_binding_ids_for_ingestion(
+    binding_id = repository.mesh_binding_ids_for_lineage(
         typed.lineage_digest
     )[0]
     other = next(
@@ -551,16 +561,36 @@ def test_verify_persisted_ingestion_rejects_unknown_or_foreign_plan(
     repository.ingest(plan, payloads)
 
     # A valid plan that shares the lineage projection but carries different
-    # metadata is a persisted-identity mismatch, not a healthy ingestion.
+    # metadata derives a different run identity — it was never persisted.
     foreign = json.loads(json.dumps(plan))
     foreign['source_evidence'][0]['producer'] = 'tampered_producer'
     foreign_typed = CaptureIngestionPlan.model_validate(foreign)
     assert foreign_typed.lineage_digest == typed.lineage_digest
     with pytest.raises(
         PersistedIngestionIntegrityError,
-        match='plan identity',
+        match='ingestion run is not persisted',
     ):
         repository.verify_persisted_ingestion(foreign_typed)
+
+    # A persisted plan_json that diverges from the run identity is a
+    # persisted-identity mismatch, not a healthy ingestion.
+    run_id = _run_id(repository, typed.lineage_digest)
+    _tamper(
+        repository.path,
+        (
+            'UPDATE capture_ingestion_runs SET plan_json=? '
+            'WHERE ingestion_run_id=?',
+            (
+                CaptureIngestionPlan.model_validate(foreign).model_dump_json(),
+                run_id,
+            ),
+        ),
+    )
+    with pytest.raises(
+        PersistedIngestionIntegrityError,
+        match='plan identity',
+    ):
+        repository.verify_persisted_ingestion(typed)
 
 
 def test_reimport_after_source_link_delete_fails_closed(tmp_path: Path) -> None:
@@ -571,13 +601,14 @@ def test_reimport_after_source_link_delete_fails_closed(tmp_path: Path) -> None:
     typed = CaptureIngestionPlan.model_validate(plan)
     assert repository.ingest(plan, payloads).created
 
+    run_id = _run_id(repository, typed.lineage_digest)
     victim = typed.source_evidence[0].source_evidence_id
     _tamper(
         repository.path,
         (
             'DELETE FROM capture_ingestion_source_links '
-            'WHERE lineage_digest=? AND source_evidence_id=?',
-            (typed.lineage_digest, victim),
+            'WHERE ingestion_run_id=? AND source_evidence_id=?',
+            (run_id, victim),
         ),
     )
 
@@ -595,8 +626,8 @@ def test_reimport_after_source_link_delete_fails_closed(tmp_path: Path) -> None:
     links = _rows(
         repository.path,
         'SELECT source_evidence_id FROM capture_ingestion_source_links '
-        'WHERE lineage_digest=?',
-        (typed.lineage_digest,),
+        'WHERE ingestion_run_id=?',
+        (run_id,),
     )
     assert len(links) == len(typed.source_evidence) - 1
     with pytest.raises(PersistedIngestionIntegrityError):
@@ -688,11 +719,12 @@ def test_reimport_after_roomplan_delete_fails_closed(tmp_path: Path) -> None:
     typed = CaptureIngestionPlan.model_validate(plan)
     repository.ingest(plan, payloads)
 
+    run_id = _run_id(repository, typed.lineage_digest)
     _tamper(
         repository.path,
         (
-            'DELETE FROM capture_roomplan_records WHERE lineage_digest=?',
-            (typed.lineage_digest,),
+            'DELETE FROM capture_roomplan_records WHERE ingestion_run_id=?',
+            (run_id,),
         ),
     )
 
@@ -711,11 +743,13 @@ def test_reimport_after_mesh_link_delete_fails_closed(tmp_path: Path) -> None:
     typed = CaptureIngestionPlan.model_validate(plan)
     repository.ingest(plan, payloads)
 
+    run_id = _run_id(repository, typed.lineage_digest)
     _tamper(
         repository.path,
         (
-            'DELETE FROM capture_ingestion_mesh_links WHERE lineage_digest=?',
-            (typed.lineage_digest,),
+            'DELETE FROM capture_ingestion_mesh_links '
+            'WHERE ingestion_run_id=?',
+            (run_id,),
         ),
     )
 
@@ -780,12 +814,13 @@ def test_reimport_after_authority_link_delete_fails_closed(
     typed = CaptureIngestionPlan.model_validate(plan)
     repository.ingest(plan, payloads)
 
+    run_id = _run_id(repository, typed.lineage_digest)
     _tamper(
         repository.path,
         (
             'DELETE FROM capture_ingestion_authority_links '
-            'WHERE lineage_digest=?',
-            (typed.lineage_digest,),
+            'WHERE ingestion_run_id=?',
+            (run_id,),
         ),
     )
 
@@ -825,12 +860,13 @@ def test_reimport_with_extra_linked_record_fails_closed(tmp_path: Path) -> None:
     typed = CaptureIngestionPlan.model_validate(plan)
     repository.ingest(plan, payloads)
 
+    run_id = _run_id(repository, typed.lineage_digest)
     _tamper(
         repository.path,
         (
             'INSERT INTO capture_ingestion_source_links('
-            'lineage_digest, source_evidence_id) VALUES (?, ?)',
-            (typed.lineage_digest, 'e' * 64),
+            'ingestion_run_id, source_evidence_id) VALUES (?, ?)',
+            (run_id, 'e' * 64),
         ),
     )
 
@@ -891,11 +927,13 @@ def test_integrity_failure_is_distinguishable_from_invalid_incoming(
     # Damaged persisted state raises the typed diagnostic instead — an
     # ingestion failure whose machine-readable code names the persisted
     # materialization, not the incoming archive.
+    run_id = _run_id(repository, typed.lineage_digest)
     _tamper(
         repository.path,
         (
-            'DELETE FROM capture_ingestion_mesh_links WHERE lineage_digest=?',
-            (typed.lineage_digest,),
+            'DELETE FROM capture_ingestion_mesh_links '
+            'WHERE ingestion_run_id=?',
+            (run_id,),
         ),
     )
     with pytest.raises(PersistedIngestionIntegrityError) as excinfo:
@@ -977,7 +1015,7 @@ def test_ingestion_plan_extra_field_never_reaches_persisted_plan(
     # Nothing was persisted for the rejected plan.
     valid, _ = _plan_and_payloads()
     lineage = CaptureIngestionPlan.model_validate(valid).lineage_digest
-    assert repository.get_ingestion(lineage) is None
+    assert not repository.list_ingestion_runs(lineage_digest=lineage)
 
 
 def test_ingestion_plan_valid_v1_still_accepted(tmp_path: Path) -> None:

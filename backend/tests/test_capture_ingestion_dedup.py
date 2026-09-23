@@ -392,7 +392,9 @@ def test_budget_rejects_each_aggregate_dimension(tmp_path: Path) -> None:
         ):
             repository.ingest(typed, payloads, budget=budget)
         assert repository.source_evidence_count() == 0
-        assert repository.get_ingestion(typed.lineage_digest) is None
+        assert not repository.list_ingestion_runs(
+            lineage_digest=typed.lineage_digest
+        )
 
     boundary = CaptureIngestionBudget(
         max_source_evidence_count=len(typed.source_evidence),
@@ -434,7 +436,9 @@ def test_oversized_declared_vertex_count_fails_before_mesh_decode(
         repository.ingest(typed, payloads)
 
     assert repository.source_evidence_count() == 0
-    assert repository.get_ingestion(typed.lineage_digest) is None
+    assert not repository.list_ingestion_runs(
+            lineage_digest=typed.lineage_digest
+        )
 
 
 def test_large_mesh_persisted_size_and_ingest_memory_are_bounded(
@@ -511,7 +515,7 @@ def test_missing_content_blob_fails_closed(tmp_path: Path) -> None:
         match='content blob store|missing or inconsistent',
     ):
         repository.get_source_evidence(geometry_source.source_evidence_id)
-    binding_id = repository.mesh_binding_ids_for_ingestion(
+    binding_id = repository.mesh_binding_ids_for_lineage(
         typed.lineage_digest
     )[0]
     with pytest.raises(
@@ -813,7 +817,7 @@ def test_v3_database_migrates_capture_evidence_losslessly(
         assert persisted.record == record
         assert persisted.payload == payloads[record.path]
 
-    binding_id = repository.mesh_binding_ids_for_ingestion(
+    binding_id = repository.mesh_binding_ids_for_lineage(
         typed.lineage_digest
     )[0]
     binding = repository.get_mesh_binding(binding_id)
@@ -839,7 +843,9 @@ def test_v3_database_migrates_capture_evidence_losslessly(
     assert freelist > 0
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute('VACUUM')
-    assert path.stat().st_size * 2 < legacy_size
+    # The run-scoped schema adds rows/indexes (run identity, coordinate
+    # authorities), so the shrink is closer to two-thirds than half.
+    assert path.stat().st_size * 3 // 2 < legacy_size
 
 
 def test_v3_binding_rows_gain_normalized_source_authority_columns(
@@ -985,7 +991,7 @@ def test_backup_restore_round_trip_preserves_capture_provenance(
             sha256(persisted.payload).hexdigest() == record.payload_sha256
         )
 
-    binding_id = reopened.mesh_binding_ids_for_ingestion(
+    binding_id = reopened.mesh_binding_ids_for_lineage(
         typed.lineage_digest
     )[0]
     binding = reopened.get_mesh_binding(binding_id)
