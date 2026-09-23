@@ -45,18 +45,25 @@ def _meshbin() -> bytes:
         1.0, 0.0, 0.0,
         0.0, 1.0, 0.0,
     )
+    normals = struct.pack(
+        '<9f',
+        0.0, 0.0, 1.0,
+        0.0, 0.0, 1.0,
+        0.0, 0.0, 1.0,
+    )
     indices = struct.pack('<3I', 0, 1, 2)
+    classifications = bytes([1])
     header = (
         b'HTDTMSH1'
         + struct.pack('<HH', 1, 0)
         + struct.pack('<I', 32)
         + struct.pack('<I', 3)
         + struct.pack('<I', 1)
-        + bytes([4, 0])
+        + bytes([4, 0x03])
         + struct.pack('<H', 0)
         + struct.pack('<I', 0)
     )
-    return header + vertices + indices
+    return header + vertices + normals + indices + classifications
 
 
 def _ingestion_fixture(
@@ -244,6 +251,14 @@ def test_capture_mesh_promotion_binds_exact_transform_and_scene_revision(
     )
     assert inspection.capture_coordinate_space_id == SPACE_ID
     assert len(inspection.triangle_ids) == 1
+    assert inspection.source_normals_present
+    assert [
+        (item.classification_value, item.classification_label)
+        for item in inspection.face_classification_advisories
+    ] == [(1, 'wall')]
+    assert inspection.face_classification_advisories[0].source_primitive == (
+        'htdt-meshbin-face:0'
+    )
 
     request = make_capture_semantic_promotion_request(
         ingestion_lineage_digest=lineage,

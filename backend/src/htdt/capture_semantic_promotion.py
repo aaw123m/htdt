@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
 from .capture_ingestion_transaction import CaptureIngestionRepository
+from .raw_mesh import meshbin_face_classification_label
 from .semantic_geometry import (
     RawMeshDiagnosticFinding,
     SemanticAcousticGeometry,
@@ -174,6 +175,21 @@ def make_capture_semantic_promotion_request(
     )
 
 
+class CaptureMeshFaceClassificationAdvisory(BaseModel):
+    """One retained HTDTMSH1 face-classification byte with its advisory label.
+
+    This is provenance for inspection and operator suggestions only. It is
+    never semantic or acoustic authority: promoting a mesh still requires
+    explicit ``SurfaceSemanticAssignment`` records.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_primitive: str = Field(min_length=1)
+    classification_value: int = Field(ge=0, le=255)
+    classification_label: str = Field(min_length=1)
+
+
 class CaptureSemanticMeshInspection(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -189,6 +205,10 @@ class CaptureSemanticMeshInspection(BaseModel):
     diagnostic_id: str
     diagnostic_semantic_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     findings: tuple[RawMeshDiagnosticFinding, ...]
+    source_normals_present: bool = False
+    face_classification_advisories: tuple[
+        CaptureMeshFaceClassificationAdvisory, ...
+    ] = ()
 
 
 @dataclass(frozen=True)
@@ -427,6 +447,20 @@ class CaptureSemanticPromotionRepository:
             diagnostic_id=diagnostic.diagnostic_id,
             diagnostic_semantic_hash=diagnostic.semantic_hash(),
             findings=diagnostic.findings,
+            source_normals_present=bool(binding.raw_mesh.source_normals),
+            face_classification_advisories=tuple(
+                CaptureMeshFaceClassificationAdvisory(
+                    source_primitive=triangle.source_primitive,
+                    classification_value=value,
+                    classification_label=(
+                        meshbin_face_classification_label(value)
+                    ),
+                )
+                for triangle, value in zip(
+                    binding.raw_mesh.triangles,
+                    binding.raw_mesh.source_face_classifications,
+                )
+            ),
         )
 
     def promote(
