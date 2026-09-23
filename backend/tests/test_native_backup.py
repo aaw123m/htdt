@@ -379,13 +379,22 @@ def test_restore_migratable_legacy_database_preserves_staged_bytes(tmp_path: Pat
     data_dir = tmp_path / 'data'
     _repository, _first, _digest, _raw = _seed_data(data_dir)
 
+    # The staged semantic audit replays every persisted authority, so the
+    # legacy fixture must carry a real SceneDocument payload whose stored
+    # content hash still re-derives exactly.
+    from htdt.cad_scene import canonical_scene_json, scene_content_hash
+
+    legacy_document = make_f1_scene()
+    legacy_payload = canonical_scene_json(legacy_document).replace("'", "''")
+    legacy_hash = scene_content_hash(legacy_document)
     database_bytes = _database_bytes(
         tmp_path / 'legacy.sqlite3',
         _LEGACY_SCENE_REVISIONS_DDL,
         _LEGACY_EDITOR_VIEW_STATES_DDL,
         "INSERT INTO scene_revisions(revision_id, document_id, "
         "parent_revision_id, created_at_utc, content_hash, payload_json) "
-        "VALUES ('rev-1', 'doc-1', NULL, '2026-09-17T00:00:00+00:00', 'hash', '{}')",
+        f"VALUES ('rev-1', '{legacy_document.document_id}', NULL, "
+        f"'2026-09-17T00:00:00+00:00', '{legacy_hash}', '{legacy_payload}')",
         "INSERT INTO editor_view_states(document_id, selected_id, "
         "hidden_ids_json, locked_ids_json, updated_at_utc) "
         "VALUES ('doc-1', 'speaker-fl', '[]', '[]', '2026-09-17T00:00:00+00:00')",

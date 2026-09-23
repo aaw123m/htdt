@@ -282,22 +282,58 @@ def _assert_staged_database_openable(database_path: Path) -> None:
             ) from exc
 
 
+_ASSET_MANIFEST_TABLES: tuple[tuple[str, str], ...] = (
+    ('cad_measurement_assets', 'sha256'),
+    ('cad_quality_calibration_files', 'sha256'),
+)
+
+
 def _asset_rows(database_path: Path) -> tuple[tuple[str, str, int], ...]:
+    """Return every managed asset a backup must carry: (digest, path, size).
+
+    The asset manifest tables are authoritative where they record a
+    ``relative_path``; any other content-addressed file retained in the
+    managed-assets directory (directivity sources, wave-excitation sources,
+    projector-spec sources, equipment evidence, …) still ships by digest —
+    a restored database whose evidence files were dropped would fail the
+    authority-graph audit.
+    """
+    by_path: dict[str, tuple[str, str, int]] = {}
     with closing(sqlite3.connect(f'file:{database_path.as_posix()}?mode=ro', uri=True)) as connection:
-        table = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cad_measurement_assets'"
-        ).fetchone()
-        if table is None:
-            return ()
-        rows = connection.execute(
-            'SELECT sha256, relative_path, size_bytes FROM cad_measurement_assets ORDER BY sha256'
-        ).fetchall()
-    normalized: list[tuple[str, str, int]] = []
-    for row in rows:
-        relative_path = str(row[1]).replace('\\', '/')
-        _safe_archive_path(relative_path)
-        normalized.append((str(row[0]), relative_path, int(row[2])))
-    return tuple(normalized)
+        for table, sha_column in _ASSET_MANIFEST_TABLES:
+            exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+            if exists is None:
+                continue
+            for row in connection.execute(
+                f'SELECT {sha_column}, relative_path, size_bytes '
+                f'FROM {table} ORDER BY {sha_column}'
+            ).fetchall():
+                relative_path = str(row[1]).replace('\\', '/')
+                _safe_archive_path(relative_path)
+                by_path[relative_path] = (
+                    str(row[0]),
+                    relative_path,
+                    int(row[2]),
+                )
+    assets_root = database_path.parent / MEASUREMENT_ASSETS_NAME
+    if assets_root.is_dir():
+        for candidate in sorted(assets_root.iterdir()):
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+            digest = candidate.name
+            if len(digest) != 64 or any(
+                char not in '0123456789abcdef' for char in digest
+            ):
+                continue
+            relative_path = f'{MEASUREMENT_ASSETS_NAME}/{digest}'
+            by_path.setdefault(
+                relative_path,
+                (digest, relative_path, candidate.stat().st_size),
+            )
+    return tuple(by_path[relative_path] for relative_path in sorted(by_path))
 
 
 def _validate_asset_contract(
@@ -432,6 +468,19 @@ def _create_backup(data_dir: Path, destination: Path) -> BackupManifest:
             data_dir=snapshot_root,
             database_path=snapshot_database,
         )
+        # A snapshot carrying stale, missing or non-canonical authority must
+        # never be packaged as a restorable archive. Repository construction
+        # may migrate the audited file, so the semantic replay runs on a
+        # throwaway clone sharing the snapshot's managed-asset directory;
+        # the snapshot bytes stay bit-identical to the source generation.
+        from .native_authority_audit import assert_native_authority_graph
+
+        audit_probe = snapshot_root / f'.{DATABASE_NAME}.audit-{uuid4().hex}'
+        shutil.copyfile(snapshot_database, audit_probe)
+        try:
+            assert_native_authority_graph(audit_probe)
+        finally:
+            _remove_path_quiet(audit_probe)
         manifest = _build_manifest(snapshot_root, snapshot_database)
 
         archive_temp = temp_root / 'backup.tmp'
@@ -577,6 +626,21 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, 
         database_path=database_path,
         manifest=manifest,
     )
+    # A structurally valid archive can still carry a semantically corrupt
+    # authority graph — stale references, tampered derived records or
+    # missing evidence. Replay every persisted authority before the staged
+    # bytes are trusted by preview or by the destructive restore swap.
+    # Repository construction may migrate the audited database, so the
+    # replay runs on a throwaway clone sharing the staged managed-asset
+    # directory: the staged bytes stay bit-identical to the manifest hash.
+    from .native_authority_audit import assert_native_authority_graph
+
+    audit_probe = stage_root / f'.{DATABASE_NAME}.audit-{uuid4().hex}'
+    shutil.copyfile(database_path, audit_probe)
+    try:
+        assert_native_authority_graph(audit_probe)
+    finally:
+        _remove_path_quiet(audit_probe)
     return manifest, staged_schema_version
 
 
