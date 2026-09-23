@@ -740,6 +740,19 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             keywords=('候補を比較', 'candidate compare', 'Pareto', 'パレート'),
             deep_link=WorkspaceDeepLink(WorkspaceId.OPTIMIZATION, 'comparison'),
         ),
+        CommandDefinition(
+            command_id='equipment.export_capture_catalog',
+            display_name='Capture用機材カタログを書き出す',
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=(
+                'export equipment catalog',
+                'capture',
+                '機材カタログ',
+                'カタログ書き出し',
+                'equipment catalog snapshot',
+            ),
+            mutates_managed_data=False,
+        ),
     )
 
 
