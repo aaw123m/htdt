@@ -20,6 +20,7 @@ from htdt.data_management import (
     RestoreResult,
 )
 from htdt.data_management_ui import build_data_management_component
+from htdt.data_relocation import plan_data_relocation
 
 
 class _FakeController(QObject):
@@ -28,6 +29,7 @@ class _FakeController(QObject):
     backup_created = Signal(object)
     restore_preview_ready = Signal(object)
     restore_completed = Signal(object)
+    relocation_completed = Signal(object)
     operation_failed = Signal(object)
 
     def __init__(self, data_dir: Path) -> None:
@@ -35,12 +37,16 @@ class _FakeController(QObject):
         self.backend = SimpleNamespace(
             data_dir=data_dir,
             current_native_schema_version=lambda: 5,
+            plan_relocation=lambda destination: plan_data_relocation(
+                data_dir, Path(destination)
+            ),
         )
         self.lifecycle = SimpleNamespace(restart_required=False)
         self._busy = False
         self.backup_requests: list[Path] = []
         self.preview_requests: list[Path] = []
         self.restore_requests: list[object] = []
+        self.relocate_requests: list[Path] = []
 
     @property
     def is_busy(self) -> bool:
@@ -62,6 +68,10 @@ class _FakeController(QObject):
         self.restore_requests.append(preview)
         return "restore-op"
 
+    def relocate(self, destination: Path) -> str:
+        self.relocate_requests.append(Path(destination))
+        return "relocate-op"
+
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
         self.busy_changed.emit(busy)
@@ -73,9 +83,11 @@ class _Dialogs:
         *,
         backup_path: Path | None = None,
         restore_path: Path | None = None,
+        relocation_path: Path | None = None,
     ) -> None:
         self.backup_path = backup_path
         self.restore_path = restore_path
+        self.relocation_path = relocation_path
         self.suggested_names: list[str] = []
 
     def choose_backup_destination(
@@ -89,6 +101,9 @@ class _Dialogs:
 
     def choose_restore_file(self, parent) -> Path | None:
         return self.restore_path
+
+    def choose_relocation_destination(self, parent) -> Path | None:
+        return self.relocation_path
 
 
 @pytest.fixture(scope="module")

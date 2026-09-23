@@ -1,0 +1,13 @@
+{
+  "generator_version": 1,
+  "project_class": "p-small",
+  "document_id": "fixture-p-small",
+  "revision_count": 10,
+  "entity_count": 14,
+  "measurement_count": 3,
+  "checkpoint_count": 2,
+  "asset_count": 3,
+  "asset_bytes": 1581,
+  "database_bytes": 323584,
+  "built_at_utc": "2026-09-23T21:42:50.687404+00:00"
+}

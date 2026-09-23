@@ -59,6 +59,26 @@ class SceneRevision:
 
 
 @dataclass(frozen=True)
+class SceneRevisionSummary:
+    """Compact revision metadata for history browsing (#663).
+
+    Carries lineage and identity only — the payload column is never read,
+    so listing several hundred revisions stays O(metadata) rather than
+    O(total project bytes). ``payload_bytes`` reports the stored payload
+    size so surfaces can show relative revision weight without decoding.
+    """
+
+    revision_id: str
+    document_id: str
+    parent_revision_id: str | None
+    created_at_utc: str
+    content_hash: str
+    detached: bool
+    detached_reason: str | None
+    payload_bytes: int
+
+
+@dataclass(frozen=True)
 class SaveResult:
     revision: SceneRevision
     created: bool
@@ -844,6 +864,38 @@ class SceneRepository:
             ).fetchall()
             return tuple(
                 self._row_to_revision(row, read_blob=self.read_blob) for row in rows
+            )
+
+    def list_revision_summaries(
+        self, document_id: str
+    ) -> tuple[SceneRevisionSummary, ...]:
+        """Compact metadata index for every revision, chronological (#663).
+
+        The payload column is deliberately not selected: history surfaces
+        must not deserialize every full SceneDocument just to render a
+        revision list — the same lineage-exhaustive row set
+        :meth:`list_revisions` returns, minus the decode.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT revision_id, document_id, parent_revision_id, '
+                'created_at_utc, content_hash, detached, detached_reason, '
+                'length(payload_json) AS payload_bytes '
+                'FROM scene_revisions WHERE document_id=? ORDER BY seq ASC',
+                (document_id,),
+            ).fetchall()
+            return tuple(
+                SceneRevisionSummary(
+                    revision_id=row['revision_id'],
+                    document_id=row['document_id'],
+                    parent_revision_id=row['parent_revision_id'],
+                    created_at_utc=row['created_at_utc'],
+                    content_hash=row['content_hash'],
+                    detached=bool(row['detached']),
+                    detached_reason=row['detached_reason'],
+                    payload_bytes=int(row['payload_bytes']),
+                )
+                for row in rows
             )
 
     def _ensure_revision_labels(self, connection) -> None:

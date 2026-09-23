@@ -28,9 +28,11 @@ from .data_management import (
     DataOperationFailure,
     DataOperationKind,
     DataOperationProgress,
+    RelocationResult,
     RestorePreview,
     RestoreResult,
 )
+from .data_relocation import ManagedDataRelocationPlan
 from .ui_theme import (
     ControlSize,
     SemanticState,
@@ -56,6 +58,8 @@ class DataManagementDialogProvider(Protocol):
     ) -> Path | None: ...
 
     def choose_restore_file(self, parent: QWidget) -> Path | None: ...
+
+    def choose_relocation_destination(self, parent: QWidget) -> Path | None: ...
 
 
 class QtDataManagementDialogProvider:
@@ -89,8 +93,40 @@ class QtDataManagementDialogProvider:
         )
         return None if not selected else Path(selected)
 
+    def choose_relocation_destination(self, parent: QWidget) -> Path | None:
+        selected = QFileDialog.getExistingDirectory(
+            parent,
+            "データの移動先フォルダを選択",
+            str(Path.home()),
+        )
+        return None if not selected else Path(selected)
+
 
 RestoreConfirmation = Callable[[QWidget, RestorePreview], bool]
+RelocationConfirmation = Callable[[QWidget, ManagedDataRelocationPlan], bool]
+
+
+def _default_relocate_confirmation(
+    parent: QWidget, plan: ManagedDataRelocationPlan
+) -> bool:
+    box = QMessageBox(parent)
+    box.setWindowTitle("データ保存場所の移動")
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setText(
+        f"HTDTデータを {plan.destination_dir} へ移動します。"
+    )
+    box.setInformativeText(
+        f"移動量: {_format_bytes(plan.total_bytes)}"
+        f"（DB {_format_bytes(plan.database_bytes)} / "
+        f"アセット {plan.asset_count} 件 {_format_bytes(plan.asset_bytes)}）\n"
+        "元の場所は移動後も退避フォルダとして残ります。"
+        "完了後はHTDTの再起動が必要です。移動を開始しますか？"
+    )
+    box.setStandardButtons(
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+    )
+    box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+    return box.exec() == QMessageBox.StandardButton.Yes
 
 
 def _default_restore_confirmation(parent: QWidget, preview: RestorePreview) -> bool:
@@ -233,6 +269,7 @@ class DataManagementWidget(QWidget):
         *,
         dialogs: DataManagementDialogProvider | None = None,
         confirm_restore: RestoreConfirmation | None = None,
+        confirm_relocate: RelocationConfirmation | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -242,6 +279,7 @@ class DataManagementWidget(QWidget):
         self.controller = controller
         self.dialogs = dialogs or QtDataManagementDialogProvider()
         self.confirm_restore = confirm_restore or _default_restore_confirmation
+        self.confirm_relocate = confirm_relocate or _default_relocate_confirmation
         self._restore_preview: RestorePreview | None = None
         self._busy = controller.is_busy
         self._restart_required = controller.lifecycle.restart_required
@@ -359,6 +397,35 @@ class DataManagementWidget(QWidget):
         set_typography_role(operations_text, TypographyRole.BODY)
         operations_layout.addWidget(operations_text)
 
+        relocation_card = QFrame(content)
+        relocation_card.setObjectName("dataManagementRelocationCard")
+        set_surface_role(relocation_card, SurfaceRole.RAISED)
+        relocation_layout = QVBoxLayout(relocation_card)
+        relocation_layout.setContentsMargins(18, 16, 18, 16)
+        relocation_layout.setSpacing(12)
+
+        relocation_title = QLabel("データ保存場所の移動", relocation_card)
+        set_typography_role(relocation_title, TypographyRole.SECTION_TITLE)
+        relocation_layout.addWidget(relocation_title)
+
+        relocation_text = QLabel(
+            "HTDTが管理するデータベースと測定アセットを別のドライブやフォルダへ"
+            "移動します。コピーと検証が完了するまで元の場所は変更されません。",
+            relocation_card,
+        )
+        relocation_text.setWordWrap(True)
+        set_typography_role(relocation_text, TypographyRole.BODY)
+        relocation_layout.addWidget(relocation_text)
+
+        self.relocate_button = QPushButton(
+            "移動先フォルダを選択", relocation_card
+        )
+        self.relocate_button.setObjectName("dataManagementRelocateButton")
+        set_control_size(self.relocate_button, ControlSize.STANDARD)
+        self.relocate_button.clicked.connect(self._choose_relocation_destination)
+        relocation_layout.addWidget(self.relocate_button)
+        layout.addWidget(relocation_card)
+
         actions = QHBoxLayout()
         actions.setSpacing(10)
         self.backup_button = QPushButton("バックアップを作成", operations_card)
@@ -415,6 +482,7 @@ class DataManagementWidget(QWidget):
         controller.backup_created.connect(self._on_backup_created)
         controller.restore_preview_ready.connect(self._on_restore_preview_ready)
         controller.restore_completed.connect(self._on_restore_completed)
+        controller.relocation_completed.connect(self._on_relocation_completed)
         controller.operation_failed.connect(self._on_operation_failed)
 
         self._refresh_actions()
@@ -528,6 +596,42 @@ class DataManagementWidget(QWidget):
             return
         self._hide_status()
         self.controller.restore(preview)
+
+    def _choose_relocation_destination(self) -> None:
+        if self._busy or self._restart_required:
+            return
+        destination = self.dialogs.choose_relocation_destination(self)
+        if destination is None:
+            return
+        plan = self.controller.backend.plan_relocation(destination)
+        if not plan.executable:
+            blockers = "\n".join(
+                f"・{blocker.detail}" for blocker in plan.blockers
+            )
+            self._show_status(
+                "この移動先は利用できません",
+                blockers,
+                SemanticState.ERROR,
+            )
+            return
+        if not self.confirm_relocate(self, plan):
+            return
+        self._hide_status()
+        self.result_metadata.hide()
+        self.pre_restore_label.hide()
+        self.controller.relocate(destination)
+
+    def _on_relocation_completed(self, result: RelocationResult) -> None:
+        self._show_status(
+            "データ保存場所を移動しました",
+            f"移動先: {result.destination_dir} / "
+            f"退避した旧データ: {result.parked_dir}",
+            SemanticState.SUCCESS,
+        )
+        self._show_restart_required(
+            "データの移動が完了しました。HTDTを終了して再起動すると、"
+            "新しい場所で開きます。"
+        )
 
     def _on_busy_changed(self, busy: bool) -> None:
         self._busy = busy
@@ -646,6 +750,7 @@ class DataManagementWidget(QWidget):
         self.select_restore_button.setEnabled(available)
         self.migration_export_button.setEnabled(available)
         self.migration_import_button.setEnabled(available)
+        self.relocate_button.setEnabled(available)
         self.restore_button.setEnabled(
             available and self._restore_preview is not None
         )
@@ -677,6 +782,7 @@ def build_data_management_component(
     *,
     dialogs: DataManagementDialogProvider | None = None,
     confirm_restore: RestoreConfirmation | None = None,
+    confirm_relocate: RelocationConfirmation | None = None,
 ) -> DataManagementComponent:
     """Create an unparented component that a future Settings route can mount."""
 
@@ -684,6 +790,7 @@ def build_data_management_component(
         controller,
         dialogs=dialogs,
         confirm_restore=confirm_restore,
+        confirm_relocate=confirm_relocate,
     )
     widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     return DataManagementComponent(widget=widget)
@@ -695,6 +802,7 @@ __all__ = [
     "DataManagementDialogProvider",
     "DataManagementWidget",
     "QtDataManagementDialogProvider",
+    "RelocationConfirmation",
     "RestoreConfirmation",
     "build_data_management_component",
 ]
