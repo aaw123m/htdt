@@ -2,18 +2,25 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -23,6 +30,7 @@ from PySide6.QtWidgets import (
 from .cad_scene import is_unassigned_speaker_role
 from .cad_topology_search import PlacementAngleAxis
 from .system_expansion_workflow import (
+    MeasurementPlanOptions,
     ProposalEquipmentChange,
     ProposalLinkInput,
     ProposalSpeakerInput,
@@ -1289,7 +1297,95 @@ class SystemExpansionRobustnessPanel(QFrame):
         self.advanced_label.setVisible(checked)
 
 
+# Human labels for the existing MeasurementCapabilityClaim authority.
+_MEASUREMENT_OBSERVABLES: tuple[tuple[str, str], ...] = (
+    ("magnitude_response", "magnitude応答"),
+    ("phase_response", "phase応答"),
+    ("arrival_time", "到達時間"),
+    ("decay", "減衰"),
+    ("common_timing", "共通タイミング"),
+    ("calibrated_response", "校正済み応答"),
+    ("repeatability", "再現性"),
+    ("polarity", "極性"),
+)
+
+
+class _MeasurementPlanDialog(QDialog):
+    """Target picker for one SystemVariant-specific measurement plan."""
+
+    def __init__(
+        self,
+        options: MeasurementPlanOptions,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("SystemVariant 測定計画")
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.point_combo = QComboBox()
+        for point in options.measurement_points:
+            self.point_combo.addItem(
+                f"{point.name}  {point.position_text}", point.entity_id
+            )
+        form.addRow("測定点", self.point_combo)
+
+        self.sources = QListWidget()
+        self.sources.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection
+        )
+        for source in options.sources:
+            item = QListWidgetItem(
+                f"{source.name}" + (f" ({source.role})" if source.role else "")
+            )
+            item.setData(0x0100, source.entity_id)
+            self.sources.addItem(item)
+        self.sources.setMinimumHeight(90)
+        form.addRow("音源", self.sources)
+
+        self.role_combo = QComboBox()
+        self.role_combo.setEditable(True)
+        roles = sorted(
+            {source.role for source in options.sources if source.role}
+        )
+        self.role_combo.addItems(roles)
+        form.addRow("チャンネル役割", self.role_combo)
+
+        self.observable_combo = QComboBox()
+        for value, label in _MEASUREMENT_OBSERVABLES:
+            self.observable_combo.addItem(label, value)
+        form.addRow("測定量", self.observable_combo)
+
+        self.count_spin = QSpinBox()
+        self.count_spin.setRange(1, 8)
+        self.count_spin.setValue(1)
+        form.addRow("必要測定回数", self.count_spin)
+
+        self.repeatability_check = QCheckBox("再現性を要求する")
+        form.addRow(self.repeatability_check)
+        self.context_check = QCheckBox("acquisition contextを要求する")
+        self.context_check.setChecked(True)
+        form.addRow(self.context_check)
+        self.purpose_edit = QLineEdit("設置済み構成の実測検証")
+        form.addRow("目的", self.purpose_edit)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_source_ids(self) -> list[str]:
+        return [
+            item.data(0x0100) for item in self.sources.selectedItems()
+        ]
+
+
 class SystemExpansionMeasurementPanel(QFrame):
+    openMeasurementsRequested = Signal()
+
     def __init__(
         self,
         service: SystemExpansionWorkflowService,
@@ -1320,13 +1416,52 @@ class SystemExpansionMeasurementPanel(QFrame):
         self.state = QLabel()
         self.state.setWordWrap(True)
         layout.addWidget(self.state)
+
+        actions = QHBoxLayout()
+        self.as_built_button = QPushButton("実設置を記録…")
+        self.plan_button = QPushButton("この構成の測定計画を作成…")
+        self.campaign_button = QPushButton("キャンペーンを事前登録")
+        self.open_measurements_button = QPushButton("測定を開く")
+        for button in (
+            self.as_built_button,
+            self.plan_button,
+            self.campaign_button,
+            self.open_measurements_button,
+        ):
+            set_control_size(button, ControlSize.COMPACT)
+            actions.addWidget(button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        self.targets_label = QLabel("事前登録済みtarget")
+        set_typography_role(self.targets_label, TypographyRole.SECONDARY)
+        layout.addWidget(self.targets_label)
+        self.targets = QTreeWidget()
+        self.targets.setHeaderLabels(
+            ["target", "測定点", "役割", "期待", "記録済み"]
+        )
+        self.targets.setMinimumHeight(90)
+        layout.addWidget(self.targets)
+
+        self.as_built_button.clicked.connect(self._record_as_built)
+        self.plan_button.clicked.connect(self._create_plan)
+        self.campaign_button.clicked.connect(self._preregister_campaign)
+        self.open_measurements_button.clicked.connect(
+            self.openMeasurementsRequested.emit
+        )
         self.selector.changed.connect(lambda _variant_id: self.refresh())
         self.refresh()
 
     def refresh(self) -> None:
+        self.targets.clear()
         variant_id = self.selector.current_variant_id()
         if variant_id is None:
+            self.lifecycle_badge.setText("")
             self.state.setText("SystemVariant提案がありません。")
+            self.as_built_button.setEnabled(False)
+            self.plan_button.setEnabled(False)
+            self.campaign_button.setEnabled(False)
+            self.open_measurements_button.setEnabled(False)
             return
         lifecycle = self.service.lifecycle(variant_id)
         self.lifecycle_badge.setText(lifecycle.label)
@@ -1341,5 +1476,150 @@ class SystemExpansionMeasurementPanel(QFrame):
         )
         view = self.service.measurement(variant_id)
         self.state.setText(
-            f"{view.state_label} / {view.validation_label}\n{view.detail}"
+            f"{view.state_label} / {view.validation_label}\n{view.detail}",
         )
+        self.as_built_button.setEnabled(
+            self.service.as_built_preview(variant_id).ready
+        )
+        self.plan_button.setEnabled(
+            self.service.measurement_plan_options(variant_id).ready
+        )
+        self.campaign_button.setEnabled(view.state == "planned")
+        self.open_measurements_button.setEnabled(
+            view.state
+            in {
+                "campaign_preregistered",
+                "evidence_incomplete",
+                "validation_pending",
+            }
+        )
+        for target in self.service.pending_measurement_targets(variant_id):
+            row = QTreeWidgetItem(
+                [
+                    target.target_id,
+                    target.measurement_point_entity_id,
+                    target.channel_role,
+                    str(target.expected_measurement_count),
+                    str(target.recorded_evidence_count),
+                ]
+            )
+            if target.pending:
+                row.setToolTip(0, "未完了: 追加の実測根拠が必要です。")
+            self.targets.addTopLevelItem(row)
+
+    def _record_as_built(self) -> None:
+        variant_id = self.selector.current_variant_id()
+        if variant_id is None:
+            return
+        preview = self.service.as_built_preview(variant_id)
+        if not preview.ready:
+            QMessageBox.warning(
+                self,
+                "実設置を記録",
+                "\n".join(
+                    item
+                    for item in (preview.reason, *preview.blocking)
+                    if item
+                )
+                or "設置済み記録の前提条件を満たしていません。",
+            )
+            return
+        lines = [
+            f"{diff.name} ({diff.role or '役割なし'})"
+            f"\n  提案: {diff.proposed_pose}"
+            f"\n  実設置: {diff.actual_pose}"
+            + ("\n  → 位置が異なります" if diff.moved else "")
+            for diff in preview.diffs
+        ]
+        message = (
+            "実設置確認後に設置済み記録を保存します。"
+            "提案位置との差を確認してください。\n\n"
+            + "\n".join(lines)
+            + "\n\nこの記録だけでは実測済み・検証済みにはなりません。"
+        )
+        answer = QMessageBox.question(
+            self,
+            "実設置を記録",
+            message,
+            QMessageBox.StandardButton.Apply
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Apply:
+            return
+        confirmed_by, ok = QInputDialog.getText(
+            self, "実設置を記録", "記録者名"
+        )
+        if not ok or not confirmed_by.strip():
+            return
+        try:
+            self.service.record_as_built(variant_id, confirmed_by=confirmed_by)
+        except ValueError as exc:
+            QMessageBox.warning(self, "実設置を記録", str(exc))
+            return
+        self.refresh()
+
+    def _create_plan(self) -> None:
+        variant_id = self.selector.current_variant_id()
+        if variant_id is None:
+            return
+        options = self.service.measurement_plan_options(variant_id)
+        if not options.ready:
+            QMessageBox.warning(
+                self,
+                "測定計画",
+                options.reason or "測定計画を作成できません。",
+            )
+            return
+        if not options.measurement_points:
+            QMessageBox.warning(
+                self,
+                "測定計画",
+                "設置済み状態に測定点がありません。"
+                "部屋に受音点を追加してから再度記録してください。",
+            )
+            return
+        dialog = _MeasurementPlanDialog(options, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self.service.create_measurement_plan(
+                variant_id,
+                measurement_point_entity_id=dialog.point_combo.currentData(),
+                source_entity_ids=dialog.selected_source_ids(),
+                channel_role=dialog.role_combo.currentText(),
+                observable=dialog.observable_combo.currentData(),
+                expected_measurement_count=dialog.count_spin.value(),
+                require_acquisition_context=dialog.context_check.isChecked(),
+                repeatability_required=(
+                    dialog.repeatability_check.isChecked()
+                ),
+                purpose=dialog.purpose_edit.text(),
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "測定計画", str(exc))
+            return
+        self.refresh()
+
+    def _preregister_campaign(self) -> None:
+        variant_id = self.selector.current_variant_id()
+        if variant_id is None:
+            return
+        purpose, ok = QInputDialog.getText(
+            self,
+            "キャンペーンを事前登録",
+            "campaignの目的",
+            text="設置済みSystemVariantの実測キャンペーン",
+        )
+        if not ok:
+            return
+        try:
+            self.service.preregister_measurement_campaign(
+                variant_id, purpose=purpose
+            )
+        except ValueError as exc:
+            QMessageBox.warning(
+                self, "キャンペーンを事前登録", str(exc)
+            )
+            return
+        self.refresh()

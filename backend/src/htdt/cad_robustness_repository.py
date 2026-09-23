@@ -534,6 +534,30 @@ class CadRobustnessRepository:
             for row in rows
         )
 
+    def list_specs_for_search(
+        self,
+        *,
+        document_id: str,
+        scene_revision_id: str,
+        search_spec_id: str,
+    ) -> tuple[RobustnessSpec, ...]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM cad_robustness_specs
+                WHERE document_id = ?
+                  AND scene_revision_id = ?
+                  AND search_spec_id = ?
+                ORDER BY created_at_utc ASC, robustness_spec_id ASC
+                """,
+                (document_id, scene_revision_id, search_spec_id),
+            ).fetchall()
+        return tuple(
+            self._validated_spec_row(row)
+            for row in rows
+        )
+
     def _validated_spec_row(self, row: sqlite3.Row) -> RobustnessSpec:
         spec = RobustnessSpec.model_validate_json(str(row['payload_json']))
         if (

@@ -951,3 +951,212 @@ def test_topology_proposal_input_validation_fails_closed(tmp_path: Path) -> None
                 ),
             ),
         )
+
+
+def _point_fixture(tmp_path: Path):
+    """Fixture with a measurement point so lifecycle write paths are exercisable."""
+    scene = SceneRepository(tmp_path / "cad.sqlite3")
+    baseline = scene.save(
+        SceneDocument(
+            document_id=DOCUMENT_ID,
+            room=RoomPrism(width_m=6.0, depth_m=4.0, height_m=2.4),
+            entities=(
+                _speaker("fl", "FL", 1.0),
+                _speaker("fr", "FR", 5.0),
+                SceneEntity(
+                    entity_id="mlp",
+                    kind="measurement_point",
+                    name="MLP",
+                    position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
+                ),
+            ),
+        ),
+        parent_revision_id=None,
+    ).revision
+    repository = CadSystemVariantRepository(scene)
+    variant = build_system_variant(
+        baseline=baseline,
+        name="proposed 5.0.2 A",
+        role_bindings=(
+            ChannelRoleBinding(role_id="FL", display_name="Front Left"),
+            ChannelRoleBinding(role_id="FR", display_name="Front Right"),
+            ChannelRoleBinding(role_id="SL", display_name="Surround Left"),
+        ),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id="proposal-sl",
+                entity=_speaker("sl", "SL", 0.7),
+                role_binding_id="SL",
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_variant(variant)
+    service = SystemExpansionWorkflowService(scene, DOCUMENT_ID)
+    return scene, baseline, repository, variant, service
+
+
+def test_apply_then_explicit_as_built_record_promotes_lifecycle(
+    tmp_path: Path,
+) -> None:
+    scene, _baseline, _repository, variant, service = _point_fixture(tmp_path)
+
+    # Apply alone must not promote the physical lifecycle.
+    service.apply(variant.variant_id)
+    assert service.lifecycle(variant.variant_id).state == "proposed"
+
+    preview = service.as_built_preview(variant.variant_id)
+    assert preview.ready is True
+    assert len(preview.diffs) == 1
+    assert preview.diffs[0].entity_id == "sl"
+    assert preview.diffs[0].moved is False
+    assert preview.lineage_revision_count == 1
+
+    record = service.record_as_built(variant.variant_id, confirmed_by="installer")
+    assert record.application_id is not None
+    assert service._as_built(variant.variant_id) == record
+    assert service.lifecycle(variant.variant_id).state == "as_built"
+    # A second record for the same application is refused before any write.
+    assert service.as_built_preview(variant.variant_id).ready is False
+
+
+def test_as_built_preview_flags_position_drift_and_unrelated_head(
+    tmp_path: Path,
+) -> None:
+    scene, _baseline, _repository, variant, service = _point_fixture(tmp_path)
+    application = service.apply(variant.variant_id)
+    applied = scene.get(application.applied_revision_id)
+
+    moved = applied.document.model_copy(
+        update={
+            "entities": tuple(
+                entity.model_copy(
+                    update={
+                        "position": entity.position.model_copy(
+                            update={"x_m": 0.75}
+                        )
+                    }
+                )
+                if entity.entity_id == "sl"
+                else entity
+                for entity in applied.document.entities
+            )
+        }
+    )
+    moved_revision = scene.save(moved, parent_revision_id=applied.revision_id)
+
+    preview = service.as_built_preview(variant.variant_id)
+    assert preview.ready is True
+    assert preview.diffs[0].moved is True
+    assert preview.lineage_revision_count == 2
+
+    # A descendant edit that drops the proposed entity cannot be recorded
+    # as this variant's installed state.
+    removed = moved_revision.revision.document.model_copy(
+        update={
+            "entities": tuple(
+                entity
+                for entity in moved_revision.revision.document.entities
+                if entity.entity_id != "sl"
+            )
+        }
+    )
+    scene.save(removed, parent_revision_id=moved_revision.revision.revision_id)
+    preview = service.as_built_preview(variant.variant_id)
+    assert preview.ready is False
+    assert any("sl" in item or "SL" in item for item in preview.blocking)
+    with pytest.raises(ValueError):
+        service.record_as_built(variant.variant_id, confirmed_by="installer")
+
+
+def test_variant_measurement_plan_and_campaign_progression(
+    tmp_path: Path,
+) -> None:
+    _scene, _baseline, _repository, variant, service = _point_fixture(tmp_path)
+    service.apply(variant.variant_id)
+    service.record_as_built(variant.variant_id, confirmed_by="installer")
+
+    options = service.measurement_plan_options(variant.variant_id)
+    assert options.ready is True
+    assert [item.entity_id for item in options.measurement_points] == ["mlp"]
+    source_ids = {item.entity_id for item in options.sources}
+    assert {"fl", "fr", "sl"} <= source_ids
+
+    plan = service.create_measurement_plan(
+        variant.variant_id,
+        measurement_point_entity_id="mlp",
+        source_entity_ids=("sl",),
+        channel_role="SL",
+        purpose="measure installed proposal",
+    )
+    assert plan.as_built_record_id == service._as_built(variant.variant_id).record_id
+    view = service.measurement(variant.variant_id)
+    assert view.state == "planned"
+
+    pending = service.pending_measurement_targets(variant.variant_id)
+    assert len(pending) == 1
+    assert pending[0].channel_role == "SL"
+    assert pending[0].expected_measurement_count == 1
+    assert pending[0].recorded_evidence_count == 0
+    assert pending[0].pending is True
+
+    campaign, registration = service.preregister_measurement_campaign(
+        variant.variant_id,
+        purpose="SystemVariant measurement campaign",
+    )
+    assert campaign.campaign_id == registration.campaign_id
+    view = service.measurement(variant.variant_id)
+    assert view.state == "campaign_preregistered"
+    assert view.measured is False
+
+
+def test_measurement_plan_requires_variant_specific_targets(
+    tmp_path: Path,
+) -> None:
+    _scene, _baseline, _repository, variant, service = _point_fixture(tmp_path)
+    service.apply(variant.variant_id)
+    service.record_as_built(variant.variant_id, confirmed_by="installer")
+
+    with pytest.raises(ValueError, match="測定点"):
+        service.create_measurement_plan(
+            variant.variant_id,
+            measurement_point_entity_id="missing-point",
+            source_entity_ids=("sl",),
+            channel_role="SL",
+        )
+    with pytest.raises(ValueError, match="speaker"):
+        service.create_measurement_plan(
+            variant.variant_id,
+            measurement_point_entity_id="mlp",
+            source_entity_ids=("mlp",),
+            channel_role="SL",
+        )
+    with pytest.raises(ValueError, match="2回以上"):
+        service.create_measurement_plan(
+            variant.variant_id,
+            measurement_point_entity_id="mlp",
+            source_entity_ids=("sl",),
+            channel_role="SL",
+            repeatability_required=True,
+        )
+
+
+def test_measurement_plan_and_campaign_require_prior_lifecycle(
+    tmp_path: Path,
+) -> None:
+    _scene, _baseline, _repository, variant, service = _point_fixture(tmp_path)
+
+    options = service.measurement_plan_options(variant.variant_id)
+    assert options.ready is False
+    with pytest.raises(ValueError, match="設置済み"):
+        service.create_measurement_plan(
+            variant.variant_id,
+            measurement_point_entity_id="mlp",
+            source_entity_ids=("sl",),
+            channel_role="SL",
+        )
+    with pytest.raises(ValueError, match="測定計画"):
+        service.preregister_measurement_campaign(
+            variant.variant_id,
+            purpose="campaign without plans",
+        )

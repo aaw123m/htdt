@@ -205,7 +205,7 @@ def test_ux140_workflow_application_binds_commands_without_legacy_qactions(monke
     monkeypatch.setattr(
         workflow_application,
         "build_optimization_workspace_mount",
-        lambda _repository, _document_id: fake_mount,
+        lambda _repository, _document_id, **_kwargs: fake_mount,
     )
 
     composition = object.__new__(workflow_application.WorkflowApplicationComposition)
@@ -263,7 +263,7 @@ def test_ux140_builder_exposes_shell_mount_contract(monkeypatch) -> None:
     monkeypatch.setattr(
         optimization_workflow,
         "OptimizationWorkflowWorkspace",
-        lambda _repository, _document_id: workspace,
+        lambda _repository, _document_id, **_kwargs: workspace,
     )
 
     mount = build_optimization_workspace_mount(object(), "document-1")

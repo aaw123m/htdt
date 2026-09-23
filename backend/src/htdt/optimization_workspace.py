@@ -166,6 +166,11 @@ class OptimizationWorkspaceWindow(
         self.search_step_field: QDoubleSpinBox | None = None
         self.search_limit_field: QSpinBox | None = None
         self.search_axis_tree: QTreeWidget | None = None
+        self.search_linked_tree: QTreeWidget | None = None
+        self.linked_master_combo: QComboBox | None = None
+        self.linked_slave_combo: QComboBox | None = None
+        self.linked_relation_combo: QComboBox | None = None
+        self.linked_mirror_field: QDoubleSpinBox | None = None
         self.search_spec_tree: QTreeWidget | None = None
         self.search_candidate_tree: QTreeWidget | None = None
         self.search_summary_label: QLabel | None = None
@@ -314,6 +319,50 @@ class OptimizationWorkspaceWindow(
         self.search_axis_tree.setHeaderLabels(['物体', '軸', '最小', '最大', '刻み'])
         self.search_axis_tree.setMinimumHeight(120)
         layout.addWidget(self.search_axis_tree)
+
+        linked_label = QLabel(
+            '連動探索変数: 1つの可動軸が従属物体を派生します。'
+            'mirror_x は部屋中心線を仮定せず鏡面xを必須指定します。'
+        )
+        linked_label.setWordWrap(True)
+        layout.addWidget(linked_label)
+
+        linked_form = QFormLayout()
+        self.linked_master_combo = QComboBox()
+        self.linked_master_combo.setMinimumContentsLength(18)
+        linked_form.addRow('マスター', self.linked_master_combo)
+        self.linked_slave_combo = QComboBox()
+        self.linked_slave_combo.setMinimumContentsLength(18)
+        linked_form.addRow('スレーブ', self.linked_slave_combo)
+        self.linked_relation_combo = QComboBox()
+        for label, value in (
+            ('鏡像 X', 'mirror_x'),
+            ('X一致', 'equal_x'),
+            ('Y一致', 'equal_y'),
+            ('Z一致', 'equal_z'),
+            ('X同一変位', 'equal_delta_x'),
+            ('Y同一変位', 'equal_delta_y'),
+            ('Z同一変位', 'equal_delta_z'),
+        ):
+            self.linked_relation_combo.addItem(label, value)
+        linked_form.addRow('関係', self.linked_relation_combo)
+        self.linked_mirror_field = self._search_distance_field(minimum=0.0)
+        linked_form.addRow('鏡面 x', self.linked_mirror_field)
+        layout.addLayout(linked_form)
+
+        linked_actions = QHBoxLayout()
+        add_link = QPushButton('連動を追加 / 更新')
+        add_link.clicked.connect(self.add_linked_search_variable)
+        linked_actions.addWidget(add_link)
+        remove_link = QPushButton('選択連動を削除')
+        remove_link.clicked.connect(self.remove_selected_linked_variable)
+        linked_actions.addWidget(remove_link)
+        layout.addLayout(linked_actions)
+
+        self.search_linked_tree = QTreeWidget()
+        self.search_linked_tree.setHeaderLabels(['マスター', 'スレーブ', '関係', '鏡面x'])
+        self.search_linked_tree.setMinimumHeight(90)
+        layout.addWidget(self.search_linked_tree)
 
         self.search_save_button = QPushButton('探索仕様を保存')
         self.search_save_button.setToolTip(

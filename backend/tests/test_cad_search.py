@@ -22,10 +22,12 @@ from htdt.cad_search import (
     search_spec_current_working,
 )
 from htdt.cad_search_models import (
+    CadLinkedSearchVariable,
     CadSearchAxis,
     CadSearchSpec,
     canonical_search_json,
     canonical_search_sha256,
+    shared_delta_variables,
 )
 from htdt.cad_search_repository import CadSearchRepository
 
@@ -410,3 +412,264 @@ def test_candidate_generation_executes_only_canonical_executable_payload(tmp_pat
 
     # The canonical spec still generates deterministically.
     assert generate_cad_candidates(scene_repository, spec) == canonical
+
+
+def _linked_scene() -> SceneDocument:
+    return SceneDocument(
+        document_id=DOCUMENT_ID,
+        schema_version=2,
+        room=RoomPrism(width_m=6.0, depth_m=4.0, height_m=2.4),
+        entities=(
+            SceneEntity(
+                entity_id='speaker-fl',
+                kind='speaker',
+                name='FL',
+                position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
+                size_m=Size3(x_m=0.22, y_m=0.28, z_m=0.42),
+                speaker_role='FL',
+            ),
+            SceneEntity(
+                entity_id='speaker-fr',
+                kind='speaker',
+                name='FR',
+                position=Position3(x_m=5.0, y_m=1.0, z_m=1.0),
+                size_m=Size3(x_m=0.22, y_m=0.28, z_m=0.42),
+                speaker_role='FR',
+            ),
+            SceneEntity(
+                entity_id='seat-l',
+                kind='seat',
+                name='Seat L',
+                position=Position3(x_m=2.5, y_m=3.0, z_m=0.45),
+                size_m=Size3(x_m=0.6, y_m=0.6, z_m=1.0),
+            ),
+            SceneEntity(
+                entity_id='seat-r',
+                kind='seat',
+                name='Seat R',
+                position=Position3(x_m=3.5, y_m=3.0, z_m=0.45),
+                size_m=Size3(x_m=0.6, y_m=0.6, z_m=1.0),
+            ),
+            SceneEntity(
+                entity_id='point-mlp',
+                kind='measurement_point',
+                name='MLP',
+                position=Position3(x_m=3.0, y_m=3.2, z_m=1.1),
+            ),
+        ),
+    )
+
+
+def _seat_exclusion() -> CadConstraintSet:
+    return CadConstraintSet(
+        document_id=DOCUMENT_ID,
+        constraints=(
+            CadExclusionRegionConstraint(
+                constraint_id='seat-r-zone',
+                name='Seat R exclusion',
+                entity_ids=('seat-r',),
+                vertices=(
+                    CadConstraintPoint2D(x_m=2.9, y_m=2.9),
+                    CadConstraintPoint2D(x_m=3.1, y_m=2.9),
+                    CadConstraintPoint2D(x_m=3.1, y_m=3.1),
+                    CadConstraintPoint2D(x_m=2.9, y_m=3.1),
+                ),
+            ),
+        ),
+    )
+
+
+def test_linked_mirror_pair_search_derives_slave_without_cartesian_explosion(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(_linked_scene(), parent_revision_id=None).revision
+    spec, estimate = build_cad_search_spec(
+        revision,
+        CadConstraintSet(document_id=DOCUMENT_ID, constraints=()),
+        (CadSearchAxis(entity_id='speaker-fl', axis='x', min_m=1.0, max_m=3.0, step_m=1.0),),
+        candidate_limit=10,
+        name='FL/FR mirrored sweep',
+        linked_variables=(
+            CadLinkedSearchVariable(
+                constraint_id='link-mirror-fl-fr',
+                master_entity_id='speaker-fl',
+                slave_entity_id='speaker-fr',
+                relation='mirror_x',
+                mirror_axis_x_m=3.0,
+            ),
+        ),
+    )
+
+    # The slave adds zero independent dimensions: 3 raw, not 9.
+    assert estimate['raw_candidate_count'] == 3
+    assert estimate['linked_derivation_count'] == 1
+    assert spec.linked_variables[0].slave_entity_id == 'speaker-fr'
+
+    search_repository = CadSearchRepository(scene_repository)
+    search_repository.save(spec)
+    loaded = search_repository.get(spec.search_spec_id)
+    assert loaded == spec
+
+    page = generate_cad_candidates(scene_repository, loaded)
+    assert page.raw_candidate_count == 3
+    assert page.feasible_candidate_count == 3
+    assert [
+        (
+            item.positions['speaker-fl']['x_m'],
+            item.positions['speaker-fr']['x_m'],
+        )
+        for item in page.candidates
+    ] == [(1.0, 5.0), (2.0, 4.0), (3.0, 3.0)]
+    assert generate_cad_candidates(scene_repository, loaded) == page
+
+
+def test_shared_delta_group_search_preserves_baseline_offsets(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(_linked_scene(), parent_revision_id=None).revision
+    spec, estimate = build_cad_search_spec(
+        revision,
+        CadConstraintSet(document_id=DOCUMENT_ID, constraints=()),
+        (CadSearchAxis(entity_id='seat-l', axis='x', min_m=2.0, max_m=2.5, step_m=0.5),),
+        candidate_limit=10,
+        linked_variables=shared_delta_variables(
+            'seat-l',
+            ('seat-r',),
+            'x',
+            constraint_id_prefix='link-seats',
+        ),
+    )
+
+    assert estimate['raw_candidate_count'] == 2
+    assert estimate['linked_derivation_count'] == 1
+    page = generate_cad_candidates(scene_repository, spec)
+    assert [
+        (item.positions['seat-l']['x_m'], item.positions['seat-r']['x_m'])
+        for item in page.candidates
+    ] == [(2.0, 3.0), (2.5, 3.5)]
+
+
+def test_linked_derivation_evaluates_constraints_on_the_derived_scene(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(_linked_scene(), parent_revision_id=None).revision
+    spec, _estimate = build_cad_search_spec(
+        revision,
+        _seat_exclusion(),
+        (CadSearchAxis(entity_id='seat-l', axis='x', min_m=2.0, max_m=2.5, step_m=0.5),),
+        candidate_limit=10,
+        linked_variables=shared_delta_variables(
+            'seat-l',
+            ('seat-r',),
+            'x',
+            constraint_id_prefix='link-seats',
+        ),
+    )
+
+    page = generate_cad_candidates(scene_repository, spec)
+    # The candidate that derives seat-r into the exclusion zone is rejected;
+    # feasibility is evaluated on the fully derived scene, not the master only.
+    assert page.feasible_candidate_count == 1
+    assert page.rejected_candidate_count == 1
+    assert page.rejection_counts.get('seat-r-zone') == 1
+    assert page.candidates[0].positions['seat-r']['x_m'] == 3.5
+
+
+def test_linked_variables_bind_into_spec_identity_and_compile_paths(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(_linked_scene(), parent_revision_id=None).revision
+    spec, _estimate = build_cad_search_spec(
+        revision,
+        CadConstraintSet(document_id=DOCUMENT_ID, constraints=()),
+        (CadSearchAxis(entity_id='speaker-fl', axis='x', min_m=1.0, max_m=2.0, step_m=1.0),),
+        candidate_limit=10,
+        linked_variables=(
+            CadLinkedSearchVariable(
+                constraint_id='link-mirror-fl-fr',
+                master_entity_id='speaker-fl',
+                slave_entity_id='speaker-fr',
+                relation='mirror_x',
+                mirror_axis_x_m=3.0,
+            ),
+        ),
+    )
+    search_repository = CadSearchRepository(scene_repository)
+
+    # Declared rules participate in identity: adding them changes the hash.
+    plain, _ = build_cad_search_spec(
+        revision,
+        CadConstraintSet(document_id=DOCUMENT_ID, constraints=()),
+        (CadSearchAxis(entity_id='speaker-fl', axis='x', min_m=1.0, max_m=2.0, step_m=1.0),),
+        candidate_limit=10,
+    )
+    assert 'linked_variables' not in plain.identity_payload()
+    assert spec.search_spec_sha256 != plain.search_spec_sha256
+    engine_spec = json.loads(spec.constraint_engine_spec_json)
+    assert any(
+        item['kind'] == 'linked_placement' and item['constraint_id'] == 'link-mirror-fl-fr'
+        for item in engine_spec['constraints']
+    )
+
+    # Rebinding with a different linked rule fails the canonical compilation replay.
+    tampered = _rebound(
+        spec,
+        linked_variables=(
+            CadLinkedSearchVariable(
+                constraint_id='link-mirror-fl-fr',
+                master_entity_id='speaker-fl',
+                slave_entity_id='speaker-fr',
+                relation='equal_x',
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match='canonical compilation'):
+        search_repository.save(tampered)
+    with pytest.raises(ValueError, match='canonical compilation'):
+        generate_cad_candidates(scene_repository, tampered)
+
+
+def test_linked_variable_model_contracts() -> None:
+    # mirror_x never assumes a room centerline: the mirror axis is explicit.
+    with pytest.raises(ValueError, match='explicit mirror_axis_x_m'):
+        CadLinkedSearchVariable(
+            constraint_id='link-1',
+            master_entity_id='a',
+            slave_entity_id='b',
+            relation='mirror_x',
+        )
+    with pytest.raises(ValueError, match='only valid for relation=mirror_x'):
+        CadLinkedSearchVariable(
+            constraint_id='link-1',
+            master_entity_id='a',
+            slave_entity_id='b',
+            relation='equal_x',
+            mirror_axis_x_m=3.0,
+        )
+    with pytest.raises(ValueError, match='two different entities'):
+        CadLinkedSearchVariable(
+            constraint_id='link-1',
+            master_entity_id='a',
+            slave_entity_id='a',
+            relation='equal_x',
+        )
+
+
+def test_linked_slave_axis_cannot_also_be_a_grid_axis(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(_linked_scene(), parent_revision_id=None).revision
+    with pytest.raises(ValueError):
+        build_cad_search_spec(
+            revision,
+            CadConstraintSet(document_id=DOCUMENT_ID, constraints=()),
+            (
+                CadSearchAxis(entity_id='speaker-fl', axis='x', min_m=1.0, max_m=2.0, step_m=1.0),
+                CadSearchAxis(entity_id='speaker-fr', axis='x', min_m=4.0, max_m=5.0, step_m=1.0),
+            ),
+            candidate_limit=10,
+            linked_variables=(
+                CadLinkedSearchVariable(
+                    constraint_id='link-mirror-fl-fr',
+                    master_entity_id='speaker-fl',
+                    slave_entity_id='speaker-fr',
+                    relation='mirror_x',
+                    mirror_axis_x_m=3.0,
+                ),
+            ),
+        )
