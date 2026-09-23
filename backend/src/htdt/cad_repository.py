@@ -94,6 +94,36 @@ class RevisionLabel:
 
 
 @dataclass(frozen=True)
+class EditorPayloadRecord:
+    """One row of a non-authoritative, document-scoped payload store.
+
+    Used for editor-convenience state that is never part of a SceneRevision:
+    camera records, named views, floor-plan underlays, seating-layout specs
+    and authoring-constraint sets. ``record_id`` equals the document id for
+    singleton stores and the per-record id (view id, underlay id, spec id)
+    for keyed stores.
+    """
+
+    document_id: str
+    record_id: str
+    payload: dict
+    updated_at_utc: str
+
+
+#: Non-authoritative payload tables and their keyed record column (``None``
+#: for singleton tables with one row per document).
+_PAYLOAD_TABLES: dict[str, tuple[str, str | None]] = {
+    'camera_state': ('editor_camera_states', None),
+    'named_view': ('editor_named_views', 'view_id'),
+    'underlay': ('floor_plan_underlays', 'underlay_id'),
+    'seating_spec': ('seating_layout_specs', 'spec_id'),
+    'authoring_constraints': ('authoring_constraint_sets', None),
+}
+
+_MAX_PAYLOAD_ROWS_PER_DOCUMENT = 512
+
+
+@dataclass(frozen=True)
 class SemanticGeometryBindingRecord:
     scene_revision_id: str
     source_scene_revision_id: str | None
@@ -201,6 +231,57 @@ class SceneRepository:
                 connection.execute(
                     "ALTER TABLE editor_view_states ADD COLUMN snap_json TEXT"
                 )
+            connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS editor_camera_states (
+                    document_id TEXT PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL
+                )
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS editor_named_views (
+                    document_id TEXT NOT NULL,
+                    view_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (document_id, view_id)
+                )
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS floor_plan_underlays (
+                    document_id TEXT NOT NULL,
+                    underlay_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (document_id, underlay_id)
+                )
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS seating_layout_specs (
+                    document_id TEXT NOT NULL,
+                    spec_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (document_id, spec_id)
+                )
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS authoring_constraint_sets (
+                    document_id TEXT PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL
+                )
+                '''
+            )
 
     def current_head(self, document_id: str) -> SceneRevision | None:
         """Return the document's explicit current head SceneRevision.
@@ -828,6 +909,176 @@ class SceneRepository:
                 'could not delete corrupt editor view state row for document %s',
                 document_id,
             )
+
+    # -- non-authoritative payload stores (camera, named views, underlays,
+    # seating specs, authoring constraints) -------------------------------
+
+    def _save_payload(
+        self,
+        store: str,
+        document_id: str,
+        payload: dict,
+        *,
+        record_id: str | None = None,
+    ) -> None:
+        table, key_column = _PAYLOAD_TABLES[store]
+        if key_column is None and record_id is not None:
+            raise ValueError(f'{store} store is singleton; no record_id allowed')
+        if key_column is not None and record_id is None:
+            raise ValueError(f'{store} store requires a record_id')
+        key = document_id if key_column is None else record_id
+        updated_at = datetime.now(timezone.utc).isoformat()
+        payload_json = json.dumps(payload, separators=(',', ':'), ensure_ascii=False)
+        with closing(self._connect()) as connection, connection:
+            if key_column is None:
+                existing = connection.execute(
+                    f'SELECT COUNT(*) AS n FROM {table} WHERE document_id=?',
+                    (document_id,),
+                ).fetchone()['n']
+                if existing:
+                    connection.execute(
+                        f'UPDATE {table} SET payload_json=?, updated_at_utc=? WHERE document_id=?',
+                        (payload_json, updated_at, document_id),
+                    )
+                    return
+            else:
+                count_row = connection.execute(
+                    f'SELECT COUNT(*) AS n FROM {table} WHERE document_id=? AND {key_column}!=?',
+                    (document_id, key),
+                ).fetchone()
+                if count_row['n'] >= _MAX_PAYLOAD_ROWS_PER_DOCUMENT:
+                    raise ValueError(
+                        f'{store} store is at its {_MAX_PAYLOAD_ROWS_PER_DOCUMENT}-record bound'
+                    )
+            if key_column is None:
+                connection.execute(
+                    f'INSERT INTO {table}(document_id, payload_json, updated_at_utc) VALUES (?, ?, ?)',
+                    (document_id, payload_json, updated_at),
+                )
+            else:
+                connection.execute(
+                    f'INSERT INTO {table}(document_id, {key_column}, payload_json, updated_at_utc) '
+                    'VALUES (?, ?, ?, ?) '
+                    f'ON CONFLICT(document_id, {key_column}) DO UPDATE SET '
+                    'payload_json=excluded.payload_json, updated_at_utc=excluded.updated_at_utc',
+                    (document_id, key, payload_json, updated_at),
+                )
+
+    def _payloads(self, store: str, document_id: str) -> tuple[EditorPayloadRecord, ...]:
+        table, key_column = _PAYLOAD_TABLES[store]
+        with closing(self._connect()) as connection, connection:
+            if key_column is None:
+                rows = connection.execute(
+                    f'SELECT document_id, NULL AS record_id, payload_json, updated_at_utc '
+                    f'FROM {table} WHERE document_id=?',
+                    (document_id,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    f'SELECT document_id, {key_column} AS record_id, payload_json, updated_at_utc '
+                    f'FROM {table} WHERE document_id=? ORDER BY updated_at_utc',
+                    (document_id,),
+                ).fetchall()
+            records: list[EditorPayloadRecord] = []
+            corrupt = False
+            for row in rows:
+                try:
+                    payload = json.loads(row['payload_json'])
+                    if not isinstance(payload, dict):
+                        raise ValueError('payload is not a JSON object')
+                except (TypeError, ValueError, RecursionError) as exc:
+                    # Same contract as editor_view_states: a corrupt row of
+                    # disposable editor state resets to defaults, never aborts.
+                    _LOGGER.warning(
+                        'discarding corrupt %s row for document %s (%s)',
+                        store,
+                        document_id,
+                        exc,
+                    )
+                    corrupt = True
+                    continue
+                records.append(
+                    EditorPayloadRecord(
+                        document_id=row['document_id'],
+                        record_id=row['record_id'] or row['document_id'],
+                        payload=payload,
+                        updated_at_utc=row['updated_at_utc'],
+                    )
+                )
+            if corrupt:
+                try:
+                    connection.execute(
+                        f'DELETE FROM {table} WHERE document_id=?',
+                        (document_id,),
+                    )
+                except sqlite3.Error:
+                    _LOGGER.warning(
+                        'could not purge corrupt %s rows for document %s',
+                        store,
+                        document_id,
+                    )
+            return tuple(records)
+
+    def _delete_payload(self, store: str, document_id: str, record_id: str) -> None:
+        table, key_column = _PAYLOAD_TABLES[store]
+        if key_column is None:
+            raise ValueError(f'{store} store is singleton; use _clear_payload')
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                f'DELETE FROM {table} WHERE document_id=? AND {key_column}=?',
+                (document_id, record_id),
+            )
+
+    # Camera record --------------------------------------------------------
+
+    def save_camera_state(self, document_id: str, payload: dict) -> None:
+        self._save_payload('camera_state', document_id, payload)
+
+    def camera_state(self, document_id: str) -> EditorPayloadRecord | None:
+        records = self._payloads('camera_state', document_id)
+        return records[0] if records else None
+
+    # Named views ----------------------------------------------------------
+
+    def save_named_view(self, document_id: str, view_id: str, payload: dict) -> None:
+        self._save_payload('named_view', document_id, payload, record_id=view_id)
+
+    def named_views(self, document_id: str) -> tuple[EditorPayloadRecord, ...]:
+        return self._payloads('named_view', document_id)
+
+    def delete_named_view(self, document_id: str, view_id: str) -> None:
+        self._delete_payload('named_view', document_id, view_id)
+
+    # Floor-plan underlays ---------------------------------------------------
+
+    def save_underlay(self, document_id: str, underlay_id: str, payload: dict) -> None:
+        self._save_payload('underlay', document_id, payload, record_id=underlay_id)
+
+    def underlays(self, document_id: str) -> tuple[EditorPayloadRecord, ...]:
+        return self._payloads('underlay', document_id)
+
+    def delete_underlay(self, document_id: str, underlay_id: str) -> None:
+        self._delete_payload('underlay', document_id, underlay_id)
+
+    # Seating layout specs ---------------------------------------------------
+
+    def save_seating_spec(self, document_id: str, spec_id: str, payload: dict) -> None:
+        self._save_payload('seating_spec', document_id, payload, record_id=spec_id)
+
+    def seating_specs(self, document_id: str) -> tuple[EditorPayloadRecord, ...]:
+        return self._payloads('seating_spec', document_id)
+
+    def delete_seating_spec(self, document_id: str, spec_id: str) -> None:
+        self._delete_payload('seating_spec', document_id, spec_id)
+
+    # Authoring constraints ---------------------------------------------------
+
+    def save_authoring_constraints(self, document_id: str, payload: dict) -> None:
+        self._save_payload('authoring_constraints', document_id, payload)
+
+    def authoring_constraints(self, document_id: str) -> EditorPayloadRecord | None:
+        records = self._payloads('authoring_constraints', document_id)
+        return records[0] if records else None
 
     @staticmethod
     def _row_to_revision(row: sqlite3.Row) -> SceneRevision:

@@ -132,6 +132,79 @@ def quaternion_from_axis_angle(axis: Literal['x', 'y', 'z'], angle_deg: float) -
     raise ValueError(f'unsupported rotation axis: {axis}')
 
 
+def quaternion_from_axis_angle_vector(
+    axis_xyz: tuple[float, float, float],
+    angle_deg: float,
+) -> Quaternion4:
+    """Rotation about an arbitrary world-frame axis (right-hand rule)."""
+
+    ax, ay, az = (float(value) for value in axis_xyz)
+    length = sqrt(ax * ax + ay * ay + az * az)
+    if length <= 1e-12:
+        raise ValueError('rotation axis must not be zero length')
+    ax, ay, az = ax / length, ay / length, az / length
+    half = radians(float(angle_deg)) * 0.5
+    c = cos(half)
+    s = sin(half)
+    return normalized_quaternion(c, s * ax, s * ay, s * az)
+
+
+def quaternion_from_matrix3(matrix: tuple[tuple[float, float, float], ...]) -> Quaternion4:
+    """Recover a quaternion from a proper rotation matrix (numerically stable).
+
+    Rows are world-basis images of the local axes, matching the layout produced
+    by :func:`quaternion_to_matrix3`. The caller must pass an orthonormal
+    rotation (determinant +1); reflected or degenerate input fails closed.
+    """
+
+    m = tuple(
+        tuple(float(matrix[row][column]) for column in range(3))
+        for row in range(3)
+    )
+    for row in m:
+        if any(not isfinite(value) for value in row):
+            raise ValueError('rotation matrix values must be finite')
+    determinant = (
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    )
+    if abs(determinant - 1.0) > 1e-3:
+        raise ValueError('matrix is not a proper rotation (det != +1)')
+    trace = m[0][0] + m[1][1] + m[2][2]
+    if trace > 0.0:
+        scale = sqrt(trace + 1.0) * 2.0
+        return normalized_quaternion(
+            0.25 * scale,
+            (m[2][1] - m[1][2]) / scale,
+            (m[0][2] - m[2][0]) / scale,
+            (m[1][0] - m[0][1]) / scale,
+        )
+    if m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        scale = sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0
+        return normalized_quaternion(
+            (m[2][1] - m[1][2]) / scale,
+            0.25 * scale,
+            (m[0][1] + m[1][0]) / scale,
+            (m[0][2] + m[2][0]) / scale,
+        )
+    if m[1][1] > m[2][2]:
+        scale = sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0
+        return normalized_quaternion(
+            (m[0][2] - m[2][0]) / scale,
+            (m[0][1] + m[1][0]) / scale,
+            0.25 * scale,
+            (m[1][2] + m[2][1]) / scale,
+        )
+    scale = sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0
+    return normalized_quaternion(
+        (m[1][0] - m[0][1]) / scale,
+        (m[0][2] + m[2][0]) / scale,
+        (m[1][2] + m[2][1]) / scale,
+        0.25 * scale,
+    )
+
+
 def quaternion_from_euler_deg(*, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Quaternion4:
     """Build intrinsic Z-Y-X yaw/pitch/roll body orientation in HTDT domain axes."""
 

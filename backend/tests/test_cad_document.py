@@ -217,3 +217,109 @@ def test_noop_group_move_is_not_added_to_history() -> None:
     working.preview_group_move((0.0, 0.0, 0.0))
     assert not working.commit_preview()
     assert working.history_length == 0
+
+
+def test_undo_redo_labels_describe_semantic_change_not_class_names() -> None:
+    working = WorkingDocument(make_f1_scene())
+    assert working.undo_label is None
+    assert working.redo_label is None
+
+    working.move_entity('speaker-fl', Position3(x_m=2.0, y_m=0.75, z_m=1.05))
+    label = working.undo_label
+    assert label is not None
+    assert '移動' in label
+    assert 'Front' in label or 'フロント' in label or label != 'MoveEntityCommand'
+    assert 'Command' not in label
+
+    working.add_entity(
+        make_f1_scene()
+        .entity('speaker-fl')
+        .model_copy(update={'entity_id': 'speaker-new', 'name': 'Rear'}),
+    )
+    assert '追加' in (working.undo_label or '')
+
+    assert working.undo()
+    assert '追加' in (working.redo_label or '')
+    assert '移動' in (working.undo_label or '')
+
+
+def test_property_update_label_names_the_changed_field() -> None:
+    working = WorkingDocument(make_f1_scene())
+    working.update_entity('speaker-fl', name='Front Left Updated')
+    label = working.undo_label
+    assert label is not None
+    assert '名前変更' in label
+    assert 'Front' in label
+
+    working.update_entity(
+        'speaker-fl',
+        position=Position3(x_m=2.5, y_m=0.75, z_m=1.05),
+        name='Front Left Again',
+    )
+    assert working.undo_label == '編集「Front Left Again」' or '編集' in (working.undo_label or '')
+
+
+def test_group_move_label_counts_entities_and_delete_names_subject() -> None:
+    working = WorkingDocument(make_f1_scene())
+    working.begin_group_move(('speaker-fl', 'speaker-c'))
+    working.preview_group_move((0.1, 0.0, 0.0))
+    assert working.commit_preview()
+    label = working.undo_label
+    assert label is not None
+    assert '2件' in label or '移動' in label
+
+    working.delete_entity('speaker-fl')
+    delete_label = working.undo_label
+    assert delete_label is not None
+    assert '削除' in delete_label
+
+
+def test_bounded_history_entries_track_current_index() -> None:
+    working = WorkingDocument(make_f1_scene())
+    for index in range(3):
+        working.add_entity(
+            make_f1_scene()
+            .entity('speaker-fl')
+            .model_copy(update={'entity_id': f'extra-{index}', 'name': f'Extra {index}'}),
+        )
+    working.undo()
+
+    entries = working.history_entries(limit=2)
+    assert len(entries) == 2
+    assert entries[-1].applied is False  # the undone tail entry
+    assert entries[0].applied is True
+    assert entries[0].index == 1
+    assert entries[-1].index == 2
+    assert all('Command' not in entry.label for entry in entries)
+
+    working.redo()
+    entries = working.history_entries(limit=3)
+    assert all(entry.applied for entry in entries)
+
+
+def test_entity_set_edit_is_one_atomic_undo() -> None:
+    working = WorkingDocument(make_f1_scene())
+    removed = working.committed_document.entity('speaker-fr')
+    moved = working.committed_document.entity('speaker-fl')
+    moved_after = moved.model_copy(
+        update={'position': Position3(x_m=2.0, y_m=0.75, z_m=1.05)}
+    )
+    added = make_f1_scene().entity('speaker-fr').model_copy(
+        update={'entity_id': 'speaker-sur', 'name': 'Surround'}
+    )
+    assert working.apply_entity_set_edit(
+        removed=(removed,),
+        replaced_before=(moved,),
+        replaced_after=(moved_after,),
+        added=(added,),
+    )
+    document = working.committed_document
+    assert document.entity('speaker-sur').name == 'Surround'
+    assert document.entity('speaker-fl').position.x_m == 2.0
+    assert all(entity.entity_id != 'speaker-fr' for entity in document.entities)
+    assert working.history_length == 1
+    assert working.undo()
+    restored = working.committed_document
+    assert restored.entity('speaker-fr') == removed
+    assert restored.entity('speaker-fl') == moved
+    assert all(entity.entity_id != 'speaker-sur' for entity in restored.entities)

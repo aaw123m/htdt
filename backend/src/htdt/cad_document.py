@@ -56,6 +56,99 @@ def _insert(document: SceneDocument, index: int, entity: SceneEntity) -> SceneDo
     return document.model_copy(update={'entities': tuple(entities)})
 
 
+@dataclass(frozen=True, slots=True)
+class CommandPresentation:
+    """Human-facing description of an EditCommand for undo/redo labels.
+
+    Set at the call site that knows the semantic intent (a plain dataclass
+    attribute, never derived from the command class name). ``label`` is an
+    optional complete localized phrase for operations whose vocabulary is not
+    covered by ``action`` (e.g. layout tools); when absent the label is
+    composed from ``action`` + subjects.
+    """
+
+    action: str
+    subject_names: tuple[str, ...] = ()
+    detail: str | None = None
+    label: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CommandHistoryEntry:
+    """Read-only view over one command in the bounded working-edit history."""
+
+    index: int
+    label: str
+    applied: bool
+
+
+_COMMAND_SUBJECT_LIMIT = 2
+
+_UPDATE_FIELD_LABELS: tuple[tuple[str, str], ...] = (
+    ('name', '名前変更'),
+    ('position', '位置変更'),
+    ('size_m', '寸法変更'),
+    ('orientation', '向き変更'),
+    ('aim_xyz', '音響方向変更'),
+    ('speaker_role', '役割変更'),
+    ('body_geometry', '形状変更'),
+    ('acoustic_reference_offset_m', '基準点変更'),
+)
+
+
+def _update_detail(before: SceneEntity, after: SceneEntity) -> str:
+    """Single-field summary for inspector edits; generic label on mixed edits."""
+
+    changed = [
+        label
+        for field_name, label in _UPDATE_FIELD_LABELS
+        if getattr(before, field_name) != getattr(after, field_name)
+    ]
+    return changed[0] if len(changed) == 1 else '編集'
+
+
+def _presentation_of(command: EditCommand) -> CommandPresentation | None:
+    return getattr(command, 'presentation', None)
+
+
+def describe_command(command: EditCommand) -> str:
+    """Localized one-line description of what apply/revert changes.
+
+    Never a class name: labels come from CommandPresentation only, falling
+    back to a generic phrase when the call site supplied no presentation.
+    """
+
+    presentation = _presentation_of(command)
+    if presentation is None:
+        return '編集'
+    if presentation.label:
+        return presentation.label
+    names = presentation.subject_names
+    count = len(names)
+    if count == 1:
+        subject = f'「{names[0]}」'
+    elif count <= _COMMAND_SUBJECT_LIMIT and count:
+        subject = '・'.join(f'「{name}」' for name in names)
+    elif count:
+        subject = f'{count}件'
+    else:
+        subject = ''
+    verb = {
+        'move': '移動',
+        'rotate': '回転',
+        'add': '追加',
+        'delete': '削除',
+        'duplicate': '複製',
+        'edit': '編集',
+        'transform': '変更',
+        'replace_document': '設計を変更',
+    }.get(presentation.action, presentation.action)
+    label = f'{verb}{subject}'
+    if presentation.detail:
+        label = f'{presentation.detail}{subject}' if subject else presentation.detail
+    return label
+
+
 class EditCommand(Protocol):
     @property
     def is_noop(self) -> bool: ...
@@ -70,6 +163,7 @@ class MoveEntityCommand:
     entity_id: str
     before: Position3
     after: Position3
+    presentation: CommandPresentation | None = None
 
     @property
     def is_noop(self) -> bool:
@@ -87,6 +181,7 @@ class RotateEntityCommand:
     entity_id: str
     before: Quaternion4
     after: Quaternion4
+    presentation: CommandPresentation | None = None
 
     @property
     def is_noop(self) -> bool:
@@ -103,6 +198,7 @@ class RotateEntityCommand:
 class TransformEntitiesCommand:
     before: tuple[SceneEntity, ...]
     after: tuple[SceneEntity, ...]
+    presentation: CommandPresentation | None = None
 
     @property
     def is_noop(self) -> bool:
@@ -119,6 +215,7 @@ class TransformEntitiesCommand:
 class AddEntitiesCommand:
     entities: tuple[SceneEntity, ...]
     index: int
+    presentation: CommandPresentation | None = None
 
     @property
     def is_noop(self) -> bool:
@@ -141,6 +238,7 @@ class AddEntitiesCommand:
 class ReplaceEntityCommand:
     before: SceneEntity
     after: SceneEntity
+    presentation: CommandPresentation | None = None
 
     def __post_init__(self) -> None:
         if self.before.entity_id != self.after.entity_id:
@@ -161,6 +259,7 @@ class ReplaceEntityCommand:
 class DeleteEntityCommand:
     entity: SceneEntity
     index: int
+    presentation: CommandPresentation | None = None
 
     @property
     def is_noop(self) -> bool:
@@ -173,11 +272,68 @@ class DeleteEntityCommand:
         return _insert(document, self.index, self.entity)
 
 
+def _remove_entities(document: SceneDocument, entity_ids: frozenset[str]) -> SceneDocument:
+    missing = entity_ids - {entity.entity_id for entity in document.entities}
+    if missing:
+        raise EditStateError(f'cannot remove unknown entities: {sorted(missing)}')
+    return document.model_copy(update={
+        'entities': tuple(entity for entity in document.entities if entity.entity_id not in entity_ids),
+    })
+
+
+def _append_entities(document: SceneDocument, additions: tuple[SceneEntity, ...]) -> SceneDocument:
+    existing = {entity.entity_id for entity in document.entities}
+    duplicates = existing.intersection(entity.entity_id for entity in additions)
+    if duplicates:
+        raise EditStateError(f'entities already exist: {sorted(duplicates)}')
+    return document.model_copy(update={'entities': document.entities + additions})
+
+
+@dataclass(frozen=True)
+class EntitySetEditCommand:
+    """Atomic mixed edit: removed ids + replaced ids -> replaced + appended entities.
+
+    One semantic batch (e.g. a seating-layout regeneration that moves some
+    seats, adds some and removes others) stays a single undo step.
+    """
+
+    removed: tuple[SceneEntity, ...]
+    replaced_before: tuple[SceneEntity, ...]
+    replaced_after: tuple[SceneEntity, ...]
+    added: tuple[SceneEntity, ...]
+    presentation: CommandPresentation | None = None
+
+    @property
+    def is_noop(self) -> bool:
+        return not self.removed and not self.added and self.replaced_before == self.replaced_after
+
+    def _apply_set(
+        self,
+        document: SceneDocument,
+        removals: tuple[SceneEntity, ...],
+        replacements: tuple[SceneEntity, ...],
+        additions: tuple[SceneEntity, ...],
+    ) -> SceneDocument:
+        updated = _remove_entities(document, frozenset(entity.entity_id for entity in removals))
+        if replacements:
+            updated = _replace_entities(updated, replacements)
+        if additions:
+            updated = _append_entities(updated, additions)
+        return updated
+
+    def apply(self, document: SceneDocument) -> SceneDocument:
+        return self._apply_set(document, self.removed, self.replaced_after, self.added)
+
+    def revert(self, document: SceneDocument) -> SceneDocument:
+        return self._apply_set(document, self.added, self.replaced_before, self.removed)
+
+
 @dataclass(frozen=True)
 class DeleteEntitiesCommand:
     """Atomic delete of several entities: one Undo step restores the exact set."""
 
     removed: tuple[tuple[int, SceneEntity], ...]
+    presentation: CommandPresentation | None = None
 
     @property
     def is_noop(self) -> bool:
@@ -203,6 +359,7 @@ class UpdateEntitiesCommand:
 
     before: tuple[SceneEntity, ...]
     after: tuple[SceneEntity, ...]
+    presentation: CommandPresentation | None = None
 
     def __post_init__(self) -> None:
         if len(self.before) != len(self.after):
@@ -230,6 +387,7 @@ class ReplaceDocumentCommand:
 
     before: SceneDocument
     after: SceneDocument
+    presentation: CommandPresentation | None = None
 
     def __post_init__(self) -> None:
         if self.before.document_id != self.after.document_id:
@@ -352,6 +510,34 @@ class CommandHistory:
     def length(self) -> int:
         return len(self._commands)
 
+    @property
+    def index(self) -> int:
+        return self._index
+
+    def undo_label(self) -> str | None:
+        if not self.can_undo:
+            return None
+        return describe_command(self._commands[self._index - 1])
+
+    def redo_label(self) -> str | None:
+        if not self.can_redo:
+            return None
+        return describe_command(self._commands[self._index])
+
+    def entries(self, *, limit: int | None = None) -> tuple[CommandHistoryEntry, ...]:
+        """Bounded read-only history; index < current index means applied."""
+
+        total = len(self._commands)
+        start = 0 if limit is None else max(0, total - max(0, int(limit)))
+        return tuple(
+            CommandHistoryEntry(
+                index=position,
+                label=describe_command(self._commands[position]),
+                applied=position < self._index,
+            )
+            for position in range(start, total)
+        )
+
     def push(self, command: EditCommand, document: SceneDocument) -> SceneDocument:
         if command.is_noop:
             return document
@@ -424,6 +610,17 @@ class WorkingDocument:
     @property
     def is_dirty(self) -> bool:
         return scene_content_hash(self._document) != self._saved_hash
+
+    @property
+    def undo_label(self) -> str | None:
+        return self._history.undo_label()
+
+    @property
+    def redo_label(self) -> str | None:
+        return self._history.redo_label()
+
+    def history_entries(self, *, limit: int | None = None) -> tuple[CommandHistoryEntry, ...]:
+        return self._history.entries(limit=limit)
 
     def _begin_preview(self, entity_ids: tuple[str, ...], kind: Literal['move', 'rotate']) -> tuple[SceneEntity, ...]:
         if self.has_preview:
@@ -498,7 +695,15 @@ class WorkingDocument:
         if not self.has_preview or self._preview_document is None or not self._preview_before_entities:
             return False
         after = tuple(self._preview_document.entity(entity.entity_id) for entity in self._preview_before_entities)
-        command: EditCommand = TransformEntitiesCommand(self._preview_before_entities, after)
+        action = 'move' if self._preview_kind == 'move' else 'rotate'
+        command: EditCommand = TransformEntitiesCommand(
+            self._preview_before_entities,
+            after,
+            presentation=CommandPresentation(
+                action=action,
+                subject_names=tuple(entity.name for entity in self._preview_before_entities),
+            ),
+        )
         self._clear_preview()
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(command, self._document)
@@ -514,6 +719,8 @@ class WorkingDocument:
         self,
         before: tuple[SceneEntity, ...],
         after: tuple[SceneEntity, ...],
+        *,
+        presentation: CommandPresentation | None = None,
     ) -> bool:
         """Apply an exact multi-entity replacement as one history command."""
 
@@ -528,7 +735,14 @@ class WorkingDocument:
         current = tuple(self._document.entity(entity_id) for entity_id in before_ids)
         if current != before:
             raise EditStateError('transform before state does not match the current document')
-        command = TransformEntitiesCommand(before=before, after=after)
+        command = TransformEntitiesCommand(
+            before=before,
+            after=after,
+            presentation=presentation or CommandPresentation(
+                action='transform',
+                subject_names=tuple(entity.name for entity in before),
+            ),
+        )
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(command, self._document)
         return scene_content_hash(self._document) != before_hash
@@ -536,8 +750,14 @@ class WorkingDocument:
     def move_entity(self, entity_id: str, position: Position3) -> bool:
         if self.has_preview:
             raise EditStateError('cannot commit a numeric move while a preview is active')
-        before = self._document.entity(entity_id).position
-        command = MoveEntityCommand(entity_id, before, position)
+        before_entity = self._document.entity(entity_id)
+        before = before_entity.position
+        command = MoveEntityCommand(
+            entity_id,
+            before,
+            position,
+            presentation=CommandPresentation(action='move', subject_names=(before_entity.name,)),
+        )
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(command, self._document)
         return scene_content_hash(self._document) != before_hash
@@ -545,13 +765,25 @@ class WorkingDocument:
     def rotate_entity(self, entity_id: str, orientation: Quaternion4) -> bool:
         if self.has_preview:
             raise EditStateError('cannot commit a numeric rotation while a preview is active')
-        before = self._document.entity(entity_id).orientation
-        command = RotateEntityCommand(entity_id, before, orientation)
+        before_entity = self._document.entity(entity_id)
+        before = before_entity.orientation
+        command = RotateEntityCommand(
+            entity_id,
+            before,
+            orientation,
+            presentation=CommandPresentation(action='rotate', subject_names=(before_entity.name,)),
+        )
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(command, self._document)
         return scene_content_hash(self._document) != before_hash
 
-    def add_entities(self, entities: tuple[SceneEntity, ...], *, index: int | None = None) -> bool:
+    def add_entities(
+        self,
+        entities: tuple[SceneEntity, ...],
+        *,
+        index: int | None = None,
+        presentation: CommandPresentation | None = None,
+    ) -> bool:
         if self.has_preview:
             raise EditStateError('cannot add entities while a preview is active')
         if not entities:
@@ -569,13 +801,26 @@ class WorkingDocument:
             raise EditStateError(f'entity insertion index out of range: {insertion_index}')
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(
-            AddEntitiesCommand(entities=validated, index=insertion_index),
+            AddEntitiesCommand(
+                entities=validated,
+                index=insertion_index,
+                presentation=presentation or CommandPresentation(
+                    action='add',
+                    subject_names=tuple(entity.name for entity in validated),
+                ),
+            ),
             self._document,
         )
         return scene_content_hash(self._document) != before_hash
 
-    def add_entity(self, entity: SceneEntity, *, index: int | None = None) -> bool:
-        return self.add_entities((entity,), index=index)
+    def add_entity(
+        self,
+        entity: SceneEntity,
+        *,
+        index: int | None = None,
+        presentation: CommandPresentation | None = None,
+    ) -> bool:
+        return self.add_entities((entity,), index=index, presentation=presentation)
 
     def duplicate_entity(
         self,
@@ -595,7 +840,11 @@ class WorkingDocument:
         if position is not None:
             payload['position'] = position
         duplicate = SceneEntity.model_validate(payload)
-        return self.add_entity(duplicate, index=source_index + 1)
+        return self.add_entity(
+            duplicate,
+            index=source_index + 1,
+            presentation=CommandPresentation(action='duplicate', subject_names=(source.name,)),
+        )
 
     def update_entity(self, target_entity_id: str, **updates: Any) -> bool:
         if self.has_preview:
@@ -608,7 +857,18 @@ class WorkingDocument:
         payload['entity_id'] = target_entity_id
         after = SceneEntity.model_validate(payload)
         before_hash = scene_content_hash(self._document)
-        self._document = self._history.push(ReplaceEntityCommand(before=before, after=after), self._document)
+        self._document = self._history.push(
+            ReplaceEntityCommand(
+                before=before,
+                after=after,
+                presentation=CommandPresentation(
+                    action='edit',
+                    subject_names=(before.name,),
+                    detail=_update_detail(before, after),
+                ),
+            ),
+            self._document,
+        )
         return scene_content_hash(self._document) != before_hash
 
     def delete_entity(self, entity_id: str) -> bool:
@@ -635,7 +895,13 @@ class WorkingDocument:
             raise EditStateError(f'entities not in the scene: {sorted(missing)}')
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(
-            DeleteEntitiesCommand(removed=tuple(removed)),
+            DeleteEntitiesCommand(
+                removed=tuple(removed),
+                presentation=CommandPresentation(
+                    action='delete',
+                    subject_names=tuple(entity.name for _, entity in removed),
+                ),
+            ),
             self._document,
         )
         return scene_content_hash(self._document) != before_hash
@@ -663,12 +929,24 @@ class WorkingDocument:
             after.append(SceneEntity.model_validate(payload))
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(
-            UpdateEntitiesCommand(before=tuple(before), after=tuple(after)),
+            UpdateEntitiesCommand(
+                before=tuple(before),
+                after=tuple(after),
+                presentation=CommandPresentation(
+                    action='edit',
+                    subject_names=tuple(entity.name for entity in before),
+                ),
+            ),
             self._document,
         )
         return scene_content_hash(self._document) != before_hash
 
-    def replace_document(self, document: SceneDocument) -> bool:
+    def replace_document(
+        self,
+        document: SceneDocument,
+        *,
+        presentation: CommandPresentation | None = None,
+    ) -> bool:
         """Apply an exact same-document topology/state replacement as one Undo step."""
 
         if self.has_preview:
@@ -678,9 +956,47 @@ class WorkingDocument:
             raise EditStateError('document replacement must preserve document_id')
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(
-            ReplaceDocumentCommand(before=self._document, after=validated),
+            ReplaceDocumentCommand(
+                before=self._document,
+                after=validated,
+                presentation=presentation or CommandPresentation(action='replace_document'),
+            ),
             self._document,
         )
+        return scene_content_hash(self._document) != before_hash
+
+    def apply_entity_set_edit(
+        self,
+        *,
+        removed: tuple[SceneEntity, ...] = (),
+        replaced_before: tuple[SceneEntity, ...] = (),
+        replaced_after: tuple[SceneEntity, ...] = (),
+        added: tuple[SceneEntity, ...] = (),
+        presentation: CommandPresentation | None = None,
+    ) -> bool:
+        """Apply one atomic mixed batch (removals + replacements + additions)."""
+
+        if self.has_preview:
+            raise EditStateError('cannot apply a batched edit while a preview is active')
+        command = EntitySetEditCommand(
+            removed=removed,
+            replaced_before=replaced_before,
+            replaced_after=replaced_after,
+            added=added,
+            presentation=presentation,
+        )
+        if command.is_noop:
+            return False
+        # Fail closed: every declared before-state must match the document.
+        current = {entity.entity_id: entity for entity in self._document.entities}
+        for snapshot in removed + replaced_before:
+            if current.get(snapshot.entity_id) != snapshot:
+                raise EditStateError('batched edit before state does not match the current document')
+        overlapping = {entity.entity_id for entity in added} & current.keys()
+        if overlapping:
+            raise EditStateError(f'entities already exist: {sorted(overlapping)}')
+        before_hash = scene_content_hash(self._document)
+        self._document = self._history.push(command, self._document)
         return scene_content_hash(self._document) != before_hash
 
     def undo(self) -> bool:

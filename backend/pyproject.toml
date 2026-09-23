@@ -19,6 +19,9 @@ dependencies = [
   "pyvista==0.49.0",
   "pyvistaqt==0.13.1",
   "vtk==9.7.0",
+  # PDF floor-plan underlay pages (#534); imported lazily only when a .pdf
+  # file is imported, so image/DXF flows work without it.
+  "PyMuPDF==1.26.7",
 ]
 
 [project.scripts]

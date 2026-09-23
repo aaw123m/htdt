@@ -1,33 +1,44 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, cast
 from uuid import uuid4
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
 )
 
-from .cad_document import EditStateError, EditorViewState
+from .cad_document import (
+    CommandHistoryEntry,
+    CommandPresentation,
+    EditStateError,
+    EditorViewState,
+)
 from .cad_constraint_authoring import (
     add_constraint,
     constraint_entity_ids,
@@ -79,7 +90,52 @@ from .cad_objects import (
     speaker_aim_replacements,
 )
 from .cad_orientation_constraints import entity_collision_geometry_authority
+from .cad_orientation_display import (
+    body_view_angles,
+    forward_aim_delta_deg,
+    orientation_from_view_angles,
+)
 from .cad_repository import RecoverySnapshot, SceneRepository
+from .cad_geometric_constraints import (
+    AuthoringConstraint,
+    AuthoringConstraintSet,
+    CONSTRAINT_KIND_LABELS,
+    constraint_guide_items,
+    make_centerline_constraint,
+    make_equal_spacing_constraint,
+    make_fixed_distance_constraint,
+    make_symmetric_pair_constraint,
+    solve_constraint,
+)
+from .cad_layout_tools import (
+    LayoutClipboard,
+    LayoutError,
+    align_entities,
+    copy_selection,
+    distribute_entities,
+    duplicate_entities,
+    mirror_entities_x,
+    mirror_entities_y,
+    mirror_speaker_pair,
+    paste_clipboard,
+    propose_pair_role,
+)
+from .cad_seating import (
+    AisleSpec,
+    SeatRowSpec,
+    SeatingLayoutError,
+    SeatingLayoutSpec,
+    apply_seating_layout,
+    new_seating_spec_id,
+    plan_regeneration,
+)
+from .cad_view_state import (
+    NamedViewSpec,
+    PersistedViewState,
+    SectionPlaneState,
+    STANDARD_VIEW_LABELS,
+    StandardView,
+)
 from .cad_scene import (
     PHYSICAL_ENTITY_KINDS,
     BodyGeometryKind,
@@ -106,7 +162,34 @@ from .cad_scene import (
 from .raw_mesh import RawMeshImportError, import_raw_visual_mesh
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .prediction_interpretation import PredictionSpatialLink
-from .room_viewport import RoomOverlayState, RoomViewport3D
+from .room_underlay import (
+    IMAGE_SUFFIXES,
+    DXF_SUFFIXES,
+    PDF_SUFFIXES,
+    MAX_SNAP_HINTS,
+    MAX_SOURCE_BYTES,
+    FloorPlanUnderlay,
+    UnderlayCalibrationMethod,
+    UnderlayImportError,
+    UnderlaySourceFormat,
+    calibrate_two_point,
+    decode_image_bytes,
+    domain_to_source,
+    is_calibrated,
+    new_underlay_id,
+    parse_dxf,
+    render_pdf_page,
+    underlay_quad_domain,
+    underlay_segments_domain,
+    underlay_snap_points,
+    utc_now_iso,
+)
+from .room_viewport import (
+    GuideRenderItem,
+    RoomOverlayState,
+    RoomViewport3D,
+    UnderlayRenderItem,
+)
 from .theater_document import TheaterWorkingDocument
 from .ui_theme import (
     ControlSize,
@@ -239,6 +322,9 @@ class RoomWorkspaceController:
         self.video_workspace: VideoGeometryWorkspace | None = None
         self.video_geometry_repository = CadVideoGeometryRepository(repository)
         self.variant_repository = CadSystemVariantRepository(repository)
+        self._underlay_calibration: dict | None = None
+        self._constraint_state = None  # AuthoringConstraintSet, lazy
+        self._last_constraint_notes: tuple[str, ...] = ()
         self._load_latest_or_seed()
 
     @property
@@ -599,6 +685,488 @@ class RoomWorkspaceController:
             self._persist_view_state()
         return changed
 
+    @property
+    def undo_label(self) -> str | None:
+        """Descriptive label for what the next undo will change (#662)."""
+
+        return self.working.undo_label
+
+    @property
+    def redo_label(self) -> str | None:
+        return self.working.redo_label
+
+    def history_entries(self, *, limit: int | None = 20) -> tuple[CommandHistoryEntry, ...]:
+        return self.working.history_entries(limit=limit)
+
+    # --- Saved views / viewport workspace state (#545, #629) -------------------
+
+    def persisted_view_state(self) -> PersistedViewState | None:
+        """Last working camera + section for this document (fail-soft read).
+
+        The record is non-authoritative: a corrupt payload returns ``None``
+        and callers fall back to the default fit-all camera.
+        """
+
+        record = self.repository.camera_state(self.document_id)
+        if record is None:
+            return None
+        try:
+            return PersistedViewState.model_validate(record.payload)
+        except (TypeError, ValueError):
+            return None
+
+    def persist_view_extras(self, state: PersistedViewState) -> None:
+        self.repository.save_camera_state(
+            self.document_id,
+            state.model_dump(mode='json'),
+        )
+
+    def named_views(self) -> tuple[tuple[str, NamedViewSpec], ...]:
+        """Validated ``(view_id, spec)`` pairs; corrupt rows fail soft."""
+
+        views: list[tuple[str, NamedViewSpec]] = []
+        for record in self.repository.named_views(self.document_id):
+            try:
+                spec = NamedViewSpec.model_validate(record.payload)
+            except (TypeError, ValueError):
+                continue
+            views.append((record.record_id, spec))
+        return tuple(views)
+
+    def save_named_view(self, spec: NamedViewSpec) -> str:
+        view_id = f"view-{uuid4().hex[:10]}"
+        self.repository.save_named_view(
+            self.document_id,
+            view_id,
+            spec.model_dump(mode='json'),
+        )
+        return view_id
+
+    def delete_named_view(self, view_id: str) -> None:
+        self.repository.delete_named_view(self.document_id, view_id)
+
+    def isolate_entities(self, keep_ids: set[str]) -> None:
+        """Hide every entity outside ``keep_ids`` (display-only isolation)."""
+
+        self.view_state.hidden_ids = {
+            entity.entity_id
+            for entity in self.document.entities
+            if entity.entity_id not in keep_ids
+        }
+        self.view_state.sanitize(self.document)
+        self._persist_view_state()
+
+    def set_hidden_ids(self, hidden_ids: set[str]) -> None:
+        """Replace the visibility set (named-view recall / isolation restore)."""
+
+        self.view_state.hidden_ids = set(hidden_ids)
+        self.view_state.sanitize(self.document)
+        self._persist_view_state()
+
+    # --- Floor-plan underlays (#534) -------------------------------------------
+
+    def underlays(self) -> tuple[FloorPlanUnderlay, ...]:
+        underlays: list[FloorPlanUnderlay] = []
+        for record in self.repository.underlays(self.document_id):
+            try:
+                underlays.append(FloorPlanUnderlay.model_validate(record.payload))
+            except (TypeError, ValueError):
+                continue
+        return tuple(underlays)
+
+    def _underlay(self, underlay_id: str) -> FloorPlanUnderlay:
+        for underlay in self.underlays():
+            if underlay.underlay_id == underlay_id:
+                return underlay
+        raise KeyError(underlay_id)
+
+    def _save_underlay_record(self, underlay: FloorPlanUnderlay) -> None:
+        self.repository.save_underlay(
+            self.document_id,
+            underlay.underlay_id,
+            underlay.model_dump(mode='json'),
+        )
+
+    def import_underlay(
+        self,
+        file_path: str | Path,
+        *,
+        name: str | None = None,
+        page: int = 0,
+    ) -> FloorPlanUnderlay:
+        """Import a PNG/JPEG, PDF page, or simple DXF as a tracing underlay.
+
+        The source bytes are stored in the content-addressed blob store
+        (provenance preserved), the parsed record lands in
+        ``floor_plan_underlays``, and nothing here touches SceneRevisions.
+        """
+
+        path = Path(file_path)
+        data = path.read_bytes()
+        if len(data) > MAX_SOURCE_BYTES:
+            raise UnderlayImportError('ファイルが大きすぎます (64 MB まで)')
+        suffix = path.suffix.lower()
+        source_sha = ''
+        render_sha: str | None = None
+        source_format: UnderlaySourceFormat
+        width: float | None = None
+        height: float | None = None
+        source_page = 0
+        segments: tuple = ()
+        hints: tuple = ()
+
+        if suffix in IMAGE_SUFFIXES:
+            source_format = UnderlaySourceFormat.IMAGE
+            array = decode_image_bytes(data)
+            height, width = float(array.shape[0]), float(array.shape[1])
+            source_sha = self.repository.store_blob(data)
+            render_sha = source_sha
+        elif suffix in DXF_SUFFIXES:
+            source_format = UnderlaySourceFormat.DXF
+            parsed = parse_dxf(data)
+            if not parsed.segments and not parsed.points:
+                raise UnderlayImportError(
+                    'DXF から図形を読み取れませんでした (LINE/LWPOLYLINE/POINT のみ対応)'
+                )
+            segments = parsed.segments
+            hints = parsed.points
+            xs = [point[0] for segment in segments for point in segment] + [
+                point[0] for point in hints
+            ]
+            ys = [point[1] for segment in segments for point in segment] + [
+                point[1] for point in hints
+            ]
+            if xs and ys:
+                width = max(xs) - min(xs)
+                height = max(ys) - min(ys)
+            source_sha = self.repository.store_blob(data)
+        elif suffix in PDF_SUFFIXES:
+            source_format = UnderlaySourceFormat.PDF_PAGE
+            png = render_pdf_page(data, page=int(page))
+            array = decode_image_bytes(png)
+            height, width = float(array.shape[0]), float(array.shape[1])
+            source_sha = self.repository.store_blob(data)
+            render_sha = self.repository.store_blob(png)
+            source_page = int(page)
+        else:
+            raise UnderlayImportError(
+                f'未対応の形式です: {suffix or path.name} (PNG/JPEG/PDF/DXF のみ対応)'
+            )
+
+        underlay = FloorPlanUnderlay(
+            underlay_id=new_underlay_id(),
+            name=(name or path.stem or '下図')[:64],
+            source_format=source_format,
+            source_file_name=path.name,
+            imported_at_utc=utc_now_iso(),
+            source_blob_sha256=source_sha,
+            render_blob_sha256=render_sha,
+            source_page=source_page,
+            source_width=width,
+            source_height=height,
+            segments=segments,
+            snap_hints=hints,
+        )
+        self._save_underlay_record(underlay)
+        return underlay
+
+    def update_underlay(self, underlay_id: str, **fields) -> FloorPlanUnderlay:
+        """Editor-authority underlay updates (placement, visibility, lock)."""
+
+        underlay = self._underlay(underlay_id)
+        allowed = {
+            'name',
+            'origin_x_m',
+            'origin_y_m',
+            'rotation_deg',
+            'visible',
+            'locked',
+            'opacity',
+            'elevation_m',
+            'units_per_meter',
+        }
+        updates = {key: value for key, value in fields.items() if key in allowed}
+        if updates.get('units_per_meter') is not None:
+            updates['calibration'] = UnderlayCalibrationMethod.MANUAL
+            updates['calibration_point_a'] = None
+            updates['calibration_point_b'] = None
+            updates['calibration_distance_m'] = None
+        updated = underlay.model_copy(update=updates)
+        self._save_underlay_record(updated)
+        return updated
+
+    def delete_underlay_record(self, underlay_id: str) -> None:
+        self.repository.delete_underlay(self.document_id, underlay_id)
+        state = self._underlay_calibration
+        if state is not None and state['underlay_id'] == underlay_id:
+            self._underlay_calibration = None
+
+    # Two-point calibration flow -------------------------------------------------
+
+    def begin_underlay_calibration(self, underlay_id: str) -> None:
+        self._underlay(underlay_id)
+        self._underlay_calibration = {'underlay_id': underlay_id, 'points': []}
+
+    def cancel_underlay_calibration(self) -> None:
+        self._underlay_calibration = None
+
+    @property
+    def underlay_calibration_underlay_id(self) -> str | None:
+        state = self._underlay_calibration
+        return state['underlay_id'] if state is not None else None
+
+    def handle_underlay_click(self, underlay_id: str, x_m: float, y_m: float) -> str | None:
+        """Feed a picked domain point into the armed two-point calibration.
+
+        Returns 'first' when the first point was captured, 'ready' once two
+        points exist (the caller then asks for the true distance), else None.
+        """
+
+        state = self._underlay_calibration
+        if state is None or state['underlay_id'] != underlay_id:
+            return None
+        underlay = self._underlay(underlay_id)
+        u, v = domain_to_source(underlay, x_m, y_m)
+        if len(state['points']) >= 2:
+            state['points'] = [state['points'][0], (u, v)]
+        else:
+            state['points'].append((u, v))
+        if len(state['points']) < 2:
+            return 'first'
+        return 'ready'
+
+    def finish_underlay_calibration(self, distance_m: float) -> FloorPlanUnderlay:
+        state = self._underlay_calibration
+        if state is None or len(state['points']) < 2:
+            raise EditStateError('先に下図上の2点をクリックしてください')
+        underlay = self._underlay(state['underlay_id'])
+        updated = calibrate_two_point(
+            underlay,
+            state['points'][0],
+            state['points'][1],
+            float(distance_m),
+        )
+        self._save_underlay_record(updated)
+        self._underlay_calibration = None
+        return updated
+
+    def underlay_snap_points(self) -> tuple[tuple[float, float], ...]:
+        """Domain-space snap hints from visible, calibrated, unlocked underlays."""
+
+        points: list[tuple[float, float]] = []
+        for underlay in self.underlays():
+            if underlay.locked or not underlay.visible:
+                continue
+            points.extend(underlay_snap_points(underlay))
+            if len(points) >= MAX_SNAP_HINTS:
+                break
+        return tuple(points)
+
+    # --- Authoring constraints (#618) -------------------------------------------
+
+    @property
+    def authoring_constraints(self):
+        """The persisted authoring-constraint set (lazy, fail-soft read)."""
+
+        if self._constraint_state is None:
+            record = self.repository.authoring_constraints(self.document_id)
+            if record is None:
+                self._constraint_state = AuthoringConstraintSet()
+            else:
+                try:
+                    self._constraint_state = AuthoringConstraintSet.model_validate(
+                        record.payload
+                    )
+                except (TypeError, ValueError):
+                    self._constraint_state = AuthoringConstraintSet()
+        return self._constraint_state
+
+    def _save_authoring_constraints(self) -> None:
+        if self._constraint_state is None:
+            return
+        self.repository.save_authoring_constraints(
+            self.document_id,
+            self._constraint_state.model_dump(mode='json'),
+        )
+
+    def add_authoring_constraint(self, constraint: AuthoringConstraint) -> None:
+        constraints = list(self.authoring_constraints.constraints)
+        constraints.append(constraint)
+        self._constraint_state = self.authoring_constraints.model_copy(
+            update={
+                'constraints': tuple(constraints),
+                'solve_version': self.authoring_constraints.solve_version + 1,
+            }
+        )
+        self._save_authoring_constraints()
+
+    def remove_authoring_constraints_for(self, entity_ids: set[str]) -> int:
+        """Remove constraints involving the given entities. Returns count."""
+
+        keep = tuple(
+            constraint
+            for constraint in self.authoring_constraints.constraints
+            if not (set(constraint.entity_ids) & entity_ids)
+        )
+        removed = len(self.authoring_constraints.constraints) - len(keep)
+        if removed <= 0:
+            return 0
+        self._constraint_state = self.authoring_constraints.model_copy(
+            update={
+                'constraints': keep,
+                'solve_version': self.authoring_constraints.solve_version + 1,
+            }
+        )
+        self._save_authoring_constraints()
+        return removed
+
+    def pop_constraint_notes(self) -> tuple[str, ...]:
+        """Solve notes from the last propagated edit (consumed once)."""
+
+        notes, self._last_constraint_notes = self._last_constraint_notes, ()
+        return notes
+
+    def propagate_constraints(self, changed_ids: set[str]) -> tuple[str, ...]:
+        """Re-solve constraints touched by an edit; returns warning notes.
+
+        Deterministic local solve: only the declared driver propagates to its
+        subjects. A subject-side edit that would violate the constraint marks
+        it broken — it is surfaced, never silently dropped or jittered.
+        """
+
+        state = self.authoring_constraints
+        if not state.constraints or not changed_ids:
+            return ()
+        notes: list[str] = []
+        updates: dict[str, dict[str, object]] = {}
+        constraints = list(state.constraints)
+        changed_constraints = False
+        for index, constraint in enumerate(constraints):
+            if constraint.broken:
+                continue
+            members = [eid for eid in constraint.entity_ids if eid in changed_ids]
+            if not members:
+                continue
+            resolution = solve_constraint(
+                constraint,
+                self.working.committed_document,
+                driver_moved=members,
+            )
+            if resolution.broken_reason is not None:
+                constraints[index] = constraint.model_copy(
+                    update={
+                        'broken': True,
+                        'broken_reason': resolution.broken_reason,
+                    }
+                )
+                changed_constraints = True
+                notes.append(resolution.broken_reason)
+                continue
+            for entity_id, position in resolution.moved.items():
+                entry = updates.setdefault(entity_id, {})
+                entry['position'] = position
+            for entity_id, orientation in resolution.rotated.items():
+                entry = updates.setdefault(entity_id, {})
+                entry['orientation'] = orientation
+        replaced_before: list[SceneEntity] = []
+        replaced_after: list[SceneEntity] = []
+        for entity_id, fields in updates.items():
+            try:
+                current = self.document.entity(entity_id)
+            except KeyError:
+                continue
+            after = current.model_copy(update=fields)
+            if after == current:
+                continue
+            replaced_before.append(current)
+            replaced_after.append(after)
+            notes.append(f'拘束により「{current.name}」を調整しました')
+        if replaced_before:
+            self.working.apply_entity_set_edit(
+                replaced_before=tuple(replaced_before),
+                replaced_after=tuple(replaced_after),
+                presentation=CommandPresentation(
+                    action='transform', detail='拘束による追従'
+                ),
+            )
+        if updates or changed_constraints:
+            self._constraint_state = state.model_copy(
+                update={
+                    'constraints': tuple(constraints),
+                    'solve_version': state.solve_version + 1,
+                }
+            )
+            self._save_authoring_constraints()
+            self._sync_recovery()
+        return tuple(notes)
+
+    def mark_broken_constraints(self) -> tuple[str, ...]:
+        """Flag constraints whose members vanished (delete/replace). Returns
+        labels of newly broken constraints — surfaced, never rebound by name."""
+
+        state = self.authoring_constraints
+        if not state.constraints:
+            return ()
+        existing = {entity.entity_id for entity in self.document.entities}
+        broken_labels: list[str] = []
+        constraints = list(state.constraints)
+        changed = False
+        for index, constraint in enumerate(constraints):
+            if constraint.broken:
+                continue
+            missing = [eid for eid in constraint.entity_ids if eid not in existing]
+            if missing:
+                constraints[index] = constraint.model_copy(
+                    update={
+                        'broken': True,
+                        'broken_reason': '拘束の対象オブジェクトが削除されました',
+                    }
+                )
+                broken_labels.append(constraint.label or constraint.constraint_id)
+                changed = True
+        if changed:
+            self._constraint_state = state.model_copy(
+                update={
+                    'constraints': tuple(constraints),
+                    'solve_version': state.solve_version + 1,
+                }
+            )
+            self._save_authoring_constraints()
+        return tuple(broken_labels)
+
+    def guide_render_items(self) -> tuple[GuideRenderItem, ...]:
+        """Construction-guide lines derived from constraints (display-only)."""
+
+        return constraint_guide_items(self.authoring_constraints, self.document)
+
+    def underlay_render_items(self) -> tuple[UnderlayRenderItem, ...]:
+        """Resolve persisted underlays + blob bytes into render items."""
+
+        items: list[UnderlayRenderItem] = []
+        for underlay in self.underlays():
+            if not underlay.visible:
+                continue
+            image = None
+            if underlay.render_blob_sha256:
+                data = self.repository.read_blob(underlay.render_blob_sha256)
+                if data:
+                    try:
+                        image = decode_image_bytes(data)
+                    except UnderlayImportError:
+                        image = None
+            items.append(
+                UnderlayRenderItem(
+                    underlay_id=underlay.underlay_id,
+                    name=underlay.name,
+                    quad_domain=underlay_quad_domain(underlay),
+                    image=image,
+                    segments_domain=underlay_segments_domain(underlay),
+                    opacity=underlay.opacity,
+                    elevation_m=underlay.elevation_m,
+                )
+            )
+        return tuple(items)
+
     def add_object(self, kind: str) -> SceneEntity:
         if not self.can_edit:
             raise EditStateError("オブジェクト追加には完成した部屋と編集可能な下書きが必要です")
@@ -684,7 +1252,10 @@ class RoomWorkspaceController:
             )
         changed = self.working.update_entity(entity_id, **updates)
         if changed:
+            notes = self.propagate_constraints({entity_id})
             self._sync_recovery()
+            if notes:
+                self._last_constraint_notes = notes
         return changed
 
     def aim_targets(self) -> tuple[SceneEntity, ...]:
@@ -750,6 +1321,7 @@ class RoomWorkspaceController:
             orientation=orientation_aligning_forward(entity.aim_xyz),
         )
         if changed:
+            self.propagate_constraints({entity.entity_id})
             self._sync_recovery()
         return changed
 
@@ -1111,32 +1683,53 @@ class SelectionInspector(QFrame):
 
         # Transform — numeric physical orientation (#470). Backed by the exact
         # persisted quaternion; one field commit is one Undo transaction.
+        # Issue #660: the displayed angles use the same installation-facing
+        # vocabulary as the acoustic-aim block (水平向き/仰角 + ねじれ), so the
+        # same world direction reads as the same numbers in both places.
         self.orientation_header = QLabel("姿勢")
         set_typography_role(self.orientation_header, TypographyRole.SECTION_TITLE)
         self.orientation_header.setToolTip(
-            "本体の向きをヨー・ピッチ・ロール（°）で正確に編集します。"
+            "本体の正面（+Y）の向きを設置作業向けの角度（°）で正確に編集します。"
             "基準姿勢（全て 0°）では本体の正面は +Y（部屋後方）を向きます"
         )
         self.form.addRow(self.orientation_header)
         self.orientation_labels: dict[str, QLabel] = {}
         self.orientation_fields: dict[str, QDoubleSpinBox] = {}
         orientation_tooltips = {
-            "Yaw": "Z軸まわりの回転（°）· 0°で正面は+Y（部屋後方）· 正値で正面は−X側へ旋回",
-            "Pitch": "本体の前後軸まわりのねじれ（°）· 正面の向きは変わりません",
-            "Roll": "X軸まわりの回転（°）· 正面を上（+）/下（−）へ傾けます",
+            "heading": (
+                "本体正面の水平向き（°）· 0° = +Y（部屋後方）· 正値 = +X（部屋右）方向へ旋回· "
+                "音響方向と同じ角度表現です"
+            ),
+            "elevation": "本体正面の仰角（°）· 正値 = 正面を+Z（上）へ傾けます",
+            "twist": "正面軸まわりのねじれ（°）· 正面の向きは変わりません",
         }
-        for axis in ("Yaw", "Pitch", "Roll"):
-            label = QLabel(axis)
+        for axis in ("heading", "elevation", "twist"):
+            label = QLabel({"heading": "水平向き", "elevation": "仰角", "twist": "ねじれ"}[axis])
             field = self._angle_field()
+            if axis == "elevation":
+                field.setRange(-90.0, 90.0)
+            if axis == "heading":
+                # Sentinel below the editable range shows "垂直（不定）" instead
+                # of a fake 0° when the front axis is (near-)vertical.
+                field.setMinimum(-999.0)
+                field.setSpecialValueText("垂直（不定）")
             label.setToolTip(orientation_tooltips[axis])
             field.setToolTip(orientation_tooltips[axis])
             self.orientation_labels[axis] = label
             self.orientation_fields[axis] = field
             self.form.addRow(label, field)
+        self.orientation_detail = QLabel("—")
+        self.orientation_detail.setWordWrap(True)
+        set_typography_role(self.orientation_detail, TypographyRole.SECONDARY)
+        self.orientation_detail.setToolTip(
+            "内部表現（厳密な Z-Y-X Euler: Yaw/Pitch/Roll）· 読み取り専用"
+        )
+        self.form.addRow(self.orientation_detail)
         self._orientation_widgets: tuple[QWidget, ...] = (
             self.orientation_header,
             *self.orientation_labels.values(),
             *self.orientation_fields.values(),
+            self.orientation_detail,
         )
 
         # Speaker-only acoustic aim block (#470): independent authority from the
@@ -1183,8 +1776,8 @@ class SelectionInspector(QFrame):
         )
         self.aim_pitch_field = self._angle_field(minimum=-90.0, maximum=90.0)
         self.aim_pitch_field.setToolTip("音響照準の仰角（°）· 正値 = +Z（上）方向")
-        aim_form.addRow("音響Yaw", self.aim_yaw_field)
-        aim_form.addRow("音響Pitch", self.aim_pitch_field)
+        aim_form.addRow("水平向き", self.aim_yaw_field)
+        aim_form.addRow("仰角", self.aim_pitch_field)
         known_layout.addLayout(aim_form)
         aim_actions = QHBoxLayout()
         self.aim_clear_button = QPushButton("未設定に戻す")
@@ -1354,19 +1947,26 @@ class SelectionInspector(QFrame):
                 ):
                     field.setValue(value)
                     field.setEnabled(editable)
-            # Yaw/Pitch/Roll rows exist only for physical bodies; a measurement
-            # point is a reference position without a pose to author.
+            # Heading/elevation/twist rows exist only for physical bodies; a
+            # measurement point is a reference position without a pose to author.
             physical = entity.kind in PHYSICAL_ENTITY_KINDS
             for widget in self._orientation_widgets:
                 widget.setVisible(physical)
             if physical:
-                for field, value in zip(
-                    self.orientation_fields.values(),
-                    quaternion_to_euler_deg(entity.orientation),
-                    strict=True,
-                ):
-                    field.setValue(value)
+                angles = body_view_angles(entity.orientation)
+                self.orientation_fields["heading"].setValue(
+                    angles.heading_deg
+                    if angles.heading_deg is not None
+                    else self.orientation_fields["heading"].minimum()
+                )
+                self.orientation_fields["elevation"].setValue(angles.elevation_deg)
+                self.orientation_fields["twist"].setValue(angles.twist_deg)
+                for field in self.orientation_fields.values():
                     field.setEnabled(editable)
+                yaw, pitch, roll = quaternion_to_euler_deg(entity.orientation)
+                self.orientation_detail.setText(
+                    f"内部 Euler · Yaw {yaw:.4f}° · Pitch {pitch:.4f}° · Roll {roll:.4f}°"
+                )
             self.aim_section.setVisible(entity.kind == "speaker")
             if entity.kind == "speaker":
                 self._set_aim_state(entity, editable=editable, aim_targets=aim_targets)
@@ -1445,8 +2045,17 @@ class SelectionInspector(QFrame):
             )
             return
         yaw_deg, pitch_deg = aim_yaw_pitch_deg(aim)
+        delta = forward_aim_delta_deg(entity)
+        alignment = (
+            "正面との一致"
+            if delta is not None and delta < 0.5
+            else f"正面との差 {delta:.3f}°"
+            if delta is not None
+            else ""
+        )
+        detail = f"{alignment} · " if alignment else ""
         self.aim_state_label.setText(
-            f"既知 · Yaw {yaw_deg:.3f}° · Pitch {pitch_deg:.3f}°\n"
+            f"既知 · {detail}水平向き {yaw_deg:.3f}° · 仰角 {pitch_deg:.3f}°\n"
             f"方向 ({aim.x:.4f}, {aim.y:.4f}, {aim.z:.4f})"
         )
         self.aim_yaw_field.setValue(yaw_deg)
@@ -1487,14 +2096,46 @@ class SelectionInspector(QFrame):
     def _edited_orientation(self, entity: SceneEntity) -> Quaternion4 | None:
         if entity.kind not in PHYSICAL_ENTITY_KINDS:
             return None
-        exact = quaternion_to_euler_deg(entity.orientation)
-        edited = self._edited_angles(tuple(self.orientation_fields.values()), exact)
-        if edited is None:
+        exact = body_view_angles(entity.orientation)
+        heading_field = self.orientation_fields["heading"]
+        heading_sentinel = heading_field.minimum()
+        heading_text = heading_field.value()
+        if heading_text <= heading_sentinel + 1e-9:
+            edited_heading: float | None = None
+            heading_changed = exact.heading_deg is not None
+        elif exact.heading_deg is None or abs(
+            heading_text - round(exact.heading_deg, heading_field.decimals())
+        ) > 1e-9:
+            edited_heading = heading_text
+            heading_changed = True
+        else:
+            edited_heading = exact.heading_deg
+            heading_changed = False
+        edited_elevation = self._edited_angles(
+            (self.orientation_fields["elevation"],), (exact.elevation_deg,)
+        )
+        edited_twist = self._edited_angles(
+            (self.orientation_fields["twist"],), (exact.twist_deg,)
+        )
+        elevation_changed = edited_elevation is not None
+        twist_changed = edited_twist is not None
+        if not (heading_changed or elevation_changed or twist_changed):
             return None
-        return quaternion_from_euler_deg(
-            yaw_deg=edited[0],
-            pitch_deg=edited[1],
-            roll_deg=edited[2],
+        heading = edited_heading
+        elevation = (
+            edited_elevation[0] if edited_elevation is not None else exact.elevation_deg
+        )
+        twist = edited_twist[0] if edited_twist is not None else exact.twist_deg
+        if heading is None and abs(elevation) < 90.0 - 1e-6:
+            # The user cleared a horizontal heading on a non-vertical pose.
+            raise ValueError(
+                "正面が水平方向を向く姿勢では水平向きを指定してください（垂直時のみ不定可）"
+            )
+        return orientation_from_view_angles(
+            heading_deg=heading,
+            elevation_deg=elevation,
+            twist_deg=twist,
+            fallback_heading_deg=exact.heading_deg,
         )
 
     def _edited_aim_angles(self, entity: SceneEntity) -> tuple[float, float] | None:
@@ -1578,11 +2219,13 @@ class ContextToolStrip(QFrame):
             ("show-palette", "オブジェクト追加"),
             ("measure", "計測"),
             ("delete-selection", "選択を削除"),
+            ("view-menu", "ビュー"),
         ),
         "placement": (
             ("focus-selection", "選択へ移動"),
             ("measure", "計測"),
             ("fit-scene", "全体表示"),
+            ("view-menu", "ビュー"),
         ),
         "acoustics": (("toggle-acoustics", "音響表示"), ("fit-scene", "全体表示")),
         "history": (("fit-scene", "全体表示"),),
@@ -1816,6 +2459,10 @@ class RoomWorkspace(QWidget):
         self._proposed_variant_id: str | None = None
         self._proposed_selected_id: str | None = None
         self._pending_editor_rejected = False
+        self._section: SectionPlaneState | None = None
+        self._pre_isolation_hidden: set[str] | None = None
+        self._clipboard = None  # LayoutClipboard, set by layout tools (#613)
+        self._guides_visible = True
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1978,6 +2625,12 @@ class RoomWorkspace(QWidget):
 
         self.set_context("geometry")
         self._refresh(reset_camera=True)
+        self._restore_view_extras()
+        self.view_menu = QMenu(self)
+        self.view_menu.aboutToShow.connect(self._rebuild_view_menu)
+        underlay_signal = getattr(self.viewport, "underlayClicked", None)
+        if underlay_signal is not None and hasattr(underlay_signal, "connect"):
+            underlay_signal.connect(self._underlay_clicked)
 
     @property
     def is_dirty(self) -> bool:
@@ -2001,7 +2654,10 @@ class RoomWorkspace(QWidget):
             return False, "部屋形状の編集中です。確定またはキャンセルしてから画面を切り替えてください"
         if self.transform_input is not None and self.transform_input.is_active:
             return False, "項目の移動または回転を確定・キャンセルしてから画面を切り替えてください"
-        return self.controller.before_deactivate()
+        allowed, reason = self.controller.before_deactivate()
+        if allowed:
+            self._persist_view_extras()
+        return allowed, reason
 
     def attach_geometry_input(self, controller) -> None:
         self.geometry_input = controller
@@ -2048,18 +2704,9 @@ class RoomWorkspace(QWidget):
         return self.controller.document != before
 
     def duplicate_selected(self) -> bool:
-        """Duplicate the whole selection — group duplicates are one Undo (#480)."""
-        if not self.controller.view_state.selection:
-            return False
-        count = self.controller.duplicate_selected()
-        if not count:
-            self._set_status("複製できる項目を選択してください", error=True)
-            return False
-        self._refresh()
-        self._set_status(
-            "選択項目を複製しました" if count == 1 else f"{count} 項目を複製しました"
-        )
-        return True
+        # Route through the layout duplicate so multi-selection duplicates stay
+        # a single atomic Undo step (#613, #480).
+        return self.layout_duplicate()
 
     def delete_selection(self) -> bool:
         """Undo-safe batch delete from the viewport/context menu (#482)."""
@@ -2129,7 +2776,842 @@ class RoomWorkspace(QWidget):
     def fit_all(self) -> None:
         self.viewport.fit_scene()
 
+    # --- Standard views, saved views, isolation and section (#545, #629) ------
+
+    def apply_standard_view(self, view: StandardView | str) -> None:
+        apply = getattr(self.viewport, "apply_standard_view", None)
+        if not callable(apply):
+            return
+        apply(view)
+        self._persist_view_extras()
+        label = STANDARD_VIEW_LABELS.get(StandardView(view), str(view))
+        self._set_status(f"{label}ビューに切り替えました")
+
+    def _persist_view_extras(self) -> None:
+        """Persist the current camera + section as this document's view state.
+
+        Never writes SceneRevisions — this only updates the editor-side
+        ``editor_camera_states`` row.
+        """
+
+        capture = getattr(self.viewport, "capture_camera_state", None)
+        if not callable(capture):
+            return
+        try:
+            camera = capture()
+        except (RuntimeError, TypeError, ValueError):
+            return
+        try:
+            self.controller.persist_view_extras(
+                PersistedViewState(camera=camera, section=self._section)
+            )
+        except (RuntimeError, TypeError, ValueError):
+            return
+
+    def _restore_view_extras(self) -> None:
+        """Restore the last working camera/section, or fall back to fit-all."""
+
+        stored = self.controller.persisted_view_state()
+        if stored is not None:
+            apply_state = getattr(self.viewport, "apply_camera_state", None)
+            if callable(apply_state):
+                try:
+                    apply_state(stored.camera)
+                except (RuntimeError, TypeError, ValueError):
+                    self.viewport.fit_scene()
+            self._section = stored.section
+        self._sync_aux_render_state()
+
+    def _sync_aux_render_state(self) -> None:
+        """Push non-authoritative extras (underlays, guides, section) into the
+        viewport; the next ``render_document`` draws them."""
+
+        set_aux = getattr(self.viewport, "set_aux_render_state", None)
+        if not callable(set_aux):
+            return
+        set_aux(
+            underlays=self.controller.underlay_render_items(),
+            guides=self.controller.guide_render_items(),
+            section=self._section,
+        )
+
+    def isolate_selection(self) -> bool:
+        selection = tuple(self.controller.view_state.selection)
+        if not selection and self.controller.selected_id is not None:
+            selection = (self.controller.selected_id,)
+        if not selection:
+            return False
+        if self._pre_isolation_hidden is None:
+            self._pre_isolation_hidden = set(self.controller.view_state.hidden_ids)
+        self.controller.isolate_entities(set(selection))
+        self._render()
+        self._set_status("選択項目のみ表示しています")
+        return True
+
+    def isolate_kind(self) -> bool:
+        selected = self.controller.selected_id
+        if selected is None:
+            return False
+        try:
+            kind = self.controller.document.entity(selected).kind
+        except KeyError:
+            return False
+        keep = {
+            entity.entity_id
+            for entity in self.controller.document.entities
+            if entity.kind == kind
+        }
+        if self._pre_isolation_hidden is None:
+            self._pre_isolation_hidden = set(self.controller.view_state.hidden_ids)
+        self.controller.isolate_entities(keep)
+        self._render()
+        self._set_status(f"「{kind}」のみ表示しています")
+        return True
+
+    def clear_isolation(self) -> bool:
+        if self._pre_isolation_hidden is None:
+            return False
+        self.controller.set_hidden_ids(self._pre_isolation_hidden)
+        self._pre_isolation_hidden = None
+        self._render()
+        self._set_status("分離を解除しました")
+        return True
+
+    def toggle_section(self) -> bool:
+        if self._section is not None and self._section.enabled:
+            self._section = None
+            self._set_status("断面を解除しました")
+        else:
+            room = self.controller.document.room
+            bounds = room.bounds_m if room is not None else (0.0, 0.0, 1.0, 1.0)
+            height = room.height_m if room is not None else 2.4
+            z_level = min(1.2, max(0.5, height * 0.5))
+            self._section = SectionPlaneState(
+                enabled=True,
+                origin=(
+                    (bounds[0] + bounds[2]) * 0.5,
+                    (bounds[1] + bounds[3]) * 0.5,
+                    z_level,
+                ),
+                normal=(0.0, 0.0, 1.0),
+                label="水平断面",
+            )
+            self._set_status(f"水平断面を表示しました (z={z_level:.2f} m)")
+        self._sync_aux_render_state()
+        self._render()
+        self._persist_view_extras()
+        return True
+
+    def save_named_view(self) -> bool:
+        capture = getattr(self.viewport, "capture_camera_state", None)
+        if not callable(capture):
+            self._set_status("このビューポートではビューを保存できません", error=True)
+            return False
+        name, ok = QInputDialog.getText(self, "ビューを保存", "ビュー名:")
+        name = (name or "").strip()
+        if not ok or not name:
+            return False
+        hidden = sorted(self.controller.view_state.hidden_ids)
+        spec = NamedViewSpec(
+            name=name,
+            camera=capture(),
+            hidden_ids=tuple(hidden) if hidden else None,
+            focus_entity_id=self.controller.selected_id,
+            section=self._section,
+        )
+        try:
+            self.controller.save_named_view(spec)
+        except (TypeError, ValueError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self._set_status(f"ビュー「{name}」を保存しました")
+        return True
+
+    def apply_named_view(self, view_id: str) -> bool:
+        spec = None
+        for candidate_id, candidate in self.controller.named_views():
+            if candidate_id == view_id:
+                spec = candidate
+                break
+        if spec is None:
+            self._set_status("指定されたビューが見つかりません", error=True)
+            return False
+        # Missing entities referenced by the view fail soft — never rebind
+        # by name, never abort the recall.
+        if spec.hidden_ids is not None:
+            self.controller.set_hidden_ids(set(spec.hidden_ids))
+            self._pre_isolation_hidden = None
+        self._section = spec.section
+        if spec.focus_entity_id is not None:
+            try:
+                self.controller.set_selection(spec.focus_entity_id)
+            except KeyError:
+                pass
+        apply_state = getattr(self.viewport, "apply_camera_state", None)
+        if callable(apply_state):
+            apply_state(spec.camera)
+        self._sync_aux_render_state()
+        self._persist_view_extras()
+        self._refresh()
+        self._set_status(f"ビュー「{spec.name}」を適用しました")
+        return True
+
+    def delete_named_view(self, view_id: str) -> None:
+        self.controller.delete_named_view(view_id)
+        self._set_status("ビューを削除しました")
+
+    def _rebuild_view_menu(self) -> None:
+        menu = self.view_menu
+        menu.clear()
+        current_view = getattr(self.viewport, "standard_view", "")
+        for view in (
+            StandardView.PERSPECTIVE,
+            StandardView.TOP,
+            StandardView.FRONT,
+            StandardView.REAR,
+            StandardView.LEFT,
+            StandardView.RIGHT,
+        ):
+            action = menu.addAction(STANDARD_VIEW_LABELS[view])
+            action.setCheckable(True)
+            action.setChecked(current_view == view.value)
+            action.triggered.connect(
+                lambda checked=False, target=view: self.apply_standard_view(target)
+            )
+        menu.addSeparator()
+        has_selection = bool(self.controller.view_state.selection) or (
+            self.controller.selected_id is not None
+        )
+        action = menu.addAction("選択のみ表示")
+        action.setEnabled(has_selection)
+        action.triggered.connect(lambda checked=False: self.isolate_selection())
+        action = menu.addAction("同じ種類のみ表示")
+        action.setEnabled(has_selection)
+        action.triggered.connect(lambda checked=False: self.isolate_kind())
+        action = menu.addAction("分離解除")
+        action.setEnabled(self._pre_isolation_hidden is not None)
+        action.triggered.connect(lambda checked=False: self.clear_isolation())
+        menu.addSeparator()
+        action = menu.addAction("水平断面")
+        action.setCheckable(True)
+        action.setChecked(self._section is not None and self._section.enabled)
+        action.triggered.connect(lambda checked=False: self.toggle_section())
+        action = menu.addAction("ビューを保存…")
+        action.triggered.connect(lambda checked=False: self.save_named_view())
+        named = self.controller.named_views()
+        if named:
+            named_menu = menu.addMenu("名前付きビュー")
+            for view_id, spec in named:
+                sub = named_menu.addMenu(spec.name)
+                open_action = sub.addAction("開く")
+                open_action.triggered.connect(
+                    lambda checked=False, target=view_id: self.apply_named_view(target)
+                )
+                delete_action = sub.addAction("削除")
+                delete_action.triggered.connect(
+                    lambda checked=False, target=view_id: self.delete_named_view(target)
+                )
+        self._rebuild_underlay_menu(menu)
+        self._rebuild_constraint_menu(menu)
+
+    def _underlay_clicked(self, underlay_id: object, x_m: float, y_m: float) -> None:
+        result = self.controller.handle_underlay_click(str(underlay_id), x_m, y_m)
+        self._refresh_underlay_ui()
+        if result == 'first':
+            self._set_status('1点目を記録しました。2点目をクリックしてください')
+        elif result == 'ready':
+            self._finish_underlay_calibration()
+
+    def _refresh_underlay_ui(self) -> None:
+        self._sync_aux_render_state()
+        self._render()
+        armed = self.controller.underlay_calibration_underlay_id
+        if armed is not None:
+            self._set_status(
+                '下図キャリブレーション中: 図面上の既知の2点をクリックしてください'
+                ' (Escで中止)'
+            )
+
+    # --- Floor-plan underlay UI (#534) -----------------------------------------
+
+    def import_underlay_dialog(self) -> bool:
+        """Pick an image/PDF/DXF file and import it as a tracing underlay."""
+
+        if self.controller.document.room is None:
+            self._set_status("先に部屋を作成してください", error=True)
+            return False
+        path_text, _ = QFileDialog.getOpenFileName(
+            self,
+            "下図をインポート",
+            "",
+            "下図ファイル (*.png *.jpg *.jpeg *.pdf *.dxf)",
+        )
+        if not path_text:
+            return False
+        try:
+            underlay = self.controller.import_underlay(path_text)
+        except (OSError, UnderlayImportError, ValueError) as exc:
+            self._set_status(f"下図の読み込みに失敗しました: {exc}", error=True)
+            return False
+        self._refresh_underlay_ui()
+        self._set_status(
+            f"下図「{underlay.name}」を読み込みました。"
+            "校正するにはビューメニューから「2点で校正」を選んでください"
+        )
+        return True
+
+    def arm_underlay_calibration(self, underlay_id: str) -> bool:
+        try:
+            self.controller.begin_underlay_calibration(underlay_id)
+        except KeyError:
+            return False
+        self._refresh_underlay_ui()
+        return True
+
+    def arm_first_underlay_calibration(self) -> bool:
+        """Command-palette entry: calibrate the first uncalibrated underlay,
+        else the first underlay. Returns False when none exist."""
+
+        underlays = self.controller.underlays()
+        if not underlays:
+            self._set_status("先に下図をインポートしてください", error=True)
+            return False
+        target = next(
+            (u for u in underlays if not is_calibrated(u)),
+            underlays[0],
+        )
+        return self.arm_underlay_calibration(target.underlay_id)
+
+    def update_underlay_field(self, underlay_id: str, **fields) -> bool:
+        try:
+            self.controller.update_underlay(underlay_id, **fields)
+        except (KeyError, ValueError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self._refresh_underlay_ui()
+        return True
+
+    def delete_underlay(self, underlay_id: str) -> None:
+        self.controller.delete_underlay_record(underlay_id)
+        self._refresh_underlay_ui()
+        self._set_status("下図を削除しました")
+
+    def _finish_underlay_calibration(self) -> None:
+        distance, ok = QInputDialog.getDouble(
+            self,
+            "2点校正",
+            "選んだ2点間の実寸距離 (m):",
+            2.0,
+            0.01,
+            100.0,
+            2,
+        )
+        if not ok:
+            self.controller.cancel_underlay_calibration()
+            self._set_status("校正を中止しました")
+            return
+        try:
+            underlay = self.controller.finish_underlay_calibration(distance)
+        except (EditStateError, KeyError, ValueError) as exc:
+            self._set_status(str(exc), error=True)
+            self._refresh_underlay_ui()
+            return
+        self._refresh_underlay_ui()
+        self._set_status(
+            f"下図「{underlay.name}」を校正しました"
+            f" ({underlay.units_per_meter:.3f} 単位/m)。"
+            "トレースのスナップ候補が有効になりました"
+        )
+
+    def _rebuild_underlay_menu(self, menu: QMenu) -> None:
+        menu.addSeparator()
+        header = menu.addAction("下図（トレース用 — 設計データではありません）")
+        header.setEnabled(False)
+        action = menu.addAction("下図をインポート…")
+        action.triggered.connect(
+            lambda checked=False: self.import_underlay_dialog()
+        )
+        for underlay in self.controller.underlays():
+            calibrated = is_calibrated(underlay)
+            sub = menu.addMenu(
+                f"{underlay.name}"
+                + ("" if calibrated else "（未校正）")
+            )
+            shown = sub.addAction("表示")
+            shown.setCheckable(True)
+            shown.setChecked(underlay.visible)
+            shown.triggered.connect(
+                lambda checked=False, uid=underlay.underlay_id, value=not underlay.visible: (
+                    self.update_underlay_field(uid, visible=value)
+                )
+            )
+            locked = sub.addAction("ロック（スナップ対象から外す）")
+            locked.setCheckable(True)
+            locked.setChecked(underlay.locked)
+            locked.triggered.connect(
+                lambda checked=False, uid=underlay.underlay_id, value=not underlay.locked: (
+                    self.update_underlay_field(uid, locked=value)
+                )
+            )
+            calibrate = sub.addAction("2点で校正…")
+            calibrate.triggered.connect(
+                lambda checked=False, uid=underlay.underlay_id: (
+                    self.arm_underlay_calibration(uid)
+                )
+            )
+            manual = sub.addAction("縮尺を直接入力…")
+            manual.triggered.connect(
+                lambda checked=False, uid=underlay.underlay_id, u=underlay: (
+                    self._set_underlay_scale(uid, u)
+                )
+            )
+            delete = sub.addAction("削除")
+            delete.triggered.connect(
+                lambda checked=False, uid=underlay.underlay_id: (
+                    self.delete_underlay(uid)
+                )
+            )
+
+    def _set_underlay_scale(self, underlay_id: str, underlay: FloorPlanUnderlay) -> None:
+        current = underlay.units_per_meter or 100.0
+        value, ok = QInputDialog.getDouble(
+            self,
+            "縮尺の入力",
+            "図面の 1 単位あたりのメートルではなく、1 m あたりの図面単位数を入力\n"
+            "(例: 1px=1cm → 100、1mm単位 → 1000):",
+            float(current),
+            0.001,
+            1_000_000.0,
+            3,
+        )
+        if ok:
+            self.update_underlay_field(underlay_id, units_per_meter=value)
+
+    # --- Layout tools (#613) ----------------------------------------------------
+
+    def _layout_selection(self, *, minimum: int) -> tuple[str, ...]:
+        if not self.controller.can_edit:
+            raise LayoutError("現在の状態では編集できません")
+        selection = tuple(
+            entity_id
+            for entity_id in self.controller.view_state.selection
+            if not self.controller.view_state.is_locked(entity_id)
+        )
+        if not selection and self.controller.selected_id is not None:
+            candidate = self.controller.selected_id
+            if not self.controller.view_state.is_locked(candidate):
+                selection = (candidate,)
+        if len(selection) < minimum:
+            raise LayoutError(f"この操作には{minimum}つ以上の選択が必要です")
+        return selection
+
+    def layout_copy(self) -> bool:
+        try:
+            selection = self._layout_selection(minimum=1)
+            self._clipboard = copy_selection(
+                self.controller.document, selection
+            )
+        except (LayoutError, KeyError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self._set_status(f"{len(self._clipboard.entities)}件をコピーしました")
+        return True
+
+    def layout_paste(self) -> bool:
+        if self._clipboard is None or not self._clipboard.entities:
+            self._set_status("先にコピーしてください", error=True)
+            return False
+        if not self.controller.can_edit:
+            self._set_status("現在の状態では編集できません", error=True)
+            return False
+        try:
+            new_ids = paste_clipboard(self.controller.working, self._clipboard)
+        except (LayoutError, EditStateError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self.controller.view_state.set_selection(new_ids, primary_id=new_ids[0])
+        self.controller._sync_recovery()
+        self._refresh()
+        self._set_status(f"{len(new_ids)}件を貼り付けました")
+        return True
+
+    def layout_duplicate(self) -> bool:
+        try:
+            selection = self._layout_selection(minimum=1)
+            new_ids = duplicate_entities(
+                self.controller.working,
+                self.controller.document,
+                selection,
+                offset=(0.10, 0.10, 0.0),
+            )
+        except (LayoutError, EditStateError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self.controller.view_state.set_selection(new_ids, primary_id=new_ids[0])
+        self.controller._sync_recovery()
+        self._refresh()
+        self._set_status(f"{len(new_ids)}件を複製しました")
+        return True
+
+    def layout_mirror(self, axis: str) -> bool:
+        try:
+            selection = self._layout_selection(minimum=1)
+            if axis == "x":
+                ids = mirror_entities_x(
+                    self.controller.working, self.controller.document, selection
+                )
+            else:
+                ids = mirror_entities_y(
+                    self.controller.working, self.controller.document, selection
+                )
+        except (LayoutError, EditStateError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self.controller._sync_recovery()
+        self._refresh()
+        self._set_status(f"{len(ids)}件をミラーしました")
+        return True
+
+    def layout_pair_speaker(self) -> bool:
+        selected = self.controller.selected_id
+        if selected is None:
+            self._set_status("スピーカーを選択してください", error=True)
+            return False
+        try:
+            entity = self.controller.document.entity(selected)
+        except KeyError:
+            return False
+        proposed = propose_pair_role(entity.speaker_role)
+        apply_role = False
+        if proposed is not None:
+            answer = QMessageBox.question(
+                self,
+                "ペア複製",
+                f"ミラーしたスピーカーの役割を「{proposed}」にしますか？\n"
+                "(いいえ を選ぶと元の役割のまま複製します)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            apply_role = answer == QMessageBox.StandardButton.Yes
+        try:
+            new_id = mirror_speaker_pair(
+                self.controller.working,
+                self.controller.document,
+                selected,
+                apply_role_proposal=apply_role,
+            )
+        except (LayoutError, EditStateError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self.controller.view_state.set_selection((new_id,), primary_id=new_id)
+        self.controller._sync_recovery()
+        self._refresh()
+        self._set_status("ペアスピーカーを作成しました")
+        return True
+
+    def layout_align(self, axis: str, mode: str) -> bool:
+        try:
+            selection = self._layout_selection(minimum=2)
+            ids = align_entities(
+                self.controller.working,
+                self.controller.document,
+                selection,
+                axis=axis,  # type: ignore[arg-type]
+                mode=mode,  # type: ignore[arg-type]
+            )
+        except (LayoutError, EditStateError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self._propagate_and_report(set(ids))
+        self._set_status(f"{len(ids)}件を揃えました")
+        return True
+
+    def layout_distribute(self, axis: str) -> bool:
+        try:
+            selection = self._layout_selection(minimum=3)
+            ids = distribute_entities(
+                self.controller.working,
+                self.controller.document,
+                selection,
+                axis=axis,  # type: ignore[arg-type]
+            )
+        except (LayoutError, EditStateError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self._propagate_and_report(set(ids))
+        self._set_status(f"{len(ids)}件を等間隔に配置しました")
+        return True
+
+    def _propagate_and_report(self, changed_ids: set[str]) -> None:
+        notes = self.controller.propagate_constraints(changed_ids)
+        self.controller._sync_recovery()
+        self._refresh()
+        if notes:
+            self._set_status(" / ".join(notes))
+
+    # --- Authoring constraints (#618) --------------------------------------------
+
+    def add_centerline_constraint(self, axis: str) -> bool:
+        selection = tuple(self.controller.view_state.selection) or (
+            (self.controller.selected_id,) if self.controller.selected_id else ()
+        )
+        if not selection:
+            self._set_status("中心線に拘束する項目を選択してください", error=True)
+            return False
+        constraint = make_centerline_constraint(axis, selection)
+        self.controller.add_authoring_constraint(constraint)
+        self._propagate_and_report(set(selection))
+        self._set_status("中心線拘束を追加しました")
+        return True
+
+    def add_symmetric_pair_constraint(self) -> bool:
+        selection = tuple(self.controller.view_state.selection)
+        if len(selection) != 2:
+            self._set_status("対称にする2つの項目を選択してください", error=True)
+            return False
+        driver, subject = selection[0], selection[1]
+        constraint = make_symmetric_pair_constraint(driver, subject)
+        self.controller.add_authoring_constraint(constraint)
+        self._propagate_and_report({driver})
+        self._set_status("対称ペア拘束を追加しました")
+        return True
+
+    def add_fixed_distance_constraint(self, axis: str) -> bool:
+        selection = tuple(self.controller.view_state.selection)
+        if len(selection) != 2:
+            self._set_status("距離を固定する2つの項目を選択してください", error=True)
+            return False
+        document = self.controller.document
+        try:
+            driver = document.entity(selection[0])
+            subject = document.entity(selection[1])
+        except KeyError:
+            return False
+        constraint = make_fixed_distance_constraint(driver, subject, axis=axis)
+        self.controller.add_authoring_constraint(constraint)
+        self._set_status(
+            f"距離固定拘束を追加しました ({axis.upper()}方向 {abs(constraint.value or 0):.2f} m)"
+        )
+        return True
+
+    def add_equal_spacing_constraint(self, axis: str | None = None) -> bool:
+        selection = tuple(self.controller.view_state.selection)
+        if len(selection) < 3:
+            self._set_status("等間隔にする3つ以上の項目を選択してください", error=True)
+            return False
+        document = self.controller.document
+        try:
+            entities = [document.entity(entity_id) for entity_id in selection]
+        except KeyError:
+            return False
+        if axis is None:
+            # Palette-friendly form: pick the axis with the wider selection
+            # spread — deterministic from geometry, never selection order.
+            span_x = max(e.position.x_m for e in entities) - min(
+                e.position.x_m for e in entities
+            )
+            span_y = max(e.position.y_m for e in entities) - min(
+                e.position.y_m for e in entities
+            )
+            axis = "x" if span_x >= span_y else "y"
+        ordered = sorted(
+            entities,
+            key=lambda e: e.position.x_m if axis == "x" else e.position.y_m,
+        )
+        constraint = make_equal_spacing_constraint(
+            tuple(entity.entity_id for entity in ordered), axis=axis
+        )
+        self.controller.add_authoring_constraint(constraint)
+        self._propagate_and_report({ordered[0].entity_id, ordered[-1].entity_id})
+        self._set_status(f"{axis.upper()}方向の等間隔拘束を追加しました")
+        return True
+
+    def add_fixed_distance_auto(self) -> bool:
+        """Palette-friendly fixed-distance: dominant axis of the pair."""
+
+        selection = tuple(self.controller.view_state.selection)
+        if len(selection) != 2:
+            self._set_status("距離を固定する2つの項目を選択してください", error=True)
+            return False
+        document = self.controller.document
+        try:
+            a = document.entity(selection[0])
+            b = document.entity(selection[1])
+        except KeyError:
+            return False
+        dx = abs(a.position.x_m - b.position.x_m)
+        dy = abs(a.position.y_m - b.position.y_m)
+        return self.add_fixed_distance_constraint("x" if dx >= dy else "y")
+
+    def remove_constraints_touching_selection(self) -> bool:
+        """Remove constraints whose members include the current selection."""
+
+        selection = set(self.controller.view_state.selection)
+        if not selection and self.controller.selected_id is not None:
+            selection = {self.controller.selected_id}
+        if not selection:
+            self._set_status("拘束を解除する項目を選択してください", error=True)
+            return False
+        removed = self.controller.remove_authoring_constraints_for(selection)
+        self._refresh_underlay_ui()
+        self._set_status(
+            f"選択項目の拘束を{removed}件解除しました"
+            if removed
+            else "選択項目に関連する拘束はありません"
+        )
+        return removed > 0
+
+    def remove_constraint(self, constraint_id: str) -> None:
+        state = self.controller.authoring_constraints
+        keep = tuple(
+            constraint
+            for constraint in state.constraints
+            if constraint.constraint_id != constraint_id
+        )
+        self.controller._constraint_state = state.model_copy(
+            update={"constraints": keep, "solve_version": state.solve_version + 1}
+        )
+        self.controller._save_authoring_constraints()
+        self._refresh_underlay_ui()
+        self._set_status("拘束を解除しました")
+
+    def clear_broken_constraints(self) -> None:
+        state = self.controller.authoring_constraints
+        keep = tuple(c for c in state.constraints if not c.broken)
+        removed = len(state.constraints) - len(keep)
+        if removed:
+            self.controller._constraint_state = state.model_copy(
+                update={"constraints": keep, "solve_version": state.solve_version + 1}
+            )
+            self.controller._save_authoring_constraints()
+        self._refresh_underlay_ui()
+        self._set_status(f"破損した拘束を{removed}件削除しました")
+
+    def toggle_guides(self) -> bool:
+        self._guides_visible = not self._guides_visible
+        self._refresh_underlay_ui()
+        self._set_status(
+            "ガイドを表示しました" if self._guides_visible else "ガイドを隠しました"
+        )
+        return True
+
+    def _rebuild_constraint_menu(self, menu: QMenu) -> None:
+        menu.addSeparator()
+        header = menu.addAction("拘束 / ガイド")
+        header.setEnabled(False)
+        guides = menu.addAction("ガイドを表示")
+        guides.setCheckable(True)
+        guides.setChecked(self._guides_visible)
+        guides.triggered.connect(lambda checked=False: self.toggle_guides())
+        has_selection = bool(self.controller.view_state.selection) or (
+            self.controller.selected_id is not None
+        )
+        for label, callback in (
+            ("左右中心線(X)に拘束", lambda: self.add_centerline_constraint("x")),
+            ("前後中心線(Y)に拘束", lambda: self.add_centerline_constraint("y")),
+            ("対称ペアにする (左右)", lambda: self.add_symmetric_pair_constraint()),
+            ("X距離を固定", lambda: self.add_fixed_distance_constraint("x")),
+            ("Y距離を固定", lambda: self.add_fixed_distance_constraint("y")),
+            ("X方向を等間隔に", lambda: self.add_equal_spacing_constraint("x")),
+            ("Y方向を等間隔に", lambda: self.add_equal_spacing_constraint("y")),
+        ):
+            action = menu.addAction(label)
+            action.setEnabled(has_selection)
+            action.triggered.connect(lambda checked=False, cb=callback: cb())
+        constraints = self.controller.authoring_constraints.constraints
+        if constraints:
+            submenu = menu.addMenu("登録済みの拘束")
+            for constraint in constraints:
+                label = constraint.label or CONSTRAINT_KIND_LABELS.get(
+                    constraint.kind, constraint.kind
+                )
+                if constraint.broken:
+                    label = f"{label}（破損: {constraint.broken_reason or ''}）"
+                sub = submenu.addMenu(label)
+                remove = sub.addAction("この拘束を解除")
+                remove.triggered.connect(
+                    lambda checked=False, cid=constraint.constraint_id: (
+                        self.remove_constraint(cid)
+                    )
+                )
+            if any(c.broken for c in constraints):
+                clear = menu.addAction("破損した拘束を削除")
+                clear.triggered.connect(
+                    lambda checked=False: self.clear_broken_constraints()
+                )
+
+    # --- Seating layout (#546) ---------------------------------------------------
+
+    def seating_specs(self) -> tuple[tuple[str, SeatingLayoutSpec], ...]:
+        specs: list[tuple[str, SeatingLayoutSpec]] = []
+        for record in self.controller.repository.seating_specs(
+            self.controller.document_id
+        ):
+            try:
+                specs.append(
+                    (record.record_id, SeatingLayoutSpec.model_validate(record.payload))
+                )
+            except (TypeError, ValueError):
+                continue
+        return tuple(specs)
+
+    def open_seating_layout(self) -> bool:
+        if self.controller.document.room is None:
+            self._set_status("先に部屋を作成してください", error=True)
+            return False
+        existing = self.seating_specs()
+        dialog = SeatingLayoutDialog(
+            self,
+            document=self.controller.document,
+            existing=existing[0][1] if existing else None,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        spec = dialog.spec()
+        if spec is None:
+            return False
+        diff = plan_regeneration(spec, self.controller.document)
+        summary = (
+            f"追加 {len(diff.added)} / 移動 {len(diff.moved_after)} / "
+            f"未使用 {len(diff.removed)}"
+        )
+        remove_orphaned = False
+        if diff.removed:
+            answer = QMessageBox.question(
+                self,
+                "座席レイアウト",
+                f"{summary}\n\nレイアウト外となった座席が{len(diff.removed)}件あります。"
+                "削除しますか？（いいえを選ぶと座席は残ります — 証跡を持つ座席は削除されません）",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            remove_orphaned = answer == QMessageBox.StandardButton.Yes
+        try:
+            apply_seating_layout(
+                self.controller.working,
+                self.controller.document,
+                spec,
+                remove_orphaned=remove_orphaned,
+            )
+        except (SeatingLayoutError, EditStateError) as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        self.controller.repository.save_seating_spec(
+            self.controller.document_id,
+            spec.spec_id,
+            spec.model_dump(mode="json"),
+        )
+        self.controller._sync_recovery()
+        self._refresh()
+        self._set_status(f"座席レイアウト「{spec.name}」を適用しました（{summary}）")
+        return True
+
+
     def cancel_active_operation(self) -> bool:
+        if self.controller.underlay_calibration_underlay_id is not None:
+            self.controller.cancel_underlay_calibration()
+            self._set_status("校正を中止しました")
+            return True
         if self.measure_controller.is_active:
             self.measure_controller.cancel()
             self._render()
@@ -2853,17 +4335,19 @@ class RoomWorkspace(QWidget):
         return created
 
     def undo(self) -> bool:
+        label = self.controller.undo_label
         changed = self.controller.undo()
         if changed:
             self._refresh()
-            self._set_status("元に戻しました")
+            self._set_status(f"元に戻しました: {label}" if label else "元に戻しました")
         return changed
 
     def redo(self) -> bool:
+        label = self.controller.redo_label
         changed = self.controller.redo()
         if changed:
             self._refresh()
-            self._set_status("やり直しました")
+            self._set_status(f"やり直しました: {label}" if label else "やり直しました")
         return changed
 
     def _update_responsive_layout(self) -> None:
@@ -2909,6 +4393,9 @@ class RoomWorkspace(QWidget):
             return
         if tool_id == "delete-selection":
             self.delete_selection()
+            return
+        if tool_id == "view-menu":
+            self.view_menu.popup(QCursor.pos())
             return
         if tool_id == "draw-room" and self.geometry_input is not None:
             self.geometry_input.start_sketch()
@@ -2958,8 +4445,10 @@ class RoomWorkspace(QWidget):
             self._set_status(str(exc), error=True)
             return
         if changed:
+            notes = self.controller.pop_constraint_notes()
             self._refresh()
-            self._set_status("選択項目を更新しました")
+            suffix = " / " + " / ".join(notes) if notes else ""
+            self._set_status(f"選択項目を更新しました{suffix}")
 
     def _aim_target_committed(self, target_id: object) -> None:
         try:
@@ -3044,6 +4533,13 @@ class RoomWorkspace(QWidget):
             self._set_status("保存前の下書きを破棄しました")
 
     def _refresh(self, *, reset_camera: bool = False) -> None:
+        # Broken-by-delete detection is cheap (early exit without constraints)
+        # and keeps stale constraints surfaced instead of silently reusing them.
+        broken_labels = self.controller.mark_broken_constraints()
+        if broken_labels:
+            self._set_status(
+                "拘束が破損しました: " + "、".join(broken_labels), error=True
+            )
         self.recovery_banner.setVisible(self.controller.recovery_candidate is not None)
         self._refresh_inspector()
         self._sync_objects_panel()
@@ -3086,7 +4582,12 @@ class RoomWorkspace(QWidget):
         self.inspector.set_entity(entity, editable=editable, aim_targets=aim_targets)
 
     def _render(self, *, reset_camera: bool = False) -> None:
-        overlays = self.overlay_controls.state()
+        overlays = replace(
+            self.overlay_controls.state(),
+            hidden_ids=frozenset(self.controller.view_state.hidden_ids),
+            guides_visible=self._guides_visible,
+        )
+        self._sync_aux_render_state()
         self.viewport.render_document(
             self.controller.document,
             selected_id=self.controller.selected_id,
@@ -3138,6 +4639,7 @@ class RoomWorkspace(QWidget):
         set_semantic_state(self.status, SemanticState.ERROR if error else None)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._persist_view_extras()
         if self.transform_input is not None:
             self.transform_input.dispose()
         if self.geometry_input is not None:
@@ -3145,6 +4647,177 @@ class RoomWorkspace(QWidget):
         self.controller.close()
         self.viewport.close()
         event.accept()
+
+
+class SeatingLayoutDialog(QDialog):
+    """Bounded authoring dialog for one SeatingLayoutSpec (#546).
+
+    Rows are uniform through this dialog (count/spacing shared); the spec
+    model itself keeps per-row independence for callers that need it.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        document: SceneDocument,
+        existing: SeatingLayoutSpec | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("座席レイアウト")
+        self.setMinimumWidth(360)
+        self._existing = existing
+        self._riser_ids: list[str | None] = [None]
+        form = QFormLayout(self)
+
+        self.name_field = QLineEdit(existing.name if existing else "座席ブロック")
+        form.addRow("名前", self.name_field)
+
+        self.rows_field = QSpinBox()
+        self.rows_field.setRange(1, 20)
+        self.rows_field.setValue(len(existing.rows) if existing else 2)
+        form.addRow("列数 (前→後)", self.rows_field)
+
+        first_row = existing.rows[0] if existing else None
+        self.count_field = QSpinBox()
+        self.count_field.setRange(1, 40)
+        self.count_field.setValue(first_row.count if first_row else 4)
+        form.addRow("1列あたりの座席数", self.count_field)
+
+        self.spacing_field = QDoubleSpinBox()
+        self.spacing_field.setRange(0.3, 3.0)
+        self.spacing_field.setSingleStep(0.05)
+        self.spacing_field.setSuffix(" m")
+        self.spacing_field.setValue(first_row.spacing_m if first_row else 0.75)
+        form.addRow("座席間隔", self.spacing_field)
+
+        self.row_spacing_field = QDoubleSpinBox()
+        self.row_spacing_field.setRange(0.5, 5.0)
+        self.row_spacing_field.setSingleStep(0.05)
+        self.row_spacing_field.setSuffix(" m")
+        self.row_spacing_field.setValue(first_row.row_spacing_m if first_row else 1.0)
+        form.addRow("列間隔", self.row_spacing_field)
+
+        self.stagger_field = QCheckBox("偶数列を半ピッチずらす")
+        self.stagger_field.setChecked(bool(first_row and first_row.stagger))
+        form.addRow("千鳥配置", self.stagger_field)
+
+        self.aisle_field = QLineEdit()
+        self.aisle_field.setPlaceholderText("例: 2:0.9; 5:0.9 (座席番号の後に 幅m)")
+        if existing and existing.aisles:
+            self.aisle_field.setText(
+                "; ".join(
+                    f"{aisle.after_index}:{aisle.width_m:g}"
+                    for aisle in existing.aisles
+                )
+            )
+        form.addRow("通路 (任意)", self.aisle_field)
+
+        self.facing_field = QComboBox()
+        self.facing_field.addItem("前面 (-Y, スクリーン向き)", "front")
+        self.facing_field.addItem("背面 (+Y)", "rear")
+        if existing and existing.facing == "rear":
+            self.facing_field.setCurrentIndex(1)
+        form.addRow("向き", self.facing_field)
+
+        self.anchor_x_field = QDoubleSpinBox()
+        self.anchor_y_field = QDoubleSpinBox()
+        room = document.room
+        for field in (self.anchor_x_field, self.anchor_y_field):
+            field.setRange(-1000.0, 1000.0)
+            field.setSingleStep(0.05)
+            field.setSuffix(" m")
+        if room is not None:
+            min_x, min_y, max_x, _ = room.bounds_m
+            self.anchor_x_field.setValue(
+                existing.anchor_x_m if existing else (min_x + max_x) * 0.5
+            )
+            self.anchor_y_field.setValue(
+                existing.anchor_y_m if existing else min_y + 1.5
+            )
+        form.addRow("起点 X", self.anchor_x_field)
+        form.addRow("起点 Y", self.anchor_y_field)
+
+        self.riser_field = QComboBox()
+        self.riser_field.addItem("なし（床置き）", None)
+        for entity in document.entities:
+            if entity.kind == "riser":
+                self.riser_ids.append(entity.entity_id)
+                self.riser_field.addItem(entity.name, entity.entity_id)
+        if existing and existing.rows and existing.rows[0].riser_entity_id:
+            idx = self.riser_field.findData(existing.rows[0].riser_entity_id)
+            if idx >= 0:
+                self.riser_field.setCurrentIndex(idx)
+        form.addRow("ライザー参照 (全列)", self.riser_field)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    def spec(self) -> SeatingLayoutSpec | None:
+        name = self.name_field.text().strip() or "座席ブロック"
+        rows = self.rows_field.value()
+        count = self.count_field.value()
+        spacing = self.spacing_field.value()
+        row_spacing = self.row_spacing_field.value()
+        stagger = self.stagger_field.isChecked()
+        riser_id = self.riser_field.currentData()
+        try:
+            aisles = self._parse_aisles()
+        except ValueError as exc:
+            QMessageBox.warning(self, "座席レイアウト", str(exc))
+            return None
+        row_specs = tuple(
+            SeatRowSpec(
+                row_id=f"r{index + 1}",
+                name=chr(ord("A") + index),
+                count=count,
+                spacing_m=spacing,
+                row_spacing_m=row_spacing,
+                stagger=stagger,
+                riser_entity_id=riser_id,
+            )
+            for index in range(rows)
+        )
+        try:
+            return SeatingLayoutSpec(
+                spec_id=self._existing.spec_id
+                if self._existing is not None
+                else new_seating_spec_id(),
+                name=name[:64],
+                anchor_x_m=self.anchor_x_field.value(),
+                anchor_y_m=self.anchor_y_field.value(),
+                rows=row_specs,
+                aisles=aisles,
+                facing=self.facing_field.currentData(),
+            )
+        except (TypeError, ValueError) as exc:
+            QMessageBox.warning(self, "座席レイアウト", str(exc))
+            return None
+
+    def _parse_aisles(self) -> tuple[AisleSpec, ...]:
+        text = self.aisle_field.text().strip()
+        if not text:
+            return ()
+        aisles: list[AisleSpec] = []
+        for chunk in text.split(";"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            parts = chunk.split(":")
+            if len(parts) != 2:
+                raise ValueError("通路は「座席番号:幅m」の形式で入力してください")
+            try:
+                index = int(parts[0])
+                width = float(parts[1])
+            except ValueError as exc:
+                raise ValueError("通路の番号と幅は数値で入力してください") from exc
+            aisles.append(AisleSpec(after_index=index, width_m=width))
+        return tuple(aisles)
 
 
 def build_room_workspace_mount(

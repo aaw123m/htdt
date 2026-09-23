@@ -185,6 +185,18 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'room.view.fit_all',
         'room.measure',
         'room.view.history',
+        # Display-only viewport commands (#545/#629/#618) never touch data.
+        'room.view.perspective',
+        'room.view.top',
+        'room.view.front',
+        'room.view.rear',
+        'room.view.left',
+        'room.view.right',
+        'room.view.isolate_selection',
+        'room.view.isolate_kind',
+        'room.view.isolate_clear',
+        'room.view.section_toggle',
+        'room.constraint.guides_toggle',
     }
     assert definitions['project.save'].mutates_managed_data is True
     assert definitions['edit.undo'].mutates_managed_data is True

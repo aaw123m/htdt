@@ -58,6 +58,7 @@ class RoomEntityTransformController(QObject):
         self._start_pointer: QPointF | None = None
         self._base_position: Position3 | None = None
         self._base_orientation = None
+        self._drag_entity_id: str | None = None
         self._group_ids: tuple[str, ...] = ()
         self._group_base_positions: dict[str, Position3] = {}
         self._group_pivot: Position3 | None = None
@@ -188,6 +189,7 @@ class RoomEntityTransformController(QObject):
                 self._controller.working.begin_rotate(entity_id)
                 self._base_orientation = entity.orientation
                 self._base_position = entity.position
+        self._drag_entity_id = entity_id
         self._start_pointer = QPointF(position)
         self._dragging = True
         return True
@@ -228,11 +230,20 @@ class RoomEntityTransformController(QObject):
             self.workspace._set_status(f"移動を拒否しました · {gate_message}", error=True)
             return False
         changed = working.commit_preview()
+        edited_ids = set(self._group_ids) or (
+            {self._drag_entity_id} if self._drag_entity_id else set()
+        )
         self._reset_state()
         if changed:
+            notes = self.workspace.controller.propagate_constraints(edited_ids)
             self._controller._sync_recovery()
+        else:
+            notes = ()
         self.workspace.refresh()
-        self.workspace._set_status("操作を確定しました" if changed else "位置・回転は変更されませんでした")
+        if notes:
+            self.workspace._set_status(" / ".join(notes))
+        else:
+            self.workspace._set_status("操作を確定しました" if changed else "位置・回転は変更されませんでした")
         return changed
 
     def commit(self) -> bool:
@@ -255,6 +266,7 @@ class RoomEntityTransformController(QObject):
         self._start_pointer = None
         self._base_position = None
         self._base_orientation = None
+        self._drag_entity_id = None
         self._group_ids = ()
         self._group_base_positions = {}
         self._group_pivot = None

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .cad_document import EditStateError, WorkingDocument
+from .cad_document import CommandPresentation, EditStateError, WorkingDocument
 from .cad_scene import RoomPrism, SceneDocument, scene_content_hash
 from .cad_wall_models import WallTopology
 
@@ -13,6 +13,7 @@ class ReplaceRoomCommand:
 
     before: SceneDocument
     after: SceneDocument
+    presentation: CommandPresentation | None = None
 
     @property
     def is_noop(self) -> bool:
@@ -46,7 +47,7 @@ class RoomWorkingDocument(WorkingDocument):
                 'room': room,
             }
         )
-        return self._commit_room_snapshot(before, after)
+        return self._commit_room_snapshot(before, after, label='部屋形状を変更')
 
     def replace_room_topology(self, room: RoomPrism, topology: WallTopology) -> bool:
         """Commit geometry + wall/opening references as one Undoable transaction."""
@@ -61,12 +62,25 @@ class RoomWorkingDocument(WorkingDocument):
                 'wall_topology': topology,
             }
         )
-        return self._commit_room_snapshot(before, after)
+        return self._commit_room_snapshot(before, after, label='壁・開口を編集')
 
-    def _commit_room_snapshot(self, before: SceneDocument, after: SceneDocument) -> bool:
+    def _commit_room_snapshot(
+        self,
+        before: SceneDocument,
+        after: SceneDocument,
+        *,
+        label: str,
+    ) -> bool:
         # model_copy(update=...) does not revalidate by design; validate the exact
         # snapshot that will become part of history before it can be committed.
         validated = SceneDocument.model_validate(after.model_dump(mode='python'))
         before_hash = scene_content_hash(before)
-        self._document = self._history.push(ReplaceRoomCommand(before, validated), self._document)
+        self._document = self._history.push(
+            ReplaceRoomCommand(
+                before,
+                validated,
+                presentation=CommandPresentation(action='edit', label=label),
+            ),
+            self._document,
+        )
         return scene_content_hash(self._document) != before_hash

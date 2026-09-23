@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_document import WorkingDocument
+from .cad_document import CommandPresentation, WorkingDocument
 from .cad_repository import SceneRevision
 from .cad_scene import PHYSICAL_ENTITY_KINDS, SceneDocument, SceneEntity, scene_content_hash
 
@@ -599,4 +599,7 @@ def apply_system_variant_to_working_document(
     if scene_content_hash(working.committed_document) != baseline.content_hash:
         raise ValueError('working document has diverged from the SystemVariant baseline')
     proposed = materialize_system_variant(baseline, variant)
-    return working.replace_document(proposed)
+    return working.replace_document(
+        proposed,
+        presentation=CommandPresentation(action='edit', label='候補を適用'),
+    )
