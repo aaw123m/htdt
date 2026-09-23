@@ -19,11 +19,14 @@ from .cad_equipment import (
     EquipmentDefinition,
     SensitivityReference,
 )
+from .cad_equipment_binding import EquipmentBindingSemantics
+from .cad_installation_context import SpeakerInstallationContext
 from .cad_repository import SceneRevision
 from .cad_scene import (
     Direction3,
     Position3,
     Quaternion4,
+    SceneDocument,
     SceneEntity,
     quaternion_to_matrix3,
 )
@@ -207,6 +210,25 @@ class R110CompiledSourceModel(BaseModel):
     approximation_metadata: tuple[R110ApproximationMetadata, ...] = ()
     unsupported_reasons: tuple[str, ...] = ()
 
+    # #476/#540: explicit binding/installation authorities bound into the
+    # compiled source when present; absent on pre-existing models.
+    equipment_binding_semantics_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
+    installation_context_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
+    installation_capability: (
+        Literal[
+            'modeled_supported',
+            'context_known_geometry_checked',
+            'acoustic_effect_unsupported',
+        ]
+        | None
+    ) = None
+
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
@@ -267,6 +289,16 @@ class R110CompiledSourceModel(BaseModel):
     def semantic_payload(self) -> dict[str, Any]:
         payload = self.model_dump(mode='json')
         payload.pop('semantic_sha256', None)
+        # Optional binding/installation refs are absent from models persisted
+        # before #476/#540; keep them out of the digest when unset so stored
+        # hashes reproduce exactly.
+        for key in (
+            'equipment_binding_semantics_sha256',
+            'installation_context_sha256',
+            'installation_capability',
+        ):
+            if payload.get(key) is None:
+                payload.pop(key, None)
         return payload
 
     def capability(self, name: R110SourceCapabilityName) -> R110CapabilityStatus:
@@ -340,6 +372,8 @@ def compile_r110_source_model(
     source_entity_id: str,
     equipment_definition: EquipmentDefinition,
     directivity_dataset: DirectivityDataset | None = None,
+    binding_semantics: EquipmentBindingSemantics | None = None,
+    installation_context: SpeakerInstallationContext | None = None,
 ) -> R110CompiledSourceModel:
     """Compile one exact variant source without selecting or adapting a wave solver."""
 
@@ -364,15 +398,55 @@ def compile_r110_source_model(
         equipment_definition,
     )
 
+    if binding_semantics is not None:
+        if (
+            binding_semantics.entity_id != source_entity.entity_id
+            or binding_semantics.equipment.authority_id
+            != equipment_definition.definition_id
+            or binding_semantics.equipment.version != equipment_definition.version
+            or binding_semantics.equipment.semantic_sha256
+            != equipment_definition.semantic_sha256
+        ):
+            raise ValueError(
+                'equipment binding semantics does not reference the exact '
+                'source entity and EquipmentDefinition'
+            )
+    if installation_context is not None:
+        if (
+            installation_context.entity_id != source_entity.entity_id
+            or installation_context.equipment.equipment_definition_id
+            != equipment_definition.definition_id
+            or installation_context.equipment.equipment_definition_version
+            != equipment_definition.version
+            or installation_context.equipment.equipment_definition_sha256
+            != equipment_definition.semantic_sha256
+        ):
+            raise ValueError(
+                'installation context does not reference the exact source '
+                'entity and EquipmentDefinition'
+            )
+
+    # #476: acoustic-reference conflicts are only fail-closed when the scene
+    # offset is an explicit scene authority or no binding semantics record
+    # exists at all. 'equipment_derived'/'approximate_placeholder' bindings
+    # declare the equipment reference authoritative regardless of a stale or
+    # placeholder scene offset.
     if (
         source_entity.acoustic_reference_offset_m is not None
         and source_entity.acoustic_reference_offset_m
         != equipment_definition.acoustic_reference_point_m
     ):
-        raise ValueError(
-            'Scene source acoustic reference conflicts with EquipmentDefinition '
-            'acoustic reference authority'
-        )
+        if binding_semantics is None:
+            raise ValueError(
+                'Scene source acoustic reference conflicts with '
+                'EquipmentDefinition acoustic reference authority'
+            )
+        if not binding_semantics.equipment_owns_acoustic_reference:
+            raise ValueError(
+                'Scene source acoustic reference is declared scene-explicit '
+                'authority and conflicts with EquipmentDefinition acoustic '
+                'reference authority'
+            )
 
     if directivity_dataset is not None:
         validate_directivity_dataset_binding(
@@ -639,10 +713,51 @@ def compile_r110_source_model(
         ],
         'unsupported_reasons': list(dict.fromkeys(reasons)),
     }
+
+    if binding_semantics is not None:
+        payload['equipment_binding_semantics_sha256'] = (
+            binding_semantics.semantic_sha256
+        )
+    if installation_context is not None:
+        installation_capability = _installation_capability(
+            derived_scene,
+            source_entity,
+            equipment_definition,
+            installation_context,
+        )
+        payload['installation_context_sha256'] = (
+            installation_context.semantic_sha256
+        )
+        payload['installation_capability'] = installation_capability
+        if installation_capability == 'acoustic_effect_unsupported':
+            payload['unsupported_reasons'] = [
+                *payload['unsupported_reasons'],
+                'speaker installation mounting/port context is recorded but '
+                'its acoustic effect is not modeled by the R110 source '
+                'compiler',
+            ]
+
     return R110CompiledSourceModel(
         **payload,
         semantic_sha256=_digest(payload),
     )
+
+
+def _installation_capability(
+    derived_scene: SceneDocument,
+    source_entity: SceneEntity,
+    equipment_definition: EquipmentDefinition,
+    context: SpeakerInstallationContext,
+) -> str:
+    from .cad_installation_context import evaluate_installation_context
+
+    evaluation = evaluate_installation_context(
+        document=derived_scene,
+        entity=source_entity,
+        equipment_definition=equipment_definition,
+        context=context,
+    )
+    return evaluation.acoustic_mounting_capability
 
 
 def require_r110_source_capability(

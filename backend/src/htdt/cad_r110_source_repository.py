@@ -8,7 +8,13 @@ import sqlite3
 from .cad_directivity import DirectivityDataset
 from .cad_directivity_repository import CadDirectivityRepository
 from .cad_equipment import EquipmentDefinition
+from .cad_equipment_binding import EquipmentBindingSemantics
+from .cad_equipment_binding_repository import CadEquipmentBindingRepository
 from .cad_equipment_repository import CadEquipmentRepository
+from .cad_installation_context import SpeakerInstallationContext
+from .cad_installation_context_repository import (
+    CadInstallationContextRepository,
+)
 from .cad_r110_source import (
     R110CompiledSourceModel,
     compile_r110_source_model,
@@ -32,6 +38,8 @@ class CadR110SourceRepository:
         variant_repository: CadSystemVariantRepository | None = None,
         equipment_repository: CadEquipmentRepository | None = None,
         directivity_repository: CadDirectivityRepository | None = None,
+        binding_repository: CadEquipmentBindingRepository | None = None,
+        installation_repository: CadInstallationContextRepository | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.variant_repository = (
@@ -51,6 +59,22 @@ class CadR110SourceRepository:
             directivity_repository
             if directivity_repository is not None
             else CadDirectivityRepository(
+                scene_repository,
+                self.equipment_repository,
+            )
+        )
+        self.binding_repository = (
+            binding_repository
+            if binding_repository is not None
+            else CadEquipmentBindingRepository(
+                scene_repository,
+                self.equipment_repository,
+            )
+        )
+        self.installation_repository = (
+            installation_repository
+            if installation_repository is not None
+            else CadInstallationContextRepository(
                 scene_repository,
                 self.equipment_repository,
             )
@@ -96,7 +120,14 @@ class CadR110SourceRepository:
     def _resolve_exact_authorities(
         self,
         model: R110CompiledSourceModel,
-    ) -> tuple[object, SystemVariant, EquipmentDefinition, DirectivityDataset | None]:
+    ) -> tuple[
+        object,
+        SystemVariant,
+        EquipmentDefinition,
+        DirectivityDataset | None,
+        EquipmentBindingSemantics | None,
+        SpeakerInstallationContext | None,
+    ]:
         scene_revision = self.scene_repository.get(model.scene_revision_id)
         if scene_revision is None:
             raise ValueError(
@@ -181,7 +212,42 @@ class CadR110SourceRepository:
                     'persisted R110 source DirectivityDataset identity mismatch'
                 )
 
-        return scene_revision, variant, definition, dataset
+        binding_semantics: EquipmentBindingSemantics | None = None
+        if model.equipment_binding_semantics_sha256 is not None:
+            binding_semantics = self.binding_repository.get_binding_by_hash(
+                model.equipment_binding_semantics_sha256
+            )
+            if binding_semantics is None:
+                raise ValueError(
+                    'persisted R110 source references missing equipment '
+                    'binding semantics'
+                )
+        installation_context: SpeakerInstallationContext | None = None
+        if model.installation_context_sha256 is not None:
+            installation_context = (
+                self.installation_repository.get_context_for_entity(
+                    scene_revision.document_id,
+                    model.source_entity_id,
+                )
+            )
+            if (
+                installation_context is None
+                or installation_context.semantic_sha256
+                != model.installation_context_sha256
+            ):
+                raise ValueError(
+                    'persisted R110 source references missing installation '
+                    'context'
+                )
+
+        return (
+            scene_revision,
+            variant,
+            definition,
+            dataset,
+            binding_semantics,
+            installation_context,
+        )
 
     def _validate_exact_authorities(
         self,
@@ -192,6 +258,8 @@ class CadR110SourceRepository:
             variant,
             definition,
             dataset,
+            binding_semantics,
+            installation_context,
         ) = self._resolve_exact_authorities(model)
         recompiled = compile_r110_source_model(
             scene_revision=scene_revision,
@@ -199,6 +267,8 @@ class CadR110SourceRepository:
             source_entity_id=model.source_entity_id,
             equipment_definition=definition,
             directivity_dataset=dataset,
+            binding_semantics=binding_semantics,
+            installation_context=installation_context,
         )
         if recompiled != model:
             raise ValueError(
@@ -253,12 +323,25 @@ class CadR110SourceRepository:
             if dataset is None:
                 raise ValueError('DirectivityDataset does not exist')
 
+        binding_semantics = self.binding_repository.get_binding_for_entity(
+            scene_revision.document_id,
+            source_entity_id,
+        )
+        installation_context = (
+            self.installation_repository.get_context_for_entity(
+                scene_revision.document_id,
+                source_entity_id,
+            )
+        )
+
         return compile_r110_source_model(
             scene_revision=scene_revision,
             system_variant=variant,
             source_entity_id=source_entity_id,
             equipment_definition=definition,
             directivity_dataset=dataset,
+            binding_semantics=binding_semantics,
+            installation_context=installation_context,
         )
 
     def save_model(
