@@ -1060,13 +1060,23 @@ class PffdtdCandidateWaveExecutor:
                 f'{label} exact external authority mismatch/missing'
             ) from exc
 
+    @staticmethod
+    def _require_resolved(fetch: Callable[..., Any], *args: Any) -> Any:
+        try:
+            return fetch(*args)
+        except ValueError as exc:
+            raise CandidateWaveExecutionError(str(exc)) from exc
+
     def compile_input(
         self,
         *,
         dispatch_binding_id: str,
         configuration: PffdtdCandidateConfiguration,
     ) -> tuple[CandidateWaveExecutionInput, dict[str, Any]]:
-        dispatch = self.dispatch_repository.get_dispatch(dispatch_binding_id)
+        dispatch = self._require_resolved(
+            self.dispatch_repository.get_dispatch,
+            dispatch_binding_id,
+        )
         if dispatch is None:
             raise CandidateWaveExecutionError(
                 'candidate execution references missing solver dispatch'
@@ -1075,15 +1085,17 @@ class PffdtdCandidateWaveExecutor:
             raise CandidateWaveExecutionError(
                 'candidate execution requires READY solver dispatch'
             )
-        request = self.snapshot_repository.get_prediction_request(
-            dispatch.prediction_request_id
+        request = self._require_resolved(
+            self.snapshot_repository.get_prediction_request,
+            dispatch.prediction_request_id,
         )
         if request is None:
             raise CandidateWaveExecutionError(
                 'candidate execution references missing prediction request'
             )
-        snapshot = self.snapshot_repository.get_snapshot(
-            dispatch.acoustic_scene_snapshot_id
+        snapshot = self._require_resolved(
+            self.snapshot_repository.get_snapshot,
+            dispatch.acoustic_scene_snapshot_id,
         )
         if snapshot is None:
             raise CandidateWaveExecutionError(
@@ -1101,8 +1113,9 @@ class PffdtdCandidateWaveExecutor:
                 'candidate execution snapshot/request/dispatch identity is stale'
             )
 
-        descriptor = self.dispatch_repository.get_descriptor(
-            dispatch.adapter_descriptor_id
+        descriptor = self._require_resolved(
+            self.dispatch_repository.get_descriptor,
+            dispatch.adapter_descriptor_id,
         )
         if descriptor is None:
             raise CandidateWaveExecutionError(
@@ -1187,8 +1200,9 @@ class PffdtdCandidateWaveExecutor:
                 'candidate output frequency is outside requested band'
             )
 
-        geometry = self.r120_repository.get_compiled_geometry(
-            snapshot.r120_compiled_geometry_id
+        geometry = self._require_resolved(
+            self.r120_repository.get_compiled_geometry,
+            snapshot.r120_compiled_geometry_id,
         )
         if geometry is None:
             raise CandidateWaveExecutionError(
@@ -1647,8 +1661,9 @@ class PffdtdCandidateWaveExecutor:
                 'bounded PFFDTD candidate requires exactly one source'
             )
         source_snapshot = snapshot.sources[0]
-        source = self.r110_repository.get_model(
-            source_snapshot.r110_compiled_source_sha256
+        source = self._require_resolved(
+            self.r110_repository.get_model,
+            source_snapshot.r110_compiled_source_sha256,
         )
         if source is None:
             raise CandidateWaveExecutionError(
@@ -1662,8 +1677,9 @@ class PffdtdCandidateWaveExecutor:
                 'candidate execution requires exactly one explicit wave excitation binding'
             )
         wave_binding_snapshot = snapshot.wave_source_excitation_bindings[0]
-        wave_binding = self.wave_excitation_repository.get_binding(
-            wave_binding_snapshot.binding_id
+        wave_binding = self._require_resolved(
+            self.wave_excitation_repository.get_binding,
+            wave_binding_snapshot.binding_id,
         )
         if wave_binding is None or wave_binding != wave_binding_snapshot:
             raise CandidateWaveExecutionError(
@@ -1673,8 +1689,9 @@ class PffdtdCandidateWaveExecutor:
             raise CandidateWaveExecutionError(
                 'candidate wave excitation does not bind exact R110 source'
             )
-        excitation = self.wave_excitation_repository.get_excitation(
-            wave_binding.excitation_id
+        excitation = self._require_resolved(
+            self.wave_excitation_repository.get_excitation,
+            wave_binding.excitation_id,
         )
         if excitation is None:
             raise CandidateWaveExecutionError(
@@ -2271,26 +2288,33 @@ class PffdtdCandidateWaveExecutor:
                 'no result artifact saved'
             )
 
-        snapshot = self.snapshot_repository.get_snapshot(authority.snapshot_id)
-        request = self.snapshot_repository.get_prediction_request(
-            authority.prediction_request_id
+        snapshot = self._require_resolved(
+            self.snapshot_repository.get_snapshot,
+            authority.snapshot_id,
         )
-        dispatch = self.dispatch_repository.get_dispatch(
-            authority.dispatch_binding_id
+        request = self._require_resolved(
+            self.snapshot_repository.get_prediction_request,
+            authority.prediction_request_id,
+        )
+        dispatch = self._require_resolved(
+            self.dispatch_repository.get_dispatch,
+            authority.dispatch_binding_id,
         )
         if snapshot is None or request is None or dispatch is None:
             raise CandidateWaveExecutionError(
                 'candidate execution exact chain disappeared after compilation'
             )
-        wave_binding = self.wave_excitation_repository.get_binding(
-            authority.wave_excitation_binding_id
+        wave_binding = self._require_resolved(
+            self.wave_excitation_repository.get_binding,
+            authority.wave_excitation_binding_id,
         )
         if wave_binding is None:
             raise CandidateWaveExecutionError(
                 'candidate execution wave excitation binding disappeared'
             )
-        excitation = self.wave_excitation_repository.get_excitation(
-            wave_binding.excitation_id
+        excitation = self._require_resolved(
+            self.wave_excitation_repository.get_excitation,
+            wave_binding.excitation_id,
         )
         if excitation is None:
             raise CandidateWaveExecutionError(
