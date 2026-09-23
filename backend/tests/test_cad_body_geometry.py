@@ -277,8 +277,33 @@ def test_tilted_body_and_mesh_fall_back_to_envelope() -> None:
     assert entity_horizontal_footprint(tilted).area > math.pi * 0.16
 
     meshed = _furniture(body=EntityBodyGeometry(kind='mesh_asset', mesh=_mesh_asset()))
-    assert entity_exact_body_footprint(meshed) is None
-    assert entity_collision_geometry_authority(meshed) == 'bounding_envelope'
+    # Issue #656: resolved upright mesh bodies contribute their mesh-derived
+    # concave footprint, not the size_m envelope rectangle.
+    mesh_footprint = entity_exact_body_footprint(meshed)
+    assert mesh_footprint is not None
+    assert mesh_footprint.area == pytest.approx(0.5 * 0.4 * 0.3, rel=0.05)
+    assert entity_collision_geometry_authority(meshed) == 'exact_body_geometry'
+
+
+def test_mesh_beyond_envelope_reports_envelope_unverified() -> None:
+    """Issue #656: a mesh body that is not provably inside size_m can no
+    longer masquerade as 'bounding_envelope' clearance authority."""
+    oversized = _furniture(
+        body=EntityBodyGeometry(
+            kind='mesh_asset', mesh=_mesh_asset(uniform_scale=4.0)
+        ),
+        orientation=quaternion_from_euler_deg(yaw_deg=0.0, pitch_deg=30.0, roll_deg=0.0),
+    )
+    assert entity_exact_body_footprint(oversized) is None
+    assert entity_collision_geometry_authority(oversized) == 'envelope_unverified'
+    upright_oversized = _furniture(
+        body=EntityBodyGeometry(
+            kind='mesh_asset', mesh=_mesh_asset(uniform_scale=4.0)
+        ),
+    )
+    # The exact silhouette still wins when available — collision uses real
+    # geometry, which is strictly better than the envelope proxy.
+    assert entity_collision_geometry_authority(upright_oversized) == 'exact_body_geometry'
 
     yaw_only = _furniture(
         body=EntityBodyGeometry(kind='cylinder', radius_m=0.4),
@@ -529,9 +554,13 @@ def test_repository_round_trips_body_geometry_and_mesh_blob(tmp_path: Path) -> N
     saved = repository.save(document, parent_revision_id=None)
     reopened = repository.latest(DOCUMENT_ID)
     assert reopened is not None
-    assert reopened.document == document
-    assert reopened.content_hash == scene_content_hash(document)
-    mesh = reopened.document.entity('rack').body_geometry.mesh
+    # Issue #653: save upgrades inline meshes to the referenced form; the
+    # persisted/loaded document carries BodyMeshReference + resolved cache.
+    assert reopened.document == saved.revision.document
+    assert reopened.content_hash == saved.revision.content_hash
+    rack_body = reopened.document.entity('rack').body_geometry
+    assert rack_body.mesh_reference is not None
+    mesh = rack_body.mesh
     assert mesh.asset_sha256 == blob_sha
     assert mesh.source_name == 'tetra.obj'
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from shapely.geometry import Polygon
 from shapely.validation import explain_validity
 
+from .cad_attachment_models import ConstructionAssembly, EntityAttachment
 from .cad_wall_models import WallTopology
 from .geometry import polygon_from_vertices
 from .semantic_geometry import SemanticAcousticGeometry
@@ -292,7 +293,7 @@ class Size3(BaseModel):
 # ``SceneDocument.r120_semantic_geometry``.
 
 BodyGeometryKind = Literal['box', 'cylinder', 'extruded_polygon', 'mesh_asset']
-MeshAssetFormat = Literal['obj', 'glb', 'htdt_meshbin_v1']
+MeshAssetFormat = Literal['obj', 'glb', 'ply', 'stl', 'htdt_meshbin_v1']
 
 _ENTITY_FOOTPRINT_MIN_AREA_M2 = 1e-8
 _ENVELOPE_FIT_EPS = 1e-9
@@ -344,6 +345,70 @@ class BodyMeshTriangle(BaseModel):
         return self
 
 
+# --- Mesh import authority (Issue #669) --------------------------------------
+#
+# Imported vertex coordinates are source units, never implicitly meters. The
+# persisted ``MeshImportAuthority`` records exactly which unit/axis/anchor
+# interpretation made the entity-local meter geometry authoritative. A missing
+# authority means the mesh predates explicit import authority
+# (``legacy_assumed_meter``) and must never be silently reinterpreted.
+
+MeshImportSourceUnit = Literal[
+    'meters', 'millimeters', 'centimeters', 'inches', 'feet', 'custom', 'unknown'
+]
+MeshImportUnitDeclaredBy = Literal[
+    'format_specification',
+    'operator_confirmed',
+    'format_contract',
+    'legacy_assumed_meter',
+    'undeclared',
+]
+MeshImportAxisLabel = Literal['x+', 'x-', 'y+', 'y-', 'z+', 'z-', 'unknown']
+MeshImportAnchor = Literal[
+    'source_origin', 'bounds_center', 'bottom_center', 'equipment_reference', 'custom_offset'
+]
+
+
+class MeshImportAuthority(BaseModel):
+    """Exact source-unit/axis/anchor provenance for imported mesh geometry.
+
+    Persisted with the mesh body so the source-coordinates → HTDT
+    entity-local-meters transform is inspectable authority rather than a
+    silent decode-time assumption.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    source_unit: MeshImportSourceUnit
+    unit_declared_by: MeshImportUnitDeclaredBy
+    custom_scale_to_meters: float | None = Field(default=None, gt=0)
+    source_up_axis: MeshImportAxisLabel = 'unknown'
+    source_forward_axis: MeshImportAxisLabel = 'unknown'
+    handedness: Literal['right', 'left', 'unknown'] = 'unknown'
+    convention_declared_by: Literal[
+        'format_specification', 'operator_confirmed', 'legacy_assumed', 'undeclared'
+    ] = 'format_specification'
+    local_anchor: MeshImportAnchor = 'source_origin'
+    anchor_offset_m: Offset3 | None = None
+    importer_id: str = Field(min_length=1)
+    importer_version: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def consistent(self) -> 'MeshImportAuthority':
+        if self.source_unit == 'custom' and self.custom_scale_to_meters is None:
+            raise ValueError('custom source unit requires custom_scale_to_meters')
+        if self.source_unit != 'custom' and self.custom_scale_to_meters is not None:
+            raise ValueError('custom_scale_to_meters is only valid for custom source units')
+        if self.unit_declared_by == 'operator_confirmed' and self.source_unit == 'unknown':
+            raise ValueError('operator-confirmed import authority must resolve a concrete unit')
+        if self.unit_declared_by == 'undeclared' and self.source_unit != 'unknown':
+            raise ValueError('an undeclared import authority cannot claim a concrete unit')
+        if self.local_anchor != 'custom_offset' and self.anchor_offset_m is not None:
+            raise ValueError('anchor_offset_m is only valid for a custom_offset local anchor')
+        if self.local_anchor == 'custom_offset' and self.anchor_offset_m is None:
+            raise ValueError('custom_offset local anchor requires anchor_offset_m')
+        return self
+
+
 class BodyMeshAsset(BaseModel):
     """Imported mesh body bound to the entity-local frame.
 
@@ -364,6 +429,9 @@ class BodyMeshAsset(BaseModel):
     uniform_scale: float = Field(default=1.0, gt=0)
     vertices: tuple[BodyMeshVertex, ...] = Field(min_length=1)
     triangles: tuple[BodyMeshTriangle, ...] = Field(min_length=1)
+    # Issue #669: absent authority = pre-authority-v2 legacy import; never
+    # silently reinterpreted as a freshly declared unit.
+    import_authority: MeshImportAuthority | None = None
 
     @model_validator(mode='after')
     def valid_mesh(self) -> 'BodyMeshAsset':
@@ -372,6 +440,52 @@ class BodyMeshAsset(BaseModel):
             if max(triangle.a, triangle.b, triangle.c) >= vertex_count:
                 raise ValueError('body mesh triangle references an unknown vertex')
         return self
+
+    def transformed_bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """Entity-local min/max bounds after ``uniform_scale`` + ``local_offset_m``."""
+
+        scale = float(self.uniform_scale)
+        offset = self.local_offset_m
+        xs, ys, zs = [], [], []
+        for vertex in self.vertices:
+            xs.append(float(vertex.x_m) * scale + offset.x_m)
+            ys.append(float(vertex.y_m) * scale + offset.y_m)
+            zs.append(float(vertex.z_m) * scale + offset.z_m)
+        return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
+
+
+class BodyMeshReference(BaseModel):
+    """Compact Scene reference to a content-addressed normalized mesh body (Issue #653).
+
+    The immutable normalized geometry lives once in the project content blob
+    store under ``geometry_asset_sha256`` (``htdt_meshbin_v1`` bytes). A
+    SceneRevision binds exact mesh content by digest instead of embedding the
+    vertex arrays inline; ``bounds_min_m``/``bounds_max_m`` are the transformed
+    entity-local bounds so envelope validation and broad-phase checks never
+    require decoding the blob.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    geometry_asset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    geometry_format: Literal['htdt_meshbin_v1'] = 'htdt_meshbin_v1'
+    source_asset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_name: str = Field(min_length=1)
+    source_format: MeshAssetFormat
+    original_size_bytes: int = Field(ge=0)
+    # Same local transform semantics as BodyMeshAsset: stored vertices are
+    # scaled by ``uniform_scale`` then translated by ``local_offset_m``.
+    local_offset_m: Offset3 = Field(default_factory=Offset3)
+    uniform_scale: float = Field(default=1.0, gt=0)
+    bounds_min_m: Position3
+    bounds_max_m: Position3
+    vertex_count: int = Field(ge=1)
+    triangle_count: int = Field(ge=1)
+    import_authority: MeshImportAuthority | None = None
+
+    def transformed_bounds(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        minimum = self.bounds_min_m
+        maximum = self.bounds_max_m
+        return (minimum.x_m, minimum.y_m, minimum.z_m), (maximum.x_m, maximum.y_m, maximum.z_m)
 
 
 class EntityBodyGeometry(BaseModel):
@@ -384,8 +498,10 @@ class EntityBodyGeometry(BaseModel):
     - ``extruded_polygon``: arbitrary entity-local XY ``footprint_vertices``
       extruded over the full ``size_m.z_m`` extent (L-shaped sofas, risers,
       irregular cabinets).
-    - ``mesh_asset``: imported entity-local triangle mesh (``mesh``); its
-      collision authority stays the ``size_m`` bounding envelope.
+    - ``mesh_asset``: imported entity-local triangle mesh. The geometry is
+      carried either inline (``mesh``, legacy form) or as a compact
+      ``BodyMeshReference`` into the project content blob store (``mesh`` is
+      then an in-memory resolution cache and is not serialized).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -393,6 +509,7 @@ class EntityBodyGeometry(BaseModel):
     radius_m: float | None = Field(default=None, gt=0)
     footprint_vertices: tuple[FootprintVertex, ...] | None = None
     mesh: BodyMeshAsset | None = None
+    mesh_reference: BodyMeshReference | None = None
 
     @model_validator(mode='after')
     def valid_shape(self) -> 'EntityBodyGeometry':
@@ -401,24 +518,33 @@ class EntityBodyGeometry(BaseModel):
                 self.radius_m is not None
                 or self.footprint_vertices is not None
                 or self.mesh is not None
+                or self.mesh_reference is not None
             ):
                 raise ValueError('box body geometry carries no additional parameters')
         elif self.kind == 'cylinder':
             if self.radius_m is None:
                 raise ValueError('cylinder body geometry requires radius_m')
-            if self.footprint_vertices is not None or self.mesh is not None:
+            if self.footprint_vertices is not None or self.mesh is not None or self.mesh_reference is not None:
                 raise ValueError('cylinder body geometry only accepts radius_m')
         elif self.kind == 'extruded_polygon':
             if self.footprint_vertices is None:
                 raise ValueError('extruded_polygon body geometry requires footprint_vertices')
-            if self.radius_m is not None or self.mesh is not None:
+            if self.radius_m is not None or self.mesh is not None or self.mesh_reference is not None:
                 raise ValueError('extruded_polygon body geometry only accepts footprint_vertices')
             self.footprint_polygon()
         elif self.kind == 'mesh_asset':
-            if self.mesh is None:
-                raise ValueError('mesh_asset body geometry requires mesh')
+            if self.mesh is None and self.mesh_reference is None:
+                raise ValueError('mesh_asset body geometry requires mesh or mesh_reference')
             if self.radius_m is not None or self.footprint_vertices is not None:
-                raise ValueError('mesh_asset body geometry only accepts mesh')
+                raise ValueError('mesh_asset body geometry only accepts mesh geometry')
+            if self.mesh is not None and self.mesh_reference is not None:
+                if self.mesh.asset_sha256 != self.mesh_reference.source_asset_sha256:
+                    raise ValueError('resolved mesh does not match its mesh_reference provenance')
+                if (
+                    float(self.mesh.uniform_scale) != float(self.mesh_reference.uniform_scale)
+                    or self.mesh.local_offset_m != self.mesh_reference.local_offset_m
+                ):
+                    raise ValueError('resolved mesh transform does not match mesh_reference')
         return self
 
     def footprint_polygon(self) -> Polygon:
@@ -445,8 +571,24 @@ class EntityBodyGeometry(BaseModel):
             raise ValueError('entity footprint polygon area is too small')
         return polygon
 
+    def mesh_bounds_m(self) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+        """Transformed entity-local bounds of the mesh body, when carried."""
+
+        if self.mesh is not None:
+            return self.mesh.transformed_bounds()
+        if self.mesh_reference is not None:
+            return self.mesh_reference.transformed_bounds()
+        return None
+
     def validate_envelope_fit(self, size_m: Size3) -> None:
-        """Ensure the authored body stays inside the ``size_m`` bounding envelope."""
+        """Ensure the authored body stays inside the ``size_m`` bounding envelope.
+
+        ``mesh_reference`` bodies are validated hard against their recorded
+        transformed bounds (they only exist in the post-#653 authority
+        regime). Legacy inline ``mesh`` bodies are intentionally NOT rejected
+        here: pre-authority revisions must remain readable; their containment
+        status is surfaced separately via ``mesh_body_envelope_state``.
+        """
 
         if self.kind == 'cylinder':
             limit = min(float(size_m.x_m), float(size_m.y_m)) * 0.5 + _ENVELOPE_FIT_EPS
@@ -460,6 +602,51 @@ class EntityBodyGeometry(BaseModel):
                     raise ValueError(
                         'entity footprint polygon extends outside the size_m bounding envelope'
                     )
+        elif self.kind == 'mesh_asset' and self.mesh_reference is not None:
+            minimum, maximum = self.mesh_reference.transformed_bounds()
+            half = (
+                float(size_m.x_m) * 0.5 + _ENVELOPE_FIT_EPS,
+                float(size_m.y_m) * 0.5 + _ENVELOPE_FIT_EPS,
+                float(size_m.z_m) * 0.5 + _ENVELOPE_FIT_EPS,
+            )
+            for axis, (low, high, limit) in enumerate(zip(minimum, maximum, half)):
+                if abs(low) > limit or abs(high) > limit:
+                    raise ValueError(
+                        'mesh body extends outside the size_m bounding envelope '
+                        f'(axis {axis}: [{low}, {high}] vs +-{limit - _ENVELOPE_FIT_EPS})'
+                    )
+
+
+def mesh_body_envelope_state(
+    body_geometry: 'EntityBodyGeometry | None',
+    size_m: Size3,
+) -> Literal['contained', 'envelope_unverified', 'not_applicable']:
+    """Containment status of a mesh body inside the ``size_m`` envelope (Issue #656).
+
+    ``contained`` — transformed mesh bounds provably fit the envelope.
+    ``envelope_unverified`` — a mesh body exists but is not provably inside
+    ``size_m`` (legacy inline meshes that exceed the envelope, or any state
+    where bounds cannot be established): the ``size_m`` envelope must not be
+    treated as a safe broad-phase proxy and the entity is visibly non-safe
+    for collision claims until reconciled.
+    ``not_applicable`` — no mesh body present.
+    """
+
+    if body_geometry is None or body_geometry.kind != 'mesh_asset':
+        return 'not_applicable'
+    bounds = body_geometry.mesh_bounds_m()
+    if bounds is None:
+        return 'envelope_unverified'
+    minimum, maximum = bounds
+    half = (
+        float(size_m.x_m) * 0.5 + _ENVELOPE_FIT_EPS,
+        float(size_m.y_m) * 0.5 + _ENVELOPE_FIT_EPS,
+        float(size_m.z_m) * 0.5 + _ENVELOPE_FIT_EPS,
+    )
+    for low, high, limit in zip(minimum, maximum, half):
+        if abs(low) > limit or abs(high) > limit:
+            return 'envelope_unverified'
+    return 'contained'
 
 
 class RoomVertex(BaseModel):
@@ -584,6 +771,73 @@ PHYSICAL_ENTITY_KINDS = frozenset({
 })
 
 
+OperationalZoneKind = Literal[
+    'door_swing', 'recline', 'slide_out', 'rotate', 'service_access'
+]
+
+
+class OperationalZone(BaseModel):
+    """A swept-clearance zone an entity needs in normal operation (Issue #651).
+
+    Persisted per-entity; interpreted in the entity-local frame. Parameters
+    are kind-scoped, mirroring ``EntityBodyGeometry``'s per-kind fields.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    zone_id: str = Field(min_length=1)
+    kind: OperationalZoneKind
+    # door_swing: hinge offset in entity-local XY + sweep angle.
+    hinge_offset_m: tuple[float, float] | None = None
+    angle_deg: float | None = Field(default=None, gt=0)
+    # recline/slide_out/rotate/service_access: direction + travel extent.
+    direction: tuple[float, float] | None = None  # unit-length XY direction
+    distance_m: float | None = Field(default=None, gt=0)
+    radius_m: float | None = Field(default=None, gt=0)
+    height_min_m: float = 0.0
+    height_max_m: float | None = None
+    label: str | None = None
+
+    @model_validator(mode='after')
+    def valid_zone(self) -> 'OperationalZone':
+        if self.kind == 'door_swing':
+            if self.hinge_offset_m is None or self.angle_deg is None or self.radius_m is None:
+                raise ValueError('door_swing requires hinge_offset_m, angle_deg, radius_m')
+        elif self.kind == 'rotate':
+            if self.radius_m is None or self.angle_deg is None:
+                raise ValueError('rotate requires radius_m and angle_deg')
+        elif self.kind == 'recline':
+            if self.direction is None or self.distance_m is None:
+                raise ValueError('recline requires direction and distance_m')
+        elif self.kind in ('slide_out', 'service_access'):
+            if self.direction is None or self.distance_m is None:
+                raise ValueError(f'{self.kind} requires direction and distance_m')
+        if self.direction is not None:
+            length = (self.direction[0] ** 2 + self.direction[1] ** 2) ** 0.5
+            if abs(length - 1.0) > 1e-6:
+                raise ValueError('operational zone direction must be unit length')
+        if self.height_min_m < 0:
+            raise ValueError('zone height_min_m must be non-negative')
+        if self.height_max_m is not None and self.height_max_m <= self.height_min_m:
+            raise ValueError('zone height_max_m must exceed height_min_m')
+        return self
+
+
+class SemanticCapabilityBinding(BaseModel):
+    """Typed semantic capability bound to an entity (Issue #641).
+
+    This is the scene-entity extensibility boundary: an entity gains typed
+    capability bindings (``acoustic_source``, ``mountable``, ...) with
+    per-capability parameters instead of forcing new shapes of object into a
+    closed ``kind`` enum and an ever-growing base record. Bindings are
+    validated against the capability registry in
+    ``cad_semantic_bindings`` at write time.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    capability: str = Field(min_length=1)
+    parameters: dict[str, object] = Field(default_factory=dict)
+
+
 class SceneEntity(BaseModel):
     model_config = ConfigDict(frozen=True)
     entity_id: str = Field(min_length=1)
@@ -596,6 +850,8 @@ class SceneEntity(BaseModel):
     speaker_role: str | None = None
     aim_xyz: Direction3 | None = None
     body_geometry: EntityBodyGeometry | None = None
+    semantic_bindings: tuple[SemanticCapabilityBinding, ...] | None = None
+    operational_zones: tuple[OperationalZone, ...] | None = None
 
     @model_validator(mode='after')
     def semantic_fields(self) -> 'SceneEntity':
@@ -615,6 +871,20 @@ class SceneEntity(BaseModel):
                 raise ValueError('body_geometry is only valid for physical entity kinds')
             if self.size_m is not None:
                 self.body_geometry.validate_envelope_fit(self.size_m)
+        if self.semantic_bindings is not None:
+            if not self.semantic_bindings:
+                raise ValueError('semantic_bindings must be omitted when empty')
+            capabilities = [binding.capability for binding in self.semantic_bindings]
+            if len(capabilities) != len(set(capabilities)):
+                raise ValueError('duplicate semantic capability bindings are not allowed')
+        if self.operational_zones is not None:
+            if not self.operational_zones:
+                raise ValueError('operational_zones must be omitted when empty')
+            if self.kind not in PHYSICAL_ENTITY_KINDS:
+                raise ValueError('operational zones are only valid for physical entity kinds')
+            zone_ids = [zone.zone_id for zone in self.operational_zones]
+            if len(zone_ids) != len(set(zone_ids)):
+                raise ValueError('duplicate operational zone ids are not allowed')
         return self
 
 
@@ -711,6 +981,10 @@ class SceneDocument(BaseModel):
     wall_topology: WallTopology | None = None
     r120_semantic_geometry: SemanticAcousticGeometry | None = None
     entities: tuple[SceneEntity, ...]
+    # Issue #661: physical attachment graph (stands, mounts, racks).
+    attachments: tuple[EntityAttachment, ...] | None = None
+    # Issue #657: unified wall/floor/ceiling physical-layer assemblies.
+    construction_assemblies: tuple[ConstructionAssembly, ...] | None = None
 
     @model_validator(mode='after')
     def valid_document(self) -> 'SceneDocument':
@@ -727,6 +1001,16 @@ class SceneDocument(BaseModel):
             validate_wall_topology(self.room, self.wall_topology)
         if self.r120_semantic_geometry is not None and self.schema_version < 4:
             raise ValueError('R120 semantic geometry requires scene schema_version >= 4')
+        if self.attachments is not None:
+            if not self.attachments:
+                raise ValueError('attachments must be omitted when empty')
+            if self.schema_version < 5:
+                raise ValueError('entity attachments require scene schema_version >= 5')
+        if self.construction_assemblies is not None:
+            if not self.construction_assemblies:
+                raise ValueError('construction_assemblies must be omitted when empty')
+            if self.schema_version < 5:
+                raise ValueError('construction assemblies require scene schema_version >= 5')
         return self
 
     def entity(self, entity_id: str) -> SceneEntity:
@@ -753,6 +1037,12 @@ def canonical_scene_json(document: SceneDocument) -> str:
         # N40 adds an optional body-local reference; omission preserves older scene hashes.
         if entity.get('acoustic_reference_offset_m') is None:
             entity.pop('acoustic_reference_offset_m', None)
+        # Issue #641: optional typed capability bindings; omission preserves
+        # pre-#641 scene hashes.
+        if entity.get('semantic_bindings') is None:
+            entity.pop('semantic_bindings', None)
+        if entity.get('operational_zones') is None:
+            entity.pop('operational_zones', None)
         # Issue-464 body geometry is optional; omission preserves pre-464 hashes.
         body_geometry = entity.get('body_geometry')
         if body_geometry is None:
@@ -760,9 +1050,21 @@ def canonical_scene_json(document: SceneDocument) -> str:
         elif isinstance(body_geometry, dict):
             # Per-kind parameters are mutually exclusive; drop unused null keys
             # so each kind serializes only the fields it actually carries.
-            for key in ('radius_m', 'footprint_vertices', 'mesh'):
+            for key in ('radius_m', 'footprint_vertices', 'mesh', 'mesh_reference'):
                 if body_geometry.get(key) is None:
                     body_geometry.pop(key, None)
+            if body_geometry.get('mesh_reference') is not None:
+                # Issue #653: a referenced mesh body serializes only the compact
+                # reference; ``mesh`` is an in-memory resolution cache. Optional
+                # subfields stay canonical as well.
+                body_geometry.pop('mesh', None)
+                for container_key in ('mesh_reference',):
+                    container = body_geometry.get(container_key)
+                    if isinstance(container, dict) and container.get('import_authority') is None:
+                        container.pop('import_authority', None)
+            inline_mesh = body_geometry.get('mesh')
+            if isinstance(inline_mesh, dict) and inline_mesh.get('import_authority') is None:
+                inline_mesh.pop('import_authority', None)
     # Preserve N05/N10/N20 rectangular-room hashes by omitting the new optional field.
     if isinstance(payload.get('room'), dict) and payload['room'].get('footprint_vertices') is None:
         payload['room'].pop('footprint_vertices', None)
@@ -772,6 +1074,12 @@ def canonical_scene_json(document: SceneDocument) -> str:
     # Preserve all pre-R120B hashes until semantic acoustic geometry is explicitly bound.
     if payload.get('r120_semantic_geometry') is None:
         payload.pop('r120_semantic_geometry', None)
+    # Issue #661/#657: optional document-level records; omission preserves
+    # pre-v5 scene hashes.
+    if payload.get('attachments') is None:
+        payload.pop('attachments', None)
+    if payload.get('construction_assemblies') is None:
+        payload.pop('construction_assemblies', None)
     return json.dumps(
         payload,
         ensure_ascii=False,

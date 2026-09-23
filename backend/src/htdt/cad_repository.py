@@ -10,6 +10,10 @@ import sqlite3
 from typing import Any
 from uuid import uuid4
 
+from .cad_body_mesh import (
+    resolve_document_mesh_bodies,
+    upgrade_document_mesh_bodies,
+)
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
 from .cad_schema import (
     _SCENE_DOCUMENT_HEADS_DDL,
@@ -295,7 +299,7 @@ class SceneRepository:
             row = self._head_revision_row(connection, document_id)
             if row is None:
                 return None
-            return self._row_to_revision(row)
+            return self._row_to_revision(row, read_blob=self.read_blob)
 
     def latest(self, document_id: str) -> SceneRevision | None:
         """Compatibility alias for :meth:`current_head`.
@@ -321,7 +325,7 @@ class SceneRepository:
             ).fetchone()
             if row is None:
                 return None
-            return self._row_to_revision(row)
+            return self._row_to_revision(row, read_blob=self.read_blob)
 
     @staticmethod
     def _head_revision_row(
@@ -344,7 +348,7 @@ class SceneRepository:
             ).fetchone()
             if row is None:
                 return None
-            return self._row_to_revision(row)
+            return self._row_to_revision(row, read_blob=self.read_blob)
 
     def save(
         self,
@@ -444,6 +448,14 @@ class SceneRepository:
         parent.
         """
 
+        # Issue #653: mesh body geometry persists as a compact BodyMeshReference
+        # into the content-addressed blob store, never as inline vertex arrays
+        # inside every immutable revision payload.
+        ensure_content_blob_store(connection)
+        document = upgrade_document_mesh_bodies(
+            document,
+            lambda payload: store_content_blob(connection, payload),
+        )
         payload_json = canonical_scene_json(document)
         content_hash = scene_content_hash(document)
         head = self._head_revision_row(connection, document.document_id)
@@ -482,7 +494,13 @@ class SceneRepository:
                         'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
                         (document.document_id,),
                     )
-                return SaveResult(self._row_to_revision(parent), created=False)
+                return SaveResult(
+                    self._row_to_revision(
+                        parent,
+                        read_blob=lambda sha: read_content_blob(connection, sha),
+                    ),
+                    created=False,
+                )
 
         geometry = document.r120_semantic_geometry
         if geometry is not None:
@@ -546,7 +564,13 @@ class SceneRepository:
             'SELECT * FROM scene_revisions WHERE revision_id=?',
             (revision_id,),
         ).fetchone()
-        return SaveResult(self._row_to_revision(row), created=True)
+        return SaveResult(
+            self._row_to_revision(
+                row,
+                read_blob=lambda sha: read_content_blob(connection, sha),
+            ),
+            created=True,
+        )
 
     def semantic_geometry_binding(self, revision_id: str) -> SemanticGeometryBindingRecord | None:
         revision = self.get(revision_id)
@@ -569,11 +593,16 @@ class SceneRepository:
         *,
         source_revision_id: str | None,
     ) -> RecoverySnapshot | None:
-        payload_json = canonical_scene_json(document)
-        content_hash = scene_content_hash(document)
         updated_at = datetime.now(timezone.utc).isoformat()
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            ensure_content_blob_store(connection)
+            document = upgrade_document_mesh_bodies(
+                document,
+                lambda payload: store_content_blob(connection, payload),
+            )
+            payload_json = canonical_scene_json(document)
+            content_hash = scene_content_hash(document)
             if source_revision_id is not None:
                 source = connection.execute(
                     'SELECT * FROM scene_revisions WHERE revision_id=?',
@@ -622,6 +651,7 @@ class SceneRepository:
         content_hash = scene_content_hash(document)
         if content_hash != row['content_hash']:
             raise ValueError(f'recovery snapshot hash mismatch: {document_id}')
+        document = resolve_document_mesh_bodies(document, self.read_blob)
         return RecoverySnapshot(
             document_id=row['document_id'],
             source_revision_id=row['source_revision_id'],
@@ -812,7 +842,9 @@ class SceneRepository:
                 'SELECT * FROM scene_revisions WHERE document_id=? ORDER BY seq ASC',
                 (document_id,),
             ).fetchall()
-            return tuple(self._row_to_revision(row) for row in rows)
+            return tuple(
+                self._row_to_revision(row, read_blob=self.read_blob) for row in rows
+            )
 
     def _ensure_revision_labels(self, connection) -> None:
         connection.execute(
@@ -1081,11 +1113,19 @@ class SceneRepository:
         return records[0] if records else None
 
     @staticmethod
-    def _row_to_revision(row: sqlite3.Row) -> SceneRevision:
+    def _row_to_revision(
+        row: sqlite3.Row,
+        *,
+        read_blob,
+    ) -> SceneRevision:
         document = SceneDocument.model_validate(json.loads(row['payload_json']))
         content_hash = scene_content_hash(document)
         if content_hash != row['content_hash']:
             raise ValueError(f"scene revision hash mismatch: {row['revision_id']}")
+        # Issue #653: rehydrate the in-memory mesh cache from the blob store;
+        # the persisted payload only carries the compact reference. A missing
+        # or corrupt blob fails closed rather than rendering silently.
+        document = resolve_document_mesh_bodies(document, read_blob)
         return SceneRevision(
             revision_id=row['revision_id'],
             document_id=row['document_id'],

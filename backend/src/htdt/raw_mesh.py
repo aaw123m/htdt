@@ -6,7 +6,7 @@ from hashlib import sha256
 import json
 from math import floor, isfinite, sqrt
 import struct
-from typing import Annotated, Any, Literal, Mapping
+from typing import Annotated, Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -17,7 +17,7 @@ RAW_MESH_DIAGNOSTIC_ALGORITHM = 'htdt.raw_mesh_diagnostics'
 RAW_MESH_DIAGNOSTIC_VERSION = '1'
 
 RawMeshFormat = Literal[
-    'obj', 'glb', 'htdt_meshbin_v1', 'capture_mesh_composition_v1'
+    'obj', 'glb', 'ply', 'stl', 'htdt_meshbin_v1', 'capture_mesh_composition_v1'
 ]
 DiagnosticState = Literal['pass', 'fail', 'unknown']
 AcousticVolumeReadiness = Literal[
@@ -320,6 +320,10 @@ def import_raw_visual_mesh(
         vertices, triangles = _parse_obj(asset)
     elif asset_format == 'glb':
         vertices, triangles = _parse_glb(asset)
+    elif asset_format == 'ply':
+        vertices, triangles = _parse_ply(asset)
+    elif asset_format == 'stl':
+        vertices, triangles = _parse_stl(asset)
     elif asset_format == 'htdt_meshbin_v1':
         vertices, triangles, normals, classifications = (
             _parse_htdt_meshbin_v1(asset)
@@ -355,9 +359,24 @@ def _detect_format(asset: bytes, source_name: str) -> RawMeshFormat:
         return 'glb'
     if lower.endswith('.obj'):
         return 'obj'
+    if lower.endswith('.ply') or asset[:3] == b'ply':
+        return 'ply'
+    if (
+        lower.endswith('.stl')
+        or _looks_like_binary_stl(asset)
+        or asset[:5].lower() == b'solid'
+    ):
+        return 'stl'
     raise RawMeshImportError(
-        'raw mesh format must be OBJ, GLB, or HTDTMSH1 meshbin'
+        'raw mesh format must be OBJ, GLB, PLY, STL, or HTDTMSH1 meshbin'
     )
+
+
+def _looks_like_binary_stl(asset: bytes) -> bool:
+    if len(asset) < 84:
+        return False
+    face_count = struct.unpack_from('<I', asset, 80)[0]
+    return face_count > 0 and 84 + 50 * face_count == len(asset)
 
 
 def _parse_htdt_meshbin_v1(
@@ -527,6 +546,264 @@ def _parse_obj(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]
         raise RawMeshImportError('OBJ contains no vertices')
     if not triangles:
         raise RawMeshImportError('OBJ contains no triangle faces')
+    return vertices, triangles
+
+
+_PLY_SCALAR_TYPES = {
+    'char': ('<b', 1), 'int8': ('<b', 1),
+    'uchar': ('<B', 1), 'uint8': ('<B', 1),
+    'short': ('<h', 2), 'int16': ('<h', 2),
+    'ushort': ('<H', 2), 'uint16': ('<H', 2),
+    'int': ('<i', 4), 'int32': ('<i', 4),
+    'uint': ('<I', 4), 'uint32': ('<I', 4),
+    'float': ('<f', 4), 'float32': ('<f', 4),
+    'double': ('<d', 8), 'float64': ('<d', 8),
+}
+
+
+def _parse_ply(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]]:
+    """Parse PLY (ASCII or binary_little_endian) vertex/face geometry.
+
+    Only the vertex xyz coordinates and face vertex_indices are consumed;
+    all other properties are skipped but must still be well-formed enough
+    to step over. The format carries no unit declaration — source units are
+    interpreted later by the import-authority boundary, never here.
+    """
+
+    header_end = asset.find(b'end_header')
+    if not asset[:3] == b'ply' or header_end < 0:
+        raise RawMeshImportError('PLY header is missing or malformed')
+    header_text = asset[:header_end].decode('ascii', errors='strict')
+    rest = asset[header_end + len(b'end_header'):]
+    # The header is newline-terminated; skip exactly one line terminator.
+    if rest[:2] == b'\r\n':
+        rest = rest[2:]
+    elif rest[:1] in (b'\n', b'\r'):
+        rest = rest[1:]
+
+    ply_format: str | None = None
+    elements: list[tuple[str, int, list[tuple[str, str, str | None]]]] = []
+    current: tuple[str, int, list[tuple[str, str, str | None]]] | None = None
+    for raw_line in header_text.splitlines():
+        fields = raw_line.split()
+        if not fields or fields[0] in ('ply', 'comment', 'obj_info'):
+            continue
+        if fields[0] == 'format':
+            if len(fields) < 2 or fields[1] not in ('ascii', 'binary_little_endian'):
+                raise RawMeshImportError(
+                    f'unsupported PLY format: {fields[1] if len(fields) > 1 else "missing"}'
+                )
+            ply_format = fields[1]
+        elif fields[0] == 'element':
+            if len(fields) < 3:
+                raise RawMeshImportError('PLY element declaration is malformed')
+            try:
+                count = int(fields[2])
+            except ValueError as exc:
+                raise RawMeshImportError('PLY element count is malformed') from exc
+            current = (fields[1], count, [])
+            elements.append(current)
+        elif fields[0] == 'property':
+            if current is None:
+                raise RawMeshImportError('PLY property outside an element')
+            if len(fields) >= 5 and fields[1] == 'list':
+                # property list <count_type> <item_type> <name>: the item type
+                # is retained for decoding; the property name is unused.
+                current[2].append(('list', fields[2], fields[3]))
+            elif len(fields) >= 3:
+                current[2].append(('scalar', fields[1], fields[2]))
+            else:
+                raise RawMeshImportError('PLY property declaration is malformed')
+        else:
+            raise RawMeshImportError(f'unsupported PLY header line: {raw_line!r}')
+
+    if ply_format is None:
+        raise RawMeshImportError('PLY format declaration is missing')
+
+    vertex_spec: list[tuple[str, str, str | None]] | None = None
+    vertex_count = 0
+    face_spec: list[tuple[str, str, str | None]] | None = None
+    face_count = 0
+    for name, count, spec in elements:
+        if name == 'vertex':
+            vertex_spec, vertex_count = spec, count
+        elif name == 'face':
+            face_spec, face_count = spec, count
+    if vertex_spec is None or vertex_count <= 0:
+        raise RawMeshImportError('PLY contains no vertex element')
+
+    if ply_format == 'ascii':
+        text = rest.decode('ascii', errors='strict')
+        tokens = iter(text.split())
+        def next_token() -> str:
+            try:
+                return next(tokens)
+            except StopIteration as exc:
+                raise RawMeshImportError('PLY ascii payload is truncated') from exc
+        def read_scalar(type_name: str):
+            if type_name not in _PLY_SCALAR_TYPES:
+                raise RawMeshImportError(f'unsupported PLY property type: {type_name}')
+            token = next_token()
+            try:
+                return float(token) if type_name in ('float', 'float32', 'double', 'float64') else int(token)
+            except ValueError as exc:
+                raise RawMeshImportError('PLY ascii value is not numeric') from exc
+        def read_element(spec):
+            values = {}
+            for kind, type_name, prop_name in spec:
+                if kind == 'list':
+                    count = int(read_scalar(type_name))
+                    item_type = prop_name
+                    values[prop_name] = [read_scalar(item_type) for _ in range(count)]
+                    values.setdefault(f'{prop_name}__count_type', type_name)
+                else:
+                    values[prop_name] = read_scalar(type_name)
+            return values
+    else:
+        cursor = 0
+        def read_binary(type_name: str):
+            nonlocal cursor
+            if type_name not in _PLY_SCALAR_TYPES:
+                raise RawMeshImportError(f'unsupported PLY property type: {type_name}')
+            fmt, size = _PLY_SCALAR_TYPES[type_name]
+            if cursor + size > len(rest):
+                raise RawMeshImportError('PLY binary payload is truncated')
+            (value,) = struct.unpack_from(fmt, rest, cursor)
+            cursor += size
+            return value
+        def read_element(spec):
+            values = {}
+            for kind, type_name, prop_name in spec:
+                if kind == 'list':
+                    count = int(read_binary(type_name))
+                    item_type = prop_name
+                    values[prop_name] = [read_binary(item_type) for _ in range(count)]
+                else:
+                    values[prop_name] = read_binary(type_name)
+            return values
+
+    vertices: list[RawMeshVertex] = []
+    triangles: list[RawMeshTriangle] = []
+    for name, count, spec in elements:
+        if name == 'vertex':
+            for _ in range(count):
+                record = read_element(spec)
+                try:
+                    vertices.append(
+                        RawMeshVertex(
+                            x=float(record['x']),
+                            y=float(record['y']),
+                            z=float(record['z']),
+                        )
+                    )
+                except KeyError as exc:
+                    raise RawMeshImportError('PLY vertex element lacks x/y/z properties') from exc
+                except ValueError as exc:
+                    raise RawMeshImportError('PLY vertex coordinate is not finite') from exc
+        elif name == 'face':
+            for face_index in range(count):
+                record = read_element(spec)
+                indices = None
+                for key, value in record.items():
+                    if isinstance(value, list):
+                        indices = value
+                if not indices:
+                    continue
+                resolved = [int(i) for i in indices]
+                if min(resolved) < 0 or max(resolved) >= vertex_count:
+                    raise RawMeshImportError(
+                        f'PLY face {face_index} index out of range'
+                    )
+                for offset in range(1, len(resolved) - 1):
+                    a, b, c = resolved[0], resolved[offset], resolved[offset + 1]
+                    if len({a, b, c}) != 3:
+                        continue  # degenerate corners carry no area
+                    triangles.append(
+                        RawMeshTriangle(
+                            a=a, b=b, c=c,
+                            source_primitive=f'ply-face:{face_index}',
+                        )
+                    )
+        else:
+            for _ in range(count):
+                read_element(spec)
+
+    if not vertices:
+        raise RawMeshImportError('PLY contains no vertices')
+    if not triangles:
+        raise RawMeshImportError('PLY contains no triangle faces')
+    return vertices, triangles
+
+
+def _parse_stl(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]]:
+    """Parse STL (binary or ASCII) triangle soup into deduplicated geometry.
+
+    STL carries no unit or axis declaration; facet normals are recomputed
+    downstream rather than trusted. Degenerate triangles (no area) are
+    dropped — they cannot contribute a footprint or surface.
+    """
+
+    vertex_index: dict[tuple[float, float, float], int] = {}
+    vertices: list[RawMeshVertex] = []
+    triangles: list[RawMeshTriangle] = []
+
+    def add_triangle(coords: Sequence[float], primitive: str) -> None:
+        indices: list[int] = []
+        for offset in range(0, 9, 3):
+            key = (coords[offset], coords[offset + 1], coords[offset + 2])
+            index = vertex_index.get(key)
+            if index is None:
+                index = len(vertices)
+                vertex_index[key] = index
+                vertices.append(RawMeshVertex(x=key[0], y=key[1], z=key[2]))
+            indices.append(index)
+        if len(set(indices)) != 3:
+            return
+        try:
+            triangles.append(
+                RawMeshTriangle(a=indices[0], b=indices[1], c=indices[2], source_primitive=primitive)
+            )
+        except ValueError as exc:
+            raise RawMeshImportError(f'STL {primitive}: invalid triangle') from exc
+
+    if asset[:5].lower() == b'solid' and b'facet' in asset[:4096]:
+        try:
+            text = asset.decode('utf-8-sig')
+        except UnicodeDecodeError as exc:
+            raise RawMeshImportError('ASCII STL must be UTF-8 text') from exc
+        coords: list[float] = []
+        face_index = 0
+        for raw_line in text.splitlines():
+            fields = raw_line.split()
+            if fields[:1] == ['vertex']:
+                if len(fields) != 4:
+                    raise RawMeshImportError('ASCII STL vertex line is malformed')
+                try:
+                    coords.extend(float(component) for component in fields[1:])
+                except ValueError as exc:
+                    raise RawMeshImportError('ASCII STL vertex is not numeric') from exc
+            elif fields[:1] == ['endfacet']:
+                if len(coords) != 9:
+                    raise RawMeshImportError('ASCII STL facet does not contain 3 vertices')
+                add_triangle(coords, f'stl-tri:{face_index}')
+                coords = []
+                face_index += 1
+    else:
+        if len(asset) < 84:
+            raise RawMeshImportError('binary STL is shorter than its header')
+        face_count = struct.unpack_from('<I', asset, 80)[0]
+        if 84 + 50 * face_count != len(asset):
+            raise RawMeshImportError('binary STL payload length does not match face count')
+        cursor = 84
+        for face_index in range(face_count):
+            values = struct.unpack_from('<12f', asset, cursor)
+            add_triangle(values[3:12], f'stl-tri:{face_index}')
+            cursor += 50
+
+    if not vertices:
+        raise RawMeshImportError('STL contains no vertices')
+    if not triangles:
+        raise RawMeshImportError('STL contains no triangle faces')
     return vertices, triangles
 
 
