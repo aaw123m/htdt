@@ -22,8 +22,10 @@ Contract points enforced here:
   overwrite existing values.
 - RoomPlan records are suggestions only — they carry
   ``suggestion_only=True`` and there is no apply path for them.
-- Display/screen entity types stay typed-unsupported: no display→screen
-  mapping is applied (tracked separately in issue #564).
+- Display/screen entity types promote to their exact HTDT kinds per
+  ``cad_direct_view.CAPTURE_ENTITY_TYPE_TO_SCENE_KIND``: Capture
+  ``display`` -> ``display``, ``projection_screen`` -> ``screen`` —
+  never a display→screen downgrade (issue #637).
 - Internal lineage refs (``evidence_refs``, ``endpoint_refs``,
   ``placement.source_evidence_refs``) arrive already resolved to
   bundle-internal evidence by the transaction layer and are preserved
@@ -49,7 +51,11 @@ class CaptureAuthoringError(ValueError):
 
 #: Capture entity types that have no HTDT scene mapping yet. They stay
 #: typed and importable, but applying them raises — no silent mapping.
-UNSUPPORTED_ENTITY_TYPES = frozenset({'display', 'projection_screen'})
+#: Since #637 landed the ``display`` scene kind, ``display`` and
+#: ``projection_screen`` are no longer blocked here; the deterministic
+#: promotion map lives in ``cad_direct_view.CAPTURE_ENTITY_TYPE_TO_SCENE_KIND``
+#: (``display`` -> ``display``, ``projection_screen`` -> ``screen``).
+UNSUPPORTED_ENTITY_TYPES = frozenset()
 
 
 @dataclass(frozen=True)
@@ -308,7 +314,7 @@ class CaptureAuthoringService:
                     kind='unsupported_entity_type',
                     detail=(
                         f'entity type {entity_type!r} has no HTDT scene '
-                        f'mapping (issue #564)'
+                        'kind mapping'
                     ),
                 )
             )
@@ -465,7 +471,7 @@ class CaptureAuthoringService:
             if record.entity_type in UNSUPPORTED_ENTITY_TYPES:
                 raise CaptureAuthoringError(
                     f'entity type {record.entity_type!r} is not '
-                    f'scene-enterable (issue #564)'
+                    'scene-enterable'
                 )
             blocking = [
                 c for c in record.conflicts

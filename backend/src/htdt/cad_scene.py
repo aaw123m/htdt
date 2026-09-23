@@ -551,12 +551,22 @@ def make_polygon_room(
     )
 
 
-PhysicalEntityKind = Literal['speaker', 'seat', 'screen', 'projector', 'riser', 'furniture', 'av_equipment']
+PhysicalEntityKind = Literal[
+    'speaker',
+    'seat',
+    'screen',
+    'projector',
+    'display',
+    'riser',
+    'furniture',
+    'av_equipment',
+]
 EntityKind = Literal[
     'speaker',
     'seat',
     'screen',
     'projector',
+    'display',
     'riser',
     'furniture',
     'av_equipment',
@@ -567,6 +577,7 @@ PHYSICAL_ENTITY_KINDS = frozenset({
     'seat',
     'screen',
     'projector',
+    'display',
     'riser',
     'furniture',
     'av_equipment',

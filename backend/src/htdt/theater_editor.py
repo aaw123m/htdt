@@ -78,6 +78,7 @@ class TheaterEditorWindow(CadEditorWindow):
             ('▰  スピーカー', 'speaker', 'スピーカーを追加して移動ツールで配置します'),
             ('▱  座席', 'seat', '座席本体と耳位置の音響基準点を追加します'),
             ('▭  スクリーン', 'screen', '薄いスクリーン面を追加します'),
+            ('▮  ディスプレイ', 'display', 'TV・ダイレクトビューディスプレイを追加します'),
             ('□  家具', 'furniture', '家具の外形ボックスを追加します'),
             ('▦  AV機器', 'av_equipment', 'AVラック・機器の外形を追加します'),
             ('⊕  測定点', 'measurement_point', '物理寸法を持たない測定基準点を追加します'),
@@ -202,6 +203,7 @@ class TheaterEditorWindow(CadEditorWindow):
             ('speaker', 'スピーカー'),
             ('seat', '座席'),
             ('screen', 'スクリーン'),
+            ('display', 'ディスプレイ'),
             ('furniture', '家具'),
             ('av_equipment', 'AV機器'),
             ('measurement_point', 'リスニング・測定点'),
@@ -340,13 +342,13 @@ class TheaterEditorWindow(CadEditorWindow):
         width = max_x - min_x
         depth = max_y - min_y
         center_x = min_x + width * 0.5
-        if kind in {'speaker', 'screen'}:
+        if kind in {'speaker', 'screen', 'display'}:
             y_m = min_y + min(depth * 0.18, 0.75)
         else:
             y_m = min_y + min(depth * 0.42, 1.65)
         if kind in {'seat', 'furniture', 'av_equipment'} and size is not None:
             z_m = size.z_m * 0.5
-        elif kind == 'screen':
+        elif kind in {'screen', 'display'}:
             z_m = min(max(room.height_m * 0.55, 0.5), max(room.height_m - 0.1, 0.1))
         elif kind == 'measurement_point':
             z_m = min(1.1, max(room.height_m - 0.1, 0.1))
@@ -394,6 +396,15 @@ class TheaterEditorWindow(CadEditorWindow):
                 entity_id=f'screen-{token}',
                 kind='screen',
                 name='スクリーン',
+                position=self._object_position(kind, size),
+                size_m=size,
+            )
+        if kind == 'display':
+            size = Size3(x_m=1.50, y_m=0.06, z_m=0.85)
+            return SceneEntity(
+                entity_id=f'display-{token}',
+                kind='display',
+                name='ディスプレイ',
                 position=self._object_position(kind, size),
                 size_m=size,
             )
@@ -562,6 +573,7 @@ class TheaterEditorWindow(CadEditorWindow):
             'speaker': 'スピーカー',
             'seat': '座席',
             'screen': 'スクリーン',
+            'display': 'ディスプレイ',
             'furniture': '家具',
             'av_equipment': 'AV機器',
             'measurement_point': '測定点',

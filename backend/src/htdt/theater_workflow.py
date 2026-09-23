@@ -102,7 +102,7 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
         depth = max_y - min_y
         center_x = min_x + width * 0.5
 
-        if kind == 'screen':
+        if kind in {'screen', 'display'}:
             y_m = min_y + min(depth * 0.04, 0.15)
             z_m = min(max(room.height_m * 0.55, 0.5), max(room.height_m - 0.1, 0.1))
             return Position3(x_m=center_x, y_m=y_m, z_m=z_m)

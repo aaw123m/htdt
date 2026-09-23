@@ -1131,6 +1131,41 @@ class VideoGeometryEvaluation(BaseModel):
         }
 
 
+def _plane_frame(
+    entity: SceneEntity,
+    *,
+    width_m: float,
+    height_m: float,
+    center_offset_local_m: Offset3,
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[Position3, Position3, Position3, Position3],
+]:
+    """World-space frame of a rectangular image aperture on an entity.
+
+    Shared by projection screens and direct-view displays: the entity's
+    local X axis is the aperture's right axis, local Y its normal, local Z
+    its up axis — identical convention for both surface kinds.
+    """
+    if entity.size_m is None:
+        raise ValueError(f'{entity.kind} entity requires physical size')
+    matrix = quaternion_to_matrix3(entity.orientation)
+    right = _unit((matrix[0][0], matrix[1][0], matrix[2][0]))
+    normal = _unit((matrix[0][1], matrix[1][1], matrix[2][1]))
+    up = _unit((matrix[0][2], matrix[1][2], matrix[2][2]))
+    center = _world_offset(entity, center_offset_local_m)
+    half_w = width_m * 0.5
+    half_h = height_m * 0.5
+    corners = tuple(
+        _position(_add(_add(center, _scale(right, sx * half_w)), _scale(up, sz * half_h)))
+        for sx, sz in ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+    )
+    return center, right, up, normal, corners  # type: ignore[return-value]
+
+
 def _screen_frame(
     screen_entity: SceneEntity,
     binding: ScreenGeometryBinding,
@@ -1143,20 +1178,12 @@ def _screen_frame(
 ]:
     if screen_entity.kind != 'screen':
         raise ValueError('screen binding must reference a screen SceneEntity')
-    if screen_entity.size_m is None:
-        raise ValueError('screen entity requires physical size')
-    matrix = quaternion_to_matrix3(screen_entity.orientation)
-    right = _unit((matrix[0][0], matrix[1][0], matrix[2][0]))
-    normal = _unit((matrix[0][1], matrix[1][1], matrix[2][1]))
-    up = _unit((matrix[0][2], matrix[1][2], matrix[2][2]))
-    center = _world_offset(screen_entity, binding.image_center_offset_local_m)
-    half_w = binding.visible_width_m * 0.5
-    half_h = binding.visible_height_m * 0.5
-    corners = tuple(
-        _position(_add(_add(center, _scale(right, sx * half_w)), _scale(up, sz * half_h)))
-        for sx, sz in ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+    return _plane_frame(
+        screen_entity,
+        width_m=binding.visible_width_m,
+        height_m=binding.visible_height_m,
+        center_offset_local_m=binding.image_center_offset_local_m,
     )
-    return center, right, up, normal, corners  # type: ignore[return-value]
 
 
 def _screen_aperture_status(
@@ -1340,14 +1367,15 @@ def _viewing_result(
     center: tuple[float, float, float],
     right: tuple[float, float, float],
     up: tuple[float, float, float],
-    screen: ScreenGeometryBinding,
+    width_m: float,
+    height_m: float,
     policy: VideoGeometryPolicy,
 ) -> SeatViewingResult:
     eye = _seat_eye(seat_entity, binding)
-    left_middle = _add(center, _scale(right, -screen.visible_width_m * 0.5))
-    right_middle = _add(center, _scale(right, screen.visible_width_m * 0.5))
-    bottom_middle = _add(center, _scale(up, -screen.visible_height_m * 0.5))
-    top_middle = _add(center, _scale(up, screen.visible_height_m * 0.5))
+    left_middle = _add(center, _scale(right, -width_m * 0.5))
+    right_middle = _add(center, _scale(right, width_m * 0.5))
+    bottom_middle = _add(center, _scale(up, -height_m * 0.5))
+    top_middle = _add(center, _scale(up, height_m * 0.5))
     horizontal = _angle_between_deg(_sub(left_middle, eye), _sub(right_middle, eye))
     vertical = _angle_between_deg(_sub(bottom_middle, eye), _sub(top_middle, eye))
     center_delta = _sub(center, eye)
@@ -1394,7 +1422,8 @@ def _sightline_results(
     center: tuple[float, float, float],
     right: tuple[float, float, float],
     up: tuple[float, float, float],
-    screen: ScreenGeometryBinding,
+    width_m: float,
+    height_m: float,
     policy: VideoGeometryPolicy,
 ) -> tuple[SeatSightlineResult, ...]:
     by_id = {item.entity_id: item for item in bindings}
@@ -1417,8 +1446,8 @@ def _sightline_results(
                 center=center,
                 right=right,
                 up=up,
-                width_m=screen.visible_width_m,
-                height_m=screen.visible_height_m,
+                width_m=width_m,
+                height_m=height_m,
                 sample=sample,
             )
             for blocker in bindings:
@@ -1575,14 +1604,17 @@ def _extruded_intersects(
 def _collision_results(
     *,
     scene: SceneDocument,
-    request: VideoGeometryRequest,
+    collision_entity_ids: tuple[str, ...],
+    surface_entity_id: str,
+    surface_frame_clearance_m: float,
+    policy: VideoGeometryPolicy,
 ) -> tuple[CollisionResult, ...]:
-    entities = [scene.entity(entity_id) for entity_id in request.collision_entity_ids]
-    allowed_kinds = {'speaker', 'screen', 'projector'}
+    entities = [scene.entity(entity_id) for entity_id in collision_entity_ids]
+    allowed_kinds = {'speaker', 'screen', 'projector', 'display'}
     invalid = [item.entity_id for item in entities if item.kind not in allowed_kinds]
     if invalid:
         raise ValueError(
-            'collision evaluation accepts speaker/screen/projector entities only: '
+            'collision evaluation accepts speaker/screen/projector/display entities only: '
             + ', '.join(sorted(invalid))
         )
     authorities = {
@@ -1592,13 +1624,13 @@ def _collision_results(
     results: list[CollisionResult] = []
     for index, left in enumerate(entities):
         for right in entities[index + 1:]:
-            half_clearance = request.policy.collision_clearance_m * 0.5
+            half_clearance = policy.collision_clearance_m * 0.5
             left_extra = half_clearance
             right_extra = half_clearance
-            if left.entity_id == request.screen.entity_id:
-                left_extra += request.screen.frame_clearance_m
-            if right.entity_id == request.screen.entity_id:
-                right_extra += request.screen.frame_clearance_m
+            if left.entity_id == surface_entity_id:
+                left_extra += surface_frame_clearance_m
+            if right.entity_id == surface_entity_id:
+                right_extra += surface_frame_clearance_m
             left_authority = authorities[left.entity_id]
             right_authority = authorities[right.entity_id]
             exact_pair = (
@@ -1776,7 +1808,8 @@ def evaluate_video_geometry(
             center=center,
             right=right,
             up=up,
-            screen=request.screen,
+            width_m=request.screen.visible_width_m,
+            height_m=request.screen.visible_height_m,
             policy=request.policy,
         )
         for binding in request.seats
@@ -1787,7 +1820,8 @@ def evaluate_video_geometry(
         center=center,
         right=right,
         up=up,
-        screen=request.screen,
+        width_m=request.screen.visible_width_m,
+        height_m=request.screen.visible_height_m,
         policy=request.policy,
     )
     risers = _riser_results(
@@ -1795,7 +1829,13 @@ def evaluate_video_geometry(
         bindings=request.seats,
         policy=request.policy,
     )
-    collisions = _collision_results(scene=scene, request=request)
+    collisions = _collision_results(
+        scene=scene,
+        collision_entity_ids=request.collision_entity_ids,
+        surface_entity_id=request.screen.entity_id,
+        surface_frame_clearance_m=request.screen.frame_clearance_m,
+        policy=request.policy,
+    )
     geometry_status = _combine_status((
         projection.status,
         *(
