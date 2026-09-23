@@ -29,6 +29,17 @@ from .cad_measurement_quality import (
 )
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
+from .cad_measurement_runner import (
+    GuidedStep,
+    MeasurementRunnerPlan,
+    MeasurementRunnerRun,
+    RunnerCellState,
+    RunnerPurpose,
+    build_runner_plan,
+    guided_step,
+    runner_progress,
+)
+from .cad_measurement_runner_repository import CadMeasurementRunnerRepository
 from .cad_measurements import normalize_rew_api_snapshot, normalize_rew_text
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import acoustic_reference_position, is_unassigned_speaker_role
@@ -218,6 +229,10 @@ class MeasurementWorkflowController:
             rew_client = RewApiClient()
         self.rew_client = rew_client
         self._pending: PendingMeasurementImport | None = None
+        self.runner_repository = CadMeasurementRunnerRepository(
+            scene_repository,
+            self.measurement_repository,
+        )
 
     @property
     def pending_import(self) -> PendingMeasurementImport | None:
@@ -592,6 +607,134 @@ class MeasurementWorkflowController:
 
     def saved_comparisons(self) -> tuple[CadMeasurementComparison, ...]:
         return self.measurement_repository.list_comparisons(self.document_id)
+
+    # ------------------------------------------------------------------
+    # Campaign runner (#529): guided source × target × repeat execution over
+    # the existing measurement/import authorities. REW stays the acquisition
+    # engine; the runner only tracks exact per-cell planned evidence.
+
+    def runner_plans(self) -> tuple[MeasurementRunnerPlan, ...]:
+        return self.runner_repository.list_plans()
+
+    def create_runner_plan(
+        self,
+        *,
+        repeat_count: int = 1,
+        purposes: tuple[RunnerPurpose, ...] = ('measurement',),
+    ) -> MeasurementRunnerPlan:
+        """Register a new plan from the current scene's speakers and targets."""
+        revision = self.latest_revision()
+        targets = self.assignment_targets()
+        speakers = self.source_speakers()
+        if not targets or not speakers:
+            raise MeasurementWorkflowError(
+                "キャンペーンには少なくとも1つの測定位置と1つの音源が必要です"
+            )
+        # Speaker display roles ('FL', 'C', ...) map onto the measurement
+        # channel-role tokens used everywhere else in this workflow.
+        role_tokens = {
+            'FL': 'front_left',
+            'FR': 'front_right',
+            'C': 'center',
+            'LFE': 'subwoofer',
+            'SUB': 'subwoofer',
+        }
+        plan = build_runner_plan(
+            scene_revision_id=revision.revision_id,
+            scene_content_hash=revision.content_hash,
+            sources=tuple(
+                (role_tokens.get(speaker.role, speaker.role), (speaker.entity_id,))
+                for speaker in speakers
+            ),
+            target_entity_ids=tuple(target.entity_id for target in targets),
+            repeat_count=repeat_count,
+            purposes=purposes,
+        )
+        self.runner_repository.save_plan(plan)
+        return plan
+
+    def open_runner(self, plan_id: str) -> MeasurementRunnerRun:
+        """Resume the latest run for the plan, or start a new one."""
+        runs = self.runner_repository.list_runs(plan_id)
+        if runs:
+            return runs[-1]
+        return self.runner_repository.start_run(plan_id)
+
+    def runner_cell_states(self, run_id: str) -> dict[int, RunnerCellState]:
+        return self.runner_repository.cell_states(run_id)
+
+    def runner_next_incomplete(self, run_id: str) -> int | None:
+        return self.runner_repository.next_incomplete(run_id)
+
+    def runner_guided_step(
+        self, run_id: str, cell_index: int | None = None
+    ) -> GuidedStep | None:
+        run = self.runner_repository.get_run(run_id)
+        if run is None:
+            raise MeasurementWorkflowError("キャンペーンの実行が見つかりません")
+        plan = self.runner_repository.get_plan(run.plan_id)
+        if cell_index is None:
+            cell_index = self.runner_repository.next_incomplete(run_id)
+        if cell_index is None:
+            return None
+        return guided_step(plan, cell_index)
+
+    def runner_progress(self, run_id: str):
+        run = self.runner_repository.get_run(run_id)
+        if run is None:
+            raise MeasurementWorkflowError("キャンペーンの実行が見つかりません")
+        plan = self.runner_repository.get_plan(run.plan_id)
+        return runner_progress(plan, self.runner_repository.cell_states(run_id))
+
+    def runner_plan_for_run(self, run_id: str) -> MeasurementRunnerPlan:
+        run = self.runner_repository.get_run(run_id)
+        if run is None:
+            raise MeasurementWorkflowError("キャンペーンの実行が見つかりません")
+        return self.runner_repository.get_plan(run.plan_id)
+
+    def runner_commit_cell(
+        self,
+        run_id: str,
+        cell_index: int,
+        measurement_id: str,
+    ) -> None:
+        """Commit one saved measurement to the exact planned cell.
+
+        The quality decision is read from the measurement's replay-validated
+        report state — RETAKE keeps the cell retake_required, a current
+        not-needed report completes it, everything else stays quality_pending.
+        """
+        record = self.measurement_repository.get_measurement(measurement_id)
+        if record is None:
+            raise MeasurementWorkflowError("登録する測定が保存されていません")
+        dataset = self.measurement_repository.dataset_for_measurement(measurement_id)
+        if dataset is None:
+            raise MeasurementWorkflowError("測定に周波数応答データがありません")
+        view = next(
+            (
+                row
+                for row in self.measurement_views()
+                if row.measurement_id == measurement_id
+            ),
+            None,
+        )
+        decision: Literal['passed', 'blocked', 'pending'] = 'pending'
+        if view is not None and view.quality_report_state == 'current':
+            if view.retake_recommendation == 'RETAKE':
+                decision = 'blocked'
+            elif view.retake_recommendation == 'NOT_NEEDED':
+                decision = 'passed'
+        self.runner_repository.commit_cell(
+            run_id,
+            cell_index,
+            measurement_id=measurement_id,
+            dataset_id=dataset.dataset_id,
+            dataset_sha256=dataset.dataset_sha256,
+            quality_decision=decision,
+        )
+
+    def runner_skip_cell(self, run_id: str, cell_index: int) -> None:
+        self.runner_repository.skip_cell(run_id, cell_index)
 
 
 __all__ = [
