@@ -9,6 +9,7 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHeaderView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -32,7 +34,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .cad_measurement_models import CadMeasurementComparison
+from .cad_measurement_models import (
+    MEASUREMENT_ATTACHMENT_KINDS,
+    CadMeasurementComparison,
+)
 from .cad_measurement_quality import (
     CadMeasurementCapability,
     CadMicrophoneCapture,
@@ -42,8 +47,16 @@ from .cad_repository import SceneRepository
 from .cad_scene import Direction3
 from .ingress import read_file_bounded
 from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
+from .measurement_analysis import (
+    DISPLAY_SMOOTHING_FRACTIONS,
+    phase_trace,
+    processing_summary,
+    smoothed_level_trace,
+    trace_label,
+)
 from .measurement_workflow import (
     AcquisitionCapture,
+    AssignmentCorrection,
     MeasurementAssignment,
     MeasurementView,
     MeasurementWorkflowController,
@@ -220,6 +233,78 @@ def _quality_label(value: str) -> str:
     }.get(value, value)
 
 
+def _disposition_label(value: str | None) -> str:
+    """Lifecycle disposition (#509); None is the normal active state."""
+    return {
+        None: "有効",
+        "active": "有効",
+        "corrected": "訂正済み",
+        "misassigned": "誤割当",
+        "excluded_from_normal_use": "通常利用から除外",
+        "test_only": "テスト測定",
+        "duplicate_import": "重複取り込み",
+    }.get(value, str(value))
+
+
+def _duplicate_kind_label(value: str) -> str:
+    return {
+        "exact_duplicate": "完全な重複",
+        "same_acquisition": "同一取得の再エクスポート",
+        "new": "新規",
+    }.get(value, value)
+
+
+def _resolution_label(value: str) -> str:
+    return {
+        "reuse_existing": "既存の測定を利用",
+        "import_as_new": "別の測定として保存",
+    }.get(value, value)
+
+
+def _batch_status_label(value: str) -> str:
+    return {
+        "staged": "保留中",
+        "committed": "保存済み",
+        "reused": "既存へ解決",
+        "failed": "失敗",
+    }.get(value, value)
+
+
+def _mismatch_label(code: str) -> str:
+    """Advisory A/B semantic-difference codes (#483)."""
+    return {
+        "evidence_type": "証拠種別が異なります",
+        "channel_role": "入力役割が異なります",
+        "target": "測定位置が異なります",
+        "source_speakers": "音源スピーカーが異なります",
+        "scene_revision": "測定時の部屋状態が異なります",
+        "smoothing": "入力スムージング処理が異なります",
+    }.get(code, code)
+
+
+def _spatial_change_label(change_kind: str) -> str:
+    return {
+        "moved": "移動",
+        "removed": "削除済み",
+        "added": "追加",
+        "changed": "変更",
+    }.get(change_kind, change_kind)
+
+
+def _attachment_kind_label(value: str) -> str:
+    return {
+        "mdat": ".mdat",
+        "calibration": "校正ファイル",
+        "notes": "設定ノート",
+        "other": "その他",
+    }.get(value, value)
+
+
+def _trace_color(view: MeasurementView) -> Any:
+    tokens = DARK_THEME.scientific
+    return tokens.predicted if view.evidence_type == "predicted" else tokens.measured
+
+
 def _format_band(band: tuple[float, float] | None) -> str:
     if band is None:
         return "—"
@@ -299,6 +384,10 @@ class MeasurementPageWorkspace(QWidget):
         self._last_comparison: CadMeasurementComparison | None = None
         self._saved_comparisons: tuple[CadMeasurementComparison, ...] = ()
         self._retake_source_id: str | None = None
+        self._correction_target_id: str | None = None
+        self._spatial_context: Any = None
+        self._spatial_viewport: Any = None
+        self._spatial_viewport_failed = False
 
         self.setObjectName("measurementPageWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
@@ -353,6 +442,7 @@ class MeasurementPageWorkspace(QWidget):
 
     def refresh(self) -> None:
         self._refresh_pending()
+        self._refresh_batch()
         self._refresh_assignment_options()
         self._refresh_campaign()
         self._refresh_quality()
@@ -383,6 +473,171 @@ class MeasurementPageWorkspace(QWidget):
             SemanticState.SUCCESS,
         )
         self.refresh()
+
+    def import_rew_batch_dialog(self) -> None:
+        """Stage one or many REW text exports into the batch queue (#446)."""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "REWテキストを追加（複数選択可）",
+            "",
+            "REW text (*.txt *.frd);;All files (*)",
+        )
+        if not paths:
+            return
+        files: list[tuple[bytes, str]] = []
+        for path in paths:
+            try:
+                file_path = Path(path)
+                files.append(
+                    (
+                        read_file_bounded(
+                            file_path,
+                            MAX_NATIVE_REW_TEXT_FILE_BYTES,
+                            label="REW text file",
+                        ),
+                        file_path.name,
+                    )
+                )
+            except Exception as exc:
+                self._set_notice(
+                    f"読み込みに失敗しました · {path} · {exc}",
+                    SemanticState.ERROR,
+                )
+                return
+        try:
+            items = self.controller.stage_rew_text_files(files)
+        except Exception as exc:
+            self._set_notice(f"読み込みに失敗しました · {exc}", SemanticState.ERROR)
+            return
+        self._set_notice(
+            f"{len(items)} 件を読み込みました。「割り当て」で項目の意味付けと保存を行ってください。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _attach_to_selected_batch_item(self) -> None:
+        selected = self.batch_table.selectedItems()
+        if not selected:
+            self._set_notice(
+                "添付を追加するバッチ項目を選択してください。",
+                SemanticState.WARNING,
+            )
+            return
+        item_id = selected[0].data(Qt.ItemDataRole.UserRole)
+        if not isinstance(item_id, str):
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "添付ファイルを選択",
+            "",
+            "All files (*)",
+        )
+        if not path:
+            return
+        kind = str(self.batch_attach_kind_combo.currentData())
+        try:
+            file_path = Path(path)
+            raw = read_file_bounded(
+                file_path,
+                MAX_NATIVE_REW_TEXT_FILE_BYTES,
+                label="source attachment",
+            )
+            self.controller.attach_to_batch_item(
+                item_id,
+                filename=file_path.name,
+                raw_bytes=raw,
+                kind=kind,
+            )
+        except Exception as exc:
+            self._set_notice(f"添付に失敗しました · {exc}", SemanticState.ERROR)
+            return
+        self._set_notice(
+            "添付を項目に紐付けました。保存時に測定の証拠として登録されます。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _clear_committed_batch(self) -> None:
+        self.controller.discard_batch_committed()
+        self.refresh()
+
+    def _batch_resolution_changed(self, item_id: str, value: int) -> None:
+        combo = self.batch_table.cellWidget(
+            self._batch_table_row(item_id), 5
+        )
+        if combo is None:
+            return
+        try:
+            self.controller.set_batch_resolution(
+                item_id, str(combo.itemData(value))
+            )
+        except Exception as exc:
+            self._set_notice(f"解決方法を変更できませんでした · {exc}", SemanticState.ERROR)
+
+    def _batch_table_row(self, item_id: str) -> int:
+        for row in range(self.batch_table.rowCount()):
+            item = self.batch_table.item(row, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == item_id:
+                return row
+        return -1
+
+    def _refresh_batch(self) -> None:
+        items = self.controller.batch_items()
+        self.batch_table.setRowCount(len(items))
+        for row_index, item in enumerate(items):
+            band = _format_band(item.frequency_band_hz)
+            phase = (
+                "—"
+                if item.has_phase_samples is None
+                else ("あり" if item.has_phase_samples else "なし")
+            )
+            duplicate = _duplicate_kind_label(item.duplicate_kind)
+            if item.duplicate_of_name:
+                duplicate += f" → {item.duplicate_of_name}"
+            if item.status == "failed" and item.error:
+                status = f"失敗: {item.error}"
+            else:
+                status = _batch_status_label(item.status)
+            committed_to = (
+                item.duplicate_of_name or item.committed_measurement_id or "—"
+                if item.status in ("committed", "reused")
+                else ("保留中" if item.status == "staged" else "—")
+            )
+            attachment_note = (
+                f"{item.attachment_count} 件" if item.attachment_count else "—"
+            )
+            resolution_text = (
+                "—" if item.duplicate_kind == "new" else _resolution_label(item.resolution)
+            )
+            values = (
+                item.filename,
+                status,
+                band,
+                phase,
+                duplicate,
+                resolution_text,
+                f"{committed_to} · 添付 {attachment_note}",
+            )
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setData(Qt.ItemDataRole.UserRole, item.item_id)
+                self.batch_table.setItem(row_index, column, cell)
+            if (
+                item.status == "staged"
+                and item.duplicate_kind in ("exact_duplicate", "same_acquisition")
+            ):
+                combo = QComboBox(self.batch_table)
+                combo.addItem("既存の測定を利用", "reuse_existing")
+                combo.addItem("別の測定として保存", "import_as_new")
+                index = combo.findData(item.resolution)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+                combo.currentIndexChanged.connect(
+                    lambda value, item_id=item.item_id: self._batch_resolution_changed(
+                        item_id, value
+                    )
+                )
+                self.batch_table.setCellWidget(row_index, 5, combo)
 
     # ------------------------------------------------------------------
     # Import page
@@ -429,6 +684,50 @@ class MeasurementPageWorkspace(QWidget):
         _set_plot_appearance(self.import_preview_plot)
         pending_layout.addWidget(self.import_preview_plot)
         layout.addWidget(pending_card)
+
+        batch_card, batch_layout = _card("バッチ取り込み（キャンペーン）", host)
+        batch_note = QLabel(
+            "複数のREWテキストを一度に読み込み、保存前に各項目の状態を確認します。"
+            "重複は自動で統合せず、項目ごとの解決方法を選んでください。",
+            batch_card,
+        )
+        batch_note.setWordWrap(True)
+        set_typography_role(batch_note, TypographyRole.SECONDARY)
+        batch_layout.addWidget(batch_note)
+
+        batch_buttons = QHBoxLayout()
+        self.batch_add_button = QPushButton("REWテキストを追加（複数可）", batch_card)
+        self.batch_add_button.clicked.connect(self.import_rew_batch_dialog)
+        batch_buttons.addWidget(self.batch_add_button)
+        self.batch_attach_kind_combo = QComboBox(batch_card)
+        for kind in MEASUREMENT_ATTACHMENT_KINDS:
+            self.batch_attach_kind_combo.addItem(_attachment_kind_label(kind), kind)
+        batch_buttons.addWidget(self.batch_attach_kind_combo)
+        self.batch_attach_button = QPushButton("選択項目に添付を追加", batch_card)
+        self.batch_attach_button.clicked.connect(self._attach_to_selected_batch_item)
+        batch_buttons.addWidget(self.batch_attach_button)
+        self.batch_clear_button = QPushButton("保存済みをクリア", batch_card)
+        self.batch_clear_button.clicked.connect(self._clear_committed_batch)
+        batch_buttons.addWidget(self.batch_clear_button)
+        batch_buttons.addStretch(1)
+        batch_layout.addLayout(batch_buttons)
+
+        self.batch_table = QTableWidget(0, 7, batch_card)
+        self.batch_table.setHorizontalHeaderLabels(
+            ["ファイル", "状態", "帯域", "位相", "重複", "解決", "保存先"]
+        )
+        self.batch_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.batch_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.batch_table.verticalHeader().setVisible(False)
+        self.batch_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.batch_table.horizontalHeader().setStretchLastSection(True)
+        self.batch_table.setMinimumHeight(160)
+        batch_layout.addWidget(self.batch_table)
+        layout.addWidget(batch_card)
         layout.addStretch(1)
         self.pages.addWidget(page)
 
@@ -526,6 +825,9 @@ class MeasurementPageWorkspace(QWidget):
 
         assign_card, assign_layout = _card("割り当て", host)
         form = QFormLayout()
+
+        self.assignment_scope_combo = QComboBox(assign_card)
+        form.addRow("対象", self.assignment_scope_combo)
 
         # Grouped by operator meaning (#586): identity, evidence class, then
         # source/routing — instead of one visually flat form.
@@ -692,13 +994,76 @@ class MeasurementPageWorkspace(QWidget):
         layout.addStretch(1)
         self.pages.addWidget(page)
 
+    def _scope_index(self, scope: tuple) -> int:
+        for index in range(self.assignment_scope_combo.count()):
+            if self.assignment_scope_combo.itemData(index) == scope:
+                return index
+        return -1
+
     def _refresh_assignment_options(self) -> None:
         pending = self.controller.pending_import
-        self.assignment_save_button.setEnabled(pending is not None)
-        if pending is None:
-            self.assignment_pending_label.setText(
-                "「読み込み」でREWデータを選ぶと、ここで測定位置と意味付けを確定できます。"
+        batch_items = [
+            item
+            for item in self.controller.batch_items()
+            if item.status in ("staged", "failed") and item.error is None
+        ]
+        batch_open = [item for item in batch_items if item.status == "staged"]
+
+        previous_scope = self.assignment_scope_combo.currentData()
+        self.assignment_scope_combo.blockSignals(True)
+        self.assignment_scope_combo.clear()
+        correction_armed = self._correction_target_id is not None
+        correction_view = next(
+            (
+                view
+                for view in self._quality_views
+                if view.measurement_id == self._correction_target_id
+            ),
+            None,
+        )
+        if correction_view is not None:
+            self.assignment_scope_combo.addItem(
+                f"訂正: {correction_view.effective_target_name} の割り当て",
+                ("correction", correction_view.measurement_id),
             )
+        if pending is not None:
+            self.assignment_scope_combo.addItem("現在の読み込み", ("pending", None))
+        if batch_open:
+            self.assignment_scope_combo.addItem(
+                "バッチ全項目（共通割り当て）", ("batch_all", None)
+            )
+            for item in batch_open:
+                self.assignment_scope_combo.addItem(
+                    f"バッチ: {item.filename}", ("batch_item", item.item_id)
+                )
+        if correction_armed and correction_view is not None:
+            self.assignment_scope_combo.setCurrentIndex(0)
+        elif self._retake_source_id is not None and pending is not None:
+            index = self._scope_index(("pending", None))
+            if index >= 0:
+                self.assignment_scope_combo.setCurrentIndex(index)
+        elif isinstance(previous_scope, tuple) and previous_scope:
+            index = self._scope_index(previous_scope)
+            if index >= 0:
+                self.assignment_scope_combo.setCurrentIndex(index)
+        self.assignment_scope_combo.blockSignals(False)
+
+        scope = self.assignment_scope_combo.currentData()
+        has_target = isinstance(scope, tuple) and scope is not None
+        self.assignment_save_button.setEnabled(has_target)
+        if pending is None:
+            if self._correction_target_id is not None:
+                self.assignment_pending_label.setText(
+                    "既存測定の割り当て訂正です。元の測定データは変更されません。"
+                )
+            elif batch_open:
+                self.assignment_pending_label.setText(
+                    f"{len(batch_open)} 件のバッチ項目が割り当て待ちです。"
+                )
+            else:
+                self.assignment_pending_label.setText(
+                    "「読み込み」でREWデータを選ぶと、ここで測定位置と意味付けを確定できます。"
+                )
         else:
             retake_note = (
                 "\nこの測定は再測定として記録されます（元の測定とレポートは保持されます）。"
@@ -822,6 +1187,35 @@ class MeasurementPageWorkspace(QWidget):
             if index >= 0:
                 self.routing_combo.setCurrentIndex(index)
             wanted_sources = set(retake_view.source_speaker_ids)
+            for index in range(self.source_speaker_list.count()):
+                item = self.source_speaker_list.item(index)
+                item.setCheckState(
+                    Qt.CheckState.Checked
+                    if item.data(Qt.ItemDataRole.UserRole) in wanted_sources
+                    else Qt.CheckState.Unchecked
+                )
+        elif correction_view is not None:
+            # Correction pre-fills the *effective* binding so only the wrong
+            # fields need changing; unchanged fields stay out of the record.
+            index = self.target_combo.findData(correction_view.effective_target_entity_id)
+            if index >= 0:
+                self.target_combo.setCurrentIndex(index)
+            channel_index = self.channel_combo.findData(
+                correction_view.effective_channel_role
+            )
+            if channel_index >= 0:
+                self.channel_combo.setCurrentIndex(channel_index)
+            else:
+                self.channel_combo.setCurrentText(
+                    correction_view.effective_channel_role
+                )
+            index = self.radiation_combo.findData(correction_view.effective_radiation_scope)
+            if index >= 0:
+                self.radiation_combo.setCurrentIndex(index)
+            index = self.routing_combo.findData(correction_view.effective_routing_evidence)
+            if index >= 0:
+                self.routing_combo.setCurrentIndex(index)
+            wanted_sources = set(correction_view.effective_source_speaker_ids)
             for index in range(self.source_speaker_list.count()):
                 item = self.source_speaker_list.item(index)
                 item.setCheckState(
@@ -999,6 +1393,14 @@ class MeasurementPageWorkspace(QWidget):
         )
 
     def _commit_assignment(self) -> None:
+        scope = self.assignment_scope_combo.currentData()
+        if not isinstance(scope, tuple) or not scope:
+            self._set_notice(
+                "割り当て対象がありません。先にREWデータを読み込んでください。",
+                SemanticState.WARNING,
+            )
+            return
+        kind, ref = scope
         target_id = self.target_combo.currentData()
         if not isinstance(target_id, str) or not target_id:
             self._set_notice(
@@ -1035,6 +1437,12 @@ class MeasurementPageWorkspace(QWidget):
             ),
             acquisition=acquisition,
         )
+        if kind == "correction":
+            self._commit_correction(str(ref), assignment)
+            return
+        if kind in ("batch_all", "batch_item"):
+            self._commit_batch_assignment(kind, ref, assignment)
+            return
         # #659: when the layout moved since staging, the user chooses how to
         # resolve the divergence — commit to the acquired (historical)
         # revision, re-choose the current head, or keep the import pending.
@@ -1101,6 +1509,127 @@ class MeasurementPageWorkspace(QWidget):
             return
         self._set_notice(
             f"{_evidence_label(record.evidence_type)}測定を保存しました。「品質」で内容を確認できます。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _commit_batch_assignment(
+        self,
+        kind: str,
+        ref: object,
+        assignment: MeasurementAssignment,
+    ) -> None:
+        """Apply this assignment to batch items and save them explicitly (#446)."""
+        try:
+            if kind == "batch_all":
+                applied = self.controller.apply_batch_assignment(assignment)
+                if applied == 0:
+                    self._set_notice(
+                        "割り当てを適用できるバッチ項目がありません。",
+                        SemanticState.WARNING,
+                    )
+                    return
+                outcomes = self.controller.commit_batch()
+            else:
+                self.controller.set_batch_item_assignment(str(ref), assignment)
+                outcomes = self.controller.commit_batch([str(ref)])
+        except Exception as exc:
+            self._set_notice(f"バッチを保存できませんでした · {exc}", SemanticState.ERROR)
+            return
+        committed = sum(1 for o in outcomes if o.outcome == "committed")
+        reused = sum(1 for o in outcomes if o.outcome == "reused")
+        failed = sum(1 for o in outcomes if o.outcome == "failed")
+        skipped = sum(1 for o in outcomes if o.outcome == "skipped")
+        parts = [f"{committed} 件を保存"]
+        if reused:
+            parts.append(f"{reused} 件は既存測定を利用")
+        if failed:
+            parts.append(f"{failed} 件失敗")
+        if skipped:
+            parts.append(f"{skipped} 件未保存")
+        self._set_notice(
+            "、".join(parts) + "。失敗・未保存の項目は一覧に残っています。",
+            SemanticState.SUCCESS if not failed else SemanticState.WARNING,
+        )
+        self.refresh()
+
+    def _commit_correction(
+        self,
+        measurement_id: str,
+        assignment: MeasurementAssignment,
+    ) -> None:
+        """Append an assignment correction to a persisted measurement (#509)."""
+        view = next(
+            (
+                view
+                for view in self._quality_views
+                if view.measurement_id == measurement_id
+            ),
+            None,
+        )
+        if view is None:
+            self._set_notice("訂正対象の測定が見つかりません", SemanticState.ERROR)
+            self._correction_target_id = None
+            self.refresh()
+            return
+        corrected = AssignmentCorrection(
+            measurement_entity_id=(
+                assignment.measurement_entity_id
+                if assignment.measurement_entity_id != view.effective_target_entity_id
+                else None
+            ),
+            channel_role=(
+                assignment.channel_role
+                if assignment.channel_role != view.effective_channel_role
+                else None
+            ),
+            source_speaker_ids=(
+                assignment.source_speaker_ids
+                if assignment.source_speaker_ids != view.effective_source_speaker_ids
+                else None
+            ),
+            radiation_scope=(
+                assignment.radiation_scope
+                if assignment.radiation_scope != view.effective_radiation_scope
+                else None
+            ),
+            routing_evidence=(
+                assignment.routing_evidence
+                if assignment.routing_evidence != view.effective_routing_evidence
+                else None
+            ),
+        )
+        if all(
+            value is None
+            for value in (
+                corrected.measurement_entity_id,
+                corrected.channel_role,
+                corrected.source_speaker_ids,
+                corrected.radiation_scope,
+                corrected.routing_evidence,
+            )
+        ):
+            self._set_notice(
+                "割り当てが現在の内容と同じです。訂正する項目を変更してください。",
+                SemanticState.WARNING,
+            )
+            return
+        reason, ok = QInputDialog.getText(
+            self,
+            "割り当ての訂正",
+            "訂正の理由を記録してください（監査ログに残ります）:",
+        )
+        if not ok or not reason.strip():
+            self._set_notice("訂正の理由が必要です", SemanticState.WARNING)
+            return
+        try:
+            self.controller.correct_assignment(measurement_id, corrected, reason)
+        except Exception as exc:
+            self._set_notice(f"訂正を記録できませんでした · {exc}", SemanticState.ERROR)
+            return
+        self._correction_target_id = None
+        self._set_notice(
+            "割り当ての訂正を記録しました。元の測定データは変更されていません。",
             SemanticState.SUCCESS,
         )
         self.refresh()
@@ -1406,9 +1935,9 @@ class MeasurementPageWorkspace(QWidget):
         layout.addLayout(capability_row)
 
         table_card, table_layout = _card("保存済み測定", host)
-        self.quality_table = QTableWidget(0, 9, table_card)
+        self.quality_table = QTableWidget(0, 10, table_card)
         self.quality_table.setHorizontalHeaderLabels(
-            ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域", "再測定"]
+            ["入力", "証拠", "測定位置", "品質", "位相", "共通タイミング", "配置", "帯域", "状態", "再測定"]
         )
         self.quality_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -1430,12 +1959,60 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_detail = QLabel("測定を選択してください", detail_card)
         self.quality_detail.setWordWrap(True)
         detail_layout.addWidget(self.quality_detail)
+
+        analysis_row = QHBoxLayout()
+        smoothing_label = QLabel("表示スムージング", detail_card)
+        set_typography_role(smoothing_label, TypographyRole.SECONDARY)
+        analysis_row.addWidget(smoothing_label)
+        self.quality_smoothing_combo = QComboBox(detail_card)
+        for label, fraction in DISPLAY_SMOOTHING_FRACTIONS:
+            self.quality_smoothing_combo.addItem(label, fraction)
+        self.quality_smoothing_combo.currentIndexChanged.connect(
+            lambda _i: self._refresh_quality_plot()
+        )
+        analysis_row.addWidget(self.quality_smoothing_combo)
+        target_label = QLabel("ターゲットカーブ", detail_card)
+        set_typography_role(target_label, TypographyRole.SECONDARY)
+        analysis_row.addWidget(target_label)
+        self.quality_target_combo = QComboBox(detail_card)
+        self.quality_target_combo.addItem("オーバーレイなし", None)
+        self.quality_target_combo.currentIndexChanged.connect(
+            lambda _i: self._refresh_quality_plot()
+        )
+        analysis_row.addWidget(self.quality_target_combo)
+        analysis_row.addStretch(1)
+        detail_layout.addLayout(analysis_row)
+
+        self.provenance_label = QLabel("", detail_card)
+        self.provenance_label.setWordWrap(True)
+        set_typography_role(self.provenance_label, TypographyRole.SECONDARY)
+        detail_layout.addWidget(self.provenance_label)
+
         self.quality_plot = pg.PlotWidget(detail_card)
         self.quality_plot.setMinimumHeight(260)
         self.quality_plot.setLabel("bottom", "周波数", units="Hz")
         self.quality_plot.setLabel("left", "レベル", units="dB")
         _set_plot_appearance(self.quality_plot)
+        self.quality_plot.addLegend()
         detail_layout.addWidget(self.quality_plot)
+
+        phase_row = QHBoxLayout()
+        self.phase_state_label = QLabel("", detail_card)
+        self.phase_state_label.setWordWrap(True)
+        phase_row.addWidget(self.phase_state_label, 1)
+        self.phase_unwrap_check = QCheckBox("位相をアンラップ表示", detail_card)
+        self.phase_unwrap_check.toggled.connect(
+            lambda _v: self._refresh_quality_plot()
+        )
+        phase_row.addWidget(self.phase_unwrap_check)
+        detail_layout.addLayout(phase_row)
+
+        self.phase_plot = pg.PlotWidget(detail_card)
+        self.phase_plot.setMinimumHeight(180)
+        self.phase_plot.setLabel("bottom", "周波数", units="Hz")
+        self.phase_plot.setLabel("left", "位相", units="deg")
+        _set_plot_appearance(self.phase_plot)
+        detail_layout.addWidget(self.phase_plot)
 
         # Synchronized table + detail split (#586): row selection and its
         # plot/detail stay adjacent instead of separated by a long scroll.
@@ -1445,6 +2022,70 @@ class MeasurementPageWorkspace(QWidget):
         quality_split.setStretchFactor(0, 1)
         quality_split.setStretchFactor(1, 1)
         layout.addWidget(quality_split)
+
+        spatial_card, spatial_layout = _card("空間コンテキスト", host)
+        self.spatial_summary = QLabel("測定を選択してください", spatial_card)
+        self.spatial_summary.setWordWrap(True)
+        spatial_layout.addWidget(self.spatial_summary)
+        spatial_row = QHBoxLayout()
+        self.spatial_mode_combo = QComboBox(spatial_card)
+        self.spatial_mode_combo.addItem("測定時の配置", "bound")
+        self.spatial_mode_combo.addItem("現在との差分", "diff")
+        self.spatial_mode_combo.currentIndexChanged.connect(
+            lambda _i: self._render_spatial()
+        )
+        spatial_row.addWidget(self.spatial_mode_combo)
+        spatial_row.addStretch(1)
+        self.open_bound_room_button = QPushButton("測定時の部屋を開く", spatial_card)
+        self.open_bound_room_button.clicked.connect(self._open_bound_room)
+        spatial_row.addWidget(self.open_bound_room_button)
+        spatial_layout.addLayout(spatial_row)
+        self.spatial_viewport_holder = QVBoxLayout()
+        spatial_layout.addLayout(self.spatial_viewport_holder)
+        self.spatial_fallback_label = QLabel("", spatial_card)
+        self.spatial_fallback_label.setWordWrap(True)
+        set_typography_role(self.spatial_fallback_label, TypographyRole.SECONDARY)
+        spatial_layout.addWidget(self.spatial_fallback_label)
+        layout.addWidget(spatial_card)
+
+        lifecycle_card, lifecycle_layout = _card("ライフサイクルと添付", host)
+        self.disposition_label = QLabel("測定を選択してください", lifecycle_card)
+        self.disposition_label.setWordWrap(True)
+        lifecycle_layout.addWidget(self.disposition_label)
+        disposition_row = QHBoxLayout()
+        self.disposition_combo = QComboBox(lifecycle_card)
+        for label, value in (
+            ("有効に戻す", "active"),
+            ("通常利用から除外", "excluded_from_normal_use"),
+            ("誤割当として記録", "misassigned"),
+            ("テスト測定として記録", "test_only"),
+            ("重複取り込みとして記録", "duplicate_import"),
+        ):
+            self.disposition_combo.addItem(label, value)
+        disposition_row.addWidget(self.disposition_combo)
+        self.disposition_apply_button = QPushButton("状態を記録", lifecycle_card)
+        self.disposition_apply_button.clicked.connect(self._apply_disposition)
+        disposition_row.addWidget(self.disposition_apply_button)
+        self.correct_button = QPushButton("割り当てを訂正…", lifecycle_card)
+        self.correct_button.clicked.connect(self._start_correction)
+        disposition_row.addWidget(self.correct_button)
+        disposition_row.addStretch(1)
+        lifecycle_layout.addLayout(disposition_row)
+        attach_row = QHBoxLayout()
+        self.quality_attach_kind_combo = QComboBox(lifecycle_card)
+        for kind in MEASUREMENT_ATTACHMENT_KINDS:
+            self.quality_attach_kind_combo.addItem(_attachment_kind_label(kind), kind)
+        attach_row.addWidget(self.quality_attach_kind_combo)
+        self.attach_button = QPushButton("ソース添付を追加", lifecycle_card)
+        self.attach_button.clicked.connect(self._attach_to_measurement)
+        attach_row.addWidget(self.attach_button)
+        attach_row.addStretch(1)
+        lifecycle_layout.addLayout(attach_row)
+        self.attachments_label = QLabel("", lifecycle_card)
+        self.attachments_label.setWordWrap(True)
+        set_typography_role(self.attachments_label, TypographyRole.SECONDARY)
+        lifecycle_layout.addWidget(self.attachments_label)
+        layout.addWidget(lifecycle_card)
 
         report_card, report_layout = _card("品質レポート", host)
         self.quality_report_label = QLabel("測定を選択してください", report_card)
@@ -1484,14 +2125,15 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_table.setRowCount(len(views))
         for row_index, row in enumerate(views):
             values = (
-                _channel_role_label(row.channel_role),
+                _channel_role_label(row.effective_channel_role),
                 _evidence_label(row.evidence_type),
-                row.target_name,
+                row.effective_target_name,
                 _quality_label(row.quality_status),
-                _capability_decision_label(row.phase_response_capability),
+                _phase_label(row.phase_status),
                 _capability_decision_label(row.common_timing_capability),
                 "現在の配置" if row.scene_matches_current else "測定時の配置",
                 _format_band(row.frequency_band_hz),
+                _disposition_label(row.disposition),
                 _retake_recommendation_label(row.retake_recommendation),
             )
             for column, value in enumerate(values):
@@ -1500,6 +2142,7 @@ class MeasurementPageWorkspace(QWidget):
                 self.quality_table.setItem(row_index, column, item)
             if selected_id == row.measurement_id:
                 self.quality_table.selectRow(row_index)
+                self._show_quality_row(row_index)
 
         dataset_count = sum(1 for row in views if row.dataset_id is not None)
         phase_count = sum(
@@ -1576,11 +2219,13 @@ class MeasurementPageWorkspace(QWidget):
         captured = row.captured_at or "取得時刻未記録"
         scene = "現在の配置と一致" if row.scene_matches_current else "測定時の配置を保持"
         source_speakers = (
-            " / ".join(row.source_speaker_ids) if row.source_speaker_ids else "未指定"
+            " / ".join(row.effective_source_speaker_ids)
+            if row.effective_source_speaker_ids
+            else "未指定"
         )
         self.quality_detail.setText(
-            f"{row.target_name} · {_evidence_label(row.evidence_type)} · "
-            f"{_channel_role_label(row.channel_role)}\n"
+            f"{row.effective_target_name} · {_evidence_label(row.evidence_type)} · "
+            f"{_channel_role_label(row.effective_channel_role)}\n"
             f"品質: {_quality_label(row.quality_status)} · {reasons}\n"
             f"{_phase_label(row.phase_status)} · "
             f"位相応答: {_capability_decision_label(row.phase_response_capability)} · "
@@ -1665,26 +2310,314 @@ class MeasurementPageWorkspace(QWidget):
         self.retake_label.setText("\n".join(retake_lines))
         self.retake_button.setEnabled(True)
 
+        # Lifecycle state + source attachments (#509, #446).
+        disposition_parts = [
+            f"状態: {_disposition_label(row.disposition)}"
+            + (f" — {row.disposition_reason}" if row.disposition_reason else "")
+        ]
+        if row.is_corrected:
+            disposition_parts.append(
+                "割り当て訂正済み — 下記は有効な割り当てです"
+                "（元の測定データは変更されていません）。"
+            )
+        if not row.is_normally_eligible:
+            disposition_parts.append(
+                "この測定は比較・分析の通常対象から除外されています。"
+            )
+        self.disposition_label.setText("\n".join(disposition_parts))
+        attachments = self.controller.list_source_attachments(row.measurement_id)
+        self.attachments_label.setText(
+            "ソース添付: "
+            + "、".join(
+                f"{_attachment_kind_label(a.kind)} {a.filename}"
+                for a in attachments
+            )
+            if attachments
+            else "ソース添付: なし"
+        )
+        self.disposition_apply_button.setEnabled(True)
+        self.correct_button.setEnabled(True)
+        self.attach_button.setEnabled(True)
+
+        self._refresh_target_curve_choices()
+        self._refresh_spatial(row)
+        self._refresh_quality_plot()
+
+    def _selected_quality_view(self) -> MeasurementView | None:
+        row_index = self.quality_table.currentRow()
+        if not (0 <= row_index < len(self._quality_views)):
+            return None
+        return self._quality_views[row_index]
+
+    def _refresh_quality_plot(self) -> None:
+        """Redraw the FR analysis view: stored trace, optional deterministic
+        display smoothing, target-curve overlay, and stored phase (#489, #503).
+        Never mutates the persisted dataset."""
+        row = self._selected_quality_view()
         self.quality_plot.clear()
-        if row.dataset_id is None:
+        self.phase_plot.clear()
+        if row is None or row.dataset_id is None:
+            self.provenance_label.setText("")
+            self.phase_state_label.setText("")
             return
         dataset = self.controller.dataset(row.dataset_id)
-        trace = (
-            DARK_THEME.scientific.predicted
-            if row.evidence_type == "predicted"
-            else DARK_THEME.scientific.measured
+        summary = processing_summary(dataset)
+        self.provenance_label.setText(
+            f"処理情報: {trace_label(dataset, self.quality_smoothing_combo.currentData())}"
+            f" · {summary}"
         )
-        style = (
-            Qt.PenStyle.DashLine
-            if row.evidence_type == "predicted"
-            else Qt.PenStyle.SolidLine
+
+        fraction = self.quality_smoothing_combo.currentData()
+        trace = _trace_color(row)
+        if row.evidence_type == "predicted":
+            style = Qt.PenStyle.DashLine
+        else:
+            style = Qt.PenStyle.SolidLine
+        if isinstance(fraction, int) and fraction:
+            derived = smoothed_level_trace(dataset, fraction)
+            # The exact stored samples stay visible underneath; the smoothed
+            # view is a derived overlay, clearly labelled as such.
+            self.quality_plot.plot(
+                dataset.frequency_hz,
+                dataset.level_db,
+                pen=pg.mkPen(trace.hex, width=1, style=Qt.PenStyle.DotLine),
+                name="保存データ",
+            )
+            self.quality_plot.plot(
+                derived.frequency_hz,
+                derived.level_db,
+                pen=pg.mkPen(trace.hex, width=2, style=style),
+                name=trace_label(dataset, fraction),
+            )
+        else:
+            self.quality_plot.plot(
+                dataset.frequency_hz,
+                dataset.level_db,
+                pen=pg.mkPen(trace.hex, width=2, style=style),
+                name="保存データ",
+            )
+        target = self.quality_target_combo.currentData()
+        if target is not None:
+            # Overlay drawn at declared absolute levels — no renormalization
+            # is ever applied silently to either trace.
+            self.quality_plot.plot(
+                [point.frequency_hz for point in target.points],
+                [point.level_db for point in target.points],
+                pen=pg.mkPen(
+                    DARK_THEME.semantic.warning.hex,
+                    width=2,
+                    style=Qt.PenStyle.DashLine,
+                ),
+                name=f"ターゲット（{target.normalization.method}）",
+            )
+
+        # Stored phase response — an independent axis from common timing.
+        trace_phase = phase_trace(dataset, unwrap=self.phase_unwrap_check.isChecked())
+        timing = _capability_decision_label(row.common_timing_capability)
+        if trace_phase is None:
+            self.phase_state_label.setText(
+                f"{_phase_label(row.phase_status)} · 共通タイミング: {timing}"
+            )
+            self.phase_plot.setVisible(False)
+            return
+        self.phase_plot.setVisible(True)
+        self.phase_state_label.setText(
+            f"{_phase_label(row.phase_status)} · 共通タイミング: {timing} — "
+            "この位相表示だけでは測定間の共通時間基準は成立しません"
         )
-        self.quality_plot.plot(
-            dataset.frequency_hz,
-            dataset.level_db,
+        self.phase_plot.plot(
+            trace_phase.frequency_hz,
+            trace_phase.phase_deg,
             pen=pg.mkPen(trace.hex, width=2, style=style),
-            name=_evidence_label(row.evidence_type),
+            name=(
+                "位相（アンラップ表示）"
+                if trace_phase.unwrapped
+                else "位相（保存値）"
+            ),
         )
+
+    def _refresh_target_curve_choices(self) -> None:
+        selected_index = self.quality_target_combo.currentIndex()
+        self.quality_target_combo.blockSignals(True)
+        self.quality_target_combo.clear()
+        self.quality_target_combo.addItem("オーバーレイなし", None)
+        try:
+            curves = self.controller.target_curves()
+        except Exception:
+            curves = ()
+        for plan_id, curve in curves:
+            self.quality_target_combo.addItem(
+                f"{plan_id} · {curve.normalization.method}", curve
+            )
+        if selected_index > 0 and selected_index < self.quality_target_combo.count():
+            self.quality_target_combo.setCurrentIndex(selected_index)
+        self.quality_target_combo.blockSignals(False)
+
+    def _refresh_spatial(self, row: MeasurementView) -> None:
+        try:
+            self._spatial_context = self.controller.spatial_context(row.measurement_id)
+        except Exception:
+            self._spatial_context = None
+        context = self._spatial_context
+        if context is None or context.bound_revision is None:
+            self.spatial_summary.setText("この測定の部屋コンテキストはありません")
+            self.spatial_fallback_label.setText("")
+            self.open_bound_room_button.setEnabled(False)
+            return
+        self.open_bound_room_button.setEnabled(True)
+        bound = context.bound_revision
+        lines = [
+            f"測定時の部屋: {bound.created_at_utc}"
+            f"（{len(bound.document.entities)} エンティティ）"
+            + (" — 現在の部屋と一致" if context.bound_is_current else " — 履歴上の配置"),
+        ]
+        if context.measurement_position is not None:
+            p = context.measurement_position
+            lines.append(
+                f"測定位置: ({p.x_m:.2f}, {p.y_m:.2f}, {p.z_m:.2f}) m"
+            )
+        if context.measurement_direction is not None:
+            d = context.measurement_direction
+            lines.append(
+                f"測定方向: ({d[0]:.2f}, {d[1]:.2f}, {d[2]:.2f})"
+            )
+        if context.room_changed:
+            lines.append("現在の部屋との差分:")
+            for change in context.changes:
+                extra = f" +{change.distance_m:.2f}m" if change.distance_m else ""
+                lines.append(
+                    f"  {_spatial_change_label(change.kind)}: {change.name}{extra}"
+                )
+        else:
+            lines.append("現在の部屋と同じ配置です。")
+        self.spatial_summary.setText("\n".join(lines))
+        self._render_spatial()
+
+    def _render_spatial(self) -> None:
+        context = self._spatial_context
+        if context is None or context.bound_revision is None:
+            return
+        mode = self.spatial_mode_combo.currentData()
+        self.spatial_fallback_label.setText("")
+        if self._spatial_viewport is None and not self._spatial_viewport_failed:
+            try:
+                from .room_viewport import RoomOverlayState, RoomViewport3D
+
+                self._spatial_viewport = RoomViewport3D(self)
+                self._spatial_viewport.setMinimumHeight(320)
+                self._spatial_overlays = RoomOverlayState(grid=True, labels=True)
+                self.spatial_viewport_holder.addWidget(self._spatial_viewport)
+            except Exception:
+                self._spatial_viewport_failed = True
+                self.spatial_fallback_label.setText(
+                    "この環境では3D表示を利用できません。"
+                    "上の差分一覧で確認してください。"
+                )
+                return
+        if self._spatial_viewport is None:
+            return
+        try:
+            if mode == "diff" and context.current_revision is not None:
+                # Current scene is authority; measurement-time entities render
+                # as wireframe ghosts so stale vs current stays visible.
+                self._spatial_viewport.render_document(
+                    context.current_revision.document,
+                    selected_id=None,
+                    overlays=self._spatial_overlays,
+                    reset_camera=True,
+                )
+                self._spatial_viewport.render_proposed_entities(
+                    context.bound_revision.document.entities,
+                    selected_id=context.effective_entity_id,
+                    label="測定時の配置 ghost · current Sceneは変更しません",
+                )
+            else:
+                self._spatial_viewport.render_document(
+                    context.bound_revision.document,
+                    selected_id=context.effective_entity_id,
+                    overlays=self._spatial_overlays,
+                    reset_camera=True,
+                )
+            self._spatial_viewport.render_measurement_overlay(
+                position=context.measurement_position,
+                direction=context.measurement_direction,
+            )
+        except Exception:
+            self._spatial_viewport_failed = True
+            self.spatial_fallback_label.setText(
+                "この環境では3D表示を利用できません。上の差分一覧で確認してください。"
+            )
+
+    def _open_bound_room(self) -> None:
+        # #485 の履歴ワークスペースが存在しないため、測定時の部屋をこのページ内の
+        # 3Dビューで読み取り専用に開く。
+        index = self.spatial_mode_combo.findData("bound")
+        if index >= 0:
+            self.spatial_mode_combo.setCurrentIndex(index)
+
+    def _apply_disposition(self) -> None:
+        row = self._selected_quality_view()
+        if row is None:
+            return
+        disposition = str(self.disposition_combo.currentData())
+        reason, ok = QInputDialog.getText(
+            self,
+            "測定の状態を記録",
+            "この状態を記録する理由（監査ログに残ります）:",
+        )
+        if not ok or not reason.strip():
+            self._set_notice("状態を記録する理由が必要です", SemanticState.WARNING)
+            return
+        try:
+            self.controller.set_disposition(
+                row.measurement_id, disposition, reason.strip()
+            )
+        except Exception as exc:
+            self._set_notice(f"状態を記録できませんでした · {exc}", SemanticState.ERROR)
+            return
+        self._set_notice("測定の状態を記録しました", SemanticState.SUCCESS)
+        self.refresh()
+
+    def _start_correction(self) -> None:
+        row = self._selected_quality_view()
+        if row is None:
+            return
+        self._correction_target_id = row.measurement_id
+        self._set_notice(
+            "「割り当て」で訂正する項目を直して保存してください。"
+            "元の測定データは変更されません。",
+            None,
+        )
+        self.refresh()
+
+    def _attach_to_measurement(self) -> None:
+        row = self._selected_quality_view()
+        if row is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "添付ファイルを選択", "", "All files (*)"
+        )
+        if not path:
+            return
+        kind = str(self.quality_attach_kind_combo.currentData())
+        try:
+            file_path = Path(path)
+            raw = read_file_bounded(
+                file_path,
+                MAX_NATIVE_REW_TEXT_FILE_BYTES,
+                label="source attachment",
+            )
+            self.controller.save_source_attachment(
+                row.measurement_id,
+                kind=kind,
+                filename=file_path.name,
+                raw_bytes=raw,
+            )
+        except Exception as exc:
+            self._set_notice(f"添付に失敗しました · {exc}", SemanticState.ERROR)
+            return
+        self._set_notice("ソース添付を保存しました", SemanticState.SUCCESS)
+        self.refresh()
         self.quality_plot.enableAutoRange()
         self._update_context_label()
 
@@ -1694,6 +2627,7 @@ class MeasurementPageWorkspace(QWidget):
             return
         row = self._quality_views[row_index]
         self._retake_source_id = row.measurement_id
+        self._correction_target_id = None
         self._set_notice(
             f"{row.target_name} の再測定です。REWから再取得し、"
             "「割り当て」で同じ測定点・入力役割・音源を選んでください。",
@@ -1706,17 +2640,30 @@ class MeasurementPageWorkspace(QWidget):
 
     def _build_comparison_page(self) -> None:
         page, host, layout = _page(
-            "予測と実測を比較する",
-            "保存済みの実測と予測の周波数応答を比較します。",
+            "データセットを比較する",
+            "保存済みの周波数応答を A/B で比較します。実測・予測・シート間・前後比較に使えます。",
         )
         page.setObjectName("measurementComparisonPage")
 
         setup_card, setup_layout = _card("比較条件", host)
         form = QFormLayout()
+        self.preset_combo = QComboBox(setup_card)
+        for label, value in (
+            ("任意 A/B", "any"),
+            ("実測 vs 予測", "measured_vs_predicted"),
+            ("実測 vs 実測（シート間・前後）", "measured_pair"),
+            ("再測定系譜のみ", "retake_lineage"),
+        ):
+            self.preset_combo.addItem(label, value)
+        self.preset_combo.currentIndexChanged.connect(
+            lambda _i: self._refresh_comparison_choices()
+        )
+        form.addRow("プリセット", self.preset_combo)
+
         self.measured_combo = QComboBox(setup_card)
         self.predicted_combo = QComboBox(setup_card)
-        form.addRow("実測", self.measured_combo)
-        form.addRow("予測", self.predicted_combo)
+        form.addRow("データセット A", self.measured_combo)
+        form.addRow("データセット B", self.predicted_combo)
 
         # One coherent band control (#586): low–high range plus presets
         # rather than two disconnected form rows.
@@ -1746,7 +2693,79 @@ class MeasurementPageWorkspace(QWidget):
         band_row.addWidget(band_lf)
         band_row.addStretch(1)
         form.addRow("比較帯域", band_widget)
+
+        ref_row = QHBoxLayout()
+        self.ref_band_check = QCheckBox("参照帯域でレベル合わせ", setup_card)
+        ref_row.addWidget(self.ref_band_check)
+        self.ref_low = QDoubleSpinBox(setup_card)
+        self.ref_low.setRange(1.0, 100000.0)
+        self.ref_low.setValue(20.0)
+        self.ref_low.setSuffix(" Hz")
+        self.ref_high = QDoubleSpinBox(setup_card)
+        self.ref_high.setRange(1.0, 100000.0)
+        self.ref_high.setValue(120.0)
+        self.ref_high.setSuffix(" Hz")
+        ref_row.addWidget(self.ref_low)
+        ref_row.addWidget(self.ref_high)
+        ref_row.addStretch(1)
+        form.addRow("レベル参照", ref_row)
+
         setup_layout.addLayout(form)
+
+        exclude_row = QHBoxLayout()
+        exclude_row.addWidget(QLabel("除外帯域:", setup_card))
+        self.excluded_low = QDoubleSpinBox(setup_card)
+        self.excluded_low.setRange(1.0, 100000.0)
+        self.excluded_low.setValue(45.0)
+        self.excluded_low.setSuffix(" Hz")
+        self.excluded_high = QDoubleSpinBox(setup_card)
+        self.excluded_high.setRange(1.0, 100000.0)
+        self.excluded_high.setValue(65.0)
+        self.excluded_high.setSuffix(" Hz")
+        exclude_row.addWidget(self.excluded_low)
+        exclude_row.addWidget(self.excluded_high)
+        self.add_exclusion_button = QPushButton("追加", setup_card)
+        self.add_exclusion_button.clicked.connect(self._add_exclusion_band)
+        exclude_row.addWidget(self.add_exclusion_button)
+        self.remove_exclusion_button = QPushButton("選択を削除", setup_card)
+        self.remove_exclusion_button.clicked.connect(self._remove_exclusion_band)
+        exclude_row.addWidget(self.remove_exclusion_button)
+        exclude_row.addStretch(1)
+        setup_layout.addLayout(exclude_row)
+
+        self.excluded_table = QTableWidget(0, 2, setup_card)
+        self.excluded_table.setHorizontalHeaderLabels(["下限", "上限"])
+        self.excluded_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.excluded_table.verticalHeader().setVisible(False)
+        self.excluded_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        self.excluded_table.setMaximumHeight(110)
+        setup_layout.addWidget(self.excluded_table)
+
+        smooth_row = QHBoxLayout()
+        smooth_row.addWidget(QLabel("表示スムージング:", setup_card))
+        self.smooth_a_combo = QComboBox(setup_card)
+        self.smooth_b_combo = QComboBox(setup_card)
+        for label, fraction in DISPLAY_SMOOTHING_FRACTIONS:
+            self.smooth_a_combo.addItem(f"A: {label}", fraction)
+            self.smooth_b_combo.addItem(f"B: {label}", fraction)
+        self.smooth_a_combo.currentIndexChanged.connect(
+            lambda _i: self._preview_comparison_pair()
+        )
+        self.smooth_b_combo.currentIndexChanged.connect(
+            lambda _i: self._preview_comparison_pair()
+        )
+        smooth_row.addWidget(self.smooth_a_combo)
+        smooth_row.addWidget(self.smooth_b_combo)
+        smooth_row.addStretch(1)
+        setup_layout.addLayout(smooth_row)
+
+        self.mismatch_label = QLabel("", setup_card)
+        self.mismatch_label.setWordWrap(True)
+        setup_layout.addWidget(self.mismatch_label)
 
         compare_row = QHBoxLayout()
         self.comparison_availability = QLabel("", setup_card)
@@ -1771,9 +2790,17 @@ class MeasurementPageWorkspace(QWidget):
         self.difference_plot = pg.PlotWidget(plot_card)
         self.difference_plot.setMinimumHeight(180)
         self.difference_plot.setLabel("bottom", "周波数", units="Hz")
-        self.difference_plot.setLabel("left", "実測 − 予測", units="dB")
+        self.difference_plot.setLabel("left", "A − B", units="dB")
         _set_plot_appearance(self.difference_plot)
         plot_layout.addWidget(self.difference_plot)
+
+        self.phase_compare_plot = pg.PlotWidget(plot_card)
+        self.phase_compare_plot.setMinimumHeight(170)
+        self.phase_compare_plot.setLabel("bottom", "周波数", units="Hz")
+        self.phase_compare_plot.setLabel("left", "位相", units="deg")
+        _set_plot_appearance(self.phase_compare_plot)
+        self.phase_compare_plot.addLegend()
+        plot_layout.addWidget(self.phase_compare_plot)
         layout.addWidget(plot_card)
 
         result_card, result_layout = _card("比較結果", host)
@@ -1800,9 +2827,9 @@ class MeasurementPageWorkspace(QWidget):
         self.comparison_result.setWordWrap(True)
         result_layout.addWidget(self.comparison_result)
 
-        self.comparison_history = QTableWidget(0, 4, result_card)
+        self.comparison_history = QTableWidget(0, 7, result_card)
         self.comparison_history.setHorizontalHeaderLabels(
-            ["作成時刻", "帯域", "RMS差", "形状RMS"]
+            ["作成時刻", "帯域", "参照帯域", "除外", "RMS差", "レベル差", "形状RMS"]
         )
         self.comparison_history.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
@@ -1818,7 +2845,7 @@ class MeasurementPageWorkspace(QWidget):
         self.pages.addWidget(page)
 
         self.measured_combo.currentIndexChanged.connect(
-            self._comparison_selection_changed
+            self._dataset_a_changed
         )
         self.predicted_combo.currentIndexChanged.connect(
             self._comparison_selection_changed
@@ -1827,32 +2854,100 @@ class MeasurementPageWorkspace(QWidget):
             self._history_selection_changed
         )
 
-    def _refresh_comparison_choices(self) -> None:
-        measured = self.controller.comparison_candidates("measured")
-        predicted = self.controller.comparison_candidates("predicted")
-        self._fill_dataset_combo(self.measured_combo, measured)
-        self._fill_dataset_combo(self.predicted_combo, predicted)
+    def _exclusion_bands(self) -> tuple[tuple[float, float], ...]:
+        bands: list[tuple[float, float]] = []
+        for row in range(self.excluded_table.rowCount()):
+            low = self.excluded_table.item(row, 0)
+            high = self.excluded_table.item(row, 1)
+            if low is None or high is None:
+                continue
+            bands.append((float(low.text()), float(high.text())))
+        return tuple(bands)
 
-        ready = bool(measured and predicted)
+    def _add_exclusion_band(self) -> None:
+        low = float(self.excluded_low.value())
+        high = float(self.excluded_high.value())
+        if not (low > 0.0 and high > low):
+            self._set_notice(
+                "除外帯域は 下限 < 上限 で指定してください。",
+                SemanticState.WARNING,
+            )
+            return
+        row = self.excluded_table.rowCount()
+        self.excluded_table.insertRow(row)
+        self.excluded_table.setItem(row, 0, QTableWidgetItem(f"{low:.3f}"))
+        self.excluded_table.setItem(row, 1, QTableWidgetItem(f"{high:.3f}"))
+
+    def _remove_exclusion_band(self) -> None:
+        rows = sorted(
+            {item.row() for item in self.excluded_table.selectedItems()},
+            reverse=True,
+        )
+        for row in rows:
+            self.excluded_table.removeRow(row)
+
+    def _comparison_candidate_groups(
+        self,
+    ) -> tuple[tuple[MeasurementView, ...], tuple[MeasurementView, ...]]:
+        """A/B candidate lists for the selected preset (#483).
+
+        ``any`` exposes every normally-eligible dataset on both sides;
+        ``measured_vs_predicted`` keeps the classic measured-A/predicted-B
+        split; ``measured_pair`` and ``retake_lineage`` both list measured
+        datasets on each side (seat-to-seat / before-after / retake).
+        """
+        preset = str(self.preset_combo.currentData())
+        all_candidates = self.controller.comparison_candidates()
+        if preset == "measured_vs_predicted":
+            return (
+                self.controller.comparison_candidates("measured"),
+                self.controller.comparison_candidates("predicted"),
+            )
+        if preset == "measured_pair":
+            measured = self.controller.comparison_candidates("measured")
+            return measured, measured
+        if preset == "retake_lineage":
+            lineage = tuple(
+                row
+                for row in all_candidates
+                if row.supersedes_measurement_id is not None
+                or row.superseded_by_measurement_id is not None
+            )
+            return lineage, lineage
+        return all_candidates, all_candidates
+
+    def _refresh_comparison_choices(self) -> None:
+        candidates_a, candidates_b = self._comparison_candidate_groups()
+        self._fill_dataset_combo(self.measured_combo, candidates_a, "A")
+        self._fill_dataset_combo(
+            self.predicted_combo,
+            candidates_b,
+            "B",
+            exclude_dataset_id=self.measured_combo.currentData(),
+        )
+
+        a_id = self.measured_combo.currentData()
+        b_id = self.predicted_combo.currentData()
+        ready = bool(
+            isinstance(a_id, str)
+            and isinstance(b_id, str)
+            and a_id
+            and b_id
+        )
         self.compare_button.setEnabled(ready)
         if ready:
             self.comparison_availability.setText(
-                "実測は実線、予測は破線で表示します。比較結果は部屋状態と測定データに紐付けて保存します。"
+                "比較結果は部屋状態と測定データに紐付けて保存します。"
             )
             set_semantic_state(self.comparison_availability, None)
-        elif not measured and not predicted:
+        elif not candidates_a and not candidates_b:
             self.comparison_availability.setText(
-                "実測と予測の周波数応答がありません。先にREWを読み込み、証拠種別を割り当ててください。"
-            )
-            set_semantic_state(self.comparison_availability, SemanticState.UNSUPPORTED)
-        elif not predicted:
-            self.comparison_availability.setText(
-                "予測の周波数応答がありません。予測を保存すると比較できます。"
+                "比較できる周波数応答がありません。先にREWを読み込み、証拠種別を割り当ててください。"
             )
             set_semantic_state(self.comparison_availability, SemanticState.UNSUPPORTED)
         else:
             self.comparison_availability.setText(
-                "実測の周波数応答がありません。REW測定を読み込むと比較できます。"
+                "A と B にデータセットを選択してください。"
             )
             set_semantic_state(self.comparison_availability, SemanticState.UNSUPPORTED)
 
@@ -1863,10 +2958,30 @@ class MeasurementPageWorkspace(QWidget):
         for row_index, comparison in enumerate(comparisons):
             rms = "—" if comparison.rms_difference_db is None else f"{comparison.rms_difference_db:.3f} dB"
             shape = "—" if comparison.shape_rms_db is None else f"{comparison.shape_rms_db:.3f} dB"
+            offset = (
+                "—"
+                if comparison.level_offset_db is None
+                else f"{comparison.level_offset_db:+.3f} dB"
+            )
+            ref = (
+                "なし"
+                if comparison.reference_band_hz is None
+                else _format_band(comparison.reference_band_hz)
+            )
+            excluded = (
+                "なし"
+                if not comparison.excluded_bands
+                else " / ".join(
+                    _format_band(band) for band in comparison.excluded_bands
+                )
+            )
             values = (
                 comparison.created_at,
                 _format_band(comparison.actual_band_hz),
+                ref,
+                excluded,
                 rms,
+                offset,
                 shape,
             )
             for column, value in enumerate(values):
@@ -1876,6 +2991,8 @@ class MeasurementPageWorkspace(QWidget):
     def _fill_dataset_combo(
         combo: QComboBox,
         rows: tuple[MeasurementView, ...],
+        side: str,
+        exclude_dataset_id: str | None = None,
     ) -> None:
         previous = combo.currentData()
         combo.blockSignals(True)
@@ -1885,13 +3002,25 @@ class MeasurementPageWorkspace(QWidget):
                 continue
             scene = "現在" if row.scene_matches_current else "測定時配置"
             combo.addItem(
-                f"{_channel_role_label(row.channel_role)} · {row.target_name} · {scene}",
+                f"{_evidence_label(row.evidence_type)} · "
+                f"{_channel_role_label(row.effective_channel_role)} · "
+                f"{row.effective_target_name} · {scene}",
                 row.dataset_id,
             )
-        if previous is not None:
+        if previous is not None and previous != exclude_dataset_id:
             index = combo.findData(previous)
             if index >= 0:
                 combo.setCurrentIndex(index)
+        if (
+            exclude_dataset_id is not None
+            and combo.currentData() == exclude_dataset_id
+        ):
+            for index in range(combo.count()):
+                if combo.itemData(index) != exclude_dataset_id:
+                    combo.setCurrentIndex(index)
+                    break
+            else:
+                combo.setCurrentIndex(-1)
         combo.blockSignals(False)
 
     def _history_selection_changed(self) -> None:
@@ -1905,6 +3034,18 @@ class MeasurementPageWorkspace(QWidget):
         self.comparison_state_label.setText("保存済み比較")
         self._show_comparison(saved)
 
+    def _dataset_a_changed(self) -> None:
+        a_id = self.measured_combo.currentData()
+        if (
+            isinstance(a_id, str)
+            and self.predicted_combo.currentData() == a_id
+        ):
+            for index in range(self.predicted_combo.count()):
+                if self.predicted_combo.itemData(index) != a_id:
+                    self.predicted_combo.setCurrentIndex(index)
+                    break
+        self._comparison_selection_changed()
+
     def _comparison_selection_changed(self) -> None:
         # Selector-driven preview is visibly distinct from a persisted
         # comparison (#586): preview never poses as saved evidence.
@@ -1912,49 +3053,115 @@ class MeasurementPageWorkspace(QWidget):
         self.comparison_state_label.setText("プレビュー（未保存）")
         self._preview_comparison_pair()
 
+    def _plot_dataset_trace(
+        self,
+        dataset_id: str,
+        side: str,
+        smoothing_fraction: int,
+        color_hex: str,
+        style: Qt.PenStyle,
+    ) -> None:
+        dataset = self.controller.dataset(dataset_id)
+        label = f"{side}: {trace_label(dataset, smoothing_fraction)}"
+        if smoothing_fraction:
+            derived = smoothed_level_trace(dataset, smoothing_fraction)
+            self.comparison_plot.plot(
+                dataset.frequency_hz,
+                dataset.level_db,
+                pen=pg.mkPen(color_hex, width=1, style=Qt.PenStyle.DotLine),
+                name=f"{side}: 保存データ",
+            )
+            self.comparison_plot.plot(
+                derived.frequency_hz,
+                derived.level_db,
+                pen=pg.mkPen(color_hex, width=2, style=style),
+                name=label,
+            )
+        else:
+            self.comparison_plot.plot(
+                dataset.frequency_hz,
+                dataset.level_db,
+                pen=pg.mkPen(color_hex, width=2, style=style),
+                name=label,
+            )
+
     def _preview_comparison_pair(self) -> None:
         self.comparison_plot.clear()
-        measured_id = self.measured_combo.currentData()
-        predicted_id = self.predicted_combo.currentData()
-        if isinstance(measured_id, str) and measured_id:
-            measured = self.controller.dataset(measured_id)
-            self.comparison_plot.plot(
-                measured.frequency_hz,
-                measured.level_db,
-                pen=pg.mkPen(
-                    DARK_THEME.scientific.measured.hex,
-                    width=2,
-                    style=Qt.PenStyle.SolidLine,
-                ),
-                name="実測",
+        self.phase_compare_plot.clear()
+        self.phase_compare_plot.setVisible(False)
+        a_id = self.measured_combo.currentData()
+        b_id = self.predicted_combo.currentData()
+        tokens = DARK_THEME.scientific
+        if isinstance(a_id, str) and a_id:
+            self._plot_dataset_trace(
+                a_id, "A", int(self.smooth_a_combo.currentData()),
+                tokens.primary_trace.hex, Qt.PenStyle.SolidLine,
             )
-        if isinstance(predicted_id, str) and predicted_id:
-            predicted = self.controller.dataset(predicted_id)
-            self.comparison_plot.plot(
-                predicted.frequency_hz,
-                predicted.level_db,
-                pen=pg.mkPen(
-                    DARK_THEME.scientific.predicted.hex,
-                    width=2,
-                    style=Qt.PenStyle.DashLine,
-                ),
-                name="予測",
+        if isinstance(b_id, str) and b_id:
+            self._plot_dataset_trace(
+                b_id, "B", int(self.smooth_b_combo.currentData()),
+                tokens.secondary_trace.hex, Qt.PenStyle.DashLine,
             )
-        if measured_id or predicted_id:
+        if a_id or b_id:
             self.comparison_plot.enableAutoRange()
 
+        # Stored phase for eligible A/B (#489): phase availability stays a
+        # separate axis from common timing and is never implied by it.
+        phases_plotted = 0
+        for dataset_id, side, color_hex, style in (
+            (a_id, "A", tokens.primary_trace.hex, Qt.PenStyle.SolidLine),
+            (b_id, "B", tokens.secondary_trace.hex, Qt.PenStyle.DashLine),
+        ):
+            if not (isinstance(dataset_id, str) and dataset_id):
+                continue
+            trace = phase_trace(self.controller.dataset(dataset_id))
+            if trace is None:
+                continue
+            self.phase_compare_plot.plot(
+                trace.frequency_hz,
+                trace.phase_deg,
+                pen=pg.mkPen(color_hex, width=2, style=style),
+                name=f"{side}: 位相",
+            )
+            phases_plotted += 1
+        self.phase_compare_plot.setVisible(phases_plotted > 0)
+
+        # Semantic-mismatch advisory before interpreting the result (#483).
+        if isinstance(a_id, str) and isinstance(b_id, str) and a_id and b_id:
+            codes = self.controller.comparison_mismatches(a_id, b_id)
+            self.mismatch_label.setText(
+                "注意: " + "、".join(_mismatch_label(code) for code in codes)
+                if codes
+                else ""
+            )
+        else:
+            self.mismatch_label.setText("")
+
     def _run_comparison(self) -> None:
-        measured_id = self.measured_combo.currentData()
-        predicted_id = self.predicted_combo.currentData()
-        if not isinstance(measured_id, str) or not isinstance(predicted_id, str):
-            self._set_notice("実測と予測を一つずつ選択してください。", SemanticState.WARNING)
+        a_id = self.measured_combo.currentData()
+        b_id = self.predicted_combo.currentData()
+        if not isinstance(a_id, str) or not isinstance(b_id, str) or not a_id or not b_id:
+            self._set_notice("A と B にデータセットを選択してください。", SemanticState.WARNING)
             return
+        reference_band = None
+        if self.ref_band_check.isChecked():
+            low = float(self.ref_low.value())
+            high = float(self.ref_high.value())
+            if not (low > 0.0 and high > low):
+                self._set_notice(
+                    "参照帯域は 下限 < 上限 で指定してください。",
+                    SemanticState.WARNING,
+                )
+                return
+            reference_band = (low, high)
         try:
             saved = self.controller.compare_datasets(
-                measured_id,
-                predicted_id,
+                a_id,
+                b_id,
                 low_hz=float(self.compare_low.value()),
                 high_hz=float(self.compare_high.value()),
+                reference_band_hz=reference_band,
+                excluded_bands=self._exclusion_bands(),
             )
         except Exception as exc:
             self._set_notice(f"比較できませんでした · {exc}", SemanticState.ERROR)
@@ -1972,6 +3179,19 @@ class MeasurementPageWorkspace(QWidget):
         rms = "—" if saved.rms_difference_db is None else f"{saved.rms_difference_db:.3f} dB"
         mean = "—" if saved.mean_difference_db is None else f"{saved.mean_difference_db:.3f} dB"
         shape = "—" if saved.shape_rms_db is None else f"{saved.shape_rms_db:.3f} dB"
+        offset = (
+            "利用不可"
+            if saved.reference_band_hz is not None and saved.level_offset_db is None
+            else ("—" if saved.level_offset_db is None else f"{saved.level_offset_db:+.3f} dB")
+        )
+        spec_lines = [f"実帯域 {_format_band(saved.actual_band_hz)}"]
+        if saved.reference_band_hz is not None:
+            spec_lines.append(f"参照帯域 {_format_band(saved.reference_band_hz)}")
+        if saved.excluded_bands:
+            spec_lines.append(
+                "除外帯域 "
+                + " / ".join(_format_band(band) for band in saved.excluded_bands)
+            )
         metrics = (
             ("RMS差", rms),
             ("形状RMS", shape),
@@ -1988,7 +3208,9 @@ class MeasurementPageWorkspace(QWidget):
             )
             self.comparison_metrics.setItem(row_index, 1, value_item)
         self.comparison_result.setText(
-            f"実測 − 予測 · {saved.comparison_id}"
+            f"有効点 {saved.valid_points:,} / {saved.total_grid_points:,} · "
+            f"平均差 {mean} · RMS差 {rms} · レベル差 {offset} · 形状RMS {shape}\n"
+            + " · ".join(spec_lines)
         )
         self.difference_plot.clear()
         self.difference_plot.plot(
@@ -1999,7 +3221,7 @@ class MeasurementPageWorkspace(QWidget):
                 width=2,
                 style=Qt.PenStyle.DotLine,
             ),
-            name="実測 − 予測",
+            name="A − B",
         )
         self.difference_plot.enableAutoRange()
         self._update_context_label()

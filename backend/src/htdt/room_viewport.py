@@ -573,11 +573,52 @@ class RoomViewport3D(QFrame):
             self.fit_scene()
         self.plotter.render()
 
+    def render_measurement_overlay(
+        self,
+        *,
+        position: Position3 | None,
+        direction: tuple[float, float, float] | None,
+    ) -> None:
+        """Measurement-point marker and optional direction ray (#487).
+
+        The marker is drawn at the acoustic reference position stored on the
+        measurement's bound scene revision; the direction ray only renders
+        when the measurement recorded an explicit direction — unknown
+        direction is never visualized as a guess.
+        """
+        if position is None:
+            return
+        self.plotter.add_mesh(
+            pv.Sphere(radius=0.06, center=domain_to_render(position)),
+            color=DARK_THEME.semantic.warning.hex,
+            opacity=0.95,
+            pickable=False,
+            name="measurement-point",
+            render=False,
+        )
+        if direction is not None:
+            end = Position3(
+                x_m=position.x_m + direction[0],
+                y_m=position.y_m + direction[1],
+                z_m=position.z_m + direction[2],
+            )
+            self.plotter.add_mesh(
+                pv.Line(domain_to_render(position), domain_to_render(end)),
+                color=DARK_THEME.accent.primary.hex,
+                line_width=3,
+                opacity=0.95,
+                pickable=False,
+                name="measurement-direction",
+                render=False,
+            )
+        self.plotter.render()
+
     def render_proposed_entities(
         self,
         entities: tuple[SceneEntity, ...],
         *,
         selected_id: str | None = None,
+        label: str = "提案 ghost · 未設置 / current Sceneは変更しません",
     ) -> None:
         """Overlay proposal ghosts without changing current SceneDocument truth."""
         self._actor_proposed_entity_ids.clear()
@@ -596,7 +637,7 @@ class RoomViewport3D(QFrame):
             )
             self._actor_proposed_entity_ids[id(actor)] = entity.entity_id
         self.plotter.add_text(
-            "提案 ghost · 未設置 / current Sceneは変更しません",
+            label,
             name="proposal-ghost-label",
             position="upper_left",
             font_size=9,

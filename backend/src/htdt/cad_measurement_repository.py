@@ -18,6 +18,7 @@ from .cad_measurement_ir import (
 )
 from .cad_measurement_models import (
     CadFrequencyResponseDataset,
+    CadMeasurementAttachment,
     CadMeasurementComparison,
     CadMeasurementRecord,
     build_measurement_comparison,
@@ -218,6 +219,22 @@ class CadMeasurementRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_cad_impulse_responses_measurement
                     ON cad_impulse_responses(measurement_id);
+                CREATE TABLE IF NOT EXISTS cad_measurement_attachments (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    attachment_id TEXT NOT NULL UNIQUE,
+                    document_id TEXT NOT NULL,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    kind TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
+                    size_bytes INTEGER NOT NULL,
+                    note TEXT,
+                    created_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_cad_measurement_attachments_measurement_seq
+                    ON cad_measurement_attachments(measurement_id, seq ASC);
+                CREATE INDEX IF NOT EXISTS idx_cad_measurement_attachments_document_seq
+                    ON cad_measurement_attachments(document_id, seq ASC);
                 '''
             )
             # Import-transformation binding migration: rows written before the
@@ -421,6 +438,137 @@ class CadMeasurementRepository:
                 (document_id,),
             ).fetchall()
         return tuple(self._row_to_measurement(row) for row in rows)
+
+    def measurement_id_by_source_sha256(
+        self,
+        document_id: str,
+        source_sha256: str,
+    ) -> str | None:
+        """First measurement whose bound dataset was imported from these bytes."""
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                '''SELECT d.measurement_id FROM cad_frequency_responses d
+                   JOIN cad_measurements m ON m.measurement_id=d.measurement_id
+                   WHERE m.document_id=? AND d.source_sha256=?
+                   ORDER BY m.imported_at ASC, d.measurement_id''',
+                (document_id, source_sha256),
+            ).fetchone()
+        return None if row is None else str(row['measurement_id'])
+
+    def measurement_id_by_external_source(
+        self,
+        document_id: str,
+        external_source_id: str,
+    ) -> str | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                '''SELECT measurement_id FROM cad_measurements
+                   WHERE document_id=? AND external_source_id=?
+                   ORDER BY imported_at ASC, measurement_id''',
+                (document_id, external_source_id),
+            ).fetchone()
+        return None if row is None else str(row['measurement_id'])
+
+    def save_attachment(
+        self,
+        *,
+        measurement_id: str,
+        kind: str,
+        filename: str,
+        raw_bytes: bytes,
+        note: str | None = None,
+        attachment_id: str | None = None,
+        created_at_utc: str | None = None,
+    ) -> CadMeasurementAttachment:
+        """Install source bytes into the managed store and link them to a measurement.
+
+        The asset is registered in ``cad_measurement_assets`` — the same
+        manifest the native backup archives — so attached source artifacts
+        travel with project backups exactly like imported raw data.
+        """
+        record = self.get_measurement(measurement_id)
+        if record is None:
+            raise ValueError(f'unknown measurement: {measurement_id}')
+        digest = sha256(raw_bytes).hexdigest()
+        self._asset_store.ensure_installed(digest, raw_bytes)
+        attachment = CadMeasurementAttachment(
+            attachment_id=attachment_id or str(uuid4()),
+            document_id=record.document_id,
+            measurement_id=measurement_id,
+            kind=kind,
+            filename=filename,
+            sha256=digest,
+            size_bytes=len(raw_bytes),
+            note=note,
+            created_at_utc=created_at_utc or _utc_now(),
+        )
+        target = self._asset_path(digest)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            connection.execute(
+                '''INSERT OR IGNORE INTO cad_measurement_assets(
+                    sha256, filename, relative_path, size_bytes
+                ) VALUES (?, ?, ?, ?)''',
+                (digest, filename, str(target.relative_to(self.path.parent)), len(raw_bytes)),
+            )
+            connection.execute(
+                '''INSERT INTO cad_measurement_attachments(
+                    attachment_id, document_id, measurement_id, kind, filename,
+                    sha256, size_bytes, note, created_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    attachment.attachment_id,
+                    attachment.document_id,
+                    attachment.measurement_id,
+                    attachment.kind,
+                    attachment.filename,
+                    attachment.sha256,
+                    attachment.size_bytes,
+                    attachment.note,
+                    attachment.created_at_utc,
+                ),
+            )
+            connection.commit()
+        return attachment
+
+    def list_attachments(self, measurement_id: str) -> tuple[CadMeasurementAttachment, ...]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''SELECT * FROM cad_measurement_attachments
+                   WHERE measurement_id=? ORDER BY seq ASC''',
+                (measurement_id,),
+            ).fetchall()
+        return tuple(self._row_to_attachment(row) for row in rows)
+
+    def attachments_for_document(
+        self,
+        document_id: str,
+    ) -> tuple[CadMeasurementAttachment, ...]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''SELECT * FROM cad_measurement_attachments
+                   WHERE document_id=? ORDER BY seq ASC''',
+                (document_id,),
+            ).fetchall()
+        return tuple(self._row_to_attachment(row) for row in rows)
+
+    def read_attachment(self, attachment: CadMeasurementAttachment) -> bytes:
+        """Verified bytes for one persisted attachment."""
+        return self._asset_store.read_verified(attachment.sha256)
+
+    @staticmethod
+    def _row_to_attachment(row: sqlite3.Row) -> CadMeasurementAttachment:
+        return CadMeasurementAttachment(
+            attachment_id=str(row['attachment_id']),
+            document_id=str(row['document_id']),
+            measurement_id=str(row['measurement_id']),
+            kind=str(row['kind']),
+            filename=str(row['filename']),
+            sha256=str(row['sha256']),
+            size_bytes=int(row['size_bytes']),
+            note=None if row['note'] is None else str(row['note']),
+            created_at_utc=str(row['created_at_utc']),
+        )
 
     def source_revision(self, measurement_id: str) -> SceneRevision:
         record = self.get_measurement(measurement_id)

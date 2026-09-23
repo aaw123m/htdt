@@ -366,3 +366,27 @@ def replay_measurement_comparison(
         FrequencyResponse(dataset_a.frequency_hz, dataset_a.level_db),
         FrequencyResponse(dataset_b.frequency_hz, dataset_b.level_db),
     )
+
+
+class CadMeasurementAttachment(BaseModel):
+    """One raw source artifact linked to a measurement.
+
+    Bytes live in the content-addressed managed-asset store (which the native
+    backup sweeps wholesale); this row is the auditable association —
+    ``sha256`` pins the exact attached bytes.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    attachment_id: str = Field(min_length=1)
+    document_id: str = Field(min_length=1)
+    measurement_id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    filename: str = Field(min_length=1)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    size_bytes: int = Field(ge=0)
+    note: str | None = None
+    created_at_utc: str = Field(min_length=1)
+
+
+MEASUREMENT_ATTACHMENT_KINDS = ('mdat', 'calibration', 'notes', 'other')
