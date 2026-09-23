@@ -183,6 +183,8 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'navigation.optimization',
         'room.view.fit_selection',
         'room.view.fit_all',
+        'room.measure',
+        'room.view.history',
     }
     assert definitions['project.save'].mutates_managed_data is True
     assert definitions['edit.undo'].mutates_managed_data is True

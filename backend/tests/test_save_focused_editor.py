@@ -52,7 +52,10 @@ class FakeRoomViewport(QFrame):
         document,
         *,
         selected_id,
-        overlays,
+        selected_ids=(),
+        hidden_ids=frozenset(),
+        locked_ids=frozenset(),
+        overlays=None,
         reset_camera: bool = False,
     ) -> None:
         pass

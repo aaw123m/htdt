@@ -174,6 +174,57 @@ class DeleteEntityCommand:
 
 
 @dataclass(frozen=True)
+class DeleteEntitiesCommand:
+    """Atomic delete of several entities: one Undo step restores the exact set."""
+
+    removed: tuple[tuple[int, SceneEntity], ...]
+
+    @property
+    def is_noop(self) -> bool:
+        return not self.removed
+
+    def apply(self, document: SceneDocument) -> SceneDocument:
+        removed_ids = {entity.entity_id for _, entity in self.removed}
+        remaining = tuple(entity for entity in document.entities if entity.entity_id not in removed_ids)
+        if len(remaining) + len(self.removed) != len(document.entities):
+            raise EditStateError('document does not contain every entity scheduled for deletion')
+        return document.model_copy(update={'entities': remaining})
+
+    def revert(self, document: SceneDocument) -> SceneDocument:
+        entities = list(document.entities)
+        for index, entity in self.removed:
+            entities.insert(index, entity)
+        return document.model_copy(update={'entities': tuple(entities)})
+
+
+@dataclass(frozen=True)
+class UpdateEntitiesCommand:
+    """Atomic multi-entity field update; revert restores the exact prior tuple."""
+
+    before: tuple[SceneEntity, ...]
+    after: tuple[SceneEntity, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.before) != len(self.after):
+            raise EditStateError('entity update requires matched before/after tuples')
+
+    @property
+    def is_noop(self) -> bool:
+        return self.before == self.after
+
+    def _replace_all(self, document: SceneDocument, entities: tuple[SceneEntity, ...]) -> SceneDocument:
+        by_id = {entity.entity_id: entity for entity in entities}
+        replaced = tuple(by_id.get(entity.entity_id, entity) for entity in document.entities)
+        return document.model_copy(update={'entities': replaced})
+
+    def apply(self, document: SceneDocument) -> SceneDocument:
+        return self._replace_all(document, self.after)
+
+    def revert(self, document: SceneDocument) -> SceneDocument:
+        return self._replace_all(document, self.before)
+
+
+@dataclass(frozen=True)
 class ReplaceDocumentCommand:
     """Exact whole-scene replacement used when one semantic operation changes topology."""
 
@@ -561,12 +612,60 @@ class WorkingDocument:
         return scene_content_hash(self._document) != before_hash
 
     def delete_entity(self, entity_id: str) -> bool:
+        return self.delete_entities((entity_id,))
+
+    def delete_entities(self, entity_ids: tuple[str, ...] | list[str]) -> bool:
+        """Delete several entities as one Undo step, restoring exact index order.
+
+        A group delete is one semantic operation: the batch records each removed
+        entity with its original index so ``undo`` restores the exact prior
+        entity list — the #480/#482 contract that batch delete remains Undo-safe.
+        """
         if self.has_preview:
-            raise EditStateError('cannot delete an entity while a preview is active')
-        index = next(index for index, entity in enumerate(self._document.entities) if entity.entity_id == entity_id)
-        entity = self._document.entities[index]
+            raise EditStateError('cannot delete entities while a preview is active')
+        unique_ids = tuple(dict.fromkeys(entity_ids))
+        if not unique_ids:
+            return False
+        removed: list[tuple[int, SceneEntity]] = []
+        for index, entity in enumerate(self._document.entities):
+            if entity.entity_id in unique_ids:
+                removed.append((index, entity))
+        missing = set(unique_ids) - {entity.entity_id for _, entity in removed}
+        if missing:
+            raise EditStateError(f'entities not in the scene: {sorted(missing)}')
         before_hash = scene_content_hash(self._document)
-        self._document = self._history.push(DeleteEntityCommand(entity=entity, index=index), self._document)
+        self._document = self._history.push(
+            DeleteEntitiesCommand(removed=tuple(removed)),
+            self._document,
+        )
+        return scene_content_hash(self._document) != before_hash
+
+    def update_entities(self, updates: dict[str, dict[str, Any]]) -> bool:
+        """Apply per-entity field updates as one Undo step (#480 batch edit).
+
+        Only fields the caller deliberately allows are patched; every updated
+        entity is re-validated, and the whole batch is atomic under one command.
+        """
+        if self.has_preview:
+            raise EditStateError('cannot update entities while a preview is active')
+        if not updates:
+            return False
+        before: list[SceneEntity] = []
+        after: list[SceneEntity] = []
+        for entity_id, entity_updates in updates.items():
+            source = self._document.entity(entity_id)
+            if 'entity_id' in entity_updates and entity_updates['entity_id'] != entity_id:
+                raise EditStateError('entity_id cannot be changed')
+            payload = source.model_dump(mode='python')
+            payload.update(entity_updates)
+            payload['entity_id'] = entity_id
+            before.append(source)
+            after.append(SceneEntity.model_validate(payload))
+        before_hash = scene_content_hash(self._document)
+        self._document = self._history.push(
+            UpdateEntitiesCommand(before=tuple(before), after=tuple(after)),
+            self._document,
+        )
         return scene_content_hash(self._document) != before_hash
 
     def replace_document(self, document: SceneDocument) -> bool:

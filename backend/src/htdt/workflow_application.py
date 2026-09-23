@@ -59,6 +59,11 @@ _WORKSPACE_COMMAND_IDS = (
     "edit.redo",
     "room.draw",
     "room.add_speaker",
+    "room.edit.delete",
+    "room.edit.toggle_hide",
+    "room.edit.toggle_lock",
+    "room.measure",
+    "room.view.history",
     "measurements.import_rew",
     "prediction.run",
     "optimization.compare_candidates",
@@ -192,6 +197,12 @@ class WorkflowApplicationComposition:
         workspace.attach_geometry_panel(geometry_panel)
         transform_input = RoomEntityTransformController(workspace, workspace.viewport)
         workspace.attach_transform_input(transform_input)
+        # Hard placement constraints (#486): reject drag commits that would
+        # introduce a violation, mirroring the legacy dock's blocking gate.
+        transform_input.commit_gate = workspace.controller.move_commit_gate
+        workspace.optimizeRequested.connect(
+            lambda: self.shell.navigate(WorkspaceId.OPTIMIZATION)
+        )
         prediction = RoomPredictionController(
             self.repository,
             workspace.controller,
@@ -347,6 +358,54 @@ class WorkflowApplicationComposition:
                     prediction_panel,
                 ),
             )
+            self.registry.bind(
+                "room.edit.delete",
+                execute=workspace.delete_selection,
+                availability=lambda: _available(
+                    workspace.controller.selected_id is not None
+                    and workspace.controller.can_edit
+                    and not transform_input.is_active,
+                    "削除できる項目を選択してください",
+                ),
+            )
+            self.registry.bind(
+                "room.edit.toggle_hide",
+                execute=lambda: bool(
+                    workspace.set_selected_hidden(
+                        not all(
+                            workspace.controller.view_state.is_hidden(eid)
+                            for eid in workspace.controller.view_state.selection
+                        )
+                    )
+                ),
+                availability=lambda: _available(
+                    bool(workspace.controller.view_state.selection),
+                    "項目を選択してください",
+                ),
+            )
+            self.registry.bind(
+                "room.edit.toggle_lock",
+                execute=lambda: bool(
+                    workspace.set_selected_locked(
+                        not all(
+                            workspace.controller.view_state.is_locked(eid)
+                            for eid in workspace.controller.view_state.selection
+                        )
+                    )
+                ),
+                availability=lambda: _available(
+                    bool(workspace.controller.view_state.selection),
+                    "項目を選択してください",
+                ),
+            )
+            self.registry.bind(
+                "room.measure",
+                execute=workspace.toggle_measure,
+                availability=lambda: _available(
+                    workspace.controller.document.room is not None,
+                    "部屋を作成してください",
+                ),
+            )
             bind_cad_input_commands(self.registry, bindings)
             cad_input.refresh_shortcuts()
 
@@ -365,6 +424,10 @@ class WorkflowApplicationComposition:
                 "edit.redo",
                 "room.draw",
                 "room.add_speaker",
+                "room.edit.delete",
+                "room.edit.toggle_hide",
+                "room.edit.toggle_lock",
+                "room.measure",
                 "prediction.run",
             ):
                 self.registry.unbind(command_id)
@@ -408,6 +471,10 @@ class WorkflowApplicationComposition:
             "room.transform.move",
             "room.transform.rotate",
             "room.edit.duplicate",
+            "room.edit.delete",
+            "room.edit.toggle_hide",
+            "room.edit.toggle_lock",
+            "room.measure",
             "room.view.fit_selection",
             "room.view.fit_all",
         )

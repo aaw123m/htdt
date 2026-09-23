@@ -61,6 +61,7 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("objects", "物体"),
         WorkspaceContext("placement", "スピーカー・座席"),
         WorkspaceContext("acoustics", "音響"),
+        WorkspaceContext("history", "履歴"),
     ),
     WorkspaceId.MEASUREMENT: (
         WorkspaceContext("import", "読み込み"),

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
+from .optimization_search_domain import SearchDomainPreview
 from .optimization_workflow_controller import OptimizationWorkflowController
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .ui_theme import (
@@ -208,6 +209,19 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.robustness_viewport_adapter = _OptimizationViewportAdapter(
             robustness_viewport_widget
         )
+        # #530: setup-page search-domain preview viewport (editor-state overlay
+        # only — axes keep materializing through the same numeric fields).
+        domain_viewport_widget = (
+            RoomViewport3D(self)
+            if viewport_factory is None
+            else viewport_factory(self)
+        )
+        self.domain_viewport_widget = domain_viewport_widget
+        self.domain_viewport_widget.setMinimumHeight(280)
+        self.search_domain_preview = SearchDomainPreview(
+            self.controller,
+            domain_viewport_widget,
+        )
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(20, 16, 20, 16)
@@ -240,6 +254,22 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.robustness_viewport_adapter,
             self._render_robustness_scene,
         )
+        # #530: numeric form + tree edits update the spatial overlay exactly.
+        preview = self.search_domain_preview
+        self.search_entity_combo.currentIndexChanged.connect(
+            lambda _index: preview.refresh()
+        )
+        self.search_axis_combo.currentIndexChanged.connect(
+            lambda _index: preview.refresh()
+        )
+        self.search_min_field.valueChanged.connect(lambda _v: preview.refresh())
+        self.search_max_field.valueChanged.connect(lambda _v: preview.refresh())
+        self.search_step_field.valueChanged.connect(lambda _v: preview.refresh())
+        self.search_axis_tree.itemSelectionChanged.connect(preview.refresh)
+        axis_model = self.search_axis_tree.model()
+        axis_model.rowsInserted.connect(lambda *_args: preview.refresh())
+        axis_model.rowsRemoved.connect(lambda *_args: preview.refresh())
+
         self.select_section("setup")
         self._set_status("保存済み")
 
@@ -270,6 +300,8 @@ class OptimizationWorkflowWorkspace(QWidget):
     def select_section(self, section_id: str) -> None:
         page_id = normalize_optimization_page(section_id)
         self._optimization_stack.setCurrentWidget(self._optimization_pages[page_id])
+        if page_id == "setup":
+            self.search_domain_preview.refresh()
         if page_id == "robustness":
             self.controller.refresh_robustness_view()
         if page_id == "comparison" and hasattr(self, "system_expansion_compare_panel"):
@@ -318,6 +350,7 @@ class OptimizationWorkflowWorkspace(QWidget):
             overlays=RoomOverlayState(grid=True, labels=False, acoustics=False),
             reset_camera=reset_camera,
         )
+        self.search_domain_preview.refresh()
 
     def _render_robustness_scene(self, document) -> None:
         self.robustness_viewport_widget.render_document(
@@ -338,6 +371,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.controller.dispose()
         self.viewport_widget.close()
         self.robustness_viewport_widget.close()
+        self.domain_viewport_widget.close()
         event.accept()
 
     def _build_setup_page(self) -> QWidget:
@@ -373,6 +407,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         axis_actions.addStretch(1)
         search.addLayout(axis_actions)
         search.addWidget(_required(self.search_axis_tree, "search_axis_tree"))
+        search.addWidget(self.search_domain_preview)
 
         binding = _required(self.search_binding_label, "search_binding_label")
         binding.setWordWrap(True)

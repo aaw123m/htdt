@@ -58,7 +58,10 @@ class FakeOptimizationViewport(QWidget):
         document,
         *,
         selected_id: str | None,
-        overlays,
+        selected_ids=(),
+        hidden_ids=frozenset(),
+        locked_ids=frozenset(),
+        overlays=None,
         reset_camera: bool = False,
     ) -> None:
         self.render_calls.append((selected_id, reset_camera))

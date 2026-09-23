@@ -6,6 +6,7 @@ from typing import Protocol, cast
 from uuid import uuid4
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -23,9 +24,53 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from .cad_document import EditStateError, EditorViewState
+from .cad_constraint_authoring import (
+    add_constraint,
+    constraint_entity_ids,
+    make_allowed_region_constraint,
+    make_pair_distance_constraint,
+    make_walkway_constraint,
+    make_wall_clearance_constraint,
+    remove_constraint,
+)
+from .cad_constraints import evaluate_cad_constraints
+from .cad_constraint_policy import blocking_candidate_violations
+from .cad_constraint_repository import CadConstraintRepository
+from .cad_repository import SceneRevision
+from .cad_scene_history import diff_scene_documents, diff_summary_lines
+from .cad_measure import format_measure_result
+from .cad_snap import AxisName
+from .cad_system_variant_repository import CadSystemVariantRepository
+from .cad_video_geometry import (
+    AngleRange,
+    LensShiftRange,
+    ProjectorSpecificationProvenance,
+    SeatGeometryBinding,
+    ScreenGeometryBinding,
+    VideoGeometryPolicy,
+    build_projector_spec_field_assertions,
+    build_projector_spec_manual_evidence,
+    build_projector_specification,
+    evaluate_video_geometry,
+    projector_spec_optical_values,
+    PROJECTOR_SPEC_EVIDENCED_FIELDS,
+)
+from .cad_video_geometry_repository import CadVideoGeometryRepository
+from .cad_video_workspace import (
+    CadVideoWorkspaceRepository,
+    DEFAULT_POLICY,
+    VideoGeometryWorkspace,
+    build_request_from_workspace,
+    default_seat_binding,
+    default_screen_binding,
+    screen_image_center_world,
+    seat_eye_world,
+    video_workspace_missing_inputs,
+)
 from .cad_objects import (
     aim_target_entities,
     aim_yaw_pitch_deg,
@@ -49,6 +94,9 @@ from .cad_scene import (
     SceneDocument,
     SceneEntity,
     Size3,
+    Direction3,
+    domain_to_render,
+    quaternion_to_matrix3,
     is_unassigned_speaker_role,
     make_empty_scene,
     next_unassigned_speaker_role,
@@ -75,9 +123,20 @@ from .workflow_shell import WorkspaceMount
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
+from .room_objects_panel import RoomObjectsPanel
+from .room_constraints_panel import RoomConstraintsPanel
+from .room_measure_input import RoomMeasureController, RoomMeasurePanel
+from .room_history_panel import RoomHistoryPanel
+from .room_video_panel import ProjectorSpecDialog, RoomVideoPanel
 
 
-ROOM_CONTEXT_IDS = ("geometry", "objects", "placement", "acoustics")
+ROOM_CONTEXT_IDS = (
+    "geometry",
+    "objects",
+    "placement",
+    "acoustics",
+    "history",
+)
 
 SPEAKER_ROLE_UNASSIGNED_LABEL = "未設定"
 
@@ -174,6 +233,12 @@ class RoomWorkspaceController:
         self.working: TheaterWorkingDocument
         self.view_state = EditorViewState()
         self.recovery_candidate: RecoverySnapshot | None = None
+        self.constraint_repository = CadConstraintRepository(repository.path)
+        self.constraint_set = None
+        self.video_workspace_repository = CadVideoWorkspaceRepository(repository.path)
+        self.video_workspace: VideoGeometryWorkspace | None = None
+        self.video_geometry_repository = CadVideoGeometryRepository(repository)
+        self.variant_repository = CadSystemVariantRepository(repository)
         self._load_latest_or_seed()
 
     @property
@@ -224,8 +289,15 @@ class RoomWorkspaceController:
                 selected_ids=list(record.selected_ids),
                 hidden_ids=set(record.hidden_ids),
                 locked_ids=set(record.locked_ids),
+                object_snap_enabled=record.object_snap_enabled,
+                grid_snap_enabled=record.grid_snap_enabled,
+                grid_step_m=record.grid_step_m,
+                angle_snap_enabled=record.angle_snap_enabled,
+                angle_step_deg=record.angle_step_deg,
             )
             self.view_state.sanitize(revision.document)
+        self.constraint_set = self.constraint_repository.load(self.document_id)
+        self.video_workspace = self.video_workspace_repository.load(self.document_id)
         self.recovery_candidate = self.repository.recovery(self.document_id)
 
     def reload_if_clean(self) -> bool:
@@ -252,13 +324,244 @@ class RoomWorkspaceController:
             return False, "復旧データを復元または破棄してから画面を切り替えてください"
         return True, None
 
-    def set_selection(self, entity_id: str | None) -> None:
+    def set_selection(self, entity_id: str | None, *, additive: bool = False) -> None:
+        """N20b ordered selection: additive clicks extend, keep order, first = primary."""
         if entity_id is None:
             self.view_state.set_selection(())
         else:
             self.document.entity(entity_id)
-            self.view_state.set_selection((entity_id,), primary_id=entity_id)
+            if additive and entity_id in self.view_state.selection:
+                # Re-clicking a member makes it the primary (anchor) entity.
+                selection = list(self.view_state.selection)
+                selection.remove(entity_id)
+                selection.insert(0, entity_id)
+                self.view_state.set_selection(selection, primary_id=entity_id)
+            elif additive and self.view_state.selection:
+                self.view_state.set_selection(
+                    list(self.view_state.selection) + [entity_id],
+                    primary_id=self.view_state.selected_id,
+                )
+            else:
+                self.view_state.set_selection((entity_id,), primary_id=entity_id)
         self._persist_view_state()
+
+    def toggle_selection(self, entity_id: str) -> None:
+        """Ctrl+click semantics: toggle membership without disturbing order."""
+        self.document.entity(entity_id)
+        if entity_id in self.view_state.selection:
+            selection = [eid for eid in self.view_state.selection if eid != entity_id]
+            primary = self.view_state.selected_id
+            if primary == entity_id:
+                primary = selection[0] if selection else None
+            self.view_state.set_selection(selection, primary_id=primary)
+        else:
+            self.set_selection(entity_id, additive=True)
+            return
+        self._persist_view_state()
+
+    def set_entities_hidden(self, entity_ids: tuple[str, ...], hidden: bool) -> int:
+        changed = 0
+        for entity_id in entity_ids:
+            if entity_id in self.view_state.hidden_ids != hidden:
+                self.view_state.set_hidden(entity_id, hidden)
+                changed += 1
+        if changed:
+            self._persist_view_state()
+        return changed
+
+    def set_entities_locked(self, entity_ids: tuple[str, ...], locked: bool) -> int:
+        changed = 0
+        for entity_id in entity_ids:
+            if entity_id in self.view_state.locked_ids != locked:
+                self.view_state.set_locked(entity_id, locked)
+                changed += 1
+        if changed:
+            self._persist_view_state()
+        return changed
+
+    def delete_entities(self, entity_ids: tuple[str, ...]) -> int:
+        """Undo-safe batch delete: one command, exact restore, selection cleaned."""
+        if not entity_ids or not self.can_edit:
+            return 0
+        changed = self.working.delete_entities(entity_ids)
+        self.view_state.sanitize(self.document)
+        self._sync_recovery()
+        self._persist_view_state()
+        return changed
+
+    def update_entities(self, updates: dict[str, dict]) -> int:
+        """Atomic batch patch — group edits roll back together (one Undo)."""
+        if not updates or not self.can_edit:
+            return 0
+        changed = self.working.update_entities(updates)
+        self._sync_recovery()
+        return changed
+
+    def duplicate_selected(self) -> int:
+        """Duplicate the selection (single or group) as one Undo step."""
+        if not self.can_edit:
+            return 0
+        ids = tuple(self.view_state.selection)
+        if not ids:
+            return 0
+        if any(self.view_state.is_locked(eid) for eid in ids):
+            return 0
+        new_ids: list[str] = []
+        for entity_id in ids:
+            source = self.document.entity(entity_id)
+            new_id = f"{source.kind}-{uuid4().hex[:10]}"
+            position = Position3(
+                x_m=source.position.x_m + 0.10,
+                y_m=source.position.y_m + 0.10,
+                z_m=source.position.z_m,
+            )
+            if not self.working.duplicate_entity(
+                entity_id,
+                new_entity_id=new_id,
+                name=f"{source.name} コピー",
+                position=position,
+            ):
+                continue
+            new_ids.append(new_id)
+        if not new_ids:
+            return 0
+        self.view_state.set_selection(new_ids, primary_id=new_ids[0])
+        self._sync_recovery()
+        self._persist_view_state()
+        return len(new_ids)
+
+    # -- snap preferences (#481) ---------------------------------------------------
+
+    def set_snap_preferences(
+        self,
+        *,
+        object_snap: bool | None = None,
+        grid_snap: bool | None = None,
+        grid_step_m: float | None = None,
+        angle_snap: bool | None = None,
+        angle_step_deg: float | None = None,
+    ) -> None:
+        if object_snap is not None:
+            self.view_state.object_snap_enabled = object_snap
+        if grid_snap is not None:
+            self.view_state.grid_snap_enabled = grid_snap
+        if grid_step_m is not None:
+            self.view_state.grid_step_m = grid_step_m
+        if angle_snap is not None:
+            self.view_state.angle_snap_enabled = angle_snap
+        if angle_step_deg is not None:
+            self.view_state.angle_step_deg = angle_step_deg
+        self._persist_view_state()
+
+    # -- constraints (#486) ----------------------------------------------------------
+
+    def save_constraints(self) -> None:
+        if self.constraint_set is not None:
+            self.constraint_repository.save(self.constraint_set)
+
+    def evaluate_constraints(self) -> object:
+        if self.constraint_set is None:
+            return None
+        try:
+            return evaluate_cad_constraints(self.document, self.constraint_set)
+        except ValueError:
+            return None
+
+    def move_commit_gate(self, changed_ids: tuple[str, ...]) -> str | None:
+        """Hard-constraint gate: reject a move commit that introduces violations."""
+        if self.constraint_set is None or not self.constraint_set.constraints:
+            return None
+        before = evaluate_cad_constraints(self.committed_document, self.constraint_set)
+        candidate = evaluate_cad_constraints(self.document, self.constraint_set)
+        blocking = blocking_candidate_violations(before, candidate, changed_ids)
+        if blocking:
+            reasons = "、".join(item.name or item.reason_ja for item in blocking[:2])
+            return f"制約違反のため確定できません: {reasons}"
+        return None
+
+    # -- video geometry (#455) -------------------------------------------------------
+
+    def save_video_workspace(self, workspace: VideoGeometryWorkspace) -> None:
+        self.video_workspace = workspace
+        self.video_workspace_repository.save(workspace)
+
+    def evaluate_video(self, variant_id: str | None = None):
+        """Evaluate video geometry on the current baseline or a SystemVariant."""
+        workspace = self.video_workspace
+        if workspace is None:
+            raise EditStateError("映像バインドを設定してください")
+        missing = video_workspace_missing_inputs(self.committed_document, workspace)
+        if missing:
+            raise EditStateError("未設定: " + "、".join(missing))
+        specification = self.video_geometry_repository.get_projector_specification_by_hash(
+            workspace.projector_specification_sha256
+        )
+        if specification is None:
+            raise EditStateError("プロジェクター仕様が未保存です")
+        request = build_request_from_workspace(
+            self.committed_document, workspace, specification
+        )
+        head = self.repository.current_head(self.document_id)
+        if head is None:
+            raise EditStateError("シーンを保存してから評価してください")
+        variant = None
+        if variant_id is not None:
+            variant = next(
+                (
+                    item
+                    for item in self.variant_repository.list_variants(self.document_id)
+                    if item.variant_id == variant_id
+                ),
+                None,
+            )
+            if variant is None:
+                raise EditStateError("選択したバリアントが見つかりません")
+        return evaluate_video_geometry(
+            baseline=head,
+            variant=variant,
+            projector_specification=specification,
+            request=request,
+        )
+
+    # -- revision history (#485) -------------------------------------------------------
+
+    def list_revisions(self) -> tuple[SceneRevision, ...]:
+        return self.repository.list_revisions(self.document_id)
+
+    def revision_labels(self) -> dict:
+        return self.repository.revision_labels(self.document_id)
+
+    def set_revision_label(self, revision_id: str, label: str, note: str) -> None:
+        if label.strip() or note.strip():
+            self.repository.set_revision_label(
+                revision_id, label.strip(), note.strip()
+            )
+        else:
+            self.repository.clear_revision_label(revision_id)
+
+    def restore_revision(self, revision_id: str) -> SceneRevision:
+        """Restore a historical revision as a NEW head (history stays append-only)."""
+        revision = self.repository.get(revision_id)
+        if revision is None:
+            raise EditStateError("対象のリビジョンが見つかりません")
+        if self.working.has_preview:
+            raise EditStateError("プレビュー中は復元できません")
+        head = self.repository.current_head(self.document_id)
+        if head is not None and revision.revision_id == head.revision_id:
+            raise EditStateError("現在の先頭版と同じ内容です")
+        result = self.repository.save(
+            revision.document,
+            parent_revision_id=head.revision_id if head is not None else None,
+        )
+        self.working = TheaterWorkingDocument(
+            result.revision.document,
+            source_revision_id=result.revision.revision_id,
+            saved_content_hash=result.revision.content_hash,
+        )
+        self.view_state.sanitize(result.revision.document)
+        self.repository.clear_recovery(self.document_id)
+        self._persist_view_state()
+        return result.revision
 
     def save(self) -> bool:
         if self.recovery_candidate is not None:
@@ -541,6 +844,11 @@ class RoomWorkspaceController:
             selected_ids=self.view_state.selection,
             hidden_ids=self.view_state.hidden_ids,
             locked_ids=self.view_state.locked_ids,
+            object_snap_enabled=self.view_state.object_snap_enabled,
+            grid_snap_enabled=self.view_state.grid_snap_enabled,
+            grid_step_m=self.view_state.grid_step_m,
+            angle_snap_enabled=self.view_state.angle_snap_enabled,
+            angle_step_deg=self.view_state.angle_step_deg,
         )
 
     def _default_position(self, kind: str, size: Size3 | None = None) -> Position3:
@@ -603,6 +911,24 @@ class RoomWorkspaceController:
                 position=self._default_position(kind, size),
                 size_m=size,
             )
+        if kind == "projector":
+            size = Size3(x_m=0.40, y_m=0.32, z_m=0.16)
+            return SceneEntity(
+                entity_id=f"projector-{token}",
+                kind="projector",
+                name="プロジェクター",
+                position=self._default_position(kind, size),
+                size_m=size,
+            )
+        if kind == "riser":
+            size = Size3(x_m=1.60, y_m=1.20, z_m=0.20)
+            return SceneEntity(
+                entity_id=f"riser-{token}",
+                kind="riser",
+                name="ライザー",
+                position=self._default_position(kind, size),
+                size_m=size,
+            )
         if kind == "furniture":
             size = Size3(x_m=1.20, y_m=0.55, z_m=0.90)
             return SceneEntity(
@@ -638,6 +964,8 @@ class ObjectPalette(QFrame):
         ("speaker", "スピーカー"),
         ("seat", "座席"),
         ("screen", "スクリーン"),
+        ("projector", "プロジェクター"),
+        ("riser", "ライザー"),
         ("furniture", "家具"),
         ("av_equipment", "AV機器"),
         ("measurement_point", "測定点"),
@@ -680,6 +1008,8 @@ class SelectionInspector(QFrame):
         "speaker": "スピーカー",
         "seat": "座席",
         "screen": "スクリーン",
+        "projector": "プロジェクター",
+        "riser": "ライザー",
         "furniture": "家具",
         "av_equipment": "AV機器",
         "measurement_point": "測定点",
@@ -1244,9 +1574,18 @@ class ContextToolStrip(QFrame):
 
     DEFINITIONS = {
         "geometry": (("draw-room", "部屋を描く"), ("edit-room", "形状を編集")),
-        "objects": (("show-palette", "オブジェクト追加"),),
-        "placement": (("focus-selection", "選択へ移動"), ("fit-scene", "全体表示")),
+        "objects": (
+            ("show-palette", "オブジェクト追加"),
+            ("measure", "計測"),
+            ("delete-selection", "選択を削除"),
+        ),
+        "placement": (
+            ("focus-selection", "選択へ移動"),
+            ("measure", "計測"),
+            ("fit-scene", "全体表示"),
+        ),
         "acoustics": (("toggle-acoustics", "音響表示"), ("fit-scene", "全体表示")),
+        "history": (("fit-scene", "全体表示"),),
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -1282,6 +1621,7 @@ class ContextToolStrip(QFrame):
 
 class OverlayControls(QFrame):
     changed = Signal()
+    snapChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1298,6 +1638,16 @@ class OverlayControls(QFrame):
         for toggle in (self.grid, self.labels, self.acoustics, self.focus):
             toggle.toggled.connect(lambda checked=False: self.changed.emit())
             self._layout.addWidget(toggle)
+
+        # Precision snapping (#481): object snap is on by default; grid and
+        # angle snap are opt-in, with editable step sizes under the 表示… menu.
+        self.object_snap = QCheckBox("吸着")
+        self.object_snap.setChecked(True)
+        self.object_snap.setToolTip(
+            "ドラッグ中に頂点・辺・中点・整列へ吸着します（Shiftで一時解除）"
+        )
+        self.object_snap.toggled.connect(lambda checked=False: self.snapChanged.emit())
+        self._layout.addWidget(self.object_snap)
 
         self.navigation_hint = QLabel(
             "操作: 中ボタン=画面移動 / Shift+中ボタン=回転 / "
@@ -1329,6 +1679,53 @@ class OverlayControls(QFrame):
         self.focus_action.toggled.connect(self.focus.setChecked)
         self.labels.toggled.connect(self.labels_action.setChecked)
         self.focus.toggled.connect(self.focus_action.setChecked)
+        self.more_menu.addSeparator()
+        self.grid_snap_action = self.more_menu.addAction("グリッド吸着")
+        self.grid_snap_action.setCheckable(True)
+        self.angle_snap_action = self.more_menu.addAction("角度吸着")
+        self.angle_snap_action.setCheckable(True)
+        self.grid_snap_action.toggled.connect(
+            lambda checked=False: self.snapChanged.emit()
+        )
+        self.angle_snap_action.toggled.connect(
+            lambda checked=False: self.snapChanged.emit()
+        )
+        self.more_menu.addSeparator()
+        grid_step_host = QWidget()
+        grid_step_row = QHBoxLayout(grid_step_host)
+        grid_step_row.setContentsMargins(8, 2, 8, 2)
+        grid_step_row.addWidget(QLabel("グリッド刻み"))
+        self.grid_step_spin = QDoubleSpinBox()
+        self.grid_step_spin.setRange(0.01, 1.0)
+        self.grid_step_spin.setSingleStep(0.01)
+        self.grid_step_spin.setDecimals(3)
+        self.grid_step_spin.setSuffix(" m")
+        self.grid_step_spin.setValue(0.05)
+        self.grid_step_spin.valueChanged.connect(
+            lambda _v: self.snapChanged.emit()
+        )
+        grid_step_row.addWidget(self.grid_step_spin)
+        grid_step_action = QWidgetAction(self.more_menu)
+        grid_step_action.setDefaultWidget(grid_step_host)
+        self.more_menu.addAction(grid_step_action)
+
+        angle_step_host = QWidget()
+        angle_step_row = QHBoxLayout(angle_step_host)
+        angle_step_row.setContentsMargins(8, 2, 8, 2)
+        angle_step_row.addWidget(QLabel("角度刻み"))
+        self.angle_step_spin = QDoubleSpinBox()
+        self.angle_step_spin.setRange(1.0, 90.0)
+        self.angle_step_spin.setSingleStep(5.0)
+        self.angle_step_spin.setSuffix("°")
+        self.angle_step_spin.setValue(15.0)
+        self.angle_step_spin.valueChanged.connect(
+            lambda _v: self.snapChanged.emit()
+        )
+        angle_step_row.addWidget(self.angle_step_spin)
+        angle_step_action = QWidgetAction(self.more_menu)
+        angle_step_action.setDefaultWidget(angle_step_host)
+        self.more_menu.addAction(angle_step_action)
+
         self.more_button.setMenu(self.more_menu)
         self.more_button.hide()
         self._layout.addWidget(self.more_button)
@@ -1389,6 +1786,7 @@ class RoomWorkspace(QWidget):
     """Viewport-centric UX120 Room workspace with no legacy dock composition."""
 
     toolRequested = Signal(str)
+    optimizeRequested = Signal()
 
     def __init__(
         self,
@@ -1447,13 +1845,26 @@ class RoomWorkspace(QWidget):
         viewport_layout.setSpacing(0)
         self.overlay_controls = OverlayControls()
         self.overlay_controls.changed.connect(self._render)
+        self.overlay_controls.snapChanged.connect(self._snap_controls_changed)
         viewport_layout.addWidget(self.overlay_controls)
 
         viewport_widget = self._viewport_factory(viewport_column)
         self.viewport = cast(RoomViewportPort, viewport_widget)
+        # entityPicked carries the display position AND fires before
+        # entitySelected; the compat path dedupes the follow-up signal.
+        picked_signal = getattr(viewport_widget, "entityPicked", None)
+        if picked_signal is not None and hasattr(picked_signal, "connect"):
+            picked_signal.connect(self._entity_picked)
         selected_signal = getattr(viewport_widget, "entitySelected", None)
         if selected_signal is not None and hasattr(selected_signal, "connect"):
-            selected_signal.connect(self.select_entity)
+            selected_signal.connect(self._entity_selected_compat)
+        empty_signal = getattr(viewport_widget, "emptyClicked", None)
+        if empty_signal is not None and hasattr(empty_signal, "connect"):
+            empty_signal.connect(self._empty_clicked)
+        self._suppress_next_select = False
+        self._saved_camera_view: tuple | None = None
+        self._video_evaluation = None
+        self._history_preview_revision_id: str | None = None
         proposed_signal = getattr(viewport_widget, "proposedEntitySelected", None)
         if proposed_signal is not None and hasattr(proposed_signal, "connect"):
             proposed_signal.connect(self._proposal_entity_selected)
@@ -1469,18 +1880,60 @@ class RoomWorkspace(QWidget):
         self.right_stack = QStackedWidget()
         self.right_stack.setMinimumWidth(248)
         self.right_stack.setMaximumWidth(320)
-        self.right_stack.addWidget(self.inspector)
+
+        # Objects context (#480/#482/#491): object list + inspector + measure
+        # tool live together so list, viewport and form stay in sync.
+        self.objects_panel = RoomObjectsPanel()
+        self.objects_panel.selectionRequested.connect(self._objects_selection)
+        self.objects_panel.hideRequested.connect(self._objects_hidden)
+        self.objects_panel.lockRequested.connect(self._objects_locked)
+        self.objects_panel.deleteRequested.connect(self._objects_delete)
+        self.measure_controller = RoomMeasureController(self, self.viewport)
+        self.measure_panel = RoomMeasurePanel(self.measure_controller)
+        self.measure_controller.stateChanged.connect(self._measure_state_changed)
+        objects_body = QWidget()
+        objects_layout = QVBoxLayout(objects_body)
+        objects_layout.setContentsMargins(0, 0, 0, 0)
+        objects_layout.setSpacing(10)
+        objects_layout.addWidget(self.objects_panel)
+        objects_layout.addWidget(self.inspector)
+        objects_layout.addWidget(self.measure_panel)
+        objects_layout.addStretch(1)
+        self.objects_page = QScrollArea()
+        self.objects_page.setWidgetResizable(True)
+        self.objects_page.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.objects_page.setFrameShape(QFrame.Shape.NoFrame)
+        self.objects_page.setWidget(objects_body)
+        self.right_stack.addWidget(self.objects_page)
+
         self.system_expansion_panel = SystemExpansionRoomPanel(self.system_expansion)
         self.system_expansion_panel.variantChanged.connect(self._proposal_variant_changed)
         self.system_expansion_panel.ghostEntityRequested.connect(
             self._proposal_entity_selected
         )
         self.standards_panel = StandardsCriterionPanel(repository, document_id)
+        self.constraints_panel = RoomConstraintsPanel()
+        self.constraints_panel.constraintActionRequested.connect(
+            self._constraint_action
+        )
+        self.constraints_panel.resultSelected.connect(self._constraint_highlight)
+        self.constraints_panel.optimizeRequested.connect(
+            lambda: self.optimizeRequested.emit()
+        )
+        self.video_panel = RoomVideoPanel()
+        self.video_panel.bindingsChanged.connect(self._video_bindings_changed)
+        self.video_panel.evaluateRequested.connect(self._video_evaluate)
+        self.video_panel.viewFromSeatRequested.connect(self._view_from_seat)
+        self.video_panel.createSpecRequested.connect(self._video_create_spec)
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
         placement_layout.setSpacing(10)
         placement_layout.addWidget(self.system_expansion_panel)
+        placement_layout.addWidget(self.constraints_panel)
+        placement_layout.addWidget(self.video_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addStretch(1)
         self.placement_panel = QScrollArea()
@@ -1491,7 +1944,29 @@ class RoomWorkspace(QWidget):
         self.placement_panel.setFrameShape(QFrame.Shape.NoFrame)
         self.placement_panel.setWidget(placement_body)
         self.right_stack.addWidget(self.placement_panel)
-        self.right_stack.setCurrentWidget(self.inspector)
+
+        # History context (#485): revision browser/labels/ghost preview/restore.
+        self.history_panel = RoomHistoryPanel()
+        self.history_panel.previewRequested.connect(self._history_preview)
+        self.history_panel.restoreRequested.connect(self._history_restore)
+        self.history_panel.labelRequested.connect(self._history_label)
+        self.history_panel.diffRequested.connect(self._history_diff)
+        self.history_panel.set_label_fields("", "")
+        self.history_body = QWidget()
+        history_layout = QVBoxLayout(self.history_body)
+        history_layout.setContentsMargins(0, 0, 0, 0)
+        history_layout.addWidget(self.history_panel)
+        history_layout.addStretch(1)
+        self.history_page = QScrollArea()
+        self.history_page.setWidgetResizable(True)
+        self.history_page.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.history_page.setFrameShape(QFrame.Shape.NoFrame)
+        self.history_page.setWidget(self.history_body)
+        self.right_stack.addWidget(self.history_page)
+
+        self.right_stack.setCurrentWidget(self.objects_page)
         content.addWidget(self.right_stack)
         root.addLayout(content, 1)
 
@@ -1510,9 +1985,18 @@ class RoomWorkspace(QWidget):
 
     def activate(self) -> None:
         changed = self.controller.reload_if_clean()
+        self._sync_snap_controls()
+        self._sync_objects_panel()
+        if self.current_context == "placement":
+            self._sync_constraints_panel()
+            self._sync_video_panel()
+        if self.current_context == "history":
+            self._sync_history_panel()
         self._refresh(reset_camera=changed)
 
     def before_deactivate(self) -> tuple[bool, str | None]:
+        if self.measure_controller.is_active:
+            self.measure_controller.cancel()
         if self.geometry_input is not None and self.geometry_input.is_active:
             return False, "部屋形状の編集中です。確定またはキャンセルしてから画面を切り替えてください"
         if self.transform_input is not None and self.transform_input.is_active:
@@ -1564,30 +2048,71 @@ class RoomWorkspace(QWidget):
         return self.controller.document != before
 
     def duplicate_selected(self) -> bool:
-        entity_id = self.controller.selected_id
-        if entity_id is None or not self.controller.can_edit:
+        """Duplicate the whole selection — group duplicates are one Undo (#480)."""
+        if not self.controller.view_state.selection:
             return False
-        if self.controller.view_state.is_locked(entity_id):
+        count = self.controller.duplicate_selected()
+        if not count:
+            self._set_status("複製できる項目を選択してください", error=True)
             return False
-        source = self.controller.document.entity(entity_id)
-        new_id = f"{source.kind}-{uuid4().hex[:10]}"
-        position = Position3(
-            x_m=source.position.x_m + 0.10,
-            y_m=source.position.y_m + 0.10,
-            z_m=source.position.z_m,
-        )
-        if not self.controller.working.duplicate_entity(
-            entity_id,
-            new_entity_id=new_id,
-            name=f"{source.name} コピー",
-            position=position,
-        ):
-            return False
-        self.controller.view_state.set_selection((new_id,), primary_id=new_id)
-        self.controller._sync_recovery()
-        self.controller._persist_view_state()
         self._refresh()
-        self._set_status("選択項目を複製しました")
+        self._set_status(
+            "選択項目を複製しました" if count == 1 else f"{count} 項目を複製しました"
+        )
+        return True
+
+    def delete_selection(self) -> bool:
+        """Undo-safe batch delete from the viewport/context menu (#482)."""
+        ids = tuple(self.controller.view_state.selection)
+        if not ids:
+            return False
+        locked = [
+            self.controller.document.entity(eid).name
+            for eid in ids
+            if self.controller.view_state.is_locked(eid)
+        ]
+        if locked:
+            self._set_status(
+                f"ロック中の項目は削除できません: {'、'.join(locked)}",
+                error=True,
+            )
+            return False
+        try:
+            changed = self.controller.delete_entities(ids)
+        except EditStateError as exc:
+            self._set_status(str(exc), error=True)
+            return False
+        if changed:
+            self._refresh()
+            self._set_status(f"{changed} 項目を削除しました（元に戻せます）")
+        return changed
+
+    def set_selected_hidden(self, hidden: bool) -> int:
+        ids = tuple(self.controller.view_state.selection)
+        changed = self.controller.set_entities_hidden(ids, hidden)
+        if changed:
+            self._refresh()
+            self._set_status(
+                f"{changed} 項目を非表示にしました" if hidden else f"{changed} 項目を表示しました"
+            )
+        return changed
+
+    def set_selected_locked(self, locked: bool) -> int:
+        ids = tuple(self.controller.view_state.selection)
+        changed = self.controller.set_entities_locked(ids, locked)
+        if changed:
+            self._refresh()
+            self._set_status(
+                f"{changed} 項目をロックしました" if locked else f"{changed} 項目のロックを解除しました"
+            )
+        return changed
+
+    def toggle_measure(self) -> bool:
+        if self.measure_controller.is_active:
+            self.measure_controller.cancel()
+        else:
+            self.measure_controller.begin()
+        self._render()
         return True
 
     def set_transform_mode(self, mode: str) -> None:
@@ -1605,6 +2130,10 @@ class RoomWorkspace(QWidget):
         self.viewport.fit_scene()
 
     def cancel_active_operation(self) -> bool:
+        if self.measure_controller.is_active:
+            self.measure_controller.cancel()
+            self._render()
+            return True
         if self.transform_input is not None and self.transform_input.is_active:
             return bool(self.transform_input.cancel())
         if self.geometry_input is not None and self.geometry_input.is_active:
@@ -1648,10 +2177,15 @@ class RoomWorkspace(QWidget):
             refresh = getattr(self.geometry_panel, "refresh", None)
             if callable(refresh):
                 refresh()
+        elif context_id == "objects":
+            self._sync_objects_panel()
+            self.right_stack.setCurrentWidget(self.objects_page)
         elif context_id == "placement":
             self.system_expansion_panel.refresh()
             self.standards_panel.refresh_targets()
             self.standards_panel.refresh()
+            self._sync_constraints_panel()
+            self._sync_video_panel()
             self.right_stack.setCurrentWidget(self.placement_panel)
         elif context_id == "acoustics":
             self.overlay_controls.acoustics.setChecked(True)
@@ -1661,9 +2195,13 @@ class RoomWorkspace(QWidget):
                 if callable(refresh):
                     refresh()
             else:
-                self.right_stack.setCurrentWidget(self.inspector)
+                self._sync_objects_panel()
+                self.right_stack.setCurrentWidget(self.objects_page)
+        elif context_id == "history":
+            self._sync_history_panel()
+            self.right_stack.setCurrentWidget(self.history_page)
         else:
-            self.right_stack.setCurrentWidget(self.inspector)
+            self.right_stack.setCurrentWidget(self.objects_page)
         self._render()
 
     def _proposal_variant_changed(self, variant_id: str) -> None:
@@ -1681,12 +2219,602 @@ class RoomWorkspace(QWidget):
             self.controller.set_selection(target)
         except KeyError:
             return
+        self._after_selection_changed()
+
+    def _entity_picked(self, entity_id: object, display_position: object = None) -> None:
+        """Viewport pick: measure capture, Ctrl+click additive select, plain click."""
+        target = str(entity_id)
+        if self.measure_controller.is_active:
+            self.measure_controller.pick_entity(target, display_position)
+            self._suppress_next_select = True
+            return
+        modifiers = QGuiApplication.keyboardModifiers()
+        additive = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        self._suppress_next_select = additive
+        try:
+            if additive:
+                self.controller.toggle_selection(target)
+            else:
+                self.controller.set_selection(target)
+        except KeyError:
+            return
+        self._after_selection_changed()
+
+    def _entity_selected_compat(self, entity_id: object) -> None:
+        """Fake/legacy viewports emit only entitySelected — plain-click path."""
+        if self._suppress_next_select:
+            self._suppress_next_select = False
+            return
+        self._entity_picked(entity_id, None)
+
+    def _empty_clicked(self, display_position: object) -> None:
+        """Click on empty space: measure free-point or clear selection."""
+        if self.measure_controller.is_active:
+            self.measure_controller.pick_free_point(display_position)
+            return
+        self.select_entity(None)
+
+    def _after_selection_changed(self) -> None:
         self._refresh_inspector()
+        self._sync_objects_panel()
         if self.acoustics_panel is not None and self.current_context == "acoustics":
             refresh = getattr(self.acoustics_panel, "refresh", None)
             if callable(refresh):
                 refresh()
         self._render()
+
+    # -- snap preferences (#481) --------------------------------------------------
+
+    def _snap_controls_changed(self) -> None:
+        self.controller.set_snap_preferences(
+            object_snap=self.overlay_controls.object_snap.isChecked(),
+            grid_snap=self.overlay_controls.grid_snap_action.isChecked(),
+            grid_step_m=float(self.overlay_controls.grid_step_spin.value()),
+            angle_snap=self.overlay_controls.angle_snap_action.isChecked(),
+            angle_step_deg=float(self.overlay_controls.angle_step_spin.value()),
+        )
+        self._set_status("スナップ設定を保存しました")
+
+    def _sync_snap_controls(self) -> None:
+        vs = self.controller.view_state
+        controls = self.overlay_controls
+        with QSignalBlocker(controls.object_snap):
+            controls.object_snap.setChecked(vs.object_snap_enabled)
+        with QSignalBlocker(controls.grid_snap_action):
+            controls.grid_snap_action.setChecked(vs.grid_snap_enabled)
+        with QSignalBlocker(controls.angle_snap_action):
+            controls.angle_snap_action.setChecked(vs.angle_snap_enabled)
+        with QSignalBlocker(controls.grid_step_spin):
+            controls.grid_step_spin.setValue(vs.grid_step_m)
+        with QSignalBlocker(controls.angle_step_spin):
+            controls.angle_step_spin.setValue(vs.angle_step_deg)
+
+    def set_snap_feedback(self, label: str | None) -> None:
+        render = getattr(self.viewport, "render_snap_feedback", None)
+        if callable(render):
+            render(label)
+        if label:
+            self._set_status(f"吸着: {label}")
+
+    # -- objects panel (#480/#482) -----------------------------------------------------
+
+    def _sync_objects_panel(self) -> None:
+        if self.controller.document is None:
+            return
+        self.objects_panel.sync_document(
+            self.controller.document,
+            selected_ids=tuple(self.controller.view_state.selection),
+            primary_id=self.controller.view_state.selected_id,
+            hidden_ids=frozenset(self.controller.view_state.hidden_ids),
+            locked_ids=frozenset(self.controller.view_state.locked_ids),
+            kind_labels=SelectionInspector.KIND_LABELS,
+        )
+
+    def _objects_selection(self, entity_ids: object, primary_id: object) -> None:
+        ids = tuple(str(eid) for eid in entity_ids)
+        try:
+            self.controller.view_state.set_selection(
+                ids, primary_id=str(primary_id) if primary_id is not None else None
+            )
+            self.controller._persist_view_state()
+        except (KeyError, ValueError):
+            return
+        self._after_selection_changed()
+
+    def _objects_hidden(self, entity_ids: object, hidden: object) -> None:
+        changed = self.controller.set_entities_hidden(
+            tuple(str(eid) for eid in entity_ids), bool(hidden)
+        )
+        if changed:
+            self._refresh()
+            self._set_status(
+                f"{changed} 項目を非表示にしました" if hidden else f"{changed} 項目を表示しました"
+            )
+
+    def _objects_locked(self, entity_ids: object, locked: object) -> None:
+        changed = self.controller.set_entities_locked(
+            tuple(str(eid) for eid in entity_ids), bool(locked)
+        )
+        if changed:
+            self._refresh()
+            self._set_status(
+                f"{changed} 項目をロックしました" if locked else f"{changed} 項目のロックを解除しました"
+            )
+
+    def _objects_delete(self, entity_ids: object) -> None:
+        ids = tuple(str(eid) for eid in entity_ids)
+        locked = [
+            self.controller.document.entity(eid).name
+            for eid in ids
+            if eid in {entity.entity_id for entity in self.controller.document.entities}
+            and self.controller.view_state.is_locked(eid)
+        ]
+        if locked:
+            self._set_status(
+                f"ロック中の項目は削除できません: {'、'.join(locked)}",
+                error=True,
+            )
+            return
+        try:
+            changed = self.controller.delete_entities(ids)
+        except EditStateError as exc:
+            self._set_status(str(exc), error=True)
+            return
+        if changed:
+            self._refresh()
+            self._set_status(f"{changed} 項目を削除しました（元に戻せます）")
+
+    # -- constraints (#486) ------------------------------------------------------------
+
+    def _sync_constraints_panel(self) -> None:
+        if self.controller.document is None:
+            return
+        self.constraints_panel.set_walls(self.controller.document)
+        try:
+            evaluation = self.controller.evaluate_constraints()
+        except Exception as exc:  # evaluator raises on malformed constraints
+            evaluation = None
+            self.constraints_panel.sync_state(
+                self.controller.constraint_set,
+                None,
+                self.controller.document,
+                evaluate_error=str(exc),
+            )
+            return
+        self.constraints_panel.sync_state(
+            self.controller.constraint_set,
+            evaluation,
+            self.controller.document,
+        )
+
+    def _constraint_action(self, action_id: object) -> None:
+        kind = str(action_id)
+        selected = tuple(self.controller.view_state.selection)
+        constraint_set = self.controller.constraint_set
+        if constraint_set is None:
+            self._set_status("制約セットを読み込めません", error=True)
+            return
+        room = self.controller.document.room
+        try:
+            if kind == "walkway":
+                constraint = make_walkway_constraint(
+                    self.controller.document, room, constraint_set
+                )
+            elif kind == "allowed":
+                if not selected:
+                    self._set_status("許可領域の対象を選択してください", error=True)
+                    return
+                constraint = make_allowed_region_constraint(
+                    self.controller.document,
+                    room,
+                    constraint_set,
+                    entity_id=selected[0],
+                )
+            elif kind == "wall_clearance":
+                if not selected:
+                    self._set_status("壁離隔の対象を選択してください", error=True)
+                    return
+                constraint = make_wall_clearance_constraint(
+                    self.controller.document,
+                    constraint_set,
+                    entity_id=selected[0],
+                    min_m=self.constraints_panel.distance_m(),
+                )
+            elif kind == "pair_distance":
+                if len(selected) < 2:
+                    self._set_status("物体間離隔は2項目を選択してください", error=True)
+                    return
+                constraint = make_pair_distance_constraint(
+                    self.controller.document,
+                    constraint_set,
+                    entity_a_id=selected[0],
+                    entity_b_id=selected[1],
+                    min_m=self.constraints_panel.distance_m(),
+                )
+            elif kind == "delete":
+                constraint_id = self.constraints_panel.selected_constraint_id()
+                if constraint_id is None:
+                    self._set_status("削除する制約を選択してください", error=True)
+                    return
+                self.controller.constraint_set = remove_constraint(
+                    constraint_set, constraint_id
+                )
+                constraint = None
+            else:
+                return
+            if constraint is not None:
+                self.controller.constraint_set = add_constraint(
+                    constraint_set, constraint
+                )
+            self.controller.save_constraints()
+        except (EditStateError, ValueError) as exc:
+            self._set_status(str(exc), error=True)
+            return
+        self._sync_constraints_panel()
+        self._render()
+        self._set_status("制約を更新しました")
+
+    def _constraint_highlight(self, result: object) -> None:
+        if result is None:
+            self._render()
+            return
+        entity_ids = list(getattr(result, "entity_ids", ()) or ())
+        name = getattr(result, "name", "") or getattr(result, "reason_ja", "")
+        self._set_status(f"制約: {name}")
+        if entity_ids:
+            self.select_entity(entity_ids[0])
+
+    # -- video geometry (#455) ---------------------------------------------------------
+
+    def _video_workspace_from_panel(self) -> VideoGeometryWorkspace:
+        workspace = self.controller.video_workspace or VideoGeometryWorkspace(
+            document_id=self.controller.document_id
+        )
+        screens = [
+            entity
+            for entity in self.controller.document.entities
+            if entity.kind == "screen"
+        ]
+        screen_bindings = dict(workspace.screen_bindings)
+        if screens:
+            values = self.video_panel.current_screen_values()
+            screen_bindings[screens[0].entity_id] = ScreenGeometryBinding(
+                entity_id=screens[0].entity_id,
+                visible_width_m=float(values["visible_width_m"]),
+                visible_height_m=float(values["visible_height_m"]),
+                image_center_offset_local_m=Offset3(
+                    x_m=float(values["image_center_offset_x_m"]),
+                    y_m=0.0,
+                    z_m=float(values["image_center_offset_z_m"]),
+                ),
+                frame_clearance_m=float(values["frame_clearance_m"]),
+                acoustically_transparent=values["acoustically_transparent"],
+            )
+        seat_bindings = dict(workspace.seat_bindings)
+        seat_values = self.video_panel.current_seat_bindings()
+        for entity in self.controller.document.entities:
+            if entity.kind != "seat":
+                continue
+            values = seat_values.get(entity.entity_id)
+            if values is None:
+                seat_bindings.setdefault(
+                    entity.entity_id, default_seat_binding(entity.entity_id)
+                )
+                continue
+            seat_bindings[entity.entity_id] = SeatGeometryBinding(
+                entity_id=entity.entity_id,
+                row_id=str(values["row_id"]),
+                eye_reference_offset_local_m=Offset3(
+                    x_m=0.0, y_m=0.0, z_m=float(values["eye_z_m"])
+                ),
+                head_center_offset_local_m=Offset3(
+                    x_m=0.0, y_m=0.0, z_m=float(values["head_z_m"])
+                ),
+                head_radius_m=float(values["head_radius_m"]),
+                riser_entity_id=values["riser_entity_id"],
+            )
+        for stale_id in list(seat_bindings):
+            if stale_id not in seat_values and all(
+                e.entity_id != stale_id
+                for e in self.controller.document.entities
+                if e.kind == "seat"
+            ):
+                del seat_bindings[stale_id]
+        policy_values = self.video_panel.current_policy_values()
+        policy = workspace.policy.model_copy(
+            update={
+                "sightline_clearance_m": policy_values["sightline_clearance_m"],
+                "max_optical_axis_deviation_deg": policy_values[
+                    "max_optical_axis_deviation_deg"
+                ],
+            }
+        )
+        return workspace.model_copy(
+            update={
+                "projector_entity_id": self.video_panel.current_projector_entity_id(),
+                "projector_specification_sha256": self.video_panel.current_specification_sha256(),
+                "screen_bindings": screen_bindings,
+                "seat_bindings": seat_bindings,
+                "policy": policy,
+            }
+        )
+
+    def _video_bindings_changed(self) -> None:
+        if self.video_panel._syncing:
+            return
+        workspace = self._video_workspace_from_panel()
+        self.controller.save_video_workspace(workspace)
+        missing = video_workspace_missing_inputs(
+            self.controller.committed_document, workspace
+        )
+        self.video_panel.show_message(
+            "未設定: " + "、".join(missing) if missing else "評価できます"
+        )
+
+    def _sync_video_panel(self) -> None:
+        workspace = self.controller.video_workspace or VideoGeometryWorkspace(
+            document_id=self.controller.document_id
+        )
+        specifications = (
+            self.controller.video_geometry_repository.list_projector_specifications()
+        )
+        variants = self.controller.variant_repository.list_variants(
+            self.controller.document_id
+        )
+        if self.controller.document is None:
+            return
+        seat_names = {
+            entity.entity_id: entity.name
+            for entity in self.controller.document.entities
+            if entity.kind == "seat"
+        }
+        self.video_panel.sync_document(
+            self.controller.document,
+            workspace,
+            specifications,
+            variants,
+            seat_names,
+        )
+        missing = video_workspace_missing_inputs(
+            self.controller.committed_document, workspace
+        )
+        self.video_panel.show_message(
+            "未設定: " + "、".join(missing) if missing else "評価できます"
+        )
+
+    def _video_evaluate(self, variant_id: object) -> None:
+        self._video_bindings_changed()
+        try:
+            evaluation = self.controller.evaluate_video(
+                None if variant_id is None else str(variant_id)
+            )
+        except (EditStateError, ValueError) as exc:
+            self._set_status(str(exc), error=True)
+            self.video_panel.show_message(str(exc))
+            return
+        self._video_evaluation = evaluation
+        self.video_panel.show_evaluation(evaluation)
+        self.video_panel.show_message("評価しました（プロジェクション/視線/衝突）")
+        self._render()
+
+    def _video_create_spec(self) -> None:
+        dialog = ProjectorSpecDialog(self)
+        if dialog.exec() != ProjectorSpecDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        if not values["specification_id"]:
+            self._set_status("仕様IDを入力してください", error=True)
+            return
+        try:
+            h_shift = values["horizontal_lens_shift"]
+            v_shift = values["vertical_lens_shift"]
+            optical = projector_spec_optical_values(
+                lens_reference_offset_m=Offset3(),
+                optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
+                throw_ratio_min=float(values["throw_ratio_min"]),
+                throw_ratio_max=float(values["throw_ratio_max"]),
+                horizontal_lens_shift=(
+                    None
+                    if h_shift is None
+                    else LensShiftRange(min=float(h_shift[0]), max=float(h_shift[1]))
+                ),
+                vertical_lens_shift=(
+                    None
+                    if v_shift is None
+                    else LensShiftRange(min=float(v_shift[0]), max=float(v_shift[1]))
+                ),
+            )
+            evidence = build_projector_spec_manual_evidence(
+                publisher=str(values["publisher"]),
+                document_title=str(values["document_title"]),
+                document_version=str(values["version"]),
+                reference=str(values["reference"]),
+                field_assertions=build_projector_spec_field_assertions(
+                    optical_values=optical,
+                    field_locators={
+                        field: str(values["source_citation"])
+                        for field in PROJECTOR_SPEC_EVIDENCED_FIELDS
+                    },
+                ),
+                source_citation=str(values["source_citation"]),
+                actor=str(values["actor"]),
+                evidence_basis="user_measurement",
+            )
+            specification = build_projector_specification(
+                specification_id=str(values["specification_id"]),
+                version=str(values["version"]),
+                provenance=ProjectorSpecificationProvenance(
+                    source_kind="user_defined",
+                    publisher=str(values["publisher"]),
+                    document_title=str(values["document_title"]),
+                    document_version=str(values["version"]),
+                    reference=str(values["reference"]),
+                    evidence=evidence.ref(),
+                ),
+                lens_reference_offset_m=Offset3(),
+                optical_axis_local=Direction3(x=0.0, y=-1.0, z=0.0),
+                throw_ratio_min=float(values["throw_ratio_min"]),
+                throw_ratio_max=float(values["throw_ratio_max"]),
+                horizontal_lens_shift=(
+                    None
+                    if h_shift is None
+                    else LensShiftRange(min=float(h_shift[0]), max=float(h_shift[1]))
+                ),
+                vertical_lens_shift=(
+                    None
+                    if v_shift is None
+                    else LensShiftRange(min=float(v_shift[0]), max=float(v_shift[1]))
+                ),
+            )
+            self.controller.video_geometry_repository.save_projector_specification(
+                specification, evidence=evidence
+            )
+        except (ValueError, KeyError) as exc:
+            self._set_status(f"仕様を登録できません: {exc}", error=True)
+            return
+        self._sync_video_panel()
+        index = self.video_panel.spec_combo.findData(
+            specification.specification_sha256
+        )
+        if index >= 0:
+            self.video_panel.spec_combo.setCurrentIndex(index)
+        self._set_status(f"仕様を登録しました: {specification.specification_id}")
+
+    def _view_from_seat(self, seat_id: object) -> None:
+        """View-from-seat camera bound to the seat's eye authority (#455)."""
+        view_from = getattr(self.viewport, "view_from", None)
+        capture = getattr(self.viewport, "capture_camera_view", None)
+        apply_view = getattr(self.viewport, "apply_camera_view", None)
+        if seat_id is None:
+            if self._saved_camera_view is not None and callable(apply_view):
+                apply_view(self._saved_camera_view)
+                self._saved_camera_view = None
+                self._set_status("カメラを戻しました")
+            return
+        if not callable(view_from) or not callable(capture):
+            self._set_status("このビューポートは座席視点に対応していません", error=True)
+            return
+        workspace = self.controller.video_workspace
+        binding = None if workspace is None else workspace.seat_bindings.get(str(seat_id))
+        if binding is None:
+            self._set_status("座席に眼/頭バインドを設定してください", error=True)
+            return
+        try:
+            seat = self.controller.document.entity(str(seat_id))
+            eye = seat_eye_world(seat, binding)
+        except (KeyError, ValueError) as exc:
+            self._set_status(str(exc), error=True)
+            return
+        target = None
+        screens = [
+            entity
+            for entity in self.controller.document.entities
+            if entity.kind == "screen"
+        ]
+        if workspace is not None and screens:
+            screen_binding = workspace.screen_bindings.get(screens[0].entity_id)
+            if screen_binding is not None:
+                target = screen_image_center_world(screens[0], screen_binding)
+        if target is None:
+            # Fall back to the seat's local forward (-Y) direction 3 m ahead.
+            matrix = quaternion_to_matrix3(seat.orientation)
+            forward = (
+                matrix[0][1] * -1.0,
+                matrix[1][1] * -1.0,
+                matrix[2][1] * -1.0,
+            )
+            target = (eye[0] + 3.0 * forward[0], eye[1] + 3.0 * forward[1], eye[2] + 3.0 * forward[2])
+        self._saved_camera_view = capture()
+        view_from(
+            domain_to_render(Position3(x_m=eye[0], y_m=eye[1], z_m=eye[2])),
+            domain_to_render(Position3(x_m=target[0], y_m=target[1], z_m=target[2])),
+            view_angle_deg=45.0,
+        )
+        self._set_status(f"座席視点: {seat.name}（カメラを戻すで復帰）")
+
+    # -- history (#485) ----------------------------------------------------------------
+
+    def _sync_history_panel(self) -> None:
+        revisions = self.controller.list_revisions()
+        head = self.controller.repository.current_head(self.controller.document_id)
+        labels = self.controller.revision_labels()
+        self.history_panel.sync_revisions(
+            revisions,
+            head.revision_id if head is not None else None,
+            labels,
+        )
+        self.history_panel.show_detail(
+            f"リビジョン数: {len(revisions)} · HEAD: "
+            f"{head.revision_id[:12] if head else '—'}"
+        )
+
+    def _history_preview(self, revision_id: object) -> None:
+        render = getattr(self.viewport, "render_history_ghost", None)
+        if revision_id is None:
+            if callable(render):
+                render(None)
+            self._render()
+            return
+        revision = self.controller.repository.get(str(revision_id))
+        if revision is None or not callable(render):
+            return
+        label_map = self.controller.revision_labels()
+        label = label_map.get(revision.revision_id)
+        label_text = None
+        if label is not None:
+            label_text = label.label or revision.revision_id[:12]
+        render(
+            revision.document,
+            label=label_text or revision.revision_id[:12],
+        )
+
+    def _history_label(self, revision_id: object, label: object, note: object) -> None:
+        try:
+            self.controller.set_revision_label(
+                str(revision_id), str(label), str(note)
+            )
+        except (EditStateError, ValueError) as exc:
+            self._set_status(str(exc), error=True)
+            return
+        self._sync_history_panel()
+        self._set_status("ラベルを保存しました（履歴は不変です）")
+
+    def _history_diff(self, revision_id: object) -> None:
+        if revision_id is None:
+            return
+        revision = self.controller.repository.get(str(revision_id))
+        head = self.controller.repository.current_head(self.controller.document_id)
+        if revision is None or head is None:
+            return
+        diff = diff_scene_documents(revision.document, head.document)
+        lines = diff_summary_lines(diff, head.document)
+        prefix = f"過去版 → 現在の差分 ({revision.revision_id[:12]} → HEAD):\n"
+        self.history_panel.show_detail(prefix + "\n".join(lines))
+
+    def _history_restore(self, revision_id: object) -> None:
+        if self.controller.working.has_preview:
+            self._set_status("プレビュー中は復元できません", error=True)
+            return
+        try:
+            revision = self.controller.restore_revision(str(revision_id))
+        except EditStateError as exc:
+            self._set_status(str(exc), error=True)
+            return
+        self._history_preview(None)
+        self._refresh(reset_camera=True)
+        self._sync_history_panel()
+        self._set_status(
+            f"履歴版を新しい先頭版として復元しました: {revision.revision_id[:12]}"
+        )
+
+    def _measure_state_changed(self) -> None:
+        self._render()
+        if self.measure_controller.is_active:
+            self._set_status(
+                "計測中: オブジェクトまたは空の位置をクリック（Escで中止）"
+            )
+
+    # -- refresh -------------------------------------------------------------------------
 
     def has_focused_text_editor(self) -> bool:
         """True while a text/numeric field inside this workspace owns focus."""
@@ -1775,6 +2903,12 @@ class RoomWorkspace(QWidget):
             return
         if tool_id == "toggle-acoustics":
             self.overlay_controls.acoustics.toggle()
+            return
+        if tool_id == "measure":
+            self.toggle_measure()
+            return
+        if tool_id == "delete-selection":
+            self.delete_selection()
             return
         if tool_id == "draw-room" and self.geometry_input is not None:
             self.geometry_input.start_sketch()
@@ -1912,6 +3046,11 @@ class RoomWorkspace(QWidget):
     def _refresh(self, *, reset_camera: bool = False) -> None:
         self.recovery_banner.setVisible(self.controller.recovery_candidate is not None)
         self._refresh_inspector()
+        self._sync_objects_panel()
+        if self.current_context == "placement":
+            self._sync_constraints_panel()
+        if self.current_context == "history":
+            self._sync_history_panel()
         if self.geometry_panel is not None:
             refresh_geometry = getattr(self.geometry_panel, "refresh", None)
             if callable(refresh_geometry):
@@ -1951,9 +3090,28 @@ class RoomWorkspace(QWidget):
         self.viewport.render_document(
             self.controller.document,
             selected_id=self.controller.selected_id,
+            selected_ids=self.controller.view_state.selection,
+            hidden_ids=frozenset(self.controller.view_state.hidden_ids),
+            locked_ids=frozenset(self.controller.view_state.locked_ids),
             overlays=overlays,
             reset_camera=reset_camera,
         )
+        # Constraints + measure + video overlays ride the same viewport render.
+        render_constraints = getattr(self.viewport, "render_constraint_overlay", None)
+        if callable(render_constraints) and self.controller.constraint_set is not None:
+            render_constraints(
+                self.controller.constraint_set,
+                self.controller.evaluate_constraints(),
+            )
+        render_measure = getattr(self.viewport, "render_measure_overlay", None)
+        if callable(render_measure):
+            render_measure(
+                self.measure_controller.result,
+                draft_endpoints=self.measure_controller.endpoints,
+            )
+        render_video = getattr(self.viewport, "render_video_overlay", None)
+        if callable(render_video):
+            render_video(self._video_evaluation)
         if self.current_context == "placement" and self._proposed_variant_id is not None:
             try:
                 proposal_entities = self.system_expansion.ghost_preview(

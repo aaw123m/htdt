@@ -49,7 +49,7 @@ def test_workflow_shell_routes_canonical_workspaces_lazily() -> None:
     assert created == [WorkspaceId.OVERVIEW]
 
     assert window.navigate(WorkspaceId.ROOM)
-    assert window.context_labels == ("形状", "物体", "スピーカー・座席", "音響")
+    assert window.context_labels == ("形状", "物体", "スピーカー・座席", "音響", "履歴")
     assert context_events[WorkspaceId.ROOM] == ["geometry"]
 
     window.select_context("acoustics")
