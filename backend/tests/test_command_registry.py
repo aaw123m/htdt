@@ -183,6 +183,7 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'navigation.optimization',
         'room.view.fit_selection',
         'room.view.fit_all',
+        'equipment.export_capture_catalog',
         'room.measure',
         'room.view.history',
         # Display-only viewport commands (#545/#629/#618) never touch data.

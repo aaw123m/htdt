@@ -74,6 +74,7 @@ COORDINATE_AUTHORITY_ID_RE = re.compile(
 SOURCE_EVIDENCE_DOMAIN = 'htdt.capture.source-evidence.v1'
 RAW_MESH_HANDOFF_DOMAIN = 'htdt.capture.raw-visual-mesh-handoff.v1'
 AUTHORITY_HANDOFF_DOMAIN = 'htdt.capture.authority-record.v1'
+SUPPLEMENTAL_DOCUMENT_DOMAIN = 'htdt.capture.supplemental-document.v1'
 INGESTION_RUN_DOMAIN = 'htdt.capture.ingestion-run.v1'
 COORDINATE_AUTHORITY_DOMAIN = 'htdt.capture.coordinate-authority.v1'
 INGESTOR_CONFIGURATION_DIGEST = (
@@ -200,6 +201,19 @@ def _authority_handoff_id(
         source_payload_sha256,
         record_kind,
         record_id,
+    )
+
+
+def _supplemental_handoff_id(
+    bundle_digest: str,
+    path: str,
+    payload_sha256: str,
+) -> str:
+    return _hash_parts(
+        SUPPLEMENTAL_DOCUMENT_DOMAIN,
+        bundle_digest,
+        path,
+        payload_sha256,
     )
 
 
@@ -585,6 +599,87 @@ class CaptureAuthorityRecord(BaseModel):
         return value
 
 
+# Supplemental semantic/workflow authorities newer Capture bundles persist
+# alongside annotations/measurements (#564). A *supported* kind gets a typed
+# handoff; any other declared kind is retained verbatim as 'unsupported' so a
+# newer producer's payload never silently disappears at the ingestion
+# boundary. Preservation does not require widening a record_kind enum.
+SUPPORTED_SUPPLEMENTAL_KINDS = frozenset({
+    'capture_task_plan',
+    'task_plan_status',
+    'connected_spaces',
+    'reference_targets',
+    'derived_geometry_candidates',
+    'as_built_verification',
+})
+
+SUPPLEMENTAL_DOCUMENT_PATHS = {
+    'capture_task_plan': 'session/capture-task-plan.json',
+    'task_plan_status': 'session/task-plan-status.json',
+    'connected_spaces': 'session/connected-spaces.json',
+    'reference_targets': 'evidence/reference-targets.json',
+    'derived_geometry_candidates': 'derived/geometry-candidates.json',
+    'as_built_verification': 'verification/as-built.json',
+}
+
+
+class CaptureSupplementalDocument(BaseModel):
+    """Typed preservation contract for one supplemental authority document.
+
+    Carries source path, exact payload hash, declared schema/version and the
+    semantic document kind with explicit coordinate/session dependency refs.
+    ``validation_state='unsupported'`` preserves a valid-but-unknown document
+    instead of dropping it; malformed declared payloads fail at plan
+    validation when they cannot satisfy this contract.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    supplemental_document_handoff_id: str = Field(pattern=r'^[0-9a-f]{64}$')
+    document_kind: str = Field(min_length=1)
+    validation_state: Literal['supported', 'unsupported']
+    schema: str = Field(min_length=1)
+    schema_version: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    source_evidence_id: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_payload_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    coordinate_space_ids: tuple[str, ...] = ()
+    capture_session_ids: tuple[str, ...] = ()
+    plan_payload_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
+
+    @field_validator('coordinate_space_ids', 'capture_session_ids')
+    @classmethod
+    def validate_uuid_set(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError('dependency references must be unique')
+        for item in value:
+            if not UUID4_RE.fullmatch(item):
+                raise ValueError('dependency references must be lowercase UUIDv4')
+        return value
+
+    @model_validator(mode='after')
+    def validate_support(self) -> 'CaptureSupplementalDocument':
+        supported = self.document_kind in SUPPORTED_SUPPLEMENTAL_KINDS
+        if supported and self.validation_state != 'supported':
+            raise ValueError(
+                'supported supplemental kind requires supported state'
+            )
+        if not supported and self.validation_state != 'unsupported':
+            raise ValueError(
+                'unknown supplemental kind must be preserved as unsupported'
+            )
+        expected_path = SUPPLEMENTAL_DOCUMENT_PATHS.get(self.document_kind)
+        if expected_path is not None and self.path != expected_path:
+            raise ValueError(
+                f'supplemental {self.document_kind} must use path '
+                f'{expected_path}'
+            )
+        return self
+
+
 class CaptureIngestionPlan(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -597,6 +692,7 @@ class CaptureIngestionPlan(BaseModel):
     roomplan_capture_metadata: CaptureRoomPlanCaptureMetadata | None = None
     raw_visual_mesh_handoffs: tuple[CaptureMeshHandoff, ...]
     authority_records: tuple[CaptureAuthorityRecord, ...]
+    supplemental_documents: tuple[CaptureSupplementalDocument, ...] = ()
     lineage_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
@@ -740,12 +836,58 @@ class CaptureIngestionPlan(BaseModel):
         if len(set(authority_ids)) != len(authority_ids):
             raise ValueError('duplicate authority record handoff identity')
 
+        supplemental_ids: list[str] = []
+        source_hash_by_path = {item.path: item.payload_sha256 for item in self.source_evidence}
+        for document in self.supplemental_documents:
+            source = by_id.get(document.source_evidence_id)
+            if source is None:
+                raise ValueError('supplemental document source evidence missing')
+            if source.path != document.path:
+                raise ValueError('supplemental document source path mismatch')
+            if source.payload_sha256 != document.source_payload_sha256:
+                raise ValueError('supplemental document source hash mismatch')
+            for space_id in document.coordinate_space_ids:
+                if space_id not in self.bundle.coordinate_space_ids:
+                    raise ValueError(
+                        'supplemental document coordinate space mismatch'
+                    )
+            for session_id in document.capture_session_ids:
+                if session_id not in self.bundle.capture_session_ids:
+                    raise ValueError(
+                        'supplemental document capture session mismatch'
+                    )
+            if (
+                document.plan_payload_sha256 is not None
+                and document.plan_payload_sha256
+                not in set(source_hash_by_path.values())
+            ):
+                raise ValueError(
+                    'supplemental document plan reference does not resolve to '
+                    'a bundle payload'
+                )
+            expected = _supplemental_handoff_id(
+                bundle_digest,
+                document.path,
+                document.source_payload_sha256,
+            )
+            if document.supplemental_document_handoff_id != expected:
+                raise ValueError(
+                    'supplemental document deterministic identity mismatch'
+                )
+            supplemental_ids.append(document.supplemental_document_handoff_id)
+        if len(set(supplemental_ids)) != len(supplemental_ids):
+            raise ValueError('duplicate supplemental document handoff identity')
+
         projection = {
             'bundle_digest': bundle_digest,
             'source_evidence_ids': sorted(source_ids),
             'raw_visual_mesh_ids': sorted(handoff_ids),
             'authority_record_ids': sorted(authority_ids),
         }
+        # Older plans carry no supplemental set; including the key only when
+        # documents exist preserves their recorded lineage digests.
+        if supplemental_ids:
+            projection['supplemental_document_ids'] = sorted(supplemental_ids)
         expected_lineage = sha256(
             _canonical_json(projection).encode('utf-8')
         ).hexdigest()
@@ -769,6 +911,7 @@ class CaptureIngestionCommitResult:
     quality_state: str = 'unresolved'
     quality_ruleset_version: str | None = None
     quality_payload_sha256: str | None = None
+    supplemental_document_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -3411,6 +3554,7 @@ class CaptureIngestionRepository:
             roomplan_record_count=len(roomplan_rows),
             raw_mesh_binding_count=len(linked_binding_ids),
             authority_record_count=len(linked_authority_ids),
+            supplemental_document_count=len(plan.supplemental_documents),
             created=False,
             capture_revision_id=plan.bundle.capture_revision_id,
             capture_series_id=plan.bundle.capture_series_id,
@@ -4317,6 +4461,30 @@ class CaptureIngestionRepository:
         )
 
 
+    def get_supplemental_document(
+        self,
+        lineage_digest: str,
+        supplemental_document_handoff_id: str,
+    ) -> CaptureSupplementalDocument | None:
+        """Re-read one persisted supplemental authority by handoff id.
+
+        Supplemental documents persist verbatim inside the run's plan
+        authority (``plan_json``) like every other plan member — the
+        persisted-materialization check therefore covers them without a
+        separate row family.
+        """
+
+        plan = self.get_ingestion(lineage_digest)
+        if plan is None:
+            return None
+        for document in plan.supplemental_documents:
+            if (
+                document.supplemental_document_handoff_id
+                == supplemental_document_handoff_id
+            ):
+                return document
+        return None
+
     @staticmethod
     def _result(
         plan: CaptureIngestionPlan,
@@ -4342,4 +4510,5 @@ class CaptureIngestionRepository:
             quality_state=state.state,
             quality_ruleset_version=state.ruleset_version,
             quality_payload_sha256=state.payload_sha256,
+            supplemental_document_count=len(plan.supplemental_documents),
         )

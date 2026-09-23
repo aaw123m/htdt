@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QPointF
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QFileDialog, QMenu, QMessageBox
 
 from .cad_input import (
     CAD_SCENE_COMMAND_IDS,
@@ -34,6 +34,7 @@ from .data_management import (
     DataManagementController,
 )
 from .data_management_ui import build_data_management_component
+from .equipment_catalog_export import export_equipment_catalog_snapshot
 from .measurement_page_workspace import build_measurement_workspace_mount
 from .measurement_workflow import MeasurementWorkflowController
 from .optimization_workflow_workspace import build_optimization_workspace_mount
@@ -183,6 +184,10 @@ class WorkflowApplicationComposition:
         self.shell.settingsRequested.connect(self.settings_dialog.open_settings)
         self.shell.register_close_guard(self._can_close_application)
         self.shell.workflow_application = self  # type: ignore[attr-defined]
+        self.registry.bind(
+            "equipment.export_capture_catalog",
+            execute=self._export_capture_equipment_catalog,
+        )
 
     def _build_overview_service(self) -> OverviewReadinessService:
         measurement_repository = CadMeasurementRepository(self.repository)
@@ -900,6 +905,33 @@ class WorkflowApplicationComposition:
         if self.shell.router.current_workspace_id is None:
             if not self.shell.navigate(WorkspaceId.OVERVIEW):
                 raise RuntimeError("復元後の概要画面を再構築できませんでした")
+
+    def _export_capture_equipment_catalog(self) -> None:
+        """Operator action behind ``equipment.export_capture_catalog``.
+
+        Global read-only export: writes the deterministic HTDT -> HTDT-Capture
+        equipment picker snapshot through a normal save-dialog path and
+        reports the definition count plus the exact snapshot identity.
+        """
+
+        selected, _filter = QFileDialog.getSaveFileName(
+            self.shell,
+            "Capture用機材カタログの保存先",
+            str(Path.home() / "htdt-equipment-catalog.json"),
+            "HTDT equipment catalog (*.json)",
+        )
+        if not selected:
+            return
+        result = export_equipment_catalog_snapshot(
+            self.repository,
+            Path(selected),
+        )
+        QMessageBox.information(
+            self.shell,
+            "Capture用機材カタログを書き出しました",
+            f"{result.definition_count} 件の機材定義を書き出しました。\n"
+            f"カタログSHA-256: {result.snapshot_sha256}",
+        )
 
     def _can_close_application(self) -> tuple[bool, str | None]:
         if self.data_management_component.can_close_application:

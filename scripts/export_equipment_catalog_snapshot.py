@@ -3,27 +3,31 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
+from htdt.equipment_catalog_export import export_equipment_catalog_snapshot
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            'Export a deterministic HTDT EquipmentDefinition picker snapshot.'
+            'Export a deterministic HTDT EquipmentDefinition picker snapshot '
+            'for HTDT-Capture.'
         )
     )
     parser.add_argument('database', type=Path)
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
 
-    scene_repository = SceneRepository(args.database)
-    snapshot = CadEquipmentRepository(
-        scene_repository
-    ).catalog_snapshot()
-
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(snapshot.canonical_bytes())
+    result = export_equipment_catalog_snapshot(
+        SceneRepository(args.database),
+        args.output,
+    )
+    print(
+        f'exported {result.definition_count} definitions '
+        f'(authority {result.authority_version}) '
+        f'to {result.output_path} '
+        f'sha256={result.snapshot_sha256}'
+    )
     return 0
 
 
