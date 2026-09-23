@@ -12,7 +12,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
-from .cad_scene import Position3
+from .cad_scene import Direction3, Position3
 
 
 QUALITY_ALGORITHM_VERSION = 'measurement-quality-1'
@@ -271,6 +271,56 @@ def _validate_observation_field_values(
         raise ValueError('IR window end must be after start')
 
 
+class CadMicrophoneCapture(BaseModel):
+    """Microphone instrument identity and orientation at acquisition time.
+
+    Mirrors the field-side instrument identity used by ``MicrophoneSnapshot``
+    (manufacturer/model/serial, connection, sample rate, calibration profile)
+    plus the physical direction the capsule actually faced — the
+    ``calibration_profile`` (0°/90°) must match the direction the microphone
+    was used in for the calibration to be meaningful.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    manufacturer: str | None = None
+    model: str | None = None
+    serial: str | None = None
+    connection: str | None = None
+    sample_rate_hz: int | None = Field(default=None, gt=0)
+    calibration_profile: Literal['0deg', '90deg', 'unknown'] | None = None
+    calibration_filename: str | None = None
+    calibration_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    direction: Direction3 | None = None
+
+
+class CadPlaybackCapture(BaseModel):
+    """Playback/output condition the acquisition was taken under.
+
+    Output device identity plus the AVR condition (model/firmware identity,
+    input, volume, processing and PEQ mode). A change in any of these is a
+    different acquisition condition — presets create a new context version
+    rather than mutating a persisted one.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    output_device_label: str | None = None
+    avr_manufacturer: str | None = None
+    avr_model: str | None = None
+    avr_firmware: str | None = None
+    avr_input_name: str | None = None
+    avr_volume_db: float | None = None
+    avr_processing_mode: str | None = None
+    avr_peq_mode: str | None = None
+
+    @model_validator(mode='after')
+    def valid_playback(self) -> 'CadPlaybackCapture':
+        if self.avr_volume_db is not None and not isfinite(float(self.avr_volume_db)):
+            raise ValueError('avr_volume_db must be finite')
+        return self
+
+
 class CadAcquisitionContext(BaseModel):
     """Persisted acquisition-context authority a report binding resolves to.
 
@@ -282,6 +332,13 @@ class CadAcquisitionContext(BaseModel):
     into ``native`` provenance by editing the binding alone. A persisted
     ``unknown`` context still resolves, but the capability algorithm keeps
     context-dependent claims UNKNOWN for it.
+
+    ``microphone``/``playback``/``measurement_direction`` extend the context
+    with instrument identity, orientation and playback/AVR condition (#471).
+    ``timing_reference_sha256`` binds the exact persisted
+    ``CadMeasurementTimingReference`` authority the context used (#642).
+    Both remain optional: they are excluded from ``identity_payload`` when
+    absent so previously persisted contexts keep their identity hash.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -294,6 +351,12 @@ class CadAcquisitionContext(BaseModel):
     clock_source: str | None = None
     sample_rate_hz: int | None = Field(default=None, gt=0)
     delay_correction_s: float | None = None
+    microphone: CadMicrophoneCapture | None = None
+    playback: CadPlaybackCapture | None = None
+    measurement_direction: Direction3 | None = None
+    timing_reference_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     created_at_utc: str = Field(min_length=1)
     notes: tuple[str, ...] = ()
     provenance_json: str = '{}'
@@ -316,7 +379,7 @@ class CadAcquisitionContext(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'acquisition_context_id': self.acquisition_context_id,
             'source_kind': self.source_kind,
             'subject_measurement_ids': list(self.subject_measurement_ids),
@@ -329,6 +392,19 @@ class CadAcquisitionContext(BaseModel):
             'notes': list(self.notes),
             'provenance_json': self.provenance_json,
         }
+        # Optional post-#471/#642 fields join the sealed identity only when
+        # present so contexts persisted before they existed keep their hash.
+        if self.microphone is not None:
+            payload['microphone'] = self.microphone.model_dump(mode='json')
+        if self.playback is not None:
+            payload['playback'] = self.playback.model_dump(mode='json')
+        if self.measurement_direction is not None:
+            payload['measurement_direction'] = (
+                self.measurement_direction.model_dump(mode='json')
+            )
+        if self.timing_reference_sha256 is not None:
+            payload['timing_reference_sha256'] = self.timing_reference_sha256
+        return payload
 
 
 class CadMeasurementObservation(BaseModel):
@@ -449,6 +525,10 @@ def build_acquisition_context(
     clock_source: str | None = None,
     sample_rate_hz: int | None = None,
     delay_correction_s: float | None = None,
+    microphone: CadMicrophoneCapture | dict[str, Any] | None = None,
+    playback: CadPlaybackCapture | dict[str, Any] | None = None,
+    measurement_direction: Direction3 | None = None,
+    timing_reference_sha256: str | None = None,
     acquisition_context_id: str | None = None,
     created_at_utc: str | None = None,
     notes: Sequence[str] = (),
@@ -460,6 +540,10 @@ def build_acquisition_context(
     quality repository, which re-validates that every subject measurement
     exists before a report binding can resolve to it.
     """
+    if isinstance(microphone, dict):
+        microphone = CadMicrophoneCapture.model_validate(microphone)
+    if isinstance(playback, dict):
+        playback = CadPlaybackCapture.model_validate(playback)
     payload: dict[str, Any] = {
         'acquisition_context_id': acquisition_context_id or str(uuid4()),
         'source_kind': source_kind,
@@ -469,6 +553,10 @@ def build_acquisition_context(
         'clock_source': clock_source,
         'sample_rate_hz': sample_rate_hz,
         'delay_correction_s': delay_correction_s,
+        'microphone': microphone,
+        'playback': playback,
+        'measurement_direction': measurement_direction,
+        'timing_reference_sha256': timing_reference_sha256,
         'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
         'notes': tuple(notes),
         'provenance_json': provenance_json,

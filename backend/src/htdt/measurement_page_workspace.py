@@ -17,8 +17,10 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -31,11 +33,17 @@ from PySide6.QtWidgets import (
 )
 
 from .cad_measurement_models import CadMeasurementComparison
-from .cad_measurement_quality import CadMeasurementCapability
+from .cad_measurement_quality import (
+    CadMeasurementCapability,
+    CadMicrophoneCapture,
+    CadPlaybackCapture,
+)
 from .cad_repository import SceneRepository
+from .cad_scene import Direction3
 from .ingress import read_file_bounded
 from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
 from .measurement_workflow import (
+    AcquisitionCapture,
     MeasurementAssignment,
     MeasurementView,
     MeasurementWorkflowController,
@@ -579,7 +587,79 @@ class MeasurementPageWorkspace(QWidget):
         ):
             self.routing_combo.addItem(label, value)
         form.addRow("ルーティング根拠", self.routing_combo)
+
+        # #659: the SceneRevision the measurement was acquired against. The
+        # current head is only the proposal; the user can explicitly bind a
+        # past revision so delayed imports never silently join the newest
+        # layout.
+        self.acquisition_revision_combo = QComboBox(assign_card)
+        self.acquisition_revision_combo.setMinimumContentsLength(24)
+        self.acquisition_revision_combo.activated.connect(
+            self._acquisition_revision_changed
+        )
+        form.addRow("取得時の配置", self.acquisition_revision_combo)
+
+        # #473: a persisted verified channel-map can be selected; its entry
+        # for the channel role supplies the observed speakers when nothing
+        # is checked manually.
+        self.routing_profile_combo = QComboBox(assign_card)
+        self.routing_profile_combo.setMinimumContentsLength(24)
+        form.addRow("ルーティングプロファイル", self.routing_profile_combo)
         assign_layout.addLayout(form)
+
+        # #471: acquisition conditions — microphone identity/direction and
+        # playback/AVR state, persisted as a CadAcquisitionContext authority
+        # bound to the new measurement. An empty section means no context is
+        # persisted (missing evidence, never a fabricated one); a saved
+        # context can be re-applied as a preset.
+        acquisition_card, acquisition_layout = _card("取得条件", assign_card)
+        preset_row = QHBoxLayout()
+        self.acquisition_preset_combo = QComboBox(acquisition_card)
+        self.acquisition_preset_combo.setMinimumContentsLength(24)
+        preset_row.addWidget(self.acquisition_preset_combo, 1)
+        self.acquisition_preset_button = QPushButton("プリセット適用", acquisition_card)
+        self.acquisition_preset_button.clicked.connect(self._apply_acquisition_preset)
+        preset_row.addWidget(self.acquisition_preset_button)
+        acquisition_layout.addLayout(preset_row)
+
+        acquisition_form = QFormLayout()
+        self.mic_orientation_combo = QComboBox(acquisition_card)
+        for label, value in (
+            ("未確認", "unknown"),
+            ("上向き（0°プロファイル）", "0deg"),
+            ("前方（90°プロファイル）", "90deg"),
+        ):
+            self.mic_orientation_combo.addItem(label, value)
+        acquisition_form.addRow("マイク方向", self.mic_orientation_combo)
+
+        self.mic_manufacturer_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("マイク メーカー", self.mic_manufacturer_edit)
+        self.mic_model_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("マイク モデル", self.mic_model_edit)
+        self.mic_serial_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("マイク シリアル", self.mic_serial_edit)
+        self.mic_sample_rate_edit = QLineEdit(acquisition_card)
+        self.mic_sample_rate_edit.setPlaceholderText("例: 48000")
+        acquisition_form.addRow("マイク サンプルレート", self.mic_sample_rate_edit)
+        self.mic_cal_file_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("校正ファイル名", self.mic_cal_file_edit)
+        self.mic_cal_sha_edit = QLineEdit(acquisition_card)
+        self.mic_cal_sha_edit.setPlaceholderText("SHA-256（64桁hex）")
+        acquisition_form.addRow("校正ファイルSHA-256", self.mic_cal_sha_edit)
+
+        self.output_device_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("出力デバイス", self.output_device_edit)
+        self.avr_model_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("AVR モデル", self.avr_model_edit)
+        self.avr_volume_edit = QLineEdit(acquisition_card)
+        self.avr_volume_edit.setPlaceholderText("例: -15.0")
+        acquisition_form.addRow("AVR ボリューム(dB)", self.avr_volume_edit)
+        self.avr_processing_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("AVR 処理モード", self.avr_processing_edit)
+        self.avr_peq_edit = QLineEdit(acquisition_card)
+        acquisition_form.addRow("AVR PEQモード", self.avr_peq_edit)
+        acquisition_layout.addLayout(acquisition_form)
+        assign_layout.addWidget(acquisition_card)
 
         speaker_label = QLabel("音源スピーカー", assign_card)
         set_typography_role(speaker_label, TypographyRole.SECONDARY)
@@ -665,6 +745,57 @@ class MeasurementPageWorkspace(QWidget):
                 else Qt.CheckState.Unchecked
             )
 
+        # #659 acquisition-time revision picker: head proposal plus history.
+        self.acquisition_revision_combo.blockSignals(True)
+        self.acquisition_revision_combo.clear()
+        try:
+            revisions = self.controller.revision_options()
+        except Exception:
+            revisions = ()
+        for revision in revisions:
+            self.acquisition_revision_combo.addItem(
+                revision.created_at_utc, revision.revision_id
+            )
+        if pending is not None:
+            index = self.acquisition_revision_combo.findData(
+                pending.scene_revision_id
+            )
+            if index >= 0:
+                self.acquisition_revision_combo.setCurrentIndex(index)
+        self.acquisition_revision_combo.blockSignals(False)
+        self.acquisition_revision_combo.setEnabled(pending is not None)
+
+        # #473 routing profile selection (verified channel-map authority).
+        previous_profile = self.routing_profile_combo.currentData()
+        self.routing_profile_combo.clear()
+        self.routing_profile_combo.addItem("（未選択）", None)
+        try:
+            profiles = self.controller.quality_repository.list_routing_profiles()
+        except Exception:
+            profiles = ()
+        for profile in profiles:
+            self.routing_profile_combo.addItem(
+                f"{profile.profile_name} · {profile.created_at_utc}",
+                profile.routing_profile_id,
+            )
+        if previous_profile is not None:
+            index = self.routing_profile_combo.findData(previous_profile)
+            if index >= 0:
+                self.routing_profile_combo.setCurrentIndex(index)
+
+        # #471 persisted contexts offered as reusable presets.
+        self.acquisition_preset_combo.clear()
+        self.acquisition_preset_combo.addItem("（プリセットなし）", None)
+        try:
+            contexts = self.controller.acquisition_contexts()
+        except Exception:
+            contexts = ()
+        for context in contexts:
+            self.acquisition_preset_combo.addItem(
+                f"{context.source_kind} · {context.created_at_utc}",
+                context.acquisition_context_id,
+            )
+
         # A pending retake pre-fills the exact binding it supersedes so the
         # lineage record stays valid; the user can still adjust before saving.
         retake_view = next(
@@ -722,6 +853,151 @@ class MeasurementPageWorkspace(QWidget):
             f"保存内容: {target} · {channel} · {evidence} · 音源 {source_text} · ルーティング {routing}"
         )
 
+    def _acquisition_revision_changed(self) -> None:
+        revision_id = self.acquisition_revision_combo.currentData()
+        if not isinstance(revision_id, str) or not revision_id:
+            return
+        try:
+            self.controller.select_pending_revision(revision_id)
+        except Exception as exc:
+            self._set_notice(
+                f"取得時の配置を切り替えられませんでした · {exc}",
+                SemanticState.WARNING,
+            )
+
+    def _apply_acquisition_preset(self) -> None:
+        """Seed the capture fields from a persisted context (preset, #471)."""
+        context_id = self.acquisition_preset_combo.currentData()
+        if not isinstance(context_id, str) or not context_id:
+            return
+        context = self.controller.quality_repository.get_acquisition_context(
+            context_id
+        )
+        if context is None:
+            self._set_notice("プリセットを確認できませんでした。", SemanticState.WARNING)
+            return
+        mic = context.microphone
+        playback = context.playback
+        if mic is not None:
+            index = self.mic_orientation_combo.findData(
+                mic.calibration_profile or "unknown"
+            )
+            if index >= 0:
+                self.mic_orientation_combo.setCurrentIndex(index)
+            self.mic_manufacturer_edit.setText(mic.manufacturer or "")
+            self.mic_model_edit.setText(mic.model or "")
+            self.mic_serial_edit.setText(mic.serial or "")
+            self.mic_sample_rate_edit.setText(
+                "" if mic.sample_rate_hz is None else str(mic.sample_rate_hz)
+            )
+            self.mic_cal_file_edit.setText(mic.calibration_filename or "")
+            self.mic_cal_sha_edit.setText(mic.calibration_sha256 or "")
+        if playback is not None:
+            self.output_device_edit.setText(playback.output_device_label or "")
+            self.avr_model_edit.setText(
+                " ".join(
+                    part
+                    for part in (playback.avr_manufacturer, playback.avr_model)
+                    if part
+                )
+            )
+            self.avr_volume_edit.setText(
+                "" if playback.avr_volume_db is None else str(playback.avr_volume_db)
+            )
+            self.avr_processing_edit.setText(playback.avr_processing_mode or "")
+            self.avr_peq_edit.setText(playback.avr_peq_mode or "")
+
+    @staticmethod
+    def _text_or_none(edit: QLineEdit) -> str | None:
+        text = edit.text().strip()
+        return text or None
+
+    def _collect_acquisition_capture(self) -> tuple[AcquisitionCapture | None, Direction3 | None, str | None]:
+        """Read the capture form into an AcquisitionCapture + mic direction.
+
+        Returns ``(capture, direction, error)``. An entirely empty form is
+        ``(None, None, None)`` — no acquisition context is persisted, which
+        stays honest missing evidence rather than a fabricated record.
+        """
+        orientation = str(self.mic_orientation_combo.currentData())
+        direction: Direction3 | None = None
+        if orientation == "0deg":
+            direction = Direction3(x=0.0, y=0.0, z=1.0)
+        elif orientation == "90deg":
+            direction = Direction3(x=0.0, y=-1.0, z=0.0)
+        mic_rate_text = self.mic_sample_rate_edit.text().strip()
+        mic_rate: int | None = None
+        if mic_rate_text:
+            try:
+                mic_rate = int(mic_rate_text)
+            except ValueError:
+                return None, None, "マイクのサンプルレートは整数で入力してください"
+        cal_sha = self._text_or_none(self.mic_cal_sha_edit)
+        if cal_sha is not None and (
+            len(cal_sha) != 64
+            or any(char not in "0123456789abcdef" for char in cal_sha.lower())
+        ):
+            return None, None, "校正ファイルSHA-256は64桁の16進数で入力してください"
+        volume_text = self.avr_volume_edit.text().strip()
+        volume_db: float | None = None
+        if volume_text:
+            try:
+                volume_db = float(volume_text)
+            except ValueError:
+                return None, None, "AVRボリュームは数値（dB）で入力してください"
+
+        microphone = CadMicrophoneCapture(
+            manufacturer=self._text_or_none(self.mic_manufacturer_edit),
+            model=self._text_or_none(self.mic_model_edit),
+            serial=self._text_or_none(self.mic_serial_edit),
+            sample_rate_hz=mic_rate,
+            calibration_profile=None if orientation == "unknown" else orientation,  # type: ignore[arg-type]
+            calibration_filename=self._text_or_none(self.mic_cal_file_edit),
+            calibration_sha256=cal_sha,
+            direction=direction,
+        )
+        avr_model_text = self._text_or_none(self.avr_model_edit)
+        playback = CadPlaybackCapture(
+            output_device_label=self._text_or_none(self.output_device_edit),
+            avr_model=avr_model_text,
+            avr_volume_db=volume_db,
+            avr_processing_mode=self._text_or_none(self.avr_processing_edit),
+            avr_peq_mode=self._text_or_none(self.avr_peq_edit),
+        )
+        has_mic = any(
+            (
+                microphone.manufacturer,
+                microphone.model,
+                microphone.serial,
+                microphone.sample_rate_hz,
+                microphone.calibration_profile not in (None, "unknown"),
+                microphone.calibration_filename,
+                microphone.calibration_sha256,
+                microphone.direction,
+            )
+        )
+        has_playback = any(
+            (
+                playback.output_device_label,
+                playback.avr_model,
+                playback.avr_volume_db is not None,
+                playback.avr_processing_mode,
+                playback.avr_peq_mode,
+            )
+        )
+        if not has_mic and not has_playback:
+            return None, direction, None
+        return (
+            AcquisitionCapture(
+                source_kind="manual",
+                microphone=microphone if has_mic else None,
+                playback=playback if has_playback else None,
+                sample_rate_hz=mic_rate,
+            ),
+            direction,
+            None,
+        )
+
     def _commit_assignment(self) -> None:
         target_id = self.target_combo.currentData()
         if not isinstance(target_id, str) or not target_id:
@@ -741,6 +1017,11 @@ class MeasurementPageWorkspace(QWidget):
             if isinstance(channel_data, str) and channel_data
             else (self.channel_combo.currentText().strip() or "unknown")
         )
+        acquisition, direction, capture_error = self._collect_acquisition_capture()
+        if capture_error is not None:
+            self._set_notice(capture_error, SemanticState.WARNING)
+            return
+        routing_profile_id = self.routing_profile_combo.currentData()
         assignment = MeasurementAssignment(
             measurement_entity_id=target_id,
             evidence_type=str(self.evidence_combo.currentData()),  # type: ignore[arg-type]
@@ -748,9 +1029,48 @@ class MeasurementPageWorkspace(QWidget):
             source_speaker_ids=source_ids,
             radiation_scope=str(self.radiation_combo.currentData()),  # type: ignore[arg-type]
             routing_evidence=str(self.routing_combo.currentData()),  # type: ignore[arg-type]
+            measurement_direction=direction,
+            routing_profile_id=(
+                routing_profile_id if isinstance(routing_profile_id, str) else None
+            ),
+            acquisition=acquisition,
         )
+        # #659: when the layout moved since staging, the user chooses how to
+        # resolve the divergence — commit to the acquired (historical)
+        # revision, re-choose the current head, or keep the import pending.
+        on_divergence = "reject"
+        if self.controller.pending_divergence():
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("配置が変更されています")
+            box.setText(
+                "読み込み後に部屋の保存状態が変更されています。\n"
+                "この測定をどの配置として保存するか選んでください。"
+            )
+            historical_button = box.addButton(
+                "取得時の配置として保存", QMessageBox.ButtonRole.AcceptRole
+            )
+            current_button = box.addButton(
+                "現在の配置として保存", QMessageBox.ButtonRole.DestructiveRole
+            )
+            box.addButton("保留にする", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is historical_button:
+                on_divergence = "historical"
+            elif clicked is current_button:
+                on_divergence = "accept_current"
+            else:
+                self._set_notice(
+                    "保存を保留しました。取得時の配置を選び直すか、後で保存してください。",
+                    SemanticState.WARNING,
+                )
+                return
         try:
-            record = self.controller.commit_pending(assignment)
+            record = self.controller.commit_pending(
+                assignment,
+                on_divergence=on_divergence,  # type: ignore[arg-type]
+            )
         except Exception as exc:
             self._set_notice(f"測定を保存できませんでした · {exc}", SemanticState.ERROR)
             return

@@ -643,6 +643,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('measurement', 'get_dataset'),
     ),
     _ReplayProbe(
+        'measurement_ir_dataset',
+        'cad_impulse_responses',
+        ('dataset_id',),
+        _get('measurement', 'get_ir_dataset'),
+    ),
+    _ReplayProbe(
         'measurement_plan',
         'cad_measurement_plans',
         ('plan_id', 'search_spec_id'),
@@ -661,6 +667,30 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('quality', 'get_observation'),
     ),
     _ReplayProbe(
+        'measurement_timing_reference',
+        'cad_timing_references',
+        ('timing_reference_id',),
+        _get('quality', 'get_timing_reference'),
+    ),
+    _ReplayProbe(
+        'acoustic_level_calibration',
+        'cad_acoustic_level_calibrations',
+        ('calibration_id',),
+        _get('quality', 'get_level_calibration'),
+    ),
+    _ReplayProbe(
+        'dataset_level_reference',
+        'cad_dataset_level_references',
+        ('dataset_id',),
+        _get('quality', 'get_dataset_level_reference'),
+    ),
+    _ReplayProbe(
+        'routing_profile',
+        'cad_routing_profiles',
+        ('routing_profile_id',),
+        _get('quality', 'get_routing_profile'),
+    ),
+    _ReplayProbe(
         'acquisition_context',
         'cad_acquisition_contexts',
         ('acquisition_context_id',),
@@ -671,6 +701,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_measurement_quality_reports',
         ('report_id',),
         _get('quality', 'get_report'),
+    ),
+    _ReplayProbe(
+        'wiring_check',
+        'cad_wiring_checks',
+        ('check_id',),
+        _get('quality', 'get_wiring_check'),
+    ),
+    _ReplayProbe(
+        'measurement_target_lineage',
+        'cad_measurement_target_lineages',
+        ('measurement_point_id',),
+        _get('quality', 'get_target_lineage'),
     ),
     _ReplayProbe(
         'measurement_comparison',

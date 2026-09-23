@@ -6,6 +6,15 @@ from hashlib import sha256
 from pathlib import Path
 import sqlite3
 
+from .cad_measurement_authorities import (
+    CadAcousticLevelCalibration,
+    CadDatasetLevelReference,
+    CadMeasurementTimingReference,
+    CadRoutingProfile,
+    CadWiringVerificationCheck,
+    calibration_supports_absolute_spl,
+)
+from .cad_measurement_targets import CadMeasurementTargetLineage
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_quality import (
     MACHINE_OBSERVATION_SOURCES,
@@ -120,11 +129,71 @@ class CadMeasurementQualityRepository:
                     relative_path TEXT NOT NULL,
                     size_bytes INTEGER NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS cad_timing_references (
+                    timing_reference_id TEXT PRIMARY KEY,
+                    timing_reference_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_acoustic_level_calibrations (
+                    calibration_id TEXT PRIMARY KEY,
+                    calibration_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_dataset_level_references (
+                    level_reference_id TEXT PRIMARY KEY,
+                    dataset_id TEXT NOT NULL UNIQUE REFERENCES cad_frequency_responses(dataset_id),
+                    level_reference_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_routing_profiles (
+                    routing_profile_id TEXT PRIMARY KEY,
+                    routing_profile_sha256 TEXT NOT NULL UNIQUE,
+                    profile_name TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_wiring_checks (
+                    check_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    check_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_wiring_checks_document
+                    ON cad_wiring_checks(document_id, created_at_utc);
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_target_lineages (
+                    target_lineage_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    measurement_point_id TEXT NOT NULL,
+                    target_lineage_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_target_lineages_document
+                    ON cad_measurement_target_lineages(document_id);
+                CREATE INDEX IF NOT EXISTS idx_target_lineages_point
+                    ON cad_measurement_target_lineages(measurement_point_id);
                 '''
             )
 
     def _validate_acquisition_context(self, context: CadAcquisitionContext) -> None:
-        """Every subject must be an existing measurement in one document."""
+        """Every subject must be an existing measurement in one document.
+
+        When the context binds a persisted ``CadMeasurementTimingReference``
+        (#642), the reference must resolve by exact hash and — when the
+        context also carries the flat legacy ``timing_reference_id`` — its id
+        must equal the authority's id, so the exact timing authority replayed
+        is always the one the context declared.
+        """
         documents: set[str] = set()
         for subject_id in context.subject_measurement_ids:
             subject = self.measurement_repository.get_measurement(subject_id)
@@ -138,6 +207,22 @@ class CadMeasurementQualityRepository:
             raise ValueError(
                 'acquisition context subjects must belong to one document'
             )
+        if context.timing_reference_sha256 is not None:
+            reference = self._find_timing_reference_by_sha256(
+                context.timing_reference_sha256
+            )
+            if reference is None:
+                raise ValueError(
+                    'acquisition context binds an unknown timing reference'
+                )
+            if (
+                context.timing_reference_id is not None
+                and context.timing_reference_id != reference.timing_reference_id
+            ):
+                raise ValueError(
+                    'acquisition context timing_reference_id does not match '
+                    'the bound timing authority'
+                )
 
     def save_acquisition_context(self, context: CadAcquisitionContext) -> None:
         """Persist an immutable acquisition-context authority.
@@ -190,6 +275,28 @@ class CadMeasurementQualityRepository:
         self._validate_acquisition_context(context)
         return context
 
+    def list_acquisition_contexts(
+        self,
+    ) -> tuple[CadAcquisitionContext, ...]:
+        """Every persisted acquisition context, newest first.
+
+        Used as reusable acquisition-condition presets (#471): a later
+        measurement builds a *new* context seeded from an existing one's
+        capture fields; the persisted row is never mutated.
+        """
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_acquisition_contexts '
+                'ORDER BY created_at_utc DESC, acquisition_context_id'
+            ).fetchall()
+        contexts: list[CadAcquisitionContext] = []
+        for row in rows:
+            context = CadAcquisitionContext.model_validate_json(row['payload_json'])
+            self._validate_acquisition_context(context)
+            contexts.append(context)
+        return tuple(contexts)
+
     def _validate_observation(self, observation: CadMeasurementObservation) -> None:
         """The subject must exist; machine observations pin its raw asset."""
         subject = self.measurement_repository.get_measurement(
@@ -215,10 +322,19 @@ class CadMeasurementQualityRepository:
                     'measurement dataset'
                 )
             if observation.source_asset_sha256 != dataset.source_sha256:
-                raise ValueError(
-                    'machine-derived observation must pin the subject '
-                    'measurement raw asset'
+                # An IR-derived observation pins the measurement's impulse-
+                # response raw asset instead of the FR raw asset (#474).
+                ir_match = any(
+                    ir_dataset.source_sha256 == observation.source_asset_sha256
+                    for ir_dataset in self.measurement_repository.ir_datasets_for_measurement(
+                        observation.measurement_id
+                    )
                 )
+                if not ir_match:
+                    raise ValueError(
+                        'machine-derived observation must pin the subject '
+                        'measurement raw asset'
+                    )
 
     def save_observation(self, observation: CadMeasurementObservation) -> None:
         """Persist an immutable measurement-observation authority."""
@@ -880,3 +996,458 @@ class CadMeasurementQualityRepository:
         while head in children:
             head = children[head].measurement_id
         return parents[head].selected_measurement_id
+
+    # ------------------------------------------------------------------
+    # Measurement timing references (#642)
+
+    def _find_timing_reference_by_sha256(
+        self, timing_reference_sha256: str
+    ) -> CadMeasurementTimingReference | None:
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT timing_reference_id FROM cad_timing_references '
+                'WHERE timing_reference_sha256=?',
+                (timing_reference_sha256,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self.get_timing_reference(row['timing_reference_id'])
+
+    def save_timing_reference(
+        self, reference: CadMeasurementTimingReference
+    ) -> None:
+        """Persist an immutable measurement timing-reference authority."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_timing_references WHERE timing_reference_id=?',
+                (reference.timing_reference_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    'timing reference already exists: '
+                    f'{reference.timing_reference_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_timing_references(
+                    timing_reference_id, timing_reference_sha256,
+                    payload_json, created_at_utc
+                ) VALUES (?, ?, ?, ?)
+                ''',
+                (
+                    reference.timing_reference_id,
+                    reference.timing_reference_sha256,
+                    reference.model_dump_json(),
+                    reference.created_at_utc,
+                ),
+            )
+
+    def get_timing_reference(
+        self, timing_reference_id: str
+    ) -> CadMeasurementTimingReference | None:
+        """Resolve a persisted timing reference, re-verifying its seal."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT timing_reference_id, timing_reference_sha256, '
+                'payload_json, created_at_utc FROM cad_timing_references '
+                'WHERE timing_reference_id=?',
+                (timing_reference_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        reference = CadMeasurementTimingReference.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['timing_reference_id'] != reference.timing_reference_id
+            or row['timing_reference_sha256'] != reference.timing_reference_sha256
+            or row['created_at_utc'] != reference.created_at_utc
+        ):
+            raise ValueError(
+                'persisted timing reference row disagrees with its payload'
+            )
+        return reference
+
+    # ------------------------------------------------------------------
+    # Acoustic level calibrations + dataset level references (#643)
+
+    def save_level_calibration(
+        self, calibration: CadAcousticLevelCalibration
+    ) -> None:
+        """Persist an immutable acoustic level-calibration authority."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_acoustic_level_calibrations '
+                'WHERE calibration_id=?',
+                (calibration.calibration_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'acoustic level calibration already exists: '
+                    f'{calibration.calibration_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_acoustic_level_calibrations(
+                    calibration_id, calibration_sha256,
+                    payload_json, created_at_utc
+                ) VALUES (?, ?, ?, ?)
+                ''',
+                (
+                    calibration.calibration_id,
+                    calibration.calibration_sha256,
+                    calibration.model_dump_json(),
+                    calibration.calibrated_at_utc,
+                ),
+            )
+
+    def get_level_calibration(
+        self, calibration_id: str
+    ) -> CadAcousticLevelCalibration | None:
+        """Resolve a persisted acoustic level calibration."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT calibration_sha256, payload_json '
+                'FROM cad_acoustic_level_calibrations WHERE calibration_id=?',
+                (calibration_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        calibration = CadAcousticLevelCalibration.model_validate_json(
+            row['payload_json']
+        )
+        if row['calibration_sha256'] != calibration.calibration_sha256:
+            raise ValueError(
+                'persisted level calibration row disagrees with its payload'
+            )
+        return calibration
+
+    def save_dataset_level_reference(
+        self, reference: CadDatasetLevelReference
+    ) -> None:
+        """Persist the typed level-semantics binding for one exact dataset.
+
+        The bound dataset must exist with its persisted semantic hash, and
+        an ``absolute_spl`` reference must resolve a persisted calibration
+        authority that actually supports absolute SPL — a mic response
+        file, manufacturer sensitivity sheet or manual entry never
+        authorizes it.
+        """
+        dataset = self.measurement_repository.get_dataset(reference.dataset_id)
+        if dataset is None:
+            raise ValueError(
+                'dataset level reference binds an unknown dataset: '
+                f'{reference.dataset_id}'
+            )
+        if dataset.measurement_id != reference.measurement_id:
+            raise ValueError(
+                'dataset level reference measurement binding mismatch'
+            )
+        if dataset.dataset_sha256 != reference.dataset_sha256:
+            raise ValueError(
+                'dataset level reference does not match the persisted '
+                'dataset identity'
+            )
+        if reference.calibration_id is not None:
+            calibration = self.get_level_calibration(reference.calibration_id)
+            if (
+                calibration is None
+                or calibration.calibration_sha256
+                != reference.calibration_sha256
+            ):
+                raise ValueError(
+                    'dataset level reference binds an unknown calibration'
+                )
+            if (
+                reference.level_reference_kind == 'absolute_spl'
+                and not calibration_supports_absolute_spl(calibration)
+            ):
+                raise ValueError(
+                    'bound calibration method does not authorize '
+                    'absolute SPL'
+                )
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_dataset_level_references '
+                'WHERE level_reference_id=? OR dataset_id=?',
+                (reference.level_reference_id, reference.dataset_id),
+            ).fetchone() is not None:
+                raise ValueError(
+                    'dataset level reference already exists: '
+                    f'{reference.level_reference_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_dataset_level_references(
+                    level_reference_id, dataset_id,
+                    level_reference_sha256, payload_json, created_at_utc
+                ) VALUES (?, ?, ?, ?, ?)
+                ''',
+                (
+                    reference.level_reference_id,
+                    reference.dataset_id,
+                    reference.level_reference_sha256,
+                    reference.model_dump_json(),
+                    reference.created_at_utc,
+                ),
+            )
+
+    def get_dataset_level_reference(
+        self, dataset_id: str
+    ) -> CadDatasetLevelReference | None:
+        """Resolve the persisted level reference for an exact dataset.
+
+        Re-validates the dataset identity and the bound calibration — a
+        persisted row whose calibration vanished or no longer matches is
+        rejected rather than silently downgraded.
+        """
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_dataset_level_references '
+                'WHERE dataset_id=?',
+                (dataset_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        reference = CadDatasetLevelReference.model_validate_json(
+            row['payload_json']
+        )
+        dataset = self.measurement_repository.get_dataset(reference.dataset_id)
+        if dataset is None or dataset.dataset_sha256 != reference.dataset_sha256:
+            raise ValueError(
+                'persisted dataset level reference no longer matches its '
+                'dataset identity'
+            )
+        if reference.calibration_id is not None:
+            calibration = self.get_level_calibration(reference.calibration_id)
+            if (
+                calibration is None
+                or calibration.calibration_sha256
+                != reference.calibration_sha256
+            ):
+                raise ValueError(
+                    'persisted dataset level reference calibration is '
+                    'unresolvable'
+                )
+        return reference
+
+    # ------------------------------------------------------------------
+    # Verified routing profiles (#473)
+
+    def save_routing_profile(self, profile: CadRoutingProfile) -> None:
+        """Persist an immutable verified channel-map authority."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_routing_profiles WHERE routing_profile_id=?',
+                (profile.routing_profile_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'routing profile already exists: '
+                    f'{profile.routing_profile_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_routing_profiles(
+                    routing_profile_id, routing_profile_sha256,
+                    profile_name, payload_json, created_at_utc
+                ) VALUES (?, ?, ?, ?, ?)
+                ''',
+                (
+                    profile.routing_profile_id,
+                    profile.routing_profile_sha256,
+                    profile.profile_name,
+                    profile.model_dump_json(),
+                    profile.created_at_utc,
+                ),
+            )
+
+    def get_routing_profile(
+        self, routing_profile_id: str
+    ) -> CadRoutingProfile | None:
+        """Resolve a persisted routing profile by exact id."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT routing_profile_sha256, payload_json '
+                'FROM cad_routing_profiles WHERE routing_profile_id=?',
+                (routing_profile_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        profile = CadRoutingProfile.model_validate_json(row['payload_json'])
+        if row['routing_profile_sha256'] != profile.routing_profile_sha256:
+            raise ValueError(
+                'persisted routing profile row disagrees with its payload'
+            )
+        return profile
+
+    def list_routing_profiles(self) -> tuple[CadRoutingProfile, ...]:
+        """Every persisted routing profile, oldest first."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT routing_profile_sha256, payload_json '
+                'FROM cad_routing_profiles ORDER BY created_at_utc ASC, '
+                'routing_profile_id'
+            ).fetchall()
+        profiles: list[CadRoutingProfile] = []
+        for row in rows:
+            profile = CadRoutingProfile.model_validate_json(row['payload_json'])
+            if row['routing_profile_sha256'] != profile.routing_profile_sha256:
+                raise ValueError(
+                    'persisted routing profile row disagrees with its payload'
+                )
+            profiles.append(profile)
+        return tuple(profiles)
+
+    # ------------------------------------------------------------------
+    # Speaker wiring commissioning checks (#645)
+
+    def save_wiring_check(self, check: CadWiringVerificationCheck) -> None:
+        """Persist one independent wiring-verification check result."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_wiring_checks WHERE check_id=?',
+                (check.check_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'wiring verification check already exists: {check.check_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_wiring_checks(
+                    check_id, document_id, check_sha256,
+                    payload_json, created_at_utc
+                ) VALUES (?, ?, ?, ?, ?)
+                ''',
+                (
+                    check.check_id,
+                    check.document_id,
+                    check.check_sha256,
+                    check.model_dump_json(),
+                    check.measured_at_utc,
+                ),
+            )
+
+    def get_wiring_check(
+        self, check_id: str
+    ) -> CadWiringVerificationCheck | None:
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT check_sha256, payload_json FROM cad_wiring_checks '
+                'WHERE check_id=?',
+                (check_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        check = CadWiringVerificationCheck.model_validate_json(row['payload_json'])
+        if row['check_sha256'] != check.check_sha256:
+            raise ValueError(
+                'persisted wiring check row disagrees with its payload'
+            )
+        return check
+
+    def list_wiring_checks(
+        self, document_id: str
+    ) -> tuple[CadWiringVerificationCheck, ...]:
+        """Every persisted wiring check for the document, oldest first."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT check_sha256, payload_json FROM cad_wiring_checks '
+                'WHERE document_id=? ORDER BY created_at_utc ASC, check_id',
+                (document_id,),
+            ).fetchall()
+        checks: list[CadWiringVerificationCheck] = []
+        for row in rows:
+            check = CadWiringVerificationCheck.model_validate_json(
+                row['payload_json']
+            )
+            if row['check_sha256'] != check.check_sha256:
+                raise ValueError(
+                    'persisted wiring check row disagrees with its payload'
+                )
+            checks.append(check)
+        return tuple(checks)
+
+    # ------------------------------------------------------------------
+    # Seat-derived measurement target lineage (#472)
+
+    def save_target_lineage(
+        self, lineage: CadMeasurementTargetLineage
+    ) -> None:
+        """Persist a seat-derived measurement-point derivation record."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_measurement_target_lineages '
+                'WHERE target_lineage_id=? OR measurement_point_id=?',
+                (lineage.target_lineage_id, lineage.measurement_point_id),
+            ).fetchone() is not None:
+                raise ValueError(
+                    'measurement target lineage already exists: '
+                    f'{lineage.target_lineage_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_measurement_target_lineages(
+                    target_lineage_id, document_id, measurement_point_id,
+                    target_lineage_sha256, payload_json, created_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    lineage.target_lineage_id,
+                    lineage.document_id,
+                    lineage.measurement_point_id,
+                    lineage.target_lineage_sha256,
+                    lineage.model_dump_json(),
+                    lineage.created_at_utc,
+                ),
+            )
+
+    def get_target_lineage(
+        self, measurement_point_id: str
+    ) -> CadMeasurementTargetLineage | None:
+        """Resolve the persisted derivation lineage of a measurement point."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_measurement_target_lineages '
+                'WHERE measurement_point_id=?',
+                (measurement_point_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CadMeasurementTargetLineage.model_validate_json(
+            row['payload_json']
+        )
+
+    def list_target_lineages(
+        self, document_id: str
+    ) -> tuple[CadMeasurementTargetLineage, ...]:
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_measurement_target_lineages '
+                'WHERE document_id=? ORDER BY created_at_utc ASC, '
+                'target_lineage_id',
+                (document_id,),
+            ).fetchall()
+        return tuple(
+            CadMeasurementTargetLineage.model_validate_json(row['payload_json'])
+            for row in rows
+        )
