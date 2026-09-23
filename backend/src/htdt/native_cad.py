@@ -208,6 +208,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         return _run_gui(args, diagnostics)
+    except Exception as exc:
+        if not maintenance_request:
+            raise
+        # Maintenance commands run headless (scheduled tasks, CI): report the
+        # failure through diagnostics and exit nonzero — a modal failure dialog
+        # would hang the caller on a machine with nobody to dismiss it.
+        diagnostics.log_startup_failure(exc)
+        write_stderr(f"HTDT --{launch_mode} failed: {concise_reason(exc)}")
+        return 1
     finally:
         guard.release()
 

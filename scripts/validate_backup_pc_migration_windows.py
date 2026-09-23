@@ -28,6 +28,9 @@ _REQUIRED_POPULATED_TABLES = (
 
 def _run(executable: Path, *arguments: str | Path) -> subprocess.CompletedProcess[str]:
     command = [str(executable), *(str(argument) for argument in arguments)]
+    # The packaged app is windowed: an unhandled failure surfaces as a fatal
+    # dialog on the invisible desktop instead of an exit, so a bare run() would
+    # block forever. Bound each invocation to keep failures fast and visible.
     completed = subprocess.run(
         command,
         check=False,
@@ -35,6 +38,7 @@ def _run(executable: Path, *arguments: str | Path) -> subprocess.CompletedProces
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=300,
     )
     if completed.returncode != 0:
         raise RuntimeError(

@@ -84,6 +84,7 @@ def test_synthetic_demo_cli_runs_before_qapplication(tmp_path: Path, monkeypatch
 def test_backup_cli_rejects_destination_overlapping_live_database(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     data_dir = tmp_path / 'data'
     _repository, _first = _seed(data_dir)
@@ -91,31 +92,32 @@ def test_backup_cli_rejects_destination_overlapping_live_database(
     before = database.read_bytes()
 
     monkeypatch.setattr(native_cad, 'QApplication', _forbid_qapplication)
-    with pytest.raises(ValueError, match='overlaps the live native database'):
-        native_cad.main([
-            '--data-dir', str(data_dir),
-            '--backup', str(database),
-        ])
+    assert native_cad.main([
+        '--data-dir', str(data_dir),
+        '--backup', str(database),
+    ]) == 1
 
     assert database.read_bytes() == before
+    assert 'overlaps the live native database' in capsys.readouterr().err
 
 
 def test_backup_cli_rejects_destination_inside_measurement_assets(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     data_dir = tmp_path / 'data'
     _repository, _first = _seed(data_dir)
     destination = data_dir / 'measurement-assets' / 'cli.htdt-backup'
 
     monkeypatch.setattr(native_cad, 'QApplication', _forbid_qapplication)
-    with pytest.raises(ValueError, match='measurement-assets'):
-        native_cad.main([
-            '--data-dir', str(data_dir),
-            '--backup', str(destination),
-        ])
+    assert native_cad.main([
+        '--data-dir', str(data_dir),
+        '--backup', str(destination),
+    ]) == 1
 
     assert not destination.exists()
+    assert 'measurement-assets' in capsys.readouterr().err
 
 
 def test_native_cli_rejects_data_dir_already_in_use(
