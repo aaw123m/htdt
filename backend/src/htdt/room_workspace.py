@@ -1432,7 +1432,7 @@ class RoomWorkspaceController:
         depth = max_y - min_y
         center_x = min_x + width * 0.5
         center_y = min_y + depth * 0.55
-        if kind == "screen":
+        if kind in {"screen", "display"}:
             return Position3(
                 x_m=center_x,
                 y_m=min_y + min(depth * 0.04, 0.15),
@@ -1480,6 +1480,15 @@ class RoomWorkspaceController:
                 entity_id=f"screen-{token}",
                 kind="screen",
                 name="スクリーン",
+                position=self._default_position(kind, size),
+                size_m=size,
+            )
+        if kind == "display":
+            size = Size3(x_m=1.50, y_m=0.06, z_m=0.85)
+            return SceneEntity(
+                entity_id=f"display-{token}",
+                kind="display",
+                name="ディスプレイ",
                 position=self._default_position(kind, size),
                 size_m=size,
             )
@@ -1536,6 +1545,7 @@ class ObjectPalette(QFrame):
         ("speaker", "スピーカー"),
         ("seat", "座席"),
         ("screen", "スクリーン"),
+        ("display", "ディスプレイ"),
         ("projector", "プロジェクター"),
         ("riser", "ライザー"),
         ("furniture", "家具"),
@@ -1580,6 +1590,7 @@ class SelectionInspector(QFrame):
         "speaker": "スピーカー",
         "seat": "座席",
         "screen": "スクリーン",
+        "display": "ディスプレイ",
         "projector": "プロジェクター",
         "riser": "ライザー",
         "furniture": "家具",

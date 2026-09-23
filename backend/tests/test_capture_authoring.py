@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capture_fixture_support as support  # noqa: E402
 
+from htdt.cad_direct_view import capture_entity_type_to_scene_kind
 from htdt.cad_repository import SceneRepository
 from htdt.capture_ingestion_transaction import CaptureIngestionRepository
 from htdt.capture_authoring import (
@@ -80,9 +81,12 @@ def test_measurement_reconciles_instead_of_overwriting(
     assert '3.4' in detail and '3.0' in detail
 
 
-def test_display_entity_type_stays_typed_unsupported(
+def test_display_entity_type_maps_to_display_kind(
     tmp_path: Path,
 ) -> None:
+    """#637: Capture ``display`` promotes to the HTDT ``display`` scene
+    kind — never downgraded to ``screen`` — and apply() records
+    provenance like any other mapped annotation."""
     entities = json.loads(
         support.fixture_payloads()['annotations/entities.json']
     )
@@ -99,17 +103,22 @@ def test_display_entity_type_stays_typed_unsupported(
     batch = service.authoring_inputs(result.lineage_digest)
     annotation = batch.annotations[0]
     assert annotation.entity_type == 'display'
-    assert annotation.suggestion_only is True
-    assert any(
+    assert capture_entity_type_to_scene_kind('display') == 'display'
+    assert capture_entity_type_to_scene_kind('projection_screen') == (
+        'screen'
+    )
+    assert annotation.suggestion_only is False
+    assert not any(
         c.kind == 'unsupported_entity_type' for c in annotation.conflicts
     )
-    with pytest.raises(CaptureAuthoringError, match='scene-enterable'):
-        service.apply(
-            batch,
-            annotation,
-            scene_revision_id='rev-x',
-            operator_action='place_display',
-        )
+    provenance = service.apply(
+        batch,
+        annotation,
+        scene_revision_id='rev-x',
+        operator_action='place_display',
+    )
+    assert provenance.record_kind == 'annotation'
+    assert provenance.record_id == annotation.record_id
 
 
 def test_apply_preserves_capture_provenance(tmp_path: Path) -> None:
