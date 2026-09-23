@@ -17,6 +17,7 @@ from .cad_repository import SceneRepository
 from .capture_ingestion_transaction import (
     CaptureCoordinateAuthority,
     CaptureIngestionRepository,
+    CaptureQualityGateError,
 )
 from .capture_mesh_ingestion import CaptureRawVisualMeshBinding
 from .content_blobs import store_content_blob
@@ -1834,6 +1835,15 @@ class CaptureSemanticPromotionRepository:
             )
             mesh = binding.raw_mesh
             expected_space = binding.handoff.coordinate_space_id
+
+        # Fail closed unless the ingestion carried a validated quality
+        # authority — pre-gate or unresolved-quality runs cannot promote.
+        try:
+            self.capture_repository.require_quality_state(
+                run.lineage_digest
+            )
+        except CaptureQualityGateError as exc:
+            raise CaptureSemanticPromotionError(str(exc)) from exc
 
         self._resolve_world_authority_scope(
             request,

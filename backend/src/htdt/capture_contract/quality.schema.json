@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/quality.schema.json",
+  "title": "HTDT Capture Quality v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "ruleset_version",
+    "ready_for_htdt_ingestion",
+    "tracking_events",
+    "roomplan_status",
+    "active_mesh_anchor_count",
+    "evidence_frame_count",
+    "depth_evidence_count",
+    "annotation_completeness",
+    "measurement_completeness",
+    "resource_events",
+    "integrity_status",
+    "benchmark_refs",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.quality"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ready_for_htdt_ingestion": {
+      "type": "boolean"
+    },
+    "tracking_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/trackingEvent"
+      }
+    },
+    "roomplan_status": {
+      "enum": [
+        "not_started",
+        "running",
+        "completed",
+        "failed",
+        "unavailable"
+      ]
+    },
+    "active_mesh_anchor_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evidence_frame_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "depth_evidence_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "usable_mesh_anchor_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "usable_depth_sample_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "annotation_completeness": {
+      "$ref": "#/$defs/completeness"
+    },
+    "measurement_completeness": {
+      "$ref": "#/$defs/completeness"
+    },
+    "resource_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/resourceEvent"
+      }
+    },
+    "integrity_status": {
+      "enum": [
+        "not_checked",
+        "pass",
+        "fail"
+      ]
+    },
+    "benchmark_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "trackingEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_timestamp_s",
+        "state"
+      ],
+      "properties": {
+        "session_timestamp_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "normal",
+            "limited",
+            "unavailable"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "present",
+        "missing"
+      ],
+      "properties": {
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "present": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "missing": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "resourceEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "severity",
+        "detail"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "thermal_pressure",
+            "memory_pressure",
+            "storage_pressure",
+            "persistence_backlog",
+            "persistence_failure",
+            "interruption"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "occurred_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "message",
+        "evidence_refs"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

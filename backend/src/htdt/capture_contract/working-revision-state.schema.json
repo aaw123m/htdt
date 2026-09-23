@@ -1,0 +1,79 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://htdt.example/schemas/capture-bundle-v1/working-revision-state.schema.json",
+ "title": "HTDT Working Revision State v1.0.0",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "schema",
+  "schema_version",
+  "capture_series_id",
+  "capture_revision_id",
+  "created_at_utc",
+  "phase",
+  "updated_at_utc",
+  "practice"
+ ],
+ "properties": {
+  "schema": {
+   "const": "htdt.working-revision-state"
+  },
+  "schema_version": {
+   "const": "1.0.0"
+  },
+  "capture_series_id": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+  },
+  "capture_revision_id": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+  },
+  "parent_revision_id": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+  },
+  "created_at_utc": {
+   "type": "string",
+   "minLength": 1
+  },
+  "capture_session_id": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+  },
+  "coordinate_space_id": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+  },
+  "phase": {
+   "enum": [
+    "live_scan_incomplete",
+    "end_accepted",
+    "semantic_authoring",
+    "ready_to_finalize"
+   ]
+  },
+  "updated_at_utc": {
+   "type": "string",
+   "minLength": 1
+  },
+  "practice": {
+   "type": "boolean"
+  },
+  "checkpoint": {
+   "type": [
+    "object",
+    "null"
+   ]
+  }
+ }
+}

@@ -1,0 +1,725 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/as-built-verification-1.1.0.schema.json",
+  "title": "HTDT Capture As-Built Verification v1.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "plan_id",
+    "plan_version",
+    "plan_sha256",
+    "items"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.as-built-verification"
+    },
+    "schema_version": {
+      "const": "1.1.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tolerance_policy_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "alignment": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mechanism",
+            "scene_from_capture",
+            "authority_ref",
+            "evidence_refs",
+            "established_at"
+          ],
+          "properties": {
+            "mechanism": {
+              "enum": [
+                "room_reference_frame",
+                "reference_target",
+                "manual_survey"
+              ]
+            },
+            "scene_from_capture": {
+              "$ref": "#/$defs/mat4"
+            },
+            "authority_ref": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evidence_refs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "established_at": {
+              "$ref": "#/$defs/utcReq"
+            },
+            "residual_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "spec",
+          "state"
+        ],
+        "properties": {
+          "spec": {
+            "$ref": "#/$defs/spec"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "verified",
+              "deviated",
+              "captured",
+              "unavailable",
+              "indeterminate"
+            ]
+          },
+          "observation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "planned_entity_id",
+                  "position_world",
+                  "coordinate_space_id",
+                  "evidence_refs"
+                ],
+                "properties": {
+                  "planned_entity_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "position_world": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "orientation_world": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "front_axis_local",
+                          "up_axis_local"
+                        ],
+                        "properties": {
+                          "front_axis_local": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 3,
+                            "items": {
+                              "type": "number"
+                            }
+                          },
+                          "up_axis_local": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 3,
+                            "items": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "coordinate_space_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
+                  "placement": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/placement"
+                      }
+                    ]
+                  },
+                  "observed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+                  },
+                  "evidence_refs": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "uncertainty": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/spatialUncertainty"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "deviation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/deviation"
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "pending",
+                    "unavailable"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "observation": {
+                  "type": "null"
+                },
+                "deviation": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "const": "captured"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "observation"
+              ],
+              "properties": {
+                "observation": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "verified",
+                    "deviated",
+                    "indeterminate"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "observation",
+                "deviation"
+              ],
+              "properties": {
+                "observation": {
+                  "type": "object"
+                },
+                "deviation": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "utcReq": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "vec3null": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "mat4": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "values"
+      ],
+      "properties": {
+        "representation": {
+          "const": "column_major_4x4_f32"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "front_axis_local",
+        "up_axis_local"
+      ],
+      "properties": {
+        "front_axis_local": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "up_axis_local": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "spatialUncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "basis"
+      ],
+      "properties": {
+        "isotropic_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "per_axis_m": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vector3f"
+            }
+          ]
+        },
+        "angular_rad": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "basis": {
+          "enum": [
+            "user_stated",
+            "instrument_stated",
+            "app_estimated",
+            "other"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "isotropic_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "per_axis_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "angular_rad": {
+                "enum": [
+                  null
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "isotropic_m": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "isotropic_m"
+            ]
+          }
+        }
+      ]
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "source_evidence_refs"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "manual_numeric",
+            "raycast",
+            "mesh_hit_test",
+            "roomplan_binding",
+            "imported_reference",
+            "other"
+          ]
+        },
+        "source_semantic_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_mesh_anchor_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "source_roomplan_object_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "raycast": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "target_type"
+          ],
+          "properties": {
+            "target_type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hit_distance_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "hit_anchor_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "T_world_from_hit": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/matrix4f"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planned_entity_id",
+        "entity_type",
+        "position_scene"
+      ],
+      "properties": {
+        "planned_entity_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entity_type": {
+          "enum": [
+            "speaker",
+            "subwoofer",
+            "display",
+            "projection_screen",
+            "projector",
+            "listening_position",
+            "seat",
+            "acoustic_treatment",
+            "equipment_rack",
+            "reference_point",
+            "custom",
+            "measurement_point"
+          ]
+        },
+        "channel_role": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "L",
+                "C",
+                "R",
+                "SL",
+                "SR",
+                "SBL",
+                "SBR",
+                "LFE",
+                "TFL",
+                "TFR",
+                "TML",
+                "TMR",
+                "TRL",
+                "TRR",
+                "LFE1",
+                "LFE2",
+                "LFE3",
+                "LFE4"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^X_[A-Z0-9_]+$"
+            }
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "position_scene": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "orientation_scene": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "front_axis_local",
+                "up_axis_local"
+              ],
+              "properties": {
+                "front_axis_local": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "up_axis_local": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "tolerance_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "deviation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "translation_scene",
+        "distance_m"
+      ],
+      "properties": {
+        "translation_scene": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        },
+        "distance_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "heading_delta_rad": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

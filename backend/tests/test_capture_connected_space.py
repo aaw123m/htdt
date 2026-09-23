@@ -6,9 +6,14 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import struct
+import sys
+import tempfile
 import uuid
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capture_fixture_support as support  # noqa: E402
 
 from htdt.cad_repository import SceneRepository
 from htdt.capture_ingestion_transaction import (
@@ -140,113 +145,37 @@ def _connected_doc(
 def _plan_and_payloads(
     *,
     revision_id: str = REVISION_ID,
-    bundle_digest: str = '2' * 64,
-    connected_payload: bytes | None = None,
     space_id: str = SPACE_ID,
+    created_at: str = '2026-09-20T00:00:00Z',
 ) -> tuple[dict, dict[str, bytes]]:
-    payloads = {
-        'mesh/anchors.json': b'{"fixture":"anchors"}',
-        f'mesh/geometry/{ANCHOR_ID}.meshbin': _meshbin(),
-    }
-    if connected_payload is not None:
-        payloads['session/connected-spaces.json'] = connected_payload
-    source = []
-    source_by_path = {}
-    for path in sorted(payloads):
-        payload = payloads[path]
-        digest = sha256(payload).hexdigest()
-        record = {
-            'source_evidence_id': _hash_parts(
-                'htdt.capture.source-evidence.v1', bundle_digest, path, digest
-            ),
-            'bundle_digest': bundle_digest,
-            'capture_revision_id': revision_id,
-            'path': path,
-            'payload_sha256': digest,
-            'bytes': len(payload),
-            'media_type': (
-                'application/vnd.htdt.meshbin'
-                if path.endswith('.meshbin')
-                else 'application/json'
-            ),
-            'producer': 'mesh_capture',
-            'provenance_class': 'arkit_mesh_reconstruction',
-            'role': 'canonical',
-            'source_refs': [],
-        }
-        source.append(record)
-        source_by_path[path] = record
-    geometry = source_by_path[f'mesh/geometry/{ANCHOR_ID}.meshbin']
-    handoffs = [
-        {
-            'raw_visual_mesh_handoff_id': _hash_parts(
-                'htdt.capture.raw-visual-mesh-handoff.v1',
-                bundle_digest,
-                ANCHOR_ID,
-                geometry['payload_sha256'],
-            ),
-            'bundle_digest': bundle_digest,
-            'anchor_id': ANCHOR_ID,
-            'anchor_record_locator': f'mesh/anchors.json#anchor:{ANCHOR_ID}',
-            'anchor_index_source_evidence_id': source_by_path[
-                'mesh/anchors.json'
-            ]['source_evidence_id'],
-            'geometry_source_evidence_id': geometry['source_evidence_id'],
-            'geometry_path': f'mesh/geometry/{ANCHOR_ID}.meshbin',
-            'geometry_sha256': geometry['payload_sha256'],
-            'capture_session_id': SESSION_ID,
-            'coordinate_space_id': space_id,
-            'T_world_from_mesh_anchor': {
-                'representation': 'column_major_4x4_f32',
-                'values': [
-                    1, 0, 0, 0,
-                    0, 1, 0, 0,
-                    0, 0, 1, 0,
-                    0, 0, 0, 1,
-                ],
-            },
-            'session_timestamp_s': 1.0,
-            'vertex_count': 3,
-            'face_count': 1,
-        }
-    ]
-    projection = {
-        'bundle_digest': bundle_digest,
-        'source_evidence_ids': sorted(
-            item['source_evidence_id'] for item in source
+    """A contract-valid minimal bundle: foundation payloads plus one mesh.
+
+    The staged ``session/connected-spaces.json`` document is not a bundle
+    member — it is delivered to the staging surface on its own.
+    """
+    workdir = Path(tempfile.mkdtemp())
+    plan, payloads, _manifest = support.plan_and_payloads(
+        workdir,
+        files=support.mesh_specs_files(
+            ((ANCHOR_ID, f'mesh/geometry/{ANCHOR_ID}.meshbin', 3, 1),),
+            mesh_payloads={f'mesh/geometry/{ANCHOR_ID}.meshbin': _meshbin()},
+            session_id=SESSION_ID,
+            space_id=space_id,
         ),
-        'raw_visual_mesh_ids': sorted(
-            handoff['raw_visual_mesh_handoff_id'] for handoff in handoffs
-        ),
-        'authority_record_ids': [],
-    }
-    lineage_digest = sha256(
-        json.dumps(projection, sort_keys=True, separators=(',', ':')).encode()
-    ).hexdigest()
-    plan = {
-        'schema': 'htdt.capture.ingestion-plan',
-        'schema_version': '1.0.0',
-        'ingestor': {
-            'name': 'htdt-capture-reference-ingestor',
-            'version': '1.0.0',
-            'configuration_digest': INGESTOR_CONFIG,
-        },
-        'bundle': {
-            'bundle_digest': bundle_digest,
-            'capture_schema': 'htdt.capture.bundle',
-            'capture_schema_version': '1.0.0',
+        manifest_overrides={
             'capture_series_id': SERIES_ID,
             'capture_revision_id': revision_id,
             'parent_revision_id': None,
             'capture_session_ids': [SESSION_ID],
             'coordinate_space_ids': [space_id],
+            'created_at': created_at,
+            'finalized_at': created_at,
         },
-        'source_evidence': source,
-        'roomplan_records': [],
-        'raw_visual_mesh_handoffs': handoffs,
-        'authority_records': [],
-        'lineage_digest': lineage_digest,
-    }
+        id_map={
+            support.SESSION_ID: SESSION_ID,
+            support.SPACE_ID: space_id,
+        },
+    )
     return plan, payloads
 
 
@@ -258,15 +187,10 @@ def _rig(tmp_path: Path):
 
 
 def _ingested_plan(
-    ingestion, *, revision_id=REVISION_ID, bundle_digest='2' * 64,
-    with_doc=True,
+    ingestion, *, revision_id=REVISION_ID, with_doc=True,
 ):
     doc = _connected_doc(revision_id=revision_id) if with_doc else None
-    plan, payloads = _plan_and_payloads(
-        revision_id=revision_id,
-        bundle_digest=bundle_digest,
-        connected_payload=doc,
-    )
+    plan, payloads = _plan_and_payloads(revision_id=revision_id)
     ingestion.ingest(plan, payloads)
     return CaptureIngestionPlan.model_validate(plan), doc
 
@@ -401,7 +325,7 @@ class TestPromotion:
             ),
             portals=(),
         )
-        plan, payloads = _plan_and_payloads(connected_payload=doc)
+        plan, payloads = _plan_and_payloads()
         ingestion.ingest(plan, payloads)
         typed = CaptureIngestionPlan.model_validate(plan)
         staged = connected.stage_connected_document(typed, doc)
@@ -568,11 +492,7 @@ class TestMergeAndReconcile:
             ),
             portals=(),
         )
-        plan2, payloads2 = _plan_and_payloads(
-            revision_id=revision2,
-            bundle_digest='3' * 64,
-            connected_payload=recapture,
-        )
+        plan2, payloads2 = _plan_and_payloads(revision_id=revision2)
         ingestion.ingest(plan2, payloads2)
         typed2 = CaptureIngestionPlan.model_validate(plan2)
         staged2 = connected.stage_connected_document(typed2, recapture)
@@ -612,8 +532,6 @@ class TestMergeAndReconcile:
         )
         plan2, payloads2 = _plan_and_payloads(
             revision_id=revision2,
-            bundle_digest='4' * 64,
-            connected_payload=other_doc,
             space_id=other_space,
         )
         ingestion.ingest(plan2, payloads2)

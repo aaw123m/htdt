@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 htdt-native = "htdt.native_cad:main"
+htdt-capture-import = "htdt.capture_import:main"
 
 [project.optional-dependencies]
 dev = [
@@ -41,6 +42,12 @@ version = {attr = "htdt.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# Pinned Capture Bundle v1 contract assets (support matrix + JSON schemas)
+# ship inside the package so the production import path can validate
+# untrusted bundles without a runtime checkout of HTDT-Capture.
+htdt = ["capture_contract/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

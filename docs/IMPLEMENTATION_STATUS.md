@@ -594,3 +594,74 @@ Details: [Issue #170 S130 workspace integration](ISSUE_170_S130_STANDARDS_WORKSP
 - persistence: exact resource-estimate ref、boundary authority/compiled boundary、solver/configuration、raw solver asset、immutable complex-pressure artifact/result envelopeを保存。save/reopen再解決とtamper fail-closedを維持し、boundary changeでcompiled/input identityが変わるため旧resultは新boundary identityへ再利用しない。
 - canonical implementation record: [R130C_CAUSAL_FREQUENCY_DEPENDENT_BOUNDARY_2026-09-20.md](R130C_CAUSAL_FREQUENCY_DEPENDENT_BOUNDARY_2026-09-20.md)。
 - non-claims: production solver adoption、GPU、R170 integration、general fitting/material identification、spatial reflection decomposition、R180/owned-room validationは未完了。RDC 0。
+
+## Capture integration (HTDT-Capture → native HTDT) — contract authority
+
+Issues #333–#338, #343, #345, #369. Production `.htdtcapture` import path
+plus the enforced transaction-layer contract on top of the phase-6
+vendored fixture bundle (HTDT-Capture pinned commit
+`daa00b122f399050c29ba3af988b1d6438686746`).
+
+- **Pipeline** (`htdt/capture_import.py`, `htdt-capture-import` CLI):
+  untrusted `.htdtcapture` ZIP/directory → bounded `FrozenBundle` validation
+  → exact `manifest.json` canonical/digest checks → reference-ingestor plan
+  → payload hash/length verification → single SQLite transaction commit →
+  staged result (bundle digest, revision/series ids, lineage digest,
+  evidence/handoff/authority counts, quality state, app identity).
+  Structured failures carry stage + reason; re-import is a verified no-op.
+  Nothing auto-promotes to the semantic scene.
+- **Contract layer** (`capture_bundle.py` + vendored
+  `capture_contract/*.schema.json` + `capture_schema_eval.py` +
+  `capture_binary_formats.py`): Capture Bundle v1 manifest grammar
+  (canonical bytes, no floats, sorted keys), foundation payload set,
+  per-payload length/SHA, schema-vs-path ownership (JSON only where a
+  published schema owns the path), canonical-byte enforcement for
+  Capture-owned JSON, bounded sizes/depth, `source_ref` grammar with
+  path/sha256/capture_session refs and acyclicity, reserved-path metadata.
+- **Rederivation** (`capture_reference.py`): every handoff semantic is
+  rederived from the exact payload bytes — anchors↔meshbin header
+  counts/hash, session/space/transform identity, annotation/measurement
+  kind/provenance/coordinate space, rigid-pose matrices (finite,
+  homogeneous, orthonormal within 1e-3), camera intrinsics, internal
+  lineage refs (evidence_refs, placement source refs, RoomPlan binding,
+  endpoint refs, acoustic-center authority_ref).
+- **Transaction** (`capture_ingestion_transaction.py`): `ingest()`
+  unconditionally runs the full contract (schema layer → semantic
+  rederivation → quality gate) inside the commit transaction; nothing
+  partial survives. Immutable `capture_revisions` registry enforces
+  series/parent/digest/schema identity — reuse-with-different-values,
+  self-parent, cross-series parent and cycles reject; out-of-order
+  children land `pending_parent` and reconcile `linked` on arrival;
+  pre-existing conflicts are recorded in `capture_revision_conflicts`.
+  `capture_bundles` retains the exact canonical manifest bytes
+  (sha256 == bundle digest) with typed app name/version/build +
+  created/finalized stamps; `capture_bundle` accessor distinguishes
+  "manifest retained" from plan-only runs.
+- **Quality gate**: `capture-quality.json` is validated at plan build AND
+  re-validated at ingest — ready_for_htdt_ingestion, integrity pass,
+  supported ruleset (1.0.0/1.1.0/1.2.0), no error diagnostics. Persisted
+  per-run quality SHA + ruleset is queryable; legacy rows backfill via
+  revalidation or `unresolved`; `require_quality_state` and semantic
+  promotion fail closed on unresolved.
+- **Authoring handoff** (`capture_authoring.py`): typed annotation /
+  measurement / RoomPlan inputs grouped by ingestion lineage, locators
+  resolved to evidence, coordinate-space alignment checked before scene
+  entry, `equipment_ref` verified against the versioned equipment
+  authority (mismatch/unresolved = surfaced conflict, never auto-link),
+  measurements reconcile (consistent/conflict/new — never overwrite),
+  RoomPlan is suggestion-only, apply is an explicit operator action that
+  stamps capture provenance (handoff id, payload hash, space, revision).
+  Display/projection_screen entity types stay typed-unsupported (#564).
+- **Cross-repo compatibility CI** (#334): `docs/CAPTURE_COMPATIBILITY.json`
+  is the machine-readable registry — pinned HTDT-Capture commit, fixture
+  bundle digest, canonical plan sha256
+  `fa249e30…`, lineage digest `92e81abe…`, ingestor identity and expected
+  counts. `backend/tests/test_capture_compat_pinned.py` freezes all
+  identities end-to-end; `capture-ingestion.yml` reports the pinned
+  revision in CI output and runs the compat gate plus the capture suite.
+- **Verified on Linux**: 107 capture tests pass
+  (`pytest tests/ -k capture` + `test_raw_mesh.py`). GUI/hardware/Swift
+  authoring paths are macOS/Windows-gated and untested here; the fixture
+  is byte-identical to HTDT-Capture's phase-6 generator output (a
+  production-Swift-authored bundle is preferred when available, per the
+  registry note).

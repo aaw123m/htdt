@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/advisory-notes.schema.json",
+  "title": "HTDT Capture Advisory Notes v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "notes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.advisory_notes"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "session_timestamp_seconds",
+          "detail"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "declared_region",
+              "revoked_region",
+              "automatic_keyframe",
+              "frame_usability",
+              "loop_closure_check",
+              "target_scan_pass",
+              "revisit_flag",
+              "revisit_flag_resolution",
+              "mission_bound",
+              "task_profile_change",
+              "privacy_flag"
+            ]
+          },
+          "session_timestamp_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

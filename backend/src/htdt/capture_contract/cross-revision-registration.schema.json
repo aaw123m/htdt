@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/cross-revision-registration.schema.json",
+  "title": "HTDT Capture Cross-Revision Registration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "registrations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.cross-revision-registration"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "registrations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/registration"
+      }
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "world_point_m": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "matrix4f": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "values"
+      ],
+      "properties": {
+        "representation": {
+          "const": "column_major_4x4_f32"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "correspondence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "source_position_m",
+        "target_position_m"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "shared_field_datum",
+            "reference_target",
+            "manual_point"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_position_m": {
+          "$ref": "#/$defs/world_point_m"
+        },
+        "target_position_m": {
+          "$ref": "#/$defs/world_point_m"
+        }
+      }
+    },
+    "residual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "residual_m"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "residual_m": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registration_id",
+        "source_revision_id",
+        "source_coordinate_space_id",
+        "target_revision_id",
+        "target_coordinate_space_id",
+        "mechanism",
+        "correspondences",
+        "residuals",
+        "rms_m",
+        "max_residual_m",
+        "scale_policy",
+        "uniform_scale",
+        "T_target_from_source",
+        "accepted_at",
+        "evidence_refs"
+      ],
+      "properties": {
+        "registration_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "source_revision_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "source_coordinate_space_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "target_revision_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "target_coordinate_space_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "mechanism": {
+          "enum": [
+            "shared_field_datum",
+            "reference_target",
+            "manual_point"
+          ]
+        },
+        "correspondences": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/correspondence"
+          }
+        },
+        "residuals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/residual"
+          }
+        },
+        "rms_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_residual_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "scale_policy": {
+          "enum": [
+            "rigid_only",
+            "uniform_scale_permitted"
+          ]
+        },
+        "uniform_scale": {
+          "type": "number",
+          "minimum": 0
+        },
+        "T_target_from_source": {
+          "$ref": "#/$defs/matrix4f"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "note": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

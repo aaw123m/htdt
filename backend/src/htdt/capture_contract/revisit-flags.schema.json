@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/revisit-flags.schema.json",
+  "title": "HTDT Capture Revisit Flags v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "flags"
+  ],
+  "properties": {
+    "schema": { "const": "htdt.capture.revisit_flags" },
+    "schema_version": { "const": "1.0.0" },
+    "capture_revision_id": { "$ref": "#/$defs/uuid4" },
+    "flags": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/flag" }
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "vector3d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "flag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flagID",
+        "coordinateSpaceID",
+        "captureSessionID",
+        "targetFromRaycast",
+        "createdSessionTimestampSeconds",
+        "status"
+      ],
+      "properties": {
+        "flagID": { "$ref": "#/$defs/uuid4" },
+        "coordinateSpaceID": { "$ref": "#/$defs/uuid4" },
+        "captureSessionID": { "$ref": "#/$defs/uuid4" },
+        "targetPointWorld": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/vector3d" }]
+        },
+        "targetFromRaycast": { "type": "boolean" },
+        "cameraPositionWorld": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/vector3d" }]
+        },
+        "cameraForwardWorld": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/vector3d" }]
+        },
+        "coverageCell": { "type": ["string", "null"], "minLength": 1 },
+        "category": {
+          "type": ["string", "null"],
+          "enum": [
+            "geometry",
+            "opening",
+            "reflective_transparent",
+            "object_detail",
+            "measurement",
+            "equipment",
+            "other",
+            null
+          ]
+        },
+        "note": { "type": ["string", "null"], "maxLength": 140 },
+        "createdSessionTimestampSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "status": {
+          "enum": ["unresolved", "resolved", "skipped", "unavailable"]
+        },
+        "resolution": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/resolution" }
+          ]
+        }
+      }
+    },
+    "resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome"],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "linked_authority",
+            "acknowledged",
+            "marked_unavailable"
+          ]
+        },
+        "authorityRef": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "sessionTimestampSeconds": {
+          "type": ["number", "null"],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

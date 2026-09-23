@@ -1,0 +1,33 @@
+{
+  "schema": "htdt.capture.compatibility-registry",
+  "schema_version": "1.0.0",
+  "upstream": {
+    "repository": "bolph71656-ai/HTDT-Capture",
+    "pinned_commit": "daa00b122f399050c29ba3af988b1d6438686746",
+    "bundle_schema": "htdt.capture.bundle",
+    "bundle_schema_version": "1.0.0",
+    "ingestor": {
+      "name": "htdt-capture-reference-ingestor",
+      "version": "1.0.0",
+      "configuration_digest": "3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3"
+    }
+  },
+  "fixture": {
+    "path": "backend/tests/fixtures/capture/phase6-integration",
+    "kind": "phase6-integration",
+    "bundle_digest": "e12b3e9c43fe8b26b151cde32acbbf19e56447750447955ead65e1477c9fcb8a",
+    "capture_revision_id": "10000000-0000-4000-8000-000000000002",
+    "capture_series_id": "10000000-0000-4000-8000-000000000001",
+    "note": "Fixture bytes were produced by HTDT-Capture's phase-6 integration generator at the pinned commit and vendored verbatim; production-Swift-authored bundles are preferred when available, but the producer toolchain is macOS/Windows-only so Linux CI pins this fixture set instead."
+  },
+  "expectations": {
+    "ingestion_plan_canonical_sha256": "fa249e30136a5e553c6ed495d6b5c3ef122b359143e0dd2bde2523be61f79032",
+    "lineage_digest": "92e81abef2304f4f8bdecbacff394af0ac0e34ed6a33d2321e711fc6b433b69f",
+    "counts": {
+      "source_evidence": 10,
+      "roomplan_records": 2,
+      "raw_visual_mesh_handoffs": 1,
+      "authority_records": 2
+    }
+  }
+}
