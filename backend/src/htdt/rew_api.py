@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from hashlib import sha256
 import json
 import math
 import struct
@@ -88,6 +90,33 @@ class RewRoomSimSnapshot:
     recognized_sources: tuple[str, ...]
     mic_positions: tuple[str, ...]
     sources: dict[str, dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class RewEngineSession:
+    """Acquisition-session authority for one external measurement engine (#599).
+
+    A persisted REW import binds the exact engine session it ran under: the
+    producer identity (``engine_kind``/``engine_version``), the adapter that
+    translated it (``adapter_id``/``adapter_version``), the endpoint, the
+    per-capability support observed at session open and a semantic seal over
+    the whole snapshot. The JSON shape of the localhost API is not the
+    interface — this sealed record is.
+    """
+
+    engine_session_id: str
+    engine_kind: str
+    engine_version: str | None
+    adapter_id: str
+    adapter_version: str
+    endpoint: str
+    capability_snapshot: dict[str, Any]
+    observed_at_utc: str
+    semantic_sha256: str
+
+    def payload(self) -> dict[str, Any]:
+        """The sealed semantic snapshot, for provenance merge into a record."""
+        return asdict(self)
 
 
 def validate_rew_api_url(base_url: str) -> str:
@@ -530,22 +559,93 @@ class RewApiClient:
 
     def status(self) -> dict[str, Any]:
         try:
-            measurements = self.list_measurements()
+            session = self.engine_session()
         except RewApiError as exc:
             return {
                 'connected': False,
                 'read_only': True,
                 'base_url': self.base_url,
                 'measurement_count': None,
+                'rew_version': None,
+                'capabilities': None,
+                'adapter_versions': None,
                 'error': str(exc),
             }
         return {
             'connected': True,
             'read_only': True,
             'base_url': self.base_url,
-            'measurement_count': len(measurements),
+            'measurement_count': session.capability_snapshot.get('measurement_count'),
+            'rew_version': session.engine_version,
+            'capabilities': session.capability_snapshot['capabilities'],
+            'adapter_versions': {
+                'rew_api_snapshot': session.adapter_version,
+                'roomsim': ROOMSIM_ADAPTER_VERSION,
+            },
             'error': None,
         }
+
+    def engine_session(
+        self,
+        *,
+        adapter_id: str | None = None,
+        adapter_version: str | None = None,
+    ) -> RewEngineSession:
+        """Open an acquisition-session authority bound to this REW endpoint.
+
+        Probes ``/version`` and ``/measurements`` once, then seals the
+        producer version and per-capability support into a
+        ``RewEngineSession`` whose ``semantic_sha256`` covers every field.
+        Imported measurements merge ``session.payload()`` into their
+        provenance so the evidence always names the exact engine build that
+        produced it — a version change lands as a *different* session seal,
+        never a silent content change.
+        """
+        if adapter_version is None:
+            from .cad_measurements import CAD_REW_API_ADAPTER_VERSION
+            adapter_version = CAD_REW_API_ADAPTER_VERSION
+        try:
+            version = self._get_json('/version')
+        except Exception:
+            # The /version probe is optional metadata: an older REW build or
+            # a client that cannot serve it degrades to engine_version=None
+            # rather than failing the whole session contract.
+            version = None
+        measurements = self.list_measurements()
+        engine_version = (
+            version['message']
+            if isinstance(version, dict) and isinstance(version.get('message'), str)
+            else None
+        )
+        capability_snapshot: dict[str, Any] = {
+            'capabilities': {
+                'version': engine_version is not None,
+                'list_measurements': True,
+                'frequency_response': True,
+            },
+            'measurement_count': len(measurements),
+        }
+        observed_at = datetime.now(timezone.utc).isoformat()
+        payload = {
+            'engine_kind': 'rew',
+            'engine_version': engine_version,
+            'adapter_id': adapter_id or 'htdt-rew-api',
+            'adapter_version': adapter_version,
+            'endpoint': self.base_url,
+            'capability_snapshot': capability_snapshot,
+            'observed_at_utc': observed_at,
+        }
+        return RewEngineSession(
+            engine_session_id=sha256(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                           separators=(',', ':'), allow_nan=False).encode('utf-8')
+            ).hexdigest()[:32],
+            semantic_sha256=sha256(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                           separators=(',', ':'), allow_nan=False).encode('utf-8')
+            ).hexdigest(),
+            **payload,
+        )
 
 
     @staticmethod

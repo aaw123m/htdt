@@ -11,6 +11,11 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
+from .cad_measurement_ir import (
+    CadImpulseResponseDataset,
+    ir_transformation_sha256,
+    verify_imported_ir_dataset,
+)
 from .cad_measurement_models import (
     CadFrequencyResponseDataset,
     CadMeasurementComparison,
@@ -193,6 +198,26 @@ class CadMeasurementRepository:
                 );
                 CREATE INDEX IF NOT EXISTS idx_cad_measurement_plans_search_seq
                     ON cad_measurement_plans(search_spec_id, seq ASC);
+                CREATE TABLE IF NOT EXISTS cad_impulse_responses (
+                    dataset_id TEXT PRIMARY KEY,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    samples_blob BLOB NOT NULL,
+                    sample_rate_hz REAL NOT NULL,
+                    start_time_s REAL NOT NULL,
+                    t0_semantics TEXT NOT NULL,
+                    amplitude_reference TEXT NOT NULL,
+                    normalized INTEGER NOT NULL,
+                    window_kind TEXT,
+                    ir_semantics TEXT NOT NULL,
+                    calibration_state TEXT NOT NULL,
+                    processing_json TEXT NOT NULL,
+                    source_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
+                    importer_version TEXT NOT NULL,
+                    dataset_sha256 TEXT NOT NULL,
+                    transformation_sha256 TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_cad_impulse_responses_measurement
+                    ON cad_impulse_responses(measurement_id);
                 '''
             )
             # Import-transformation binding migration: rows written before the
@@ -823,6 +848,159 @@ class CadMeasurementRepository:
 
     def _row_to_dataset(self, row: sqlite3.Row) -> CadFrequencyResponseDataset:
         return self._dataset_and_asset(row)[0]
+
+    def save_ir_dataset(
+        self,
+        dataset: CadImpulseResponseDataset,
+        *,
+        raw_filename: str,
+        raw_bytes: bytes,
+    ) -> None:
+        """Persist one impulse-response dataset bound to an existing measurement.
+
+        An IR is a separate immutable dataset on the same measurement record
+        (and therefore the same SceneRevision and acquisition context) as the
+        frequency-response dataset — never a replacement for it. The same
+        evidence contract holds: the raw bytes hash to ``source_sha256``, the
+        pinned importer replay must reproduce the sample axis exactly, and
+        the row is sealed with the dataset semantic hash plus the versioned
+        IR transformation seal which reads re-verify.
+        """
+        record = self.get_measurement(dataset.measurement_id)
+        if record is None:
+            raise ValueError(
+                'impulse-response dataset references unknown measurement: '
+                f'{dataset.measurement_id}'
+            )
+        digest = sha256(raw_bytes).hexdigest()
+        if digest != dataset.source_sha256:
+            raise ValueError('IR raw asset SHA-256 does not match dataset source_sha256')
+        verify_imported_ir_dataset(dataset, raw_bytes)
+        dataset_identity = dataset.dataset_sha256
+        transformation_identity = ir_transformation_sha256(
+            source_sha256=digest,
+            importer_version=dataset.importer_version,
+            dataset_sha256=dataset_identity,
+        )
+        target = self._asset_path(digest)
+        self._asset_store.ensure_installed(digest, raw_bytes)
+
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_impulse_responses WHERE dataset_id=?',
+                (dataset.dataset_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'impulse-response dataset already exists: {dataset.dataset_id}'
+                )
+            connection.execute(
+                '''INSERT OR IGNORE INTO cad_measurement_assets(
+                    sha256, filename, relative_path, size_bytes
+                ) VALUES (?, ?, ?, ?)''',
+                (digest, raw_filename, str(target.relative_to(self.path.parent)), len(raw_bytes)),
+            )
+            connection.execute(
+                '''INSERT INTO cad_impulse_responses(
+                    dataset_id, measurement_id, samples_blob,
+                    sample_rate_hz, start_time_s, t0_semantics,
+                    amplitude_reference, normalized, window_kind,
+                    ir_semantics, calibration_state, processing_json,
+                    source_sha256, importer_version, dataset_sha256,
+                    transformation_sha256
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    dataset.dataset_id,
+                    dataset.measurement_id,
+                    _pack(dataset.amplitudes),
+                    dataset.sample_rate_hz,
+                    dataset.start_time_s,
+                    dataset.t0_semantics,
+                    dataset.amplitude_reference,
+                    1 if dataset.normalized else 0,
+                    dataset.window_kind,
+                    dataset.ir_semantics,
+                    dataset.calibration_state,
+                    dataset.processing_json,
+                    dataset.source_sha256,
+                    dataset.importer_version,
+                    dataset_identity,
+                    transformation_identity,
+                ),
+            )
+            connection.commit()
+
+    _IR_DATASET_SELECT = (
+        'SELECT * FROM cad_impulse_responses'
+    )
+
+    def _ir_dataset_and_asset(
+        self,
+        row: sqlite3.Row,
+    ) -> tuple[CadImpulseResponseDataset, VerifiedMeasurementAsset]:
+        """Authoritative IR read: re-verify the persisted import binding.
+
+        Mirrors ``_dataset_and_asset``: the row must carry the persisted
+        dataset semantic hash and the versioned IR transformation seal,
+        both recomputed from the stored columns, then the pinned importer
+        reruns against the content-addressed raw asset and must reproduce
+        the samples exactly. Rows written before the binding existed or
+        whose seals were recomputed coherently fail closed.
+        """
+        dataset = CadImpulseResponseDataset(
+            dataset_id=row['dataset_id'],
+            measurement_id=row['measurement_id'],
+            sample_rate_hz=row['sample_rate_hz'],
+            start_time_s=row['start_time_s'],
+            amplitudes=_unpack(row['samples_blob']) or (),
+            t0_semantics=row['t0_semantics'],
+            amplitude_reference=row['amplitude_reference'],
+            normalized=bool(row['normalized']),
+            window_kind=row['window_kind'],
+            ir_semantics=row['ir_semantics'],
+            calibration_state=row['calibration_state'],
+            processing_json=row['processing_json'],
+            source_sha256=row['source_sha256'],
+            importer_version=row['importer_version'],
+        )
+        stored_dataset_sha256 = row['dataset_sha256']
+        stored_transformation_sha256 = row['transformation_sha256']
+        if stored_dataset_sha256 is None or stored_transformation_sha256 is None:
+            raise ValueError(
+                'impulse-response dataset predates import-transformation '
+                'binding and is non-authoritative'
+            )
+        if stored_dataset_sha256 != dataset.dataset_sha256:
+            raise ValueError('persisted IR dataset semantic hash mismatch')
+        if stored_transformation_sha256 != ir_transformation_sha256(
+            source_sha256=dataset.source_sha256,
+            importer_version=dataset.importer_version,
+            dataset_sha256=stored_dataset_sha256,
+        ):
+            raise ValueError('persisted IR dataset transformation hash mismatch')
+        asset = self.validate_raw_asset(dataset.source_sha256)
+        verify_imported_ir_dataset(dataset, self._read_verified_asset(asset))
+        return dataset, asset
+
+    def get_ir_dataset(self, dataset_id: str) -> CadImpulseResponseDataset | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                f'{self._IR_DATASET_SELECT} WHERE dataset_id=?',
+                (dataset_id,),
+            ).fetchone()
+        return None if row is None else self._ir_dataset_and_asset(row)[0]
+
+    def ir_datasets_for_measurement(
+        self, measurement_id: str
+    ) -> tuple[CadImpulseResponseDataset, ...]:
+        """All persisted impulse-response datasets bound to a measurement."""
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                f'{self._IR_DATASET_SELECT} WHERE measurement_id=? '
+                'ORDER BY dataset_id',
+                (measurement_id,),
+            ).fetchall()
+        return tuple(self._ir_dataset_and_asset(row)[0] for row in rows)
 
     @staticmethod
     def _row_to_comparison(row: sqlite3.Row) -> CadMeasurementComparison:

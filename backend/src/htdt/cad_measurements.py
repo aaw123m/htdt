@@ -160,11 +160,15 @@ def normalize_rew_api_snapshot(
     measurement_entity_id: str,
     snapshot: RewFrequencyResponseSnapshot,
     *,
+    measurement_direction: Direction3 | None = None,
     evidence_type: str = 'unknown',
     channel_role: str = 'unknown',
     source_speaker_ids: tuple[str, ...] = (),
     radiation_scope: str = 'unknown',
     routing_evidence: str = 'unknown',
+    routing_profile: dict[str, Any] | None = None,
+    acquisition_context: dict[str, Any] | None = None,
+    engine_session: dict[str, Any] | None = None,
     imported_at: str | None = None,
     validation_scope: Literal['owned_room'] | None = None,
     validation_campaign_id: str | None = None,
@@ -203,9 +207,41 @@ def normalize_rew_api_snapshot(
     if decoded.phase_deg is not None and all(value == 0 for value in decoded.phase_deg):
         warnings.append('phase_all_zero_unverified')
 
+    provenance: dict[str, Any] = {
+        'adapter_version': CAD_REW_API_ADAPTER_VERSION,
+        'rew_version': summary.get('rewVersion') if isinstance(summary.get('rewVersion'), str) else None,
+        'captured_at_raw': raw_captured_at,
+        'captured_at_source': captured_at_source,
+        'validation_scope': validation_scope,
+        'validation_campaign_id': validation_campaign_id,
+        'requested': {
+            'unit': decoded.requested_unit,
+            'ppo': decoded.requested_ppo,
+            'smoothing': decoded.requested_smoothing,
+        },
+        'returned': {
+            'unit': decoded.unit,
+            'ppo': decoded.points_per_octave,
+            'freq_step_hz': decoded.frequency_step_hz,
+            'smoothing': decoded.smoothing,
+            'start_frequency_hz': decoded.start_frequency_hz,
+        },
+        'warnings': warnings,
+    }
+    if engine_session is not None:
+        # The exact external measurement-engine session this import ran
+        # under: producer version + capability snapshot + adapter identity
+        # (#599). The session is caller-supplied provenance, merged under a
+        # fixed key so reads can always find it.
+        provenance['engine_session'] = engine_session
+    if routing_profile is not None:
+        provenance['routing_profile'] = routing_profile
+    if acquisition_context is not None:
+        provenance['acquisition_context'] = acquisition_context
     record = measurement_record_for_revision(
         revision,
         measurement_entity_id,
+        measurement_direction=measurement_direction,
         evidence_type=evidence_type,
         channel_role=channel_role,
         source_speaker_ids=source_speaker_ids,
@@ -215,27 +251,7 @@ def normalize_rew_api_snapshot(
         imported_at=imported_at,
         source_kind='rew_api',
         external_source_id=decoded.measurement_id,
-        provenance={
-            'adapter_version': CAD_REW_API_ADAPTER_VERSION,
-            'rew_version': summary.get('rewVersion') if isinstance(summary.get('rewVersion'), str) else None,
-            'captured_at_raw': raw_captured_at,
-            'captured_at_source': captured_at_source,
-            'validation_scope': validation_scope,
-            'validation_campaign_id': validation_campaign_id,
-            'requested': {
-                'unit': decoded.requested_unit,
-                'ppo': decoded.requested_ppo,
-                'smoothing': decoded.requested_smoothing,
-            },
-            'returned': {
-                'unit': decoded.unit,
-                'ppo': decoded.points_per_octave,
-                'freq_step_hz': decoded.frequency_step_hz,
-                'smoothing': decoded.smoothing,
-                'start_frequency_hz': decoded.start_frequency_hz,
-            },
-            'warnings': warnings,
-        },
+        provenance=provenance,
     )
     dataset = CadFrequencyResponseDataset(
         dataset_id=str(uuid4()),
@@ -266,17 +282,33 @@ def normalize_rew_text(
     raw: bytes,
     *,
     filename: str,
+    measurement_direction: Direction3 | None = None,
     evidence_type: str = 'unknown',
     channel_role: str = 'unknown',
     source_speaker_ids: tuple[str, ...] = (),
     radiation_scope: str = 'unknown',
     routing_evidence: str = 'unknown',
+    routing_profile: dict[str, Any] | None = None,
+    acquisition_context: dict[str, Any] | None = None,
+    engine_session: dict[str, Any] | None = None,
     imported_at: str | None = None,
 ) -> tuple[CadMeasurementRecord, CadFrequencyResponseDataset, str, bytes]:
     parsed = parse_rew_frequency_response(raw)
+    provenance: dict[str, Any] = {
+        'filename': filename,
+        'header_lines': parsed.header_lines,
+        'warnings': parsed.warnings,
+    }
+    if engine_session is not None:
+        provenance['engine_session'] = engine_session
+    if routing_profile is not None:
+        provenance['routing_profile'] = routing_profile
+    if acquisition_context is not None:
+        provenance['acquisition_context'] = acquisition_context
     record = measurement_record_for_revision(
         revision,
         measurement_entity_id,
+        measurement_direction=measurement_direction,
         evidence_type=evidence_type,
         channel_role=channel_role,
         source_speaker_ids=source_speaker_ids,
@@ -286,11 +318,7 @@ def normalize_rew_text(
         imported_at=imported_at,
         source_kind='rew_text',
         external_source_id=None,
-        provenance={
-            'filename': filename,
-            'header_lines': parsed.header_lines,
-            'warnings': parsed.warnings,
-        },
+        provenance=provenance,
     )
     dataset = CadFrequencyResponseDataset(
         dataset_id=str(uuid4()),

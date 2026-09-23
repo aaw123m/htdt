@@ -12,14 +12,27 @@ from .cad_measurement_models import (
     RadiationScope,
     RoutingEvidence,
 )
+from .cad_measurement_ir import (
+    CadImpulseResponseDataset,
+    IrAmplitudeReference,
+    IrCalibrationState,
+    IrSemantics,
+    IrT0Semantics,
+    normalize_rew_ir_text,
+)
 from .cad_measurement_quality import (
     MEASUREMENT_QUALITY_CHECKS,
+    AcquisitionContextSourceKind,
+    CadAcquisitionContext,
     CadMeasurementCapability,
     CadMeasurementLineageRecord,
+    CadMicrophoneCapture,
+    CadPlaybackCapture,
     MeasurementCapabilityClaim,
     MeasurementRetakeGuidance,
     QualityDecision,
     RetakeRecommendation,
+    build_acquisition_context,
     build_measurement_lineage,
     gate_measurement_claim,
     measurement_retake_guidance,
@@ -42,7 +55,11 @@ from .cad_measurement_runner import (
 from .cad_measurement_runner_repository import CadMeasurementRunnerRepository
 from .cad_measurements import normalize_rew_api_snapshot, normalize_rew_text
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_scene import acoustic_reference_position, is_unassigned_speaker_role
+from .cad_scene import (
+    Direction3,
+    acoustic_reference_position,
+    is_unassigned_speaker_role,
+)
 from .comparison import FrequencyResponse, compare_frequency_responses
 from .rew_api import RewFrequencyResponseSnapshot
 from .rew_parser import parse_rew_frequency_response
@@ -67,7 +84,14 @@ class RewReadSource(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class PendingMeasurementImport:
-    """Transient import preview. It is intentionally not measurement evidence."""
+    """Transient import preview. It is intentionally not measurement evidence.
+
+    ``scene_revision_id``/``scene_content_hash`` pin the SceneRevision the
+    measurement is bound to. ``scene_revision_explicit`` records whether the
+    user explicitly chose that revision (the acquisition-time binding the
+    issue #659 requires) or merely accepted the current-head proposal — the
+    proposal is a default, never proof the data was acquired against it.
+    """
 
     source_kind: str
     source_label: str
@@ -76,6 +100,7 @@ class PendingMeasurementImport:
     frequency_hz: tuple[float, ...]
     level_db: tuple[float, ...]
     has_phase_samples: bool
+    scene_revision_explicit: bool = False
     raw_text: bytes | None = None
     raw_filename: str | None = None
     rew_snapshot: RewFrequencyResponseSnapshot | None = None
@@ -90,6 +115,43 @@ class PendingMeasurementImport:
 
 
 @dataclass(frozen=True, slots=True)
+class AcquisitionCapture:
+    """Acquisition-condition spec to persist as a CadAcquisitionContext (#471).
+
+    Reuse/presets: an existing persisted context's capture fields can seed a
+    new context for a new measurement via :meth:`from_context` — the new
+    context is a new sealed authority with its own subjects, never a
+    mutation of the old one.
+    """
+
+    source_kind: AcquisitionContextSourceKind = 'manual'
+    microphone: CadMicrophoneCapture | dict[str, Any] | None = None
+    playback: CadPlaybackCapture | dict[str, Any] | None = None
+    timing_reference_valid: bool | None = None
+    timing_reference_id: str | None = None
+    timing_reference_sha256: str | None = None
+    clock_source: str | None = None
+    sample_rate_hz: int | None = None
+    delay_correction_s: float | None = None
+    notes: tuple[str, ...] = ()
+
+    @classmethod
+    def from_context(cls, context: CadAcquisitionContext) -> 'AcquisitionCapture':
+        return cls(
+            source_kind=context.source_kind,
+            microphone=context.microphone,
+            playback=context.playback,
+            timing_reference_valid=context.timing_reference_valid,
+            timing_reference_id=context.timing_reference_id,
+            timing_reference_sha256=context.timing_reference_sha256,
+            clock_source=context.clock_source,
+            sample_rate_hz=context.sample_rate_hz,
+            delay_correction_s=context.delay_correction_s,
+            notes=context.notes,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MeasurementAssignment:
     measurement_entity_id: str
     evidence_type: MeasurementEvidenceType = "measured"
@@ -97,6 +159,9 @@ class MeasurementAssignment:
     source_speaker_ids: tuple[str, ...] = ()
     radiation_scope: RadiationScope = "unknown"
     routing_evidence: RoutingEvidence = "unknown"
+    measurement_direction: Direction3 | None = None
+    routing_profile_id: str | None = None
+    acquisition: AcquisitionCapture | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,8 +311,34 @@ class MeasurementWorkflowController:
             )
         return revision
 
-    def stage_rew_text(self, raw: bytes, filename: str) -> PendingMeasurementImport:
-        revision = self.latest_revision()
+    def _stage_revision(
+        self, scene_revision_id: str | None
+    ) -> tuple[SceneRevision, bool]:
+        """Resolve the acquisition-time SceneRevision for a staged import.
+
+        ``None`` proposes the current head (the default — the measurement
+        claims no acquisition revision until the user confirms it); an
+        explicit id must resolve to a persisted revision of this document so
+        an import can be committed to the layout it was actually acquired
+        against (#659).
+        """
+        if scene_revision_id is None:
+            return self.latest_revision(), False
+        revision = self.scene_repository.get(scene_revision_id)
+        if revision is None or revision.document_id != self.document_id:
+            raise MeasurementWorkflowError(
+                "取得時のシーンリビジョンを確認できません"
+            )
+        return revision, True
+
+    def stage_rew_text(
+        self,
+        raw: bytes,
+        filename: str,
+        *,
+        scene_revision_id: str | None = None,
+    ) -> PendingMeasurementImport:
+        revision, explicit = self._stage_revision(scene_revision_id)
         parsed = parse_rew_frequency_response(raw)
         pending = PendingMeasurementImport(
             source_kind="rew_text",
@@ -257,6 +348,7 @@ class MeasurementWorkflowController:
             frequency_hz=parsed.frequency_hz,
             level_db=parsed.level_db,
             has_phase_samples=parsed.phase_deg is not None,
+            scene_revision_explicit=explicit,
             raw_text=raw,
             raw_filename=filename,
         )
@@ -266,8 +358,10 @@ class MeasurementWorkflowController:
     def stage_rew_snapshot(
         self,
         snapshot: RewFrequencyResponseSnapshot,
+        *,
+        scene_revision_id: str | None = None,
     ) -> PendingMeasurementImport:
-        revision = self.latest_revision()
+        revision, explicit = self._stage_revision(scene_revision_id)
         decoded = snapshot.decoded
         title = snapshot.measurement_summary.get("title")
         source_label = (
@@ -283,10 +377,62 @@ class MeasurementWorkflowController:
             frequency_hz=decoded.frequency_hz,
             level_db=decoded.magnitude,
             has_phase_samples=decoded.phase_deg is not None,
+            scene_revision_explicit=explicit,
             rew_snapshot=snapshot,
         )
         self._pending = pending
         return pending
+
+    def revision_options(self) -> tuple[SceneRevision, ...]:
+        """Acquisition-time revision choices for the picker: head first.
+
+        The current head is the proposal; earlier revisions are listed so a
+        measurement taken against a previous layout can be bound to it
+        explicitly instead of silently joining the newest configuration.
+        """
+        return tuple(
+            reversed(self.scene_repository.list_revisions(self.document_id))
+        )
+
+    def select_pending_revision(
+        self, scene_revision_id: str
+    ) -> PendingMeasurementImport:
+        """Re-bind the staged import to an explicitly chosen revision."""
+        pending = self._pending
+        if pending is None:
+            raise MeasurementWorkflowError("先にREWデータを読み込んでください")
+        revision = self.scene_repository.get(scene_revision_id)
+        if revision is None or revision.document_id != self.document_id:
+            raise MeasurementWorkflowError(
+                "取得時のシーンリビジョンを確認できません"
+            )
+        pending = PendingMeasurementImport(
+            source_kind=pending.source_kind,
+            source_label=pending.source_label,
+            scene_revision_id=revision.revision_id,
+            scene_content_hash=revision.content_hash,
+            frequency_hz=pending.frequency_hz,
+            level_db=pending.level_db,
+            has_phase_samples=pending.has_phase_samples,
+            scene_revision_explicit=True,
+            raw_text=pending.raw_text,
+            raw_filename=pending.raw_filename,
+            rew_snapshot=pending.rew_snapshot,
+        )
+        self._pending = pending
+        return pending
+
+    def pending_divergence(self) -> bool:
+        """Whether the staged import's bound revision diverges from the head."""
+        pending = self._pending
+        if pending is None:
+            return False
+        current = self.scene_repository.current_head(self.document_id)
+        return (
+            current is None
+            or current.revision_id != pending.scene_revision_id
+            or current.content_hash != pending.scene_content_hash
+        )
 
     def clear_pending(self) -> None:
         self._pending = None
@@ -337,20 +483,55 @@ class MeasurementWorkflowController:
             if entity.kind == "speaker"
         )
 
-    def commit_pending(self, assignment: MeasurementAssignment) -> CadMeasurementRecord:
+    def commit_pending(
+        self,
+        assignment: MeasurementAssignment,
+        *,
+        on_divergence: Literal['reject', 'historical', 'accept_current'] = 'reject',
+    ) -> CadMeasurementRecord:
+        """Commit the staged import against its bound SceneRevision.
+
+        ``on_divergence`` decides what happens when the document head moved
+        after staging (#659): 'reject' keeps the historical behaviour (fail
+        with the stale-layout error — the user can hold the import pending
+        and re-choose); 'historical' commits to the explicitly bound past
+        revision without moving the head; 'accept_current' re-binds the
+        staged data to the current head before committing.
+        """
         pending = self._pending
         if pending is None:
             raise MeasurementWorkflowError("先にREWデータを読み込んでください")
 
         current = self.latest_revision()
-        if (
+        diverged = (
             current.revision_id != pending.scene_revision_id
             or current.content_hash != pending.scene_content_hash
-        ):
+        )
+        if diverged and on_divergence == 'reject':
             raise MeasurementWorkflowError(
                 "読み込み後に部屋の保存状態が変更されています。REWを読み込み直して割り当てを確認してください"
             )
+        if diverged and on_divergence == 'accept_current':
+            # Re-choose: the user confirms the measurement is interpreted
+            # against the current head (equivalent to staging against it).
+            self.select_pending_revision(current.revision_id)
+            pending = self._pending
+            assert pending is not None
+        # 'historical' keeps the pending's bound revision — the measurement
+        # commits to the layout it was acquired against without moving the
+        # document head (#659).
         revision = self._assignment_revision()
+
+        engine_session_payload = self._engine_session_payload()
+        routing_profile_provenance, derived_speakers = (
+            self._routing_provenance(assignment)
+        )
+        acquisition_context_provenance = (
+            {'source_kind': assignment.acquisition.source_kind}
+            if assignment.acquisition is not None
+            else None
+        )
+        source_speaker_ids = assignment.source_speaker_ids or derived_speakers
 
         if pending.source_kind == "rew_text":
             if pending.raw_text is None or pending.raw_filename is None:
@@ -360,11 +541,15 @@ class MeasurementWorkflowController:
                 assignment.measurement_entity_id,
                 pending.raw_text,
                 filename=pending.raw_filename,
+                measurement_direction=assignment.measurement_direction,
                 evidence_type=assignment.evidence_type,
                 channel_role=assignment.channel_role,
-                source_speaker_ids=assignment.source_speaker_ids,
+                source_speaker_ids=source_speaker_ids,
                 radiation_scope=assignment.radiation_scope,
                 routing_evidence=assignment.routing_evidence,
+                routing_profile=routing_profile_provenance,
+                acquisition_context=acquisition_context_provenance,
+                engine_session=engine_session_payload,
             )
         elif pending.source_kind == "rew_api":
             if pending.rew_snapshot is None:
@@ -373,11 +558,15 @@ class MeasurementWorkflowController:
                 revision,
                 assignment.measurement_entity_id,
                 pending.rew_snapshot,
+                measurement_direction=assignment.measurement_direction,
                 evidence_type=assignment.evidence_type,
                 channel_role=assignment.channel_role,
-                source_speaker_ids=assignment.source_speaker_ids,
+                source_speaker_ids=source_speaker_ids,
                 radiation_scope=assignment.radiation_scope,
                 routing_evidence=assignment.routing_evidence,
+                routing_profile=routing_profile_provenance,
+                acquisition_context=acquisition_context_provenance,
+                engine_session=engine_session_payload,
             )
         else:
             raise MeasurementWorkflowError(f"未対応の測定ソースです: {pending.source_kind}")
@@ -388,8 +577,191 @@ class MeasurementWorkflowController:
             raw_filename=raw_filename,
             raw_bytes=raw_bytes,
         )
+        if assignment.acquisition is not None:
+            # The persisted acquisition context is the authority; its subject
+            # list names the measurement just saved (#471).
+            context = build_acquisition_context(
+                source_kind=assignment.acquisition.source_kind,
+                subject_measurement_ids=(record.measurement_id,),
+                timing_reference_valid=assignment.acquisition.timing_reference_valid,
+                timing_reference_id=assignment.acquisition.timing_reference_id,
+                clock_source=assignment.acquisition.clock_source,
+                sample_rate_hz=assignment.acquisition.sample_rate_hz,
+                delay_correction_s=assignment.acquisition.delay_correction_s,
+                microphone=assignment.acquisition.microphone,
+                playback=assignment.acquisition.playback,
+                measurement_direction=assignment.measurement_direction,
+                timing_reference_sha256=assignment.acquisition.timing_reference_sha256,
+                notes=assignment.acquisition.notes,
+            )
+            self.quality_repository.save_acquisition_context(context)
         self._pending = None
         return record
+
+    def _engine_session_payload(self) -> dict[str, Any] | None:
+        """The acquisition engine session for provenance merge (#599).
+
+        Resolved lazily at commit so imports from a file (rew_text) with no
+        live REW keep working; a client without ``engine_session`` (test
+        doubles, older adapters) yields no session provenance.
+        """
+        opener = getattr(self.rew_client, 'engine_session', None)
+        if opener is None:
+            return None
+        try:
+            session = opener()
+        except Exception:
+            return None
+        payload = session.payload() if hasattr(session, 'payload') else None
+        return payload
+
+    def _routing_provenance(
+        self, assignment: MeasurementAssignment
+    ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+        """Resolve a persisted routing profile for provenance + derivation (#473).
+
+        Returns the provenance merge payload and the observed speaker ids the
+        profile's entry for the assignment role carries — used only when the
+        assignment left ``source_speaker_ids`` empty, so an explicit manual
+        selection always wins over a derived one.
+        """
+        if assignment.routing_profile_id is None:
+            return None, ()
+        profile = self.quality_repository.get_routing_profile(
+            assignment.routing_profile_id
+        )
+        if profile is None:
+            raise MeasurementWorkflowError(
+                f"保存済みルーティングプロファイルを確認できません: "
+                f"{assignment.routing_profile_id}"
+            )
+        entry = profile.entry_for_role(assignment.channel_role)
+        provenance: dict[str, Any] = {
+            'routing_profile_id': profile.routing_profile_id,
+            'routing_profile_sha256': profile.routing_profile_sha256,
+        }
+        if entry is not None:
+            provenance['entry'] = {
+                'logical_role': entry.logical_role,
+                'output_device_label': entry.output_device_label,
+                'rew_channel_label': entry.rew_channel_label,
+                'hardware_channel_index': entry.hardware_channel_index,
+                'verification': entry.verification,
+            }
+        observed: tuple[str, ...] = ()
+        if entry is not None:
+            observed = tuple(entry.observed_speaker_ids)
+        return provenance, observed
+
+    def acquisition_contexts(
+        self,
+    ) -> tuple[CadAcquisitionContext, ...]:
+        """Persisted acquisition contexts usable as reusable presets (#471)."""
+        return tuple(self.quality_repository.list_acquisition_contexts())
+
+    def import_ir_for_measurement(
+        self,
+        measurement_id: str,
+        raw: bytes,
+        *,
+        filename: str,
+        sample_rate_hz: float | None = None,
+        t0_semantics: IrT0Semantics = 'export_t0',
+        amplitude_reference: IrAmplitudeReference = 'normalized',
+        normalized: bool = True,
+        window_kind: str | None = None,
+        ir_semantics: IrSemantics = 'deconvolved',
+        calibration_state: IrCalibrationState = 'uncalibrated',
+    ) -> CadImpulseResponseDataset:
+        """Import one measured impulse response onto an existing measurement (#474).
+
+        The IR binds to the same measurement record — and therefore the same
+        SceneRevision and acquisition context — as the frequency response.
+        Interpretation fields that the text export cannot carry are explicit
+        importer declarations sealed into the dataset; a normalized IR never
+        becomes absolute SPL.
+        """
+        record = self.measurement_repository.get_measurement(measurement_id)
+        if record is None:
+            raise MeasurementWorkflowError(
+                f"測定を確認できません: {measurement_id}"
+            )
+        dataset, raw_filename, raw_bytes = normalize_rew_ir_text(
+            measurement_id,
+            raw,
+            filename=filename,
+            sample_rate_hz=sample_rate_hz,
+            t0_semantics=t0_semantics,
+            amplitude_reference=amplitude_reference,
+            normalized=normalized,
+            window_kind=window_kind,
+            ir_semantics=ir_semantics,
+            calibration_state=calibration_state,
+        )
+        self.measurement_repository.save_ir_dataset(
+            dataset,
+            raw_filename=raw_filename,
+            raw_bytes=raw_bytes,
+        )
+        return dataset
+
+    def ir_datasets_for_measurement(
+        self, measurement_id: str
+    ) -> tuple[CadImpulseResponseDataset, ...]:
+        return self.measurement_repository.ir_datasets_for_measurement(
+            measurement_id
+        )
+
+    def derive_measurement_point_from_seat(
+        self,
+        source_seat_id: str,
+        *,
+        measurement_point_id: str,
+        name: str | None = None,
+    ) -> CadMeasurementTargetLineage:
+        """Create a measurement point at a seat's listener reference (#472).
+
+        The new point copies the seat's acoustic reference position — the
+        coordinate is never retyped — and is committed as a new head
+        revision alongside a sealed lineage row recording the source seat,
+        the creation revision and the initial position. Later seat moves
+        leave the point's stored position untouched and surface as drift.
+        """
+        from .cad_measurement_targets import (
+            MeasurementTargetError,
+            build_measurement_target_lineage,
+            derive_measurement_point_document,
+        )
+
+        revision = self.latest_revision()
+        try:
+            new_document = derive_measurement_point_document(
+                revision.document,
+                source_seat_id=source_seat_id,
+                measurement_point_id=measurement_point_id,
+                name=name,
+            )
+        except MeasurementTargetError as exc:
+            raise MeasurementWorkflowError(str(exc)) from exc
+        try:
+            point = new_document.entity(measurement_point_id)
+        except KeyError as exc:
+            raise MeasurementWorkflowError(str(exc)) from exc
+        position = acoustic_reference_position(point)
+        assert position is not None
+        result = self.scene_repository.save(
+            new_document,
+            parent_revision_id=revision.revision_id,
+        )
+        lineage = build_measurement_target_lineage(
+            document_id=self.document_id,
+            measurement_point_id=measurement_point_id,
+            source_seat_id=source_seat_id,
+            creation_revision_id=result.revision.revision_id,
+            initial_position=position,
+        )
+        self.quality_repository.save_target_lineage(lineage)
+        return lineage
 
     def measurement_views(self) -> tuple[MeasurementView, ...]:
         latest = self.scene_repository.current_head(self.document_id)
