@@ -47,7 +47,10 @@ class FakeRoomViewport(QFrame):
         document,
         *,
         selected_id: str | None,
-        overlays: RoomOverlayState,
+        selected_ids=(),
+        hidden_ids=frozenset(),
+        locked_ids=frozenset(),
+        overlays: RoomOverlayState = RoomOverlayState(),
         reset_camera: bool = False,
     ) -> None:
         self.render_calls.append((selected_id, overlays, reset_camera))

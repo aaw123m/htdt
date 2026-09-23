@@ -5,7 +5,7 @@ from math import radians, tan
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QPointF, Signal
+from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
@@ -294,6 +294,11 @@ class RoomViewport3D(QFrame):
     entitySelected = Signal(object)
     proposedEntitySelected = Signal(object)
     contextMenuRequested = Signal(object, object)
+    #: Emitted when a left click lands on no pickable entity (deselect/measure free point).
+    emptyClicked = Signal(object)
+    #: Emitted for every successful entity pick with the display position; lets
+    #: controllers read keyboard modifiers at pick time (Ctrl = additive select).
+    entityPicked = Signal(object, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -311,9 +316,15 @@ class RoomViewport3D(QFrame):
         self._actor_proposed_entity_ids: dict[int, str] = {}
         self._document: SceneDocument | None = None
         self._selected_id: str | None = None
+        self._selected_ids: frozenset[str] = frozenset()
+        self._hidden_ids: frozenset[str] = frozenset()
+        self._locked_ids: frozenset[str] = frozenset()
         self._overlays = RoomOverlayState()
+        self._press_position: QPointF | None = None
+        self._search_domain_handles: dict[int, tuple[str, str, str, bool]] = {}
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
         self.plotter.enable_anti_aliasing("fxaa")
+        self.interactor.installEventFilter(self)
         try:
             self.plotter.enable_mesh_picking(
                 callback=self._picked_actor,
@@ -331,14 +342,26 @@ class RoomViewport3D(QFrame):
         document: SceneDocument,
         *,
         selected_id: str | None,
+        selected_ids: tuple[str, ...] | list[str] | None = None,
+        hidden_ids: set[str] | frozenset[str] = frozenset(),
+        locked_ids: set[str] | frozenset[str] = frozenset(),
         overlays: RoomOverlayState,
         reset_camera: bool = False,
     ) -> None:
         self._document = document
+        if selected_ids is None:
+            selected_ids = () if selected_id is None else (selected_id,)
+        selected_set = frozenset(selected_ids)
+        if selected_id is not None and selected_id not in selected_set:
+            selected_set = selected_set | {selected_id}
         self._selected_id = selected_id
+        self._selected_ids = selected_set
+        self._hidden_ids = frozenset(hidden_ids)
+        self._locked_ids = frozenset(locked_ids)
         self._overlays = overlays
         self._actor_entity_ids.clear()
         self._actor_proposed_entity_ids.clear()
+        self._search_domain_handles.clear()
         self.plotter.clear()
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
 
@@ -387,22 +410,30 @@ class RoomViewport3D(QFrame):
             )
 
         for entity in document.entities:
+            if entity.entity_id in self._hidden_ids:
+                # Hidden entities are not rendered, therefore not pickable —
+                # the N20b "hidden objects cannot be selected" contract (#482).
+                continue
+            is_primary = entity.entity_id == selected_id
+            is_selected = entity.entity_id in selected_set
+            is_locked = entity.entity_id in self._locked_ids
             focused_out = bool(
                 overlays.focus_selection
-                and selected_id
-                and entity.entity_id != selected_id
+                and selected_set
+                and not is_selected
             )
+            edge_color = DARK_THEME.viewport.geometry_edge.hex
+            if is_selected:
+                edge_color = DARK_THEME.viewport.selection_outline.hex
+            elif is_locked:
+                edge_color = DARK_THEME.text.muted.hex
             actor = self.plotter.add_mesh(
                 _entity_mesh(entity),
                 color=DARK_THEME.viewport.geometry.hex,
                 show_edges=True,
-                edge_color=(
-                    DARK_THEME.viewport.selection_outline.hex
-                    if entity.entity_id == selected_id
-                    else DARK_THEME.viewport.geometry_edge.hex
-                ),
-                line_width=3 if entity.entity_id == selected_id else 1,
-                opacity=0.12 if focused_out else 0.90,
+                edge_color=edge_color,
+                line_width=3 if is_primary else (2 if is_selected else 1),
+                opacity=(0.55 if is_locked else 0.90) if not focused_out else 0.12,
                 ambient=0.32,
                 diffuse=0.62,
                 specular=0.10,
@@ -443,6 +474,34 @@ class RoomViewport3D(QFrame):
                         pickable=False,
                         name=f"selection-{ray.role}-{selected_id}",
                     )
+        # Secondary (non-primary) members of a multi-selection get the outline
+        # without direction rays — the primary stays visually distinct (#480).
+        for entity_id in selected_set:
+            if entity_id == selected_id:
+                continue
+            try:
+                secondary = document.entity(entity_id)
+            except KeyError:
+                continue
+            bounds = secondary.size_m
+            radius = 0.05 if bounds is None else max(bounds.x_m, bounds.y_m) * 0.06 + 0.02
+            self.plotter.add_mesh(
+                pv.Sphere(
+                    radius=radius,
+                    center=domain_to_render(
+                        type(secondary.position)(
+                            x_m=secondary.position.x_m,
+                            y_m=secondary.position.y_m,
+                            z_m=secondary.position.z_m
+                            + (bounds.z_m * 0.6 if bounds is not None else 0.0),
+                        )
+                    ),
+                ),
+                color=DARK_THEME.viewport.selection_outline.hex,
+                opacity=0.5,
+                pickable=False,
+                name=f"selection-marker-{entity_id}",
+            )
 
         if overlays.acoustics:
             self._render_acoustic_overlay(document)
@@ -670,11 +729,92 @@ class RoomViewport3D(QFrame):
     def _picked_actor(self, actor) -> None:
         entity_id = self._actor_entity_ids.get(id(actor))
         if entity_id is not None:
+            self.entityPicked.emit(entity_id, self._last_display_position())
             self.entitySelected.emit(entity_id)
             return
         proposed_id = self._actor_proposed_entity_ids.get(id(actor))
         if proposed_id is not None:
             self.proposedEntitySelected.emit(proposed_id)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QMouseEvent
+
+        if obj is self.interactor and isinstance(event, QMouseEvent):
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self._press_position = QPointF(event.position())
+            elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                pressed = self._press_position
+                self._press_position = None
+                moved = pressed is None or (
+                    (event.position() - pressed).manhattanLength() < 6.0
+                )
+                if moved and self.pick_actor_at(event.position()) is None:
+                    self.emptyClicked.emit(event.position())
+        return False
+
+    def _last_display_position(self) -> QPointF | None:
+        try:
+            pos = self.interactor.GetEventPosition()
+        except Exception:
+            return None
+        return QPointF(float(pos[0]), float(pos[1]))
+
+    def pick_actor_at(self, position: QPointF):
+        """Run the shared picker at a display position; return the actor or None."""
+
+        try:
+            picker = self.plotter.iren.picker
+            renderer = self.plotter.iren.get_poked_renderer()
+            picker.Pick(float(position.x()), float(position.y()), 0.0, renderer)
+            return picker.GetActor()
+        except Exception:
+            return None
+
+    def pick_world_position(self, position: QPointF) -> tuple[float, float, float] | None:
+        """Render-space world position under a display point (or None)."""
+
+        try:
+            picker = self.plotter.iren.picker
+            renderer = self.plotter.iren.get_poked_renderer()
+            picker.Pick(float(position.x()), float(position.y()), 0.0, renderer)
+            picked = picker.GetPickPosition()
+        except Exception:
+            return None
+        if picked is None:
+            return None
+        return (float(picked[0]), float(picked[1]), float(picked[2]))
+
+    def world_to_screen(self, position: tuple[float, float, float]) -> tuple[float, float]:
+        """Project a render-space world point to display coordinates (snap selector)."""
+
+        renderer = self.plotter.renderer
+        renderer.SetWorldPoint(float(position[0]), float(position[1]), float(position[2]), 1.0)
+        renderer.WorldToDisplay()
+        display = renderer.GetDisplayPoint()
+        return (float(display[0]), float(display[1]))
+
+    def render_snap_feedback(self, label: str | None, *, screen_position: tuple[float, float] | None = None) -> None:
+        """Floating snap-target indicator during a drag (#481)."""
+
+        try:
+            self.plotter.remove_actor("snap-feedback-label", render=False)
+        except Exception:
+            pass
+        if not label:
+            return
+        try:
+            self.plotter.add_text(
+                label,
+                name="snap-feedback-label",
+                position="lower_left",
+                font_size=9,
+                color=DARK_THEME.viewport.selection_outline.hex,
+                render=False,
+            )
+        except Exception:
+            return
+        self.plotter.render()
 
     def begin_pan(self, position: QPointF) -> None:
         # Gesture lifetime is owned by CadInputController; this renderer only
@@ -773,6 +913,413 @@ class RoomViewport3D(QFrame):
             return
         self.plotter.camera.focal_point = domain_to_render(entity.position)
         self.plotter.render()
+
+    def capture_camera_view(self) -> tuple:
+        """Snapshot the current camera so a transient view can be restored."""
+
+        camera = self.plotter.camera
+        return (
+            tuple(camera.GetPosition()),
+            tuple(camera.GetFocalPoint()),
+            tuple(camera.GetViewUp()),
+            float(camera.GetViewAngle()),
+            bool(camera.GetParallelProjection()),
+            float(camera.GetParallelScale()),
+        )
+
+    def apply_camera_view(self, view: tuple) -> None:
+        """Restore a camera snapshot produced by ``capture_camera_view``."""
+
+        position, focal, view_up, view_angle, parallel, scale = view
+        camera = self.plotter.camera
+        camera.SetPosition(*position)
+        camera.SetFocalPoint(*focal)
+        camera.SetViewUp(*view_up)
+        camera.SetParallelProjection(parallel)
+        if parallel:
+            camera.SetParallelScale(scale)
+        else:
+            camera.SetViewAngle(view_angle)
+        self.plotter.reset_camera_clipping_range()
+        self.plotter.render()
+
+    def view_from(
+        self,
+        eye_render: tuple[float, float, float],
+        target_render: tuple[float, float, float],
+        *,
+        view_angle_deg: float | None = None,
+    ) -> None:
+        """Place the camera at an eye point aimed at a target (#455 view-from-seat).
+
+        Perspective projection with a fixed 45° vertical FOV documents the
+        seat-view policy: the preview approximates human field of view, not a
+        claimed exact match, and never modifies the scene.
+        """
+
+        camera = self.plotter.camera
+        camera.SetParallelProjection(False)
+        camera.SetPosition(*eye_render)
+        camera.SetFocalPoint(*target_render)
+        camera.SetViewUp(0.0, 0.0, 1.0)
+        camera.SetViewAngle(float(view_angle_deg) if view_angle_deg else 45.0)
+        self.plotter.reset_camera_clipping_range()
+        self.plotter.render()
+
+    def render_measure_overlay(self, result, *, draft_endpoints: tuple = ()) -> None:
+        """Draw the measurement lines/points + label. Purely visual (#491)."""
+
+        endpoints = list(draft_endpoints)
+        if result is not None:
+            endpoints = [endpoint.position for endpoint in result.endpoints]
+        for index, position in enumerate(endpoints):
+            self.plotter.add_mesh(
+                pv.Sphere(radius=0.045, center=domain_to_render(position)),
+                color=DARK_THEME.viewport.selection_outline.hex,
+                pickable=False,
+                name=f"measure-point-{index}",
+            )
+        if result is not None:
+            if result.mode == 'distance' and len(result.endpoints) == 2:
+                a, b = result.endpoints
+                self.plotter.add_mesh(
+                    pv.Line(domain_to_render(a.position), domain_to_render(b.position)),
+                    color=DARK_THEME.viewport.selection_outline.hex,
+                    line_width=4,
+                    pickable=False,
+                    name="measure-line",
+                )
+            elif result.mode == 'angle' and len(result.endpoints) == 3:
+                a, v, b = result.endpoints
+                for label, pair in (("measure-line-a", (a, v)), ("measure-line-b", (v, b))):
+                    self.plotter.add_mesh(
+                        pv.Line(domain_to_render(pair[0].position), domain_to_render(pair[1].position)),
+                        color=DARK_THEME.viewport.selection_outline.hex,
+                        line_width=4,
+                        pickable=False,
+                        name=label,
+                    )
+
+    def render_constraint_overlay(self, constraint_set, evaluation, *, highlight_result=None) -> None:
+        """Render region polygons/wall bands/pair connectors for constraints (#486)."""
+
+        from .cad_constraint_authoring import constraint_entity_ids, wall_points
+        from .cad_constraint_models import (
+            CadAllowedRegionConstraint,
+            CadExclusionRegionConstraint,
+            CadPairDistanceConstraint,
+            CadWallClearanceConstraint,
+        )
+
+        document = self._document
+        if document is None:
+            return
+        highlight_id = (
+            None if highlight_result is None else highlight_result.constraint_id
+        )
+        violated_entities: set[str] = set()
+        if evaluation is not None:
+            for result in evaluation.violations:
+                violated_entities.update(result.entity_ids)
+
+        for constraint in constraint_set.constraints:
+            is_highlighted = constraint.constraint_id == highlight_id
+            if isinstance(constraint, (CadAllowedRegionConstraint, CadExclusionRegionConstraint)):
+                if isinstance(constraint, CadAllowedRegionConstraint):
+                    color, opacity = 'steelblue', 0.10
+                elif constraint.region_role == 'walkway':
+                    color, opacity = 'darkorange', 0.18
+                else:
+                    color, opacity = 'tomato', 0.16
+                points = np.asarray(
+                    [(item.x_m, -item.y_m, 0.015) for item in constraint.vertices],
+                    dtype=float,
+                )
+                faces = np.asarray([len(points), *range(len(points))], dtype=np.int64)
+                mesh = pv.PolyData(points, faces).triangulate()
+                self.plotter.add_mesh(
+                    mesh,
+                    color=color,
+                    opacity=opacity,
+                    show_edges=True,
+                    line_width=5 if is_highlighted else 2,
+                    pickable=False,
+                    name=f"constraint-region-{constraint.constraint_id}",
+                )
+            elif isinstance(constraint, CadWallClearanceConstraint):
+                try:
+                    start, end = wall_points(document, constraint.wall_id)
+                except ValueError:
+                    continue
+                band_z = 0.04
+                self.plotter.add_mesh(
+                    pv.Line((start[0], -start[1], band_z), (end[0], -end[1], band_z)),
+                    color='mediumpurple',
+                    line_width=6 if is_highlighted else 3,
+                    pickable=False,
+                    name=f"constraint-wall-{constraint.constraint_id}",
+                )
+            elif isinstance(constraint, CadPairDistanceConstraint):
+                try:
+                    a = document.entity(constraint.entity_a)
+                    b = document.entity(constraint.entity_b)
+                except KeyError:
+                    continue
+                z = max(a.position.z_m, b.position.z_m, 0.05)
+                self.plotter.add_mesh(
+                    pv.Line(
+                        (a.position.x_m, -a.position.y_m, z),
+                        (b.position.x_m, -b.position.y_m, z),
+                    ),
+                    color='mediumpurple',
+                    line_width=5 if is_highlighted else 2,
+                    pickable=False,
+                    name=f"constraint-pair-{constraint.constraint_id}",
+                )
+
+        # Violating entities get a red marker so a failure is spatially obvious.
+        for entity_id in violated_entities:
+            try:
+                entity = document.entity(entity_id)
+            except KeyError:
+                continue
+            position = entity.position
+            z = max(position.z_m, 0.06)
+            self.plotter.add_mesh(
+                pv.Sphere(radius=0.10, center=(position.x_m, -position.y_m, z)),
+                style='wireframe',
+                line_width=3,
+                color='red',
+                pickable=False,
+                name=f"constraint-violation-{entity_id}",
+            )
+
+    def render_video_overlay(self, evaluation) -> None:
+        """Projector cone + sightline + collision overlays from one evaluation (#455).
+
+        Everything drawn comes from the returned ``VideoGeometryEvaluation`` —
+        no geometry is invented here.
+        """
+
+        if evaluation is None:
+            return
+        projection = evaluation.projection
+        if projection is not None:
+            lens = projection.lens_position
+            lens_render = domain_to_render(lens)
+            corners = [domain_to_render(corner) for corner in projection.image_plane_corners]
+            cone_color = 'gold' if projection.status != 'FAIL' else 'red'
+            # Cone edges: lens → each image corner.
+            for index, corner in enumerate(corners):
+                self.plotter.add_mesh(
+                    pv.Line(lens_render, corner),
+                    color=cone_color,
+                    line_width=3,
+                    opacity=0.85,
+                    pickable=False,
+                    name=f"video-cone-{index}",
+                )
+            # Image aperture rectangle.
+            ring = np.asarray(corners + [corners[0]], dtype=float)
+            self.plotter.add_mesh(
+                pv.lines_from_points(ring),
+                color=cone_color,
+                line_width=3,
+                pickable=False,
+                name="video-aperture",
+            )
+            if projection.optical_axis_intersection is not None:
+                self.plotter.add_mesh(
+                    pv.Line(
+                        lens_render,
+                        domain_to_render(projection.optical_axis_intersection),
+                    ),
+                    color='cyan',
+                    line_width=2,
+                    pickable=False,
+                    name="video-optical-axis",
+                )
+            self.plotter.add_mesh(
+                pv.Sphere(radius=0.05, center=lens_render),
+                color=cone_color,
+                pickable=False,
+                name="video-lens",
+            )
+
+        document = self._document
+        if document is not None and evaluation.request.screen is not None:
+            screen_center = (
+                projection.screen_image_center if projection is not None else None
+            )
+            for seat_result in evaluation.sightlines:
+                binding = next(
+                    (
+                        item
+                        for item in evaluation.request.seats
+                        if item.entity_id == seat_result.seat_entity_id
+                    ),
+                    None,
+                )
+                if binding is None or screen_center is None:
+                    continue
+                try:
+                    seat = document.entity(seat_result.seat_entity_id)
+                except KeyError:
+                    continue
+                eye = seat.position
+                eye_render = domain_to_render(
+                    type(eye)(
+                        x_m=eye.x_m + binding.eye_reference_offset_local_m.x_m,
+                        y_m=eye.y_m + binding.eye_reference_offset_local_m.y_m,
+                        z_m=eye.z_m + binding.eye_reference_offset_local_m.z_m,
+                    )
+                )
+                blocked = bool(seat_result.blocked_sample_ids)
+                color = 'red' if blocked or seat_result.status == 'FAIL' else (
+                    'goldenrod' if seat_result.status == 'UNKNOWN' else 'seagreen'
+                )
+                self.plotter.add_mesh(
+                    pv.Line(eye_render, domain_to_render(screen_center)),
+                    color=color,
+                    line_width=3 if seat_result.status == 'FAIL' else 2,
+                    opacity=0.9,
+                    pickable=False,
+                    name=f"video-sightline-{seat_result.seat_entity_id}",
+                )
+            for collision in evaluation.collisions:
+                if not collision.intersects_or_violates_clearance:
+                    continue
+                try:
+                    a = document.entity(collision.entity_a)
+                    b = document.entity(collision.entity_b)
+                except KeyError:
+                    continue
+                z = max(a.position.z_m, b.position.z_m, 0.05)
+                self.plotter.add_mesh(
+                    pv.Line(
+                        (a.position.x_m, -a.position.y_m, z),
+                        (b.position.x_m, -b.position.y_m, z),
+                    ),
+                    color='red',
+                    line_width=4,
+                    pickable=False,
+                    name=f"video-collision-{collision.entity_a}-{collision.entity_b}",
+                )
+
+    def render_history_ghost(self, document: SceneDocument, *, label: str | None = None) -> None:
+        """Ghost a historical revision over the current scene — read-only (#485)."""
+
+        for entity in document.entities:
+            self.plotter.add_mesh(
+                _entity_mesh(entity),
+                color='slategray',
+                style='wireframe',
+                line_width=2,
+                opacity=0.55,
+                pickable=False,
+                name=f"history-ghost-{entity.entity_id}",
+            )
+        if label:
+            self.plotter.add_text(
+                label,
+                name="history-ghost-label",
+                position="upper_right",
+                font_size=9,
+                color=DARK_THEME.text.secondary.hex,
+                render=False,
+            )
+        self.plotter.render()
+
+    def render_search_domain(
+        self,
+        entity_id: str,
+        axes: tuple,
+        *,
+        draft_axis=None,
+        hard_constraints_satisfied: bool | None = None,
+    ) -> None:
+        """Search-domain overlay: authored axis ranges in world space (#530).
+
+        ``axes`` are ``CadSearchAxis``-like objects (entity_id, axis, minimum_m,
+        maximum_m, step_m); ``draft_axis`` (dict-like with axis/min/max) is drawn
+        brighter so the in-progress authoring row is visible before saving.
+        """
+
+        document = self._document
+        if document is None:
+            return
+        self._search_domain_handles = {}
+        axis_colors = {'x': 'tomato', 'y': 'seagreen', 'z': 'cornflowerblue'}
+        seen: set[tuple[str, str]] = set()
+
+        def _render_axis(entity, axis: str, min_m: float, max_m: float, name: str, *, bright: bool) -> None:
+            center = domain_to_render(entity.position)
+            low = list(center)
+            high = list(center)
+            idx = {'x': 0, 'y': 1, 'z': 2}[axis]
+            low[idx] += float(min_m) * (-1.0 if axis == 'y' else 1.0)
+            high[idx] += float(max_m) * (-1.0 if axis == 'y' else 1.0)
+            self.plotter.add_mesh(
+                pv.Line(tuple(low), tuple(high)),
+                color=axis_colors[axis],
+                line_width=8 if bright else 5,
+                opacity=0.95 if bright else 0.7,
+                pickable=False,
+                name=name,
+            )
+            for tag, point in (("min", low), ("max", high)):
+                actor = self.plotter.add_mesh(
+                    pv.Sphere(radius=0.06 if bright else 0.045, center=point),
+                    color=axis_colors[axis],
+                    pickable=True,
+                    name=f"{name}-{tag}",
+                )
+                self._search_domain_handles[id(actor)] = (
+                    entity.entity_id,
+                    axis,
+                    tag,
+                    bright,
+                )
+
+        for item in axes:
+            try:
+                entity = document.entity(item.entity_id)
+            except KeyError:
+                continue
+            key = (item.entity_id, item.axis)
+            if key in seen:
+                continue
+            seen.add(key)
+            _render_axis(
+                entity,
+                item.axis,
+                item.min_m,
+                item.max_m,
+                f"search-domain-{item.entity_id}-{item.axis}",
+                bright=False,
+            )
+        if draft_axis is not None:
+            try:
+                entity = document.entity(draft_axis['entity_id'])
+            except KeyError:
+                return
+            _render_axis(
+                entity,
+                draft_axis['axis'],
+                draft_axis['min_m'],
+                draft_axis['max_m'],
+                f"search-domain-draft-{draft_axis['entity_id']}-{draft_axis['axis']}",
+                bright=True,
+            )
+        if hard_constraints_satisfied is False:
+            self.plotter.add_text(
+                "警告: 検索領域がハード制約に違反する可能性があります",
+                name="search-domain-warning",
+                position="upper_left",
+                font_size=9,
+                color='tomato',
+                render=False,
+            )
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.plotter.close()

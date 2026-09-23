@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 import sqlite3
+from typing import Any
 from uuid import uuid4
 
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
@@ -75,6 +76,21 @@ class EditorViewRecord:
     selected_ids: tuple[str, ...]
     hidden_ids: tuple[str, ...]
     locked_ids: tuple[str, ...]
+    object_snap_enabled: bool = True
+    grid_snap_enabled: bool = False
+    grid_step_m: float = 0.05
+    angle_snap_enabled: bool = False
+    angle_step_deg: float = 15.0
+
+
+@dataclass(frozen=True)
+class RevisionLabel:
+    """Non-mutating history metadata: a label/note bound to a revision id."""
+
+    revision_id: str
+    label: str
+    note: str
+    updated_at_utc: str
 
 
 @dataclass(frozen=True)
@@ -173,10 +189,17 @@ class SceneRepository:
                 )
                 '''
             )
+            # scene_revision_labels is created lazily (see _ensure_revision_labels):
+            # an opt-in per-revision feature should not grow every project DB
+            # by default, and pre-change databases simply lack the table.
             columns = {row['name'] for row in connection.execute('PRAGMA table_info(editor_view_states)')}
             if 'selected_ids_json' not in columns:
                 connection.execute(
                     "ALTER TABLE editor_view_states ADD COLUMN selected_ids_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            if 'snap_json' not in columns:
+                connection.execute(
+                    "ALTER TABLE editor_view_states ADD COLUMN snap_json TEXT"
                 )
 
     def current_head(self, document_id: str) -> SceneRevision | None:
@@ -559,6 +582,11 @@ class SceneRepository:
         selected_ids: tuple[str, ...] | list[str] | None = None,
         hidden_ids: set[str],
         locked_ids: set[str],
+        object_snap_enabled: bool | None = None,
+        grid_snap_enabled: bool | None = None,
+        grid_step_m: float | None = None,
+        angle_snap_enabled: bool | None = None,
+        angle_step_deg: float | None = None,
     ) -> None:
         ordered_selected = list(dict.fromkeys(selected_ids or (() if selected_id is None else (selected_id,))))
         if selected_id is not None and selected_id not in ordered_selected:
@@ -566,22 +594,69 @@ class SceneRepository:
         selected_json = json.dumps(ordered_selected, separators=(',', ':'))
         hidden_json = json.dumps(sorted(hidden_ids), separators=(',', ':'))
         locked_json = json.dumps(sorted(locked_ids), separators=(',', ':'))
+        snap_json = None
+        if any(
+            value is not None
+            for value in (
+                object_snap_enabled,
+                grid_snap_enabled,
+                grid_step_m,
+                angle_snap_enabled,
+                angle_step_deg,
+            )
+        ):
+            snap_json = json.dumps(
+                {
+                    'object_snap_enabled': bool(object_snap_enabled),
+                    'grid_snap_enabled': bool(grid_snap_enabled),
+                    'grid_step_m': float(grid_step_m),
+                    'angle_snap_enabled': bool(angle_snap_enabled),
+                    'angle_step_deg': float(angle_step_deg),
+                },
+                separators=(',', ':'),
+                allow_nan=False,
+            )
         updated_at = datetime.now(timezone.utc).isoformat()
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                INSERT INTO editor_view_states(
-                    document_id, selected_id, selected_ids_json, hidden_ids_json, locked_ids_json, updated_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(document_id) DO UPDATE SET
-                    selected_id=excluded.selected_id,
-                    selected_ids_json=excluded.selected_ids_json,
-                    hidden_ids_json=excluded.hidden_ids_json,
-                    locked_ids_json=excluded.locked_ids_json,
-                    updated_at_utc=excluded.updated_at_utc
-                ''',
-                (document_id, selected_id, selected_json, hidden_json, locked_json, updated_at),
-            )
+            if snap_json is None:
+                connection.execute(
+                    '''
+                    INSERT INTO editor_view_states(
+                        document_id, selected_id, selected_ids_json, hidden_ids_json, locked_ids_json, updated_at_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(document_id) DO UPDATE SET
+                        selected_id=excluded.selected_id,
+                        selected_ids_json=excluded.selected_ids_json,
+                        hidden_ids_json=excluded.hidden_ids_json,
+                        locked_ids_json=excluded.locked_ids_json,
+                        updated_at_utc=excluded.updated_at_utc
+                    ''',
+                    (document_id, selected_id, selected_json, hidden_json, locked_json, updated_at),
+                )
+            else:
+                connection.execute(
+                    '''
+                    INSERT INTO editor_view_states(
+                        document_id, selected_id, selected_ids_json, hidden_ids_json, locked_ids_json, snap_json, updated_at_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(document_id) DO UPDATE SET
+                        selected_id=excluded.selected_id,
+                        selected_ids_json=excluded.selected_ids_json,
+                        hidden_ids_json=excluded.hidden_ids_json,
+                        locked_ids_json=excluded.locked_ids_json,
+                        snap_json=excluded.snap_json,
+                        updated_at_utc=excluded.updated_at_utc
+                    ''',
+                    (
+                        document_id,
+                        selected_id,
+                        selected_json,
+                        hidden_json,
+                        locked_json,
+                        snap_json,
+                        updated_at,
+                    ),
+                )
 
     def view_state(self, document_id: str) -> EditorViewRecord | None:
         """Return persisted editor view state, or ``None`` when absent or corrupt.
@@ -621,13 +696,124 @@ class SceneRepository:
             selected = (selected_id,)
         hidden = _decode_view_state_ids(row['hidden_ids_json'], field='hidden_ids_json')
         locked = _decode_view_state_ids(row['locked_ids_json'], field='locked_ids_json')
+        snap_raw = row['snap_json'] if 'snap_json' in row.keys() else None
+        snap: dict[str, Any] = {}
+        if snap_raw:
+            try:
+                payload = json.loads(snap_raw)
+            except ValueError as exc:
+                raise ValueError('snap_json is not valid JSON') from exc
+            if isinstance(payload, dict):
+                snap = payload
         return EditorViewRecord(
             document_id=row['document_id'],
             selected_id=selected_id,
             selected_ids=selected,
             hidden_ids=hidden,
             locked_ids=locked,
+            object_snap_enabled=bool(snap.get('object_snap_enabled', True)),
+            grid_snap_enabled=bool(snap.get('grid_snap_enabled', False)),
+            grid_step_m=float(snap.get('grid_step_m', 0.05)),
+            angle_snap_enabled=bool(snap.get('angle_snap_enabled', False)),
+            angle_step_deg=float(snap.get('angle_step_deg', 15.0)),
         )
+
+    def list_revisions(self, document_id: str) -> tuple[SceneRevision, ...]:
+        """Return every revision of the document in chronological order.
+
+        Includes detached lineage (marked via ``SceneRevision.detached``) so
+        history surfaces can show the true recorded lineage rather than only
+        the mainline chain. Head state is resolved by callers through
+        ``current_head`` — this query is deliberately lineage-exhaustive.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT * FROM scene_revisions WHERE document_id=? ORDER BY seq ASC',
+                (document_id,),
+            ).fetchall()
+            return tuple(self._row_to_revision(row) for row in rows)
+
+    def _ensure_revision_labels(self, connection) -> None:
+        connection.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS scene_revision_labels (
+                revision_id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                updated_at_utc TEXT NOT NULL,
+                FOREIGN KEY(revision_id) REFERENCES scene_revisions(revision_id)
+            )
+            '''
+        )
+
+    def set_revision_label(
+        self,
+        revision_id: str,
+        *,
+        label: str,
+        note: str = '',
+    ) -> RevisionLabel:
+        """Attach or update a human label on a revision without mutating history.
+
+        Labels live in ``scene_revision_labels`` — the revision payload, hash
+        and lineage stay byte-exact, so labelling never changes what a
+        revision IS, only what it is called (#485).
+        """
+        label = label.strip()
+        if not label:
+            raise ValueError('revision label must not be empty')
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT document_id FROM scene_revisions WHERE revision_id=?',
+                (revision_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f'unknown revision: {revision_id}')
+            self._ensure_revision_labels(connection)
+            connection.execute(
+                '''
+                INSERT INTO scene_revision_labels(revision_id, document_id, label, note, updated_at_utc)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(revision_id) DO UPDATE SET
+                    label=excluded.label,
+                    note=excluded.note,
+                    updated_at_utc=excluded.updated_at_utc
+                ''',
+                (revision_id, row['document_id'], label, note, updated_at),
+            )
+        return RevisionLabel(
+            revision_id=revision_id,
+            label=label,
+            note=note,
+            updated_at_utc=updated_at,
+        )
+
+    def clear_revision_label(self, revision_id: str) -> None:
+        with closing(self._connect()) as connection, connection:
+            self._ensure_revision_labels(connection)
+            connection.execute(
+                'DELETE FROM scene_revision_labels WHERE revision_id=?',
+                (revision_id,),
+            )
+
+    def revision_labels(self, document_id: str) -> dict[str, RevisionLabel]:
+        with closing(self._connect()) as connection, connection:
+            self._ensure_revision_labels(connection)
+            rows = connection.execute(
+                'SELECT * FROM scene_revision_labels WHERE document_id=?',
+                (document_id,),
+            ).fetchall()
+            return {
+                row['revision_id']: RevisionLabel(
+                    revision_id=row['revision_id'],
+                    label=row['label'],
+                    note=row['note'],
+                    updated_at_utc=row['updated_at_utc'],
+                )
+                for row in rows
+            }
 
     @staticmethod
     def _discard_view_state(connection: sqlite3.Connection, document_id: str) -> None:
