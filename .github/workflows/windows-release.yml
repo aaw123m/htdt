@@ -26,6 +26,7 @@ concurrency:
 jobs:
   package:
     runs-on: windows-latest
+    timeout-minutes: 180
     env:
       PYTHONUTF8: "1"
     steps:
@@ -73,15 +74,48 @@ jobs:
           $icon = Join-Path $env:RUNNER_TEMP "htdt-package\HTDT\HTDT.ico"
           if (-not (Test-Path $exe)) { throw "Missing packaged executable: $exe" }
           if (-not (Test-Path $icon)) { throw "Missing packaged HTDT icon: $icon" }
-          $version = Start-Process -FilePath $exe -ArgumentList @("--version") -Wait -PassThru
-          if ($version.ExitCode -ne 0) {
-            throw "Packaged --version failed with exit code $($version.ExitCode)"
+
+          # The packaged app is windowed, so a crashed invocation would otherwise
+          # surface as a fatal dialog on the invisible runner desktop and block
+          # Start-Process -Wait forever. Bound every invocation and dump the
+          # app's diagnostics log on failure.
+          function Invoke-Htdt {
+            param(
+              [string]$Label,
+              [string[]]$Arguments,
+              [string]$DataRoot = $null,
+              [int]$TimeoutSeconds = 300
+            )
+            $process = Start-Process -FilePath $exe -ArgumentList $Arguments -PassThru
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+              $process.Kill()
+              throw "Packaged $Label timed out after ${TimeoutSeconds}s"
+            }
+            if ($process.ExitCode -ne 0) {
+              if ($DataRoot) {
+                $log = Join-Path $DataRoot "diagnostics\htdt-native.log"
+                if (Test-Path $log) { Get-Content $log -Tail 80 | Write-Output }
+              }
+              throw "Packaged $Label failed with exit code $($process.ExitCode)"
+            }
           }
 
+          Invoke-Htdt -Label "--version" -Arguments @("--version")
+
+          # Seed a fresh data root: exercises --seed-synthetic-demo and produces
+          # a real versioned HTDT database for the backup round-trip below. A
+          # bare marker-only database is rejected by schema compatibility checks.
           $dataRoot = Join-Path $env:RUNNER_TEMP "htdt-maintenance-data"
           $database = Join-Path $dataRoot "cad-scenes.sqlite3"
           $backup = Join-Path $env:RUNNER_TEMP "htdt-maintenance.htdt-backup"
-          New-Item -ItemType Directory -Force -Path $dataRoot | Out-Null
+          Invoke-Htdt -Label "--seed-synthetic-demo" -DataRoot $dataRoot -Arguments @(
+            "--data-dir", $dataRoot,
+            "--seed-synthetic-demo"
+          )
+          if (-not (Test-Path $database)) {
+            throw "Packaged synthetic demo did not create its database"
+          }
+
           @'
           import sqlite3, sys
           path = sys.argv[1]
@@ -90,12 +124,12 @@ jobs:
               connection.execute("INSERT INTO ci_marker(value) VALUES ('baseline')")
           '@ | python - $database
 
-          $backupProcess = Start-Process -FilePath $exe -ArgumentList @(
+          Invoke-Htdt -Label "--backup" -DataRoot $dataRoot -Arguments @(
             "--data-dir", $dataRoot,
             "--backup", $backup
-          ) -Wait -PassThru
-          if ($backupProcess.ExitCode -ne 0 -or -not (Test-Path $backup)) {
-            throw "Packaged backup failed with exit code $($backupProcess.ExitCode)"
+          )
+          if (-not (Test-Path $backup)) {
+            throw "Packaged backup did not create an archive"
           }
 
           @'
@@ -104,13 +138,10 @@ jobs:
               connection.execute("UPDATE ci_marker SET value='modified'")
           '@ | python - $database
 
-          $restoreProcess = Start-Process -FilePath $exe -ArgumentList @(
+          Invoke-Htdt -Label "--restore" -DataRoot $dataRoot -Arguments @(
             "--data-dir", $dataRoot,
             "--restore", $backup
-          ) -Wait -PassThru
-          if ($restoreProcess.ExitCode -ne 0) {
-            throw "Packaged restore failed with exit code $($restoreProcess.ExitCode)"
-          }
+          )
 
           $restored = @'
           import sqlite3, sys
@@ -119,19 +150,6 @@ jobs:
           '@ | python - $database
           if ($restored.Trim() -ne "baseline") {
             throw "Packaged restore did not recover the baseline database"
-          }
-
-          $demoRoot = Join-Path $env:RUNNER_TEMP "htdt-synthetic-demo-data"
-          $demoProcess = Start-Process -FilePath $exe -ArgumentList @(
-            "--data-dir", $demoRoot,
-            "--seed-synthetic-demo"
-          ) -Wait -PassThru
-          if ($demoProcess.ExitCode -ne 0) {
-            throw "Packaged synthetic demo seed failed with exit code $($demoProcess.ExitCode)"
-          }
-          $demoDatabase = Join-Path $demoRoot "cad-scenes.sqlite3"
-          if (-not (Test-Path $demoDatabase)) {
-            throw "Packaged synthetic demo did not create its database"
           }
 
       - name: Validate packaged old-PC to new-PC migration
@@ -247,9 +265,13 @@ jobs:
 
           $exe = Join-Path $installRoot "HTDT\HTDT.exe"
           if (-not (Test-Path $exe)) { throw "Installed executable missing: $exe" }
-          $version = Start-Process -FilePath $exe -ArgumentList @("--version") -Wait -PassThru
-          if ($version.ExitCode -ne 0) {
-            throw "Installed --version failed with exit code $($version.ExitCode)"
+          $versionProcess = Start-Process -FilePath $exe -ArgumentList @("--version") -PassThru
+          if (-not $versionProcess.WaitForExit(300000)) {
+            $versionProcess.Kill()
+            throw "Installed --version timed out after 300s"
+          }
+          if ($versionProcess.ExitCode -ne 0) {
+            throw "Installed --version failed with exit code $($versionProcess.ExitCode)"
           }
 
           $uninstaller = Join-Path $installRoot "unins000.exe"

@@ -319,10 +319,10 @@ def test_lock_contention_stays_quiet_for_maintenance_cli(
     assert "already in use by another process" in captured.err
 
 
-def test_maintenance_failure_propagates_without_dialog(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_maintenance_failure_exits_nonzero_without_dialog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """Maintenance CLI failures keep deterministic behavior: they raise, no dialog."""
+    """Maintenance CLI failures stay headless: deterministic exit code, no dialog."""
 
     data_dir = tmp_path / "data"
     monkeypatch.setattr(
@@ -336,10 +336,15 @@ def test_maintenance_failure_propagates_without_dialog(
         lambda *_args: pytest.fail("QApplication must not be created"),
     )
 
-    with pytest.raises(FileNotFoundError, match="missing"):
+    assert (
         native_cad.main(
             ["--data-dir", str(data_dir), "--restore", str(tmp_path / "missing.htdt-backup")]
         )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    assert "missing" in captured.err
 
 
 def test_report_launch_failure_falls_back_to_stderr(
