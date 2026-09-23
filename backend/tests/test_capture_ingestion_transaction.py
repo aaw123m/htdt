@@ -904,3 +904,92 @@ def test_integrity_failure_is_distinguishable_from_invalid_incoming(
     assert excinfo.value.diagnostic == (
         'persisted_ingestion_integrity_mismatch'
     )
+
+
+def _plan_with_extra(layer: str) -> dict:
+    """A valid v1 plan with one unknown field injected at *layer*."""
+    plan, _payloads = _plan_and_payloads()
+    if layer == 'plan':
+        plan['future_contract_extension'] = True
+    elif layer == 'ingestor':
+        plan['ingestor']['future_contract_extension'] = True
+    elif layer == 'bundle':
+        plan['bundle']['future_contract_extension'] = True
+    elif layer == 'source_evidence':
+        plan['source_evidence'][0]['future_contract_extension'] = True
+    elif layer == 'roomplan_records':
+        plan['roomplan_records'][0]['future_contract_extension'] = True
+    elif layer == 'raw_visual_mesh_handoffs':
+        plan['raw_visual_mesh_handoffs'][0][
+            'future_contract_extension'
+        ] = True
+    elif layer == 'mesh_matrix':
+        plan['raw_visual_mesh_handoffs'][0]['T_world_from_mesh_anchor'][
+            'future_contract_extension'
+        ] = True
+    elif layer == 'authority_records':
+        plan['authority_records'][0]['future_contract_extension'] = True
+    else:
+        raise AssertionError(layer)
+    return plan
+
+
+@pytest.mark.parametrize(
+    'layer',
+    (
+        'plan',
+        'ingestor',
+        'bundle',
+        'source_evidence',
+        'roomplan_records',
+        'raw_visual_mesh_handoffs',
+        'mesh_matrix',
+        'authority_records',
+    ),
+)
+def test_ingestion_plan_rejects_unknown_fields_at_every_layer(
+    layer: str,
+) -> None:
+    """Untrusted plan parsing is fail-closed on unknown contract fields."""
+
+    plan = _plan_with_extra(layer)
+
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        CaptureIngestionPlan.model_validate(plan)
+
+
+def test_ingestion_plan_extra_field_never_reaches_persisted_plan(
+    tmp_path: Path,
+) -> None:
+    """An unknown field cannot be silently normalized into plan_json."""
+    from pydantic import ValidationError
+
+    scene = SceneRepository(tmp_path / 'cad.sqlite3')
+    repository = CaptureIngestionRepository(scene)
+    plan, payloads = _plan_and_payloads()
+    plan['future_contract_extension'] = True
+
+    with pytest.raises(ValidationError):
+        repository.ingest(plan, payloads)
+
+    # Nothing was persisted for the rejected plan.
+    valid, _ = _plan_and_payloads()
+    lineage = CaptureIngestionPlan.model_validate(valid).lineage_digest
+    assert repository.get_ingestion(lineage) is None
+
+
+def test_ingestion_plan_valid_v1_still_accepted(tmp_path: Path) -> None:
+    """Baseline: the current v1 contract and re-ingest are unchanged."""
+    scene = SceneRepository(tmp_path / 'cad.sqlite3')
+    repository = CaptureIngestionRepository(scene)
+    plan, payloads = _plan_and_payloads()
+
+    typed = CaptureIngestionPlan.model_validate(plan)
+    result = repository.ingest(plan, payloads)
+    assert result.created
+
+    again = repository.ingest(plan, payloads)
+    assert not again.created
+    assert again.lineage_digest == typed.lineage_digest

@@ -20,7 +20,7 @@ class CaptureMeshIngestionError(ValueError):
 
 
 class CaptureMatrix4x4F(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     representation: Literal['column_major_4x4_f32']
     values: tuple[float, ...]
@@ -36,7 +36,7 @@ class CaptureMatrix4x4F(BaseModel):
 
 
 class CaptureMeshHandoff(BaseModel):
-    model_config = ConfigDict(frozen=True, populate_by_name=True)
+    model_config = ConfigDict(frozen=True, populate_by_name=True, extra='forbid')
 
     raw_visual_mesh_handoff_id: str = Field(pattern=r'^[0-9a-f]{64}$')
     bundle_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -70,7 +70,7 @@ class CaptureMeshHandoff(BaseModel):
 
 
 class CaptureRawVisualMeshBinding(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     binding_id: str = Field(
         pattern=r'^capture-raw-mesh-binding:[0-9a-f]{64}$'
