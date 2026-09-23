@@ -18,6 +18,7 @@ from .cad_constraint_models import CadConstraintSet
 from .cad_extended_search import (
     CadExtendedSearchAxis,
     build_extended_model_capability,
+    build_extended_parameter_evidence,
     build_extended_search_spec,
     generate_extended_candidates,
 )
@@ -691,11 +692,28 @@ def seed_synthetic_optimization_demo(
         search_repository,
         validation_repository,
     )
+    parameter_evidence = build_extended_parameter_evidence(
+        parameter='aim_yaw_deg',
+        model_id=SYNTHETIC_DIRECTIONAL_MODEL_ID,
+        model_version=SYNTHETIC_DIRECTIONAL_MODEL_VERSION,
+        evidence_scope='synthetic_fixture',
+        tested_min_deg=-45.0,
+        tested_max_deg=45.0,
+        source_kind='synthetic_fixture',
+        source_id='synthetic-directional-evidence:aim_yaw_deg',
+        source_sha256=sha256(
+            b'htdt-synthetic-extended-parameter-evidence-aim-yaw'
+        ).hexdigest(),
+        detail='declared synthetic fixture evidence; not owned-room validation',
+        created_at_utc=_now(),
+    )
+    extended_repository.save_parameter_evidence(parameter_evidence)
     capability = build_extended_model_capability(
         model_id=SYNTHETIC_DIRECTIONAL_MODEL_ID,
         model_version=SYNTHETIC_DIRECTIONAL_MODEL_VERSION,
         evidence_scope='synthetic_fixture',
         supported_parameters=('aim_yaw_deg',),
+        parameter_evidence=(parameter_evidence,),
         detail='software acceptance only; not owned-room evidence',
         created_at_utc=_now(),
     )

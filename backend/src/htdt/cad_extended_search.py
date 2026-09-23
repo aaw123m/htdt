@@ -36,6 +36,7 @@ EXTENDED_SEARCH_ALGORITHM_VERSION = 'extended-grid-1'
 EXTENDED_SEARCH_SYSTEM_MAX_CANDIDATES = 50_000
 ExtendedParameter = Literal['aim_yaw_deg', 'body_yaw_deg']
 ExtendedEvidenceScope = Literal['synthetic_fixture', 'owned_room']
+ExtendedParameterEvidenceSource = Literal['o90e_decision', 'synthetic_fixture']
 
 
 def _canonical(value: Any) -> str:
@@ -80,6 +81,151 @@ def _grid_values(low: float, high: float, step: float) -> tuple[float, ...]:
     return tuple(values)
 
 
+class CadExtendedParameterEvidenceRef(BaseModel):
+    """Exact typed binding from a capability parameter to its evidence."""
+
+    model_config = ConfigDict(frozen=True)
+
+    parameter: ExtendedParameter
+    evidence_id: str = Field(min_length=1)
+    evidence_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class CadExtendedParameterEvidence(BaseModel):
+    """Parameter-specific validation evidence for one extended parameter (#384).
+
+    A generic O60 model-eligibility record only proves the validated
+    placement domain; it is not evidence that a directional parameter was
+    exercised. Every owned-room supported parameter therefore binds an
+    exact evidence record carrying:
+
+    - the parameter identity and the tested applicability range;
+    - the exact model id/version the evidence applies to;
+    - the evidence scope (owned-room evidence can never be synthetic);
+    - a typed source authority resolved by the repository:
+      ``o90e_decision`` names a persisted eligible O90E
+      ``O90EValidationDecision`` whose axis coverage must include the
+      parameter over the declared tested range;
+      ``synthetic_fixture`` is a declared-only development claim.
+
+    The record is immutable and content-addressed; the repository
+    re-resolves the source authority on save and on every read.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    evidence_id: str = Field(min_length=1)
+    parameter: ExtendedParameter
+    model_id: str = Field(min_length=1)
+    model_version: str = Field(min_length=1)
+    evidence_scope: ExtendedEvidenceScope
+    tested_min_deg: float
+    tested_max_deg: float
+    source_kind: ExtendedParameterEvidenceSource
+    source_id: str = Field(min_length=1)
+    source_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    detail: str = Field(min_length=1)
+    evidence_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    created_at_utc: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_evidence(self) -> 'CadExtendedParameterEvidence':
+        if not all(
+            isfinite(float(value))
+            for value in (self.tested_min_deg, self.tested_max_deg)
+        ):
+            raise ValueError('extended parameter evidence range must be finite')
+        if self.tested_max_deg < self.tested_min_deg:
+            raise ValueError(
+                'extended parameter evidence tested range is inverted'
+            )
+        if self.tested_min_deg < -180.0 or self.tested_max_deg > 180.0:
+            raise ValueError(
+                'extended parameter evidence range must stay within '
+                '-180..180 degrees'
+            )
+        if self.evidence_scope == 'synthetic_fixture':
+            if self.source_kind != 'synthetic_fixture':
+                raise ValueError(
+                    'synthetic parameter evidence must use a declared '
+                    'synthetic source'
+                )
+        elif self.source_kind == 'synthetic_fixture':
+            raise ValueError(
+                'owned-room parameter evidence cannot use a synthetic source'
+            )
+        if self.evidence_sha256 != _digest(self.identity_payload()):
+            raise ValueError(
+                'extended parameter evidence identity hash mismatch'
+            )
+        return self
+
+    def identity_payload(self) -> dict[str, Any]:
+        return {
+            'parameter': self.parameter,
+            'model_id': self.model_id,
+            'model_version': self.model_version,
+            'evidence_scope': self.evidence_scope,
+            'tested_min_deg': self.tested_min_deg,
+            'tested_max_deg': self.tested_max_deg,
+            'source_kind': self.source_kind,
+            'source_id': self.source_id,
+            'source_sha256': self.source_sha256,
+            'detail': self.detail,
+        }
+
+    def as_ref(self) -> CadExtendedParameterEvidenceRef:
+        return CadExtendedParameterEvidenceRef(
+            parameter=self.parameter,
+            evidence_id=self.evidence_id,
+            evidence_sha256=self.evidence_sha256,
+        )
+
+
+def build_extended_parameter_evidence(
+    *,
+    parameter: ExtendedParameter,
+    model_id: str,
+    model_version: str,
+    evidence_scope: ExtendedEvidenceScope,
+    tested_min_deg: float,
+    tested_max_deg: float,
+    source_kind: ExtendedParameterEvidenceSource,
+    source_id: str,
+    source_sha256: str,
+    detail: str,
+    created_at_utc: str,
+) -> CadExtendedParameterEvidence:
+    identity = {
+        'parameter': parameter,
+        'model_id': model_id,
+        'model_version': model_version,
+        'evidence_scope': evidence_scope,
+        'tested_min_deg': float(tested_min_deg),
+        'tested_max_deg': float(tested_max_deg),
+        'source_kind': source_kind,
+        'source_id': source_id,
+        'source_sha256': source_sha256,
+        'detail': detail,
+    }
+    evidence_sha256 = _digest(identity)
+    return CadExtendedParameterEvidence(
+        evidence_id=f'ext-param-evidence:{evidence_sha256}',
+        parameter=parameter,
+        model_id=model_id,
+        model_version=model_version,
+        evidence_scope=evidence_scope,
+        tested_min_deg=float(tested_min_deg),
+        tested_max_deg=float(tested_max_deg),
+        source_kind=source_kind,
+        source_id=source_id,
+        source_sha256=source_sha256,
+        detail=detail,
+        evidence_sha256=evidence_sha256,
+        created_at_utc=created_at_utc,
+    )
+
+
 class CadExtendedModelCapability(BaseModel):
     """Explicit model capability gate for parameters not covered by base O10."""
 
@@ -90,6 +236,9 @@ class CadExtendedModelCapability(BaseModel):
     model_version: str = Field(min_length=1)
     evidence_scope: ExtendedEvidenceScope
     supported_parameters: tuple[ExtendedParameter, ...] = Field(min_length=1)
+    parameter_evidence: tuple[CadExtendedParameterEvidenceRef, ...] = Field(
+        min_length=1
+    )
     validation_id: str | None = Field(default=None, min_length=1)
     detail: str = Field(min_length=1)
     created_at_utc: str = Field(min_length=1)
@@ -99,6 +248,18 @@ class CadExtendedModelCapability(BaseModel):
     def valid_capability(self) -> 'CadExtendedModelCapability':
         if len(self.supported_parameters) != len(set(self.supported_parameters)):
             raise ValueError('extended capability parameters must be unique')
+        evidence_parameters = [
+            ref.parameter for ref in self.parameter_evidence
+        ]
+        if len(evidence_parameters) != len(set(evidence_parameters)):
+            raise ValueError(
+                'extended capability parameter evidence must be unique'
+            )
+        if set(evidence_parameters) != set(self.supported_parameters):
+            raise ValueError(
+                'extended capability requires exact evidence for every '
+                'supported parameter'
+            )
         if self.evidence_scope == 'owned_room' and self.validation_id is None:
             raise ValueError('owned-room extended capability requires ValidationRecord')
         if self.evidence_scope == 'synthetic_fixture' and self.validation_id is not None:
@@ -115,12 +276,24 @@ class CadExtendedModelCapability(BaseModel):
             raise ValueError('extended capability identity hash mismatch')
         return self
 
+    def evidence_for(
+        self,
+        parameter: ExtendedParameter,
+    ) -> CadExtendedParameterEvidenceRef:
+        for ref in self.parameter_evidence:
+            if ref.parameter == parameter:
+                return ref
+        raise KeyError(parameter)
+
     def identity_payload(self) -> dict[str, Any]:
         return {
             'model_id': self.model_id,
             'model_version': self.model_version,
             'evidence_scope': self.evidence_scope,
             'supported_parameters': list(self.supported_parameters),
+            'parameter_evidence': [
+                ref.model_dump(mode='json') for ref in self.parameter_evidence
+            ],
             'validation_id': self.validation_id,
             'detail': self.detail,
         }
@@ -243,6 +416,7 @@ def build_extended_model_capability(
     model_version: str,
     evidence_scope: ExtendedEvidenceScope,
     supported_parameters: Sequence[ExtendedParameter],
+    parameter_evidence: Sequence[CadExtendedParameterEvidence],
     detail: str,
     validation: CadModelValidationRecord | None = None,
     created_at_utc: str,
@@ -250,6 +424,38 @@ def build_extended_model_capability(
     parameters = tuple(dict.fromkeys(supported_parameters))
     if not parameters:
         raise ValueError('extended capability requires supported parameters')
+    refs: list[CadExtendedParameterEvidenceRef] = []
+    seen: set[str] = set()
+    for evidence in parameter_evidence:
+        if evidence.parameter in seen:
+            raise ValueError(
+                'extended capability parameter evidence must be unique'
+            )
+        seen.add(evidence.parameter)
+        if evidence.parameter not in parameters:
+            raise ValueError(
+                'extended capability evidence must match a supported '
+                f'parameter: {evidence.parameter}'
+            )
+        if (
+            evidence.model_id != model_id
+            or evidence.model_version != model_version
+        ):
+            raise ValueError(
+                'extended parameter evidence model does not match capability'
+            )
+        if evidence.evidence_scope != evidence_scope:
+            raise ValueError(
+                'extended parameter evidence scope does not match capability'
+            )
+        refs.append(evidence.as_ref())
+    missing = set(parameters) - seen
+    if missing:
+        raise ValueError(
+            'extended capability requires exact evidence for every '
+            f'supported parameter: {sorted(missing)}'
+        )
+    refs.sort(key=lambda ref: ref.parameter)
     validation_id = None
     if evidence_scope == 'owned_room':
         if validation is None or not production_validation_ready(validation):
@@ -267,6 +473,9 @@ def build_extended_model_capability(
         'model_version': model_version,
         'evidence_scope': evidence_scope,
         'supported_parameters': list(parameters),
+        'parameter_evidence': [
+            ref.model_dump(mode='json') for ref in refs
+        ],
         'validation_id': validation_id,
         'detail': detail,
     }
@@ -276,6 +485,7 @@ def build_extended_model_capability(
         model_version=model_version,
         evidence_scope=evidence_scope,
         supported_parameters=parameters,
+        parameter_evidence=tuple(refs),
         validation_id=validation_id,
         detail=detail,
         created_at_utc=created_at_utc,

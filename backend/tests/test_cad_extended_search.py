@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone
+from hashlib import sha256
+import json
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +17,7 @@ from htdt.cad_extended_search import (
     body_horizontal_yaw_deg,
     apply_extended_candidate,
     build_extended_model_capability,
+    build_extended_parameter_evidence,
     build_extended_search_spec,
     extended_candidate_preview_document,
     generate_extended_candidates,
@@ -67,6 +72,58 @@ def _scene() -> SceneDocument:
     )
 
 
+def _synthetic_evidence(
+    parameter,
+    *,
+    model_id='synthetic-directional-fixture',
+    model_version='1',
+    tested_min_deg=-180.0,
+    tested_max_deg=180.0,
+):
+    return build_extended_parameter_evidence(
+        parameter=parameter,
+        model_id=model_id,
+        model_version=model_version,
+        evidence_scope='synthetic_fixture',
+        tested_min_deg=tested_min_deg,
+        tested_max_deg=tested_max_deg,
+        source_kind='synthetic_fixture',
+        source_id=f'synthetic-evidence:{model_id}:{parameter}',
+        source_sha256=sha256(
+            f'synthetic-evidence:{model_id}:{parameter}'.encode('utf-8')
+        ).hexdigest(),
+        detail='declared synthetic fixture evidence',
+        created_at_utc=_now(),
+    )
+
+
+def _synthetic_capability(**overrides):
+    parameters = overrides.pop(
+        'supported_parameters', ('aim_yaw_deg', 'body_yaw_deg')
+    )
+    model_id = overrides.pop('model_id', 'synthetic-directional-fixture')
+    model_version = overrides.pop('model_version', '1')
+    evidence = overrides.pop('parameter_evidence', None) or tuple(
+        _synthetic_evidence(
+            parameter,
+            model_id=model_id,
+            model_version=model_version,
+        )
+        for parameter in parameters
+    )
+    fields = dict(
+        model_id=model_id,
+        model_version=model_version,
+        evidence_scope='synthetic_fixture',
+        supported_parameters=parameters,
+        parameter_evidence=evidence,
+        detail='synthetic directional model for software acceptance only',
+        created_at_utc=_now(),
+    )
+    fields.update(overrides)
+    return build_extended_model_capability(**fields)
+
+
 def _fixture(tmp_path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     revision = scene_repository.save(_scene(), parent_revision_id=None).revision
@@ -89,15 +146,13 @@ def _fixture(tmp_path):
     search_repository = CadSearchRepository(scene_repository)
     search_repository.save(base_spec)
     base_page = generate_cad_candidates(scene_repository, base_spec, limit=20)
-    capability = build_extended_model_capability(
-        model_id='synthetic-directional-fixture',
-        model_version='1',
-        evidence_scope='synthetic_fixture',
-        supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
-        detail='synthetic directional model for software acceptance only',
-        created_at_utc=_now(),
-    )
+    capability = _synthetic_capability()
     extended_repository = CadExtendedSearchRepository(search_repository)
+    for item in (
+        _synthetic_evidence('aim_yaw_deg'),
+        _synthetic_evidence('body_yaw_deg'),
+    ):
+        extended_repository.save_parameter_evidence(item)
     extended_repository.save_capability(capability)
     spec = build_extended_search_spec(
         source_revision=revision,
@@ -257,13 +312,10 @@ def test_extended_apply_rejects_position_tampering_even_with_base_candidate_id(t
 
 def test_rew_roomsim_cannot_claim_toe_in_capability():
     with pytest.raises(ValueError, match='does not model speaker acoustic direction'):
-        build_extended_model_capability(
+        _synthetic_capability(
             model_id='rew-room-simulator',
             model_version='5.40',
-            evidence_scope='synthetic_fixture',
-            supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
             detail='invalid',
-            created_at_utc=_now(),
         )
 
 
@@ -294,14 +346,7 @@ def test_extended_search_requires_explicit_source_aim(tmp_path):
         candidate_limit=10,
     )
     base_page = generate_cad_candidates(scene_repository, base_spec)
-    capability = build_extended_model_capability(
-        model_id='synthetic-directional-fixture',
-        model_version='1',
-        evidence_scope='synthetic_fixture',
-        supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
-        detail='fixture',
-        created_at_utc=_now(),
-    )
+    capability = _synthetic_capability(detail='fixture')
 
     with pytest.raises(ValueError, match='requires explicit speaker aim'):
         build_extended_search_spec(
@@ -371,34 +416,46 @@ def test_owned_room_extended_spec_requires_exact_o60_search_authority(tmp_path):
         model_version=validation.model_version,
         evidence_scope='owned_room',
         supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
+        parameter_evidence=(
+            build_extended_parameter_evidence(
+                parameter='aim_yaw_deg',
+                model_id=validation.model_id,
+                model_version=validation.model_version,
+                evidence_scope='owned_room',
+                tested_min_deg=-45.0,
+                tested_max_deg=45.0,
+                source_kind='o90e_decision',
+                source_id='o90e-decision:' + 'a' * 64,
+                source_sha256='a' * 64,
+                detail='forged owned-room directional evidence',
+                created_at_utc=_now(),
+            ),
+            build_extended_parameter_evidence(
+                parameter='body_yaw_deg',
+                model_id=validation.model_id,
+                model_version=validation.model_version,
+                evidence_scope='owned_room',
+                tested_min_deg=-45.0,
+                tested_max_deg=45.0,
+                source_kind='o90e_decision',
+                source_id='o90e-decision:' + 'b' * 64,
+                source_sha256='b' * 64,
+                detail='forged owned-room directional evidence',
+                created_at_utc=_now(),
+            ),
+        ),
         detail='owned-room directional fixture',
         validation=validation,
         created_at_utc=_now(),
     )
-    repository.save_capability(capability)
-    spec = build_extended_search_spec(
-        source_revision=revision,
-        base_spec=base_spec,
-        base_candidate_set_sha256=base_page.candidate_set_sha256,
-        base_candidate_count=base_page.feasible_candidate_count,
-        capability=capability,
-        axes=(
-            CadExtendedSearchAxis(
-                entity_id='fl',
-                min_value=-10.0,
-                max_value=10.0,
-                step=10.0,
-            ),
-        ),
-        candidate_limit=20,
-        created_at_utc=_now(),
-    )
-
+    # #384: generic O60 eligibility cannot authorize a directional
+    # parameter — the forged o90e evidence does not resolve, so the
+    # capability itself is rejected before any spec-level check.
     with pytest.raises(
         ValueError,
-        match='does not match exact base SearchSpec/candidate-set',
+        match='parameter evidence does not resolve',
     ):
-        repository.save_spec(spec)
+        repository.save_capability(capability)
 
 
 
@@ -533,13 +590,9 @@ def test_physical_toe_in_rechecks_exact_oriented_wall_clearance(tmp_path):
     # cabinet clearance is 0.5 m and this XYZ is feasible.
     assert base_page.feasible_candidate_count == 1
 
-    capability = build_extended_model_capability(
-        model_id='synthetic-directional-fixture',
-        model_version='1',
-        evidence_scope='synthetic_fixture',
+    capability = _synthetic_capability(
         supported_parameters=('body_yaw_deg',),
         detail='physical toe-in geometry acceptance',
-        created_at_utc=_now(),
     )
     spec = build_extended_search_spec(
         source_revision=revision,
@@ -573,3 +626,244 @@ def test_physical_toe_in_rechecks_exact_oriented_wall_clearance(tmp_path):
     assert page.rejected_candidate_count == 1
     assert page.rejection_counts == {'left-clearance': 1}
     assert [item.body_yaw_deg['fl'] for item in page.candidates] == [0.0]
+
+
+def test_capability_requires_evidence_for_every_parameter(tmp_path):
+    """#384: a supported parameter without exact evidence cannot persist."""
+    (
+        _scene_repository,
+        _revision,
+        _constraints,
+        _base_spec,
+        _base_page,
+        _capability,
+        extended_repository,
+        _spec,
+    ) = _fixture(tmp_path)
+
+    # Builder-level: missing evidence for a declared parameter.
+    with pytest.raises(
+        ValueError, match='requires exact evidence for every supported'
+    ):
+        _synthetic_capability(
+            parameter_evidence=(_synthetic_evidence('aim_yaw_deg'),)
+        )
+
+    # Persisted-evidence-level: a capability referencing an evidence id
+    # that was never saved fails closed.
+    ghost = _synthetic_capability(
+        supported_parameters=('aim_yaw_deg',),
+        parameter_evidence=(
+            _synthetic_evidence(
+                'aim_yaw_deg',
+                model_id='ghost-model',
+            ),
+        ),
+        model_id='ghost-model',
+    )
+    with pytest.raises(ValueError, match='parameter evidence does not resolve'):
+        extended_repository.save_capability(ghost)
+
+
+def test_capability_rejects_foreign_or_tampered_evidence(tmp_path):
+    """#384: evidence for another model/scope cannot back a capability."""
+    (
+        _scene_repository,
+        _revision,
+        _constraints,
+        _base_spec,
+        _base_page,
+        _capability,
+        extended_repository,
+        _spec,
+    ) = _fixture(tmp_path)
+
+    # Scope mismatch is structural and rejected by the builder.
+    foreign_scope = build_extended_parameter_evidence(
+        parameter='aim_yaw_deg',
+        model_id='synthetic-directional-fixture',
+        model_version='1',
+        evidence_scope='owned_room',
+        tested_min_deg=-45.0,
+        tested_max_deg=45.0,
+        source_kind='o90e_decision',
+        source_id='o90e-decision:' + 'a' * 64,
+        source_sha256='a' * 64,
+        detail='owned-room evidence attached to a synthetic capability',
+        created_at_utc=_now(),
+    )
+    with pytest.raises(ValueError, match='scope does not match capability'):
+        _synthetic_capability(
+            supported_parameters=('aim_yaw_deg',),
+            parameter_evidence=(foreign_scope,),
+        )
+
+    # Model mismatch is likewise structural.
+    other_model = _synthetic_evidence(
+        'aim_yaw_deg',
+        model_id='other-model',
+    )
+    with pytest.raises(ValueError, match='model does not match capability'):
+        _synthetic_capability(
+            supported_parameters=('aim_yaw_deg',),
+            parameter_evidence=(other_model,),
+        )
+
+
+def test_owned_room_evidence_requires_o90e_decision_authority(tmp_path):
+    """#384: owned-room evidence cannot claim an unresolvable source."""
+    (
+        _scene_repository,
+        _revision,
+        _constraints,
+        _base_spec,
+        _base_page,
+        _capability,
+        extended_repository,
+        _spec,
+    ) = _fixture(tmp_path)
+
+    forged = build_extended_parameter_evidence(
+        parameter='aim_yaw_deg',
+        model_id='any-model',
+        model_version='1',
+        evidence_scope='owned_room',
+        tested_min_deg=-45.0,
+        tested_max_deg=45.0,
+        source_kind='o90e_decision',
+        source_id='o90e-decision:' + 'f' * 64,
+        source_sha256='f' * 64,
+        detail='forged owned-room evidence',
+        created_at_utc=_now(),
+    )
+    with pytest.raises(
+        ValueError, match='requires a robustness validation repository'
+    ):
+        extended_repository.save_parameter_evidence(forged)
+
+    # A synthetic source can never claim owned-room scope.
+    with pytest.raises(
+        ValueError, match='cannot use a synthetic source'
+    ):
+        build_extended_parameter_evidence(
+            parameter='aim_yaw_deg',
+            model_id='any-model',
+            model_version='1',
+            evidence_scope='owned_room',
+            tested_min_deg=-45.0,
+            tested_max_deg=45.0,
+            source_kind='synthetic_fixture',
+            source_id='declared',
+            source_sha256='0' * 64,
+            detail='invalid',
+            created_at_utc=_now(),
+        )
+
+
+def test_axis_range_must_stay_within_tested_evidence(tmp_path):
+    """#384: a capability cannot extend a spec beyond validated range."""
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(_scene(), parent_revision_id=None).revision
+    constraints = CadConstraintSet(document_id=DOCUMENT_ID, constraints=())
+    base_spec, _ = build_cad_search_spec(
+        revision,
+        constraints,
+        (
+            CadSearchAxis(
+                entity_id='fl',
+                axis='x',
+                min_m=1.0,
+                max_m=1.0,
+                step_m=0.1,
+            ),
+        ),
+        candidate_limit=10,
+    )
+    search_repository = CadSearchRepository(scene_repository)
+    search_repository.save(base_spec)
+    base_page = generate_cad_candidates(scene_repository, base_spec)
+    extended_repository = CadExtendedSearchRepository(search_repository)
+
+    evidence = _synthetic_evidence(
+        'aim_yaw_deg',
+        tested_min_deg=-15.0,
+        tested_max_deg=15.0,
+    )
+    extended_repository.save_parameter_evidence(evidence)
+    capability = _synthetic_capability(
+        supported_parameters=('aim_yaw_deg',),
+        parameter_evidence=(evidence,),
+    )
+    extended_repository.save_capability(capability)
+
+    spec = build_extended_search_spec(
+        source_revision=revision,
+        base_spec=base_spec,
+        base_candidate_set_sha256=base_page.candidate_set_sha256,
+        base_candidate_count=base_page.feasible_candidate_count,
+        capability=capability,
+        axes=(
+            CadExtendedSearchAxis(
+                entity_id='fl',
+                min_value=-30.0,
+                max_value=30.0,
+                step=15.0,
+            ),
+        ),
+        candidate_limit=20,
+        created_at_utc=_now(),
+    )
+    with pytest.raises(ValueError, match='exceeds the tested applicability'):
+        extended_repository.save_spec(spec)
+
+
+def test_capability_and_spec_reads_replay_authority(tmp_path):
+    """#384: read paths fail closed when persisted authority is tampered."""
+    (
+        scene_repository,
+        _revision,
+        _constraints,
+        _base_spec,
+        _base_page,
+        capability,
+        extended_repository,
+        spec,
+    ) = _fixture(tmp_path)
+
+    # A forged capability row fails closed on read.
+    tampered = capability.model_dump(mode='json')
+    tampered['detail'] = 'forged detail'
+    tampered['capability_id'] = 'forged-capability'
+    tampered['capability_sha256'] = '0' * 64
+    with closing(
+        sqlite3.connect(scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            'INSERT INTO cad_extended_model_capabilities('
+            'capability_id, model_id, model_version, evidence_scope, '
+            'capability_sha256, payload_json, created_at_utc'
+            ') VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (
+                tampered['capability_id'],
+                tampered['model_id'],
+                tampered['model_version'],
+                tampered['evidence_scope'],
+                tampered['capability_sha256'],
+                json.dumps(tampered),
+                tampered['created_at_utc'],
+            ),
+        )
+    with pytest.raises(ValueError):
+        extended_repository.get_capability('forged-capability')
+
+    # Deleting the evidence behind the real capability invalidates reads.
+    with closing(
+        sqlite3.connect(scene_repository.path)
+    ) as connection, connection:
+        connection.execute(
+            'DELETE FROM cad_extended_parameter_evidence'
+        )
+    with pytest.raises(ValueError, match='does not resolve'):
+        extended_repository.get_capability(capability.capability_id)
+    with pytest.raises(ValueError):
+        extended_repository.get_spec(spec.extended_search_id)

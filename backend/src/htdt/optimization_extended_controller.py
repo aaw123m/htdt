@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from hashlib import sha256
 from threading import Event
 from uuid import uuid4
 
@@ -38,6 +39,7 @@ from .cad_extended_search import (
     body_horizontal_yaw_deg,
     apply_extended_candidate,
     build_extended_model_capability,
+    build_extended_parameter_evidence,
     build_extended_search_spec,
     extended_candidate_preview_document,
     generate_extended_candidates,
@@ -155,11 +157,46 @@ class ExtendedSearchControllerMixin:
 
     def create_synthetic_extended_capability(self) -> None:
         try:
+            evidence = tuple(
+                build_extended_parameter_evidence(
+                    parameter=parameter,
+                    model_id='synthetic-directional-fixture',
+                    model_version='1',
+                    evidence_scope='synthetic_fixture',
+                    tested_min_deg=-180.0,
+                    tested_max_deg=180.0,
+                    source_kind='synthetic_fixture',
+                    source_id=(
+                        'synthetic-directional-evidence:' + parameter
+                    ),
+                    source_sha256=sha256(
+                        (
+                            'htdt-synthetic-extended-parameter-evidence:'
+                            + parameter
+                        ).encode('utf-8')
+                    ).hexdigest(),
+                    detail='declared synthetic fixture evidence; not owned-room validation',
+                    created_at_utc=datetime.now(timezone.utc).isoformat(),
+                )
+                for parameter in ('aim_yaw_deg', 'body_yaw_deg')
+            )
+            for item in evidence:
+                existing_evidence = next(
+                    (
+                        stored
+                        for stored in self.extended_repository.list_parameter_evidence()
+                        if stored.evidence_sha256 == item.evidence_sha256
+                    ),
+                    None,
+                )
+                if existing_evidence is None:
+                    self.extended_repository.save_parameter_evidence(item)
             built = build_extended_model_capability(
                 model_id='synthetic-directional-fixture',
                 model_version='1',
                 evidence_scope='synthetic_fixture',
                 supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
+                parameter_evidence=evidence,
                 detail='software acceptance for acoustic aim and physical body yaw; not owned-room evidence',
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
@@ -193,12 +230,51 @@ class ExtendedSearchControllerMixin:
                 'owned-room capabilityにはValidationRecordを選択してください'
             )
             return
+        # #384: an owned-room capability needs exact per-parameter evidence —
+        # generic O60 model eligibility alone can never authorize a
+        # directional parameter. Gather the persisted owned-room evidence
+        # records for this exact model/version first; a missing binding
+        # fails closed with a status message.
+        parameters = ('aim_yaw_deg', 'body_yaw_deg')
+        try:
+            stored = self.extended_repository.list_parameter_evidence()
+        except Exception as exc:
+            self.statusBar().showMessage(
+                f'extended parameter evidenceを読み込めません · {exc}'
+            )
+            return
+        evidence = []
+        missing = []
+        for parameter in parameters:
+            match = next(
+                (
+                    item
+                    for item in stored
+                    if item.parameter == parameter
+                    and item.model_id == record.model_id
+                    and item.model_version == record.model_version
+                    and item.evidence_scope == 'owned_room'
+                ),
+                None,
+            )
+            if match is None:
+                missing.append(parameter)
+            else:
+                evidence.append(match)
+        if missing:
+            self.statusBar().showMessage(
+                'owned-room directional evidenceが未登録です · '
+                + ', '.join(missing)
+                + ' — O90E eligible decision由来のparameter evidenceが必要です'
+            )
+            return
         try:
             capability = build_extended_model_capability(
                 model_id=record.model_id,
                 model_version=record.model_version,
                 evidence_scope='owned_room',
-                supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
+                supported_parameters=parameters,
+                parameter_evidence=tuple(evidence),
                 detail='owned-room validated directional aim/body-yaw capability',
                 validation=record,
                 created_at_utc=datetime.now(timezone.utc).isoformat(),

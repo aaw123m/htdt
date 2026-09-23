@@ -21,6 +21,7 @@ from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_extended_search import (
     CadExtendedSearchAxis,
     build_extended_model_capability,
+    build_extended_parameter_evidence,
     build_extended_search_spec,
     direction_with_horizontal_yaw,
 )
@@ -1550,11 +1551,32 @@ def _other_search_spec(fixture):
 
 
 def _save_extended_spec(fixture, *, base_spec, base_page):
+    evidence = build_extended_parameter_evidence(
+        parameter='aim_yaw_deg',
+        model_id='issue388-fixture-aim-model',
+        model_version='1',
+        evidence_scope='synthetic_fixture',
+        tested_min_deg=-45.0,
+        tested_max_deg=45.0,
+        source_kind='synthetic_fixture',
+        source_id=(
+            f'issue388-fixture-aim-evidence:{base_spec.search_spec_id}'
+        ),
+        source_sha256=sha256(
+            f'issue388-aim-evidence:{base_spec.search_spec_id}'.encode(
+                'utf-8'
+            )
+        ).hexdigest(),
+        detail='issue388 fixture aim evidence',
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_parameter_evidence(evidence)
     capability = build_extended_model_capability(
         model_id='issue388-fixture-aim-model',
         model_version='1',
         evidence_scope='synthetic_fixture',
         supported_parameters=('aim_yaw_deg',),
+        parameter_evidence=(evidence,),
         detail=f'issue388 fixture aim capability for {base_spec.search_spec_id}',
         created_at_utc=NOW,
     )
@@ -2203,11 +2225,32 @@ def test_candidate_verifies_extended_yaw_decisions_against_materialized_scene(
     """Extended-search yaw decisions replay against the materialized entity."""
 
     fixture = _fixture(tmp_path)
+    evidence = tuple(
+        build_extended_parameter_evidence(
+            parameter=parameter,
+            model_id='issue389-fixture-yaw-model',
+            model_version='1',
+            evidence_scope='synthetic_fixture',
+            tested_min_deg=-45.0,
+            tested_max_deg=45.0,
+            source_kind='synthetic_fixture',
+            source_id=f'issue389-fixture-yaw-evidence:{parameter}',
+            source_sha256=sha256(
+                f'issue389-yaw-evidence:{parameter}'.encode('utf-8')
+            ).hexdigest(),
+            detail='issue389 fixture yaw evidence',
+            created_at_utc=NOW,
+        )
+        for parameter in ('aim_yaw_deg', 'body_yaw_deg')
+    )
+    for item in evidence:
+        fixture.extended_search_repository.save_parameter_evidence(item)
     capability = build_extended_model_capability(
         model_id='issue389-fixture-yaw-model',
         model_version='1',
         evidence_scope='synthetic_fixture',
         supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
+        parameter_evidence=evidence,
         detail='issue389 fixture yaw capability',
         created_at_utc=NOW,
     )
