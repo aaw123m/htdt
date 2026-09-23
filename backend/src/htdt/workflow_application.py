@@ -12,6 +12,7 @@ from .cad_input import (
     bind_cad_input_commands,
     unbind_cad_input_commands,
 )
+from .cad_view_state import StandardView
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation_repository import CadModelValidationRepository
@@ -53,6 +54,44 @@ from .workflow_shell import (
 )
 
 
+_ROOM_TOOL_COMMAND_IDS = (
+    "room.view.perspective",
+    "room.view.top",
+    "room.view.front",
+    "room.view.rear",
+    "room.view.left",
+    "room.view.right",
+    "room.view.isolate_selection",
+    "room.view.isolate_kind",
+    "room.view.isolate_clear",
+    "room.view.section_toggle",
+    "room.view.save_named",
+    "room.underlay.import",
+    "room.underlay.calibrate",
+    "room.layout.copy",
+    "room.layout.paste",
+    "room.layout.mirror_x",
+    "room.layout.mirror_y",
+    "room.layout.pair_speaker",
+    "room.layout.align_min_x",
+    "room.layout.align_max_x",
+    "room.layout.align_min_y",
+    "room.layout.align_max_y",
+    "room.layout.align_center_x",
+    "room.layout.align_center_y",
+    "room.layout.distribute_x",
+    "room.layout.distribute_y",
+    "room.layout.seat_row",
+    "room.seating.layout",
+    "room.constraint.centerline_x",
+    "room.constraint.centerline_y",
+    "room.constraint.symmetric",
+    "room.constraint.equal_spacing",
+    "room.constraint.fixed_distance",
+    "room.constraint.remove",
+    "room.constraint.guides_toggle",
+)
+
 _WORKSPACE_COMMAND_IDS = (
     "project.save",
     "edit.undo",
@@ -67,6 +106,7 @@ _WORKSPACE_COMMAND_IDS = (
     "measurements.import_rew",
     "prediction.run",
     "optimization.compare_candidates",
+    *_ROOM_TOOL_COMMAND_IDS,
     *CAD_SCENE_COMMAND_IDS,
 )
 
@@ -77,6 +117,13 @@ def _available(enabled: bool, reason: str) -> CommandAvailability:
         if enabled
         else CommandAvailability.unavailable(reason)
     )
+
+
+def _is_kind(workspace: RoomWorkspace, entity_id: str, kind: str) -> bool:
+    try:
+        return workspace.controller.document.entity(entity_id).kind == kind
+    except KeyError:
+        return False
 
 
 class WorkflowApplicationComposition:
@@ -172,6 +219,187 @@ class WorkflowApplicationComposition:
                 self.registry.unbind(command_id)
             except KeyError:
                 pass
+
+    def _bind_room_tool_commands(self, workspace: RoomWorkspace) -> None:
+        """Bind the room CAD tool commands (views, underlay, layout, seating,
+        constraints) to the workspace methods that implement them."""
+
+        def _has_selection() -> bool:
+            return bool(workspace.controller.view_state.selection) or (
+                workspace.controller.selected_id is not None
+            )
+
+        def _min_selection(count: int) -> bool:
+            if not workspace.controller.can_edit:
+                return False
+            selection = workspace.controller.view_state.selection
+            if not selection and workspace.controller.selected_id is not None:
+                selection = (workspace.controller.selected_id,)
+            return len(selection) >= count
+
+        always = lambda: CommandAvailability.available()  # noqa: E731
+        editable = lambda: _available(  # noqa: E731
+            workspace.controller.can_edit,
+            "編集できる状態ではありません",
+        )
+        has_selection = lambda: _available(  # noqa: E731
+            _has_selection(), "項目を選択してください"
+        )
+        sel_at_least = lambda count: (  # noqa: E731
+            lambda: _available(
+                _min_selection(count), f"{count}つ以上の項目を選択してください"
+            )
+        )
+        room_ready = lambda: _available(  # noqa: E731
+            workspace.controller.document.room is not None,
+            "先に部屋を作成してください",
+        )
+        clipboard_ready = lambda: _available(  # noqa: E731
+            workspace.controller.can_edit
+            and getattr(workspace, "_clipboard", None) is not None
+            and bool(workspace._clipboard.entities),
+            "先にコピーしてください",
+        )
+        isolation_active = lambda: _available(  # noqa: E731
+            workspace._pre_isolation_hidden is not None,
+            "分離中ではありません",
+        )
+        underlays_exist = lambda: _available(  # noqa: E731
+            bool(workspace.controller.underlays()),
+            "下図をインポートしてください",
+        )
+        selected_speaker = lambda: _available(  # noqa: E731
+            _has_selection()
+            and workspace.controller.can_edit
+            and workspace.controller.selected_id is not None
+            and _is_kind(workspace, workspace.controller.selected_id, "speaker"),
+            "スピーカーを選択してください",
+        )
+
+        bindings: dict[str, tuple] = {
+            "room.view.perspective": (
+                lambda: workspace.apply_standard_view(StandardView.PERSPECTIVE),
+                always,
+            ),
+            "room.view.top": (
+                lambda: workspace.apply_standard_view(StandardView.TOP),
+                always,
+            ),
+            "room.view.front": (
+                lambda: workspace.apply_standard_view(StandardView.FRONT),
+                always,
+            ),
+            "room.view.rear": (
+                lambda: workspace.apply_standard_view(StandardView.REAR),
+                always,
+            ),
+            "room.view.left": (
+                lambda: workspace.apply_standard_view(StandardView.LEFT),
+                always,
+            ),
+            "room.view.right": (
+                lambda: workspace.apply_standard_view(StandardView.RIGHT),
+                always,
+            ),
+            "room.view.isolate_selection": (
+                workspace.isolate_selection,
+                has_selection,
+            ),
+            "room.view.isolate_kind": (workspace.isolate_kind, has_selection),
+            "room.view.isolate_clear": (
+                workspace.clear_isolation,
+                isolation_active,
+            ),
+            "room.view.section_toggle": (workspace.toggle_section, always),
+            "room.view.save_named": (workspace.save_named_view, always),
+            "room.underlay.import": (
+                workspace.import_underlay_dialog,
+                room_ready,
+            ),
+            "room.underlay.calibrate": (
+                workspace.arm_first_underlay_calibration,
+                underlays_exist,
+            ),
+            "room.layout.copy": (workspace.layout_copy, has_selection),
+            "room.layout.paste": (workspace.layout_paste, clipboard_ready),
+            "room.layout.mirror_x": (
+                lambda: workspace.layout_mirror("x"),
+                sel_at_least(1),
+            ),
+            "room.layout.mirror_y": (
+                lambda: workspace.layout_mirror("y"),
+                sel_at_least(1),
+            ),
+            "room.layout.pair_speaker": (
+                workspace.layout_pair_speaker,
+                selected_speaker,
+            ),
+            "room.layout.align_min_x": (
+                lambda: workspace.layout_align("x", "min"),
+                sel_at_least(2),
+            ),
+            "room.layout.align_max_x": (
+                lambda: workspace.layout_align("x", "max"),
+                sel_at_least(2),
+            ),
+            "room.layout.align_min_y": (
+                lambda: workspace.layout_align("y", "min"),
+                sel_at_least(2),
+            ),
+            "room.layout.align_max_y": (
+                lambda: workspace.layout_align("y", "max"),
+                sel_at_least(2),
+            ),
+            "room.layout.align_center_x": (
+                lambda: workspace.layout_align("x", "center"),
+                sel_at_least(2),
+            ),
+            "room.layout.align_center_y": (
+                lambda: workspace.layout_align("y", "center"),
+                sel_at_least(2),
+            ),
+            "room.layout.distribute_x": (
+                lambda: workspace.layout_distribute("x"),
+                sel_at_least(3),
+            ),
+            "room.layout.distribute_y": (
+                lambda: workspace.layout_distribute("y"),
+                sel_at_least(3),
+            ),
+            "room.layout.seat_row": (workspace.open_seating_layout, editable),
+            "room.seating.layout": (workspace.open_seating_layout, editable),
+            "room.constraint.centerline_x": (
+                lambda: workspace.add_centerline_constraint("x"),
+                has_selection,
+            ),
+            "room.constraint.centerline_y": (
+                lambda: workspace.add_centerline_constraint("y"),
+                has_selection,
+            ),
+            "room.constraint.symmetric": (
+                workspace.add_symmetric_pair_constraint,
+                sel_at_least(2),
+            ),
+            "room.constraint.equal_spacing": (
+                lambda: workspace.add_equal_spacing_constraint(None),
+                sel_at_least(3),
+            ),
+            "room.constraint.fixed_distance": (
+                workspace.add_fixed_distance_auto,
+                sel_at_least(2),
+            ),
+            "room.constraint.remove": (
+                workspace.remove_constraints_touching_selection,
+                has_selection,
+            ),
+            "room.constraint.guides_toggle": (workspace.toggle_guides, always),
+        }
+        for command_id, (execute, availability) in bindings.items():
+            self.registry.bind(
+                command_id,
+                execute=execute,
+                availability=availability,
+            )
 
     def _make_overview(self) -> WorkspaceMount:
         page = OverviewWorkspace(
@@ -358,6 +586,7 @@ class WorkflowApplicationComposition:
                     prediction_panel,
                 ),
             )
+            self._bind_room_tool_commands(workspace)
             self.registry.bind(
                 "room.edit.delete",
                 execute=workspace.delete_selection,
@@ -429,8 +658,12 @@ class WorkflowApplicationComposition:
                 "room.edit.toggle_lock",
                 "room.measure",
                 "prediction.run",
+                *_ROOM_TOOL_COMMAND_IDS,
             ):
-                self.registry.unbind(command_id)
+                try:
+                    self.registry.unbind(command_id)
+                except KeyError:
+                    pass
 
         def close() -> None:
             deactivate()
@@ -479,6 +712,37 @@ class WorkflowApplicationComposition:
             "room.view.fit_all",
         )
         menu = QMenu(workspace)
+
+        # Descriptive edit history (#662): Undo/Redo items name the exact change
+        # they apply; the bounded tail is a read-only "recent edits" listing.
+        controller = workspace.controller
+        undo_label = controller.undo_label
+        redo_label = controller.redo_label
+        for command_id, label in (
+            ("edit.undo", f"元に戻す: {undo_label}" if undo_label else "元に戻す"),
+            ("edit.redo", f"やり直す: {redo_label}" if redo_label else "やり直す"),
+        ):
+            definition = self.registry.definition(command_id)
+            availability = self.registry.availability(command_id)
+            if definition.shortcut:
+                label = f"{label}    {definition.shortcut}"
+            action = menu.addAction(label)
+            action.setEnabled(availability.enabled)
+            if availability.disabled_reason:
+                action.setToolTip(availability.disabled_reason)
+            action.triggered.connect(
+                lambda checked=False, target=command_id: self.registry.execute(target)
+            )
+        entries = controller.history_entries(limit=5)
+        if entries:
+            history_header = menu.addAction("最近の編集")
+            history_header.setEnabled(False)
+            for entry in reversed(entries):
+                marker = "●" if entry.applied else "○"
+                item = menu.addAction(f"{marker} {entry.label}")
+                item.setEnabled(False)
+        menu.addSeparator()
+
         for command_id in command_ids:
             definition = self.registry.definition(command_id)
             availability = self.registry.availability(command_id)

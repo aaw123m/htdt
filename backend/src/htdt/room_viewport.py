@@ -11,6 +11,14 @@ from pyvistaqt import QtInteractor
 
 from .cad_prediction_models import CadPredictionResult
 from .prediction_interpretation import PredictionSpatialLink
+from .cad_view_state import (
+    CUSTOM_VIEW,
+    ORTHOGRAPHIC_VIEWS,
+    STANDARD_VIEW_GEOMETRY,
+    RoomCameraState,
+    SectionPlaneState,
+    StandardView,
+)
 from .cad_scene import (
     EntityBodyGeometry,
     PHYSICAL_ENTITY_KINDS,
@@ -33,6 +41,36 @@ class RoomOverlayState:
     labels: bool = False
     acoustics: bool = False
     focus_selection: bool = False
+    hidden_ids: frozenset[str] = frozenset()
+    guides_visible: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class UnderlayRenderItem:
+    """One floor-plan underlay resolved for rendering (#534).
+
+    All geometry is in domain coordinates; the viewport maps to render space.
+    ``quad_domain`` is the 4-corner raster quad (``None`` for vector-only
+    underlays), ``image`` a uint8 HxWx3/4 array consumed by ``pv.Texture``,
+    and ``segments_domain`` optional line segments (DXF vectors).
+    """
+
+    underlay_id: str
+    name: str
+    quad_domain: tuple[tuple[float, float, float], ...] | None
+    image: np.ndarray | None
+    segments_domain: tuple[tuple[tuple[float, float, float], tuple[float, float, float]], ...]
+    opacity: float
+    elevation_m: float
+
+
+@dataclass(frozen=True, slots=True)
+class GuideRenderItem:
+    """One construction guide line segment in domain coordinates (#618)."""
+
+    start: tuple[float, float, float]
+    end: tuple[float, float, float]
+    label: str | None = None
 
 
 _SELECTION_FORWARD_RAY_LENGTH_M = 0.6
@@ -299,6 +337,9 @@ class RoomViewport3D(QFrame):
     #: Emitted for every successful entity pick with the display position; lets
     #: controllers read keyboard modifiers at pick time (Ctrl = additive select).
     entityPicked = Signal(object, object)
+    # (underlay_id, domain_x, domain_y) — emitted when an underlay quad/line
+    # is picked, used by the calibration/tracing flow.
+    underlayClicked = Signal(object, float, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -314,6 +355,11 @@ class RoomViewport3D(QFrame):
 
         self._actor_entity_ids: dict[int, str] = {}
         self._actor_proposed_entity_ids: dict[int, str] = {}
+        self._actor_underlay_ids: dict[int, str] = {}
+        self._underlay_items: tuple[UnderlayRenderItem, ...] = ()
+        self._guide_items: tuple[GuideRenderItem, ...] = ()
+        self._section: SectionPlaneState | None = None
+        self._standard_view: str = CUSTOM_VIEW
         self._document: SceneDocument | None = None
         self._selected_id: str | None = None
         self._selected_ids: frozenset[str] = frozenset()
@@ -361,20 +407,27 @@ class RoomViewport3D(QFrame):
         self._overlays = overlays
         self._actor_entity_ids.clear()
         self._actor_proposed_entity_ids.clear()
+        self._actor_underlay_ids.clear()
         self._search_domain_handles.clear()
         self.plotter.clear()
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
 
         floor = _room_floor_mesh(document)
         if floor is not None:
-            self.plotter.add_mesh(
-                floor,
-                color=DARK_THEME.viewport.floor.hex,
-                opacity=0.72,
-                lighting=False,
-                pickable=False,
-                name="room-floor",
-            )
+            floor = self._apply_section(floor)
+            if floor is not None:
+                self.plotter.add_mesh(
+                    floor,
+                    color=DARK_THEME.viewport.floor.hex,
+                    opacity=0.72,
+                    lighting=False,
+                    pickable=False,
+                    name="room-floor",
+                )
+
+        self._render_underlays()
+        if overlays.guides_visible:
+            self._render_guides()
 
         if overlays.grid:
             minor_grid = _grid_mesh(document, step_m=0.5)
@@ -422,13 +475,16 @@ class RoomViewport3D(QFrame):
                 and selected_set
                 and not is_selected
             )
+            mesh = self._apply_section(_entity_mesh(entity))
+            if mesh is None:
+                continue
             edge_color = DARK_THEME.viewport.geometry_edge.hex
             if is_selected:
                 edge_color = DARK_THEME.viewport.selection_outline.hex
             elif is_locked:
                 edge_color = DARK_THEME.text.muted.hex
             actor = self.plotter.add_mesh(
-                _entity_mesh(entity),
+                mesh,
                 color=DARK_THEME.viewport.geometry.hex,
                 show_edges=True,
                 edge_color=edge_color,
@@ -726,7 +782,121 @@ class RoomViewport3D(QFrame):
             name="entity-labels",
         )
 
+    def set_aux_render_state(
+        self,
+        *,
+        underlays: tuple[UnderlayRenderItem, ...] = (),
+        guides: tuple[GuideRenderItem, ...] = (),
+        section: SectionPlaneState | None = None,
+    ) -> None:
+        """Replace the non-authoritative display extras rendered on the next
+        :meth:`render_document` call (floor-plan underlays, construction
+        guides, display-only section plane)."""
+
+        self._underlay_items = tuple(underlays)
+        self._guide_items = tuple(guides)
+        self._section = section
+
+    def _apply_section(self, mesh: pv.PolyData) -> pv.PolyData | None:
+        """Clip ``mesh`` by the display-only section plane, if armed.
+
+        The section is presentation state: it changes only what is drawn,
+        never the solver geometry. A degenerate clip result is reported as
+        ``None`` (nothing to draw), never raised.
+        """
+
+        section = self._section
+        if section is None or not section.enabled:
+            return mesh
+        origin = np.asarray(section.origin, dtype=float)
+        normal = np.asarray(section.normal, dtype=float)
+        render_origin = (origin[0], -origin[1], origin[2])
+        render_normal = (normal[0], -normal[1], normal[2])
+        clipped = mesh.clip(normal=render_normal, origin=render_origin, invert=False)
+        if clipped.n_points <= 0:
+            return None
+        return clipped
+
+    def _render_underlays(self) -> None:
+        for item in self._underlay_items:
+            if item.quad_domain is not None and item.image is not None:
+                points = np.asarray(
+                    [(x, -y, z) for x, y, z in item.quad_domain],
+                    dtype=float,
+                )
+                quad = pv.PolyData(points, [4, 0, 1, 2, 3])
+                quad.active_t_coords = np.asarray(
+                    [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                    dtype=float,
+                )
+                actor = self.plotter.add_mesh(
+                    quad,
+                    texture=pv.Texture(item.image),
+                    opacity=item.opacity,
+                    lighting=False,
+                    pickable=True,
+                    show_scalar_bar=False,
+                    name=f"underlay-{item.underlay_id}",
+                )
+                self._actor_underlay_ids[id(actor)] = item.underlay_id
+            if item.segments_domain:
+                segment_count = len(item.segments_domain)
+                points = np.asarray(
+                    [
+                        (x, -y, z)
+                        for segment in item.segments_domain
+                        for (x, y, z) in segment
+                    ],
+                    dtype=float,
+                )
+                lines = np.asarray(
+                    [
+                        value
+                        for index in range(segment_count)
+                        for value in (2, 2 * index, 2 * index + 1)
+                    ],
+                    dtype=np.int64,
+                )
+                mesh = pv.PolyData(points)
+                mesh.lines = lines
+                actor = self.plotter.add_mesh(
+                    mesh,
+                    color=DARK_THEME.scientific.primary_trace.hex,
+                    line_width=1,
+                    opacity=min(1.0, item.opacity + 0.2),
+                    pickable=True,
+                    name=f"underlay-lines-{item.underlay_id}",
+                )
+                self._actor_underlay_ids[id(actor)] = item.underlay_id
+
+    def _render_guides(self) -> None:
+        for index, guide in enumerate(self._guide_items):
+            start = (guide.start[0], -guide.start[1], guide.start[2])
+            end = (guide.end[0], -guide.end[1], guide.end[2])
+            self.plotter.add_mesh(
+                pv.Line(start, end),
+                color=DARK_THEME.scientific.cursor.hex,
+                line_width=1,
+                opacity=0.85,
+                style="wireframe",
+                pickable=False,
+                name=f"guide-{index}",
+            )
+
     def _picked_actor(self, actor) -> None:
+        underlay_id = self._actor_underlay_ids.get(id(actor))
+        if underlay_id is not None:
+            picked = getattr(self.plotter, "picked_position", None)
+            if picked is not None:
+                array = np.asarray(picked, dtype=float).reshape(-1)
+                if array.size >= 3:
+                    # Render space -> domain space (Y negated).
+                    self.underlayClicked.emit(
+                        underlay_id,
+                        float(array[0]),
+                        float(-array[1]),
+                    )
+            return
         entity_id = self._actor_entity_ids.get(id(actor))
         if entity_id is not None:
             self.entityPicked.emit(entity_id, self._last_display_position())
@@ -840,6 +1010,7 @@ class RoomViewport3D(QFrame):
         if right_norm <= 1e-9:
             return
         right /= right_norm
+        self._standard_view = CUSTOM_VIEW
 
         _, height = self.plotter.render_window.GetSize()
         pixel_height = max(float(height), 1.0)
@@ -871,6 +1042,7 @@ class RoomViewport3D(QFrame):
         camera.Azimuth(-float(delta.x()) * 0.25)
         camera.Elevation(float(delta.y()) * 0.25)
         camera.OrthogonalizeViewUp()
+        self._standard_view = CUSTOM_VIEW
         self.plotter.reset_camera_clipping_range()
         self.plotter.render()
 
@@ -898,6 +1070,123 @@ class RoomViewport3D(QFrame):
         # Command content remains outside the renderer and can be supplied by the
         # Room workspace / central command registry.
         self.contextMenuRequested.emit(QPointF(position), QPointF(global_position))
+
+    @property
+    def standard_view(self) -> str:
+        """The canonical view the camera is in, or ``'custom'`` after a free
+        orbit."""
+        return self._standard_view
+
+    def apply_standard_view(self, view: StandardView | str) -> None:
+        """Snap the camera to one of the six canonical working views.
+
+        Orthographic views enable parallel projection; ``PERSPECTIVE``
+        restores a perspective isometric-style framing. The camera only
+        changes what is rendered — it never writes SceneRevisions.
+        """
+
+        view = StandardView(view)
+        camera = self.plotter.camera
+        self._standard_view = view.value
+        if view is StandardView.PERSPECTIVE:
+            camera.SetParallelProjection(0)
+            bounds = self.plotter.bounds
+            center = np.asarray(
+                [
+                    (bounds[0] + bounds[1]) * 0.5,
+                    (bounds[2] + bounds[3]) * 0.5,
+                    (bounds[4] + bounds[5]) * 0.5,
+                ],
+                dtype=float,
+            )
+            extent = float(
+                max(
+                    bounds[1] - bounds[0],
+                    bounds[3] - bounds[2],
+                    bounds[5] - bounds[4],
+                    1.0,
+                )
+            )
+            direction = np.asarray([-0.45, -0.78, -0.44], dtype=float)
+            direction /= np.linalg.norm(direction)
+            camera.SetFocalPoint(*center)
+            camera.SetPosition(*(center - direction * extent * 2.2))
+            camera.SetViewUp(0.0, 0.0, 1.0)
+            self.plotter.reset_camera()
+            self.plotter.reset_camera_clipping_range()
+            self.plotter.render()
+            return
+        direction_domain, up_domain = STANDARD_VIEW_GEOMETRY[view]
+        direction = np.asarray(
+            (direction_domain[0], -direction_domain[1], direction_domain[2]),
+            dtype=float,
+        )
+        up = np.asarray(
+            (up_domain[0], -up_domain[1], up_domain[2]),
+            dtype=float,
+        )
+        bounds = self.plotter.bounds
+        center = np.asarray(
+            [
+                (bounds[0] + bounds[1]) * 0.5,
+                (bounds[2] + bounds[3]) * 0.5,
+                (bounds[4] + bounds[5]) * 0.5,
+            ],
+            dtype=float,
+        )
+        extent = float(
+            max(
+                bounds[1] - bounds[0],
+                bounds[3] - bounds[2],
+                bounds[5] - bounds[4],
+                1.0,
+            )
+        )
+        camera.SetFocalPoint(*center)
+        camera.SetPosition(*(center - direction * extent * 2.0))
+        camera.SetViewUp(*up)
+        camera.SetParallelProjection(1)
+        self.plotter.reset_camera()
+        self.plotter.reset_camera_clipping_range()
+        self.plotter.render()
+
+    def capture_camera_state(self) -> RoomCameraState:
+        """Snapshot the live camera as a domain-space :class:`RoomCameraState`."""
+
+        camera = self.plotter.camera
+        parallel = bool(camera.GetParallelProjection())
+        position = camera.GetPosition()
+        focal = camera.GetFocalPoint()
+        view_up = camera.GetViewUp()
+        return RoomCameraState(
+            standard_view=self._standard_view,
+            projection='parallel' if parallel else 'perspective',
+            position=(float(position[0]), float(-position[1]), float(position[2])),
+            focal_point=(float(focal[0]), float(-focal[1]), float(focal[2])),
+            view_up=(float(view_up[0]), float(-view_up[1]), float(view_up[2])),
+            parallel_scale=float(camera.GetParallelScale()) if parallel else None,
+            view_angle=float(camera.GetViewAngle()) if not parallel else None,
+        )
+
+    def apply_camera_state(self, state: RoomCameraState) -> None:
+        """Restore a previously captured camera record (display-only)."""
+
+        camera = self.plotter.camera
+        camera.SetPosition(
+            state.position[0], -state.position[1], state.position[2]
+        )
+        camera.SetFocalPoint(
+            state.focal_point[0], -state.focal_point[1], state.focal_point[2]
+        )
+        camera.SetViewUp(state.view_up[0], -state.view_up[1], state.view_up[2])
+        camera.SetParallelProjection(1 if state.projection == 'parallel' else 0)
+        if state.projection == 'parallel' and state.parallel_scale is not None:
+            camera.SetParallelScale(float(state.parallel_scale))
+        if state.projection == 'perspective' and state.view_angle is not None:
+            camera.SetViewAngle(float(state.view_angle))
+        self._standard_view = state.standard_view or CUSTOM_VIEW
+        self.plotter.reset_camera_clipping_range()
+        self.plotter.render()
 
     def fit_scene(self) -> None:
         self.plotter.reset_camera()

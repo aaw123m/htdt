@@ -11,6 +11,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QApplication, QFrame
 
 from htdt.cad_document import EditStateError
+from htdt.cad_orientation_display import body_view_angles
 from htdt.cad_objects import (
     TheaterObjectError,
     aim_yaw_pitch_deg,
@@ -135,12 +136,14 @@ def test_numeric_orientation_edit_commits_through_quaternion_authority(tmp_path)
         before = workspace.controller.committed_document.entity("speaker-fl")
 
         inspector = workspace.inspector
-        inspector.orientation_fields["Yaw"].setValue(30.0)
-        inspector.orientation_fields["Yaw"].editingFinished.emit()
+        inspector.orientation_fields["heading"].setValue(30.0)
+        inspector.orientation_fields["heading"].editingFinished.emit()
 
         entity = workspace.controller.committed_document.entity("speaker-fl")
         yaw, pitch, roll = quaternion_to_euler_deg(entity.orientation)
-        assert yaw == pytest.approx(30.0)
+        # 水平向き shares the aim-yaw convention (+X-positive from +Y), which
+        # carries the opposite euler-yaw sign for zero-twist poses (#660).
+        assert yaw == pytest.approx(-30.0)
         assert pitch == pytest.approx(0.0, abs=1e-9)
         assert roll == pytest.approx(0.0, abs=1e-9)
         # Body rotation must not fabricate an unknown acoustic aim.
@@ -171,17 +174,18 @@ def test_orientation_edit_preserves_untouched_euler_axes_exactly(tmp_path) -> No
             orientation=exact,
         )
         workspace._refresh()
+        exact_angles = body_view_angles(exact)
 
-        workspace.inspector.orientation_fields["Yaw"].setValue(-45.0)
-        workspace.inspector.orientation_fields["Yaw"].editingFinished.emit()
+        workspace.inspector.orientation_fields["heading"].setValue(-45.0)
+        workspace.inspector.orientation_fields["heading"].editingFinished.emit()
 
         entity = workspace.controller.committed_document.entity("furniture-left")
-        yaw, pitch, roll = quaternion_to_euler_deg(entity.orientation)
-        assert yaw == pytest.approx(-45.0)
+        edited = body_view_angles(entity.orientation)
+        assert edited.heading_deg == pytest.approx(-45.0)
         # Untouched axes keep their exact authority values instead of snapping
         # to the 3-decimal display rounding.
-        assert pitch == pytest.approx(12.345678, abs=1e-6)
-        assert roll == pytest.approx(-8.765432, abs=1e-6)
+        assert edited.elevation_deg == pytest.approx(exact_angles.elevation_deg, abs=1e-6)
+        assert edited.twist_deg == pytest.approx(exact_angles.twist_deg, abs=1e-6)
     finally:
         _close(workspace)
 
@@ -202,16 +206,17 @@ def test_numeric_and_gizmo_rotation_share_quaternion_authority(tmp_path) -> None
         workspace._refresh()
 
         # The same quaternion authority feeds the numeric Inspector field.
-        assert workspace.inspector.orientation_fields["Yaw"].value() == pytest.approx(
-            25.0, abs=1e-3
+        # Euler yaw +25° shows as 水平向き -25° under the shared convention.
+        assert workspace.inspector.orientation_fields["heading"].value() == pytest.approx(
+            -25.0, abs=1e-3
         )
 
-        workspace.inspector.orientation_fields["Yaw"].setValue(-10.0)
-        workspace.inspector.orientation_fields["Yaw"].editingFinished.emit()
+        workspace.inspector.orientation_fields["heading"].setValue(-10.0)
+        workspace.inspector.orientation_fields["heading"].editingFinished.emit()
         yaw, _, _ = quaternion_to_euler_deg(
             workspace.controller.committed_document.entity("speaker-fl").orientation
         )
-        assert yaw == pytest.approx(-10.0)
+        assert yaw == pytest.approx(10.0)
         assert workspace.controller.committed_document.entity("speaker-fl").aim_xyz == before.aim_xyz
     finally:
         _close(workspace)
@@ -392,13 +397,13 @@ def test_unknown_aim_is_not_fabricated_by_numeric_edits(tmp_path) -> None:
 
         inspector.position_fields["X"].setValue(1.9)
         inspector.position_fields["X"].editingFinished.emit()
-        inspector.orientation_fields["Yaw"].setValue(12.0)
-        inspector.orientation_fields["Yaw"].editingFinished.emit()
+        inspector.orientation_fields["heading"].setValue(12.0)
+        inspector.orientation_fields["heading"].editingFinished.emit()
 
         entity = workspace.controller.committed_document.entity("speaker-fl")
         assert entity.aim_xyz is None
         yaw, _, _ = quaternion_to_euler_deg(entity.orientation)
-        assert yaw == pytest.approx(12.0)
+        assert yaw == pytest.approx(-12.0)
     finally:
         _close(workspace)
 
@@ -524,8 +529,8 @@ def test_applied_orientation_aim_candidate_is_visible_and_exactly_editable(tmp_p
         workspace.select_entity("speaker-fl")
 
         inspector = workspace.inspector
-        assert inspector.orientation_fields["Yaw"].value() == pytest.approx(
-            -12.5, abs=1e-3
+        assert inspector.orientation_fields["heading"].value() == pytest.approx(
+            12.5, abs=1e-3
         )
         assert inspector.aim_known_host.isVisible()
         assert inspector.aim_yaw_field.value() == pytest.approx(15.0, abs=1e-3)
