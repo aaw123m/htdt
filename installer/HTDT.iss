@@ -40,5 +40,22 @@ Name: "{autodesktop}\\Home Theater Digital Twin"; Filename: "{app}\\HTDT\\HTDT.e
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
+; #612: per-user file associations so Explorer launches route through the
+; single-instance guard into the running app's one launch-intent authority.
+; .htdt-backup opens as a preview only — restoring stays an explicit choice.
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\.htdtproject"; ValueType: string; ValueData: "HTDT.Project"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Project"; ValueType: string; ValueData: "HTDT Project"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Project\DefaultIcon"; ValueType: string; ValueData: "{app}\HTDT\HTDT.exe,0"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Project\shell\open\command"; ValueType: string; ValueData: """{app}\HTDT\HTDT.exe"" ""%1"""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\.htdtcapture"; ValueType: string; ValueData: "HTDT.Capture"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Capture"; ValueType: string; ValueData: "HTDT Capture Package"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Capture\DefaultIcon"; ValueType: string; ValueData: "{app}\HTDT\HTDT.exe,0"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Capture\shell\open\command"; ValueType: string; ValueData: """{app}\HTDT\HTDT.exe"" ""%1"""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\.htdt-backup"; ValueType: string; ValueData: "HTDT.Backup"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Backup"; ValueType: string; ValueData: "HTDT Backup Archive"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Backup\DefaultIcon"; ValueType: string; ValueData: "{app}\HTDT\HTDT.exe,0"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\HTDT.Backup\shell\open\command"; ValueType: string; ValueData: """{app}\HTDT\HTDT.exe"" ""%1"""; Flags: uninsdeletekey
+
 [Run]
 Filename: "{app}\\HTDT\\HTDT.exe"; Description: "Launch Home Theater Digital Twin"; Flags: nowait postinstall skipifsilent

@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
+from .data_relocation import (
+    DataRelocationBlockedError,
+    ManagedDataRelocationPlan,
+    execute_data_relocation,
+    plan_data_relocation,
+)
+
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from .cad_schema import (
@@ -42,6 +49,7 @@ class DataOperationKind(str, Enum):
     CREATE_BACKUP = 'create_backup'
     VALIDATE_RESTORE = 'validate_restore'
     RESTORE = 'restore'
+    RELOCATE = 'relocate'
 
 
 class DataOperationPhase(str, Enum):
@@ -49,6 +57,7 @@ class DataOperationPhase(str, Enum):
     BACKING_UP = 'backing_up'
     VALIDATING = 'validating'
     RESTORING = 'restoring'
+    RELOCATING = 'relocating'
     RELOADING = 'reloading'
 
 
@@ -90,6 +99,15 @@ class RestoreResult:
     manifest: BackupManifest
     metadata: BackupMetadata
     pre_restore_backup: Path | None
+
+
+@dataclass(frozen=True)
+class RelocationResult:
+    """Outcome of a managed data relocation (#621)."""
+
+    plan: ManagedDataRelocationPlan
+    destination_dir: Path
+    parked_dir: Path
 
 
 @dataclass(frozen=True)
@@ -214,6 +232,29 @@ class DataManagementBackend:
             pre_restore_backup=pre_restore_backup,
         )
 
+    def plan_relocation(
+        self, destination_dir: Path
+    ) -> ManagedDataRelocationPlan:
+        """#621: preview moving the managed root to another location."""
+
+        return plan_data_relocation(self.data_dir, Path(destination_dir))
+
+    def relocate(self, destination_dir: Path) -> RelocationResult:
+        """#621: copy → verify → cutover, then repoint the bootstrap config.
+
+        The caller must have quiesced the data handle (no live repositories
+        or running HTDT processes hold the root) before invoking this.
+        """
+
+        plan, parked = execute_data_relocation(
+            self.data_dir, Path(destination_dir)
+        )
+        return RelocationResult(
+            plan=plan,
+            destination_dir=plan.destination_dir,
+            parked_dir=parked,
+        )
+
 
 class ApplicationDataLifecycle:
     """Application-level data handle lifecycle for destructive restore.
@@ -292,6 +333,19 @@ class ApplicationDataLifecycle:
         self._thaw_mutations()
         self._mutations_frozen = False
 
+    def mark_restart_required(self) -> None:
+        """Transition a quiesced lifecycle to restart-required (#621).
+
+        After a relocation succeeds the data root lives elsewhere; existing
+        handles stay closed and the app must restart against the new root.
+        """
+
+        if self._state is not DataLifecycleState.QUIESCED:
+            raise RuntimeError(
+                f'data lifecycle is not quiesced: {self._state.value}'
+            )
+        self._state = DataLifecycleState.RESTART_REQUIRED
+
 
 @dataclass
 class _ActiveOperation:
@@ -360,6 +414,7 @@ class DataManagementController(QObject):
     backup_created = Signal(object)
     restore_preview_ready = Signal(object)
     restore_completed = Signal(object)
+    relocation_completed = Signal(object)
     operation_failed = Signal(object)
 
     def __init__(
@@ -460,6 +515,44 @@ class DataManagementController(QObject):
             lifecycle_mode='restore',
         )
 
+    def relocate(self, destination_dir: Path) -> str:
+        """#621: move the managed root after quiescing all data handles."""
+
+        self._assert_owner_thread()
+        self._assert_idle()
+        operation_id = uuid4().hex
+        try:
+            self.lifecycle.begin_restore()
+        except Exception as exc:
+            self._emit_immediate_failure(
+                operation_id,
+                DataOperationKind.RELOCATE,
+                DataOperationPhase.PREPARING,
+                '移動のために現在のデータを閉じられませんでした',
+                exc,
+            )
+            return operation_id
+
+        def job(emit: Callable[[DataOperationPhase, str], None]) -> RelocationResult:
+            emit(DataOperationPhase.RELOCATING, '移動先の空き容量と配置を確認しています')
+            plan = self.backend.plan_relocation(destination_dir)
+            if not plan.executable:
+                raise DataRelocationBlockedError(
+                    '; '.join(blocker.detail for blocker in plan.blockers)
+                )
+            emit(
+                DataOperationPhase.RELOCATING,
+                'データをコピーして検証しています',
+            )
+            return self.backend.relocate(destination_dir)
+
+        return self._start(
+            operation_id=operation_id,
+            kind=DataOperationKind.RELOCATE,
+            job=job,
+            lifecycle_mode='relocate',
+        )
+
     def _start(
         self,
         *,
@@ -538,6 +631,10 @@ class DataManagementController(QObject):
                     )
                 )
                 self.lifecycle.resume_after_restore_attempt()
+            elif active.lifecycle_mode == 'relocate':
+                # The data root lives at the destination now; existing
+                # handles stay closed and the app must restart.
+                self.lifecycle.mark_restart_required()
         except Exception as exc:
             lifecycle_error = exc
 
@@ -567,6 +664,8 @@ class DataManagementController(QObject):
             self.backup_created.emit(result)
         elif active.kind is DataOperationKind.VALIDATE_RESTORE:
             self.restore_preview_ready.emit(result)
+        elif active.kind is DataOperationKind.RELOCATE:
+            self.relocation_completed.emit(result)
         else:
             self.restore_completed.emit(result)
 
@@ -580,7 +679,7 @@ class DataManagementController(QObject):
         try:
             if active.lifecycle_mode == 'backup':
                 self.lifecycle.finish_backup()
-            elif active.lifecycle_mode == 'restore':
+            elif active.lifecycle_mode in ('restore', 'relocate'):
                 self.lifecycle.resume_after_restore_attempt()
         except Exception as lifecycle_exc:
             restart_required = self.lifecycle.restart_required
@@ -630,4 +729,6 @@ class DataManagementController(QObject):
             return 'バックアップを作成できませんでした'
         if kind is DataOperationKind.VALIDATE_RESTORE:
             return 'バックアップを検証できませんでした'
+        if kind is DataOperationKind.RELOCATE:
+            return 'データ保存場所を移動できませんでした'
         return 'バックアップから復元できませんでした'

@@ -1,0 +1,13 @@
+{
+  "generator_version": 1,
+  "project_class": "p-large",
+  "document_id": "fixture-p-large",
+  "revision_count": 200,
+  "entity_count": 60,
+  "measurement_count": 12,
+  "checkpoint_count": 8,
+  "asset_count": 5,
+  "asset_bytes": 8310,
+  "database_bytes": 2936832,
+  "built_at_utc": "2026-09-23T21:42:57.362442+00:00"
+}

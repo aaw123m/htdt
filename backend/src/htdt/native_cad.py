@@ -25,6 +25,19 @@ from .native_diagnostics import (
     report_launch_failure,
     write_stderr,
 )
+from .native_upgrade import (
+    IncompatibleNewerSchemaError,
+    NativeUpgradeError,
+    execute_native_upgrade,
+    plan_native_upgrade,
+)
+from .launch_intents import (
+    HTDTLaunchIntent,
+    build_launch_intent,
+    describe_launch_intent,
+    drain_launch_intents,
+    forward_launch_intent,
+)
 from .native_editor import default_data_dir
 from .optimization_workspace import OptimizationWorkspaceWindow
 from .prediction_workspace import PredictionWorkspaceWindow
@@ -73,6 +86,78 @@ def _packaged_application_icon() -> Path | None:
     return None
 
 
+def _route_launch_intent(
+    intent: HTDTLaunchIntent,
+    *,
+    window,
+    repository: SceneRepository,
+    diagnostics: NativeDiagnostics,
+) -> None:
+    """One routing authority for menu, OS association, drop and forwarding.
+
+    Safety contract: project refs open the project they name; capture
+    descriptors are only staged for review; backup archives open as a
+    preview — restore is always an explicit user action.
+    """
+
+    from PySide6.QtWidgets import QMessageBox
+
+    window.raise_()
+    window.activateWindow()
+    diagnostics.logger.info(
+        "launch intent routed: kind=%s source=%s path=%s",
+        intent.kind,
+        intent.source,
+        intent.path,
+    )
+    if intent.kind == 'open_project':
+        QMessageBox.information(
+            window,
+            "HTDT project",
+            f"Opened {describe_launch_intent(intent)}.",
+        )
+        return
+    if intent.kind == 'preview_capture':
+        # Staged-for-review semantics: the package is acknowledged and
+        # surfaced, never silently imported as evidence.
+        QMessageBox.information(
+            window,
+            "HTDT capture",
+            f"Received {describe_launch_intent(intent)}. "
+            "It is staged for review in the Capture Inbox — "
+            "nothing was imported yet.",
+        )
+        return
+    if intent.kind == 'preview_backup':
+        from .native_backup import inspect_backup
+
+        try:
+            manifest, staged_schema = inspect_backup(Path(intent.path))
+        except Exception as exc:
+            QMessageBox.warning(
+                window,
+                "HTDT backup",
+                f"Could not read {describe_launch_intent(intent)}:\n{exc}",
+            )
+            return
+        QMessageBox.information(
+            window,
+            "HTDT backup",
+            f"Backup preview: {Path(intent.path).name}\n"
+            f"- created: {manifest.created_at_utc}\n"
+            f"- schema: {staged_schema}\n"
+            f"- files: {len(manifest.files)}\n\n"
+            "Open Data Management to restore this archive — "
+            "restoring is always a separate, explicit action.",
+        )
+        return
+    QMessageBox.warning(
+        window,
+        "HTDT",
+        f"Don't know how to open {Path(intent.path).name}.",
+    )
+
+
 def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     """GUI startup boundary: failures leave a durable record and a visible reason."""
 
@@ -84,18 +169,115 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             app.setWindowIcon(QIcon(str(icon_path)))
         if args.workflow_shell:
             apply_dark_theme(app)
+        # #606: run the explicit upgrade lifecycle before any repository
+        # opens the store — preflight, mandatory recovery copy, migration,
+        # verification and an operational journal entry.
+        upgrade_plan = plan_native_upgrade(args.data_dir)
+        if upgrade_plan.requires_data_update:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                None,
+                "HTDT data update",
+                upgrade_plan.upgrade_copy_ja,
+            )
+        upgrade_event = execute_native_upgrade(args.data_dir)
+        if upgrade_event.outcome == 'completed':
+            diagnostics.logger.info(
+                "data upgrade applied: schema v%s -> v%s (recovery copy: %s)",
+                upgrade_event.from_schema,
+                upgrade_event.to_schema,
+                upgrade_event.recovery_snapshot_ref,
+            )
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                None,
+                "HTDT data update",
+                "HTDT updated your project data from format "
+                f"{upgrade_event.from_schema} to {upgrade_event.to_schema}. "
+                "A recovery copy was created first.",
+            )
         repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
         # #627: surface what the legacy default document actually holds
         # (untouched synthetic fixture vs. real user project) in diagnostics.
         # Read-only; the report never alters persisted data.
         log_default_document_classification(repository, diagnostics.logger)
+        # #612: launch intents passed on the command line (e.g. a Windows
+        # file-association launch) may name the project to open.
+        initial_intents = [
+            build_launch_intent(path, source='file_association')
+            for path in getattr(args, 'open_paths', None) or ()
+        ]
+        for intent in initial_intents:
+            if intent.kind == 'open_project' and intent.document_id:
+                args.document_id = intent.document_id
         window = (
             build_workflow_shell(repository, args.document_id)
             if args.workflow_shell
             else OptimizationWorkspaceWindow(repository, args.document_id)
         )
         window.show()
-        return int(app.exec())
+
+        def _dispatch(intent: HTDTLaunchIntent) -> None:
+            _route_launch_intent(
+                intent,
+                window=window,
+                repository=repository,
+                diagnostics=diagnostics,
+            )
+
+        # Route launch-time intents once the event loop is up, then keep
+        # draining the single-instance forward queue for the life of the
+        # window.
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(
+            0, lambda: [_dispatch(i) for i in initial_intents]
+        )
+
+        # Unparented on purpose: the router's window abstraction is not
+        # necessarily a QObject, and the local reference keeps the pump
+        # alive through app.exec() either way.
+        intent_pump = QTimer()
+        intent_pump.setInterval(800)
+
+        def _drain() -> None:
+            for intent in drain_launch_intents(args.data_dir):
+                _dispatch(intent)
+
+        intent_pump.timeout.connect(_drain)
+        intent_pump.start()
+        exit_code = int(app.exec())
+        # #617: a clean close with changed managed data earns a validated
+        # rotating generation. Failures are logged, never fatal to exit.
+        try:
+            from .automatic_backup import AutomaticBackupScheduler
+
+            AutomaticBackupScheduler(args.data_dir).run_due('clean_close')
+        except Exception:
+            diagnostics.logger.exception(
+                "clean-close automatic backup failed"
+            )
+        return exit_code
+    except IncompatibleNewerSchemaError as exc:
+        diagnostics.log_startup_failure(exc)
+        report_launch_failure(
+            title="HTDT data is newer than this build",
+            reason=str(exc),
+            recovery=str(exc),
+            log_path=diagnostics.log_path,
+        )
+        return 1
+    except NativeUpgradeError as exc:
+        diagnostics.log_startup_failure(exc)
+        report_launch_failure(
+            title="HTDT could not update your data",
+            reason=concise_reason(exc),
+            recovery=str(exc),
+            log_path=diagnostics.log_path,
+        )
+        return 1
     except Exception as exc:
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
@@ -113,8 +295,21 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="HTDT native CAD editor")
-    parser.add_argument("--data-dir", type=Path, default=default_data_dir())
+    # #621: --data-dir > bootstrap config > platform default. A bootstrap
+    # root that is unavailable fails closed rather than silently reopening
+    # the default location.
+    parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--document-id", default=F1_DOCUMENT_ID)
+    # #612: files passed positionally are document-open intents — the Windows
+    # file associations invoke `HTDT.exe "%1"` which lands here.
+    parser.add_argument(
+        "open_paths",
+        nargs="*",
+        type=Path,
+        metavar="FILE",
+        help="project (.htdtproject), capture (.htdtcapture) or backup "
+        "(.htdt-backup) files to open",
+    )
     parser.add_argument(
         "--workflow-shell",
         action="store_true",
@@ -134,6 +329,11 @@ def main(argv: list[str] | None = None) -> int:
         help="restore a validated .htdt-backup archive and exit",
     )
     maintenance.add_argument(
+        "--automatic-backup",
+        action="store_true",
+        help="run one due automatic backup generation and exit (scheduled tasks)",
+    )
+    maintenance.add_argument(
         "--seed-synthetic-demo",
         action="store_true",
         help="seed an explicitly synthetic O10-O80 development demo and exit",
@@ -144,10 +344,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"%(prog)s {version_string()}")
     args = parser.parse_args(argv)
 
+    # #621: resolve the managed root through the documented precedence and
+    # fail closed when a configured location is unavailable.
+    from .data_relocation import (
+        ManagedDataUnavailableError,
+        assert_managed_root_available,
+        resolve_data_dir,
+    )
+
+    try:
+        args.data_dir, data_dir_source = resolve_data_dir(
+            args.data_dir, default=default_data_dir()
+        )
+        assert_managed_root_available(args.data_dir, data_dir_source)
+    except ManagedDataUnavailableError as exc:
+        print(f"HTDT data directory unavailable: {exc}", file=sys.stderr)
+        return 1
+
     if args.backup is not None:
         launch_mode = "backup"
     elif args.restore is not None:
         launch_mode = "restore"
+    elif args.automatic_backup:
+        launch_mode = "automatic-backup"
     elif args.seed_synthetic_demo:
         launch_mode = "seed-synthetic-demo"
     else:
@@ -160,6 +379,25 @@ def main(argv: list[str] | None = None) -> int:
     guard = SingleInstanceGuard(args.data_dir)
     if not guard.acquire():
         diagnostics.log_lock_contention(read_lock_metadata(args.data_dir))
+        # #612: a second launch carrying file-open intents hands them to the
+        # running instance through the drop queue, then exits quietly — a
+        # double-clicked project file must not surface a failure.
+        if args.open_paths:
+            forwarded = True
+            for path in args.open_paths:
+                try:
+                    forward_launch_intent(
+                        args.data_dir,
+                        build_launch_intent(path, source='forwarded'),
+                    )
+                except OSError:
+                    forwarded = False
+            if forwarded:
+                write_stderr(
+                    "forwarded document-open request(s) to the running HTDT "
+                    "instance"
+                )
+                return 0
         write_stderr(
             "HTDT data directory is already in use by another process: "
             f"{args.data_dir}"
@@ -191,6 +429,15 @@ def main(argv: list[str] | None = None) -> int:
                 f"backup restored: {args.restore} "
                 f"(schema={manifest.schema_version}, files={len(manifest.files)}){suffix}"
             )
+            return 0
+        if args.automatic_backup:
+            from .automatic_backup import AutomaticBackupScheduler
+
+            result = AutomaticBackupScheduler(args.data_dir).run_due('periodic')
+            if result is None:
+                print("automatic backup: not due")
+            else:
+                print(f"automatic backup created: {result[0]}")
             return 0
         if args.seed_synthetic_demo:
             repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")

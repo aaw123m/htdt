@@ -1,0 +1,84 @@
+{
+  "generator_version": 1,
+  "project_class": "p-large",
+  "document_id": "fixture-p-large",
+  "machine": {
+    "platform": "Windows-2022Server-10.0.20348-SP0",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 207 Stepping 2, GenuineIntel",
+    "python": "3.12.10",
+    "cpu_count": 8,
+    "ram_bytes": null
+  },
+  "measured_at_utc": "2026-09-23T21:42:58.616178+00:00",
+  "violations": [],
+  "operations": [
+    {
+      "operation": "open_project",
+      "interaction_class": "short_foreground",
+      "duration_ms": 1.47,
+      "work_metrics": {
+        "document_payload_bytes": 19434
+      },
+      "budget_ms": 2000
+    },
+    {
+      "operation": "history_list",
+      "interaction_class": "short_foreground",
+      "duration_ms": 3.94,
+      "work_metrics": {
+        "revisions": 200,
+        "rows": 200
+      },
+      "budget_ms": 800
+    },
+    {
+      "operation": "revision_compare",
+      "interaction_class": "short_foreground",
+      "duration_ms": 3.11,
+      "work_metrics": {
+        "rows": 1
+      },
+      "budget_ms": 800
+    },
+    {
+      "operation": "save_revision",
+      "interaction_class": "short_foreground",
+      "duration_ms": 10.37,
+      "work_metrics": {},
+      "budget_ms": 1200
+    },
+    {
+      "operation": "create_checkpoint",
+      "interaction_class": "instant_interaction",
+      "duration_ms": 7.56,
+      "work_metrics": {},
+      "budget_ms": 300
+    },
+    {
+      "operation": "measurement_enumerate",
+      "interaction_class": "instant_interaction",
+      "duration_ms": 0.75,
+      "work_metrics": {
+        "rows": 12
+      },
+      "budget_ms": 500
+    },
+    {
+      "operation": "inbox_summary",
+      "interaction_class": "instant_interaction",
+      "duration_ms": 0.55,
+      "work_metrics": {
+        "rows": 0
+      },
+      "budget_ms": 500
+    },
+    {
+      "operation": "backup_create",
+      "interaction_class": "long_operation",
+      "duration_ms": 935.12,
+      "work_metrics": {},
+      "budget_ms": null
+    }
+  ]
+}
