@@ -216,3 +216,17 @@ validated measurement capabilityの範囲だけをCalibrationPlanへ渡す。mag
 Planはdevice-neutralなchannel/role/source entity/physical output mapping、sample rate、gain、delay、polarity、crossover、ordered PEQ、target curve normalization、device constraintを保持する。generic biquad exportではrequested planと量子化後actual settingsを別hashで保存し、filter countやboost/cut超過をsilent clip/omissionしない。
 
 export、user-applied、remeasured、validatedは別のappend-only lifecycle stateであり、export操作だけでは実機適用・as-built・validatedにならない。再測定はVerificationMeasurementPlanでexact exported settings、scene/system、measurement point、routing、reference level、required capability、before/after Measurement IDを固定する。詳細は[CalibrationPlan authority](CALIBRATION_PLAN.md)。
+
+## 11. バッチ取込・訂正・比較仕様（Issues #446, #483, #484, #487, #489, #503, #509）
+
+v0.2以降の測定ワークスペース実装は `backend/src/htdt/measurement_workflow.py`（コントローラ）、`measurement_page_workspace.py`（画面）、`cad_measurement_disposition.py`（追記専用の訂正/状態オーソリティ）、`measurement_analysis.py`（表示専用の位相/平滑化ビュー）に置く。
+
+- **バッチ取込**: 「読み込み」ページで複数REWテキストをキューにステージし、各項目の解析・割り当て・重複分類（バイト一致の完全重複 / 同一REW取得の再エクスポート / 新規）を保存前に一覧する。「割り当て」ページの対象選択で共通割り当ての一括適用と項目ごとの上書きを両立し、保存は成功した項目のみを明示的にコミットする。再実行はコミット済み項目を `already_committed` としてスキップし二重登録しない。
+- **ソース添付**: `.mdat`・校正ファイル・設定ノートは測定へ `cad_measurement_attachments` で紐付け、実体は既存の `ManagedAssetStore` / `cad_measurement_assets` マニフェストへ入るためバックアップの対象に含まれる。
+- **訂正（#509）**: 誤割当は測定の状態記録（有効 / 誤割当 / 除外 / テスト / 重複取込）と、データセットSHAをピンする追記専用の割り当て訂正で直す。元の測定とデータセットは変更されず、画面の「有効な割り当て」だけが訂正値を使う。除外された測定は比較対象から外れる。再測定系譜とは別物として扱う。
+- **A/B比較（#483）**: 比較ページはプリセット（任意A/B、実測vs予測、実測vs実測、再測定系譜）を提供し、どちら側も全ての通常対象データセットを選べる。証拠種別・入力役割・測定位置・音源・部屋状態・スムージングの意味的な不一致は警告として先に表示する。
+- **比較仕様（#484）**: 参照帯域によるレベル合わせと除外帯域を画面で宣言でき、保存済み比較は要求帯域・参照帯域・除外帯域・レベル差・形状RMSをそのまま履歴に残す。参照帯域が有効な共有グリッドを持たない場合、レベル差・形状RMSは「利用不可」と明示する。
+- **位相（#489）**: 保存済み位相サンプルを対数周波数軸で表示し、ラップ/アンラップは明示トグルのアルゴリズム `phase-unwrap-180deg-1` で行う。位相の有無と共通タイミング基準の判定は別々に表示し、位相が表示できても共通タイミングを主張しない。
+- **表示平滑化とターゲット（#503）**: 原データと 1/24・1/12・1/6・1/3 オクターブの冪平均表示（`fractional-octave-power-mean-1`）を切替えられる。どちらも保存済みデータセットを変更しない。入力済みスムージングと処理履歴は各トレースのラベル/処理情報に残し、ターゲットカーブは宣言された絶対レベルのまま重ねる。
+- **空間コンテキスト（#487）**: 測定に束縛されたSceneRevisionを品質ページの3Dビューで再描画し、測定位置マーカーと既知の測定方向レイを重ねる。「現在との差分」モードは現在の部屋を主体に測定時のエンティティをghost表示し、移動/追加/削除の物理単位つき差分一覧を出す。「測定時の部屋を開く」は履歴ビューへの導線として束縛版の描画に切替える。レコードの再束縛は行わない。
+

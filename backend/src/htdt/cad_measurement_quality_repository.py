@@ -6,6 +6,8 @@ from hashlib import sha256
 from pathlib import Path
 import sqlite3
 
+from typing import get_args
+
 from .cad_measurement_authorities import (
     CadAcousticLevelCalibration,
     CadDatasetLevelReference,
@@ -14,8 +16,17 @@ from .cad_measurement_authorities import (
     CadWiringVerificationCheck,
     calibration_supports_absolute_spl,
 )
+from .cad_measurement_disposition import (
+    CadMeasurementCorrection,
+    CadMeasurementDisposition,
+)
+from .cad_measurement_models import (
+    CadFrequencyResponseDataset,
+    CadMeasurementRecord,
+    RadiationScope,
+    RoutingEvidence,
+)
 from .cad_measurement_targets import CadMeasurementTargetLineage
-from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_quality import (
     MACHINE_OBSERVATION_SOURCES,
     OBSERVATION_EVIDENCE_FIELDS,
@@ -34,6 +45,7 @@ from .cad_measurement_repository import (
     CadMeasurementRepository,
     VerifiedMeasurementAsset,
 )
+from .cad_scene import acoustic_reference_position
 from .cad_schema import check_native_schema_compatibility
 from .managed_assets import (
     ManagedAssetError,
@@ -182,6 +194,36 @@ class CadMeasurementQualityRepository:
                     ON cad_measurement_target_lineages(document_id);
                 CREATE INDEX IF NOT EXISTS idx_target_lineages_point
                     ON cad_measurement_target_lineages(measurement_point_id);
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_dispositions (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    disposition_id TEXT NOT NULL UNIQUE,
+                    document_id TEXT NOT NULL,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    disposition TEXT NOT NULL,
+                    correction_id TEXT,
+                    disposition_sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_measurement_seq
+                    ON cad_measurement_dispositions(measurement_id, seq ASC);
+                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_document_seq
+                    ON cad_measurement_dispositions(document_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_corrections (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    correction_id TEXT NOT NULL UNIQUE,
+                    document_id TEXT NOT NULL,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
+                    dataset_sha256 TEXT NOT NULL,
+                    correction_sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_corrections_measurement_seq
+                    ON cad_measurement_corrections(measurement_id, seq ASC);
                 '''
             )
 
@@ -1451,3 +1493,244 @@ class CadMeasurementQualityRepository:
             CadMeasurementTargetLineage.model_validate_json(row['payload_json'])
             for row in rows
         )
+
+    # ------------------------------------------------------------------
+    # Disposition / assignment-correction authority (#509)
+    # ------------------------------------------------------------------
+
+    def _validate_disposition(self, disposition: CadMeasurementDisposition) -> None:
+        subject = self.measurement_repository.get_measurement(
+            disposition.measurement_id
+        )
+        if subject is None:
+            raise ValueError(
+                'measurement disposition references unknown measurement: '
+                f'{disposition.measurement_id}'
+            )
+        if subject.document_id != disposition.document_id:
+            raise ValueError('disposition document does not match the measurement')
+        if disposition.correction_id is not None:
+            correction = self.get_correction(disposition.correction_id)
+            if correction is None or correction.measurement_id != disposition.measurement_id:
+                raise ValueError(
+                    'corrected disposition must pin a correction record '
+                    'of the same measurement'
+                )
+
+    def save_disposition(self, disposition: CadMeasurementDisposition) -> None:
+        """Append one lifecycle event; the underlying evidence is never rewritten."""
+        self._validate_disposition(disposition)
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_measurement_dispositions WHERE disposition_id=?',
+                (disposition.disposition_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'measurement disposition already exists: {disposition.disposition_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_measurement_dispositions(
+                    disposition_id, document_id, measurement_id, disposition,
+                    correction_id, disposition_sha256, created_at_utc, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    disposition.disposition_id,
+                    disposition.document_id,
+                    disposition.measurement_id,
+                    disposition.disposition,
+                    disposition.correction_id,
+                    disposition.disposition_sha256,
+                    disposition.created_at_utc,
+                    disposition.model_dump_json(),
+                ),
+            )
+
+    def get_disposition(self, disposition_id: str) -> CadMeasurementDisposition | None:
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_measurement_dispositions WHERE disposition_id=?',
+                (disposition_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CadMeasurementDisposition.model_validate_json(row['payload_json'])
+
+    def list_dispositions(
+        self,
+        measurement_id: str,
+    ) -> tuple[CadMeasurementDisposition, ...]:
+        """Every lifecycle event for one measurement, oldest first."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''
+                SELECT payload_json FROM cad_measurement_dispositions
+                WHERE measurement_id=? ORDER BY seq ASC
+                ''',
+                (measurement_id,),
+            ).fetchall()
+        return tuple(
+            CadMeasurementDisposition.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def latest_disposition(
+        self,
+        measurement_id: str,
+    ) -> CadMeasurementDisposition | None:
+        """The current lifecycle state of one measurement (None = never set)."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                '''
+                SELECT payload_json FROM cad_measurement_dispositions
+                WHERE measurement_id=? ORDER BY seq DESC LIMIT 1
+                ''',
+                (measurement_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CadMeasurementDisposition.model_validate_json(row['payload_json'])
+
+    def _validate_correction(self, correction: CadMeasurementCorrection) -> None:
+        """A correction must pin the subject's exact bound dataset and valid entities."""
+        subject = self.measurement_repository.get_measurement(correction.measurement_id)
+        if subject is None:
+            raise ValueError(
+                'measurement correction references unknown measurement: '
+                f'{correction.measurement_id}'
+            )
+        if subject.document_id != correction.document_id:
+            raise ValueError('correction document does not match the measurement')
+        dataset = self.measurement_repository.dataset_for_measurement(
+            correction.measurement_id
+        )
+        if dataset is None or dataset.dataset_id != correction.dataset_id:
+            raise ValueError('correction must pin the measurement bound dataset')
+        if dataset_sha256(dataset) != correction.dataset_sha256:
+            raise ValueError('correction dataset hash does not match the bound dataset')
+        revision = self.measurement_repository.scene_repository.get(
+            subject.scene_revision_id
+        )
+        if revision is None:
+            raise ValueError(
+                'measurement source revision is unavailable: '
+                f'{subject.scene_revision_id}'
+            )
+        if correction.measurement_entity_id is not None:
+            try:
+                entity = revision.document.entity(correction.measurement_entity_id)
+            except KeyError as exc:
+                raise ValueError(
+                    'corrected entity does not exist in the source revision'
+                ) from exc
+            if acoustic_reference_position(entity) is None:
+                raise ValueError(
+                    'corrected entity has no acoustic reference position'
+                )
+        if correction.source_speaker_ids is not None:
+            for source_id in correction.source_speaker_ids:
+                try:
+                    source = revision.document.entity(source_id)
+                except KeyError as exc:
+                    raise ValueError(
+                        f'corrected source speaker missing from source revision: '
+                        f'{source_id}'
+                    ) from exc
+                if source.kind != 'speaker':
+                    raise ValueError(f'corrected source is not a speaker: {source_id}')
+        if (
+            correction.radiation_scope is not None
+            and correction.radiation_scope not in get_args(RadiationScope)
+        ):
+            raise ValueError(f'invalid radiation scope: {correction.radiation_scope}')
+        if (
+            correction.routing_evidence is not None
+            and correction.routing_evidence not in get_args(RoutingEvidence)
+        ):
+            raise ValueError(f'invalid routing evidence: {correction.routing_evidence}')
+
+    def save_correction(self, correction: CadMeasurementCorrection) -> None:
+        """Append one corrected binding; the original assignment stays immutable."""
+        self._validate_correction(correction)
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_measurement_corrections WHERE correction_id=?',
+                (correction.correction_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    f'measurement correction already exists: {correction.correction_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_measurement_corrections(
+                    correction_id, document_id, measurement_id, dataset_id,
+                    dataset_sha256, correction_sha256, created_at_utc, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    correction.correction_id,
+                    correction.document_id,
+                    correction.measurement_id,
+                    correction.dataset_id,
+                    correction.dataset_sha256,
+                    correction.correction_sha256,
+                    correction.created_at_utc,
+                    correction.model_dump_json(),
+                ),
+            )
+
+    def get_correction(self, correction_id: str) -> CadMeasurementCorrection | None:
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_measurement_corrections WHERE correction_id=?',
+                (correction_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CadMeasurementCorrection.model_validate_json(row['payload_json'])
+
+    def list_corrections(
+        self,
+        measurement_id: str,
+    ) -> tuple[CadMeasurementCorrection, ...]:
+        """Every corrected binding for one measurement, oldest first."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''
+                SELECT payload_json FROM cad_measurement_corrections
+                WHERE measurement_id=? ORDER BY seq ASC
+                ''',
+                (measurement_id,),
+            ).fetchall()
+        return tuple(
+            CadMeasurementCorrection.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def latest_correction(
+        self,
+        measurement_id: str,
+    ) -> CadMeasurementCorrection | None:
+        """The current effective corrected binding (None = original assignment)."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                '''
+                SELECT payload_json FROM cad_measurement_corrections
+                WHERE measurement_id=? ORDER BY seq DESC LIMIT 1
+                ''',
+                (measurement_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CadMeasurementCorrection.model_validate_json(row['payload_json'])
