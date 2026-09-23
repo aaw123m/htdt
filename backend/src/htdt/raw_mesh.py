@@ -6,7 +6,7 @@ from hashlib import sha256
 import json
 from math import floor, isfinite, sqrt
 import struct
-from typing import Any, Literal, Mapping
+from typing import Annotated, Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -58,6 +58,31 @@ class RawMeshVertex(BaseModel):
         return value
 
 
+# Retained per-face classification bytes are advisory provenance only: they
+# describe what the capture device observed, never acoustic or semantic
+# authority. Known ARKit ARMeshClassification values map to stable labels;
+# any future or vendor-specific byte is retained verbatim and reported as
+# ``unknown:<n>`` rather than rejected or guessed.
+ARKIT_MESH_CLASSIFICATION_LABELS: Mapping[int, str] = {
+    0: 'none',
+    1: 'wall',
+    2: 'floor',
+    3: 'ceiling',
+    4: 'table',
+    5: 'seat',
+    6: 'window',
+    7: 'door',
+}
+
+
+def meshbin_face_classification_label(value: int) -> str:
+    """Advisory label for one retained HTDTMSH1 face-classification byte."""
+    return ARKIT_MESH_CLASSIFICATION_LABELS.get(value, f'unknown:{value}')
+
+
+ClassificationByte = Annotated[int, Field(ge=0, le=255)]
+
+
 class RawMeshTriangle(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -97,6 +122,13 @@ class RawVisualMesh(BaseModel):
     original_asset_base64: str
     vertices: tuple[RawMeshVertex, ...]
     triangles: tuple[RawMeshTriangle, ...]
+    # Optional HTDTMSH1 attributes retained with exact source indexing.
+    # ``source_normals[i]`` is the captured normal of ``vertices[i]`` and
+    # ``source_face_classifications[i]`` the captured classification byte of
+    # ``triangles[i]``. They are advisory provenance: retained verbatim for
+    # inspection and suggestions, never acoustic or semantic authority.
+    source_normals: tuple[RawMeshVertex, ...] = ()
+    source_face_classifications: tuple[ClassificationByte, ...] = ()
 
     @model_validator(mode='after')
     def validate_snapshot(self) -> 'RawVisualMesh':
@@ -115,10 +147,31 @@ class RawVisualMesh(BaseModel):
         for triangle in self.triangles:
             if max(triangle.a, triangle.b, triangle.c) >= vertex_count:
                 raise ValueError('raw mesh triangle references an unknown vertex')
+        if self.source_normals and len(self.source_normals) != vertex_count:
+            raise ValueError('source normals must align one-to-one with vertices')
+        if self.source_face_classifications and (
+            len(self.source_face_classifications) != len(self.triangles)
+        ):
+            raise ValueError(
+                'source face classifications must align one-to-one with triangles'
+            )
+        if (
+            self.source_normals or self.source_face_classifications
+        ) and self.provenance.asset_format != 'htdt_meshbin_v1':
+            raise ValueError('source mesh attributes require HTDTMSH1 provenance')
         return self
 
     def semantic_hash(self) -> str:
-        return _semantic_hash(self.model_dump(mode='json'))
+        # Advisory source attributes stay out of the semantic identity: the
+        # mesh_id already pins the exact source bytes that produced them, so
+        # retaining decoded attributes must not change the identity a
+        # persisted binding derived before this decoder exposed them.
+        return _semantic_hash(
+            self.model_dump(
+                mode='json',
+                exclude={'source_normals', 'source_face_classifications'},
+            )
+        )
 
     def original_asset_bytes(self) -> bytes:
         return b64decode(self.original_asset_base64.encode('ascii'), validate=True)
@@ -257,12 +310,16 @@ def import_raw_visual_mesh(
     if not source_name:
         raise RawMeshImportError('source_name is required')
     asset_format = format_hint or _detect_format(asset, source_name)
+    normals: tuple[RawMeshVertex, ...] = ()
+    classifications: tuple[int, ...] = ()
     if asset_format == 'obj':
         vertices, triangles = _parse_obj(asset)
     elif asset_format == 'glb':
         vertices, triangles = _parse_glb(asset)
     elif asset_format == 'htdt_meshbin_v1':
-        vertices, triangles = _parse_htdt_meshbin_v1(asset)
+        vertices, triangles, normals, classifications = (
+            _parse_htdt_meshbin_v1(asset)
+        )
     else:  # pragma: no cover - Literal plus validation keeps this defensive
         raise RawMeshImportError(f'unsupported raw mesh format: {asset_format}')
     asset_hash = sha256(asset).hexdigest()
@@ -281,6 +338,8 @@ def import_raw_visual_mesh(
         original_asset_base64=b64encode(asset).decode('ascii'),
         vertices=tuple(vertices),
         triangles=tuple(triangles),
+        source_normals=normals,
+        source_face_classifications=classifications,
     )
 
 
@@ -299,7 +358,12 @@ def _detect_format(asset: bytes, source_name: str) -> RawMeshFormat:
 
 def _parse_htdt_meshbin_v1(
     asset: bytes,
-) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]]:
+) -> tuple[
+    list[RawMeshVertex],
+    list[RawMeshTriangle],
+    tuple[RawMeshVertex, ...],
+    tuple[int, ...],
+]:
     if len(asset) < 32:
         raise RawMeshImportError('HTDTMSH1 asset is shorter than its header')
     if asset[:8] != b'HTDTMSH1':
@@ -357,12 +421,16 @@ def _parse_htdt_meshbin_v1(
             raise RawMeshImportError('HTDTMSH1 vertex must be finite')
         vertices.append(RawMeshVertex(x=x, y=y, z=z))
 
+    normals: list[RawMeshVertex] = []
     if has_normals:
         for _ in range(vertex_count):
             normal = struct.unpack_from('<fff', asset, cursor)
             cursor += 12
             if not all(isfinite(value) for value in normal):
                 raise RawMeshImportError('HTDTMSH1 normal must be finite')
+            normals.append(
+                RawMeshVertex(x=normal[0], y=normal[1], z=normal[2])
+            )
 
     triangles: list[RawMeshTriangle] = []
     for face_index in range(face_count):
@@ -386,12 +454,14 @@ def _parse_htdt_meshbin_v1(
                 f'HTDTMSH1 face {face_index} is degenerate'
             ) from exc
 
+    classifications: tuple[int, ...] = ()
     if has_classifications:
+        classifications = tuple(asset[cursor:cursor + face_count])
         cursor += face_count
 
     if cursor != len(asset):  # pragma: no cover - length check above is exact
         raise RawMeshImportError('HTDTMSH1 parser did not consume payload')
-    return vertices, triangles
+    return vertices, triangles, tuple(normals), classifications
 
 
 def _parse_obj(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]]:
