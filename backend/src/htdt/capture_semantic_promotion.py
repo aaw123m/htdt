@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
-from math import isfinite
+from math import isfinite, sqrt
 from pathlib import Path
 import sqlite3
 from typing import Literal
@@ -29,11 +29,183 @@ from .semantic_geometry import (
 
 
 PROMOTION_DOMAIN = 'htdt.capture.semantic-promotion.v1'
-WORLD_ALIGNMENT_DOMAIN = 'htdt.capture.world-to-scene-authority.v1'
+WORLD_ALIGNMENT_DOMAIN = 'htdt.capture.world-to-scene-authority.v2'
+
+CAPTURE_ALIGNMENT_ORTHONORMAL_TOLERANCE = 1.0e-4
+CAPTURE_ALIGNMENT_UNIFORM_SCALE_REL_TOLERANCE = 1.0e-4
+# Unit-conversion range (mm/cm/in/ft -> m and back): a uniform scale outside
+# these bounds is never a legitimate capture alignment.
+CAPTURE_ALIGNMENT_MIN_UNIFORM_SCALE = 1.0e-3
+CAPTURE_ALIGNMENT_MAX_UNIFORM_SCALE = 1.0e3
 
 
 class CaptureSemanticPromotionError(ValueError):
     pass
+
+
+class CaptureAlignmentError(ValueError):
+    pass
+
+
+AlignmentTransformClass = Literal['rigid', 'similarity', 'affine']
+CaptureAlignmentMethod = Literal[
+    'identity',
+    'rigid_registration',
+    'uniform_scale_alignment',
+    'explicit_affine_override',
+]
+
+_ALIGNMENT_METHODS_BY_CLASS: dict[AlignmentTransformClass, tuple[CaptureAlignmentMethod, ...]] = {
+    'rigid': ('identity', 'rigid_registration', 'explicit_affine_override'),
+    'similarity': ('uniform_scale_alignment', 'explicit_affine_override'),
+    'affine': ('explicit_affine_override',),
+}
+
+
+def _det3(rows: tuple[tuple[float, float, float, float], ...]) -> float:
+    a, b, c = rows[0][:3]
+    d, e, f = rows[1][:3]
+    g, h, i = rows[2][:3]
+    return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+
+
+def _classify_alignment_matrix(
+    rows: tuple[tuple[float, float, float, float], ...],
+) -> tuple[AlignmentTransformClass, float, float | None]:
+    """Return (transform_class, determinant, uniform_scale) for an affine 4x4."""
+    columns = [
+        (float(rows[0][j]), float(rows[1][j]), float(rows[2][j]))
+        for j in range(3)
+    ]
+    norms = [sqrt(sum(v * v for v in col)) for col in columns]
+    if min(norms) <= 0.0:
+        raise CaptureAlignmentError('capture alignment transform has a degenerate basis')
+    determinant = _det3(rows)
+    # Handedness policy: capture alignment must preserve orientation.
+    # Reflections (det < 0) are never a valid world-to-scene alignment.
+    if determinant <= 0.0:
+        raise CaptureAlignmentError(
+            'capture alignment transform must preserve handedness; '
+            'reflections (det <= 0) are not valid alignments'
+        )
+    dots = []
+    for i in range(3):
+        for j in range(i + 1, 3):
+            dots.append(
+                abs(sum(columns[i][k] * columns[j][k] for k in range(3)))
+                / (norms[i] * norms[j])
+            )
+    if max(dots) > CAPTURE_ALIGNMENT_ORTHONORMAL_TOLERANCE:
+        return 'affine', determinant, None
+    scale = sum(norms) / 3.0
+    spread = max(abs(n - scale) for n in norms) / scale
+    if spread > CAPTURE_ALIGNMENT_UNIFORM_SCALE_REL_TOLERANCE:
+        return 'affine', determinant, None
+    if abs(scale - 1.0) <= CAPTURE_ALIGNMENT_ORTHONORMAL_TOLERANCE:
+        return 'rigid', determinant, None
+    return 'similarity', determinant, scale
+
+
+def _is_identity_matrix(
+    rows: tuple[tuple[float, float, float, float], ...],
+) -> bool:
+    for i in range(4):
+        for j in range(4):
+            expected = 1.0 if i == j else 0.0
+            if abs(float(rows[i][j]) - expected) > CAPTURE_ALIGNMENT_ORTHONORMAL_TOLERANCE:
+                return False
+    return True
+
+
+class CaptureAlignmentScalePolicy(BaseModel):
+    """Operator-declared tolerance bounds for a uniform-scale (similarity) alignment."""
+
+    model_config = ConfigDict(frozen=True)
+
+    min_uniform_scale: float = CAPTURE_ALIGNMENT_MIN_UNIFORM_SCALE
+    max_uniform_scale: float = CAPTURE_ALIGNMENT_MAX_UNIFORM_SCALE
+
+    @model_validator(mode='after')
+    def validate_bounds(self) -> 'CaptureAlignmentScalePolicy':
+        if not isfinite(self.min_uniform_scale) or self.min_uniform_scale <= 0.0:
+            raise ValueError('min_uniform_scale must be finite and positive')
+        if not isfinite(self.max_uniform_scale):
+            raise ValueError('max_uniform_scale must be finite')
+        if self.min_uniform_scale > self.max_uniform_scale:
+            raise ValueError('min_uniform_scale must not exceed max_uniform_scale')
+        return self
+
+    def allows(self, uniform_scale: float) -> bool:
+        return self.min_uniform_scale <= uniform_scale <= self.max_uniform_scale
+
+
+class CaptureAlignmentInspection(BaseModel):
+    """Classification of a candidate alignment — the 'guided' surface operators see."""
+
+    model_config = ConfigDict(frozen=True)
+
+    transform_class: AlignmentTransformClass
+    determinant: float
+    uniform_scale_m_per_capture_m: float | None = None
+    allowed_methods: tuple[CaptureAlignmentMethod, ...]
+    requires_explicit_scale_provenance: bool
+    requires_affine_override: bool
+
+
+def inspect_capture_alignment(
+    transform: SemanticCoordinateTransform,
+) -> CaptureAlignmentInspection:
+    """Classify a candidate world-to-scene transform so an operator can choose a method."""
+    transform_class, determinant, scale = _classify_alignment_matrix(
+        transform.matrix_source_to_scene_m
+    )
+    return CaptureAlignmentInspection(
+        transform_class=transform_class,
+        determinant=determinant,
+        uniform_scale_m_per_capture_m=scale,
+        allowed_methods=_ALIGNMENT_METHODS_BY_CLASS[transform_class],
+        requires_explicit_scale_provenance=transform_class == 'similarity',
+        requires_affine_override=transform_class == 'affine',
+    )
+
+
+def validate_capture_alignment(
+    transform: SemanticCoordinateTransform,
+    *,
+    alignment_method: CaptureAlignmentMethod = 'rigid_registration',
+    scale_policy: CaptureAlignmentScalePolicy | None = None,
+) -> CaptureAlignmentInspection:
+    """Enforce the alignment-method contract on a candidate transform.
+
+    Shared by world-to-scene authorities (#347) and cross-revision
+    registration records (#589/#395): the same class/method rules apply —
+    rigid by default, uniform scale only via ``uniform_scale_alignment``
+    inside declared bounds, shear/non-uniform scale only via the explicit
+    affine override, reflections never.
+    """
+    inspection = inspect_capture_alignment(transform)
+    if alignment_method not in inspection.allowed_methods:
+        raise CaptureAlignmentError(
+            f'capture alignment method {alignment_method} is not permitted '
+            f'for a {inspection.transform_class} transform; allowed: '
+            + ', '.join(inspection.allowed_methods)
+        )
+    if alignment_method == 'identity' and not _is_identity_matrix(
+        transform.matrix_source_to_scene_m
+    ):
+        raise CaptureAlignmentError(
+            "capture alignment method 'identity' requires an identity matrix"
+        )
+    if inspection.transform_class == 'similarity':
+        policy = scale_policy or CaptureAlignmentScalePolicy()
+        scale = inspection.uniform_scale_m_per_capture_m
+        assert scale is not None
+        if not policy.allows(scale):
+            raise CaptureAlignmentError(
+                f'uniform scale {scale!r} is outside the declared policy '
+                f'[{policy.min_uniform_scale!r}, {policy.max_uniform_scale!r}]'
+            )
+    return inspection
 
 
 def _canonical_json(value: object) -> str:
@@ -51,7 +223,15 @@ def _semantic_hash(value: object) -> str:
 
 
 class CaptureWorldToSceneAuthority(BaseModel):
-    """Explicit mapping from one Capture coordinate space into HTDT scene axes."""
+    """Explicit mapping from one Capture coordinate space into HTDT scene axes.
+
+    The authority pins the transform *class* and the operator-declared
+    *method* into its identity: metric-preserving rigid alignment is the
+    default, uniform scale is only admitted via the ``uniform_scale_alignment``
+    method (which records the measured scale as provenance), and general
+    affine content (shear, non-uniform scale) only via the deliberate
+    ``explicit_affine_override`` method. Reflections are always rejected.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -60,12 +240,48 @@ class CaptureWorldToSceneAuthority(BaseModel):
         pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
     )
     transform: SemanticCoordinateTransform
+    transform_class: AlignmentTransformClass
+    alignment_method: CaptureAlignmentMethod
+    uniform_scale_m_per_capture_m: float | None = None
+
+    @model_validator(mode='after')
+    def validate_alignment_contract(self) -> 'CaptureWorldToSceneAuthority':
+        transform_class, _determinant, scale = _classify_alignment_matrix(
+            self.transform.matrix_source_to_scene_m
+        )
+        if transform_class != self.transform_class:
+            raise ValueError(
+                'capture world-to-scene transform_class mismatch: declared '
+                f'{self.transform_class}, matrix is {transform_class}'
+            )
+        if self.alignment_method not in _ALIGNMENT_METHODS_BY_CLASS[transform_class]:
+            raise ValueError(
+                f'capture alignment method {self.alignment_method} is not '
+                f'permitted for a {transform_class} transform'
+            )
+        if transform_class == 'similarity':
+            if self.uniform_scale_m_per_capture_m is None:
+                raise ValueError('similarity alignment must record its uniform scale')
+            if abs(self.uniform_scale_m_per_capture_m - float(scale)) > 1.0e-9:
+                raise ValueError('recorded uniform scale does not match the transform matrix')
+        elif self.uniform_scale_m_per_capture_m is not None:
+            raise ValueError(
+                'uniform_scale_m_per_capture_m is only recorded for similarity alignments'
+            )
+        if self.alignment_method == 'identity' and not _is_identity_matrix(
+            self.transform.matrix_source_to_scene_m
+        ):
+            raise ValueError("alignment method 'identity' requires an identity matrix")
+        return self
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'CaptureWorldToSceneAuthority':
         payload = {
             'coordinate_space_id': self.coordinate_space_id,
             'transform': self.transform.model_dump(mode='json'),
+            'transform_class': self.transform_class,
+            'alignment_method': self.alignment_method,
+            'uniform_scale_m_per_capture_m': self.uniform_scale_m_per_capture_m,
         }
         expected = f'capture-world-to-scene:{_semantic_hash({"domain": WORLD_ALIGNMENT_DOMAIN, **payload})}'
         if self.authority_id != expected:
@@ -77,10 +293,29 @@ def make_capture_world_to_scene_authority(
     *,
     coordinate_space_id: str,
     transform: SemanticCoordinateTransform,
+    alignment_method: CaptureAlignmentMethod = 'rigid_registration',
+    scale_policy: CaptureAlignmentScalePolicy | None = None,
 ) -> CaptureWorldToSceneAuthority:
+    """Bind a Capture coordinate space to scene axes under an explicit method.
+
+    Fails closed: shear/non-uniform scale is rejected for every method except
+    the deliberate ``explicit_affine_override``; uniform scale is rejected
+    unless ``uniform_scale_alignment`` is chosen and the measured factor is
+    inside the declared scale policy bounds.
+    """
+    inspection = validate_capture_alignment(
+        transform,
+        alignment_method=alignment_method,
+        scale_policy=scale_policy,
+    )
+    transform_class = inspection.transform_class
+    uniform_scale = inspection.uniform_scale_m_per_capture_m
     payload = {
         'coordinate_space_id': coordinate_space_id,
         'transform': transform.model_dump(mode='json'),
+        'transform_class': transform_class,
+        'alignment_method': alignment_method,
+        'uniform_scale_m_per_capture_m': uniform_scale,
     }
     authority_id = (
         'capture-world-to-scene:'
@@ -90,6 +325,9 @@ def make_capture_world_to_scene_authority(
         authority_id=authority_id,
         coordinate_space_id=coordinate_space_id,
         transform=transform,
+        transform_class=transform_class,
+        alignment_method=alignment_method,
+        uniform_scale_m_per_capture_m=uniform_scale,
     )
 
 

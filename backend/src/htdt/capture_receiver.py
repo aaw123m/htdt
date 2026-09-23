@@ -1,0 +1,1353 @@
+"""Native Capture receiver + pairing (issue #593).
+
+The LAN receiver that HTDT-Capture's iOS handoff targets, owned by the
+native app lifecycle:
+
+- explicit pairing — the app issues a ``htdt.receiver-pairing`` payload
+  (receiver URL + pinned TLS leaf identity + one-time token) shown as a
+  QR on the Capture device; both sides display the same confirmation
+  code derived from ``sha256(instance|token|pin)``;
+- HTTPS only — a locally generated, durably persisted self-signed
+  certificate whose SHA-256 the QR pins (pinning replaces CA trust for
+  this receiver only); no cleartext HTTP, no cloud relay;
+- capability handshake — the receiver advertises an
+  ``htdt.endpoint-capabilities`` document before any bytes move;
+- upload endpoint accepts the exact ``.htdtcapture`` archive bytes under
+  the Capture header contract, verifies archive SHA / byte count / digest
+  headers, runs the canonical ingest + Capture Inbox staging pipeline,
+  and answers a deterministic ``HTDTIngestionResponse`` receipt;
+- mission receive leg — serves queued Mission packages to paired Capture
+  identities via the pull endpoints and records their
+  ``htdt.capture.mission-receipt`` reports;
+- offline safety — a paired delivery that cannot reach the endpoint is
+  retryable: receipts are idempotent (``already_staged``) and packages
+  are also exportable to file with unchanged identity;
+- lifecycle — disabled by default; port rebinding is safe; shutdown is
+  clean.
+"""
+
+from __future__ import annotations
+
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+import json
+from pathlib import Path
+import secrets
+import sqlite3
+import ssl
+import subprocess
+import threading
+import unicodedata
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Callable, Literal, Mapping
+from urllib.parse import parse_qs, urlparse
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .cad_repository import SceneRepository
+from .cad_schema import ensure_native_schema
+from .capture_ingestion_transaction import (
+    CaptureIngestionPlan,
+    CaptureIngestionRepository,
+)
+from .capture_inbox import (
+    CAPTURE_INBOX_UNASSIGNED_SCOPE,
+    CaptureInboxRepository,
+)
+from .content_blobs import (
+    ensure_content_blob_store,
+    read_content_blob,
+    store_content_blob,
+)
+from .limits import MAX_CAPTURE_INGEST_SOURCE_BYTES
+
+
+RECEIVER_DOMAIN = 'htdt.capture.receiver.v1'
+PAIRING_SCHEMA = 'htdt.receiver-pairing'
+PAIRING_SCHEMA_VERSION = '1.0.0'
+CAPABILITIES_SCHEMA = 'htdt.endpoint-capabilities'
+CAPABILITIES_SCHEMA_VERSION = '1.0.0'
+MISSION_LISTING_SCHEMA = 'htdt.mission-listing'
+MISSION_LISTING_SCHEMA_VERSION = '1.0.0'
+MISSION_RECEIPT_SCHEMA = 'htdt.capture.mission-receipt'
+MISSION_RECEIPT_SCHEMA_VERSION = '1.0.0'
+HANDOFF_PROTOCOL_VERSION = '1'
+BUNDLE_SCHEMA = 'htdt.capture.bundle'
+BUNDLE_SCHEMA_VERSION = '1.0.0'
+
+# Receiving a delivery means the bytes arrived — it never means the bundle
+# passed validation. Promotion gates live in the Capture Inbox (#589).
+
+RECEIVER_PATH_PREFIX = '/htdt-capture/v1'
+
+DELIVERABLE_KINDS = ('capture_bundle', 'field_return')
+
+# How many bytes a single upload may declare/be — same ingest ceiling the
+# file-import path enforces, applied to the wire.
+RECEIVER_MAX_ARCHIVE_BYTES = MAX_CAPTURE_INGEST_SOURCE_BYTES
+
+MISSION_PACKAGE_MAX_BYTES = 16 * 1024 * 1024
+MISSION_LISTING_MAX_BYTES = 256 * 1024
+
+DEFAULT_RECEIVER_PORT = 8443
+PAIRING_TTL_MINUTES = 10
+
+
+class CaptureReceiverError(ValueError):
+    pass
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+        allow_nan=False,
+    )
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _sha256_text(payload: bytes) -> str:
+    return sha256(payload).hexdigest()
+
+
+def _label(value: str, field: str) -> str:
+    normalized = unicodedata.normalize('NFC', value).strip()
+    if not normalized:
+        raise ValueError(f'{field} must be non-empty')
+    if len(normalized) > 240:
+        raise ValueError(f'{field} exceeds 240 characters')
+    return normalized
+
+
+def cert_pin_from_pem(cert_pem: bytes) -> str:
+    """``sha256:<64hex>`` of the leaf certificate DER — the pairing pin."""
+    der = ssl.PEM_cert_to_DER_cert(cert_pem.decode('ascii'))
+    return 'sha256:' + sha256(der).hexdigest()
+
+
+def verification_code(
+    receiver_instance_id: str, pairing_token: str, pinned_identity: str
+) -> str:
+    """The code both devices show: first-8 uppercase hex of the material hash."""
+    material = f'{receiver_instance_id}|{pairing_token}|{pinned_identity}'
+    hex8 = sha256(material.encode('utf-8')).hexdigest()[:8].upper()
+    return f'{hex8[:4]}-{hex8[4:]}'
+
+
+def generate_self_signed_cert(
+    cert_path: Path,
+    key_path: Path,
+    *,
+    common_name: str = 'HTDT Capture Receiver',
+    subject_alt_names: tuple[str, ...] = ('DNS:localhost', 'IP:127.0.0.1'),
+    days: int = 3650,
+) -> None:
+    """Create a locally-generated self-signed receiver certificate."""
+    san = ','.join(subject_alt_names)
+    command = [
+        'openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', str(key_path),
+        '-out', str(cert_path),
+        '-days', str(days),
+        '-subj', f'/CN={common_name}',
+    ]
+    if san:
+        command += ['-addext', f'subjectAltName={san}']
+    result = subprocess.run(
+        command, capture_output=True, text=True, timeout=30
+    )
+    if result.returncode != 0:
+        raise CaptureReceiverError(
+            f'self-signed certificate generation failed: {result.stderr}'
+        )
+
+
+class ReceiverPairingPayload(BaseModel):
+    """``htdt.receiver-pairing`` — the exact QR payload Capture consumes."""
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_: str = Field(default=PAIRING_SCHEMA, alias='schema')
+    schema_version: str = Field(
+        default=PAIRING_SCHEMA_VERSION, alias='schema_version'
+    )
+    receiver_instance_id: str
+    display_name: str
+    endpoint_url: str
+    capability_endpoint_url: str | None = None
+    missions_endpoint_url: str | None = None
+    pinned_identity: str = Field(pattern=r'^sha256:[0-9a-f]{64}$')
+    pairing_token: str = Field(min_length=16)
+    project_ref: str | None = None
+    expires_at: str | None = None
+
+    model_config = ConfigDict(
+        frozen=True, populate_by_name=True, alias_generator=None
+    )
+
+
+class CaptureReceiverConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    receiver_instance_id: str
+    display_name: str = 'HTDT Receiver'
+    host: str = '0.0.0.0'
+    port: int = DEFAULT_RECEIVER_PORT
+    enabled: bool = False  # receiver is off until the operator enables it
+    pinned_identity: str = Field(pattern=r'^sha256:[0-9a-f]{64}$')
+
+
+class ReceiverPairing(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    pairing_id: str
+    pairing_token: str
+    receiver_instance_id: str
+    project_ref: str | None
+    endpoint_url: str
+    capability_endpoint_url: str | None
+    missions_endpoint_url: str | None
+    pinned_identity: str
+    confirmation_code: str
+    state: Literal['offered', 'active', 'revoked', 'expired']
+    created_at_utc: str
+    confirmed_at_utc: str | None
+    expires_at_utc: str | None
+    capture_instance_id: str | None = None
+
+
+class ReceiverDeliveryRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    delivery_key: str
+    pairing_id: str
+    artifact_kind: str
+    artifact_id: str | None
+    artifact_digest: str | None
+    capture_revision_id: str | None
+    bundle_digest: str | None
+    archive_sha256: str
+    archive_bytes: int
+    outcome: Literal['accepted', 'rejected', 'already_staged']
+    staging_ref: str | None
+    lineage_digest: str | None
+    detail: str
+    received_at_utc: str
+
+
+class MissionPackage(BaseModel):
+    """An explicitly versioned mission package queued for a paired device."""
+
+    model_config = ConfigDict(frozen=True)
+
+    package_id: str = Field(min_length=1)
+    mission_id: str | None = None
+    purpose: str | None = None
+    project_ref: str | None = None
+    room_label: str | None = None
+    issued_at_utc: str | None = None
+    supersedes_package_id: str | None = None
+    package_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    byte_size: int = Field(ge=0)
+    required_schema_version: str | None = None
+    receiver_requirement: dict | None = None
+    pairing_id: str | None = None
+    status: Literal['pending', 'received', 'failed'] = 'pending'
+    status_detail: str = ''
+
+    def descriptor(self) -> dict:
+        """The ``htdt.mission-listing`` descriptor fields Capture reads."""
+        descriptor: dict[str, object] = {
+            'package_id': self.package_id,
+            'byte_size': self.byte_size,
+            'package_sha256': self.package_sha256,
+        }
+        for key, value in (
+            ('mission_id', self.mission_id),
+            ('purpose', self.purpose),
+            ('project_ref', self.project_ref),
+            ('room_label', self.room_label),
+            ('issued_at', self.issued_at_utc),
+            ('supersedes_package_id', self.supersedes_package_id),
+            ('required_schema_version', self.required_schema_version),
+            ('receiver_requirement', self.receiver_requirement),
+        ):
+            if value is not None:
+                descriptor[key] = value
+        return descriptor
+
+
+class CaptureReceiverService:
+    """Pairing, delivery, and mission-pull plumbing behind the LAN endpoint."""
+
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        inbox_repository: CaptureInboxRepository | None = None,
+        ingestion_repository: CaptureIngestionRepository | None = None,
+        *,
+        bundle_reader: (
+            Callable[[bytes], tuple[CaptureIngestionPlan, Mapping[str, bytes]]]
+            | None
+        ) = None,
+        base_url: str | None = None,
+        data_dir: Path | None = None,
+        max_archive_bytes: int = RECEIVER_MAX_ARCHIVE_BYTES,
+    ) -> None:
+        self.scene_repository = scene_repository
+        self.ingestion_repository = ingestion_repository or (
+            CaptureIngestionRepository(scene_repository)
+        )
+        self.inbox_repository = inbox_repository or CaptureInboxRepository(
+            scene_repository, self.ingestion_repository
+        )
+        self.bundle_reader = bundle_reader or _default_bundle_reader
+        self._base_url_override = base_url
+        self._data_dir = (
+            Path(data_dir)
+            if data_dir is not None
+            else Path(scene_repository.path).parent / 'capture-receiver'
+        )
+        self.max_archive_bytes = max_archive_bytes
+        self.path = Path(scene_repository.path)
+        ensure_native_schema(self.path)
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._server: ThreadingHTTPServer | None = None
+        self._server_thread: threading.Thread | None = None
+        self._initialize()
+
+    # -- persistence ----------------------------------------------------
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        connection.execute('PRAGMA foreign_keys=ON')
+        return connection
+
+    def _initialize(self) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.executescript(
+                '''
+                CREATE TABLE IF NOT EXISTS capture_receiver_config (
+                    id INTEGER PRIMARY KEY CHECK(id=1),
+                    receiver_instance_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    pinned_identity TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS capture_receiver_pairings (
+                    pairing_id TEXT PRIMARY KEY,
+                    pairing_token TEXT NOT NULL UNIQUE,
+                    receiver_instance_id TEXT NOT NULL,
+                    project_ref TEXT,
+                    endpoint_url TEXT NOT NULL,
+                    capability_endpoint_url TEXT,
+                    missions_endpoint_url TEXT,
+                    pinned_identity TEXT NOT NULL,
+                    confirmation_code TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    confirmed_at_utc TEXT,
+                    expires_at_utc TEXT,
+                    capture_instance_id TEXT
+                );
+                CREATE TABLE IF NOT EXISTS capture_receiver_deliveries (
+                    delivery_key TEXT PRIMARY KEY,
+                    pairing_id TEXT NOT NULL
+                        REFERENCES capture_receiver_pairings(pairing_id),
+                    artifact_kind TEXT NOT NULL,
+                    artifact_id TEXT,
+                    artifact_digest TEXT,
+                    capture_revision_id TEXT,
+                    bundle_digest TEXT,
+                    archive_sha256 TEXT NOT NULL,
+                    archive_bytes INTEGER NOT NULL,
+                    outcome TEXT NOT NULL,
+                    staging_ref TEXT,
+                    lineage_digest TEXT,
+                    detail TEXT NOT NULL,
+                    received_at_utc TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS capture_mission_packages (
+                    package_id TEXT PRIMARY KEY,
+                    pairing_id TEXT,
+                    descriptor_json TEXT NOT NULL,
+                    payload_sha256 TEXT NOT NULL,
+                    byte_size INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    status_detail TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL
+                );
+                '''
+            )
+            ensure_content_blob_store(connection)
+
+    def _config_row(self) -> sqlite3.Row | None:
+        with closing(self._connect()) as connection:
+            return connection.execute(
+                'SELECT * FROM capture_receiver_config WHERE id=1'
+            ).fetchone()
+
+    def get_config(self) -> CaptureReceiverConfig:
+        """Load (or lazily mint) the durable receiver identity."""
+        row = self._config_row()
+        if row is None:
+            receiver_instance_id = str(uuid.uuid4())
+            cert_pem, _key_pem = self._ensure_certificate()
+            pinned = cert_pin_from_pem(cert_pem)
+            with closing(self._connect()) as connection, connection:
+                connection.execute(
+                    'INSERT INTO capture_receiver_config('
+                    'id, receiver_instance_id, display_name, host, port, '
+                    'enabled, pinned_identity) VALUES (1, ?, ?, ?, ?, 0, ?)',
+                    (
+                        receiver_instance_id,
+                        'HTDT Receiver',
+                        '0.0.0.0',
+                        DEFAULT_RECEIVER_PORT,
+                        pinned,
+                    ),
+                )
+            row = self._config_row()
+        assert row is not None
+        return CaptureReceiverConfig(
+            receiver_instance_id=row['receiver_instance_id'],
+            display_name=row['display_name'],
+            host=row['host'],
+            port=int(row['port']),
+            enabled=bool(row['enabled']),
+            pinned_identity=row['pinned_identity'],
+        )
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.get_config()  # ensure row exists
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                'UPDATE capture_receiver_config SET enabled=? WHERE id=1',
+                (1 if enabled else 0,),
+            )
+
+    def set_port(self, port: int) -> None:
+        if not (1 <= int(port) <= 65535):
+            raise CaptureReceiverError('port must be in 1..65535')
+        self.get_config()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                'UPDATE capture_receiver_config SET port=? WHERE id=1',
+                (int(port),),
+            )
+
+    def _ensure_certificate(self) -> tuple[bytes, bytes]:
+        cert_path = self._data_dir / 'receiver-cert.pem'
+        key_path = self._data_dir / 'receiver-key.pem'
+        if cert_path.exists() and key_path.exists():
+            return cert_path.read_bytes(), key_path.read_bytes()
+        generate_self_signed_cert(cert_path, key_path)
+        return cert_path.read_bytes(), key_path.read_bytes()
+
+    # -- pairing --------------------------------------------------------
+
+    def _base_url(self) -> str:
+        config = self.get_config()
+        if self._base_url_override:
+            return self._base_url_override.rstrip('/')
+        host = config.host
+        if host in ('0.0.0.0', '::'):
+            host = '127.0.0.1'
+        return f'https://{host}:{config.port}'
+
+    def begin_pairing(
+        self,
+        *,
+        project_ref: str | None = None,
+        display_name: str | None = None,
+        ttl_minutes: int = PAIRING_TTL_MINUTES,
+    ) -> tuple[ReceiverPairing, ReceiverPairingPayload]:
+        """Issue a pairing offer: QR payload + confirmation code material."""
+        config = self.get_config()
+        base = self._base_url()
+        pairing_id = str(uuid.uuid4())
+        pairing_token = secrets.token_hex(16)
+        code = verification_code(
+            config.receiver_instance_id,
+            pairing_token,
+            config.pinned_identity,
+        )
+        expires = (
+            datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+        ).isoformat()
+        base_path = f'{RECEIVER_PATH_PREFIX}/{pairing_token}'
+        endpoint_url = f'{base}{base_path}/deliveries'
+        capability_url = f'{base}{base_path}/capabilities'
+        missions_url = f'{base}{base_path}/missions'
+        payload = ReceiverPairingPayload(
+            receiver_instance_id=config.receiver_instance_id,
+            display_name=display_name or config.display_name,
+            endpoint_url=endpoint_url,
+            capability_endpoint_url=capability_url,
+            missions_endpoint_url=missions_url,
+            pinned_identity=config.pinned_identity,
+            pairing_token=pairing_token,
+            project_ref=project_ref,
+            expires_at=expires,
+        )
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                '''
+                INSERT INTO capture_receiver_pairings(
+                    pairing_id, pairing_token, receiver_instance_id,
+                    project_ref, endpoint_url, capability_endpoint_url,
+                    missions_endpoint_url, pinned_identity,
+                    confirmation_code, state, created_at_utc,
+                    confirmed_at_utc, expires_at_utc, capture_instance_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'offered', ?, NULL, ?, NULL)
+                ''',
+                (
+                    pairing_id,
+                    pairing_token,
+                    config.receiver_instance_id,
+                    project_ref,
+                    endpoint_url,
+                    capability_url,
+                    missions_url,
+                    config.pinned_identity,
+                    code,
+                    _utc_now(),
+                    expires,
+                ),
+            )
+        pairing = self.get_pairing(pairing_id)
+        assert pairing is not None
+        return pairing, payload
+
+    def confirm_pairing(self, pairing_id: str) -> ReceiverPairing:
+        """Operator confirmed both sides show the same code → activate."""
+        pairing = self.get_pairing(pairing_id)
+        if pairing is None:
+            raise CaptureReceiverError('unknown pairing')
+        if pairing.state == 'revoked':
+            raise CaptureReceiverError('pairing is revoked')
+        if pairing.expires_at_utc and (
+            datetime.fromisoformat(pairing.expires_at_utc)
+            < datetime.now(timezone.utc)
+        ):
+            with closing(self._connect()) as connection, connection:
+                connection.execute(
+                    "UPDATE capture_receiver_pairings SET state='expired' "
+                    'WHERE pairing_id=?',
+                    (pairing_id,),
+                )
+            raise CaptureReceiverError(
+                'pairing offer expired; issue a new one'
+            )
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                "UPDATE capture_receiver_pairings SET state='active', "
+                'confirmed_at_utc=? WHERE pairing_id=?',
+                (_utc_now(), pairing_id),
+            )
+        pairing = self.get_pairing(pairing_id)
+        assert pairing is not None
+        return pairing
+
+    def revoke_pairing(self, pairing_id: str) -> None:
+        with closing(self._connect()) as connection, connection:
+            result = connection.execute(
+                "UPDATE capture_receiver_pairings SET state='revoked' "
+                'WHERE pairing_id=?',
+                (pairing_id,),
+            )
+            if result.rowcount == 0:
+                raise CaptureReceiverError('unknown pairing')
+
+    def get_pairing(self, pairing_id: str) -> ReceiverPairing | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT * FROM capture_receiver_pairings WHERE pairing_id=?',
+                (pairing_id,),
+            ).fetchone()
+            return self._pairing_from_row(row) if row else None
+
+    def _pairing_from_row(self, row: sqlite3.Row) -> ReceiverPairing:
+        return ReceiverPairing(
+            pairing_id=row['pairing_id'],
+            pairing_token=row['pairing_token'],
+            receiver_instance_id=row['receiver_instance_id'],
+            project_ref=row['project_ref'],
+            endpoint_url=row['endpoint_url'],
+            capability_endpoint_url=row['capability_endpoint_url'],
+            missions_endpoint_url=row['missions_endpoint_url'],
+            pinned_identity=row['pinned_identity'],
+            confirmation_code=row['confirmation_code'],
+            state=row['state'],
+            created_at_utc=row['created_at_utc'],
+            confirmed_at_utc=row['confirmed_at_utc'],
+            expires_at_utc=row['expires_at_utc'],
+            capture_instance_id=row['capture_instance_id'],
+        )
+
+    def list_pairings(self) -> tuple[ReceiverPairing, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT * FROM capture_receiver_pairings ORDER BY created_at_utc'
+            ).fetchall()
+            return tuple(self._pairing_from_row(row) for row in rows)
+
+    def _pairing_for_token(self, token: str) -> ReceiverPairing | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT * FROM capture_receiver_pairings WHERE pairing_token=?',
+                (token,),
+            ).fetchone()
+            return self._pairing_from_row(row) if row else None
+
+    def _require_active_pairing(self, token: str) -> ReceiverPairing:
+        pairing = self._pairing_for_token(token)
+        if pairing is None or pairing.state != 'active':
+            raise CaptureReceiverError(
+                'unknown or inactive pairing endpoint'
+            )
+        return pairing
+
+    def capabilities_document(self, token: str) -> dict | None:
+        """``htdt.endpoint-capabilities`` for a paired endpoint."""
+        pairing = self._pairing_for_token(token)
+        if pairing is None or pairing.state not in ('offered', 'active'):
+            return None
+        return {
+            'schema': CAPABILITIES_SCHEMA,
+            'schema_version': CAPABILITIES_SCHEMA_VERSION,
+            'endpoint_identity': pairing.receiver_instance_id,
+            'handoff_protocol_versions': [HANDOFF_PROTOCOL_VERSION],
+            'accepted_bundle_schema_versions': [BUNDLE_SCHEMA_VERSION],
+            'accepted_payload_schemas': [
+                {
+                    'schema': 'htdt.capture.connected-spaces',
+                    'versions': ['1.0.0'],
+                },
+            ],
+            'supported_authority_families': [],
+            'max_archive_bytes': self.max_archive_bytes,
+            'mission_receipts_supported': True,
+            'accepted_artifact_kinds': [
+                {
+                    'artifact_kind': 'capture_bundle',
+                    'accepted_schema_versions': [BUNDLE_SCHEMA_VERSION],
+                    'max_archive_bytes': self.max_archive_bytes,
+                }
+            ],
+            'mission_packages_served': True,
+            'equipment_catalogs_recognized': [],
+            'project_ref': pairing.project_ref,
+            'manual_review_required': True,
+        }
+
+    # -- deliveries ------------------------------------------------------
+
+    def handle_delivery(
+        self, token: str, headers: Mapping[str, str], body: bytes
+    ) -> tuple[int, dict]:
+        """POST endpoint: accept exact .htdtcapture bytes for inbox staging."""
+        try:
+            pairing = self._require_active_pairing(token)
+        except CaptureReceiverError:
+            return 404, {'detail': 'unknown endpoint'}
+
+        lowered = {key.lower(): value for key, value in headers.items()}
+        artifact_kind = lowered.get('x-htdt-artifact-kind', 'capture_bundle')
+        artifact_id = lowered.get('x-htdt-artifact-id')
+        artifact_digest = lowered.get('x-htdt-artifact-digest')
+        # legacy capture_bundle headers are equivalent synonyms
+        capture_revision_id = lowered.get('x-htdt-capture-revision-id')
+        bundle_digest = lowered.get('x-htdt-bundle-digest')
+        declared_sha = lowered.get('x-htdt-archive-sha256')
+        declared_bytes = lowered.get('x-htdt-archive-bytes')
+        delivery_id = lowered.get('x-htdt-delivery-id')
+
+        def reject(detail: str, status: int = 400) -> tuple[int, dict]:
+            self._record_delivery(
+                pairing=pairing,
+                delivery_id=delivery_id,
+                artifact_kind=artifact_kind,
+                artifact_id=artifact_id,
+                artifact_digest=artifact_digest,
+                capture_revision_id=capture_revision_id,
+                bundle_digest=bundle_digest,
+                archive_sha256=declared_sha or _sha256_text(body),
+                archive_bytes=len(body),
+                outcome='rejected',
+                staging_ref=None,
+                lineage_digest=None,
+                detail=detail,
+            )
+            return status, {
+                'ingestion_outcome': 'rejected',
+                'artifact_kind': artifact_kind,
+                'artifact_id': artifact_id,
+                'artifact_digest': artifact_digest,
+                'capture_revision_id': capture_revision_id,
+                'bundle_digest': bundle_digest,
+                'detail': detail,
+            }
+
+        if artifact_kind != 'capture_bundle':
+            return reject(
+                f'unsupported artifact kind {artifact_kind}', status=415
+            )
+        if declared_sha is None or declared_bytes is None:
+            return reject(
+                'missing archive identity headers '
+                '(X-HTDT-Archive-SHA256 / X-HTDT-Archive-Bytes)'
+            )
+        if len(body) > self.max_archive_bytes:
+            return reject('archive exceeds receiver byte ceiling', 413)
+        if int(declared_bytes) != len(body):
+            return reject('archive byte count does not match the body')
+        if _sha256_text(body) != declared_sha:
+            return reject('archive SHA-256 does not match the body')
+
+        # idempotent re-delivery: the receipt echoes the original staging
+        # identity, never a new one
+        delivery_key = f'{pairing.pairing_id}:{delivery_id or declared_sha}'
+        prior = self._get_delivery(delivery_key)
+        if prior is not None:
+            # a re-delivery resolves to the same staging slot and reports
+            # the dedup outcome, never a fresh 'accepted'
+            if prior.outcome == 'accepted':
+                prior = prior.model_copy(update={'outcome': 'already_staged'})
+            return 200, self._receipt_for(prior)
+
+        # hard fail-closed rule: same capture revision arriving under a
+        # different bundle digest is a conflict, never a silent variant
+        if capture_revision_id and bundle_digest:
+            conflict = self._conflicting_revision(
+                capture_revision_id, bundle_digest
+            )
+            if conflict is not None:
+                return reject(
+                    'same capture revision under a different bundle '
+                    'digest; conflict staged in the inbox'
+                )
+
+        try:
+            plan, payloads = self.bundle_reader(body)
+            if not isinstance(plan, CaptureIngestionPlan):
+                plan = CaptureIngestionPlan.model_validate(plan)
+        except Exception as exc:
+            return reject(f'capture bundle could not be read: {exc}')
+
+        # the wire headers and the bundle identity must agree
+        if capture_revision_id and (
+            capture_revision_id != plan.bundle.capture_revision_id
+        ):
+            return reject('revision header disagrees with the bundle')
+        if bundle_digest and bundle_digest != plan.bundle.bundle_digest:
+            return reject('bundle digest header disagrees with the bundle')
+        if artifact_digest and artifact_digest != plan.bundle.bundle_digest:
+            return reject('artifact digest header disagrees with the bundle')
+
+        try:
+            self.ingestion_repository.ingest(plan, payloads)
+        except Exception as exc:
+            return reject(f'capture bundle failed ingestion: {exc}')
+
+        scope = pairing.project_ref or CAPTURE_INBOX_UNASSIGNED_SCOPE
+        try:
+            staged = self.inbox_repository.stage(
+                plan,
+                arrival_source='paired_receiver',
+                scope=scope,
+                source_detail=f'pairing {pairing.pairing_id}',
+            )
+        except Exception as exc:
+            return reject(f'capture bundle failed inbox staging: {exc}')
+
+        record = self._record_delivery(
+            pairing=pairing,
+            delivery_id=delivery_id,
+            artifact_kind=artifact_kind,
+            artifact_id=artifact_id,
+            artifact_digest=artifact_digest or plan.bundle.bundle_digest,
+            capture_revision_id=plan.bundle.capture_revision_id,
+            bundle_digest=plan.bundle.bundle_digest,
+            archive_sha256=declared_sha,
+            archive_bytes=len(body),
+            outcome='accepted' if staged.created else 'already_staged',
+            staging_ref=staged.item.inbox_item_id,
+            lineage_digest=plan.lineage_digest,
+            detail='',
+            delivery_key=delivery_key,
+        )
+        return 200, self._receipt_for(record)
+
+    def _receipt_for(self, record: ReceiverDeliveryRecord) -> dict:
+        return {
+            'ingestion_outcome': record.outcome,
+            'capture_revision_id': record.capture_revision_id,
+            'bundle_digest': record.bundle_digest,
+            'artifact_kind': record.artifact_kind,
+            'artifact_id': record.artifact_id,
+            'artifact_digest': record.artifact_digest,
+            'staging_ref': record.staging_ref,
+            'detail': record.detail or None,
+        }
+
+    def _conflicting_revision(
+        self, capture_revision_id: str, bundle_digest: str
+    ) -> str | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT delivery_key FROM capture_receiver_deliveries '
+                'WHERE capture_revision_id=? AND bundle_digest<>? '
+                'AND outcome<>"rejected"',
+                (capture_revision_id, bundle_digest),
+            ).fetchone()
+        return str(row['delivery_key']) if row else None
+
+    def _get_delivery(self, delivery_key: str) -> ReceiverDeliveryRecord | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT * FROM capture_receiver_deliveries WHERE delivery_key=?',
+                (delivery_key,),
+            ).fetchone()
+        return self._delivery_from_row(row) if row else None
+
+    def _record_delivery(
+        self,
+        *,
+        pairing: ReceiverPairing,
+        delivery_id: str | None,
+        artifact_kind: str,
+        artifact_id: str | None,
+        artifact_digest: str | None,
+        capture_revision_id: str | None,
+        bundle_digest: str | None,
+        archive_sha256: str,
+        archive_bytes: int,
+        outcome: str,
+        staging_ref: str | None,
+        lineage_digest: str | None,
+        detail: str,
+        delivery_key: str | None = None,
+    ) -> ReceiverDeliveryRecord:
+        key = delivery_key or f'{pairing.pairing_id}:{delivery_id or archive_sha256}'
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                'SELECT * FROM capture_receiver_deliveries WHERE delivery_key=?',
+                (key,),
+            ).fetchone()
+            if existing is not None:
+                stored = self._delivery_from_row(existing)
+                if (
+                    stored.archive_sha256 != archive_sha256
+                    or stored.artifact_kind != artifact_kind
+                ):
+                    raise CaptureReceiverError(
+                        'delivery id replayed with different bytes'
+                    )
+                return stored
+            connection.execute(
+                '''
+                INSERT INTO capture_receiver_deliveries(
+                    delivery_key, pairing_id, artifact_kind, artifact_id,
+                    artifact_digest, capture_revision_id, bundle_digest,
+                    archive_sha256, archive_bytes, outcome, staging_ref,
+                    lineage_digest, detail, received_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    key,
+                    pairing.pairing_id,
+                    artifact_kind,
+                    artifact_id,
+                    artifact_digest,
+                    capture_revision_id,
+                    bundle_digest,
+                    archive_sha256,
+                    archive_bytes,
+                    outcome,
+                    staging_ref,
+                    lineage_digest,
+                    detail,
+                    _utc_now(),
+                ),
+            )
+            row = connection.execute(
+                'SELECT * FROM capture_receiver_deliveries WHERE delivery_key=?',
+                (key,),
+            ).fetchone()
+        return self._delivery_from_row(row)
+
+    def _delivery_from_row(self, row: sqlite3.Row) -> ReceiverDeliveryRecord:
+        return ReceiverDeliveryRecord(
+            delivery_key=row['delivery_key'],
+            pairing_id=row['pairing_id'],
+            artifact_kind=row['artifact_kind'],
+            artifact_id=row['artifact_id'],
+            artifact_digest=row['artifact_digest'],
+            capture_revision_id=row['capture_revision_id'],
+            bundle_digest=row['bundle_digest'],
+            archive_sha256=row['archive_sha256'],
+            archive_bytes=int(row['archive_bytes']),
+            outcome=row['outcome'],
+            staging_ref=row['staging_ref'],
+            lineage_digest=row['lineage_digest'],
+            detail=row['detail'],
+            received_at_utc=row['received_at_utc'],
+        )
+
+    # -- mission packages (pull model) -----------------------------------
+
+    def queue_mission_package(
+        self,
+        package_id: str,
+        payload: bytes,
+        *,
+        descriptor: dict | None = None,
+        pairing_id: str | None = None,
+    ) -> MissionPackage:
+        """Queue a Mission package for a paired device to pull.
+
+        Packages are versioned artifacts; their bytes are content-stored so
+        file-based fallback export keeps the same identity.
+        """
+        if len(payload) > MISSION_PACKAGE_MAX_BYTES:
+            raise CaptureReceiverError(
+                'mission package exceeds the receive-leg byte ceiling'
+            )
+        descriptor = dict(descriptor or {})
+        descriptor['package_id'] = package_id
+        descriptor.setdefault('byte_size', len(payload))
+        descriptor.setdefault('package_sha256', _sha256_text(payload))
+        package = MissionPackage(
+            package_id=package_id,
+            mission_id=descriptor.get('mission_id'),
+            purpose=descriptor.get('purpose'),
+            project_ref=descriptor.get('project_ref'),
+            room_label=descriptor.get('room_label'),
+            issued_at_utc=descriptor.get('issued_at') or _utc_now(),
+            supersedes_package_id=descriptor.get('supersedes_package_id'),
+            package_sha256=descriptor['package_sha256'],
+            byte_size=int(descriptor['byte_size']),
+            required_schema_version=descriptor.get('required_schema_version'),
+            receiver_requirement=descriptor.get('receiver_requirement'),
+            pairing_id=pairing_id,
+        )
+        if package.package_sha256 != _sha256_text(payload):
+            raise CaptureReceiverError(
+                'declared package digest does not match the bytes'
+            )
+        if package.byte_size != len(payload):
+            raise CaptureReceiverError(
+                'declared package size does not match the bytes'
+            )
+        with closing(self._connect()) as connection, connection:
+            store_content_blob(connection, payload)
+            connection.execute(
+                '''
+                INSERT OR REPLACE INTO capture_mission_packages(
+                    package_id, pairing_id, descriptor_json, payload_sha256,
+                    byte_size, status, status_detail, created_at_utc,
+                    updated_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(
+                    (SELECT created_at_utc FROM capture_mission_packages
+                     WHERE package_id=?), ?), ?)
+                ''',
+                (
+                    package.package_id,
+                    pairing_id,
+                    _canonical_json(package.descriptor()),
+                    package.package_sha256,
+                    package.byte_size,
+                    'pending',
+                    '',
+                    package_id,
+                    _utc_now(),
+                    _utc_now(),
+                ),
+            )
+        return package
+
+    def mission_package_bytes(self, package_id: str) -> bytes | None:
+        """Exact package bytes — used by the pull endpoint and file export."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT payload_sha256 FROM capture_mission_packages '
+                'WHERE package_id=?',
+                (package_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return read_content_blob(connection, row['payload_sha256'])
+
+    def _mission_from_row(self, row: sqlite3.Row) -> MissionPackage:
+        descriptor = json.loads(row['descriptor_json'])
+        return MissionPackage(
+            package_id=row['package_id'],
+            mission_id=descriptor.get('mission_id'),
+            purpose=descriptor.get('purpose'),
+            project_ref=descriptor.get('project_ref'),
+            room_label=descriptor.get('room_label'),
+            issued_at_utc=descriptor.get('issued_at'),
+            supersedes_package_id=descriptor.get('supersedes_package_id'),
+            package_sha256=row['payload_sha256'],
+            byte_size=int(row['byte_size']),
+            required_schema_version=descriptor.get('required_schema_version'),
+            receiver_requirement=descriptor.get('receiver_requirement'),
+            pairing_id=row['pairing_id'],
+            status=row['status'],
+            status_detail=row['status_detail'],
+        )
+
+    def handle_mission_listing(
+        self, token: str, capture_instance_id: str | None
+    ) -> tuple[int, dict]:
+        """``GET missions`` — metadata-only pending listing for this device."""
+        try:
+            pairing = self._require_active_pairing(token)
+        except CaptureReceiverError:
+            return 404, {'detail': 'unknown endpoint'}
+        if not capture_instance_id:
+            return 400, {'detail': 'X-HTDT-Capture-Instance-ID required'}
+        bound = self._bind_capture_instance(pairing, capture_instance_id)
+        if bound is not None:
+            return bound
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM capture_mission_packages WHERE status='pending' "
+                'AND (pairing_id IS NULL OR pairing_id=?)',
+                (pairing.pairing_id,),
+            ).fetchall()
+        packages = [
+            self._mission_from_row(row).descriptor() for row in rows
+        ]
+        listing = {
+            'schema': MISSION_LISTING_SCHEMA,
+            'schema_version': MISSION_LISTING_SCHEMA_VERSION,
+            'capture_instance_id': capture_instance_id,
+            'packages': packages,
+        }
+        if len(_canonical_json(listing).encode('utf-8')) > (
+            MISSION_LISTING_MAX_BYTES
+        ):
+            return 413, {'detail': 'listing exceeds the receive ceiling'}
+        return 200, listing
+
+    def _bind_capture_instance(
+        self, pairing: ReceiverPairing, capture_instance_id: str
+    ) -> tuple[int, dict] | None:
+        """Bind the first-seen Capture identity to a pairing; refuse others."""
+        if (
+            pairing.capture_instance_id is not None
+            and pairing.capture_instance_id != capture_instance_id
+        ):
+            return 403, {
+                'detail': 'pairing is bound to a different capture instance'
+            }
+        if pairing.capture_instance_id != capture_instance_id:
+            with closing(self._connect()) as connection, connection:
+                connection.execute(
+                    'UPDATE capture_receiver_pairings '
+                    'SET capture_instance_id=? WHERE pairing_id=?',
+                    (capture_instance_id, pairing.pairing_id),
+                )
+        return None
+
+    def handle_mission_package(
+        self, token: str, package_id: str, capture_instance_id: str | None
+    ) -> tuple[int, bytes | dict]:
+        """``GET missions/{package_id}`` — the exact package bytes."""
+        try:
+            pairing = self._require_active_pairing(token)
+        except CaptureReceiverError:
+            return 404, {'detail': 'unknown endpoint'}
+        if not capture_instance_id:
+            return 400, {'detail': 'X-HTDT-Capture-Instance-ID required'}
+        bound = self._bind_capture_instance(pairing, capture_instance_id)
+        if bound is not None:
+            return bound
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT * FROM capture_mission_packages WHERE package_id=?',
+                (package_id,),
+            ).fetchone()
+            if row is None:
+                return 404, {'detail': 'unknown package'}
+            package = self._mission_from_row(row)
+            if package.pairing_id and package.pairing_id != pairing.pairing_id:
+                return 404, {'detail': 'package not offered to this pairing'}
+            payload = read_content_blob(connection, package.package_sha256)
+        if payload is None:
+            return 500, {'detail': 'package payload missing'}
+        return 200, payload
+
+    def handle_mission_receipt(
+        self,
+        token: str,
+        package_id: str,
+        body: bytes,
+        capture_instance_id: str | None,
+    ) -> tuple[int, dict]:
+        """``POST missions/{package_id}/receipt`` — record the receive verdict."""
+        try:
+            pairing = self._require_active_pairing(token)
+        except CaptureReceiverError:
+            return 404, {'detail': 'unknown endpoint'}
+        if capture_instance_id:
+            bound = self._bind_capture_instance(pairing, capture_instance_id)
+            if bound is not None:
+                return bound
+        try:
+            receipt = json.loads(body.decode('utf-8'))
+        except Exception:
+            return 400, {'detail': 'receipt is not valid JSON'}
+        if receipt.get('schema') != MISSION_RECEIPT_SCHEMA:
+            return 400, {'detail': 'unexpected receipt schema'}
+        if receipt.get('package_id') != package_id:
+            return 400, {'detail': 'receipt package mismatch'}
+        if capture_instance_id and (
+            receipt.get('capture_instance_id') != capture_instance_id
+        ):
+            return 400, {'detail': 'receipt device mismatch'}
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT * FROM capture_mission_packages WHERE package_id=?',
+                (package_id,),
+            ).fetchone()
+            if row is None:
+                return 404, {'detail': 'unknown package'}
+            package = self._mission_from_row(row)
+            if package.pairing_id and package.pairing_id != pairing.pairing_id:
+                return 404, {'detail': 'package not offered to this pairing'}
+            if receipt.get('package_sha256') != package.package_sha256:
+                return 400, {'detail': 'receipt digest mismatch'}
+            result = receipt.get('validation_result', '')
+            status = (
+                'received'
+                if result in ('imported', 'duplicate', 'superseding')
+                else 'failed'
+            )
+            connection.execute(
+                'UPDATE capture_mission_packages SET status=?, '
+                'status_detail=?, updated_at_utc=? WHERE package_id=?',
+                (
+                    status,
+                    receipt.get('detail') or result,
+                    _utc_now(),
+                    package_id,
+                ),
+            )
+        return 200, {'ok': True}
+
+    def list_mission_packages(
+        self, status: str | None = None
+    ) -> tuple[MissionPackage, ...]:
+        sql = 'SELECT * FROM capture_mission_packages'
+        args: tuple = ()
+        if status:
+            sql += ' WHERE status=?'
+            args = (status,)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(sql, args).fetchall()
+            return tuple(self._mission_from_row(row) for row in rows)
+
+    def export_mission_package(self, package_id: str, destination: Path) -> Path:
+        """File-based fallback: write the package bytes with unchanged identity."""
+        payload = self.mission_package_bytes(package_id)
+        if payload is None:
+            raise CaptureReceiverError('unknown mission package')
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        return destination
+
+    # -- HTTP lifecycle ---------------------------------------------------
+
+    def start(self, host: str | None = None, port: int | None = None) -> int:
+        """Bind the HTTPS endpoint. Returns the bound port."""
+        if self._server is not None:
+            raise CaptureReceiverError('receiver already running')
+        config = self.get_config()
+        host = host or config.host
+        port = config.port if port is None else port
+        cert_pem, key_pem = self._ensure_certificate()
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        cert_path = self._data_dir / 'receiver-cert.pem'
+        key_path = self._data_dir / 'receiver-key.pem'
+        if not cert_path.exists():
+            cert_path.write_bytes(cert_pem)
+            key_path.write_bytes(key_pem)
+        context.load_cert_chain(str(cert_path), str(key_path))
+        handler = _make_handler(self)
+        server = ThreadingHTTPServer((host, port), handler)
+        server.daemon_threads = True
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        self._server = server
+        self._server_thread = threading.Thread(
+            target=server.serve_forever, daemon=True, name='capture-receiver'
+        )
+        self._server_thread.start()
+        self.set_enabled(True)
+        if self._base_url_override is None:
+            self.set_port(server.server_address[1])
+        return server.server_address[1]
+
+    def stop(self) -> None:
+        """Clean shutdown: stop serving and close the socket."""
+        server = self._server
+        self._server = None
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        if self._server_thread is not None:
+            self._server_thread.join(timeout=5)
+            self._server_thread = None
+        self.set_enabled(False)
+
+    @property
+    def running(self) -> bool:
+        return self._server is not None
+
+
+def _default_bundle_reader(
+    payload: bytes,
+) -> tuple[CaptureIngestionPlan, Mapping[str, bytes]]:
+    """Resolve the archive bytes to an ingestion plan via the import path.
+
+    ``import_capture_artifact`` is supplied by the .htdtcapture import
+    pipeline; when it is unavailable the receiver still accepts and stages
+    nothing — the delivery is rejected with a clear reason instead of
+    silently parsed.
+    """
+    import tempfile
+
+    try:
+        from .capture_import import import_capture_artifact
+    except ImportError as exc:
+        raise CaptureReceiverError(
+            'no capture bundle reader is available on this build; '
+            'the .htdtcapture import pipeline is required'
+        ) from exc
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / 'delivery.htdtcapture'
+        path.write_bytes(payload)
+        result = import_capture_artifact(path)
+    plan = result.get('plan') if isinstance(result, dict) else None
+    if plan is None:
+        raise CaptureReceiverError(
+            'capture bundle reader returned no plan'
+        )
+    return plan, result['payloads']
+
+
+def _make_handler(service: CaptureReceiverService):
+    prefix = RECEIVER_PATH_PREFIX + '/'
+
+    class ReceiverHandler(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A002
+            return
+
+        def _json(self, status: int, body: dict) -> None:
+            payload = json.dumps(body).encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def _route(self) -> tuple[str, str, str] | None:
+            """→ (token, resource, suffix) for paired routes, else None."""
+            parsed = urlparse(self.path)
+            if not parsed.path.startswith(prefix):
+                return None
+            remainder = parsed.path[len(prefix):]
+            token, _, resource = remainder.partition('/')
+            resource_name, _, suffix = resource.partition('/')
+            return token, resource_name, suffix
+
+        def do_GET(self) -> None:  # noqa: N802
+            route = self._route()
+            if route is None:
+                self._json(404, {'detail': 'unknown endpoint'})
+                return
+            token, resource, suffix = route
+            if resource == 'capabilities':
+                document = service.capabilities_document(token)
+                if document is None:
+                    self._json(404, {'detail': 'unknown endpoint'})
+                else:
+                    self._json(200, document)
+                return
+            capture_instance_id = self.headers.get(
+                'X-HTDT-Capture-Instance-ID'
+            )
+            if resource == 'missions':
+                if suffix:
+                    status, body = service.handle_mission_package(
+                        token, suffix, capture_instance_id
+                    )
+                    if isinstance(body, (bytes, bytearray)):
+                        self.send_response(status)
+                        self.send_header(
+                            'Content-Type', 'application/octet-stream'
+                        )
+                        self.send_header('Content-Length', str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                    else:
+                        self._json(status, body)
+                else:
+                    status, body = service.handle_mission_listing(
+                        token,
+                        capture_instance_id
+                        or parse_qs(urlparse(self.path).query).get(
+                            'capture_instance_id', [None]
+                        )[0],
+                    )
+                    self._json(status, body)
+                return
+            self._json(404, {'detail': 'unknown endpoint'})
+
+        def do_POST(self) -> None:  # noqa: N802
+            route = self._route()
+            if route is None:
+                self._json(404, {'detail': 'unknown endpoint'})
+                return
+            token, resource, suffix = route
+            length = int(self.headers.get('Content-Length', '0'))
+            if length > service.max_archive_bytes:
+                self._json(413, {'detail': 'archive exceeds byte ceiling'})
+                return
+            body = self.rfile.read(length) if length else b''
+            headers = {key: value for key, value in self.headers.items()}
+            if resource == 'deliveries':
+                status, response = service.handle_delivery(
+                    token, headers, body
+                )
+                self._json(status, response)
+                return
+            if resource == 'missions' and suffix.endswith('/receipt'):
+                package_id, _, _leaf = suffix.partition('/receipt')
+                status, response = service.handle_mission_receipt(
+                    token,
+                    package_id,
+                    body,
+                    self.headers.get('X-HTDT-Capture-Instance-ID'),
+                )
+                self._json(status, response)
+                return
+            self._json(404, {'detail': 'unknown endpoint'})
+
+    return ReceiverHandler
