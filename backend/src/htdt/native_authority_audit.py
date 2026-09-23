@@ -1209,12 +1209,16 @@ def audit_native_authority_graph(
 
         # ---- capture ingestion runs --------------------------------------
         if _table_exists(connection, 'capture_ingestion_runs'):
+            run_columns = _table_columns(connection, 'capture_ingestion_runs')
             count = 0
             for row in connection.execute(
-                'SELECT lineage_digest, plan_json '
+                'SELECT ingestion_run_id AS run_ref, plan_json '
+                'FROM capture_ingestion_runs ORDER BY ingestion_run_id'
+                if 'ingestion_run_id' in run_columns
+                else 'SELECT lineage_digest AS run_ref, plan_json '
                 'FROM capture_ingestion_runs ORDER BY lineage_digest'
             ).fetchall():
-                ref = str(row['lineage_digest'])
+                ref = str(row['run_ref'])
                 try:
                     plan = json.loads(row['plan_json'])
                     chain.repo('capture').verify_persisted_ingestion(plan)

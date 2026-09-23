@@ -45,12 +45,31 @@ UUID4_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 )
 HEX64_RE = re.compile(r'^[0-9a-f]{64}$')
+RUN_ID_RE = re.compile(r'^capture-ingestion-run:[0-9a-f]{64}$')
+COORDINATE_AUTHORITY_ID_RE = re.compile(
+    r'^capture-coordinate-authority:[0-9a-f]{64}$'
+)
 SOURCE_EVIDENCE_DOMAIN = 'htdt.capture.source-evidence.v1'
 RAW_MESH_HANDOFF_DOMAIN = 'htdt.capture.raw-visual-mesh-handoff.v1'
 AUTHORITY_HANDOFF_DOMAIN = 'htdt.capture.authority-record.v1'
+INGESTION_RUN_DOMAIN = 'htdt.capture.ingestion-run.v1'
+COORDINATE_AUTHORITY_DOMAIN = 'htdt.capture.coordinate-authority.v1'
 INGESTOR_CONFIGURATION_DIGEST = (
     '3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3'
 )
+# The backend contract is explicitly versioned: only these
+# (name, version) -> configuration_digest ingestor identities may ingest.
+# Adding a new supported ingestor version is a deliberate contract edit,
+# never an implicit consequence of the plan payload.
+SUPPORTED_INGESTOR_IDENTITIES: Mapping[tuple[str, str], str] = {
+    ('htdt-capture-reference-ingestor', '1.0.0'): INGESTOR_CONFIGURATION_DIGEST,
+}
+# Every byte HTDT persists through this repository arrived via an
+# unsigned local .htdtcapture bundle import. That verified import origin is
+# deliberately distinct from whatever provenance class the bundle asserts:
+# an unsigned bundle may claim ``backend_derived`` and it is still recorded
+# under this same untrusted-but-verified origin.
+CAPTURE_IMPORT_ORIGIN_UNSIGNED_BUNDLE = 'unsigned_capture_bundle_import'
 PERSISTED_INGESTION_INTEGRITY_MISMATCH = (
     'persisted_ingestion_integrity_mismatch'
 )
@@ -145,6 +164,54 @@ def _authority_handoff_id(
     )
 
 
+def _ingestion_run_id(
+    lineage_digest: str,
+    ingestor_name: str,
+    ingestor_version: str,
+    configuration_digest: str,
+    plan_sha256: str,
+) -> str:
+    """Deterministic processing-run identity (#413).
+
+    The run identity is deliberately distinct from ``lineage_digest``: the
+    lineage digest is the stable projection of source/handoff identities,
+    while the run id additionally binds the exact ingestor software and the
+    canonical plan bytes that produced the materialization. Two supported
+    ingestor versions (or any changed canonical plan) on the same immutable
+    lineage therefore produce two distinct persisted runs without colliding
+    on the shared lineage projection.
+    """
+
+    return 'capture-ingestion-run:' + _hash_parts(
+        INGESTION_RUN_DOMAIN,
+        lineage_digest,
+        ingestor_name,
+        ingestor_version,
+        configuration_digest,
+        plan_sha256,
+    )
+
+
+def _coordinate_authority_id(
+    bundle_digest: str,
+    coordinate_space_id: str,
+) -> str:
+    """Scoped coordinate authority identity (#365).
+
+    A bare ``coordinate_space_id`` UUID is only meaningful inside the exact
+    immutable Capture bundle that declared it. Scoping the authority to
+    (bundle_digest, coordinate_space_id) keeps two independent bundles that
+    claim the same UUID as distinct registered frames instead of letting
+    the string collision imply a shared physical frame.
+    """
+
+    return 'capture-coordinate-authority:' + _hash_parts(
+        COORDINATE_AUTHORITY_DOMAIN,
+        bundle_digest,
+        coordinate_space_id,
+    )
+
+
 def _canonical_json(value: object) -> str:
     return json.dumps(
         value,
@@ -208,11 +275,16 @@ def _binding_handoff_source_ids(
 class CaptureIngestorIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
-    name: Literal['htdt-capture-reference-ingestor']
-    version: Literal['1.0.0']
-    configuration_digest: Literal[
-        '3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3'
-    ]
+    name: str
+    version: str
+    configuration_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def _validate_supported(self) -> 'CaptureIngestorIdentity':
+        expected = SUPPORTED_INGESTOR_IDENTITIES.get((self.name, self.version))
+        if expected is None or expected != self.configuration_digest:
+            raise ValueError('unsupported capture ingestor identity')
+        return self
 
 
 class CaptureBundleIdentity(BaseModel):
@@ -507,6 +579,7 @@ class CaptureIngestionPlan(BaseModel):
 
 @dataclass(frozen=True)
 class CaptureIngestionCommitResult:
+    ingestion_run_id: str
     lineage_digest: str
     bundle_digest: str
     source_evidence_count: int
@@ -514,6 +587,99 @@ class CaptureIngestionCommitResult:
     raw_mesh_binding_count: int
     authority_record_count: int
     created: bool
+
+
+@dataclass(frozen=True)
+class CaptureIngestionRun:
+    """Persisted processing-run record (#413).
+
+    The run is one exact (ingestor identity, canonical plan) execution over
+    an immutable lineage. ``lineage_digest`` stays the shared projection of
+    source/handoff identities; several runs may legitimately share it when
+    the contract later supports a second ingestor version.
+    """
+
+    ingestion_run_id: str
+    lineage_digest: str
+    plan_sha256: str
+    bundle_digest: str
+    capture_revision_id: str
+    capture_series_id: str
+    parent_revision_id: str | None
+    capture_session_ids: tuple[str, ...]
+    coordinate_space_ids: tuple[str, ...]
+    ingestor_name: str
+    ingestor_version: str
+    configuration_digest: str
+    recorded_at_utc: str
+
+
+@dataclass(frozen=True)
+class CaptureCoordinateAuthority:
+    """Scoped coordinate authority for one immutable imported frame (#365).
+
+    The authority id binds a coordinate-space UUID to the exact bundle
+    (therefore revision) that declared it. Two bundles claiming the same
+    UUID hold two different authorities, so a world-to-scene alignment made
+    for one can never silently satisfy the other.
+    """
+
+    coordinate_authority_id: str
+    bundle_digest: str
+    capture_revision_id: str
+    coordinate_space_id: str
+    registered_by_run_id: str
+    recorded_at_utc: str
+
+
+@dataclass(frozen=True)
+class CaptureRevisionSummary:
+    """Library view of one imported Capture revision (#353).
+
+    Derived entirely from normalized run/link rows — listing it never
+    loads source payload BLOBs. ``parent_known=False`` marks a revision
+    whose declared parent is not persisted (imported mid-series), which is
+    legitimate state, not corruption. ``promotion_ids`` / scene ids expose
+    the promotion dependency edges a retention policy must honor.
+    """
+
+    capture_revision_id: str
+    capture_series_id: str
+    bundle_digest: str
+    parent_revision_id: str | None
+    parent_known: bool
+    capture_session_ids: tuple[str, ...]
+    coordinate_space_ids: tuple[str, ...]
+    lineage_digests: tuple[str, ...]
+    ingestion_run_ids: tuple[str, ...]
+    ingestor_versions: tuple[str, ...]
+    source_evidence_count: int
+    raw_mesh_binding_ids: tuple[str, ...]
+    authority_record_count: int
+    roomplan_record_count: int
+    promotion_ids: tuple[str, ...]
+    promoted_scene_revision_ids: tuple[str, ...]
+    first_recorded_at_utc: str
+    last_recorded_at_utc: str
+
+
+@dataclass(frozen=True)
+class CaptureProvenanceTrust:
+    """Trust view separating asserted labels from verified origin (#412).
+
+    ``asserted_provenance_class`` and ``asserted_producer`` are labels the
+    (unsigned) bundle claimed about itself — ``backend_derived`` included.
+    ``verified_import_origin`` is how HTDT actually obtained the bytes;
+    ``producer_authenticated`` stays False until a signed import path
+    exists, so nothing downstream can mistake an asserted label for a
+    verified one.
+    """
+
+    source_evidence_id: str
+    asserted_provenance_class: str
+    asserted_producer: str
+    verified_import_origin: str
+    producer_authenticated: bool
 
 
 @dataclass(frozen=True)
@@ -562,15 +728,27 @@ class CaptureIngestionRepository:
         with closing(self._connect()) as connection, connection:
             connection.executescript(
                 '''
+                CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
+                    lineage_digest TEXT PRIMARY KEY
+                );
+
                 CREATE TABLE IF NOT EXISTS capture_ingestion_runs (
-                    lineage_digest TEXT PRIMARY KEY,
+                    ingestion_run_id TEXT PRIMARY KEY,
+                    lineage_digest TEXT NOT NULL,
+                    plan_sha256 TEXT NOT NULL,
                     bundle_digest TEXT NOT NULL,
                     capture_revision_id TEXT NOT NULL,
+                    capture_series_id TEXT NOT NULL,
+                    parent_revision_id TEXT,
+                    capture_session_ids_json TEXT NOT NULL,
+                    coordinate_space_ids_json TEXT NOT NULL,
                     ingestor_name TEXT NOT NULL,
                     ingestor_version TEXT NOT NULL,
                     configuration_digest TEXT NOT NULL,
                     plan_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
+                    recorded_at_utc TEXT NOT NULL,
+                    FOREIGN KEY(lineage_digest)
+                        REFERENCES capture_ingestion_lineages(lineage_digest)
                 );
 
                 CREATE TABLE IF NOT EXISTS capture_source_evidence (
@@ -585,28 +763,32 @@ class CaptureIngestionRepository:
                     provenance_class TEXT NOT NULL,
                     role TEXT NOT NULL,
                     source_refs_json TEXT NOT NULL,
+                    import_origin TEXT NOT NULL
+                        DEFAULT 'unsigned_capture_bundle_import',
                     payload_blob BLOB NOT NULL,
                     UNIQUE(bundle_digest, logical_path)
                 );
 
                 CREATE TABLE IF NOT EXISTS capture_ingestion_source_links (
-                    lineage_digest TEXT NOT NULL,
+                    ingestion_run_id TEXT NOT NULL,
                     source_evidence_id TEXT NOT NULL,
-                    PRIMARY KEY(lineage_digest, source_evidence_id),
-                    FOREIGN KEY(lineage_digest)
-                        REFERENCES capture_ingestion_runs(lineage_digest),
+                    PRIMARY KEY(ingestion_run_id, source_evidence_id),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
                     FOREIGN KEY(source_evidence_id)
                         REFERENCES capture_source_evidence(source_evidence_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS capture_roomplan_records (
-                    lineage_digest TEXT NOT NULL,
+                    ingestion_run_id TEXT NOT NULL,
                     kind TEXT NOT NULL,
                     source_evidence_id TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
-                    PRIMARY KEY(lineage_digest, kind, source_evidence_id),
-                    FOREIGN KEY(lineage_digest)
-                        REFERENCES capture_ingestion_runs(lineage_digest),
+                    PRIMARY KEY(
+                        ingestion_run_id, kind, source_evidence_id
+                    ),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
                     FOREIGN KEY(source_evidence_id)
                         REFERENCES capture_source_evidence(source_evidence_id)
                 );
@@ -624,11 +806,11 @@ class CaptureIngestionRepository:
                 );
 
                 CREATE TABLE IF NOT EXISTS capture_ingestion_mesh_links (
-                    lineage_digest TEXT NOT NULL,
+                    ingestion_run_id TEXT NOT NULL,
                     binding_id TEXT NOT NULL,
-                    PRIMARY KEY(lineage_digest, binding_id),
-                    FOREIGN KEY(lineage_digest)
-                        REFERENCES capture_ingestion_runs(lineage_digest),
+                    PRIMARY KEY(ingestion_run_id, binding_id),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
                     FOREIGN KEY(binding_id)
                         REFERENCES capture_raw_visual_mesh_bindings(binding_id)
                 );
@@ -642,22 +824,87 @@ class CaptureIngestionRepository:
                 );
 
                 CREATE TABLE IF NOT EXISTS capture_ingestion_authority_links (
-                    lineage_digest TEXT NOT NULL,
+                    ingestion_run_id TEXT NOT NULL,
                     authority_record_handoff_id TEXT NOT NULL,
-                    PRIMARY KEY(lineage_digest, authority_record_handoff_id),
-                    FOREIGN KEY(lineage_digest)
-                        REFERENCES capture_ingestion_runs(lineage_digest),
+                    PRIMARY KEY(
+                        ingestion_run_id, authority_record_handoff_id
+                    ),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
                     FOREIGN KEY(authority_record_handoff_id)
                         REFERENCES capture_authority_records(
                             authority_record_handoff_id
                         )
                 );
+
                 '''
             )
             ensure_content_blob_store(connection)
+            self._migrate_run_identity(connection)
+            # Lineage rows are the unique foreign-key parent shared by the
+            # run-scoped schema and the lineage-keyed capture tables; seed
+            # them for databases already holding new-shape run rows.
+            connection.execute(
+                '''
+                INSERT OR IGNORE INTO capture_ingestion_lineages(
+                    lineage_digest
+                )
+                SELECT DISTINCT lineage_digest FROM capture_ingestion_runs
+                '''
+            )
+            # Created after the run-identity rebuild: under foreign_keys=ON
+            # ALTER TABLE ... RENAME rewrites references to the dropped
+            # _legacy name, so a table that persists must not reference the
+            # renamed capture_ingestion_runs until the new one exists.
+            connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS capture_coordinate_authorities (
+                    coordinate_authority_id TEXT PRIMARY KEY,
+                    bundle_digest TEXT NOT NULL,
+                    capture_revision_id TEXT NOT NULL,
+                    coordinate_space_id TEXT NOT NULL,
+                    registered_by_run_id TEXT NOT NULL
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
+                    recorded_at_utc TEXT NOT NULL,
+                    UNIQUE(bundle_digest, coordinate_space_id)
+                )
+                '''
+            )
+            self._migrate_source_import_origin(connection)
+            self._register_persisted_coordinate_authorities(connection)
             self._externalize_inline_source_payloads(connection)
             self._compact_legacy_mesh_bindings(connection)
             self._normalize_mesh_binding_sources(connection)
+            connection.execute(
+                '''
+                CREATE INDEX IF NOT EXISTS
+                    idx_capture_ingestion_runs_lineage
+                ON capture_ingestion_runs(lineage_digest)
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE INDEX IF NOT EXISTS
+                    idx_capture_ingestion_runs_revision
+                ON capture_ingestion_runs(capture_revision_id)
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE INDEX IF NOT EXISTS
+                    idx_capture_ingestion_runs_series
+                ON capture_ingestion_runs(capture_series_id)
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE INDEX IF NOT EXISTS
+                    idx_capture_coordinate_authority_scope
+                ON capture_coordinate_authorities(
+                    bundle_digest, coordinate_space_id
+                )
+                '''
+            )
             connection.execute(
                 '''
                 CREATE INDEX IF NOT EXISTS idx_capture_mesh_binding_anchor_source
@@ -674,6 +921,380 @@ class CaptureIngestionRepository:
                 )
                 '''
             )
+
+    def _migrate_run_identity(self, connection: sqlite3.Connection) -> None:
+        """Split persisted run identity from the stable lineage digest (#413).
+
+        Databases written before this contract stored
+        ``capture_ingestion_runs(lineage_digest PRIMARY KEY)`` and keyed
+        every link table by that projection. Rebuilding is provenance-safe:
+        the deterministic run id derives only from values the legacy row
+        already persisted (lineage digest, ingestor name/version,
+        configuration digest, canonical plan bytes), so the migration maps
+        each legacy row to the exact run id the current ingest path would
+        have assigned. Since the legacy primary key guaranteed at most one
+        run per lineage, every legacy link row rebinds to that one run.
+        """
+
+        run_columns = {
+            str(row['name'])
+            for row in connection.execute(
+                'PRAGMA table_info(capture_ingestion_runs)'
+            )
+        }
+        if 'ingestion_run_id' in run_columns:
+            return
+        legacy = connection.execute(
+            '''
+            SELECT lineage_digest, bundle_digest, capture_revision_id,
+                   ingestor_name, ingestor_version, configuration_digest,
+                   plan_json, recorded_at_utc
+            FROM capture_ingestion_runs
+            ORDER BY lineage_digest
+            '''
+        ).fetchall()
+        rows: list[tuple[str, ...]] = []
+        for row in legacy:
+            try:
+                typed = CaptureIngestionPlan.model_validate_json(
+                    row['plan_json']
+                )
+            except (ValueError, TypeError) as exc:
+                raise CaptureIngestionTransactionError(
+                    'cannot migrate ingestion run identity: persisted plan '
+                    f"for lineage {row['lineage_digest']} does not validate "
+                    f'({exc})'
+                ) from exc
+            if typed.lineage_digest != row['lineage_digest']:
+                raise CaptureIngestionTransactionError(
+                    'cannot migrate ingestion run identity: persisted run '
+                    'lineage disagrees with its plan'
+                )
+            plan_sha256 = sha256(
+                str(row['plan_json']).encode('utf-8')
+            ).hexdigest()
+            run_id = _ingestion_run_id(
+                typed.lineage_digest,
+                str(row['ingestor_name']),
+                str(row['ingestor_version']),
+                str(row['configuration_digest']),
+                plan_sha256,
+            )
+            rows.append(
+                (
+                    run_id,
+                    typed.lineage_digest,
+                    plan_sha256,
+                    typed.bundle.bundle_digest,
+                    typed.bundle.capture_revision_id,
+                    typed.bundle.capture_series_id,
+                    typed.bundle.parent_revision_id,
+                    _canonical_json(list(typed.bundle.capture_session_ids)),
+                    _canonical_json(list(typed.bundle.coordinate_space_ids)),
+                    typed.ingestor.name,
+                    typed.ingestor.version,
+                    typed.ingestor.configuration_digest,
+                    str(row['plan_json']),
+                    str(row['recorded_at_utc']),
+                )
+            )
+
+        # RENAME/CREATE/DROP are autocommitted when no transaction is open,
+        # so the rebuild runs inside an explicit transaction: either the
+        # whole run-scoped schema replaces the lineage-scoped one or
+        # nothing changes and a later open retries deterministically. Any
+        # table that survives the migration must not reference the renamed
+        # table at rename time — foreign_keys=ON rewrites such references
+        # to the dropped _legacy name — so capture_coordinate_authorities
+        # is created after this migration, not in the DDL above it.
+        if connection.in_transaction:
+            connection.commit()
+        connection.execute('BEGIN IMMEDIATE')
+        try:
+            connection.execute(
+                '''
+                ALTER TABLE capture_ingestion_runs
+                RENAME TO capture_ingestion_runs_legacy
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE TABLE capture_ingestion_runs (
+                    ingestion_run_id TEXT PRIMARY KEY,
+                    lineage_digest TEXT NOT NULL,
+                    plan_sha256 TEXT NOT NULL,
+                    bundle_digest TEXT NOT NULL,
+                    capture_revision_id TEXT NOT NULL,
+                    capture_series_id TEXT NOT NULL,
+                    parent_revision_id TEXT,
+                    capture_session_ids_json TEXT NOT NULL,
+                    coordinate_space_ids_json TEXT NOT NULL,
+                    ingestor_name TEXT NOT NULL,
+                    ingestor_version TEXT NOT NULL,
+                    configuration_digest TEXT NOT NULL,
+                    plan_json TEXT NOT NULL,
+                    recorded_at_utc TEXT NOT NULL,
+                    FOREIGN KEY(lineage_digest)
+                        REFERENCES capture_ingestion_lineages(lineage_digest)
+                )
+                '''
+            )
+            connection.executemany(
+                '''
+                INSERT OR IGNORE INTO capture_ingestion_lineages(
+                    lineage_digest
+                ) VALUES (?)
+                ''',
+                [(row[1],) for row in rows],
+            )
+            connection.executemany(
+                '''
+                INSERT INTO capture_ingestion_runs(
+                    ingestion_run_id, lineage_digest, plan_sha256,
+                    bundle_digest, capture_revision_id, capture_series_id,
+                    parent_revision_id, capture_session_ids_json,
+                    coordinate_space_ids_json, ingestor_name,
+                    ingestor_version, configuration_digest, plan_json,
+                    recorded_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                rows,
+            )
+            self._rebind_link_table(
+                connection,
+                'capture_ingestion_source_links',
+                column_defs='''
+                    ingestion_run_id TEXT NOT NULL,
+                    source_evidence_id TEXT NOT NULL,
+                    PRIMARY KEY(ingestion_run_id, source_evidence_id),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
+                    FOREIGN KEY(source_evidence_id)
+                        REFERENCES capture_source_evidence(source_evidence_id)
+                ''',
+                insert_columns=(
+                    'ingestion_run_id, source_evidence_id'
+                ),
+                select_columns='source_evidence_id',
+            )
+            self._rebind_link_table(
+                connection,
+                'capture_roomplan_records',
+                column_defs='''
+                    ingestion_run_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    source_evidence_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    PRIMARY KEY(
+                        ingestion_run_id, kind, source_evidence_id
+                    ),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
+                    FOREIGN KEY(source_evidence_id)
+                        REFERENCES capture_source_evidence(source_evidence_id)
+                ''',
+                insert_columns=(
+                    'ingestion_run_id, kind, source_evidence_id, '
+                    'payload_json'
+                ),
+                select_columns='kind, source_evidence_id, payload_json',
+            )
+            self._rebind_link_table(
+                connection,
+                'capture_ingestion_mesh_links',
+                column_defs='''
+                    ingestion_run_id TEXT NOT NULL,
+                    binding_id TEXT NOT NULL,
+                    PRIMARY KEY(ingestion_run_id, binding_id),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
+                    FOREIGN KEY(binding_id)
+                        REFERENCES capture_raw_visual_mesh_bindings(
+                            binding_id
+                        )
+                ''',
+                insert_columns='ingestion_run_id, binding_id',
+                select_columns='binding_id',
+            )
+            self._rebind_link_table(
+                connection,
+                'capture_ingestion_authority_links',
+                column_defs='''
+                    ingestion_run_id TEXT NOT NULL,
+                    authority_record_handoff_id TEXT NOT NULL,
+                    PRIMARY KEY(
+                        ingestion_run_id, authority_record_handoff_id
+                    ),
+                    FOREIGN KEY(ingestion_run_id)
+                        REFERENCES capture_ingestion_runs(ingestion_run_id),
+                    FOREIGN KEY(authority_record_handoff_id)
+                        REFERENCES capture_authority_records(
+                            authority_record_handoff_id
+                        )
+                ''',
+                insert_columns=(
+                    'ingestion_run_id, authority_record_handoff_id'
+                ),
+                select_columns='authority_record_handoff_id',
+            )
+            connection.execute(
+                'DROP TABLE capture_ingestion_runs_legacy'
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _rebind_link_table(
+        connection: sqlite3.Connection,
+        table: str,
+        *,
+        column_defs: str,
+        insert_columns: str,
+        select_columns: str,
+    ) -> None:
+        """Rebuild one legacy lineage-keyed link table keyed by run id.
+
+        The legacy primary key guaranteed exactly one run per lineage
+        digest, so joining on it maps every persisted link to its unique
+        run. A link whose lineage has no run row would violate the new
+        foreign key and abort the migration loudly instead of silently
+        dropping provenance. Tables already written in the run-scoped
+        shape — including the empty ones the DDL just created — have no
+        ``lineage_digest`` column and nothing to rebind.
+        """
+
+        columns = {
+            str(row['name'])
+            for row in connection.execute(f'PRAGMA table_info({table})')
+        }
+        if 'lineage_digest' not in columns:
+            return
+        connection.execute(f'ALTER TABLE {table} RENAME TO {table}_legacy')
+        connection.execute(f'CREATE TABLE {table} ({column_defs})')
+        connection.execute(
+            f'INSERT INTO {table}({insert_columns}) '
+            f'SELECT run.ingestion_run_id, {select_columns} '
+            f'FROM {table}_legacy AS legacy '
+            'JOIN capture_ingestion_runs AS run '
+            '  ON run.lineage_digest = legacy.lineage_digest'
+        )
+        connection.execute(f'DROP TABLE {table}_legacy')
+
+    @staticmethod
+    def _migrate_source_import_origin(connection: sqlite3.Connection) -> None:
+        """Record the verified import origin on persisted evidence (#412).
+
+        Every row written by this repository arrived through the unsigned
+        local-bundle import path, so the backfill is exact rather than a
+        guess. The column is deliberately separated from ``provenance_class``:
+        the latter is the bundle's self-asserted label, this one records how
+        HTDT actually obtained the bytes.
+        """
+
+        columns = {
+            str(row['name'])
+            for row in connection.execute(
+                'PRAGMA table_info(capture_source_evidence)'
+            )
+        }
+        if 'import_origin' not in columns:
+            connection.execute(
+                '''
+                ALTER TABLE capture_source_evidence
+                ADD COLUMN import_origin TEXT NOT NULL
+                    DEFAULT 'unsigned_capture_bundle_import'
+                '''
+            )
+
+    def _register_persisted_coordinate_authorities(
+        self, connection: sqlite3.Connection
+    ) -> None:
+        """Backfill scoped coordinate authorities from persisted runs (#365).
+
+        Every persisted run's plan declares the immutable bundle and the
+        coordinate spaces it claims; registering (bundle_digest,
+        coordinate_space_id) per declared space reproduces the authority
+        rows the current ingest path would have written. Rows already
+        registered are re-checked for equality rather than rewritten.
+        """
+
+        rows = connection.execute(
+            '''
+            SELECT ingestion_run_id, plan_json, recorded_at_utc
+            FROM capture_ingestion_runs
+            '''
+        ).fetchall()
+        for row in rows:
+            try:
+                typed = CaptureIngestionPlan.model_validate_json(
+                    row['plan_json']
+                )
+            except (ValueError, TypeError) as exc:
+                raise CaptureIngestionTransactionError(
+                    'cannot register coordinate authority scope: persisted '
+                    f"plan for run {row['ingestion_run_id']} does not "
+                    f'validate ({exc})'
+                ) from exc
+            for space_id in typed.bundle.coordinate_space_ids:
+                self._register_coordinate_authority(
+                    connection,
+                    bundle_digest=typed.bundle.bundle_digest,
+                    capture_revision_id=typed.bundle.capture_revision_id,
+                    coordinate_space_id=space_id,
+                    registered_by_run_id=str(row['ingestion_run_id']),
+                    recorded_at_utc=str(row['recorded_at_utc']),
+                )
+
+    @staticmethod
+    def _register_coordinate_authority(
+        connection: sqlite3.Connection,
+        *,
+        bundle_digest: str,
+        capture_revision_id: str,
+        coordinate_space_id: str,
+        registered_by_run_id: str,
+        recorded_at_utc: str,
+    ) -> None:
+        authority_id = _coordinate_authority_id(
+            bundle_digest, coordinate_space_id
+        )
+        existing = connection.execute(
+            '''
+            SELECT bundle_digest, capture_revision_id, coordinate_space_id
+            FROM capture_coordinate_authorities
+            WHERE coordinate_authority_id=?
+            ''',
+            (authority_id,),
+        ).fetchone()
+        if existing is not None:
+            if (
+                str(existing['bundle_digest']) != bundle_digest
+                or str(existing['coordinate_space_id'])
+                != coordinate_space_id
+            ):
+                raise CaptureIngestionTransactionError(
+                    'registered coordinate authority scope conflicts: '
+                    f'{authority_id}'
+                )
+            return
+        connection.execute(
+            '''
+            INSERT INTO capture_coordinate_authorities(
+                coordinate_authority_id, bundle_digest, capture_revision_id,
+                coordinate_space_id, registered_by_run_id, recorded_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                authority_id,
+                bundle_digest,
+                capture_revision_id,
+                coordinate_space_id,
+                registered_by_run_id,
+                recorded_at_utc,
+            ),
+        )
 
     @staticmethod
     def _externalize_inline_source_payloads(
@@ -957,6 +1578,14 @@ class CaptureIngestionRepository:
         plan_json = _canonical_json(
             typed.model_dump(mode='json', by_alias=True)
         )
+        plan_sha256 = sha256(plan_json.encode('utf-8')).hexdigest()
+        run_id = _ingestion_run_id(
+            typed.lineage_digest,
+            typed.ingestor.name,
+            typed.ingestor.version,
+            typed.ingestor.configuration_digest,
+            plan_sha256,
+        )
 
         with closing(self._connect()) as connection:
             try:
@@ -965,9 +1594,9 @@ class CaptureIngestionRepository:
                     '''
                     SELECT *
                     FROM capture_ingestion_runs
-                    WHERE lineage_digest=?
+                    WHERE ingestion_run_id=?
                     ''',
-                    (typed.lineage_digest,),
+                    (run_id,),
                 ).fetchone()
                 if existing is not None:
                     # A surviving run row is not proof that the persisted
@@ -986,25 +1615,60 @@ class CaptureIngestionRepository:
                     connection.rollback()
                     return verified
 
+                recorded_at = datetime.now(timezone.utc).isoformat()
+                connection.execute(
+                    '''
+                    INSERT OR IGNORE INTO capture_ingestion_lineages(
+                        lineage_digest
+                    ) VALUES (?)
+                    ''',
+                    (typed.lineage_digest,),
+                )
                 connection.execute(
                     '''
                     INSERT INTO capture_ingestion_runs(
-                        lineage_digest, bundle_digest, capture_revision_id,
-                        ingestor_name, ingestor_version,
-                        configuration_digest, plan_json, recorded_at_utc
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ingestion_run_id, lineage_digest, plan_sha256,
+                        bundle_digest, capture_revision_id,
+                        capture_series_id, parent_revision_id,
+                        capture_session_ids_json,
+                        coordinate_space_ids_json, ingestor_name,
+                        ingestor_version, configuration_digest,
+                        plan_json, recorded_at_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     (
+                        run_id,
                         typed.lineage_digest,
+                        plan_sha256,
                         typed.bundle.bundle_digest,
                         typed.bundle.capture_revision_id,
+                        typed.bundle.capture_series_id,
+                        typed.bundle.parent_revision_id,
+                        _canonical_json(
+                            list(typed.bundle.capture_session_ids)
+                        ),
+                        _canonical_json(
+                            list(typed.bundle.coordinate_space_ids)
+                        ),
                         typed.ingestor.name,
                         typed.ingestor.version,
                         typed.ingestor.configuration_digest,
                         plan_json,
-                        datetime.now(timezone.utc).isoformat(),
+                        recorded_at,
                     ),
                 )
+
+                # Register the scoped coordinate authorities this bundle
+                # declares before any derived record references them (#365).
+                for space_id in typed.bundle.coordinate_space_ids:
+                    self._register_coordinate_authority(
+                        connection,
+                        bundle_digest=typed.bundle.bundle_digest,
+                        capture_revision_id=typed.bundle.capture_revision_id,
+                        coordinate_space_id=space_id,
+                        registered_by_run_id=run_id,
+                        recorded_at_utc=recorded_at,
+                    )
 
                 for record in typed.source_evidence:
                     payload = payloads[record.path]
@@ -1016,11 +1680,11 @@ class CaptureIngestionRepository:
                     connection.execute(
                         '''
                         INSERT INTO capture_ingestion_source_links(
-                            lineage_digest, source_evidence_id
+                            ingestion_run_id, source_evidence_id
                         ) VALUES (?, ?)
                         ''',
                         (
-                            typed.lineage_digest,
+                            run_id,
                             record.source_evidence_id,
                         ),
                     )
@@ -1029,12 +1693,12 @@ class CaptureIngestionRepository:
                     connection.execute(
                         '''
                         INSERT INTO capture_roomplan_records(
-                            lineage_digest, kind,
+                            ingestion_run_id, kind,
                             source_evidence_id, payload_json
                         ) VALUES (?, ?, ?, ?)
                         ''',
                         (
-                            typed.lineage_digest,
+                            run_id,
                             record.kind,
                             record.source_evidence_id,
                             _canonical_json(
@@ -1056,11 +1720,11 @@ class CaptureIngestionRepository:
                     connection.execute(
                         '''
                         INSERT INTO capture_ingestion_mesh_links(
-                            lineage_digest, binding_id
+                            ingestion_run_id, binding_id
                         ) VALUES (?, ?)
                         ''',
                         (
-                            typed.lineage_digest,
+                            run_id,
                             binding.binding_id,
                         ),
                     )
@@ -1070,12 +1734,12 @@ class CaptureIngestionRepository:
                     connection.execute(
                         '''
                         INSERT INTO capture_ingestion_authority_links(
-                            lineage_digest,
+                            ingestion_run_id,
                             authority_record_handoff_id
                         ) VALUES (?, ?)
                         ''',
                         (
-                            typed.lineage_digest,
+                            run_id,
                             record.authority_record_handoff_id,
                         ),
                     )
@@ -1085,7 +1749,7 @@ class CaptureIngestionRepository:
                 connection.rollback()
                 raise
 
-        return self._result(typed, created=True)
+        return self._result(typed, run_id, created=True)
 
     def verify_persisted_ingestion(
         self,
@@ -1113,19 +1777,29 @@ class CaptureIngestionRepository:
             if isinstance(plan, CaptureIngestionPlan)
             else CaptureIngestionPlan.model_validate(plan)
         )
+        plan_json = _canonical_json(
+            typed.model_dump(mode='json', by_alias=True)
+        )
+        run_id = _ingestion_run_id(
+            typed.lineage_digest,
+            typed.ingestor.name,
+            typed.ingestor.version,
+            typed.ingestor.configuration_digest,
+            sha256(plan_json.encode('utf-8')).hexdigest(),
+        )
         with closing(self._connect()) as connection:
             run = connection.execute(
                 '''
                 SELECT *
                 FROM capture_ingestion_runs
-                WHERE lineage_digest=?
+                WHERE ingestion_run_id=?
                 ''',
-                (typed.lineage_digest,),
+                (run_id,),
             ).fetchone()
             if run is None:
                 raise PersistedIngestionIntegrityError(
                     'ingestion run is not persisted: '
-                    f'{typed.lineage_digest}'
+                    f'{run_id}'
                 )
             return self._verify_persisted_materialization(
                 connection,
@@ -1133,13 +1807,57 @@ class CaptureIngestionRepository:
                 run,
             )
 
-    def get_ingestion(self, lineage_digest: str) -> CaptureIngestionPlan | None:
+    def get_ingestion_run(
+        self, ingestion_run_id: str
+    ) -> CaptureIngestionRun | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT *
+                FROM capture_ingestion_runs
+                WHERE ingestion_run_id=?
+                ''',
+                (ingestion_run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._run_from_row(row)
+
+    def get_ingestion_run_plan(
+        self, ingestion_run_id: str
+    ) -> CaptureIngestionPlan | None:
+        """Load the exact canonical plan one persisted run consumed."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT plan_json
+                FROM capture_ingestion_runs
+                WHERE ingestion_run_id=?
+                ''',
+                (ingestion_run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CaptureIngestionPlan.model_validate_json(row['plan_json'])
+
+    def get_ingestion(
+        self, lineage_digest: str
+    ) -> CaptureIngestionPlan | None:
+        """Load the canonical plan of the latest processing run for a lineage.
+
+        Several runs may share one ``lineage_digest`` (#413); lineage-keyed
+        callers (Inbox inspection, connected-space staging) act on the most
+        recently recorded run.
+        """
         with closing(self._connect()) as connection:
             row = connection.execute(
                 '''
                 SELECT plan_json
                 FROM capture_ingestion_runs
                 WHERE lineage_digest=?
+                ORDER BY recorded_at_utc DESC, ingestion_run_id DESC
+                LIMIT 1
                 ''',
                 (lineage_digest,),
             ).fetchone()
@@ -1209,17 +1927,37 @@ class CaptureIngestionRepository:
                 ),
             )
 
-    def mesh_binding_ids_for_ingestion(
+    def mesh_binding_ids_for_run(
         self,
-        lineage_digest: str,
+        ingestion_run_id: str,
     ) -> tuple[str, ...]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 '''
                 SELECT binding_id
                 FROM capture_ingestion_mesh_links
-                WHERE lineage_digest=?
+                WHERE ingestion_run_id=?
                 ORDER BY binding_id ASC
+                ''',
+                (ingestion_run_id,),
+            ).fetchall()
+        return tuple(str(row['binding_id']) for row in rows)
+
+    def mesh_binding_ids_for_lineage(
+        self,
+        lineage_digest: str,
+    ) -> tuple[str, ...]:
+        """All bindings linked by any run materializing this lineage."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                '''
+                SELECT DISTINCT l.binding_id
+                FROM capture_ingestion_mesh_links AS l
+                JOIN capture_ingestion_runs AS r
+                  ON r.ingestion_run_id = l.ingestion_run_id
+                WHERE r.lineage_digest=?
+                ORDER BY l.binding_id ASC
                 ''',
                 (lineage_digest,),
             ).fetchall()
@@ -1251,6 +1989,408 @@ class CaptureIngestionRepository:
                     'SELECT COUNT(*) FROM capture_source_evidence'
                 ).fetchone()[0]
             )
+
+    @staticmethod
+    def _run_from_row(row: sqlite3.Row) -> CaptureIngestionRun:
+        return CaptureIngestionRun(
+            ingestion_run_id=str(row['ingestion_run_id']),
+            lineage_digest=str(row['lineage_digest']),
+            plan_sha256=str(row['plan_sha256']),
+            bundle_digest=str(row['bundle_digest']),
+            capture_revision_id=str(row['capture_revision_id']),
+            capture_series_id=str(row['capture_series_id']),
+            parent_revision_id=(
+                None
+                if row['parent_revision_id'] is None
+                else str(row['parent_revision_id'])
+            ),
+            capture_session_ids=tuple(
+                str(value)
+                for value in json.loads(row['capture_session_ids_json'])
+            ),
+            coordinate_space_ids=tuple(
+                str(value)
+                for value in json.loads(
+                    row['coordinate_space_ids_json']
+                )
+            ),
+            ingestor_name=str(row['ingestor_name']),
+            ingestor_version=str(row['ingestor_version']),
+            configuration_digest=str(row['configuration_digest']),
+            recorded_at_utc=str(row['recorded_at_utc']),
+        )
+
+    # ---- scoped coordinate authorities (#365) ---------------------------
+
+    def get_coordinate_authority(
+        self, coordinate_authority_id: str
+    ) -> CaptureCoordinateAuthority | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT *
+                FROM capture_coordinate_authorities
+                WHERE coordinate_authority_id=?
+                ''',
+                (coordinate_authority_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._authority_from_row(row)
+
+    def coordinate_authority_for(
+        self, bundle_digest: str, coordinate_space_id: str
+    ) -> CaptureCoordinateAuthority | None:
+        """The registered authority for one bundle-scoped frame, or None."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT *
+                FROM capture_coordinate_authorities
+                WHERE bundle_digest=? AND coordinate_space_id=?
+                ''',
+                (bundle_digest, coordinate_space_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._authority_from_row(row)
+
+    def list_coordinate_authorities(
+        self, *, bundle_digest: str | None = None
+    ) -> tuple[CaptureCoordinateAuthority, ...]:
+        query = 'SELECT * FROM capture_coordinate_authorities'
+        params: tuple[str, ...] = ()
+        if bundle_digest is not None:
+            query += ' WHERE bundle_digest=?'
+            params = (bundle_digest,)
+        query += ' ORDER BY coordinate_authority_id ASC'
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+        return tuple(self._authority_from_row(row) for row in rows)
+
+    @staticmethod
+    def _authority_from_row(
+        row: sqlite3.Row,
+    ) -> CaptureCoordinateAuthority:
+        return CaptureCoordinateAuthority(
+            coordinate_authority_id=str(row['coordinate_authority_id']),
+            bundle_digest=str(row['bundle_digest']),
+            capture_revision_id=str(row['capture_revision_id']),
+            coordinate_space_id=str(row['coordinate_space_id']),
+            registered_by_run_id=str(row['registered_by_run_id']),
+            recorded_at_utc=str(row['recorded_at_utc']),
+        )
+
+    # ---- Capture library query surface (#353) ---------------------------
+
+    def list_ingestion_runs(
+        self,
+        *,
+        lineage_digest: str | None = None,
+        bundle_digest: str | None = None,
+        capture_revision_id: str | None = None,
+        limit: int = 100,
+        after_run_id: str | None = None,
+    ) -> tuple[CaptureIngestionRun, ...]:
+        """Deterministically ordered, bounded listing of persisted runs.
+
+        Ordering is by the immutable run identity, so results are stable
+        regardless of import order; ``after_run_id`` is a keyset cursor for
+        pagination. No source payload is loaded.
+        """
+
+        clauses: list[str] = []
+        params: list[str] = []
+        if lineage_digest is not None:
+            clauses.append('lineage_digest=?')
+            params.append(lineage_digest)
+        if bundle_digest is not None:
+            clauses.append('bundle_digest=?')
+            params.append(bundle_digest)
+        if capture_revision_id is not None:
+            clauses.append('capture_revision_id=?')
+            params.append(capture_revision_id)
+        if after_run_id is not None:
+            clauses.append('ingestion_run_id>?')
+            params.append(after_run_id)
+        query = 'SELECT * FROM capture_ingestion_runs'
+        if clauses:
+            query += ' WHERE ' + ' AND '.join(clauses)
+        query += ' ORDER BY ingestion_run_id ASC LIMIT ?'
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                query, (*params, int(limit))
+            ).fetchall()
+        return tuple(self._run_from_row(row) for row in rows)
+
+    def list_capture_revisions(
+        self,
+        *,
+        capture_series_id: str | None = None,
+        limit: int = 100,
+        after_revision_id: str | None = None,
+    ) -> tuple[CaptureRevisionSummary, ...]:
+        """Imported Capture revisions discoverable after restart.
+
+        Revisions are enumerated from the persisted run set, ordered by the
+        immutable revision id with a keyset cursor, so listing is bounded
+        and deterministic. Only normalized run/link tables are read — no
+        source payload BLOBs are loaded.
+        """
+
+        params: list[str] = []
+        query = '''
+            SELECT DISTINCT capture_revision_id
+            FROM capture_ingestion_runs
+        '''
+        clauses: list[str] = []
+        if capture_series_id is not None:
+            clauses.append('capture_series_id=?')
+            params.append(capture_series_id)
+        if after_revision_id is not None:
+            clauses.append('capture_revision_id>?')
+            params.append(after_revision_id)
+        if clauses:
+            query += ' WHERE ' + ' AND '.join(clauses)
+        query += ' ORDER BY capture_revision_id ASC LIMIT ?'
+        with closing(self._connect()) as connection:
+            ids = [
+                str(row['capture_revision_id'])
+                for row in connection.execute(
+                    query, (*params, int(limit))
+                ).fetchall()
+            ]
+            return tuple(
+                self._revision_summary(connection, revision_id)
+                for revision_id in ids
+            )
+
+    def get_capture_revision(
+        self, capture_revision_id: str
+    ) -> 'CaptureRevisionSummary | None':
+        with closing(self._connect()) as connection:
+            if not self._revision_exists(connection, capture_revision_id):
+                return None
+            return self._revision_summary(connection, capture_revision_id)
+
+    def list_series_revisions(
+        self, capture_series_id: str
+    ) -> tuple['CaptureRevisionSummary', ...]:
+        """Parent/child topology for one capture series.
+
+        Every revision whose bundle declares this series is returned in
+        order, each carrying ``parent_revision_id`` and whether that parent
+        is itself recorded — an unresolved parent stays explicit rather
+        than silently marking the revision a root.
+        """
+
+        return self.list_capture_revisions(
+            capture_series_id=capture_series_id, limit=10000
+        )
+
+    def _revision_exists(
+        self, connection: sqlite3.Connection, capture_revision_id: str
+    ) -> bool:
+        return (
+            connection.execute(
+                '''
+                SELECT 1
+                FROM capture_ingestion_runs
+                WHERE capture_revision_id=?
+                LIMIT 1
+                ''',
+                (capture_revision_id,),
+            ).fetchone()
+            is not None
+        )
+
+    def _revision_summary(
+        self, connection: sqlite3.Connection, capture_revision_id: str
+    ) -> 'CaptureRevisionSummary':
+        runs = [
+            self._run_from_row(row)
+            for row in connection.execute(
+                '''
+                SELECT *
+                FROM capture_ingestion_runs
+                WHERE capture_revision_id=?
+                ORDER BY ingestion_run_id ASC
+                ''',
+                (capture_revision_id,),
+            ).fetchall()
+        ]
+        first = runs[0]
+        run_ids = tuple(run.ingestion_run_id for run in runs)
+        placeholders = ','.join('?' for _ in run_ids)
+
+        def count(query: str, *args: str) -> int:
+            return int(
+                connection.execute(query, args).fetchone()[0]
+            )
+
+        source_count = count(
+            f'''
+            SELECT COUNT(*) FROM capture_ingestion_source_links
+            WHERE ingestion_run_id IN ({placeholders})
+            ''',
+            *run_ids,
+        )
+        mesh_links = connection.execute(
+            f'''
+            SELECT binding_id FROM capture_ingestion_mesh_links
+            WHERE ingestion_run_id IN ({placeholders})
+            ORDER BY binding_id ASC
+            ''',
+            run_ids,
+        ).fetchall()
+        binding_ids = tuple(str(row['binding_id']) for row in mesh_links)
+        authority_count = count(
+            f'''
+            SELECT COUNT(*) FROM capture_ingestion_authority_links
+            WHERE ingestion_run_id IN ({placeholders})
+            ''',
+            *run_ids,
+        )
+        roomplan_count = count(
+            f'''
+            SELECT COUNT(*) FROM capture_roomplan_records
+            WHERE ingestion_run_id IN ({placeholders})
+            ''',
+            *run_ids,
+        )
+        promotion_table = {
+            str(row['name'])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        promotion_columns = (
+            {
+                str(row['name'])
+                for row in connection.execute(
+                    'PRAGMA table_info(capture_semantic_promotions)'
+                )
+            }
+            if 'capture_semantic_promotions' in promotion_table
+            else set()
+        )
+        if 'ingestion_run_id' in promotion_columns:
+            promoted = connection.execute(
+                '''
+                SELECT promotion_id, scene_revision_id
+                FROM capture_semantic_promotions
+                WHERE ingestion_run_id IN (
+                    SELECT ingestion_run_id FROM capture_ingestion_runs
+                    WHERE capture_revision_id=?
+                )
+                ORDER BY promotion_id ASC
+                ''',
+                (capture_revision_id,),
+            ).fetchall()
+        else:
+            promoted = []
+        promoted_scene_ids = tuple(
+            str(row['scene_revision_id']) for row in promoted
+        )
+        parent_known = (
+            first.parent_revision_id is None
+            or self._revision_exists(connection, first.parent_revision_id)
+        )
+        return CaptureRevisionSummary(
+            capture_revision_id=capture_revision_id,
+            capture_series_id=first.capture_series_id,
+            bundle_digest=first.bundle_digest,
+            parent_revision_id=first.parent_revision_id,
+            parent_known=parent_known,
+            capture_session_ids=first.capture_session_ids,
+            coordinate_space_ids=first.coordinate_space_ids,
+            lineage_digests=tuple(
+                dict.fromkeys(run.lineage_digest for run in runs)
+            ),
+            ingestion_run_ids=run_ids,
+            ingestor_versions=tuple(
+                dict.fromkeys(
+                    f'{run.ingestor_name}@{run.ingestor_version}'
+                    for run in runs
+                )
+            ),
+            source_evidence_count=source_count,
+            raw_mesh_binding_ids=binding_ids,
+            authority_record_count=authority_count,
+            roomplan_record_count=roomplan_count,
+            promotion_ids=tuple(
+                str(row['promotion_id']) for row in promoted
+            ),
+            promoted_scene_revision_ids=promoted_scene_ids,
+            first_recorded_at_utc=min(
+                run.recorded_at_utc for run in runs
+            ),
+            last_recorded_at_utc=max(
+                run.recorded_at_utc for run in runs
+            ),
+        )
+
+    # ---- provenance trust view (#412) -----------------------------------
+
+    def provenance_trust(
+        self, source_evidence_id: str
+    ) -> 'CaptureProvenanceTrust | None':
+        """Split asserted bundle labels from verified import origin.
+
+        ``provenance_class`` (including ``backend_derived``) and
+        ``producer`` are the bundle's self-asserted labels — an unsigned
+        import cannot authenticate them. ``import_origin`` records how HTDT
+        actually obtained the bytes, and ``producer_authenticated`` is
+        always False for the unsigned bundle path.
+        """
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT source_evidence_id, producer, provenance_class,
+                       import_origin
+                FROM capture_source_evidence
+                WHERE source_evidence_id=?
+                ''',
+                (source_evidence_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CaptureProvenanceTrust(
+            source_evidence_id=str(row['source_evidence_id']),
+            asserted_provenance_class=str(row['provenance_class']),
+            asserted_producer=str(row['producer']),
+            verified_import_origin=str(row['import_origin']),
+            producer_authenticated=False,
+        )
+
+    def provenance_trust_for_authority_record(
+        self, authority_record_handoff_id: str
+    ) -> 'CaptureProvenanceTrust | None':
+        """Trust view of the source evidence an authority record cites."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT e.source_evidence_id, e.producer,
+                       e.provenance_class, e.import_origin
+                FROM capture_authority_records AS a
+                JOIN capture_source_evidence AS e
+                  ON e.source_evidence_id = a.source_evidence_id
+                WHERE a.authority_record_handoff_id=?
+                ''',
+                (authority_record_handoff_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CaptureProvenanceTrust(
+            source_evidence_id=str(row['source_evidence_id']),
+            asserted_provenance_class=str(row['provenance_class']),
+            asserted_producer=str(row['producer']),
+            verified_import_origin=str(row['import_origin']),
+            producer_authenticated=False,
+        )
 
     def _upsert_source_evidence(
         self,
@@ -1644,22 +2784,80 @@ class CaptureIngestionRepository:
         """
 
         lineage = plan.lineage_digest
+        run_id = run['ingestion_run_id']
         plan_json = _canonical_json(plan.model_dump(mode='json', by_alias=True))
+        plan_sha256 = sha256(plan_json.encode('utf-8')).hexdigest()
+        expected_run_id = _ingestion_run_id(
+            lineage,
+            plan.ingestor.name,
+            plan.ingestor.version,
+            plan.ingestor.configuration_digest,
+            plan_sha256,
+        )
+        if run_id != expected_run_id:
+            raise PersistedIngestionIntegrityError(
+                'persisted run identity differs from the supplied plan: '
+                f'{run_id}'
+            )
         if run['plan_json'] != plan_json:
             raise PersistedIngestionIntegrityError(
                 'persisted plan identity differs from the supplied plan: '
-                f'{lineage}'
+                f'{run_id}'
             )
         for column, expected in (
+            ('lineage_digest', lineage),
+            ('plan_sha256', plan_sha256),
             ('bundle_digest', plan.bundle.bundle_digest),
             ('capture_revision_id', plan.bundle.capture_revision_id),
+            ('capture_series_id', plan.bundle.capture_series_id),
+            ('parent_revision_id', plan.bundle.parent_revision_id),
+            (
+                'capture_session_ids_json',
+                _canonical_json(list(plan.bundle.capture_session_ids)),
+            ),
+            (
+                'coordinate_space_ids_json',
+                _canonical_json(list(plan.bundle.coordinate_space_ids)),
+            ),
             ('ingestor_name', plan.ingestor.name),
             ('ingestor_version', plan.ingestor.version),
             ('configuration_digest', plan.ingestor.configuration_digest),
         ):
             if run[column] != expected:
                 raise PersistedIngestionIntegrityError(
-                    f'run metadata mismatch ({column}): {lineage}'
+                    f'run metadata mismatch ({column}): {run_id}'
+                )
+
+        # The scoped coordinate authority for every declared space must be
+        # registered exactly once with the expected identity (#365).
+        for space_id in plan.bundle.coordinate_space_ids:
+            authority_id = _coordinate_authority_id(
+                plan.bundle.bundle_digest, space_id
+            )
+            authority = connection.execute(
+                '''
+                SELECT bundle_digest, capture_revision_id,
+                       coordinate_space_id
+                FROM capture_coordinate_authorities
+                WHERE coordinate_authority_id=?
+                ''',
+                (authority_id,),
+            ).fetchone()
+            if authority is None:
+                raise PersistedIngestionIntegrityError(
+                    'scoped coordinate authority is missing: '
+                    f'{authority_id}'
+                )
+            if (
+                authority['bundle_digest']
+                != plan.bundle.bundle_digest
+                or authority['capture_revision_id']
+                != plan.bundle.capture_revision_id
+                or authority['coordinate_space_id'] != space_id
+            ):
+                raise PersistedIngestionIntegrityError(
+                    'scoped coordinate authority metadata mismatch: '
+                    f'{authority_id}'
                 )
 
         expected_source_ids = {
@@ -1671,9 +2869,9 @@ class CaptureIngestionRepository:
                 '''
                 SELECT source_evidence_id
                 FROM capture_ingestion_source_links
-                WHERE lineage_digest=?
+                WHERE ingestion_run_id=?
                 ''',
-                (lineage,),
+                (run_id,),
             )
         }
         if linked_source_ids != expected_source_ids:
@@ -1689,9 +2887,9 @@ class CaptureIngestionRepository:
             '''
             SELECT kind, source_evidence_id, payload_json
             FROM capture_roomplan_records
-            WHERE lineage_digest=?
+            WHERE ingestion_run_id=?
             ''',
-            (lineage,),
+            (run_id,),
         ).fetchall()
         expected_roomplan = {
             (record.kind, record.source_evidence_id): record
@@ -1768,9 +2966,9 @@ class CaptureIngestionRepository:
                 '''
                 SELECT binding_id
                 FROM capture_ingestion_mesh_links
-                WHERE lineage_digest=?
+                WHERE ingestion_run_id=?
                 ''',
-                (lineage,),
+                (run_id,),
             )
         }
         if linked_binding_ids != expected_binding_ids:
@@ -1790,9 +2988,9 @@ class CaptureIngestionRepository:
                 '''
                 SELECT authority_record_handoff_id
                 FROM capture_ingestion_authority_links
-                WHERE lineage_digest=?
+                WHERE ingestion_run_id=?
                 ''',
-                (lineage,),
+                (run_id,),
             )
         }
         if linked_authority_ids != expected_authority_ids:
@@ -1834,6 +3032,7 @@ class CaptureIngestionRepository:
                 )
 
         return CaptureIngestionCommitResult(
+            ingestion_run_id=str(run_id),
             lineage_digest=lineage,
             bundle_digest=plan.bundle.bundle_digest,
             source_evidence_count=len(linked_source_ids),
@@ -1909,10 +3108,12 @@ class CaptureIngestionRepository:
     @staticmethod
     def _result(
         plan: CaptureIngestionPlan,
+        ingestion_run_id: str,
         *,
         created: bool,
     ) -> CaptureIngestionCommitResult:
         return CaptureIngestionCommitResult(
+            ingestion_run_id=ingestion_run_id,
             lineage_digest=plan.lineage_digest,
             bundle_digest=plan.bundle.bundle_digest,
             source_evidence_count=len(plan.source_evidence),

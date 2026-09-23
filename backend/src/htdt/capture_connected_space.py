@@ -481,10 +481,14 @@ class ConnectedSpacePromotionRepository:
         with closing(self._connect()) as connection, connection:
             connection.executescript(
                 '''
+                CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
+                    lineage_digest TEXT PRIMARY KEY
+                );
+
                 CREATE TABLE IF NOT EXISTS capture_connected_space_documents (
                     connected_document_id TEXT PRIMARY KEY,
                     lineage_digest TEXT NOT NULL
-                        REFERENCES capture_ingestion_runs(lineage_digest),
+                        REFERENCES capture_ingestion_lineages(lineage_digest),
                     document_sha256 TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
                     staged_at_utc TEXT NOT NULL
@@ -511,6 +515,108 @@ class ConnectedSpacePromotionRepository:
                 ON physical_space_models(document_id);
                 '''
             )
+            self._repoint_documents_lineage_parent(connection)
+
+    def _repoint_documents_lineage_parent(
+        self, connection: sqlite3.Connection
+    ) -> None:
+        """Retarget the documents table's lineage foreign key.
+
+        #413 demoted ``capture_ingestion_runs.lineage_digest`` from the
+        runs primary key to a non-unique projection (several processing
+        runs may share one lineage), so it can no longer parent a foreign
+        key. The shared ``capture_ingestion_lineages`` table is the unique
+        lineage parent; rebuilds this table when its stored key still
+        targets the runs table or the dropped migration rename.
+        """
+        # Seed lineage rows from whatever run shape is present so child
+        # rows retain a valid parent; needed even when no rebuild runs,
+        # since a database opened before this contract may hold runs its
+        # lineage table never knew about.
+        run_tables = {
+            str(row['name'])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        for name in ('capture_ingestion_runs',
+                     'capture_ingestion_runs_legacy'):
+            if name in run_tables:
+                connection.execute(
+                    f'''
+                    INSERT OR IGNORE INTO capture_ingestion_lineages(
+                        lineage_digest
+                    )
+                    SELECT DISTINCT lineage_digest FROM {name}
+                    '''
+                )
+        parents = {
+            str(row['table'])
+            for row in connection.execute(
+                'PRAGMA foreign_key_list('
+                'capture_connected_space_documents)'
+            )
+            if str(row['from']) == 'lineage_digest'
+        }
+        if parents == {'capture_ingestion_lineages'}:
+            return
+        if connection.in_transaction:
+            connection.commit()
+        # foreign_keys must be OFF during the rebuild: renaming the table
+        # otherwise rewrites references in physical_space_models to the
+        # dropped legacy name.
+        connection.execute('PRAGMA foreign_keys=OFF')
+        try:
+            connection.execute('BEGIN IMMEDIATE')
+            connection.execute(
+                '''
+                ALTER TABLE capture_connected_space_documents
+                RENAME TO capture_connected_space_documents_legacy
+                '''
+            )
+            connection.execute(
+                '''
+                CREATE TABLE capture_connected_space_documents (
+                    connected_document_id TEXT PRIMARY KEY,
+                    lineage_digest TEXT NOT NULL
+                        REFERENCES capture_ingestion_lineages(lineage_digest),
+                    document_sha256 TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    staged_at_utc TEXT NOT NULL
+                )
+                '''
+            )
+            connection.execute(
+                '''
+                INSERT INTO capture_connected_space_documents(
+                    connected_document_id, lineage_digest,
+                    document_sha256, payload_json, staged_at_utc
+                )
+                SELECT connected_document_id, lineage_digest,
+                    document_sha256, payload_json, staged_at_utc
+                FROM capture_connected_space_documents_legacy
+                '''
+            )
+            connection.execute(
+                'DROP TABLE capture_connected_space_documents_legacy'
+            )
+            orphans = connection.execute(
+                'PRAGMA foreign_key_check('
+                'capture_connected_space_documents)'
+            ).fetchall()
+            if orphans:
+                connection.rollback()
+                raise ConnectedSpacePromotionError(
+                    'cannot retarget connected space documents to the '
+                    'lineages table: unresolved foreign keys remain'
+                )
+            connection.commit()
+        except Exception:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        finally:
+            connection.execute('PRAGMA foreign_keys=ON')
 
     # ------------------------------------------------------------------
     # staging

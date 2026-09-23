@@ -16,7 +16,9 @@ RAW_MESH_IMPORTER_VERSION = '1'
 RAW_MESH_DIAGNOSTIC_ALGORITHM = 'htdt.raw_mesh_diagnostics'
 RAW_MESH_DIAGNOSTIC_VERSION = '1'
 
-RawMeshFormat = Literal['obj', 'glb', 'htdt_meshbin_v1']
+RawMeshFormat = Literal[
+    'obj', 'glb', 'htdt_meshbin_v1', 'capture_mesh_composition_v1'
+]
 DiagnosticState = Literal['pass', 'fail', 'unknown']
 AcousticVolumeReadiness = Literal[
     'not_ready',
@@ -106,8 +108,10 @@ class RawMeshImportProvenance(BaseModel):
     original_asset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     original_size_bytes: int = Field(ge=0)
     importer_id: Literal['htdt.raw_visual_mesh'] = RAW_MESH_IMPORTER_ID
-    importer_version: Literal['1', '2'] = RAW_MESH_IMPORTER_VERSION
-    coordinate_authority: Literal['source_asset_coordinates'] = 'source_asset_coordinates'
+    importer_version: Literal['1', '2', '3'] = RAW_MESH_IMPORTER_VERSION
+    coordinate_authority: Literal[
+        'source_asset_coordinates', 'capture_world_coordinates'
+    ] = 'source_asset_coordinates'
     acoustic_semantics: Literal['unassigned'] = 'unassigned'
     solver_readiness: Literal['raw_visual_only'] = 'raw_visual_only'
 

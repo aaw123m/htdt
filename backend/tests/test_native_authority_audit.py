@@ -239,14 +239,23 @@ def test_audit_rejects_unknown_capture_ingestion_run(tmp_path: Path):
     with closing(sqlite3.connect(data_dir / 'cad-scenes.sqlite3')) as connection, connection:
         connection.execute(
             '''INSERT INTO capture_ingestion_runs(
-                lineage_digest, bundle_digest, capture_revision_id,
-                ingestor_name, ingestor_version, configuration_digest,
+                ingestion_run_id, lineage_digest, plan_sha256,
+                bundle_digest, capture_revision_id, capture_series_id,
+                parent_revision_id, capture_session_ids_json,
+                coordinate_space_ids_json, ingestor_name,
+                ingestor_version, configuration_digest,
                 plan_json, recorded_at_utc
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
             (
+                'capture-ingestion-run:' + 'e' * 64,
                 'a' * 64,
+                'd' * 64,
                 'b' * 64,
                 'rev-1',
+                'series-1',
+                None,
+                '[]',
+                '[]',
                 'fixture-ingestor',
                 '1',
                 'c' * 64,
