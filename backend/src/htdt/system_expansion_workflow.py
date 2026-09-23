@@ -40,13 +40,29 @@ from .cad_system_variant import (
     build_system_variant,
     materialize_system_variant,
 )
-from .cad_system_variant_lifecycle import SystemVariantAsBuiltRecord
-from .cad_system_variant_measured_lifecycle import SystemVariantMeasuredRecord
+from .cad_measurement_quality import MeasurementCapabilityClaim
+from .cad_measurement_quality_repository import CadMeasurementQualityRepository
+from .cad_measurement_repository import CadMeasurementRepository
+from .cad_system_variant_lifecycle import (
+    CadSystemVariantLifecycleRepository,
+    SystemVariantAsBuiltRecord,
+    build_system_variant_as_built_record,
+)
+from .cad_system_variant_measured_lifecycle import (
+    CadSystemVariantMeasuredLifecycleRepository,
+    SystemVariantMeasuredRecord,
+)
 from .cad_system_variant_measurement_campaign import (
+    CadSystemVariantMeasurementCampaignRepository,
     SystemVariantMeasurementCampaign,
     SystemVariantMeasurementCampaignCompletion,
+    SystemVariantMeasurementCampaignRegistration,
     SystemVariantMeasurementPlan,
     SystemVariantMeasurementPlanCompletion,
+    SystemVariantMeasurementTarget,
+    VariantMeasurementAcquisitionRequirement,
+    build_system_variant_measurement_campaign,
+    build_system_variant_measurement_plan,
 )
 from .cad_standards import StandardsEvaluation
 from .cad_system_variant_repository import (
@@ -226,6 +242,73 @@ class ApplyPreview:
     change_lines: tuple[str, ...]
     stale: bool
     stale_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class AsBuiltEntityDiff:
+    """User-facing proposed-vs-installed pose comparison for one entity."""
+
+    entity_id: str
+    name: str
+    role: str | None
+    equipment: str
+    proposed_pose: str
+    actual_pose: str
+    moved: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AsBuiltPreview:
+    """What the As-built confirmation would record, before any write."""
+
+    variant_id: str
+    ready: bool
+    reason: str | None
+    applied_revision_id: str | None
+    target_revision_id: str | None
+    lineage_revision_count: int
+    diffs: tuple[AsBuiltEntityDiff, ...]
+    blocking: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementPointOption:
+    entity_id: str
+    name: str
+    position_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementSourceOption:
+    entity_id: str
+    name: str
+    role: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementPlanOptions:
+    """As-built-resolved entities a SystemVariant plan may target."""
+
+    ready: bool
+    reason: str | None
+    measurement_points: tuple[MeasurementPointOption, ...]
+    sources: tuple[MeasurementSourceOption, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingMeasurementTarget:
+    """One preregistered target and how much evidence it still needs."""
+
+    target_id: str
+    plan_id: str
+    measurement_point_entity_id: str
+    channel_role: str
+    expected_measurement_count: int
+    recorded_evidence_count: int
+
+    @property
+    def pending(self) -> bool:
+        return self.recorded_evidence_count < self.expected_measurement_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -1267,6 +1350,430 @@ class SystemExpansionWorkflowService:
             variant_id,
             selected_by="native-o100-workflow",
         )
+
+    def _as_built_revision_chain(
+        self,
+        application: SystemVariantApplication,
+        target,
+    ) -> tuple | None:
+        """Return the applied..target revision chain, or None when unrelated."""
+
+        chain: list = []
+        seen: set[str] = set()
+        current = target
+        while True:
+            if current.revision_id in seen:
+                return None
+            seen.add(current.revision_id)
+            chain.append(current)
+            if current.revision_id == application.applied_revision_id:
+                if current.content_hash != application.applied_content_hash:
+                    return None
+                return tuple(reversed(chain))
+            if current.parent_revision_id is None:
+                return None
+            parent = self.scene_repository.get(current.parent_revision_id)
+            if parent is None or parent.document_id != self.document_id:
+                return None
+            current = parent
+
+    @staticmethod
+    def _pose_text(entity) -> str:
+        position = entity.position
+        text = (
+            f"({position.x_m:.3f}, {position.y_m:.3f}, {position.z_m:.3f})"
+        )
+        aim = getattr(entity, 'aim_xyz', None)
+        if aim is not None:
+            text += f" / aim ({aim.x:.3f}, {aim.y:.3f}, {aim.z:.3f})"
+        return text
+
+    def as_built_preview(self, variant_id: str) -> AsBuiltPreview:
+        """Compose the pre-save As-built confirmation for one applied variant."""
+
+        variant = self.variant(variant_id)
+        application = self._application(variant_id)
+        if application is None:
+            return AsBuiltPreview(
+                variant_id,
+                False,
+                'この提案はまだSceneRevisionへ適用されていません。'
+                '先に「この提案を適用」を実行してください。',
+                None,
+                None,
+                0,
+                (),
+                (),
+            )
+        if self._as_built(variant_id) is not None:
+            return AsBuiltPreview(
+                variant_id,
+                False,
+                'このapplicationには既に設置済み記録があります。',
+                application.applied_revision_id,
+                None,
+                0,
+                (),
+                (),
+            )
+        head = self.scene_repository.current_head(self.document_id)
+        if head is None:
+            return AsBuiltPreview(
+                variant_id,
+                False,
+                '現在の部屋状態がありません。',
+                application.applied_revision_id,
+                None,
+                0,
+                (),
+                (),
+            )
+        chain = self._as_built_revision_chain(application, head)
+        if chain is None:
+            return AsBuiltPreview(
+                variant_id,
+                False,
+                '現在の保存状態はこのproposalのapplied SceneRevisionの'
+                '子孫ではありません。適用した構成へ戻してから記録してください。',
+                application.applied_revision_id,
+                head.revision_id,
+                0,
+                (),
+                (),
+            )
+
+        actual_by_id = {
+            entity.entity_id: entity for entity in head.document.entities
+        }
+        diffs: list[AsBuiltEntityDiff] = []
+        blocking: list[str] = []
+        for item in variant.proposed_entities:
+            proposed = item.entity
+            actual = actual_by_id.get(proposed.entity_id)
+            equipment, _equipment_reason = self._equipment_label(
+                variant, proposed.entity_id
+            )
+            if actual is None:
+                blocking.append(
+                    f'設置済み候補に提案物体 {proposed.name} がありません。'
+                )
+                continue
+            if actual.kind != proposed.kind:
+                blocking.append(
+                    f'{proposed.name}: 提案kind {proposed.kind} と実物体kind '
+                    f'{actual.kind} が一致しません。'
+                )
+            if actual.kind == 'speaker' and actual.speaker_role != proposed.speaker_role:
+                blocking.append(
+                    f'{proposed.name}: 提案role {proposed.speaker_role} と実物体 '
+                    f'{actual.speaker_role} が一致しません。'
+                )
+            moved = actual.position != proposed.position or (
+                getattr(actual, 'aim_xyz', None) != getattr(proposed, 'aim_xyz', None)
+            )
+            diffs.append(
+                AsBuiltEntityDiff(
+                    entity_id=proposed.entity_id,
+                    name=actual.name or proposed.name,
+                    role=actual.speaker_role or proposed.speaker_role,
+                    equipment=equipment,
+                    proposed_pose=self._pose_text(proposed),
+                    actual_pose=self._pose_text(actual),
+                    moved=moved,
+                )
+            )
+        return AsBuiltPreview(
+            variant_id,
+            not blocking,
+            None,
+            application.applied_revision_id,
+            head.revision_id,
+            len(chain),
+            tuple(diffs),
+            tuple(blocking),
+        )
+
+    def _lifecycle_repository(self) -> CadSystemVariantLifecycleRepository:
+        repository = getattr(self, '_as_built_repository', None)
+        if repository is None:
+            repository = CadSystemVariantLifecycleRepository(
+                scene_repository=self.scene_repository,
+                variant_repository=self.variant_repository,
+            )
+            self._as_built_repository = repository
+        return repository
+
+    def _measurement_campaign_repository(
+        self,
+    ) -> CadSystemVariantMeasurementCampaignRepository:
+        repository = getattr(self, '_variant_campaign_repository', None)
+        if repository is None:
+            lifecycle_repository = self._lifecycle_repository()
+            measurement_repository = CadMeasurementRepository(
+                self.scene_repository
+            )
+            quality_repository = CadMeasurementQualityRepository(
+                measurement_repository
+            )
+            measured_repository = CadSystemVariantMeasuredLifecycleRepository(
+                scene_repository=self.scene_repository,
+                lifecycle_repository=lifecycle_repository,
+                measurement_repository=measurement_repository,
+                quality_repository=quality_repository,
+            )
+            repository = CadSystemVariantMeasurementCampaignRepository(
+                scene_repository=self.scene_repository,
+                variant_repository=self.variant_repository,
+                lifecycle_repository=lifecycle_repository,
+                measurement_repository=measurement_repository,
+                quality_repository=quality_repository,
+                measured_lifecycle_repository=measured_repository,
+            )
+            self._variant_campaign_repository = repository
+        return repository
+
+    def record_as_built(
+        self,
+        variant_id: str,
+        *,
+        confirmed_by: str,
+        notes: Sequence[str] = (),
+    ) -> SystemVariantAsBuiltRecord:
+        """Persist the explicit As-built record for one applied proposal.
+
+        ``confirmed_by`` is the human attester label (never a DB id). The
+        pre-save diff is exposed by ``as_built_preview``; this method still
+        rechecks every gate so apply alone never promotes a variant.
+        """
+
+        preview = self.as_built_preview(variant_id)
+        if not preview.ready:
+            raise ValueError(
+                preview.reason
+                or ' / '.join(preview.blocking)
+                or '設置済み記録の前提条件を満たしていません。'
+            )
+        confirmed = confirmed_by.strip()
+        if not confirmed:
+            raise ValueError('記録者名を入力してください。')
+        variant = self.variant(variant_id)
+        application = self._application(variant_id)
+        assert application is not None  # guarded by preview.ready
+        head = self.scene_repository.current_head(self.document_id)
+        assert head is not None
+        record = build_system_variant_as_built_record(
+            scene_repository=self.scene_repository,
+            variant_repository=self.variant_repository,
+            application=application,
+            variant=variant,
+            as_built_revision=head,
+            confirmed_by=confirmed,
+            confirmed_at_utc=_utc_now(),
+            notes=notes,
+        )
+        return self._lifecycle_repository().save(record)
+
+    def measurement_plan_options(self, variant_id: str) -> MeasurementPlanOptions:
+        """As-built-resolved point/source entities for plan authoring."""
+
+        self.variant(variant_id)
+        as_built = self._as_built(variant_id)
+        if as_built is None:
+            return MeasurementPlanOptions(
+                False,
+                '設置済み記録がないためSystemVariant測定計画は作成できません。',
+                (),
+                (),
+            )
+        revision = self.scene_repository.get(as_built.as_built_revision_id)
+        if revision is None:
+            return MeasurementPlanOptions(
+                False,
+                '設置済みSceneRevisionを再解決できません。',
+                (),
+                (),
+            )
+        points: list[MeasurementPointOption] = []
+        sources: list[MeasurementSourceOption] = []
+        for entity in revision.document.entities:
+            if entity.kind == 'measurement_point':
+                points.append(
+                    MeasurementPointOption(
+                        entity_id=entity.entity_id,
+                        name=entity.name,
+                        position_text=self._pose_text(entity),
+                    )
+                )
+            elif entity.kind == 'speaker':
+                sources.append(
+                    MeasurementSourceOption(
+                        entity_id=entity.entity_id,
+                        name=entity.name,
+                        role=entity.speaker_role,
+                    )
+                )
+        return MeasurementPlanOptions(
+            True,
+            None,
+            tuple(points),
+            tuple(sources),
+        )
+
+    def create_measurement_plan(
+        self,
+        variant_id: str,
+        *,
+        measurement_point_entity_id: str,
+        source_entity_ids: Sequence[str],
+        channel_role: str,
+        observable: MeasurementCapabilityClaim = 'magnitude_response',
+        expected_measurement_count: int = 1,
+        require_acquisition_context: bool = True,
+        repeatability_required: bool = False,
+        purpose: str | None = None,
+    ) -> SystemVariantMeasurementPlan:
+        """Create one SystemVariant-specific measurement plan.
+
+        The target binds the exact As-built revision's point position and
+        speaker sources; a generic N60 plan is a different authority and is
+        never reused as a substitute.
+        """
+
+        self.variant(variant_id)
+        as_built = self._as_built(variant_id)
+        if as_built is None:
+            raise ValueError(
+                '設置済み記録がないためSystemVariant測定計画は作成できません。'
+            )
+        revision = self.scene_repository.get(as_built.as_built_revision_id)
+        if revision is None:
+            raise ValueError('設置済みSceneRevisionを再解決できません。')
+        try:
+            point = revision.document.entity(measurement_point_entity_id)
+        except KeyError as exc:
+            raise ValueError('選択した測定点は設置済み状態に存在しません。') from exc
+        role = channel_role.strip()
+        if not role:
+            raise ValueError('測定のチャンネル役割を入力してください。')
+        sources = tuple(sorted(set(source_entity_ids)))
+        if not sources:
+            raise ValueError('測定対象の音源を1つ以上選択してください。')
+        if repeatability_required and expected_measurement_count < 2:
+            raise ValueError(
+                'repeatabilityを要求するtargetは2回以上の測定が必要です。'
+            )
+        for entity_id in sources:
+            try:
+                source = revision.document.entity(entity_id)
+            except KeyError as exc:
+                raise ValueError('選択した音源は設置済み状態に存在しません。') from exc
+            if source.kind != 'speaker':
+                raise ValueError('測定対象の音源はspeakerである必要があります。')
+        target = SystemVariantMeasurementTarget(
+            target_id=_short_semantic_id(
+                'variant-measurement-target',
+                {
+                    'as_built': as_built.record_id,
+                    'point': measurement_point_entity_id,
+                    'sources': list(sources),
+                    'role': role,
+                    'observable': observable,
+                },
+            ),
+            measurement_point_entity_id=measurement_point_entity_id,
+            measurement_position=point.position,
+            source_entity_ids=sources,
+            channel_role=role,
+            observable=observable,
+            acquisition=VariantMeasurementAcquisitionRequirement(
+                require_context=require_acquisition_context,
+            ),
+            expected_measurement_count=expected_measurement_count,
+            repeatability_required=repeatability_required,
+            validation_purpose=purpose,
+        )
+        plan = build_system_variant_measurement_plan(
+            scene_repository=self.scene_repository,
+            variant_repository=self.variant_repository,
+            lifecycle_repository=self._lifecycle_repository(),
+            as_built_record=as_built,
+            targets=(target,),
+            created_at_utc=_utc_now(),
+            purpose=purpose,
+        )
+        return self._measurement_campaign_repository().save_plan(plan)
+
+    def preregister_measurement_campaign(
+        self,
+        variant_id: str,
+        *,
+        purpose: str,
+        plan_ids: Sequence[str] | None = None,
+    ) -> tuple[
+        SystemVariantMeasurementCampaign,
+        SystemVariantMeasurementCampaignRegistration,
+    ]:
+        """Preregister one campaign over this variant's exact saved plans.
+
+        Fixes requirements before measured evidence is seen; the repository
+        commits the durable registration inside the campaign transaction.
+        """
+
+        self.variant(variant_id)
+        plans = self._plans(variant_id)
+        if plan_ids is not None:
+            wanted = set(plan_ids)
+            plans = tuple(plan for plan in plans if plan.plan_id in wanted)
+        if not plans:
+            raise ValueError(
+                'campaignを事前登録するSystemVariant測定計画がありません。'
+            )
+        text = purpose.strip()
+        if not text:
+            raise ValueError('campaignの目的を入力してください。')
+        campaign = build_system_variant_measurement_campaign(
+            plans=plans,
+            purpose=text,
+            preregistered_at_utc=_utc_now(),
+        )
+        registration = self._measurement_campaign_repository().save_campaign(
+            campaign
+        )
+        return campaign, registration
+
+    def pending_measurement_targets(
+        self,
+        variant_id: str,
+    ) -> tuple[PendingMeasurementTarget, ...]:
+        """Preregistered targets and how much accepted evidence each still needs."""
+
+        self.variant(variant_id)
+        completions = tuple(
+            completion
+            for campaign in self._campaigns(variant_id)
+            for completion in self._plan_completions(campaign.campaign_id)
+        )
+        pending: list[PendingMeasurementTarget] = []
+        for plan in self._plans(variant_id):
+            for target in plan.targets:
+                recorded = sum(
+                    1
+                    for completion in completions
+                    if completion.plan_ref.plan_id == plan.plan_id
+                    for evidence in completion.evidence
+                    if evidence.target_id == target.target_id
+                )
+                pending.append(
+                    PendingMeasurementTarget(
+                        target_id=target.target_id,
+                        plan_id=plan.plan_id,
+                        measurement_point_entity_id=target.measurement_point_entity_id,
+                        channel_role=target.channel_role,
+                        expected_measurement_count=target.expected_measurement_count,
+                        recorded_evidence_count=recorded,
+                    )
+                )
+        return tuple(pending)
 
     def _exact_authority(
         self,

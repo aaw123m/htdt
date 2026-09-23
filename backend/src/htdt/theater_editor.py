@@ -43,6 +43,7 @@ from .cad_scene import (
 from .native_editor import ROLE
 from .room_editor import _room_wireframe
 from .room_viewport import _entity_local_mesh
+from .seat_priority_panel import SeatPriorityPanel
 
 
 class TheaterEditorWindow(CadEditorWindow):
@@ -57,6 +58,7 @@ class TheaterEditorWindow(CadEditorWindow):
 
         self._create_object_palette()
         self._create_object_inspector()
+        self._create_seat_priority_dock()
         self._create_object_toolbar()
         self._localize_scene_dock()
         self._inspect(self.selected_id)
@@ -160,6 +162,18 @@ class TheaterEditorWindow(CadEditorWindow):
         dock.setWidget(panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
 
+    def _create_seat_priority_dock(self) -> None:
+        # #513 listening population: mark MLP/secondary/diagnostic seats and
+        # materialize an immutable profile bound to the exact scene head.
+        self.seat_priority_panel = SeatPriorityPanel(
+            self.repository,
+            self.document_id,
+            self,
+        )
+        dock = QDockWidget('リスニング集団', self)
+        dock.setWidget(self.seat_priority_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+
     def _rebuild(self, *, reset_camera: bool = False) -> None:
         """RoomEditor rebuild extended for all N40 entity groups, then wall overlays."""
 
@@ -226,6 +240,9 @@ class TheaterEditorWindow(CadEditorWindow):
         self._render_wall_overlay()
         self._refresh_wall_inspector()
         self._refresh_object_inspector()
+        seat_priority_panel = getattr(self, 'seat_priority_panel', None)
+        if seat_priority_panel is not None:
+            seat_priority_panel.refresh(self.working.committed_document)
         self._update_actions()
         self.viewport.render()
 

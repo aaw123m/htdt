@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from .cad_dependency_impact import WatchedArtifact, build_dependency_impact_report
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_quality import (
     CadMeasurementQualityReport,
@@ -49,6 +50,12 @@ class OverviewReadinessViewModel:
 
 class SceneReadSource(Protocol):
     def latest(self, document_id: str) -> SceneRevision | None: ...
+
+
+class SceneRevisionReadSource(Protocol):
+    """Fetches a committed revision by id (used for head-vs-parent impact)."""
+
+    def get(self, revision_id: str) -> SceneRevision | None: ...
 
 
 class MeasurementReadSource(Protocol):
@@ -164,6 +171,7 @@ class OverviewReadinessService:
         search_source: SearchReadSource,
         validation_source: ValidationReadSource,
         quality_source: MeasurementQualityReadSource | None = None,
+        impact_source: SceneRevisionReadSource | None = None,
     ) -> None:
         self._scene_source = scene_source
         self._measurement_source = measurement_source
@@ -171,6 +179,7 @@ class OverviewReadinessService:
         self._search_source = search_source
         self._validation_source = validation_source
         self._quality_source = quality_source
+        self._impact_source = impact_source
 
     def read(
         self,
@@ -430,6 +439,14 @@ class OverviewReadinessService:
                 )
             )
 
+        warnings.extend(
+            self._impact_notices(
+                revision,
+                completed_predictions=completed_predictions,
+                measurements=measurements,
+            )
+        )
+
         setup_blocked = any(
             notice.code
             in {
@@ -461,6 +478,131 @@ class OverviewReadinessService:
             next_action=next_action,
             optimization_ready=optimization_ready,
         )
+
+    _IMPACT_KIND_JA: dict[str, str] = {
+        'prediction': '予測',
+        'coverage_evaluation': '指向カバレッジ評価',
+        'direct_level_evaluation': 'ダイレクトレベル評価',
+        'seat_priority_profile': 'リスニング集団',
+        'cost_evaluation': 'コスト評価',
+        'measurement_plan': '測定計画',
+        'measured_dataset': '測定データ',
+        'calibration_plan': '校正計画',
+        'installation_report': '設置レポート',
+        'optimization_run': '最適化検索',
+        'design_comparison': '設計比較',
+        'treatment_plan': '音響処理計画',
+        'commissioning_plan': '導入調整計画',
+        'video_geometry': '映像ジオメトリ',
+    }
+    _IMPACT_ACTION_JA: dict[str, str] = {
+        'recompute': '再計算が必要です',
+        're_evaluate': '再評価が必要です',
+        're_import': '再読み込みが必要です',
+        'remeasure': '再測定が必要です',
+        're_commission': '再調整・再校正が必要です',
+    }
+
+    def _impact_notices(
+        self,
+        revision: SceneRevision,
+        *,
+        completed_predictions: tuple[CadPredictionResult, ...],
+        measurements: tuple[CadMeasurementRecord, ...],
+    ) -> tuple[OverviewNotice, ...]:
+        """Summarize the head-vs-parent change into stale/uncertain notices (#561).
+
+        Read-only: exact revision/hash bindings are reused as-is, and the
+        report never deletes or rewrites artifacts. Items already bound to the
+        head revision, and items whose watched axes did not change, stay quiet.
+        """
+
+        if self._impact_source is None or revision.parent_revision_id is None:
+            return ()
+        parent = self._impact_source.get(revision.parent_revision_id)
+        if parent is None:
+            return ()
+
+        artifacts: list[WatchedArtifact] = []
+        for result in completed_predictions:
+            artifacts.append(
+                WatchedArtifact(
+                    artifact_kind='prediction',
+                    artifact_id=result.result_id,
+                    bound_revision_id=result.scene_revision_id,
+                    bound_content_hash=result.scene_content_hash,
+                    watched_axes=frozenset(
+                        {
+                            'geometry',
+                            'source_equipment',
+                            'material_boundary',
+                            'operating_state',
+                            'solver_provider',
+                        }
+                    ),
+                )
+            )
+        for spec in self._search_source.list_specs(revision.document_id):
+            artifacts.append(
+                WatchedArtifact(
+                    artifact_kind='optimization_run',
+                    artifact_id=spec.search_spec_id,
+                    bound_revision_id=spec.scene_revision_id,
+                    bound_content_hash=spec.scene_content_hash,
+                    watched_axes=frozenset(
+                        {
+                            'geometry',
+                            'source_equipment',
+                            'material_boundary',
+                            'target_design',
+                        }
+                    ),
+                )
+            )
+        for measurement in measurements:
+            artifacts.append(
+                WatchedArtifact(
+                    artifact_kind='measured_dataset',
+                    artifact_id=measurement.measurement_id,
+                    bound_revision_id=measurement.scene_revision_id,
+                    bound_content_hash=measurement.scene_content_hash,
+                    watched_axes=frozenset({'measurement_context'}),
+                )
+            )
+        if not artifacts:
+            return ()
+
+        report = build_dependency_impact_report(
+            from_revision=parent,
+            to_revision=revision,
+            artifacts=artifacts,
+        )
+        notices: list[OverviewNotice] = []
+        actionable = (
+            item
+            for item in report.impacts
+            if item.state == 'uncertain'
+            or (item.state == 'stale' and item.action != 'none')
+        )
+        for item in list(actionable)[:4]:
+            kind_ja = self._IMPACT_KIND_JA.get(item.artifact_kind, '成果物')
+            action_ja = self._IMPACT_ACTION_JA.get(item.action, '再評価が必要です')
+            uncertainty = (
+                '（依存関係を確定できないため保守的に表示）'
+                if item.state == 'uncertain'
+                else ''
+            )
+            notices.append(
+                OverviewNotice(
+                    code=f'impact.{item.state}',
+                    severity='warning',
+                    message=(
+                        f'{kind_ja}「{item.artifact_id}」は'
+                        f'{action_ja}。{uncertainty}'
+                    ),
+                )
+            )
+        return tuple(notices)
 
     def _latest_relevant_validation(
         self,

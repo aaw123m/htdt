@@ -213,6 +213,7 @@ class WorkflowApplicationComposition:
             search_repository,
             validation_repository,
             quality_source=CadMeasurementQualityRepository(measurement_repository),
+            impact_source=self.repository,
         )
 
     def _navigate_target(self, target: WorkspaceDeepLink) -> bool:
@@ -819,7 +820,11 @@ class WorkflowApplicationComposition:
         return CommandAvailability.available()
 
     def _make_optimization(self) -> WorkspaceMount:
-        mount = build_optimization_workspace_mount(self.repository, self.document_id)
+        mount = build_optimization_workspace_mount(
+            self.repository,
+            self.document_id,
+            on_navigate=self._navigate_target,
+        )
         workspace = mount.widget
         controller = workspace.controller  # type: ignore[attr-defined]
         original_activate = mount.on_activate

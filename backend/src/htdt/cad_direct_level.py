@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .cad_equipment import EquipmentDefinition, FrequencyDomain
 from .cad_repository import SceneRevision
+from .cad_seat_priority import SeatPriorityProfile
 from .cad_scene import (
     Position3,
     SceneEntity,
@@ -102,13 +103,35 @@ class SeatPopulation(BaseModel):
         'scene_acoustic_reference_required'
     ] = 'scene_acoustic_reference_required'
     population_weighting: Literal[
-        'equal_unweighted'
+        'equal_unweighted',
+        'seat_priority',
     ] = 'equal_unweighted'
+    # Exact SeatPriorityProfile binding (#513). Required iff weighting is
+    # 'seat_priority'; the bound profile's exact member order must equal
+    # ``seat_entity_ids`` (checked by the evaluator, which owns the scene).
+    priority_profile_id: str | None = Field(default=None, min_length=1)
+    priority_profile_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
 
     @model_validator(mode='after')
     def unique_seats(self) -> 'SeatPopulation':
         if len(self.seat_entity_ids) != len(set(self.seat_entity_ids)):
             raise ValueError('seat population entity IDs must be unique')
+        if (self.priority_profile_id is None) != (
+            self.priority_profile_sha256 is None
+        ):
+            raise ValueError('priority profile id/hash must be supplied together')
+        if self.population_weighting == 'seat_priority':
+            if self.priority_profile_id is None:
+                raise ValueError(
+                    'seat_priority weighting requires an exact profile binding'
+                )
+        elif self.priority_profile_id is not None:
+            raise ValueError(
+                'priority profile binding requires seat_priority weighting'
+            )
         return self
 
 
@@ -318,6 +341,34 @@ class DirectLevelAggregates(BaseModel):
     worst_seat_peak_headroom: DirectLevelScalarResult
 
 
+class SeatPriorityAggregates(BaseModel):
+    """Priority-aware aggregates (#513).
+
+    ``weighted_*`` is the sum_to_one weighted mean over required seats only;
+    ``worst_required_*`` keeps the hard floor independent of soft weights, so
+    a low-weight required seat can never be silently waived. Diagnostic seats
+    contribute neither aggregate. Recorded normalization is the profile's
+    exact ``weight_normalization``/``normalization_version``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    priority_profile_id: str = Field(min_length=1)
+    priority_profile_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    weight_normalization: str = Field(min_length=1)
+    normalization_version: str = Field(min_length=1)
+    required_seat_entity_ids: tuple[str, ...] = Field(min_length=1)
+    normalized_weights: dict[str, float] = Field(min_length=1)
+    weighted_direct_level: DirectLevelScalarResult
+    weighted_target_margin: DirectLevelScalarResult
+    weighted_continuous_headroom: DirectLevelScalarResult
+    weighted_peak_headroom: DirectLevelScalarResult
+    worst_required_seat_direct_level: DirectLevelScalarResult
+    worst_required_seat_target_margin: DirectLevelScalarResult
+    worst_required_seat_continuous_headroom: DirectLevelScalarResult
+    worst_required_seat_peak_headroom: DirectLevelScalarResult
+
+
 class DirectLevelEvaluation(BaseModel):
     """Self-contained immutable direct/equipment-derived O100D evaluation evidence."""
 
@@ -339,6 +390,9 @@ class DirectLevelEvaluation(BaseModel):
     source_reference_position_m: Position3
     seat_results: tuple[SeatDirectLevelResult, ...] = Field(min_length=1)
     aggregates: DirectLevelAggregates
+    # Optional priority extension (#513): identity-stable only when present,
+    # so equal-unweighted evaluations keep byte-exact identity.
+    priority_aggregates: SeatPriorityAggregates | None = None
     evaluation_id: str = Field(min_length=1)
     evaluation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -356,7 +410,7 @@ class DirectLevelEvaluation(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'document_id': self.document_id,
@@ -376,6 +430,11 @@ class DirectLevelEvaluation(BaseModel):
             ],
             'aggregates': self.aggregates.model_dump(mode='json'),
         }
+        if self.priority_aggregates is not None:
+            payload['priority_aggregates'] = self.priority_aggregates.model_dump(
+                mode='json'
+            )
+        return payload
 
 
 def _available(value: float, unit: Literal['dB', 'dB SPL']) -> DirectLevelScalarResult:
@@ -595,6 +654,39 @@ def _aggregate_min(
     return _available(min(available), unit)
 
 
+def _aggregate_weighted_mean(
+    values: Sequence[tuple[float, DirectLevelScalarResult]],
+    *,
+    unit: Literal['dB', 'dB SPL'],
+    label: str,
+) -> DirectLevelScalarResult:
+    """sum_to_one-weighted mean over required seats; never a probability mix."""
+    if any(item.state == 'unsupported' for _w, item in values):
+        return _unsupported(
+            f'{label} unavailable because at least one required seat is '
+            'unsupported',
+            unit,
+        )
+    if any(item.state == 'missing' for _w, item in values):
+        return _missing(
+            f'{label} unavailable because at least one required seat is '
+            'missing evidence',
+            unit,
+        )
+    total = sum(float(weight) for weight, _item in values)
+    if total <= 0.0:
+        return _unsupported(
+            f'{label} unavailable because required weights do not normalize',
+            unit,
+        )
+    value = sum(
+        float(weight) * float(item.value)
+        for weight, item in values
+        if item.value is not None
+    ) / total
+    return _available(value, unit)
+
+
 def _aggregate_spread(
     values: Sequence[DirectLevelScalarResult],
 ) -> DirectLevelScalarResult:
@@ -625,6 +717,7 @@ def evaluate_direct_level(
     variant: SystemVariant,
     equipment_definition: EquipmentDefinition,
     scenario: PlaybackExcitationScenario,
+    priority_profile: SeatPriorityProfile | None = None,
 ) -> DirectLevelEvaluation:
     """Evaluate one channel without room gain, reflections, directivity loss, or channel summation."""
 
@@ -634,6 +727,31 @@ def evaluate_direct_level(
         or variant.baseline_content_hash != revision.content_hash
     ):
         raise ValueError('direct-level SystemVariant/SceneRevision authority mismatch')
+
+    population = scenario.receiver_population
+    if population.population_weighting == 'seat_priority':
+        if priority_profile is None:
+            raise ValueError(
+                'seat_priority weighting requires the bound SeatPriorityProfile'
+            )
+        if (
+            priority_profile.profile_id != population.priority_profile_id
+            or priority_profile.profile_sha256
+            != population.priority_profile_sha256
+        ):
+            raise ValueError(
+                'seat priority profile does not match the exact scenario '
+                'binding'
+            )
+        if priority_profile.seat_entity_ids != population.seat_entity_ids:
+            raise ValueError(
+                'seat priority profile members do not match the receiver '
+                'population'
+            )
+    elif priority_profile is not None:
+        raise ValueError(
+            'priority profile requires seat_priority population weighting'
+        )
 
     bindings = [
         item
@@ -792,6 +910,10 @@ def evaluate_direct_level(
             label='worst-seat peak headroom',
         ),
     )
+    priority_aggregates = _seat_priority_aggregates(
+        seat_results,
+        priority_profile,
+    )
     identity = {
         'schema_version': DIRECT_LEVEL_SCHEMA_VERSION,
         'authority_version': DIRECT_LEVEL_AUTHORITY_VERSION,
@@ -808,6 +930,10 @@ def evaluate_direct_level(
         'seat_results': [item.model_dump(mode='json') for item in seat_results],
         'aggregates': aggregates.model_dump(mode='json'),
     }
+    if priority_aggregates is not None:
+        identity['priority_aggregates'] = priority_aggregates.model_dump(
+            mode='json'
+        )
     digest = _digest(identity)
     return DirectLevelEvaluation(
         document_id=revision.document_id,
@@ -822,8 +948,81 @@ def evaluate_direct_level(
         source_reference_position_m=source_reference,
         seat_results=tuple(seat_results),
         aggregates=aggregates,
+        priority_aggregates=priority_aggregates,
         evaluation_id=_semantic_id('o100d', digest),
         evaluation_sha256=digest,
+    )
+
+
+def _seat_priority_aggregates(
+    seat_results: Sequence[SeatDirectLevelResult],
+    priority_profile: SeatPriorityProfile | None,
+) -> SeatPriorityAggregates | None:
+    """Weighted + required-floor aggregates over the exact profile (#513).
+
+    Required seats only — diagnostics are evidence rows, not objective
+    members. A missing/unsupported required seat fails closed rather than
+    silently dropping out of the floor or the weighted mean.
+    """
+    if priority_profile is None:
+        return None
+    weights = priority_profile.normalized_weights()
+    by_id = {item.seat_entity_id: item for item in seat_results}
+    required = tuple(
+        (weights[seat_id], by_id[seat_id])
+        for seat_id in priority_profile.required_seat_entity_ids
+    )
+    direct_values = [item.direct_level for _w, item in required]
+    target_values = [item.target_margin for _w, item in required]
+    continuous_values = [item.continuous_headroom for _w, item in required]
+    peak_values = [item.peak_headroom for _w, item in required]
+    return SeatPriorityAggregates(
+        priority_profile_id=priority_profile.profile_id,
+        priority_profile_sha256=priority_profile.profile_sha256,
+        weight_normalization=priority_profile.weight_normalization,
+        normalization_version=priority_profile.normalization_version,
+        required_seat_entity_ids=priority_profile.required_seat_entity_ids,
+        normalized_weights=weights,
+        weighted_direct_level=_aggregate_weighted_mean(
+            [(w, item.direct_level) for w, item in required],
+            unit='dB SPL',
+            label='weighted direct level',
+        ),
+        weighted_target_margin=_aggregate_weighted_mean(
+            [(w, item.target_margin) for w, item in required],
+            unit='dB',
+            label='weighted target margin',
+        ),
+        weighted_continuous_headroom=_aggregate_weighted_mean(
+            [(w, item.continuous_headroom) for w, item in required],
+            unit='dB',
+            label='weighted continuous headroom',
+        ),
+        weighted_peak_headroom=_aggregate_weighted_mean(
+            [(w, item.peak_headroom) for w, item in required],
+            unit='dB',
+            label='weighted peak headroom',
+        ),
+        worst_required_seat_direct_level=_aggregate_min(
+            direct_values,
+            unit='dB SPL',
+            label='worst required-seat direct level',
+        ),
+        worst_required_seat_target_margin=_aggregate_min(
+            target_values,
+            unit='dB',
+            label='worst required-seat target margin',
+        ),
+        worst_required_seat_continuous_headroom=_aggregate_min(
+            continuous_values,
+            unit='dB',
+            label='worst required-seat continuous headroom',
+        ),
+        worst_required_seat_peak_headroom=_aggregate_min(
+            peak_values,
+            unit='dB',
+            label='worst required-seat peak headroom',
+        ),
     )
 
 
@@ -908,6 +1107,73 @@ def direct_level_objective_vector(
         evaluation.aggregates.worst_seat_continuous_headroom,
         evaluation.aggregates.worst_seat_peak_headroom,
     )
+    pairs = list(zip(definitions, results, strict=True))
+    if evaluation.priority_aggregates is not None:
+        priority = evaluation.priority_aggregates
+        # Weighted soft aggregate and the independent required-seat floor are
+        # separate objectives — a low secondary weight never waives the floor.
+        for objective_id, quantity, unit, result in (
+            (
+                'o100d.priority.weighted_direct_level_db_spl',
+                'direct_equipment_derived_weighted_seat_spl',
+                'dB SPL',
+                priority.weighted_direct_level,
+            ),
+            (
+                'o100d.priority.weighted_target_margin_db',
+                'direct_equipment_derived_weighted_target_margin',
+                'dB',
+                priority.weighted_target_margin,
+            ),
+            (
+                'o100d.priority.weighted_continuous_headroom_db',
+                'direct_equipment_derived_weighted_continuous_headroom',
+                'dB',
+                priority.weighted_continuous_headroom,
+            ),
+            (
+                'o100d.priority.weighted_peak_headroom_db',
+                'direct_equipment_derived_weighted_peak_headroom',
+                'dB',
+                priority.weighted_peak_headroom,
+            ),
+            (
+                'o100d.priority.worst_required_seat_direct_level_db_spl',
+                'direct_equipment_derived_worst_required_seat_spl',
+                'dB SPL',
+                priority.worst_required_seat_direct_level,
+            ),
+            (
+                'o100d.priority.worst_required_seat_target_margin_db',
+                'direct_equipment_derived_worst_required_seat_margin',
+                'dB',
+                priority.worst_required_seat_target_margin,
+            ),
+            (
+                'o100d.priority.worst_required_seat_continuous_headroom_db',
+                'direct_equipment_derived_worst_required_seat_continuous',
+                'dB',
+                priority.worst_required_seat_continuous_headroom,
+            ),
+            (
+                'o100d.priority.worst_required_seat_peak_headroom_db',
+                'direct_equipment_derived_worst_required_seat_peak',
+                'dB',
+                priority.worst_required_seat_peak_headroom,
+            ),
+        ):
+            pairs.append(
+                (
+                    _objective_definition(
+                        evaluation.scenario,
+                        objective_id=objective_id,
+                        quantity=quantity,
+                        unit=unit,
+                        direction='maximize',
+                    ),
+                    result,
+                )
+            )
     metrics = tuple(
         ObjectiveMetric(
             objective_id=definition.objective_id,
@@ -917,7 +1183,7 @@ def direct_level_objective_vector(
             state=result.state,
             definition=definition,
         )
-        for definition, result in zip(definitions, results, strict=True)
+        for definition, result in pairs
     )
     return ObjectiveVector(
         candidate_id=evaluation.variant_id,

@@ -12,6 +12,7 @@ from .cad_search_models import (
     CAD_SEARCH_SCHEMA_VERSION,
     CadCandidate,
     CadCandidateSetPage,
+    CadLinkedSearchVariable,
     CadSearchAxis,
     CadSearchSpec,
     canonical_search_json,
@@ -20,20 +21,55 @@ from .cad_search_models import (
     new_search_spec_id,
     search_timestamp_utc,
 )
-from .placement_constraints import validate_constraint_set_for_context
+from .placement_constraints import (
+    ConstraintSetCreate,
+    LinkedPlacementConstraint,
+    validate_constraint_set_for_context,
+)
 from .search_space import (
     MAX_SEARCH_PAGE_SIZE,
     GridAxis,
+    LinkedDerivation,
     SearchSpecCreate,
     generate_search_space,
     validate_search_spec,
 )
 
 
+def _linked_placement_constraint_payloads(
+    linked_variables: Iterable[CadLinkedSearchVariable],
+) -> list[dict]:
+    return [
+        LinkedPlacementConstraint(
+            constraint_id=variable.constraint_id,
+            kind='linked_placement',
+            entity_a=variable.master_entity_id,
+            entity_b=variable.slave_entity_id,
+            relation=variable.relation,
+            mirror_axis_x_m=variable.mirror_axis_x_m,
+            tolerance_m=variable.tolerance_m,
+        ).model_dump(mode='json')
+        for variable in linked_variables
+    ]
+
+
+def _linked_derivations(
+    linked_variables: Iterable[CadLinkedSearchVariable],
+) -> list[LinkedDerivation]:
+    return [
+        LinkedDerivation(
+            constraint_id=variable.constraint_id,
+            master_entity_id=variable.master_entity_id,
+        )
+        for variable in linked_variables
+    ]
+
+
 def _constraint_engine_spec(
     revision: SceneRevision,
     constraint_set: CadConstraintSet,
     search_entity_ids: Iterable[str] = (),
+    linked_variables: Iterable[CadLinkedSearchVariable] = (),
 ) -> tuple[dict, str]:
     context = scene_to_g10_context(revision.document)
     request = build_g10_constraint_request(
@@ -41,6 +77,18 @@ def _constraint_engine_spec(
         constraint_set,
         additional_entity_ids=search_entity_ids,
     )
+    linked_payloads = _linked_placement_constraint_payloads(linked_variables)
+    if linked_payloads:
+        payload = request.model_dump(mode='json')
+        existing = {item['constraint_id'] for item in payload['constraints']}
+        for item in linked_payloads:
+            if item['constraint_id'] in existing:
+                raise ValueError(
+                    'linked search variable constraint_id collides with a '
+                    f"placement constraint: {item['constraint_id']}"
+                )
+        payload['constraints'].extend(linked_payloads)
+        request = ConstraintSetCreate.model_validate(payload)
     stored = validate_constraint_set_for_context(request, context)
     return stored, canonical_search_sha256(stored)
 
@@ -52,8 +100,16 @@ def build_cad_search_spec(
     *,
     candidate_limit: int = 10_000,
     name: str | None = None,
+    linked_variables: Iterable[CadLinkedSearchVariable] = (),
 ) -> tuple[CadSearchSpec, dict]:
-    """Create an immutable native SearchSpec while reusing O10 only as an algorithm service."""
+    """Create an immutable native SearchSpec while reusing O10 only as an algorithm service.
+
+    ``linked_variables`` declares explicit pair/group relations (mirror,
+    matched axis, shared delta); each rule is compiled into the
+    constraint-engine spec as a ``linked_placement`` constraint and into the
+    O10 spec as a linked derivation, so slave axes do not expand the
+    independent search dimensionality.
+    """
 
     if constraint_set.document_id != revision.document_id:
         raise ValueError('SearchSpec constraint workspace belongs to another document')
@@ -61,12 +117,16 @@ def build_cad_search_spec(
     native_axes = tuple(axes)
     if not native_axes:
         raise ValueError('SearchSpec requires at least one axis')
+    native_links = tuple(linked_variables)
 
     constraint_snapshot_json, constraint_workspace_hash = constraint_workspace_snapshot(constraint_set)
     engine_spec, engine_sha = _constraint_engine_spec(
         revision,
         constraint_set,
-        (axis.entity_id for axis in native_axes),
+        {axis.entity_id for axis in native_axes}
+        | {variable.master_entity_id for variable in native_links}
+        | {variable.slave_entity_id for variable in native_links},
+        native_links,
     )
     context = scene_to_g10_context(revision.document)
     synthetic_constraint_id = f'cad-constraints:{constraint_workspace_hash[:20]}'
@@ -74,6 +134,7 @@ def build_cad_search_spec(
         constraint_set_id=synthetic_constraint_id,
         name=name,
         axes=[GridAxis.model_validate(item.model_dump(mode='json')) for item in native_axes],
+        linked_derivations=_linked_derivations(native_links),
         candidate_limit=candidate_limit,
     )
     o10_spec, estimate = validate_search_spec(
@@ -96,6 +157,9 @@ def build_cad_search_spec(
         constraint_engine_spec_json=canonical_search_json(engine_spec),
         constraint_engine_spec_sha256=engine_sha,
         axes=ordered_axes,
+        linked_variables=tuple(
+            sorted(native_links, key=lambda item: item.constraint_id)
+        ),
         candidate_limit=candidate_limit,
         o10_spec_json=canonical_search_json(o10_spec),
         search_spec_sha256='0' * 64,
@@ -147,7 +211,10 @@ def require_search_spec_authority(
     engine_spec, engine_sha = _constraint_engine_spec(
         revision,
         constraint_snapshot,
-        (axis.entity_id for axis in spec.axes),
+        {axis.entity_id for axis in spec.axes}
+        | {variable.master_entity_id for variable in spec.linked_variables}
+        | {variable.slave_entity_id for variable in spec.linked_variables},
+        spec.linked_variables,
     )
     if canonical_search_json(engine_spec) != spec.constraint_engine_spec_json:
         raise ValueError(
@@ -168,6 +235,7 @@ def require_search_spec_authority(
             GridAxis.model_validate(item.model_dump(mode='json'))
             for item in spec.axes
         ],
+        linked_derivations=_linked_derivations(spec.linked_variables),
         candidate_limit=spec.candidate_limit,
     )
     o10_spec, _estimate = validate_search_spec(

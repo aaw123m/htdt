@@ -52,7 +52,13 @@ from .cad_search import (
     generate_cad_candidates,
     search_spec_current_working,
 )
-from .cad_search_models import CadCandidate, CadCandidateSetPage, CadSearchAxis, CadSearchSpec
+from .cad_search_models import (
+    CadCandidate,
+    CadCandidateSetPage,
+    CadLinkedSearchVariable,
+    CadSearchAxis,
+    CadSearchSpec,
+)
 from .cad_search_repository import CadSearchRepository
 from .measurement_workspace import _MeasurementScrollArea
 from .cad_measurement_repository import CadMeasurementRepository
@@ -115,6 +121,12 @@ class SearchControllerMixin:
         if combo is None or self.working is None:
             return
         previous = combo.currentData()
+        previous_master = (
+            None if self.linked_master_combo is None else self.linked_master_combo.currentData()
+        )
+        previous_slave = (
+            None if self.linked_slave_combo is None else self.linked_slave_combo.currentData()
+        )
         with QSignalBlocker(combo):
             combo.clear()
             for entity in self.working.committed_document.entities:
@@ -123,6 +135,20 @@ class SearchControllerMixin:
                 index = combo.findData(previous)
                 if index >= 0:
                     combo.setCurrentIndex(index)
+        for linked_combo, previous_data in (
+            (self.linked_master_combo, previous_master),
+            (self.linked_slave_combo, previous_slave),
+        ):
+            if linked_combo is None:
+                continue
+            with QSignalBlocker(linked_combo):
+                linked_combo.clear()
+                for entity in self.working.committed_document.entities:
+                    linked_combo.addItem(f'{entity.name} · {entity.kind}', entity.entity_id)
+                if previous_data is not None:
+                    index = linked_combo.findData(previous_data)
+                    if index >= 0:
+                        linked_combo.setCurrentIndex(index)
         self._seed_search_axis_range()
         if self.extended_entity_combo is not None:
             self._refresh_extended_entities()
@@ -230,6 +256,97 @@ class SearchControllerMixin:
                 result.append(CadSearchAxis.model_validate(payload))
         return tuple(result)
 
+    def _set_linked_tree_item(
+        self,
+        tree_item: QTreeWidgetItem,
+        variable: CadLinkedSearchVariable,
+    ) -> None:
+        tree_item.setText(0, self._entity_display_name(variable.master_entity_id))
+        tree_item.setText(1, self._entity_display_name(variable.slave_entity_id))
+        relation_labels = {
+            'mirror_x': '鏡像 X',
+            'equal_x': 'X一致',
+            'equal_y': 'Y一致',
+            'equal_z': 'Z一致',
+            'equal_delta_x': 'X同一変位',
+            'equal_delta_y': 'Y同一変位',
+            'equal_delta_z': 'Z同一変位',
+        }
+        tree_item.setText(2, relation_labels.get(variable.relation, variable.relation))
+        tree_item.setText(
+            3,
+            ''
+            if variable.mirror_axis_x_m is None
+            else f'{float(variable.mirror_axis_x_m):.3f}',
+        )
+        tree_item.setData(0, ROLE, variable.model_dump(mode='json'))
+
+    def add_linked_search_variable(self) -> None:
+        if (
+            self.search_linked_tree is None
+            or self.linked_master_combo is None
+            or self.linked_slave_combo is None
+            or self.linked_relation_combo is None
+        ):
+            return
+        master_id = self.linked_master_combo.currentData()
+        slave_id = self.linked_slave_combo.currentData()
+        relation = self.linked_relation_combo.currentData()
+        if master_id is None or slave_id is None or relation is None:
+            return
+        mirror_axis = None
+        if relation == 'mirror_x':
+            if self.linked_mirror_field is None:
+                return
+            mirror_axis = float(self.linked_mirror_field.value())
+        try:
+            variable = CadLinkedSearchVariable(
+                constraint_id=f'ui-link-{uuid4().hex[:12]}',
+                master_entity_id=str(master_id),
+                slave_entity_id=str(slave_id),
+                relation=str(relation),
+                mirror_axis_x_m=mirror_axis,
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f'連動変数を追加できません · {exc}')
+            return
+
+        for index in range(self.search_linked_tree.topLevelItemCount()):
+            current = self.search_linked_tree.topLevelItem(index)
+            payload = current.data(0, ROLE)
+            if isinstance(payload, dict) and (
+                payload.get('master_entity_id'),
+                payload.get('slave_entity_id'),
+                payload.get('relation'),
+            ) == (variable.master_entity_id, variable.slave_entity_id, variable.relation):
+                self._set_linked_tree_item(current, variable)
+                return
+        tree_item = QTreeWidgetItem()
+        self._set_linked_tree_item(tree_item, variable)
+        self.search_linked_tree.addTopLevelItem(tree_item)
+
+    def remove_selected_linked_variable(self) -> None:
+        tree = self.search_linked_tree
+        if tree is None:
+            return
+        item = tree.currentItem()
+        if item is None:
+            return
+        index = tree.indexOfTopLevelItem(item)
+        if index >= 0:
+            tree.takeTopLevelItem(index)
+
+    def _draft_linked_variables(self) -> tuple[CadLinkedSearchVariable, ...]:
+        tree = self.search_linked_tree
+        if tree is None:
+            return ()
+        result: list[CadLinkedSearchVariable] = []
+        for index in range(tree.topLevelItemCount()):
+            payload = tree.topLevelItem(index).data(0, ROLE)
+            if isinstance(payload, dict):
+                result.append(CadLinkedSearchVariable.model_validate(payload))
+        return tuple(result)
+
     def _saved_search_revision(self) -> SceneRevision:
         if self.working is None or self.working.source_revision_id is None:
             raise ValueError('保存済みの部屋状態が必要です')
@@ -257,6 +374,7 @@ class SearchControllerMixin:
                 axes,
                 candidate_limit=limit,
                 name=name,
+                linked_variables=self._draft_linked_variables(),
             )
             self.search_repository.save(spec)
         except Exception as exc:
@@ -269,8 +387,11 @@ class SearchControllerMixin:
         self.search_preview_candidate_id = None
         self._refresh_search_specs()
         self._remove_search_overlays()
+        linked_count = int(estimate.get('linked_derivation_count', 0))
         self.statusBar().showMessage(
-            f'探索設定を保存しました · 総候補 {estimate["raw_candidate_count"]}'
+            '探索設定を保存しました · '
+            f'独立軸 {len(axes)} · 連動 {linked_count} · '
+            f'総候補 {estimate["raw_candidate_count"]}'
         )
 
     def _refresh_search_specs(self) -> None:

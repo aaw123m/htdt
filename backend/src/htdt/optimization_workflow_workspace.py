@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
 
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
+from .comparison_context_strip import ComparisonContextStrip
+from .joint_optimization_context import JointOptimizationContext
+from .joint_optimization_panel import JointOptimizationPanel
 from .optimization_search_domain import SearchDomainPreview
 from .optimization_workflow_controller import OptimizationWorkflowController
 from .room_viewport import RoomOverlayState, RoomViewport3D
@@ -35,6 +38,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import WorkspaceMount
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .standards_workspace import StandardsVariantComparisonPanel
@@ -182,6 +186,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         document_id: str = F1_DOCUMENT_ID,
         *,
         viewport_factory: Callable[[QWidget | None], QWidget] | None = None,
+        on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("optimizationWorkflowWorkspace")
@@ -189,6 +194,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.controller = OptimizationWorkflowController(repository, document_id)
         self.controller.statusChanged.connect(self._set_status)
         self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
+        self._on_navigate = on_navigate
         self._system_variant_robustness_variant_id: str | None = None
 
         self._optimization_stack = QStackedWidget()
@@ -226,6 +232,10 @@ class OptimizationWorkflowWorkspace(QWidget):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(20, 16, 20, 16)
         root_layout.setSpacing(12)
+        # #584: persistent comparison context — baseline/selected/scene/status
+        # stays visible across every Optimize subpage.
+        self.comparison_context_strip = ComparisonContextStrip(self)
+        root_layout.addWidget(self.comparison_context_strip)
         root_layout.addWidget(self._optimization_stack, 1)
 
         pages = {
@@ -270,7 +280,22 @@ class OptimizationWorkflowWorkspace(QWidget):
         axis_model.rowsInserted.connect(lambda *_args: preview.refresh())
         axis_model.rowsRemoved.connect(lambda *_args: preview.refresh())
 
+        for tree_name in (
+            "search_candidate_tree",
+            "extended_candidate_tree",
+            "pareto_tree",
+        ):
+            tree = getattr(self.controller, tree_name, None)
+            if tree is not None:
+                tree.itemSelectionChanged.connect(
+                    self._refresh_context_strip
+                )
+        self.controller.statusChanged.connect(
+            lambda _text: self._refresh_context_strip()
+        )
+
         self.select_section("setup")
+        self._refresh_context_strip()
         self._set_status("保存済み")
 
     def __getattr__(self, name: str):
@@ -316,6 +341,17 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.controller.refresh_adaptive_plans()
             self.controller.refresh_adaptive_extended_plans()
             self.controller._refresh_campaign_measurement_points()
+
+    def _open_variant_measurements(self) -> None:
+        if self._on_navigate is None or not self._on_navigate(
+            WorkspaceDeepLink(
+                workspace=WorkspaceId.MEASUREMENT,
+                section="campaign",
+            )
+        ):
+            self._set_status(
+                "測定workspaceへ移動できませんでした。"
+            )
 
     def _show_system_variant_robustness(self, variant_id: str) -> None:
         self._system_variant_robustness_variant_id = variant_id
@@ -367,6 +403,52 @@ class OptimizationWorkflowWorkspace(QWidget):
     def _set_status(self, text: str) -> None:
         self.status.setText(str(text))
 
+    def _refresh_context_strip(self, *_args) -> None:
+        working = self.controller.working
+        baseline_label = (
+            '現在の部屋'
+            if working is not None and working.source_revision_id is not None
+            else '保存済みの部屋状態がありません'
+        )
+        selected_label: str | None = None
+        controller = self.controller
+        page = getattr(controller, 'search_candidate_page', None)
+        selected_id = controller.search_selected_candidate_id
+        if page is not None and selected_id is not None:
+            for index, candidate in enumerate(page.candidates, start=1):
+                if candidate.candidate_id == selected_id:
+                    selected_label = f'候補 {page.offset + index}'
+                    break
+        if selected_label is None:
+            extended_page = getattr(
+                controller, 'extended_candidate_page', None
+            )
+            extended_id = controller.extended_selected_candidate_id
+            if extended_page is not None and extended_id is not None:
+                for index, candidate in enumerate(
+                    extended_page.candidates, start=1
+                ):
+                    if candidate.candidate_id == extended_id:
+                        selected_label = (
+                            f'拡張候補 {extended_page.offset + index}'
+                        )
+                        break
+        scene_label = None
+        if working is not None and working.source_revision_id is not None:
+            scene_label = f'リビジョン {working.source_revision_id[:8]}'
+        if working is not None and working.has_preview:
+            status_label = 'プレビュー'
+        elif selected_label is not None:
+            status_label = '選択済み'
+        else:
+            status_label = '保存済み'
+        self.comparison_context_strip.set_context(
+            baseline_label=baseline_label,
+            selected_label=selected_label,
+            scene_label=scene_label,
+            status_label=status_label,
+        )
+
     def closeEvent(self, event) -> None:  # noqa: N802
         self.controller.dispose()
         self.viewport_widget.close()
@@ -408,6 +490,37 @@ class OptimizationWorkflowWorkspace(QWidget):
         search.addLayout(axis_actions)
         search.addWidget(_required(self.search_axis_tree, "search_axis_tree"))
         search.addWidget(self.search_domain_preview)
+
+        linked_note = QLabel(
+            "連動探索変数は1つの可動軸から従属物体を派生します。"
+            "mirror_x は部屋中心線を仮定せず鏡面xを必須指定します。"
+        )
+        linked_note.setWordWrap(True)
+        search.addWidget(linked_note)
+        linked_form = QFormLayout()
+        linked_form.addRow(
+            "マスター", _required(self.linked_master_combo, "linked_master_combo")
+        )
+        linked_form.addRow(
+            "スレーブ", _required(self.linked_slave_combo, "linked_slave_combo")
+        )
+        linked_form.addRow(
+            "関係", _required(self.linked_relation_combo, "linked_relation_combo")
+        )
+        linked_form.addRow(
+            "鏡面 x", _required(self.linked_mirror_field, "linked_mirror_field")
+        )
+        search.addLayout(linked_form)
+        linked_actions = QHBoxLayout()
+        linked_actions.addWidget(
+            _required(self.linked_add_button, "linked_add_button")
+        )
+        linked_actions.addWidget(
+            _required(self.linked_remove_button, "linked_remove_button")
+        )
+        linked_actions.addStretch(1)
+        search.addLayout(linked_actions)
+        search.addWidget(_required(self.search_linked_tree, "search_linked_tree"))
 
         binding = _required(self.search_binding_label, "search_binding_label")
         binding.setWordWrap(True)
@@ -478,6 +591,23 @@ class OptimizationWorkflowWorkspace(QWidget):
                 "向き探索が利用可能な場合だけ、音響の向きや筐体の向きを追加探索します。"
                 " 合成データと実室データの区分は既存の検証ルールを維持します。",
                 extended_content,
+            )
+        )
+
+        self.joint_optimization_panel = JointOptimizationPanel(
+            JointOptimizationContext(
+                self.controller.repository,
+                self.controller.document_id,
+                objective_repository=self.controller.objective_repository,
+            ),
+            on_status=self._set_status,
+        )
+        layout.addWidget(
+            _advanced_block(
+                "詳細: 配置 + DSP のジョイント探索",
+                "配置・DSPを別々に、あるいは同時に探索する正準のジョイント仕様を作成します。"
+                " ディレイ/極性/PEQなどは測定能力とデバイス制約が許す場合だけ有効です。",
+                self.joint_optimization_panel,
             )
         )
         layout.addStretch(1)
@@ -780,6 +910,9 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.system_expansion_measurement_panel = SystemExpansionMeasurementPanel(
             self.system_expansion
         )
+        self.system_expansion_measurement_panel.openMeasurementsRequested.connect(
+            self._open_variant_measurements
+        )
         layout.addWidget(self.system_expansion_measurement_panel)
 
         measure_card, measure = _card(
@@ -996,10 +1129,16 @@ class OptimizationWorkflowWorkspace(QWidget):
 def build_optimization_workspace_mount(
     repository: SceneRepository,
     document_id: str = F1_DOCUMENT_ID,
+    *,
+    on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
 ) -> WorkspaceMount:
     """Build the UX140 workspace through the shell's existing mount contract."""
 
-    workspace = OptimizationWorkflowWorkspace(repository, document_id)
+    workspace = OptimizationWorkflowWorkspace(
+        repository,
+        document_id,
+        on_navigate=on_navigate,
+    )
 
     return WorkspaceMount.from_widget(
         workspace,

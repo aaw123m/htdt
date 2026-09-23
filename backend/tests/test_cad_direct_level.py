@@ -642,6 +642,8 @@ def _forged_direct_level_evaluation(
         for key, value in payload.items()
         if key not in ('evaluation_id', 'evaluation_sha256')
     }
+    if identity.get('priority_aggregates') is None:
+        del identity['priority_aggregates']
     digest = sha256(
         json.dumps(
             identity,

@@ -8,6 +8,7 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_direct_level import SeatPopulation
+from .cad_seat_priority import SeatPriorityProfile
 from .cad_directivity import (
     DirectivityDataset,
     evaluate_directivity,
@@ -182,7 +183,8 @@ class CoverageEvaluationScenario(BaseModel):
     )
     coverage_threshold_db: float
     seat_weighting_semantics: Literal[
-        'equal_unweighted'
+        'equal_unweighted',
+        'seat_priority',
     ] = 'equal_unweighted'
     missing_unsupported_seat_policy: MissingSeatPolicy = (
         'fail_closed_required_population'
@@ -315,7 +317,9 @@ def build_coverage_evaluation_scenario(
             'aggregated_relative_directivity_level_gte_threshold_db'
         ),
         'coverage_threshold_db': float(coverage_threshold_db),
-        'seat_weighting_semantics': 'equal_unweighted',
+        # The scenario inherits the exact population weighting; the model
+        # validator still fails closed when they diverge.
+        'seat_weighting_semantics': receiver_population.population_weighting,
         'missing_unsupported_seat_policy': 'fail_closed_required_population',
         'source_angle_convention': convention.model_dump(mode='json'),
         'off_axis_loss_authority': OffAxisLossAuthority().model_dump(
@@ -516,6 +520,28 @@ class CoverageAggregates(BaseModel):
     seat_to_seat_directivity_spread: CoverageScalarResult
 
 
+class SeatPriorityCoverageAggregates(BaseModel):
+    """Priority-aware coverage aggregates over the exact profile (#513).
+
+    ``weighted_useful_coverage_fraction`` is the weighted share of required
+    seats that pass; ``worst_required_*`` keeps the hard floor independent of
+    soft weights. Diagnostics never enter these aggregates.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    priority_profile_id: str = Field(min_length=1)
+    priority_profile_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    weight_normalization: str = Field(min_length=1)
+    normalization_version: str = Field(min_length=1)
+    required_seat_entity_ids: tuple[str, ...] = Field(min_length=1)
+    normalized_weights: dict[str, float] = Field(min_length=1)
+    weighted_useful_coverage_fraction: CoverageScalarResult
+    weighted_relative_directivity_level: CoverageScalarResult
+    worst_required_seat_relative_directivity_level: CoverageScalarResult
+    worst_required_seat_off_axis_loss: CoverageScalarResult
+
+
 class CoverageEvaluation(BaseModel):
     """Self-contained immutable O100D coverage/directivity evidence."""
 
@@ -545,6 +571,9 @@ class CoverageEvaluation(BaseModel):
     source_acoustic_axis: Direction3 | None = None
     seat_results: tuple[SeatCoverageResult, ...] = Field(min_length=1)
     aggregates: CoverageAggregates
+    # Optional priority extension (#513): identity-stable only when present,
+    # so equal-unweighted evaluations keep byte-exact identity.
+    priority_aggregates: SeatPriorityCoverageAggregates | None = None
 
     evaluation_id: str = Field(min_length=1)
     evaluation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -587,7 +616,7 @@ class CoverageEvaluation(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'document_id': self.document_id,
@@ -618,6 +647,11 @@ class CoverageEvaluation(BaseModel):
             ],
             'aggregates': self.aggregates.model_dump(mode='json'),
         }
+        if self.priority_aggregates is not None:
+            payload['priority_aggregates'] = self.priority_aggregates.model_dump(
+                mode='json'
+            )
+        return payload
 
 
 def _available(value: float, unit: Literal['dB', 'ratio']) -> CoverageScalarResult:
@@ -919,6 +953,7 @@ def evaluate_coverage(
     equipment_definition: EquipmentDefinition,
     directivity_dataset: DirectivityDataset,
     scenario: CoverageEvaluationScenario,
+    priority_profile: SeatPriorityProfile | None = None,
 ) -> CoverageEvaluation:
     """Evaluate exact single-source directivity coverage with no SPL/room coupling."""
 
@@ -928,6 +963,31 @@ def evaluate_coverage(
         or variant.baseline_content_hash != revision.content_hash
     ):
         raise ValueError('coverage SystemVariant/SceneRevision authority mismatch')
+
+    population = scenario.receiver_population
+    if population.population_weighting == 'seat_priority':
+        if priority_profile is None:
+            raise ValueError(
+                'seat_priority weighting requires the bound SeatPriorityProfile'
+            )
+        if (
+            priority_profile.profile_id != population.priority_profile_id
+            or priority_profile.profile_sha256
+            != population.priority_profile_sha256
+        ):
+            raise ValueError(
+                'seat priority profile does not match the exact scenario '
+                'binding'
+            )
+        if priority_profile.seat_entity_ids != population.seat_entity_ids:
+            raise ValueError(
+                'seat priority profile members do not match the receiver '
+                'population'
+            )
+    elif priority_profile is not None:
+        raise ValueError(
+            'priority profile requires seat_priority population weighting'
+        )
 
     if (
         scenario.equipment_definition_id != equipment_definition.definition_id
@@ -1126,6 +1186,10 @@ def evaluate_coverage(
         )
 
     aggregates = _population_aggregates(seat_results)
+    priority_aggregates = _seat_priority_aggregates(
+        seat_results,
+        priority_profile,
+    )
     identity: dict[str, Any] = {
         'schema_version': COVERAGE_SCHEMA_VERSION,
         'authority_version': COVERAGE_AUTHORITY_VERSION,
@@ -1153,6 +1217,10 @@ def evaluate_coverage(
         ],
         'aggregates': aggregates.model_dump(mode='json'),
     }
+    if priority_aggregates is not None:
+        identity['priority_aggregates'] = priority_aggregates.model_dump(
+            mode='json'
+        )
     digest = _digest(identity)
     return CoverageEvaluation(
         document_id=revision.document_id,
@@ -1172,8 +1240,81 @@ def evaluate_coverage(
         source_acoustic_axis=source.aim_xyz,
         seat_results=tuple(seat_results),
         aggregates=aggregates,
+        priority_aggregates=priority_aggregates,
         evaluation_id=_semantic_id('coverage', digest),
         evaluation_sha256=digest,
+    )
+
+
+def _seat_priority_aggregates(
+    seat_results: Sequence[SeatCoverageResult],
+    priority_profile: SeatPriorityProfile | None,
+) -> SeatPriorityCoverageAggregates | None:
+    """Weighted coverage over required seats only; the floor stays hard."""
+    if priority_profile is None:
+        return None
+    weights = priority_profile.normalized_weights()
+    by_id = {item.seat_entity_id: item for item in seat_results}
+    required = tuple(
+        (weights[seat_id], by_id[seat_id])
+        for seat_id in priority_profile.required_seat_entity_ids
+    )
+    unavailable = [item for _w, item in required if item.state != 'available']
+    if unavailable:
+        reason = (
+            'priority coverage aggregate unavailable because at least one '
+            'required seat is unsupported; partial population evaluation is '
+            'forbidden'
+        )
+        unsupported = _unsupported(reason, 'ratio')
+        return SeatPriorityCoverageAggregates(
+            priority_profile_id=priority_profile.profile_id,
+            priority_profile_sha256=priority_profile.profile_sha256,
+            weight_normalization=priority_profile.weight_normalization,
+            normalization_version=priority_profile.normalization_version,
+            required_seat_entity_ids=priority_profile.required_seat_entity_ids,
+            normalized_weights=weights,
+            weighted_useful_coverage_fraction=unsupported,
+            weighted_relative_directivity_level=_unsupported(reason, 'dB'),
+            worst_required_seat_relative_directivity_level=_unsupported(
+                reason, 'dB'
+            ),
+            worst_required_seat_off_axis_loss=_unsupported(reason, 'dB'),
+        )
+    levels = [
+        float(item.aggregated_relative_directivity_level.value)
+        for _w, item in required
+        if item.aggregated_relative_directivity_level.value is not None
+    ]
+    losses = [
+        float(item.aggregated_off_axis_loss.value)
+        for _w, item in required
+        if item.aggregated_off_axis_loss.value is not None
+    ]
+    weighted_pass = sum(
+        float(weight)
+        for weight, item in required
+        if item.coverage_pass is True
+    )
+    return SeatPriorityCoverageAggregates(
+        priority_profile_id=priority_profile.profile_id,
+        priority_profile_sha256=priority_profile.profile_sha256,
+        weight_normalization=priority_profile.weight_normalization,
+        normalization_version=priority_profile.normalization_version,
+        required_seat_entity_ids=priority_profile.required_seat_entity_ids,
+        normalized_weights=weights,
+        weighted_useful_coverage_fraction=_available(weighted_pass, 'ratio'),
+        weighted_relative_directivity_level=_available(
+            sum(
+                float(weight) * float(item.aggregated_relative_directivity_level.value)
+                for weight, item in required
+            ),
+            'dB',
+        ),
+        worst_required_seat_relative_directivity_level=_available(
+            min(levels), 'dB'
+        ),
+        worst_required_seat_off_axis_loss=_available(max(losses), 'dB'),
     )
 
 
