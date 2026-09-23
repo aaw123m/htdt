@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/frame.schema.json",
+  "title": "HTDT Capture Frame Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "frame_id",
+    "capture_session_id",
+    "coordinate_space_id",
+    "session_timestamp_s",
+    "T_world_from_camera",
+    "intrinsics",
+    "image_width",
+    "image_height",
+    "pixel_format_fourcc",
+    "pixel_relative_path",
+    "pixel_byte_count",
+    "pixel_sha256",
+    "exif_allowlisted",
+    "depth_status"
+  ],
+  "properties": {
+    "frame_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "coordinate_space_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "session_timestamp_s": {
+      "type": "number",
+      "minimum": 0
+    },
+    "T_world_from_camera": {
+      "$ref": "#/$defs/matrix4f"
+    },
+    "intrinsics": {
+      "$ref": "#/$defs/matrix3f"
+    },
+    "image_width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "image_height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "pixel_format_fourcc": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "pixel_relative_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pixel_byte_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "pixel_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "exif_allowlisted": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "depth_status": {
+      "enum": [
+        "not_requested",
+        "unavailable",
+        "captured_scene_depth",
+        "captured_smoothed_scene_depth"
+      ]
+    },
+    "depth": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/depthRef"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "matrix4f": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "values"
+      ],
+      "properties": {
+        "representation": {
+          "const": "column_major_4x4_f32"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "matrix3f": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "values"
+      ],
+      "properties": {
+        "representation": {
+          "const": "column_major_3x3_f32"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "depthRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "depth_relative_path",
+        "depth_byte_count",
+        "depth_sha256"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "scene_depth",
+            "smoothed_scene_depth"
+          ]
+        },
+        "depth_relative_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "depth_byte_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "depth_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "confidence_relative_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence_byte_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "confidence_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

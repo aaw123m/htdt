@@ -1,0 +1,450 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/derived-geometry-candidates.schema.json",
+  "title": "HTDT Capture Derived Geometry Candidates v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "candidates"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.derived-geometry-candidates"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "record_kind",
+          "resolution",
+          "ambiguity_shape_kinds",
+          "coordinate_space_id",
+          "source_mode",
+          "source_evidence_refs",
+          "derivation_algorithm",
+          "derivation_version",
+          "contour_points"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "record_kind": {
+            "enum": [
+              "object",
+              "wall_chain"
+            ]
+          },
+          "resolution": {
+            "enum": [
+              "resolved",
+              "insufficient_evidence",
+              "ambiguous_evidence"
+            ]
+          },
+          "shape_kind": {
+            "enum": [
+              "oriented_rectangle",
+              "circle",
+              "ellipse",
+              "polygon",
+              null
+            ]
+          },
+          "geometry": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "orientedRectangle"
+                ],
+                "properties": {
+                  "orientedRectangle": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "center",
+                      "width",
+                      "depth",
+                      "headingRadians"
+                    ],
+                    "properties": {
+                      "center": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "properties": {
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "width": {
+                        "type": "number"
+                      },
+                      "depth": {
+                        "type": "number"
+                      },
+                      "headingRadians": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "circle"
+                ],
+                "properties": {
+                  "circle": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "center",
+                      "radius"
+                    ],
+                    "properties": {
+                      "center": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "properties": {
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "radius": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "ellipse"
+                ],
+                "properties": {
+                  "ellipse": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "center",
+                      "semiMajorAxis",
+                      "semiMinorAxis",
+                      "headingRadians"
+                    ],
+                    "properties": {
+                      "center": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "properties": {
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          }
+                        }
+                      },
+                      "semiMajorAxis": {
+                        "type": "number"
+                      },
+                      "semiMinorAxis": {
+                        "type": "number"
+                      },
+                      "headingRadians": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "polygon"
+                ],
+                "properties": {
+                  "polygon": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "vertices",
+                      "isConcave",
+                      "concavityResolution"
+                    ],
+                    "properties": {
+                      "vertices": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "position",
+                            "supportEvidenceRefs"
+                          ],
+                          "properties": {
+                            "position": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "properties": {
+                                "x": {
+                                  "type": "number"
+                                },
+                                "y": {
+                                  "type": "number"
+                                }
+                              }
+                            },
+                            "supportEvidenceRefs": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "isConcave": {
+                        "type": "boolean"
+                      },
+                      "concavityResolution": {
+                        "enum": [
+                          "resolved_convex",
+                          "resolved_concave",
+                          "unresolved"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "ambiguity_shape_kinds": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "oriented_rectangle",
+                "circle",
+                "ellipse",
+                "polygon"
+              ]
+            }
+          },
+          "coordinate_space_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "source_mode": {
+            "enum": [
+              "scene_depth",
+              "classified_mesh",
+              "fused"
+            ]
+          },
+          "source_evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "derivation_algorithm": {
+            "type": "string",
+            "minLength": 1
+          },
+          "derivation_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fit_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "normalized_residual": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "support_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "observation_start_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "observation_end_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "contour_points": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "position",
+                "evidenceRef",
+                "evidenceKind"
+              ],
+              "properties": {
+                "position": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "evidenceRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "evidenceKind": {
+                  "enum": [
+                    "mesh",
+                    "scene_depth",
+                    "spatial_observation"
+                  ]
+                },
+                "verticalPositionMeters": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "resolution"
+              ],
+              "properties": {
+                "resolution": {
+                  "const": "resolved"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "shape_kind",
+                "geometry"
+              ],
+              "properties": {
+                "shape_kind": {
+                  "type": "string"
+                },
+                "geometry": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "resolution"
+              ],
+              "properties": {
+                "resolution": {
+                  "enum": [
+                    "insufficient_evidence",
+                    "ambiguous_evidence"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "shape_kind": {
+                  "type": "null"
+                },
+                "geometry": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

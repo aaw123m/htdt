@@ -1,0 +1,1539 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/authorities.schema.json",
+  "title": "HTDT Capture Theater Authorities v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.authorities"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "surface_semantics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/surfaceSemanticAuthority"
+      }
+    },
+    "surface_constructions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/surfaceConstructionObservation"
+      }
+    },
+    "problem_surfaces": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/problemSurfaceObservation"
+      }
+    },
+    "construction_features": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/constructionFeatureCandidate"
+      }
+    },
+    "room_state_observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/roomStateObservation"
+      }
+    },
+    "room_state_snapshots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/roomStateSnapshot"
+      }
+    },
+    "inventory_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/systemInventoryItem"
+      }
+    },
+    "furniture_semantics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/furnitureSemanticConfirmation"
+      }
+    },
+    "speaker_installations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/speakerInstallationAuthority"
+      }
+    },
+    "screen_semantics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/projectionScreenSemantics"
+      }
+    },
+    "seat_layouts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/seatLayoutAuthority"
+      }
+    },
+    "routing_verifications": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/routingVerificationAuthority"
+      }
+    },
+    "projector_commissionings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/projectorCommissioningAuthority"
+      }
+    },
+    "installation_alignments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/installationAlignmentRecord"
+      }
+    },
+    "rack_placements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rackPlacementObservation"
+      }
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "vector3f": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "matrix4f": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "values"
+      ],
+      "properties": {
+        "representation": {
+          "const": "column_major_4x4_f32"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "front_axis_local",
+        "up_axis_local"
+      ],
+      "properties": {
+        "front_axis_local": {
+          "$ref": "#/$defs/vector3f"
+        },
+        "up_axis_local": {
+          "$ref": "#/$defs/vector3f"
+        }
+      }
+    },
+    "equipmentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "equipment_id",
+        "equipment_version",
+        "equipment_hash"
+      ],
+      "properties": {
+        "equipment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "surfaceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_space_id",
+        "polygon_world",
+        "evidence_refs"
+      ],
+      "properties": {
+        "coordinate_space_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "roomplan_surface_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "roomplan_object_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mesh_anchor_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "triangle_indices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "semantic_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "polygon_world": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/vector3f"
+          }
+        },
+        "centroid_world": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vector3f"
+            }
+          ]
+        },
+        "normal_world": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vector3f"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "treatmentPlacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "footprint_width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "footprint_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "surface_offset_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "air_gap_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "equipment_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/equipmentRef"
+            }
+          ]
+        }
+      }
+    },
+    "surfaceSemanticAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "binding",
+        "host_classification"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "binding": {
+          "$ref": "#/$defs/surfaceBinding"
+        },
+        "host_classification": {
+          "enum": [
+            "room_boundary",
+            "object_surface",
+            "unknown"
+          ]
+        },
+        "treatment": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/treatmentPlacement"
+            }
+          ]
+        }
+      }
+    },
+    "surfaceConstructionObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "binding",
+        "construction_kind",
+        "source"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "binding": {
+          "$ref": "#/$defs/surfaceBinding"
+        },
+        "construction_kind": {
+          "enum": [
+            "gypsum_drywall",
+            "concrete_masonry",
+            "glass",
+            "wood_panel",
+            "carpet",
+            "hard_floor",
+            "fabric",
+            "other",
+            "unknown"
+          ]
+        },
+        "material_detail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "source": {
+          "enum": [
+            "user_observation",
+            "installer_or_build_record",
+            "manufacturer_reference",
+            "catalog_reference",
+            "other"
+          ]
+        }
+      }
+    },
+    "problemSurfaceObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "binding",
+        "kind"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "binding": {
+          "$ref": "#/$defs/surfaceBinding"
+        },
+        "kind": {
+          "enum": [
+            "mirror",
+            "transparent",
+            "dark_absorptive",
+            "occluded",
+            "other"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "constructionFeatureCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "binding",
+        "kind",
+        "confirmation_source"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "binding": {
+          "$ref": "#/$defs/surfaceBinding"
+        },
+        "kind": {
+          "enum": [
+            "riser",
+            "stage",
+            "soffit",
+            "beam",
+            "partial_height_wall",
+            "column",
+            "alcove",
+            "sloped_ceiling",
+            "other"
+          ]
+        },
+        "confirmation_source": {
+          "enum": [
+            "user_confirmed",
+            "capture_app_suggested",
+            "imported_reference"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "roomStateObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "kind",
+        "state",
+        "observed_at_utc",
+        "evidence_refs"
+      ],
+      "properties": {
+        "observation_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "kind": {
+          "enum": [
+            "curtain",
+            "movable_panel",
+            "door",
+            "window",
+            "screen_masking",
+            "seat_posture",
+            "hvac",
+            "air_purifier",
+            "lighting",
+            "removable_element",
+            "other"
+          ]
+        },
+        "state": {
+          "enum": [
+            "open",
+            "closed",
+            "deployed",
+            "stowed",
+            "on",
+            "off",
+            "reclined",
+            "upright",
+            "present",
+            "absent",
+            "unknown",
+            "other"
+          ]
+        },
+        "state_detail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "target_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "target_authority_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "observed_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "roomStateSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshot_id",
+        "label",
+        "capture_revision_id",
+        "observed_at_utc",
+        "observation_ids",
+        "state_digest"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_revision_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "observed_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "observation_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuid4"
+          }
+        },
+        "campaign_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "state_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "systemInventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "equipment_class",
+        "user_label",
+        "evidence_refs"
+      ],
+      "properties": {
+        "item_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "equipment_class": {
+          "enum": [
+            "av_receiver",
+            "av_processor",
+            "power_amplifier",
+            "dsp_unit",
+            "projector",
+            "display",
+            "source_device",
+            "measurement_interface",
+            "other"
+          ]
+        },
+        "manufacturer": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "user_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/equipmentRef"
+            }
+          ]
+        },
+        "serial_number": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "host_rack_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "T_world_from_item": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/matrix4f"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "furnitureSemanticConfirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "category",
+        "relevance",
+        "source"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "target_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "binding": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/surfaceBinding"
+            }
+          ]
+        },
+        "category": {
+          "enum": [
+            "table",
+            "sofa",
+            "chair_recliner",
+            "cabinet_storage",
+            "equipment_furniture",
+            "other",
+            "unknown"
+          ]
+        },
+        "relevance": {
+          "enum": [
+            "fixed_built_in",
+            "movable",
+            "temporary",
+            "unknown"
+          ]
+        },
+        "source": {
+          "enum": [
+            "user_confirmed",
+            "capture_app_suggested",
+            "imported_reference"
+          ]
+        }
+      }
+    },
+    "speakerInstallationAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "speaker_entity_id",
+        "mounting_mode"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "speaker_entity_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "mounting_mode": {
+          "enum": [
+            "freestanding",
+            "stand_mounted",
+            "on_wall",
+            "in_wall",
+            "in_ceiling",
+            "ceiling_surface",
+            "baffle_wall",
+            "other"
+          ]
+        },
+        "host_surface": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/surfaceBinding"
+            }
+          ]
+        },
+        "insertion_depth_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "hardware_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "projectionScreenSemantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "screen_entity_id",
+        "acoustically_transparent",
+        "behind_screen_speaker_entity_ids"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "screen_entity_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "visible_aperture_width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "visible_aperture_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "frame_width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "frame_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "acoustically_transparent": {
+          "enum": [
+            "transparent",
+            "opaque",
+            "unknown"
+          ]
+        },
+        "transparency_source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "user_attestation",
+            "manufacturer_specification",
+            "equipment_catalog",
+            "other",
+            null
+          ]
+        },
+        "masking_observation_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "behind_screen_speaker_entity_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuid4"
+          }
+        }
+      }
+    },
+    "seatLayoutAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "seat_entity_id"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "seat_entity_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "row_identifier": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "seat_ordinal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "riser_authority_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "ear_listening_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "eye_reference_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "head_obstruction_height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "head_obstruction_radius_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "facing_orientation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/orientation"
+            }
+          ]
+        }
+      }
+    },
+    "attestedSettingValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "attested",
+            "unknown"
+          ]
+        },
+        "text_value": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "numeric_value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "channelRole": {
+      "type": "string",
+      "pattern": "^[A-Z0-9_]+$"
+    },
+    "entityType": {
+      "enum": [
+        "speaker",
+        "subwoofer",
+        "display",
+        "projection_screen",
+        "projector",
+        "listening_position",
+        "seat",
+        "acoustic_treatment",
+        "equipment_rack",
+        "reference_point",
+        "measurement_point",
+        "custom"
+      ]
+    },
+    "planAlignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "scene_from_capture",
+        "authority_ref",
+        "evidence_refs",
+        "established_at"
+      ],
+      "properties": {
+        "mechanism": {
+          "enum": [
+            "room_reference_frame",
+            "reference_target",
+            "manual_survey"
+          ]
+        },
+        "scene_from_capture": {
+          "$ref": "#/$defs/matrix4f"
+        },
+        "authority_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "established_at": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "asBuiltDeviation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "translation_scene",
+        "distance_m"
+      ],
+      "properties": {
+        "translation_scene": {
+          "$ref": "#/$defs/vector3f"
+        },
+        "distance_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "heading_delta_rad": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "routingVerificationAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "band_scope",
+        "speaker_entity_ids",
+        "verification_state",
+        "observed_at_utc",
+        "evidence_refs"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "channel_role": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/channelRole"
+            }
+          ]
+        },
+        "output_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "source_inventory_item_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "band_scope": {
+          "enum": [
+            "full_range",
+            "high_band_direct",
+            "low_band_bass_managed",
+            "unknown"
+          ]
+        },
+        "speaker_entity_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/uuid4"
+          }
+        },
+        "verification_state": {
+          "enum": [
+            "verified",
+            "manual_label",
+            "unknown",
+            "conflicting"
+          ]
+        },
+        "verification_method": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "user_attestation",
+                "cable_label_evidence",
+                "listened_test_signal",
+                "measured_signal_path",
+                "other"
+              ]
+            }
+          ]
+        },
+        "device_context_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "observed_at_utc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "supersedes_record_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "projectorCommissioningAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "projector_entity_id",
+        "observed_at_utc",
+        "evidence_refs"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "projector_entity_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "lens_center_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "throw_observation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/attestedSettingValue"
+            }
+          ]
+        },
+        "throw_endpoint_semantics": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "zoom": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/attestedSettingValue"
+            }
+          ]
+        },
+        "lens_shift_horizontal": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/attestedSettingValue"
+            }
+          ]
+        },
+        "lens_shift_vertical": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/attestedSettingValue"
+            }
+          ]
+        },
+        "lens_memory_preset": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/attestedSettingValue"
+            }
+          ]
+        },
+        "mount_orientation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "tabletop_front",
+                "ceiling_front",
+                "tabletop_rear",
+                "ceiling_rear",
+                "other",
+                "unknown"
+              ]
+            }
+          ]
+        },
+        "focus_state": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "verified",
+                "unverified",
+                "unknown"
+              ]
+            }
+          ]
+        },
+        "optical_axis": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/orientation"
+            }
+          ]
+        },
+        "image_alignment_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "planned_spec_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "device_context_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "screen_semantics_authority_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "observed_at_utc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "installationAlignmentRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "target_planned_entity_id",
+        "target_entity_type",
+        "guidance_mode",
+        "precision_sufficiency",
+        "final_entity_id",
+        "observed_at_utc",
+        "coordinate_space_id",
+        "evidence_refs"
+      ],
+      "properties": {
+        "authority_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "target_planned_entity_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_entity_type": {
+          "$ref": "#/$defs/entityType"
+        },
+        "aim_at_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "guidance_mode": {
+          "enum": [
+            "spatial_delta",
+            "textual_instructions"
+          ]
+        },
+        "alignment": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/planAlignment"
+            }
+          ]
+        },
+        "precision_sufficiency": {
+          "enum": [
+            "sufficient",
+            "insufficient",
+            "unknown"
+          ]
+        },
+        "final_entity_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "reported_deviation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/asBuiltDeviation"
+            }
+          ]
+        },
+        "observed_at_utc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coordinate_space_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "rackFacing": {
+      "enum": [
+        "front",
+        "rear",
+        "side",
+        "unknown"
+      ]
+    },
+    "rackPlacementObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placement_id",
+        "item_id",
+        "host_rack_entity_id",
+        "evidence_refs"
+      ],
+      "properties": {
+        "placement_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "item_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "host_rack_entity_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "rack_unit_position": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "shelf_slot_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "facing": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/rackFacing"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        }
+      }
+    }
+  }
+}

@@ -10,6 +10,11 @@ import tracemalloc
 
 import pytest
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capture_fixture_support as support  # noqa: E402
+
 from htdt.cad_repository import SceneRepository
 from htdt.cad_schema import NATIVE_SCHEMA_VERSION, read_native_schema_version
 from htdt.capture_ingestion_transaction import (
@@ -32,12 +37,12 @@ from htdt.raw_mesh_repair import (
 )
 
 
-BUNDLE_DIGEST = '2' * 64
-SERIES_ID = '10000000-0000-4000-8000-000000000001'
-REVISION_ID = '10000000-0000-4000-8000-000000000002'
-SESSION_ID = '10000000-0000-4000-8000-000000000003'
-SPACE_ID = '10000000-0000-4000-8000-000000000004'
-ANCHOR_ID = '10000000-0000-4000-8000-000000000005'
+BUNDLE_DIGEST = support.BUNDLE_DIGEST
+SERIES_ID = support.SERIES_ID
+REVISION_ID = support.REVISION_ID
+SESSION_ID = support.SESSION_ID
+SPACE_ID = support.SPACE_ID
+ANCHOR_ID = support.ANCHOR_ID
 INGESTOR_CONFIG = (
     '3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3'
 )
@@ -62,168 +67,109 @@ def _canonical_json(value: object) -> str:
 
 
 def _meshbin(vertex_count: int = 3, face_count: int = 1) -> bytes:
-    vertices = b''.join(
-        struct.pack(
-            '<3f',
-            float(index),
-            float(index % 7) * 0.5,
-            float(index % 3) * 0.25,
-        )
-        for index in range(vertex_count)
-    )
-    faces = b''.join(
-        struct.pack(
-            '<3I',
-            index % vertex_count,
-            (index + 1) % vertex_count,
-            (index + 2) % vertex_count,
-        )
-        for index in range(face_count)
-    )
-    header = (
-        b'HTDTMSH1'
-        + struct.pack('<HH', 1, 0)
-        + struct.pack('<I', 32)
-        + struct.pack('<I', vertex_count)
-        + struct.pack('<I', face_count)
-        + bytes([4, 0])
-        + struct.pack('<H', 0)
-        + struct.pack('<I', 0)
-    )
-    return header + vertices + faces
+    return support.meshbin(vertex_count, face_count)
+
+
+def _mesh_counts(payload: bytes) -> tuple[int, int]:
+    vertex_count = struct.unpack_from('<I', payload, 16)[0]
+    face_count = struct.unpack_from('<I', payload, 20)[0]
+    return vertex_count, face_count
+
+
+CORRECTED_REVISION_ID = '10000000-0000-4000-8000-00000000000a'
 
 
 def _plan_and_payloads(
     payloads: dict[str, bytes] | None = None,
     mesh_specs: tuple[tuple[str, str, int, int], ...] | None = None,
-    bundle_digest: str = BUNDLE_DIGEST,
+    bundle_digest: str = support.BUNDLE_DIGEST,
+    manifest_overrides: dict | None = None,
+    tmp_path: Path | None = None,
 ) -> tuple[dict, dict[str, bytes]]:
-    """Build a validated ingestion plan fixture.
+    """Build a contract-valid ingestion plan fixture.
 
-    mesh_specs entries are (anchor_id, geometry_path, vertex_count,
-    face_count); the referenced payload must already exist in payloads.
+    ``payloads`` supplies caller-owned payload bytes (meshbins get real
+    anchor records synthesized from their headers; unknown JSON paths are
+    declared as imported_reference derived payloads); ``mesh_specs``
+    declares (anchor_id, geometry_path, vertex_count, face_count) mesh
+    records; ``bundle_digest`` set to anything other than the default
+    produces a distinct bundle via a manifest timestamp override.
     """
+    import tempfile
+    workdir = (
+        tmp_path if tmp_path is not None else Path(tempfile.mkdtemp())
+    )
 
-    if payloads is None:
-        payloads = {
-            'mesh/anchors.json': b'{"fixture":"anchors"}',
-            f'mesh/geometry/{ANCHOR_ID}.meshbin': _meshbin(),
-        }
+    files = {
+        path: spec
+        for path, spec in support.default_file_specs().items()
+        if path.startswith('session/') or path.startswith('quality/')
+    }
+
+    if payloads is not None:
+        for path, payload in payloads.items():
+            if path == 'mesh/anchors.json':
+                continue
+            if path.endswith('.meshbin'):
+                continue
+            meta = support.fixture_meta().get(path)
+            if meta is None:
+                meta = {
+                    'media_type': (
+                        'application/json'
+                        if path.endswith('.json')
+                        else 'application/octet-stream'
+                    ),
+                    'producer': 'test_fixture',
+                    'provenance_class': 'imported_reference',
+                    'role': 'derived',
+                }
+            files[path] = {'bytes': payload, **meta}
+
     if mesh_specs is None:
-        mesh_specs = ((ANCHOR_ID, f'mesh/geometry/{ANCHOR_ID}.meshbin', 3, 1),)
+        mesh_paths = [
+            path
+            for path in (payloads or {})
+            if path.endswith('.meshbin')
+        ]
+        if mesh_paths:
+            specs = []
+            for path in mesh_paths:
+                vc, fc = _mesh_counts((payloads or {})[path])
+                anchor_id = path.rsplit('/', 1)[-1].removesuffix('.meshbin')
+                specs.append((anchor_id, path, vc, fc))
+        else:
+            specs = ((
+                support.ANCHOR_ID,
+                f'mesh/geometry/{support.ANCHOR_ID}.meshbin',
+                3,
+                1,
+            ),)
+        mesh_specs = tuple(specs)
 
-    source = []
-    source_by_path = {}
-    for path in sorted(payloads):
-        payload = payloads[path]
-        digest = sha256(payload).hexdigest()
-        record = {
-            'source_evidence_id': _hash_parts(
-                'htdt.capture.source-evidence.v1',
-                bundle_digest,
-                path,
-                digest,
-            ),
-            'bundle_digest': bundle_digest,
-            'capture_revision_id': REVISION_ID,
-            'path': path,
-            'payload_sha256': digest,
-            'bytes': len(payload),
-            'media_type': (
-                'application/vnd.htdt.meshbin'
-                if path.endswith('.meshbin')
-                else 'application/json'
-            ),
-            'producer': 'mesh_capture',
-            'provenance_class': 'arkit_mesh_reconstruction',
-            'role': 'canonical',
-            'source_refs': [],
+    mesh_payloads = {
+        path: payload
+        for path, payload in (payloads or {}).items()
+        if path.endswith('.meshbin')
+    }
+    files.update(
+        support.mesh_specs_files(mesh_specs, mesh_payloads=mesh_payloads)
+    )
+
+    if bundle_digest != support.BUNDLE_DIGEST:
+        manifest_overrides = {
+            **(manifest_overrides or {}),
+            'created_at': '2026-09-21T00:00:00Z',
+            'finalized_at': '2026-09-21T00:00:01Z',
         }
-        source.append(record)
-        source_by_path[path] = record
 
-    handoffs = []
-    for anchor_id, geometry_path, vertex_count, face_count in mesh_specs:
-        geometry = source_by_path[geometry_path]
-        handoffs.append(
-            {
-                'raw_visual_mesh_handoff_id': _hash_parts(
-                    'htdt.capture.raw-visual-mesh-handoff.v1',
-                    bundle_digest,
-                    anchor_id,
-                    geometry['payload_sha256'],
-                ),
-                'bundle_digest': bundle_digest,
-                'anchor_id': anchor_id,
-                'anchor_record_locator': (
-                    f'mesh/anchors.json#anchor:{anchor_id}'
-                ),
-                'anchor_index_source_evidence_id': source_by_path[
-                    'mesh/anchors.json'
-                ]['source_evidence_id'],
-                'geometry_source_evidence_id': geometry['source_evidence_id'],
-                'geometry_path': geometry_path,
-                'geometry_sha256': geometry['payload_sha256'],
-                'capture_session_id': SESSION_ID,
-                'coordinate_space_id': SPACE_ID,
-                'T_world_from_mesh_anchor': {
-                    'representation': 'column_major_4x4_f32',
-                    'values': [
-                        1, 0, 0, 0,
-                        0, 1, 0, 0,
-                        0, 0, 1, 0,
-                        0, 0, 0, 1,
-                    ],
-                },
-                'session_timestamp_s': 1.0,
-                'vertex_count': vertex_count,
-                'face_count': face_count,
-            }
-        )
+    plan, payload_map, _manifest = support.plan_and_payloads(
+        workdir,
+        files=files,
+        manifest_overrides=manifest_overrides,
+    )
+    return plan, payload_map
 
-    projection = {
-        'bundle_digest': bundle_digest,
-        'source_evidence_ids': sorted(
-            item['source_evidence_id'] for item in source
-        ),
-        'raw_visual_mesh_ids': sorted(
-            handoff['raw_visual_mesh_handoff_id'] for handoff in handoffs
-        ),
-        'authority_record_ids': [],
-    }
-    lineage_digest = sha256(
-        json.dumps(
-            projection,
-            sort_keys=True,
-            separators=(',', ':'),
-        ).encode('utf-8')
-    ).hexdigest()
-
-    plan = {
-        'schema': 'htdt.capture.ingestion-plan',
-        'schema_version': '1.0.0',
-        'ingestor': {
-            'name': 'htdt-capture-reference-ingestor',
-            'version': '1.0.0',
-            'configuration_digest': INGESTOR_CONFIG,
-        },
-        'bundle': {
-            'bundle_digest': bundle_digest,
-            'capture_schema': 'htdt.capture.bundle',
-            'capture_schema_version': '1.0.0',
-            'capture_series_id': SERIES_ID,
-            'capture_revision_id': REVISION_ID,
-            'parent_revision_id': None,
-            'capture_session_ids': [SESSION_ID],
-            'coordinate_space_ids': [SPACE_ID],
-        },
-        'source_evidence': source,
-        'roomplan_records': [],
-        'raw_visual_mesh_handoffs': handoffs,
-        'authority_records': [],
-        'lineage_digest': lineage_digest,
-    }
-    return plan, payloads
 
 
 def _repository(tmp_path: Path) -> CaptureIngestionRepository:
@@ -312,12 +258,12 @@ def test_geometry_payload_is_stored_once_in_content_addressed_store(
 def test_identical_payload_under_two_paths_stores_one_canonical_blob(
     tmp_path: Path,
 ) -> None:
-    shared = b'{"fixture":"shared-payload"}'
+    shared = b'shared-binary-payload'
     payloads = {
         'mesh/anchors.json': b'{"fixture":"anchors"}',
         f'mesh/geometry/{ANCHOR_ID}.meshbin': _meshbin(),
-        'derived/a.json': shared,
-        'derived/b.json': shared,
+        'derived/a.bin': shared,
+        'derived/b.bin': shared,
     }
     repository = _repository(tmp_path)
     plan, payloads = _plan_and_payloads(payloads)
@@ -331,7 +277,7 @@ def test_identical_payload_under_two_paths_stores_one_canonical_blob(
     )
     assert len(shared_rows) == 1
     assert bytes(shared_rows[0]['payload_blob']) == shared
-    assert repository.source_evidence_count() == 4
+    assert repository.source_evidence_count() == 8
 
 
 def test_reingest_deduplicates_across_ingestions(tmp_path: Path) -> None:
@@ -354,11 +300,17 @@ def test_reingest_deduplicates_across_ingestions(tmp_path: Path) -> None:
         == blob_count
     )
 
-    # A different bundle carrying the same payload bytes still reuses the
-    # canonical blob rows: content addressing deduplicates across ingestions.
+    # A corrected capture carries the same payloads under a new revision
+    # whose parent is the original — the registry allows it while the
+    # content-addressed blob store still deduplicates.
     plan2, payloads2 = _plan_and_payloads(
         dict(payloads),
-        bundle_digest='7' * 64,
+        manifest_overrides={
+            'capture_revision_id': CORRECTED_REVISION_ID,
+            'parent_revision_id': REVISION_ID,
+            'created_at': '2026-09-21T00:00:00Z',
+            'finalized_at': '2026-09-21T00:00:01Z',
+        },
     )
     third = repository.ingest(plan2, payloads2)
     assert third.created
@@ -483,10 +435,12 @@ def test_large_mesh_persisted_size_and_ingest_memory_are_bounded(
     assert len(binding_row['payload_json']) * 100 < len(legacy_payload_json)
 
     # The database persists the raw payload exactly once: file size tracks the
-    # payload itself, not the ~7x old JSON/Base64 expansion.
+    # payload itself, not the ~7x old JSON/Base64 expansion. The retained
+    # canonical manifest and validated-quality evidence add a small constant
+    # per bundle on top of that.
     database_bytes = repository.path.stat().st_size
     assert database_bytes < len(asset) * 1.5
-    assert database_bytes < len(legacy_payload_json) // 4
+    assert database_bytes < len(legacy_payload_json) // 3
 
     # Peak ingest memory stays on the order of one decoded mesh plus the
     # caller-held payload bytes; no extra serialized copies are materialized.
@@ -843,9 +797,10 @@ def test_v3_database_migrates_capture_evidence_losslessly(
     assert freelist > 0
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute('VACUUM')
-    # The run-scoped schema adds rows/indexes (run identity, coordinate
-    # authorities), so the shrink is closer to two-thirds than half.
-    assert path.stat().st_size * 3 // 2 < legacy_size
+    # Freed duplicated pages shrink the database below the legacy size;
+    # the run-scoped/quality columns mean the exact ratio depends on the
+    # vendored fixture's payload mix.
+    assert path.stat().st_size < legacy_size
 
 
 def test_v3_binding_rows_gain_normalized_source_authority_columns(

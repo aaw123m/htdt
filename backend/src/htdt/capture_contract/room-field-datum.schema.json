@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/room-field-datum.schema.json",
+  "title": "HTDT Capture Room Field Datum v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "coordinate_space_id",
+    "origin",
+    "axis",
+    "vertical_datum",
+    "T_field_from_capture_world",
+    "units",
+    "axis_convention",
+    "source_evidence_refs",
+    "confirmed_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.room-field-datum"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "capture_session_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "coordinate_space_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "point_m"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "room_corner",
+            "wall_point",
+            "surveyed_point",
+            "screen_point",
+            "room_frame_origin"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "point_m": {
+          "$ref": "#/$defs/point3d"
+        }
+      }
+    },
+    "axis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "refs",
+        "direction_m"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "two_surveyed_points",
+            "wall_direction",
+            "room_frame_front",
+            "screen_direction"
+          ]
+        },
+        "refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "direction_m": {
+          "$ref": "#/$defs/point3d"
+        }
+      }
+    },
+    "vertical_datum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "ref",
+        "zero_elevation_m"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "finished_floor",
+            "platform_top"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "zero_elevation_m": {
+          "type": "number"
+        }
+      }
+    },
+    "T_field_from_capture_world": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "origin_m",
+        "x_axis",
+        "y_axis",
+        "z_axis"
+      ],
+      "properties": {
+        "origin_m": {
+          "$ref": "#/$defs/point3d"
+        },
+        "x_axis": {
+          "$ref": "#/$defs/point3d"
+        },
+        "y_axis": {
+          "$ref": "#/$defs/point3d"
+        },
+        "z_axis": {
+          "$ref": "#/$defs/point3d"
+        }
+      }
+    },
+    "units": {
+      "const": "m"
+    },
+    "axis_convention": {
+      "const": "y_front_z_up"
+    },
+    "uncertainty_m": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "residual_m": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "source_evidence_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "confirmed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "point3d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

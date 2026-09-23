@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/instrument-profiles.schema.json",
+  "title": "HTDT Capture Instrument Profiles v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "recorded_at_utc",
+    "instruments"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.instrument-profiles"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "recorded_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "instruments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/instrument"
+      }
+    }
+  },
+  "$defs": {
+    "evidenceRef": {
+      "type": "string",
+      "pattern": "^(?:(entity|measurement|capture_revision|capture_session|inventory_item|wiring_route|settings_observation|instrument|operator|field_evidence|frame):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|(task_item|commissioning_check|equipment|calibration_plan_item|surface|mesh_anchor|path):[!-~]+|sha256:[0-9a-f]{64})$"
+    },
+    "instrument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instrument_id",
+        "profile_version",
+        "instrument_class",
+        "model",
+        "calibration_state",
+        "calibration_evidence_refs",
+        "created_at_utc",
+        "profile_sha256"
+      ],
+      "properties": {
+        "instrument_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "profile_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "instrument_class": {
+          "enum": [
+            "tape_measure",
+            "laser_distance_meter",
+            "measurement_microphone",
+            "spl_meter",
+            "microphone_calibrator",
+            "audio_analyzer",
+            "thermometer",
+            "hygrometer",
+            "level_instrument",
+            "scale",
+            "other"
+          ]
+        },
+        "manufacturer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serial_or_asset_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calibration_state": {
+          "enum": [
+            "calibrated",
+            "uncalibrated",
+            "expired",
+            "not_applicable",
+            "unknown"
+          ]
+        },
+        "calibration_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "calibration_valid_until": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "calibration_evidence_kind": {
+          "enum": [
+            "calibration_certificate",
+            "microphone_calibration_file",
+            "manufacturer_record",
+            "user_attestation",
+            "other",
+            null
+          ]
+        },
+        "calibration_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/evidenceRef"
+          }
+        },
+        "stated_accuracy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operator_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "profile_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

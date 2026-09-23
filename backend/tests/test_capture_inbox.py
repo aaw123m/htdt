@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from pathlib import Path
-import struct
+import tempfile
 import uuid
 
 import pytest
+
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capture_fixture_support as support  # noqa: E402
 
 from htdt.cad_repository import SceneRepository
 from htdt.capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
+    CaptureRevisionConflictError,
 )
 from htdt.capture_inbox import (
     CAPTURE_INBOX_UNASSIGNED_SCOPE,
@@ -28,151 +32,52 @@ SERIES_ID = '10000000-0000-4000-8000-000000000001'
 SESSION_ID = '10000000-0000-4000-8000-000000000003'
 SPACE_ID = '10000000-0000-4000-8000-000000000004'
 ANCHOR_ID = '10000000-0000-4000-8000-000000000005'
-INGESTOR_CONFIG = (
-    '3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3'
-)
-
-
-def _hash_parts(prefix: str, *parts: str) -> str:
-    digest = sha256(prefix.encode('utf-8'))
-    for part in parts:
-        digest.update(b'\x00')
-        digest.update(part.encode('utf-8'))
-    return digest.hexdigest()
-
-
-def _meshbin() -> bytes:
-    vertices = b''.join(
-        struct.pack('<3f', float(i), float(i % 7) * 0.5, float(i % 3) * 0.25)
-        for i in range(3)
-    )
-    faces = struct.pack('<3I', 0, 1, 2)
-    header = (
-        b'HTDTMSH1'
-        + struct.pack('<HH', 1, 0)
-        + struct.pack('<I', 32)
-        + struct.pack('<I', 3)
-        + struct.pack('<I', 1)
-        + bytes([4, 0])
-        + struct.pack('<H', 0)
-        + struct.pack('<I', 0)
-    )
-    return header + vertices + faces
 
 
 def _plan_and_payloads(
+    tmp_path: Path | None = None,
     *,
     revision_id: str | None = None,
     parent_revision_id: str | None = None,
-    bundle_digest: str | None = None,
     series_id: str = SERIES_ID,
     session_id: str = SESSION_ID,
+    created_at: str = '2026-09-20T00:00:00Z',
 ) -> tuple[dict, dict[str, bytes]]:
+    """Stage a contract-valid bundle: the four foundation payloads plus one
+    mesh anchor, with the caller's revision/series/session identities."""
+    workdir = (
+        tmp_path if tmp_path is not None else Path(tempfile.mkdtemp())
+    )
     revision_id = revision_id or str(uuid.uuid4())
-    bundle_digest = bundle_digest or sha256(
-        f'bundle-{revision_id}'.encode()
-    ).hexdigest()
-    payloads = {
-        'mesh/anchors.json': b'{"fixture":"anchors"}',
-        f'mesh/geometry/{ANCHOR_ID}.meshbin': _meshbin(),
+    geometry_path = f'mesh/geometry/{ANCHOR_ID}.meshbin'
+    manifest_overrides = {
+        'capture_series_id': series_id,
+        'capture_revision_id': revision_id,
+        'parent_revision_id': parent_revision_id,
+        'capture_session_ids': [session_id],
+        'coordinate_space_ids': [SPACE_ID],
+        'created_at': created_at,
+        'finalized_at': created_at,
     }
-    source = []
-    source_by_path = {}
-    for path in sorted(payloads):
-        payload = payloads[path]
-        digest = sha256(payload).hexdigest()
-        record = {
-            'source_evidence_id': _hash_parts(
-                'htdt.capture.source-evidence.v1', bundle_digest, path, digest
+    plan, payloads, _manifest = support.plan_and_payloads(
+        workdir,
+        files=support.mesh_specs_files(
+            ((ANCHOR_ID, geometry_path, 3, 1),),
+            anchor_transform=(
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1,
             ),
-            'bundle_digest': bundle_digest,
-            'capture_revision_id': revision_id,
-            'path': path,
-            'payload_sha256': digest,
-            'bytes': len(payload),
-            'media_type': (
-                'application/vnd.htdt.meshbin'
-                if path.endswith('.meshbin')
-                else 'application/json'
-            ),
-            'producer': 'mesh_capture',
-            'provenance_class': 'arkit_mesh_reconstruction',
-            'role': 'canonical',
-            'source_refs': [],
-        }
-        source.append(record)
-        source_by_path[path] = record
-    geometry = source_by_path[f'mesh/geometry/{ANCHOR_ID}.meshbin']
-    handoffs = [
-        {
-            'raw_visual_mesh_handoff_id': _hash_parts(
-                'htdt.capture.raw-visual-mesh-handoff.v1',
-                bundle_digest,
-                ANCHOR_ID,
-                geometry['payload_sha256'],
-            ),
-            'bundle_digest': bundle_digest,
-            'anchor_id': ANCHOR_ID,
-            'anchor_record_locator': f'mesh/anchors.json#anchor:{ANCHOR_ID}',
-            'anchor_index_source_evidence_id': source_by_path[
-                'mesh/anchors.json'
-            ]['source_evidence_id'],
-            'geometry_source_evidence_id': geometry['source_evidence_id'],
-            'geometry_path': f'mesh/geometry/{ANCHOR_ID}.meshbin',
-            'geometry_sha256': geometry['payload_sha256'],
-            'capture_session_id': session_id,
-            'coordinate_space_id': SPACE_ID,
-            'T_world_from_mesh_anchor': {
-                'representation': 'column_major_4x4_f32',
-                'values': [
-                    1, 0, 0, 0,
-                    0, 1, 0, 0,
-                    0, 0, 1, 0,
-                    0, 0, 0, 1,
-                ],
-            },
-            'session_timestamp_s': 1.0,
-            'vertex_count': 3,
-            'face_count': 1,
-        }
-    ]
-    projection = {
-        'bundle_digest': bundle_digest,
-        'source_evidence_ids': sorted(
-            item['source_evidence_id'] for item in source
+            session_id=session_id,
+            space_id=SPACE_ID,
         ),
-        'raw_visual_mesh_ids': sorted(
-            handoff['raw_visual_mesh_handoff_id'] for handoff in handoffs
-        ),
-        'authority_record_ids': [],
-    }
-    lineage_digest = sha256(
-        json.dumps(projection, sort_keys=True, separators=(',', ':')).encode()
-    ).hexdigest()
-    plan = {
-        'schema': 'htdt.capture.ingestion-plan',
-        'schema_version': '1.0.0',
-        'ingestor': {
-            'name': 'htdt-capture-reference-ingestor',
-            'version': '1.0.0',
-            'configuration_digest': INGESTOR_CONFIG,
+        manifest_overrides=manifest_overrides,
+        id_map={
+            support.SESSION_ID: session_id,
+            support.SPACE_ID: SPACE_ID,
         },
-        'bundle': {
-            'bundle_digest': bundle_digest,
-            'capture_schema': 'htdt.capture.bundle',
-            'capture_schema_version': '1.0.0',
-            'capture_series_id': series_id,
-            'capture_revision_id': revision_id,
-            'parent_revision_id': parent_revision_id,
-            'capture_session_ids': [session_id],
-            'coordinate_space_ids': [SPACE_ID],
-        },
-        'source_evidence': source,
-        'roomplan_records': [],
-        'raw_visual_mesh_handoffs': handoffs,
-        'authority_records': [],
-        'lineage_digest': lineage_digest,
-    }
+    )
     return plan, payloads
 
 
@@ -184,7 +89,7 @@ def _rig(tmp_path: Path):
 
 
 def _stage_one(ingestion, inbox, tmp_path, **kwargs):
-    plan, payloads = _plan_and_payloads(**kwargs)
+    plan, payloads = _plan_and_payloads(tmp_path, **kwargs)
     ingestion.ingest(plan, payloads)
     typed = CaptureIngestionPlan.model_validate(plan)
     result = inbox.stage(
@@ -233,20 +138,22 @@ class TestStaging:
     def test_same_revision_different_digest_is_hard_conflict(self, tmp_path):
         ingestion, inbox = _rig(tmp_path)
         revision = str(uuid.uuid4())
-        first, _ = _stage_one(ingestion, inbox, tmp_path, revision_id=revision)
+        _stage_one(ingestion, inbox, tmp_path, revision_id=revision)
         plan2, payloads2 = _plan_and_payloads(
-            revision_id=revision, bundle_digest='9' * 64
+            tmp_path,
+            revision_id=revision,
+            created_at='2026-09-20T00:00:02Z',
         )
-        ingestion.ingest(plan2, payloads2)
-        second = inbox.stage(
-            CaptureIngestionPlan.model_validate(plan2),
-            arrival_source='file_import',
+        # The immutable revision registry rejects the reuse at ingest,
+        # before the inbox could ever stage it (#335) — the conflict is
+        # surfaced and recorded, never guessed at.
+        with pytest.raises(CaptureRevisionConflictError):
+            ingestion.ingest(plan2, payloads2)
+        conflicts = ingestion.list_revision_conflicts()
+        assert any(
+            conflict.capture_revision_id == revision
+            for conflict in conflicts
         )
-        assert second.item.primary_classification == 'identity_digest_conflict'
-        assert second.item.conflict_lineage_digest == first.lineage_digest
-        inspection = inbox.inspect(second.item.lineage_digest)
-        assert inspection is not None
-        assert inspection.promotability == 'blocked'
 
     def test_out_of_order_arrival_fills_predecessor(self, tmp_path):
         ingestion, inbox = _rig(tmp_path)
@@ -494,15 +401,19 @@ class TestComparison:
     def test_compare_reports_structure_not_spatial(self, tmp_path):
         ingestion, inbox = _rig(tmp_path)
         rev_a = str(uuid.uuid4())
-        a, _ = _stage_one(ingestion, inbox, tmp_path, revision_id=rev_a)
-        b, _ = _stage_one(
+        a, typed_a = _stage_one(ingestion, inbox, tmp_path, revision_id=rev_a)
+        b, typed_b = _stage_one(
             ingestion, inbox, tmp_path,
             revision_id=str(uuid.uuid4()), parent_revision_id=rev_a,
         )
         comparison = inbox.compare(b.lineage_digest)
         assert comparison.relationship == 'direct_child'
-        assert comparison.source_evidence_count_self == 2
-        assert comparison.source_evidence_count_predecessor == 2
+        assert comparison.source_evidence_count_self == len(
+            typed_b.source_evidence
+        )
+        assert comparison.source_evidence_count_predecessor == len(
+            typed_a.source_evidence
+        )
         assert comparison.spatial_comparison == 'disabled_unaligned'
         assert 'disabled' in comparison.detail
 

@@ -16,6 +16,28 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from htdt.cad_repository import SceneRepository
 from htdt.cad_schema import ensure_native_schema
+from htdt.capture_bundle import (
+    MAX_MANIFEST_BYTES,
+    MAX_SOURCE_REF_BYTES,
+    MAX_SOURCE_REFS_PER_ENTRY,
+    MAX_SOURCE_REFS_TOTAL,
+    SOURCE_REF_SENTINELS,
+    CaptureBundleError,
+    _enforce_reserved_path_metadata,
+    _family_for_path,
+    _load_schema,
+    _schema_document_for_version,
+    _validate_source_refs as _validate_bundle_source_refs,
+    canonical_json_bytes as _canonical_bundle_bytes,
+    parse_json_bytes as _parse_bundle_json,
+    validate_manifest_shape,
+    validate_payload_set,
+)
+from htdt.capture_schema_eval import (
+    SchemaError as _CaptureSchemaError,
+    validate as _schema_validate,
+)
+from htdt import capture_reference
 from htdt.capture_mesh_ingestion import (
     CAPTURE_MESH_BINDING_RECORD_SCHEMA,
     CAPTURE_MESH_BINDING_RECORD_VERSION,
@@ -101,6 +123,23 @@ CaptureProvenance = Literal[
 
 class CaptureIngestionTransactionError(ValueError):
     pass
+
+
+class CapturePayloadContractError(CaptureIngestionTransactionError):
+    """The exact source payload bytes violate the pinned Capture contract."""
+
+
+class CaptureRevisionConflictError(CaptureIngestionTransactionError):
+    """A capture_revision_id was reused with a different immutable identity."""
+
+
+class CaptureQualityGateError(CaptureIngestionTransactionError):
+    """The persisted quality authority is missing, unsupported or not ready."""
+
+
+class CaptureIdentityReferenceError(CaptureIngestionTransactionError):
+    """Session/frame/record identity or reference claims disagree with the
+    accepted bundle identity registry."""
 
 
 class PersistedIngestionIntegrityError(CaptureIngestionTransactionError):
@@ -212,6 +251,116 @@ def _coordinate_authority_id(
     )
 
 
+def _validate_plan_source_ref_grammar(plan: 'CaptureIngestionPlan') -> None:
+    """Enforce the complete Capture Bundle v1 source_ref grammar on every
+    declared record reference.
+
+    Grammar: ``path:`` / ``sha256:`` (must name exactly one declared
+    payload, no self-reference), ``capture_session:<uuidv4>`` (must be a
+    manifest member), the ``roomplan_raw_serialization:unavailable``
+    sentinel, and bounded budgets (per-entry, per-ref-bytes, total).
+    Path references must additionally be acyclic and unambiguous — a ref
+    that resolves to more than one payload, or to none, is rejected.
+    Unknown namespaces fail closed.
+    """
+    source_hashes = {item.payload_sha256 for item in plan.source_evidence}
+    session_ids = set(plan.bundle.capture_session_ids)
+    by_path: dict[str, list[str]] = {}
+    for item in plan.source_evidence:
+        by_path.setdefault(item.path, []).append(item.payload_sha256)
+
+    entries: list[tuple[str, tuple[str, ...]]] = [
+        (item.path, item.source_refs) for item in plan.source_evidence
+    ]
+    entries += [
+        (record.path, record.source_refs)
+        for record in plan.roomplan_records
+    ]
+
+    total_refs = 0
+    adjacency: dict[str, set[str]] = {}
+    for owner, refs in entries:
+        if len(refs) > MAX_SOURCE_REFS_PER_ENTRY:
+            raise ValueError(
+                f'source_refs exceeds per-entry budget: {owner}'
+            )
+        total_refs += len(refs)
+        for ref in refs:
+            if len(ref.encode('utf-8')) > MAX_SOURCE_REF_BYTES:
+                raise ValueError('source_ref exceeds byte budget')
+            if ref in SOURCE_REF_SENTINELS:
+                continue
+            if ref.startswith('sha256:'):
+                target_hash = ref.removeprefix('sha256:')
+                if (
+                    not HEX64_RE.fullmatch(target_hash)
+                    or target_hash not in source_hashes
+                ):
+                    raise ValueError(
+                        'unresolved source evidence SHA-256 reference'
+                    )
+                matching = [
+                    item.path
+                    for item in plan.source_evidence
+                    if item.payload_sha256 == target_hash
+                ]
+                if len(matching) != 1:
+                    raise ValueError(
+                        'SHA-256 source_ref must name exactly one '
+                        'payload'
+                    )
+                if matching[0] == owner:
+                    raise ValueError('source_ref self-reference')
+            elif ref.startswith('path:'):
+                target_path = ref.removeprefix('path:')
+                _validate_logical_path(target_path)
+                if target_path == owner:
+                    raise ValueError('source_ref self-reference')
+                if target_path not in by_path:
+                    raise ValueError(
+                        'unresolved source evidence path reference'
+                    )
+                adjacency.setdefault(owner, set()).add(target_path)
+            elif ref.startswith('capture_session:'):
+                session_id = ref.removeprefix('capture_session:')
+                if session_id not in session_ids:
+                    raise ValueError(
+                        'capture_session source_ref is not a manifest '
+                        'session member'
+                    )
+            else:
+                raise ValueError(
+                    f'unknown source_ref namespace: {ref.split(":", 1)[0]}'
+                )
+    if total_refs > MAX_SOURCE_REFS_TOTAL:
+        raise ValueError('total source_refs budget exceeded')
+
+    # Path-reference acyclicity (iterative DFS with GRAY marking).
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {path: WHITE for path in adjacency}
+    for root in adjacency:
+        if color[root] != WHITE:
+            continue
+        stack = [(root, iter(adjacency.get(root, ())))]
+        color[root] = GRAY
+        while stack:
+            node, it = stack[-1]
+            advanced = False
+            for nxt in it:
+                if color.get(nxt, WHITE) == GRAY:
+                    raise ValueError(
+                        'path source_ref cycle detected'
+                    )
+                if color.get(nxt, WHITE) == WHITE:
+                    color[nxt] = GRAY
+                    stack.append((nxt, iter(adjacency.get(nxt, ()))))
+                    advanced = True
+                    break
+            if not advanced:
+                color[node] = BLACK
+                stack.pop()
+
+
 def _canonical_json(value: object) -> str:
     return json.dumps(
         value,
@@ -311,6 +460,10 @@ class CaptureBundleIdentity(BaseModel):
             self.parent_revision_id
         ):
             raise ValueError('parent_revision_id must be lowercase UUIDv4')
+        if self.parent_revision_id == self.capture_revision_id:
+            raise ValueError(
+                'parent_revision_id must differ from capture_revision_id'
+            )
         if not self.capture_session_ids or len(set(self.capture_session_ids)) != len(
             self.capture_session_ids
         ):
@@ -356,6 +509,23 @@ class CaptureSourceEvidence(BaseModel):
         return value
 
 
+class CaptureRoomPlanCaptureMetadata(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema: Literal['htdt.captured-room-metadata']
+    schema_version: Literal['1.0.0']
+    capture_revision_id: str
+    capture_session_id: str
+    coordinate_space_id: str
+    raw_payload_path: str
+    raw_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    processed_payload_path: str | None = None
+    processed_sha256: str | None = None
+    surface_count: int | None = None
+    object_count: int | None = None
+    dimensions: dict[str, float] | None = None
+
+
 class CaptureRoomPlanRecord(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -368,6 +538,20 @@ class CaptureRoomPlanRecord(BaseModel):
         'apple_roomplan_inference',
     ]
     source_refs: tuple[str, ...] = ()
+    roomplan_capture_metadata: CaptureRoomPlanCaptureMetadata | None = None
+
+
+class CaptureResolvedReference(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    kind: Literal[
+        'annotation_authored',
+        'source_evidence',
+        'raw_visual_mesh_handoff',
+        'authority_record',
+    ]
+    ref: str = Field(min_length=1)
+    target: str | None = None
 
 
 class CaptureAuthorityRecord(BaseModel):
@@ -381,6 +565,10 @@ class CaptureAuthorityRecord(BaseModel):
     coordinate_space_id: str | None = None
     source_evidence_id: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_payload_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    evidence_refs: tuple[str, ...] = ()
+    endpoint_refs: tuple[str, ...] = ()
+    resolved_evidence: tuple[CaptureResolvedReference, ...] = ()
+    resolved_endpoints: tuple[CaptureResolvedReference, ...] = ()
 
     @field_validator('record_id')
     @classmethod
@@ -406,6 +594,7 @@ class CaptureIngestionPlan(BaseModel):
     bundle: CaptureBundleIdentity
     source_evidence: tuple[CaptureSourceEvidence, ...]
     roomplan_records: tuple[CaptureRoomPlanRecord, ...]
+    roomplan_capture_metadata: CaptureRoomPlanCaptureMetadata | None = None
     raw_visual_mesh_handoffs: tuple[CaptureMeshHandoff, ...]
     authority_records: tuple[CaptureAuthorityRecord, ...]
     lineage_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -443,19 +632,7 @@ class CaptureIngestionPlan(BaseModel):
             )
             if item.source_evidence_id != expected:
                 raise ValueError('source evidence deterministic identity mismatch')
-            for source_ref in item.source_refs:
-                if source_ref.startswith('sha256:'):
-                    target_hash = source_ref.removeprefix('sha256:')
-                    if (
-                        not HEX64_RE.fullmatch(target_hash)
-                        or target_hash not in source_hashes
-                    ):
-                        raise ValueError('unresolved source evidence SHA-256 reference')
-                elif source_ref.startswith('path:'):
-                    target_path = source_ref.removeprefix('path:')
-                    _validate_logical_path(target_path)
-                    if target_path not in by_path:
-                        raise ValueError('unresolved source evidence path reference')
+        _validate_plan_source_ref_grammar(self)
 
         roomplan_keys: set[tuple[str, str]] = set()
         for record in self.roomplan_records:
@@ -587,6 +764,57 @@ class CaptureIngestionCommitResult:
     raw_mesh_binding_count: int
     authority_record_count: int
     created: bool
+    capture_revision_id: str = ''
+    capture_series_id: str = ''
+    quality_state: str = 'unresolved'
+    quality_ruleset_version: str | None = None
+    quality_payload_sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class CaptureRevisionRecord:
+    """One immutable registered Capture revision (#335)."""
+
+    capture_revision_id: str
+    capture_series_id: str
+    parent_revision_id: str | None
+    bundle_digest: str
+    capture_schema: str
+    capture_schema_version: str
+    topology_state: str
+    first_lineage_digest: str
+    registered_at_utc: str
+
+
+@dataclass(frozen=True)
+class CaptureRevisionConflict:
+    """A pre-existing or newly detected revision-identity conflict."""
+
+    capture_revision_id: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class CaptureBundleRecord:
+    """The retained canonical manifest authority for one bundle (#338)."""
+
+    bundle_digest: str
+    capture_revision_id: str
+    app_name: str
+    app_version: str
+    app_build: str
+    created_at: str
+    finalized_at: str
+    manifest_bytes: bytes
+
+
+@dataclass(frozen=True)
+class CaptureQualityState:
+    """Persisted quality-gate state for one ingestion run (#337)."""
+
+    state: str
+    payload_sha256: str | None
+    ruleset_version: str | None
 
 
 @dataclass(frozen=True)
@@ -823,6 +1051,37 @@ class CaptureIngestionRepository:
                         REFERENCES capture_source_evidence(source_evidence_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS capture_revisions (
+                    capture_revision_id TEXT PRIMARY KEY,
+                    capture_series_id TEXT NOT NULL,
+                    parent_revision_id TEXT,
+                    bundle_digest TEXT NOT NULL,
+                    capture_schema TEXT NOT NULL,
+                    capture_schema_version TEXT NOT NULL,
+                    topology_state TEXT NOT NULL,
+                    first_lineage_digest TEXT NOT NULL,
+                    registered_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS capture_bundles (
+                    bundle_digest TEXT PRIMARY KEY,
+                    capture_revision_id TEXT NOT NULL,
+                    manifest_sha256 TEXT NOT NULL,
+                    app_name TEXT NOT NULL,
+                    app_version TEXT NOT NULL,
+                    app_build TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    finalized_at TEXT NOT NULL,
+                    manifest_blob BLOB NOT NULL DEFAULT X''
+                );
+
+                CREATE TABLE IF NOT EXISTS capture_revision_conflicts (
+                    capture_revision_id TEXT NOT NULL,
+                    detail TEXT NOT NULL,
+                    recorded_at_utc TEXT NOT NULL,
+                    PRIMARY KEY(capture_revision_id, detail)
+                );
+
                 CREATE TABLE IF NOT EXISTS capture_ingestion_authority_links (
                     ingestion_run_id TEXT NOT NULL,
                     authority_record_handoff_id TEXT NOT NULL,
@@ -839,8 +1098,13 @@ class CaptureIngestionRepository:
 
                 '''
             )
+            self._ensure_run_quality_columns(connection)
+            self._migrate_revision_registry(connection)
             ensure_content_blob_store(connection)
             self._migrate_run_identity(connection)
+            # The run-identity rebuild swaps in a fresh runs table; re-add
+            # the persisted quality columns to it.
+            self._ensure_run_quality_columns(connection)
             # Lineage rows are the unique foreign-key parent shared by the
             # run-scoped schema and the lineage-keyed capture tables; seed
             # them for databases already holding new-shape run rows.
@@ -1540,7 +1804,21 @@ class CaptureIngestionRepository:
         payloads_by_path: Mapping[str, bytes],
         *,
         budget: CaptureIngestionBudget | None = None,
+        manifest: bytes | None = None,
     ) -> CaptureIngestionCommitResult:
+        """Atomically commit one validated ingestion plan.
+
+        ``plan`` is an untrusted producer claim: before commit, every
+        declared source payload is validated against the pinned Capture
+        Bundle v1 schema/binary/metadata contract and every handoff
+        semantic is rederived from the exact payload bytes
+        (#337/#343/#345/#369). ``manifest`` — when supplied by the
+        production import path — must be the canonical manifest.json
+        bytes whose SHA-256 equals the plan's bundle digest; it is
+        retained as immutable bundle evidence (#338). Capture revision
+        identity/topology is registered fail-closed (#335) inside the
+        same transaction.
+        """
         typed = (
             plan
             if isinstance(plan, CaptureIngestionPlan)
@@ -1575,6 +1853,15 @@ class CaptureIngestionRepository:
                     f'capture payload SHA-256 mismatch: {path}'
                 )
 
+        quality_state = self._validate_source_payload_contract(
+            typed, payloads
+        )
+        manifest_document = (
+            self._validate_manifest_for_plan(typed, manifest, payloads)
+            if manifest is not None
+            else None
+        )
+
         plan_json = _canonical_json(
             typed.model_dump(mode='json', by_alias=True)
         )
@@ -1587,9 +1874,21 @@ class CaptureIngestionRepository:
             plan_sha256,
         )
 
+        revision_conflict: tuple[str, str] | None = None
         with closing(self._connect()) as connection:
             try:
                 connection.execute('BEGIN IMMEDIATE')
+                try:
+                    self._register_capture_revision(connection, typed)
+                except CaptureRevisionConflictError as exc:
+                    revision_conflict = (
+                        typed.bundle.capture_revision_id, str(exc)
+                    )
+                    raise
+                if manifest_document is not None:
+                    self._persist_capture_bundle(
+                        connection, typed, manifest, manifest_document
+                    )
                 existing = connection.execute(
                     '''
                     SELECT *
@@ -1633,8 +1932,10 @@ class CaptureIngestionRepository:
                         capture_session_ids_json,
                         coordinate_space_ids_json, ingestor_name,
                         ingestor_version, configuration_digest,
-                        plan_json, recorded_at_utc
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        plan_json, recorded_at_utc,
+                        quality_state, quality_payload_sha256,
+                        quality_ruleset_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     (
                         run_id,
@@ -1655,6 +1956,9 @@ class CaptureIngestionRepository:
                         typed.ingestor.configuration_digest,
                         plan_json,
                         recorded_at,
+                        quality_state.state,
+                        quality_state.payload_sha256,
+                        quality_state.ruleset_version,
                     ),
                 )
 
@@ -1747,9 +2051,30 @@ class CaptureIngestionRepository:
                 connection.commit()
             except Exception:
                 connection.rollback()
+                if revision_conflict is not None:
+                    self._persist_revision_conflict_outcome(
+                        *revision_conflict
+                    )
                 raise
 
-        return self._result(typed, run_id, created=True)
+        return self._result(
+            typed, run_id, created=True, quality_state=quality_state
+        )
+
+    def _persist_revision_conflict_outcome(
+        self,
+        revision_id: str,
+        detail: str,
+    ) -> None:
+        """Record a revision conflict in its own committed transaction.
+
+        The rejection rolled the ingest transaction back; the audit trail
+        must still survive (#335: pre-existing conflicts are surfaced and
+        recorded, never guessed at).
+        """
+        with closing(self._connect()) as connection:
+            self._record_revision_conflict(connection, revision_id, detail)
+            connection.commit()
 
     def verify_persisted_ingestion(
         self,
@@ -1962,6 +2287,51 @@ class CaptureIngestionRepository:
                 (lineage_digest,),
             ).fetchall()
         return tuple(str(row['binding_id']) for row in rows)
+
+    def roomplan_records_for_ingestion(
+        self,
+        lineage_digest: str,
+    ) -> tuple[CaptureRoomPlanRecord, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT rr.payload_json
+                FROM capture_roomplan_records rr
+                JOIN capture_ingestion_runs r
+                  ON r.ingestion_run_id = rr.ingestion_run_id
+                WHERE r.lineage_digest=?
+                ORDER BY rr.kind ASC, rr.source_evidence_id ASC
+                """,
+                (lineage_digest,),
+            ).fetchall()
+        return tuple(
+            CaptureRoomPlanRecord.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def authority_records_for_ingestion(
+        self,
+        lineage_digest: str,
+    ) -> tuple[CaptureAuthorityRecord, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT rec.payload_json
+                FROM capture_ingestion_authority_links l
+                JOIN capture_authority_records rec
+                  ON rec.authority_record_handoff_id
+                     = l.authority_record_handoff_id
+                JOIN capture_ingestion_runs r
+                  ON r.ingestion_run_id = l.ingestion_run_id
+                WHERE r.lineage_digest=?
+                ORDER BY l.authority_record_handoff_id ASC
+                """,
+                (lineage_digest,),
+            ).fetchall()
+        return tuple(
+            CaptureAuthorityRecord.model_validate_json(row['payload_json'])
+            for row in rows
+        )
 
     def get_authority_record(
         self,
@@ -3031,6 +3401,8 @@ class CaptureIngestionRepository:
                     f'{record.authority_record_handoff_id}'
                 )
 
+        quality_state = self._resolve_persisted_quality(connection, plan)
+
         return CaptureIngestionCommitResult(
             ingestion_run_id=str(run_id),
             lineage_digest=lineage,
@@ -3040,6 +3412,11 @@ class CaptureIngestionRepository:
             raw_mesh_binding_count=len(linked_binding_ids),
             authority_record_count=len(linked_authority_ids),
             created=False,
+            capture_revision_id=plan.bundle.capture_revision_id,
+            capture_series_id=plan.bundle.capture_series_id,
+            quality_state=quality_state.state,
+            quality_ruleset_version=quality_state.ruleset_version,
+            quality_payload_sha256=quality_state.payload_sha256,
         )
 
     def _verify_persisted_source_evidence(
@@ -3104,6 +3481,841 @@ class CaptureIngestionRepository:
                 'source evidence payload mismatch: '
                 f'{record.source_evidence_id}'
             )
+    # ------------------------------------------------------------------
+    # Capture Bundle v1 contract rederivation (#343/#345/#369/#337)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _plan_manifest_projection(
+        typed: CaptureIngestionPlan,
+    ) -> dict:
+        """Project the plan's bundle/source declarations into the manifest
+        shape the shared contract validators consume."""
+        return {
+            'bundle_digest': typed.bundle.bundle_digest,
+            'schema': typed.bundle.capture_schema,
+            'schema_version': typed.bundle.capture_schema_version,
+            'capture_series_id': typed.bundle.capture_series_id,
+            'capture_revision_id': typed.bundle.capture_revision_id,
+            'parent_revision_id': typed.bundle.parent_revision_id,
+            'capture_session_ids': list(typed.bundle.capture_session_ids),
+            'coordinate_space_ids': list(
+                typed.bundle.coordinate_space_ids
+            ),
+            'files': [
+                {
+                    'path': item.path,
+                    'bytes': item.bytes,
+                    'media_type': item.media_type,
+                    'sha256': item.payload_sha256,
+                    'producer': item.producer,
+                    'provenance_class': item.provenance_class,
+                    'role': item.role,
+                    'source_refs': list(item.source_refs),
+                }
+                for item in typed.source_evidence
+            ],
+        }
+
+    def _validate_source_payload_contract(
+        self,
+        typed: CaptureIngestionPlan,
+        payloads: Mapping[str, bytes],
+    ) -> CaptureQualityState:
+        """Schema/binary/metadata-validate then semantically rederive every
+        handoff claim from the exact payload bytes.
+
+        The shared bounded pipeline runs the common schema layer first
+        (#369), then session/frame identity (#345), the quality gate
+        (#337) and mesh/authority handoff rederivation (#343). A mismatch
+        between the declared plan and the recomputed contract fails
+        closed before any source-authority commit.
+        """
+        manifest = self._plan_manifest_projection(typed)
+        try:
+            sections = capture_reference.rederive_plan_sections(
+                manifest, dict(payloads)
+            )
+        except CaptureBundleError as exc:
+            raise CapturePayloadContractError(str(exc)) from exc
+        except capture_reference.CaptureIngestionContractError as exc:
+            raise CapturePayloadContractError(str(exc)) from exc
+
+        def _norm_numbers(value):
+            """Normalize JSON numbers for comparison: pydantic dumps coerce
+            integral floats to ``1.0`` while exact payload bytes keep
+            ``1`` — semantically identical numbers."""
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            if isinstance(value, dict):
+                return {k: _norm_numbers(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_norm_numbers(v) for v in value]
+            return value
+
+        def _canonical_rows(rows):
+            return sorted(
+                _canonical_json(_norm_numbers(json.loads(_canonical_json(row))))
+                for row in rows
+            )
+
+        expected_sources = _canonical_rows(
+            item.model_dump(mode='json') for item in typed.source_evidence
+        )
+        recomputed_sources = _canonical_rows(sections['source_records'])
+        if expected_sources != recomputed_sources:
+            raise CapturePayloadContractError(
+                'declared source evidence does not match the rederived '
+                'exact payload contract'
+            )
+
+        expected_roomplan = _canonical_rows(
+            item.model_dump(mode='json') for item in typed.roomplan_records
+        )
+        recomputed_roomplan = _canonical_rows(sections['roomplan_records'])
+        if expected_roomplan != recomputed_roomplan:
+            raise CapturePayloadContractError(
+                'declared RoomPlan records do not match the rederived '
+                'exact payload contract'
+            )
+        expected_metadata = _canonical_rows(
+            [
+                typed.roomplan_capture_metadata.model_dump(mode='json')
+                if typed.roomplan_capture_metadata is not None
+                else None
+            ]
+        )[0]
+        recomputed_metadata = _canonical_rows(
+            [sections['roomplan_capture_metadata']]
+        )[0]
+        if expected_metadata != recomputed_metadata:
+            raise CapturePayloadContractError(
+                'declared RoomPlan capture metadata does not match the '
+                'exact payload contract'
+            )
+
+        expected_handoffs = _canonical_rows(
+            item.model_dump(mode='json', by_alias=True)
+            for item in typed.raw_visual_mesh_handoffs
+        )
+        recomputed_handoffs = _canonical_rows(
+            sections['raw_visual_mesh_handoffs']
+        )
+        if expected_handoffs != recomputed_handoffs:
+            raise CapturePayloadContractError(
+                'declared raw mesh handoffs do not match the rederived '
+                'exact mesh/anchors.json contract'
+            )
+
+        expected_authority = _canonical_rows(
+            item.model_dump(mode='json') for item in typed.authority_records
+        )
+        recomputed_authority = _canonical_rows(
+            sections['authority_records']
+        )
+        if expected_authority != recomputed_authority:
+            raise CapturePayloadContractError(
+                'declared authority records do not match the rederived '
+                'exact annotation/measurement contract'
+            )
+
+        quality_document = sections['quality_document']
+        quality_sha = next(
+            entry['sha256']
+            for entry in manifest['files']
+            if entry['path'] == 'quality/capture-quality.json'
+        )
+        return CaptureQualityState(
+            'validated',
+            quality_sha,
+            quality_document['ruleset_version'],
+        )
+
+    # ------------------------------------------------------------------
+    # Canonical manifest retention (#338)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_manifest_for_plan(
+        typed: CaptureIngestionPlan,
+        manifest_bytes: bytes,
+        payloads: Mapping[str, bytes],
+    ) -> dict:
+        """Validate exact canonical manifest bytes against the plan/bundle
+        identity they claim to authorize."""
+        if len(manifest_bytes) > MAX_MANIFEST_BYTES:
+            raise CapturePayloadContractError(
+                'manifest.json exceeds the manifest byte limit'
+            )
+        try:
+            manifest = _parse_bundle_json(manifest_bytes)
+            validate_manifest_shape(manifest)
+        except CaptureBundleError as exc:
+            raise CapturePayloadContractError(
+                f'manifest.json is invalid: {exc}'
+            ) from exc
+        if _canonical_bundle_bytes(manifest) != manifest_bytes:
+            raise CapturePayloadContractError(
+                'manifest.json is not Capture Bundle v1 canonical JSON'
+            )
+        family, contract = _family_for_path('manifest.json')
+        if contract is None:
+            raise CapturePayloadContractError(
+                'manifest.json is not covered by the support matrix'
+            )
+        try:
+            document_key = _schema_document_for_version(
+                'manifest.json', manifest, family, contract
+            )
+            _schema_validate(
+                manifest, _load_schema(f'{document_key}.schema.json')
+            )
+        except (CaptureBundleError, _CaptureSchemaError) as exc:
+            raise CapturePayloadContractError(
+                f'manifest.json violates the pinned manifest schema: {exc}'
+            ) from exc
+
+        digest = sha256(manifest_bytes).hexdigest()
+        if digest != typed.bundle.bundle_digest:
+            raise CapturePayloadContractError(
+                'manifest.json SHA-256 does not equal the plan bundle digest'
+            )
+        bundle = typed.bundle
+        expected_identity = {
+            'schema': bundle.capture_schema,
+            'schema_version': bundle.capture_schema_version,
+            'capture_series_id': bundle.capture_series_id,
+            'capture_revision_id': bundle.capture_revision_id,
+            'parent_revision_id': bundle.parent_revision_id,
+            'capture_session_ids': list(bundle.capture_session_ids),
+            'coordinate_space_ids': list(bundle.coordinate_space_ids),
+        }
+        for field, expected in expected_identity.items():
+            if manifest[field] != expected:
+                raise CaptureIdentityReferenceError(
+                    f'manifest.json {field} disagrees with the accepted '
+                    'plan bundle identity'
+                )
+
+        declared_entries = {
+            entry['path']: entry for entry in manifest['files']
+        }
+        if set(declared_entries) != set(payloads):
+            raise CapturePayloadContractError(
+                'manifest declared payload set does not match the plan '
+                'source evidence set'
+            )
+        try:
+            _enforce_reserved_path_metadata(manifest, declared_entries)
+            _validate_bundle_source_refs(manifest, declared_entries)
+        except CaptureBundleError as exc:
+            raise CapturePayloadContractError(str(exc)) from exc
+
+        by_path = {item.path: item for item in typed.source_evidence}
+        for path, entry in declared_entries.items():
+            record = by_path[path]
+            declared_pair = (
+                entry['media_type'],
+                entry['producer'],
+                entry['provenance_class'],
+                entry['role'],
+                entry['sha256'],
+                entry['bytes'],
+                tuple(entry.get('source_refs', [])),
+            )
+            plan_pair = (
+                record.media_type,
+                record.producer,
+                record.provenance_class,
+                record.role,
+                record.payload_sha256,
+                record.bytes,
+                record.source_refs,
+            )
+            if declared_pair != plan_pair:
+                raise CaptureIdentityReferenceError(
+                    f'manifest entry metadata for {path} disagrees with '
+                    'the accepted plan source evidence'
+                )
+        return manifest
+
+    def _persist_capture_bundle(
+        self,
+        connection: sqlite3.Connection,
+        typed: CaptureIngestionPlan,
+        manifest_bytes: bytes,
+        manifest: dict,
+    ) -> None:
+        """Retain the canonical manifest as immutable bundle evidence."""
+        bundle_digest = typed.bundle.bundle_digest
+        row = connection.execute(
+            '''
+            SELECT manifest_sha256, capture_revision_id
+            FROM capture_bundles WHERE bundle_digest=?
+            ''',
+            (bundle_digest,),
+        ).fetchone()
+        if row is not None:
+            if (
+                row['manifest_sha256'] != sha256(manifest_bytes).hexdigest()
+                or row['capture_revision_id']
+                != typed.bundle.capture_revision_id
+            ):
+                raise PersistedIngestionIntegrityError(
+                    'persisted capture bundle manifest conflicts with the '
+                    'incoming canonical manifest'
+                )
+            return
+
+        app = manifest['app']
+        store_content_blob(connection, manifest_bytes)
+        connection.execute(
+            '''
+            INSERT INTO capture_bundles(
+                bundle_digest, capture_revision_id, manifest_sha256,
+                app_name, app_version, app_build,
+                created_at, finalized_at, manifest_blob
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, X'')
+            ''',
+            (
+                bundle_digest,
+                typed.bundle.capture_revision_id,
+                sha256(manifest_bytes).hexdigest(),
+                app['name'],
+                app['version'],
+                app['build'],
+                manifest['created_at'],
+                manifest['finalized_at'],
+            ),
+        )
+
+    # ------------------------------------------------------------------
+    # Immutable capture revision registry (#335)
+    # ------------------------------------------------------------------
+
+    def _register_capture_revision(
+        self,
+        connection: sqlite3.Connection,
+        typed: CaptureIngestionPlan,
+    ) -> None:
+        """Register/enforce the immutable revision identity and topology."""
+        bundle = typed.bundle
+        revision_id = bundle.capture_revision_id
+        row = connection.execute(
+            '''
+            SELECT * FROM capture_revisions WHERE capture_revision_id=?
+            ''',
+            (revision_id,),
+        ).fetchone()
+        if row is not None:
+            mismatched = [
+                column
+                for column, expected in (
+                    ('capture_series_id', bundle.capture_series_id),
+                    ('parent_revision_id', bundle.parent_revision_id),
+                    ('bundle_digest', bundle.bundle_digest),
+                    ('capture_schema', bundle.capture_schema),
+                    (
+                        'capture_schema_version',
+                        bundle.capture_schema_version,
+                    ),
+                )
+                if row[column] != expected
+            ]
+            if mismatched:
+                raise CaptureRevisionConflictError(
+                    f'capture_revision_id {revision_id} was previously '
+                    f'registered with different immutable fields: '
+                    f'{mismatched}'
+                )
+            return
+
+        if bundle.parent_revision_id is None:
+            topology = 'root'
+        else:
+            parent = connection.execute(
+                '''
+                SELECT capture_series_id FROM capture_revisions
+                WHERE capture_revision_id=?
+                ''',
+                (bundle.parent_revision_id,),
+            ).fetchone()
+            if parent is None:
+                topology = 'pending_parent'
+            elif (
+                parent['capture_series_id'] != bundle.capture_series_id
+            ):
+                raise CaptureRevisionConflictError(
+                    f'capture_revision_id {revision_id} names parent '
+                    f'{bundle.parent_revision_id} from a different '
+                    'capture series'
+                )
+            else:
+                topology = 'linked'
+
+        # Cycle prevention: a chain from the declared parent that reaches
+        # this revision means registering it would close a loop.
+        ancestor = bundle.parent_revision_id
+        seen: set[str] = set()
+        while ancestor is not None:
+            if ancestor == revision_id:
+                raise CaptureRevisionConflictError(
+                    'capture revision topology cycle through '
+                    f'{revision_id}'
+                )
+            if ancestor in seen:
+                break
+            seen.add(ancestor)
+            ancestor_row = connection.execute(
+                '''
+                SELECT parent_revision_id FROM capture_revisions
+                WHERE capture_revision_id=?
+                ''',
+                (ancestor,),
+            ).fetchone()
+            ancestor = (
+                ancestor_row['parent_revision_id']
+                if ancestor_row is not None
+                else None
+            )
+
+        connection.execute(
+            '''
+            INSERT INTO capture_revisions(
+                capture_revision_id, capture_series_id,
+                parent_revision_id, bundle_digest,
+                capture_schema, capture_schema_version,
+                topology_state, first_lineage_digest, registered_at_utc
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                revision_id,
+                bundle.capture_series_id,
+                bundle.parent_revision_id,
+                bundle.bundle_digest,
+                bundle.capture_schema,
+                bundle.capture_schema_version,
+                topology,
+                typed.lineage_digest,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+        # Reconcile children that arrived before their parent: any
+        # pending_parent child of this revision now links — a child whose
+        # series disagrees is surfaced as a recorded conflict rather than
+        # silently accepted.
+        pending_children = connection.execute(
+            '''
+            SELECT capture_revision_id, capture_series_id
+            FROM capture_revisions
+            WHERE parent_revision_id=? AND topology_state='pending_parent'
+            ''',
+            (revision_id,),
+        ).fetchall()
+        for child in pending_children:
+            if child['capture_series_id'] == bundle.capture_series_id:
+                connection.execute(
+                    '''
+                    UPDATE capture_revisions SET topology_state='linked'
+                    WHERE capture_revision_id=?
+                    ''',
+                    (child['capture_revision_id'],),
+                )
+            else:
+                connection.execute(
+                    '''
+                    UPDATE capture_revisions
+                    SET topology_state='conflict'
+                    WHERE capture_revision_id=?
+                    ''',
+                    (child['capture_revision_id'],),
+                )
+                self._record_revision_conflict(
+                    connection,
+                    child['capture_revision_id'],
+                    'parent revision belongs to a different capture series',
+                )
+
+    @staticmethod
+    def _record_revision_conflict(
+        connection: sqlite3.Connection,
+        revision_id: str,
+        detail: str,
+    ) -> None:
+        connection.execute(
+            '''
+            INSERT OR IGNORE INTO capture_revision_conflicts(
+                capture_revision_id, detail, recorded_at_utc
+            ) VALUES (?, ?, ?)
+            ''',
+            (
+                revision_id,
+                detail,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+    def _migrate_revision_registry(
+        self, connection: sqlite3.Connection
+    ) -> None:
+        """Backfill the revision registry from pre-existing runs.
+
+        Existing consistent ingestion records migrate without identity
+        loss; a pre-existing conflict is recorded in
+        capture_revision_conflicts rather than guessed at.
+        """
+        runs = connection.execute(
+            '''
+            SELECT lineage_digest, plan_json, recorded_at_utc
+            FROM capture_ingestion_runs
+            ORDER BY recorded_at_utc
+            '''
+        ).fetchall()
+        for run in runs:
+            try:
+                plan = CaptureIngestionPlan.model_validate_json(
+                    run['plan_json']
+                )
+            except ValueError:
+                self._record_revision_conflict(
+                    connection,
+                    'unknown',
+                    'persisted ingestion plan is unreadable during '
+                    'revision-registry migration',
+                )
+                continue
+            existing = connection.execute(
+                '''
+                SELECT capture_revision_id FROM capture_revisions
+                WHERE capture_revision_id=?
+                ''',
+                (plan.bundle.capture_revision_id,),
+            ).fetchone()
+            if existing is not None:
+                stored = connection.execute(
+                    '''
+                    SELECT * FROM capture_revisions
+                    WHERE capture_revision_id=?
+                    ''',
+                    (plan.bundle.capture_revision_id,),
+                ).fetchone()
+                mismatched = [
+                    column
+                    for column, expected in (
+                        ('capture_series_id', plan.bundle.capture_series_id),
+                        (
+                            'parent_revision_id',
+                            plan.bundle.parent_revision_id,
+                        ),
+                        ('bundle_digest', plan.bundle.bundle_digest),
+                        ('capture_schema', plan.bundle.capture_schema),
+                        (
+                            'capture_schema_version',
+                            plan.bundle.capture_schema_version,
+                        ),
+                    )
+                    if stored[column] != expected
+                ]
+                if mismatched:
+                    self._record_revision_conflict(
+                        connection,
+                        plan.bundle.capture_revision_id,
+                        'pre-existing ingestion runs disagree on '
+                        f'immutable revision fields: {mismatched}',
+                    )
+                continue
+            try:
+                self._register_capture_revision(connection, plan)
+            except CaptureRevisionConflictError as exc:
+                self._record_revision_conflict(
+                    connection,
+                    plan.bundle.capture_revision_id,
+                    str(exc),
+                )
+
+    # ------------------------------------------------------------------
+    # Persisted quality-gate state (#337)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _ensure_run_quality_columns(
+        connection: sqlite3.Connection
+    ) -> None:
+        columns = {
+            row['name']
+            for row in connection.execute(
+                'PRAGMA table_info(capture_ingestion_runs)'
+            )
+        }
+        for column, ddl in (
+            ('quality_state', "TEXT NOT NULL DEFAULT 'unresolved'"),
+            ('quality_payload_sha256', 'TEXT'),
+            ('quality_ruleset_version', 'TEXT'),
+        ):
+            if column not in columns:
+                connection.execute(
+                    f'ALTER TABLE capture_ingestion_runs '
+                    f'ADD COLUMN {column} {ddl}'
+                )
+
+    def _resolve_persisted_quality(
+        self,
+        connection: sqlite3.Connection,
+        plan: CaptureIngestionPlan,
+    ) -> CaptureQualityState:
+        """Establish the persisted quality state for one run.
+
+        Rows written before the gate carry NULL/'unresolved' quality
+        columns: the persisted quality payload is re-read from retained
+        exact evidence and revalidated — a pass backfills the columns,
+        while missing or failing evidence leaves the run unresolved
+        rather than guessing.
+        """
+        row = connection.execute(
+            '''
+            SELECT quality_state, quality_payload_sha256,
+                   quality_ruleset_version
+            FROM capture_ingestion_runs WHERE lineage_digest=?
+            ''',
+            (plan.lineage_digest,),
+        ).fetchone()
+        if row is None:
+            raise PersistedIngestionIntegrityError(
+                'ingestion run is not persisted: ' + plan.lineage_digest
+            )
+        if row['quality_state'] == 'validated':
+            return CaptureQualityState(
+                'validated',
+                row['quality_payload_sha256'],
+                row['quality_ruleset_version'],
+            )
+
+        quality_record = next(
+            (
+                item
+                for item in plan.source_evidence
+                if item.path == 'quality/capture-quality.json'
+            ),
+            None,
+        )
+        state = CaptureQualityState('unresolved', None, None)
+        if quality_record is not None:
+            evidence_row = connection.execute(
+                '''
+                SELECT * FROM capture_source_evidence
+                WHERE source_evidence_id=?
+                ''',
+                (quality_record.source_evidence_id,),
+            ).fetchone()
+            if evidence_row is not None:
+                try:
+                    payload = self._evidence_payload(
+                        connection, evidence_row
+                    )
+                    document = _parse_bundle_json(payload)
+                    capture_reference._validate_quality_document(
+                        document, 'quality/capture-quality.json'
+                    )
+                    if (
+                        document['ready_for_htdt_ingestion'] is True
+                        and document['integrity_status'] == 'pass'
+                        and document['ruleset_version']
+                        in capture_reference.SUPPORTED_QUALITY_RULESETS
+                        and not any(
+                            d['severity'] == 'error'
+                            for d in document['diagnostics']
+                        )
+                        and not any(
+                            e['severity'] == 'error'
+                            for e in document['resource_events']
+                        )
+                    ):
+                        state = CaptureQualityState(
+                            'validated',
+                            quality_record.payload_sha256,
+                            document['ruleset_version'],
+                        )
+                except (
+                    ValueError,
+                    CaptureBundleError,
+                    capture_reference.CaptureIngestionContractError,
+                ):
+                    state = CaptureQualityState('unresolved', None, None)
+        connection.execute(
+            '''
+            UPDATE capture_ingestion_runs
+            SET quality_state=?,
+                quality_payload_sha256=?,
+                quality_ruleset_version=?
+            WHERE lineage_digest=?
+            ''',
+            (
+                state.state,
+                state.payload_sha256,
+                state.ruleset_version,
+                plan.lineage_digest,
+            ),
+        )
+        return state
+
+    def get_capture_quality_state(
+        self, lineage_digest: str
+    ) -> CaptureQualityState | None:
+        """Queryable persisted quality state for one ingestion run."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT quality_state, quality_payload_sha256,
+                       quality_ruleset_version
+                FROM capture_ingestion_runs WHERE lineage_digest=?
+                ''',
+                (lineage_digest,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CaptureQualityState(
+            row['quality_state'],
+            row['quality_payload_sha256'],
+            row['quality_ruleset_version'],
+        )
+
+    def require_quality_state(
+        self, lineage_digest: str
+    ) -> CaptureQualityState:
+        """Fail closed unless the run's quality gate was validated."""
+        state = self.get_capture_quality_state(lineage_digest)
+        if state is None:
+            raise CaptureQualityGateError(
+                'ingestion run is not persisted: ' + lineage_digest
+            )
+        if state.state != 'validated':
+            raise CaptureQualityGateError(
+                'ingestion run has no validated quality authority under '
+                'the supported ruleset: ' + lineage_digest
+            )
+        return state
+
+    # ------------------------------------------------------------------
+    # Revision/bundle accessors
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _revision_record(row: sqlite3.Row) -> CaptureRevisionRecord:
+        return CaptureRevisionRecord(
+            capture_revision_id=row['capture_revision_id'],
+            capture_series_id=row['capture_series_id'],
+            parent_revision_id=row['parent_revision_id'],
+            bundle_digest=row['bundle_digest'],
+            capture_schema=row['capture_schema'],
+            capture_schema_version=row['capture_schema_version'],
+            topology_state=row['topology_state'],
+            first_lineage_digest=row['first_lineage_digest'],
+            registered_at_utc=row['registered_at_utc'],
+        )
+
+    def get_registered_revision(
+        self, capture_revision_id: str
+    ) -> CaptureRevisionRecord | None:
+        """The immutable registry row for one capture revision, or None."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT * FROM capture_revisions WHERE capture_revision_id=?
+                ''',
+                (capture_revision_id,),
+            ).fetchone()
+        return self._revision_record(row) if row is not None else None
+
+    def list_registered_revisions(
+        self,
+    ) -> tuple[CaptureRevisionRecord, ...]:
+        """Every revision the registry holds — including ones whose
+        declared parent is not persisted yet (``pending_parent``)."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                '''
+                SELECT * FROM capture_revisions
+                ORDER BY capture_series_id, registered_at_utc
+                '''
+            ).fetchall()
+        return tuple(self._revision_record(row) for row in rows)
+
+    def list_revision_conflicts(self) -> tuple[CaptureRevisionConflict, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                '''
+                SELECT capture_revision_id, detail
+                FROM capture_revision_conflicts
+                ORDER BY recorded_at_utc
+                '''
+            ).fetchall()
+        return tuple(
+            CaptureRevisionConflict(
+                capture_revision_id=row['capture_revision_id'],
+                detail=row['detail'],
+            )
+            for row in rows
+        )
+
+    def get_capture_bundle(
+        self, bundle_digest: str
+    ) -> CaptureBundleRecord | None:
+        """Reopen the exact canonical manifest retained for a bundle."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT * FROM capture_bundles WHERE bundle_digest=?
+                ''',
+                (bundle_digest,),
+            ).fetchone()
+            if row is None:
+                return None
+            payload = read_content_blob(
+                connection, row['manifest_sha256']
+            )
+            if payload is None:
+                inline = (
+                    bytes(row['manifest_blob']) if row['manifest_blob']
+                    else b''
+                )
+                payload = inline
+        if not payload:
+            raise PersistedIngestionIntegrityError(
+                'persisted capture bundle manifest bytes are missing: '
+                f'{bundle_digest}'
+            )
+        if sha256(payload).hexdigest() != row['manifest_sha256']:
+            raise PersistedIngestionIntegrityError(
+                'persisted capture bundle manifest fails its SHA-256: '
+                f'{bundle_digest}'
+            )
+        return CaptureBundleRecord(
+            bundle_digest=row['bundle_digest'],
+            capture_revision_id=row['capture_revision_id'],
+            app_name=row['app_name'],
+            app_version=row['app_version'],
+            app_build=row['app_build'],
+            created_at=row['created_at'],
+            finalized_at=row['finalized_at'],
+            manifest_bytes=payload,
+        )
+
+    def list_capture_bundles(self) -> tuple[CaptureBundleRecord, ...]:
+        with closing(self._connect()) as connection:
+            digests = [
+                row['bundle_digest']
+                for row in connection.execute(
+                    'SELECT bundle_digest FROM capture_bundles '
+                    'ORDER BY created_at'
+                ).fetchall()
+            ]
+        return tuple(
+            record
+            for digest in digests
+            if (record := self.get_capture_bundle(digest)) is not None
+        )
+
 
     @staticmethod
     def _result(
@@ -3111,7 +4323,11 @@ class CaptureIngestionRepository:
         ingestion_run_id: str,
         *,
         created: bool,
+        quality_state: CaptureQualityState | None = None,
     ) -> CaptureIngestionCommitResult:
+        state = quality_state or CaptureQualityState(
+            'unresolved', None, None
+        )
         return CaptureIngestionCommitResult(
             ingestion_run_id=ingestion_run_id,
             lineage_digest=plan.lineage_digest,
@@ -3121,4 +4337,9 @@ class CaptureIngestionRepository:
             raw_mesh_binding_count=len(plan.raw_visual_mesh_handoffs),
             authority_record_count=len(plan.authority_records),
             created=created,
+            capture_revision_id=plan.bundle.capture_revision_id,
+            capture_series_id=plan.bundle.capture_series_id,
+            quality_state=state.state,
+            quality_ruleset_version=state.ruleset_version,
+            quality_payload_sha256=state.payload_sha256,
         )

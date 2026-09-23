@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/opening-review.schema.json",
+  "title": "HTDT Capture Opening Review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "coordinate_space_id",
+    "openings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.opening-review"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "capture_session_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "coordinate_space_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "openings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/opening"
+      }
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "point3d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      }
+    },
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opening_id",
+        "kind",
+        "source",
+        "source_ref",
+        "disposition",
+        "evidence_refs"
+      ],
+      "properties": {
+        "opening_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "kind": {
+          "enum": [
+            "door",
+            "window",
+            "opening",
+            "hvac_grille",
+            "transfer_grille",
+            "door_undercut",
+            "service_penetration",
+            "other"
+          ]
+        },
+        "source": {
+          "enum": [
+            "roomplan_inference",
+            "user_declared"
+          ]
+        },
+        "source_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "center_m": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/point3d"
+            }
+          ]
+        },
+        "width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "disposition": {
+          "enum": [
+            "unreviewed",
+            "confirmed",
+            "needs_more_scanning",
+            "intentionally_ignored"
+          ]
+        },
+        "open_state": {
+          "enum": [
+            "open",
+            "closed",
+            "unknown"
+          ]
+        },
+        "reviewed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

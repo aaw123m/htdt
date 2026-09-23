@@ -10,8 +10,13 @@ import json
 from pathlib import Path
 import sqlite3
 import struct
+import sys
+import tempfile
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capture_fixture_support as support  # noqa: E402
 
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import SceneDocument
@@ -34,8 +39,6 @@ from htdt.capture_semantic_promotion import (
 from htdt.semantic_geometry import SemanticCoordinateTransform
 
 
-BUNDLE_DIGEST = 'a' * 64
-OTHER_BUNDLE_DIGEST = 'b' * 64
 SERIES_ID = '30000000-0000-4000-8000-000000000001'
 REVISION_ID = '30000000-0000-4000-8000-000000000002'
 SESSION_ID = '30000000-0000-4000-8000-000000000003'
@@ -79,145 +82,76 @@ def _meshbin(x_offset: float = 0.0) -> bytes:
 
 
 def _ingestion_fixture(
-    bundle_digest: str = BUNDLE_DIGEST,
+    *,
     space_id: str = SPACE_ID,
+    space_ids: tuple[str, ...] | None = None,
     anchors: tuple[tuple[str, float], ...] = ((ANCHOR_A, 0.0),),
+    anchor_space_map: dict[str, str] | None = None,
     ingestor_name: str = 'htdt-capture-reference-ingestor',
     ingestor_version: str = '1.0.0',
     revision_id: str = REVISION_ID,
     series_id: str = SERIES_ID,
     parent_revision_id: str | None = None,
+    created_at: str = '2026-09-20T00:00:00Z',
     extra_source: dict | None = None,
 ) -> tuple[dict, dict[str, bytes]]:
-    payloads: dict[str, bytes] = {'mesh/anchors.json': b'{"fixture":"anchors"}'}
-    for anchor_id, offset in anchors:
-        payloads[f'mesh/geometry/{anchor_id}.meshbin'] = _meshbin(offset)
+    """A contract-valid minimal bundle built through the shared fixture
+    builder: foundation payloads plus one mesh anchor per spec."""
+    specs = tuple(
+        (anchor_id, f'mesh/geometry/{anchor_id}.meshbin', 3, 1)
+        for anchor_id, _offset in anchors
+    )
+    files = support.mesh_specs_files(
+        specs,
+        mesh_payloads={
+            f'mesh/geometry/{anchor_id}.meshbin': _meshbin(offset)
+            for anchor_id, offset in anchors
+        },
+        session_id=SESSION_ID,
+        space_id=space_id,
+    )
+    json_overrides = None
+    if anchor_space_map:
+        anchors_doc = json.loads(files['mesh/anchors.json']['bytes'])
+        for anchor in anchors_doc['anchors']:
+            mapped = anchor_space_map.get(anchor['anchor_id'])
+            if mapped is not None:
+                anchor['coordinate_space_id'] = mapped
+        json_overrides = {'mesh/anchors.json': anchors_doc}
     if extra_source is not None:
-        payloads[extra_source['path']] = extra_source['payload']
-
-    source = []
-    by_path = {}
-    for path in sorted(payloads):
-        payload = payloads[path]
-        digest = sha256(payload).hexdigest()
-        record = {
-            'source_evidence_id': _hash_parts(
-                'htdt.capture.source-evidence.v1',
-                bundle_digest,
-                path,
-                digest,
-            ),
-            'bundle_digest': bundle_digest,
-            'capture_revision_id': revision_id,
-            'path': path,
-            'payload_sha256': digest,
-            'bytes': len(payload),
-            'media_type': (
-                'application/vnd.htdt.meshbin'
-                if path.endswith('.meshbin')
-                else 'application/json'
+        files[extra_source['path']] = {
+            'bytes': extra_source['payload'],
+            'media_type': extra_source.get(
+                'media_type',
+                'application/json'
+                if extra_source['path'].endswith('.json')
+                else 'application/octet-stream',
             ),
             'producer': 'mesh_capture',
-            'provenance_class': (
-                extra_source['provenance_class']
-                if extra_source is not None and path == extra_source['path']
-                else 'arkit_mesh_reconstruction'
-            ),
-            'role': (
-                extra_source['role']
-                if extra_source is not None and path == extra_source['path']
-                else 'canonical'
-            ),
-            'source_refs': [],
+            'provenance_class': extra_source['provenance_class'],
+            'role': extra_source['role'],
         }
-        source.append(record)
-        by_path[path] = record
-
-    handoffs = []
-    for index, (anchor_id, _offset) in enumerate(anchors):
-        geometry_path = f'mesh/geometry/{anchor_id}.meshbin'
-        geometry = by_path[geometry_path]
-        handoffs.append(
-            {
-                'raw_visual_mesh_handoff_id': _hash_parts(
-                    'htdt.capture.raw-visual-mesh-handoff.v1',
-                    bundle_digest,
-                    anchor_id,
-                    geometry['payload_sha256'],
-                ),
-                'bundle_digest': bundle_digest,
-                'anchor_id': anchor_id,
-                'anchor_record_locator': (
-                    f'mesh/anchors.json#anchor:{anchor_id}'
-                ),
-                'anchor_index_source_evidence_id':
-                    by_path['mesh/anchors.json']['source_evidence_id'],
-                'geometry_source_evidence_id':
-                    geometry['source_evidence_id'],
-                'geometry_path': geometry_path,
-                'geometry_sha256': geometry['payload_sha256'],
-                'capture_session_id': SESSION_ID,
-                'coordinate_space_id': space_id,
-                'T_world_from_mesh_anchor': {
-                    'representation': 'column_major_4x4_f32',
-                    'values': [
-                        1, 0, 0, 0,
-                        0, 1, 0, 0,
-                        0, 0, 1, 0,
-                        float(index), 2.0, 3.0, 1.0,
-                    ],
-                },
-                'session_timestamp_s': 1.0,
-                'vertex_count': 3,
-                'face_count': 1,
-            }
-        )
-
-    lineage_projection = {
-        'bundle_digest': bundle_digest,
-        'source_evidence_ids': sorted(
-            item['source_evidence_id'] for item in source
-        ),
-        'raw_visual_mesh_ids': sorted(
-            item['raw_visual_mesh_handoff_id'] for item in handoffs
-        ),
-        'authority_record_ids': [],
-    }
-    lineage_digest = sha256(
-        json.dumps(
-            lineage_projection,
-            sort_keys=True,
-            separators=(',', ':'),
-        ).encode('utf-8')
-    ).hexdigest()
-
-    return (
-        {
-            'schema': 'htdt.capture.ingestion-plan',
-            'schema_version': '1.0.0',
-            'ingestor': {
-                'name': ingestor_name,
-                'version': ingestor_version,
-                'configuration_digest': INGESTOR_CONFIG,
-            },
-            'bundle': {
-                'bundle_digest': bundle_digest,
-                'capture_schema': 'htdt.capture.bundle',
-                'capture_schema_version': '1.0.0',
-                'capture_series_id': series_id,
-                'capture_revision_id': revision_id,
-                'parent_revision_id': parent_revision_id,
-                'capture_session_ids': [SESSION_ID],
-                'coordinate_space_ids': [space_id],
-            },
-            'source_evidence': source,
-            'roomplan_records': [],
-            'raw_visual_mesh_handoffs': handoffs,
-            'authority_records': [],
-            'lineage_digest': lineage_digest,
+    plan, payloads, _manifest = support.plan_and_payloads(
+        Path(tempfile.mkdtemp()),
+        files=files,
+        manifest_overrides={
+            'capture_series_id': series_id,
+            'capture_revision_id': revision_id,
+            'parent_revision_id': parent_revision_id,
+            'capture_session_ids': [SESSION_ID],
+            'coordinate_space_ids': list(space_ids or (space_id,)),
+            'created_at': created_at,
+            'finalized_at': created_at,
         },
-        payloads,
+        json_overrides=json_overrides,
+        id_map={
+            support.SESSION_ID: SESSION_ID,
+            support.SPACE_ID: space_id,
+        },
     )
+    plan['ingestor']['name'] = ingestor_name
+    plan['ingestor']['version'] = ingestor_version
+    return plan, payloads
 
 
 def _repositories(tmp_path: Path):
@@ -251,7 +185,11 @@ def _repositories(tmp_path: Path):
 
 
 def _identity_alignment(capture: CaptureIngestionRepository, space_id: str):
-    authority = capture.coordinate_authority_for(BUNDLE_DIGEST, space_id)
+    (authority,) = tuple(
+        item
+        for item in capture.list_coordinate_authorities()
+        if item.coordinate_space_id == space_id
+    )
     assert authority is not None
     transform = SemanticCoordinateTransform(
         matrix_source_to_scene_m=(
@@ -349,17 +287,21 @@ def test_coordinate_authority_scopes_space_uuid_to_immutable_bundle(
     distinct authorities keyed by (bundle_digest, coordinate_space_id)."""
     scene = SceneRepository(tmp_path / 'cad.sqlite3')
     capture = CaptureIngestionRepository(scene)
-    capture.ingest(*_ingestion_fixture())
-    capture.ingest(
-        *_ingestion_fixture(bundle_digest=OTHER_BUNDLE_DIGEST)
+    plan, payloads = _ingestion_fixture()
+    capture.ingest(plan, payloads)
+    plan2, payloads2 = _ingestion_fixture(
+        revision_id='30000000-0000-4000-8000-000000000013'
     )
+    capture.ingest(plan2, payloads2)
 
-    first = capture.coordinate_authority_for(BUNDLE_DIGEST, SPACE_ID)
-    second = capture.coordinate_authority_for(OTHER_BUNDLE_DIGEST, SPACE_ID)
+    digest = plan['bundle']['bundle_digest']
+    other_digest = plan2['bundle']['bundle_digest']
+    first = capture.coordinate_authority_for(digest, SPACE_ID)
+    second = capture.coordinate_authority_for(other_digest, SPACE_ID)
     assert first is not None and second is not None
     assert first.coordinate_authority_id != second.coordinate_authority_id
-    assert first.bundle_digest == BUNDLE_DIGEST
-    assert second.bundle_digest == OTHER_BUNDLE_DIGEST
+    assert first.bundle_digest == digest
+    assert second.bundle_digest == other_digest
     assert first.coordinate_space_id == second.coordinate_space_id == SPACE_ID
 
     assert capture.get_coordinate_authority(
@@ -383,11 +325,11 @@ def test_capture_library_discovers_revisions_after_restart(
     parent_id = '30000000-0000-4000-8000-000000000010'
     SceneRepository(path)
     capture = CaptureIngestionRepository(SceneRepository(path))
-    capture.ingest(*_ingestion_fixture())
+    plan, payloads = _ingestion_fixture()
+    capture.ingest(plan, payloads)
     plan2, payloads2 = _ingestion_fixture(
         revision_id='30000000-0000-4000-8000-000000000011',
         parent_revision_id=parent_id,
-        bundle_digest='d' * 64,
     )
     capture.ingest(plan2, payloads2)
 
@@ -405,7 +347,7 @@ def test_capture_library_discovers_revisions_after_restart(
     first = reopened.get_capture_revision(REVISION_ID)
     assert first is not None
     assert first.capture_series_id == SERIES_ID
-    assert first.bundle_digest == BUNDLE_DIGEST
+    assert first.bundle_digest == plan['bundle']['bundle_digest']
     assert first.parent_revision_id is None
     # A root revision has no unresolved parent.
     assert first.parent_known
@@ -413,7 +355,7 @@ def test_capture_library_discovers_revisions_after_restart(
     assert first.coordinate_space_ids == (SPACE_ID,)
     assert len(first.ingestion_run_ids) == 1
     assert first.lineage_digests
-    assert first.source_evidence_count == 2
+    assert first.source_evidence_count == 6
     assert len(first.raw_mesh_binding_ids) == 1
     assert first.authority_record_count == 0
     assert first.promotion_ids == ()
@@ -457,7 +399,10 @@ def test_multi_anchor_composition_then_room_level_promotion(
     )
     assert len(binding_ids) == 2
 
-    authority = capture.coordinate_authority_for(BUNDLE_DIGEST, SPACE_ID)
+    run = capture.get_ingestion_run(run_id)
+    authority = capture.coordinate_authority_for(
+        run.bundle_digest, SPACE_ID
+    )
     request = make_capture_mesh_composition_request(
         ingestion_run_id=run_id,
         coordinate_authority_id=authority.coordinate_authority_id,
@@ -532,41 +477,20 @@ def test_composition_rejects_incompatible_coordinate_spaces(
     """#351: bindings from different coordinate spaces fail closed."""
     scene = SceneRepository(tmp_path / 'cad.sqlite3')
     capture = CaptureIngestionRepository(scene)
-    plan, payloads = _ingestion_fixture(
-        anchors=((ANCHOR_A, 0.0), (ANCHOR_B, 1.0))
-    )
     # Two anchors living in incompatible spaces cannot compose verbatim.
-    plan['raw_visual_mesh_handoffs'][1]['coordinate_space_id'] = (
-        '30000000-0000-4000-8000-000000000099'
+    other_space = '30000000-0000-4000-8000-000000000099'
+    plan, payloads = _ingestion_fixture(
+        anchors=((ANCHOR_A, 0.0), (ANCHOR_B, 1.0)),
+        space_ids=(SPACE_ID, other_space),
+        anchor_space_map={ANCHOR_B: other_space},
     )
-    plan['bundle']['coordinate_space_ids'] = [
-        SPACE_ID,
-        '30000000-0000-4000-8000-000000000099',
-    ]
-    # The handoff identity is bound to the payload, not the space, so the
-    # plan's lineage digest is unchanged by this fixture edit only if the
-    # digest excludes space — recompute to stay honest.
-    lineage_projection = {
-        'bundle_digest': BUNDLE_DIGEST,
-        'source_evidence_ids': sorted(
-            item['source_evidence_id'] for item in plan['source_evidence']
-        ),
-        'raw_visual_mesh_ids': sorted(
-            item['raw_visual_mesh_handoff_id']
-            for item in plan['raw_visual_mesh_handoffs']
-        ),
-        'authority_record_ids': [],
-    }
-    plan['lineage_digest'] = sha256(
-        json.dumps(
-            lineage_projection, sort_keys=True, separators=(',', ':')
-        ).encode('utf-8')
-    ).hexdigest()
     ingestion = capture.ingest(plan, payloads)
     binding_ids = sorted(
         capture.mesh_binding_ids_for_run(ingestion.ingestion_run_id)
     )
-    authority = capture.coordinate_authority_for(BUNDLE_DIGEST, SPACE_ID)
+    authority = capture.coordinate_authority_for(
+        plan['bundle']['bundle_digest'], SPACE_ID
+    )
     promotion = CaptureSemanticPromotionRepository(scene, capture)
     request = make_capture_mesh_composition_request(
         ingestion_run_id=ingestion.ingestion_run_id,
@@ -740,10 +664,10 @@ def test_retention_inventory_plan_and_reference_safe_purge(
     inventory = retention.inventory()
     assert inventory.ingestion_run_count == 1
     assert inventory.capture_revision_count == 1
-    assert inventory.source_evidence_count == 3
+    assert inventory.source_evidence_count == 7
     assert inventory.mesh_binding_count == 2
     assert inventory.coordinate_authority_count == 1
-    assert inventory.content_blob_count == 3
+    assert inventory.content_blob_count == 7
     assert inventory.content_blob_bytes > 0
 
     # Nothing references the revision: the plan is ready, names the
@@ -751,12 +675,12 @@ def test_retention_inventory_plan_and_reference_safe_purge(
     plan = retention.plan_capture_revision_purge(REVISION_ID)
     assert plan.status == 'ready'
     assert plan.ingestion_run_ids == (run_id,)
-    assert len(plan.deletable_source_evidence_ids) == 3
+    assert len(plan.deletable_source_evidence_ids) == 7
     assert len(plan.deletable_mesh_binding_ids) == 2
     assert len(plan.deletable_coordinate_authority_ids) == 1
     assert plan.blocking_dependents == ()
     assert plan.reclaimable_bytes > 0
-    assert len(plan.reclaimed_blob_sha256) == 3
+    assert len(plan.reclaimed_blob_sha256) == 7
 
     # A promotion on one of the run's bindings blocks the purge with the
     # exact dependent named.
@@ -784,11 +708,10 @@ def test_retention_inventory_plan_and_reference_safe_purge(
     # Purge a second, unrelated revision while the first is still
     # referenced — cross-revision sharing keeps shared blobs alive.
     plan2, payloads2 = _ingestion_fixture(
-        bundle_digest='e' * 64,
         revision_id='30000000-0000-4000-8000-000000000012',
     )
     other = capture.ingest(plan2, payloads2)
-    shared_sha = sha256(payloads2['mesh/anchors.json']).hexdigest()
+    shared_sha = sha256(payloads2['session/timing.json']).hexdigest()
     done = retention.purge_capture_revision(
         '30000000-0000-4000-8000-000000000012'
     )
@@ -822,7 +745,10 @@ def test_provenance_trust_separates_asserted_labels_from_verified_origin(
     scene = SceneRepository(tmp_path / 'cad.sqlite3')
     capture = CaptureIngestionRepository(scene)
     forged = {
-        'path': 'derived/backend.json',
+        # Non-.json path: an unowned JSON payload would be rejected at
+        # bundle validation; a binary supplemental file can carry any
+        # asserted provenance_class while staying unverifiable.
+        'path': 'derived/backend.bin',
         'payload': b'{"claimed":"backend-derived"}',
         'provenance_class': 'backend_derived',
         'role': 'derived',
@@ -833,7 +759,7 @@ def test_provenance_trust_separates_asserted_labels_from_verified_origin(
     forged_id = next(
         record['source_evidence_id']
         for record in plan['source_evidence']
-        if record['path'] == 'derived/backend.json'
+        if record['path'] == 'derived/backend.bin'
     )
     trust = capture.provenance_trust(forged_id)
     assert trust is not None

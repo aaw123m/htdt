@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/field-evidence.schema.json",
+  "title": "HTDT Capture Field Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "recorded_at_utc",
+    "records"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.field-evidence"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "recorded_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    }
+  },
+  "$defs": {
+    "uuidV4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "bindingRef": {
+      "type": "string",
+      "pattern": "^(?:(entity|measurement|capture_revision|capture_session|inventory_item|wiring_route|settings_observation|instrument|operator|field_evidence):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|(task_item|commissioning_check|equipment|calibration_plan_item|surface|mesh_anchor|path):[!-~]+)$"
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "canonical_frame",
+            "captured_photo",
+            "imported_file"
+          ]
+        },
+        "frame_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(frame:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|path:evidence/frames/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json)$"
+        },
+        "asset_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^evidence/field/(captured|imported)/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.(heic|jpg|png|pdf|bin)$"
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "media_type": {
+          "enum": [
+            "image/heic",
+            "image/jpeg",
+            "image/png",
+            "application/pdf",
+            "application/octet-stream",
+            null
+          ]
+        },
+        "original_filename": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "pixel_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "pixel_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "canonical_frame"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "frame_ref"
+            ]
+          },
+          "else": {
+            "required": [
+              "asset_path",
+              "sha256",
+              "media_type"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "imported_file"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "original_filename"
+            ]
+          }
+        }
+      ]
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "kind",
+        "title",
+        "target_refs",
+        "acquisition",
+        "capture_revision_id",
+        "recorded_at_utc"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "kind": {
+          "enum": [
+            "installation_photo",
+            "dimension_verification",
+            "equipment_identity",
+            "routing_verification",
+            "microphone_setup",
+            "treatment_installation",
+            "general_note",
+            "external_document"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/bindingRef"
+          }
+        },
+        "asset": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/asset"
+            }
+          ]
+        },
+        "acquisition": {
+          "enum": [
+            "linked_frame",
+            "captured_in_app",
+            "imported_file",
+            "authored_note"
+          ]
+        },
+        "capture_revision_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "recorded_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "operator_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "observed_value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "observed_unit": {
+          "enum": [
+            "m",
+            "rad",
+            "1",
+            "s",
+            "degC",
+            "%",
+            null
+          ]
+        },
+        "observed_value_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

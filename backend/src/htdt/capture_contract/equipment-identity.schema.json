@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/equipment-identity.schema.json",
+  "title": "HTDT Equipment Identity Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "coordinate_space_id",
+    "recorded_at_utc",
+    "records"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.equipment-identity"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "coordinate_space_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "recorded_at_utc": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entity_id",
+          "equipment",
+          "identity_evidence_refs",
+          "attested_physical_match",
+          "recorded_at_utc"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "equipment": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "equipment_id",
+              "equipment_version",
+              "equipment_hash"
+            ],
+            "properties": {
+              "equipment_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "equipment_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "equipment_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "authority_version": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              }
+            }
+          },
+          "identity_evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "serial_or_asset_tag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "attested_physical_match": {
+            "const": true
+          },
+          "recorded_at_utc": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+          }
+        }
+      }
+    }
+  }
+}

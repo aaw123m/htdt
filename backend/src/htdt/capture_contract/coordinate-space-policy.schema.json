@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/coordinate-space-policy.schema.json",
+  "title": "HTDT Capture Coordinate Space Policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "coordinate_space_id",
+    "policy",
+    "discontinuity_requirement",
+    "world_origin_continuity",
+    "coordinate_transitions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.coordinate-space-policy"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "coordinate_space_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "policy": {
+      "enum": [
+        "single_space_per_revision"
+      ]
+    },
+    "discontinuity_requirement": {
+      "enum": [
+        "new_revision_required"
+      ]
+    },
+    "world_origin_continuity": {
+      "enum": [
+        "preserved",
+        "broken"
+      ]
+    },
+    "coordinate_transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "previous_coordinate_space_id",
+          "next_coordinate_space_id",
+          "reason"
+        ],
+        "properties": {
+          "previous_coordinate_space_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "next_coordinate_space_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "reason": {
+            "enum": [
+              "ar_session_restart",
+              "world_origin_reset",
+              "relocalization_failure",
+              "incompatible_reconfiguration",
+              "explicit_new_session"
+            ]
+          },
+          "session_timestamp_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

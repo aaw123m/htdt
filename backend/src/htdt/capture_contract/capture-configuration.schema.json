@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/capture-configuration.schema.json",
+  "title": "HTDT Capture Configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_mode",
+    "world_alignment",
+    "plane_detection",
+    "scene_reconstruction",
+    "frame_semantics",
+    "roomplan"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.configuration"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_mode": {
+      "enum": [
+        "roomplan_mesh",
+        "evidence_depth",
+        "degraded_no_depth"
+      ]
+    },
+    "world_alignment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plane_detection": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "scene_reconstruction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "frame_semantics": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "video_format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "frames_per_second"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frames_per_second": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pixel_format": {
+          "type": "string"
+        }
+      }
+    },
+    "autofocus_enabled": {
+      "type": "boolean"
+    },
+    "roomplan": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

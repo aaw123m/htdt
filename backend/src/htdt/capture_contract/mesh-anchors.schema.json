@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/mesh-anchors.schema.json",
+  "title": "HTDT Capture Mesh Anchors v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "anchors"],
+  "properties": {
+    "schema": {"const": "htdt.capture.mesh-anchors"},
+    "schema_version": {"const": "1.0.0"},
+    "anchors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/anchor"}
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "matrix4f": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["representation", "values"],
+      "properties": {
+        "representation": {"const": "column_major_4x4_f32"},
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {"type": "number"}
+        }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anchor_id",
+        "capture_session_id",
+        "coordinate_space_id",
+        "T_world_from_mesh_anchor",
+        "session_timestamp_s",
+        "vertex_count",
+        "face_count",
+        "geometry_path",
+        "geometry_sha256"
+      ],
+      "properties": {
+        "anchor_id": {"$ref": "#/$defs/uuid4"},
+        "capture_session_id": {"$ref": "#/$defs/uuid4"},
+        "coordinate_space_id": {"$ref": "#/$defs/uuid4"},
+        "T_world_from_mesh_anchor": {"$ref": "#/$defs/matrix4f"},
+        "session_timestamp_s": {"type": "number", "minimum": 0},
+        "vertex_count": {"type": "integer", "minimum": 0},
+        "face_count": {"type": "integer", "minimum": 0},
+        "geometry_path": {"type": "string", "minLength": 1},
+        "geometry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

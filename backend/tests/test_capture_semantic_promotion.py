@@ -7,6 +7,11 @@ import struct
 
 import pytest
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capture_fixture_support as support  # noqa: E402
+
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import SceneDocument
 from htdt.capture_ingestion_transaction import CaptureIngestionRepository
@@ -39,150 +44,63 @@ def _hash_parts(prefix: str, *parts: str) -> str:
     return digest.hexdigest()
 
 
-def _meshbin() -> bytes:
-    vertices = struct.pack(
-        '<9f',
-        0.0, 0.0, 0.0,
-        1.0, 0.0, 0.0,
-        0.0, 1.0, 0.0,
-    )
-    normals = struct.pack(
-        '<9f',
-        0.0, 0.0, 1.0,
-        0.0, 0.0, 1.0,
-        0.0, 0.0, 1.0,
-    )
-    indices = struct.pack('<3I', 0, 1, 2)
-    classifications = bytes([1])
-    header = (
-        b'HTDTMSH1'
-        + struct.pack('<HH', 1, 0)
-        + struct.pack('<I', 32)
-        + struct.pack('<I', 3)
-        + struct.pack('<I', 1)
-        + bytes([4, 0x03])
-        + struct.pack('<H', 0)
-        + struct.pack('<I', 0)
-    )
-    return header + vertices + normals + indices + classifications
-
-
 def _ingestion_fixture(
     bundle_digest: str = BUNDLE_DIGEST,
     space_id: str = SPACE_ID,
+    tmp_path: Path | None = None,
 ) -> tuple[dict, dict[str, bytes]]:
-    geometry_path = f'mesh/geometry/{ANCHOR_ID}.meshbin'
-    payloads = {
-        'mesh/anchors.json': b'{"fixture":"anchors"}',
-        geometry_path: _meshbin(),
-    }
-    source = []
-    by_path = {}
-    for path in sorted(payloads):
-        payload = payloads[path]
-        digest = sha256(payload).hexdigest()
-        source_id = _hash_parts(
-            'htdt.capture.source-evidence.v1',
-            bundle_digest,
-            path,
-            digest,
-        )
-        record = {
-            'source_evidence_id': source_id,
-            'bundle_digest': bundle_digest,
-            'capture_revision_id': REVISION_ID,
-            'path': path,
-            'payload_sha256': digest,
-            'bytes': len(payload),
-            'media_type': (
-                'application/vnd.htdt.meshbin'
-                if path.endswith('.meshbin')
-                else 'application/json'
-            ),
-            'producer': 'mesh_capture',
-            'provenance_class': 'arkit_mesh_reconstruction',
-            'role': 'canonical',
-            'source_refs': [],
-        }
-        source.append(record)
-        by_path[path] = record
-
-    geometry = by_path[geometry_path]
-    handoff_id = _hash_parts(
-        'htdt.capture.raw-visual-mesh-handoff.v1',
-        bundle_digest,
-        ANCHOR_ID,
-        geometry['payload_sha256'],
+    import tempfile
+    workdir = (
+        tmp_path if tmp_path is not None else Path(tempfile.mkdtemp())
     )
-    handoff = {
-        'raw_visual_mesh_handoff_id': handoff_id,
-        'bundle_digest': bundle_digest,
-        'anchor_id': ANCHOR_ID,
-        'anchor_record_locator': f'mesh/anchors.json#anchor:{ANCHOR_ID}',
-        'anchor_index_source_evidence_id':
-            by_path['mesh/anchors.json']['source_evidence_id'],
-        'geometry_source_evidence_id': geometry['source_evidence_id'],
-        'geometry_path': geometry_path,
-        'geometry_sha256': geometry['payload_sha256'],
-        'capture_session_id': SESSION_ID,
-        'coordinate_space_id': space_id,
-        'T_world_from_mesh_anchor': {
-            'representation': 'column_major_4x4_f32',
-            'values': [
+    geometry_path = f'mesh/geometry/{ANCHOR_ID}.meshbin'
+    manifest_overrides = {
+        'capture_series_id': SERIES_ID,
+        'capture_revision_id': REVISION_ID,
+        'capture_session_ids': [SESSION_ID],
+        'coordinate_space_ids': [space_id],
+    }
+    if bundle_digest != BUNDLE_DIGEST:
+        # A corrected capture revision descends from the original;
+        # reusing the revision id under a new bundle digest would be an
+        # immutable-identity conflict instead of a second ingestion.
+        manifest_overrides.update({
+            'capture_revision_id': '20000000-0000-4000-8000-00000000000a',
+            'parent_revision_id': REVISION_ID,
+            'created_at': '2026-09-21T00:00:00Z',
+            'finalized_at': '2026-09-21T00:00:01Z',
+        })
+    else:
+        # identity manifest timestamp for the "default" fixture digest —
+        # keep a distinct digest from the vendored fixture since the
+        # identity set differs
+        manifest_overrides['created_at'] = '2026-09-20T00:00:00Z'
+        manifest_overrides['finalized_at'] = '2026-09-20T00:00:01Z'
+    plan, payloads, _manifest = support.plan_and_payloads(
+        workdir,
+        files=support.mesh_specs_files(
+            ((ANCHOR_ID, geometry_path, 3, 1),),
+            mesh_payloads={
+                geometry_path: support.meshbin(
+                    3, 1, normals=True, classifications=(1,)
+                )
+            },
+            anchor_transform=(
                 1, 0, 0, 0,
                 0, 1, 0, 0,
                 0, 0, 1, 0,
                 1, 2, 3, 1,
-            ],
-        },
-        'session_timestamp_s': 1.0,
-        'vertex_count': 3,
-        'face_count': 1,
-    }
-
-    lineage_projection = {
-        'bundle_digest': bundle_digest,
-        'source_evidence_ids': sorted(
-            item['source_evidence_id'] for item in source
+            ),
+            session_id=SESSION_ID,
+            space_id=space_id,
         ),
-        'raw_visual_mesh_ids': [handoff_id],
-        'authority_record_ids': [],
-    }
-    lineage_digest = sha256(
-        json.dumps(
-            lineage_projection,
-            sort_keys=True,
-            separators=(',', ':'),
-        ).encode('utf-8')
-    ).hexdigest()
-
-    return (
-        {
-            'schema': 'htdt.capture.ingestion-plan',
-            'schema_version': '1.0.0',
-            'ingestor': {
-                'name': 'htdt-capture-reference-ingestor',
-                'version': '1.0.0',
-                'configuration_digest': INGESTOR_CONFIG,
-            },
-            'bundle': {
-                'bundle_digest': bundle_digest,
-                'capture_schema': 'htdt.capture.bundle',
-                'capture_schema_version': '1.0.0',
-                'capture_series_id': SERIES_ID,
-                'capture_revision_id': REVISION_ID,
-                'parent_revision_id': None,
-                'capture_session_ids': [SESSION_ID],
-                'coordinate_space_ids': [space_id],
-            },
-            'source_evidence': source,
-            'roomplan_records': [],
-            'raw_visual_mesh_handoffs': [handoff],
-            'authority_records': [],
-            'lineage_digest': lineage_digest,
+        manifest_overrides=manifest_overrides,
+        id_map={
+            support.SESSION_ID: SESSION_ID,
+            support.SPACE_ID: space_id,
         },
-        payloads,
     )
+    return plan, payloads
 
 
 def _repositories(
@@ -224,9 +142,18 @@ def _repositories(
 def _identity_alignment(
     capture: CaptureIngestionRepository,
     space_id: str,
-    bundle_digest: str = BUNDLE_DIGEST,
+    bundle_digest: str | None = None,
 ):
-    authority = capture.coordinate_authority_for(bundle_digest, space_id)
+    if bundle_digest is None:
+        (authority,) = tuple(
+            item
+            for item in capture.list_coordinate_authorities()
+            if item.coordinate_space_id == space_id
+        )
+    else:
+        authority = capture.coordinate_authority_for(
+            bundle_digest, space_id
+        )
     assert authority is not None
     transform = SemanticCoordinateTransform(
         matrix_source_to_scene_m=(
@@ -320,7 +247,7 @@ def test_promotion_rejects_authority_scoped_to_other_bundle(
     other_plan, other_payloads = _ingestion_fixture(
         bundle_digest='b' * 64
     )
-    capture.ingest(other_plan, other_payloads)
+    other_ingest = capture.ingest(other_plan, other_payloads)
 
     request = make_capture_semantic_promotion_request(
         ingestion_run_id=run_id,
@@ -328,7 +255,8 @@ def test_promotion_rejects_authority_scoped_to_other_bundle(
         target_document_id='capture-doc',
         source_scene_revision_id=source.revision_id,
         world_to_scene_authority=_identity_alignment(
-            capture, SPACE_ID, bundle_digest='b' * 64
+            capture, SPACE_ID,
+            bundle_digest=other_ingest.bundle_digest,
         ),
         readiness_policy='allow_blocked_semantic_authority',
         reason='same UUID under a different bundle must not apply',
@@ -356,7 +284,7 @@ def test_promotion_rejects_wrong_capture_coordinate_authority(
     other_plan, other_payloads = _ingestion_fixture(
         bundle_digest='b' * 64, space_id=wrong_space
     )
-    capture.ingest(other_plan, other_payloads)
+    other_ingest = capture.ingest(other_plan, other_payloads)
 
     request = make_capture_semantic_promotion_request(
         ingestion_run_id=run_id,
@@ -364,7 +292,8 @@ def test_promotion_rejects_wrong_capture_coordinate_authority(
         target_document_id='capture-doc',
         source_scene_revision_id=source.revision_id,
         world_to_scene_authority=_identity_alignment(
-            capture, wrong_space, bundle_digest='b' * 64
+            capture, wrong_space,
+            bundle_digest=other_ingest.bundle_digest,
         ),
         readiness_policy='allow_blocked_semantic_authority',
         reason='fixture mismatch',

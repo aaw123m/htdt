@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/capture-strategy.schema.json",
+  "title": "HTDT Capture Strategy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "coordinate_space_id",
+    "strategy_id",
+    "policy_version",
+    "source",
+    "review_expectation",
+    "complex_object_prompts",
+    "loop_closure_prompts",
+    "resolved_policy",
+    "selected_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.strategy"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "capture_session_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "coordinate_space_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "strategy_id": {
+      "enum": [
+        "quick_scan",
+        "standard",
+        "detailed",
+        "commissioning"
+      ]
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "enum": [
+        "operator_selected",
+        "task_plan_recommended",
+        "task_plan_pinned"
+      ]
+    },
+    "review_expectation": {
+      "enum": [
+        "minimal",
+        "standard",
+        "thorough"
+      ]
+    },
+    "complex_object_prompts": {
+      "type": "boolean"
+    },
+    "loop_closure_prompts": {
+      "type": "boolean"
+    },
+    "resolved_policy": {
+      "$ref": "#/$defs/resolved_policy"
+    },
+    "selected_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "resolved_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_spatial_guidance_attempts",
+        "maximum_weak_region_guidance_attempts",
+        "spatial_guidance_activation_coverage_fraction",
+        "completion_direction_coverage_fraction",
+        "keyframe_policy_version",
+        "maximum_retained_frames",
+        "maximum_retained_bytes",
+        "maximum_no_depth_frames",
+        "minimum_keyframe_interval_s",
+        "minimum_keyframe_translation_m",
+        "minimum_keyframe_rotation_rad"
+      ],
+      "properties": {
+        "maximum_spatial_guidance_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_weak_region_guidance_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spatial_guidance_activation_coverage_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "completion_direction_coverage_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "keyframe_policy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maximum_retained_frames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_retained_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_no_depth_frames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minimum_keyframe_interval_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minimum_keyframe_translation_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minimum_keyframe_rotation_rad": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

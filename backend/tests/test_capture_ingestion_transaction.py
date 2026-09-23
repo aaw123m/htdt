@@ -7,6 +7,11 @@ import struct
 
 import pytest
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capture_fixture_support as support  # noqa: E402
+
 from htdt.cad_repository import SceneRepository
 from htdt.capture_ingestion_transaction import (
     CaptureIngestionPlan,
@@ -16,13 +21,13 @@ from htdt.capture_ingestion_transaction import (
 )
 
 
-BUNDLE_DIGEST = '2' * 64
-SERIES_ID = '10000000-0000-4000-8000-000000000001'
-REVISION_ID = '10000000-0000-4000-8000-000000000002'
-SESSION_ID = '10000000-0000-4000-8000-000000000003'
-SPACE_ID = '10000000-0000-4000-8000-000000000004'
-ANCHOR_ID = '10000000-0000-4000-8000-000000000005'
-ANNOTATION_ID = '10000000-0000-4000-8000-000000000006'
+BUNDLE_DIGEST = support.BUNDLE_DIGEST
+SERIES_ID = support.SERIES_ID
+REVISION_ID = support.REVISION_ID
+SESSION_ID = support.SESSION_ID
+SPACE_ID = support.SPACE_ID
+ANCHOR_ID = support.ANCHOR_ID
+ANNOTATION_ID = support.ANNOTATION_ID
 
 
 def _hash_parts(prefix: str, *parts: str) -> str:
@@ -33,195 +38,14 @@ def _hash_parts(prefix: str, *parts: str) -> str:
     return digest.hexdigest()
 
 
-def _meshbin() -> bytes:
-    vertices = struct.pack(
-        '<9f',
-        0.0, 0.0, 0.0,
-        1.0, 0.0, 0.0,
-        0.0, 1.0, 0.0,
+def _plan_and_payloads(
+    tmp_path: Path | None = None,
+) -> tuple[dict, dict[str, bytes]]:
+    import tempfile
+    bundle_dir = (
+        tmp_path if tmp_path is not None else Path(tempfile.mkdtemp())
     )
-    indices = struct.pack('<3I', 0, 1, 2)
-    header = (
-        b'HTDTMSH1'
-        + struct.pack('<HH', 1, 0)
-        + struct.pack('<I', 32)
-        + struct.pack('<I', 3)
-        + struct.pack('<I', 1)
-        + bytes([4, 0])
-        + struct.pack('<H', 0)
-        + struct.pack('<I', 0)
-    )
-    return header + vertices + indices
-
-
-def _plan_and_payloads() -> tuple[dict, dict[str, bytes]]:
-    payloads = {
-        'mesh/anchors.json': b'{"fixture":"anchors"}',
-        f'mesh/geometry/{ANCHOR_ID}.meshbin': _meshbin(),
-        'roomplan/captured-room-data.json': b'{"fixture":"raw-roomplan"}',
-        'annotations/entities.json': b'{"fixture":"annotations"}',
-    }
-
-    source = []
-    source_by_path = {}
-    meta = {
-        'mesh/anchors.json': (
-            'application/json',
-            'mesh_capture',
-            'arkit_mesh_reconstruction',
-        ),
-        f'mesh/geometry/{ANCHOR_ID}.meshbin': (
-            'application/vnd.htdt.meshbin',
-            'mesh_capture',
-            'arkit_mesh_reconstruction',
-        ),
-        'roomplan/captured-room-data.json': (
-            'application/json',
-            'roomplan_capture',
-            'apple_roomplan_raw_scan',
-        ),
-        'annotations/entities.json': (
-            'application/json',
-            'annotation',
-            'user_annotation',
-        ),
-    }
-
-    for path in sorted(payloads):
-        payload = payloads[path]
-        digest = sha256(payload).hexdigest()
-        source_id = _hash_parts(
-            'htdt.capture.source-evidence.v1',
-            BUNDLE_DIGEST,
-            path,
-            digest,
-        )
-        record = {
-            'source_evidence_id': source_id,
-            'bundle_digest': BUNDLE_DIGEST,
-            'capture_revision_id': REVISION_ID,
-            'path': path,
-            'payload_sha256': digest,
-            'bytes': len(payload),
-            'media_type': meta[path][0],
-            'producer': meta[path][1],
-            'provenance_class': meta[path][2],
-            'role': 'canonical',
-            'source_refs': [],
-        }
-        source.append(record)
-        source_by_path[path] = record
-
-    geometry_path = f'mesh/geometry/{ANCHOR_ID}.meshbin'
-    geometry = source_by_path[geometry_path]
-    mesh_handoff_id = _hash_parts(
-        'htdt.capture.raw-visual-mesh-handoff.v1',
-        BUNDLE_DIGEST,
-        ANCHOR_ID,
-        geometry['payload_sha256'],
-    )
-    raw_mesh_handoff = {
-        'raw_visual_mesh_handoff_id': mesh_handoff_id,
-        'bundle_digest': BUNDLE_DIGEST,
-        'anchor_id': ANCHOR_ID,
-        'anchor_record_locator': f'mesh/anchors.json#anchor:{ANCHOR_ID}',
-        'anchor_index_source_evidence_id': source_by_path[
-            'mesh/anchors.json'
-        ]['source_evidence_id'],
-        'geometry_source_evidence_id': geometry['source_evidence_id'],
-        'geometry_path': geometry_path,
-        'geometry_sha256': geometry['payload_sha256'],
-        'capture_session_id': SESSION_ID,
-        'coordinate_space_id': SPACE_ID,
-        'T_world_from_mesh_anchor': {
-            'representation': 'column_major_4x4_f32',
-            'values': [
-                1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1,
-            ],
-        },
-        'session_timestamp_s': 1.0,
-        'vertex_count': 3,
-        'face_count': 1,
-    }
-
-    roomplan_source = source_by_path[
-        'roomplan/captured-room-data.json'
-    ]
-    roomplan = {
-        'kind': 'raw_scan',
-        'source_evidence_id': roomplan_source['source_evidence_id'],
-        'path': roomplan_source['path'],
-        'payload_sha256': roomplan_source['payload_sha256'],
-        'provenance_class': 'apple_roomplan_raw_scan',
-        'source_refs': [],
-    }
-
-    annotation_source = source_by_path['annotations/entities.json']
-    authority_id = _hash_parts(
-        'htdt.capture.authority-record.v1',
-        BUNDLE_DIGEST,
-        annotation_source['payload_sha256'],
-        'annotation',
-        ANNOTATION_ID,
-    )
-    authority = {
-        'authority_record_handoff_id': authority_id,
-        'record_kind': 'annotation',
-        'record_id': ANNOTATION_ID,
-        'record_locator': (
-            f'annotations/entities.json#annotation:{ANNOTATION_ID}'
-        ),
-        'provenance_class': 'user_annotation',
-        'coordinate_space_id': SPACE_ID,
-        'source_evidence_id': annotation_source['source_evidence_id'],
-        'source_payload_sha256': annotation_source['payload_sha256'],
-    }
-
-    projection = {
-        'bundle_digest': BUNDLE_DIGEST,
-        'source_evidence_ids': sorted(
-            item['source_evidence_id'] for item in source
-        ),
-        'raw_visual_mesh_ids': [mesh_handoff_id],
-        'authority_record_ids': [authority_id],
-    }
-    lineage_digest = sha256(
-        json.dumps(
-            projection,
-            sort_keys=True,
-            separators=(',', ':'),
-        ).encode('utf-8')
-    ).hexdigest()
-
-    plan = {
-        'schema': 'htdt.capture.ingestion-plan',
-        'schema_version': '1.0.0',
-        'ingestor': {
-            'name': 'htdt-capture-reference-ingestor',
-            'version': '1.0.0',
-            'configuration_digest': (
-                '3e27eec298714a04fc6b48d94b354168396e2c4eea0cf9aa8284fa552de562b3'
-            ),
-        },
-        'bundle': {
-            'bundle_digest': BUNDLE_DIGEST,
-            'capture_schema': 'htdt.capture.bundle',
-            'capture_schema_version': '1.0.0',
-            'capture_series_id': SERIES_ID,
-            'capture_revision_id': REVISION_ID,
-            'parent_revision_id': None,
-            'capture_session_ids': [SESSION_ID],
-            'coordinate_space_ids': [SPACE_ID],
-        },
-        'source_evidence': source,
-        'roomplan_records': [roomplan],
-        'raw_visual_mesh_handoffs': [raw_mesh_handoff],
-        'authority_records': [authority],
-        'lineage_digest': lineage_digest,
-    }
+    plan, payloads, _manifest = support.plan_and_payloads(bundle_dir)
     return plan, payloads
 
 
@@ -243,10 +67,10 @@ def test_transaction_commits_all_source_authorities_and_reopens(
     result = repository.ingest(plan, payloads)
 
     assert result.created
-    assert result.source_evidence_count == 4
-    assert result.roomplan_record_count == 1
+    assert result.source_evidence_count == 10
+    assert result.roomplan_record_count == 2
     assert result.raw_mesh_binding_count == 1
-    assert result.authority_record_count == 1
+    assert result.authority_record_count == 2
 
     typed = CaptureIngestionPlan.model_validate(plan)
     reopened = repository.get_ingestion_run_plan(result.ingestion_run_id)
@@ -303,7 +127,7 @@ def test_reingestion_is_idempotent_for_same_plan_and_payloads(
     assert first.created
     assert not second.created
     assert first.lineage_digest == second.lineage_digest
-    assert repository.source_evidence_count() == 4
+    assert repository.source_evidence_count() == 10
 
 
 def test_payload_failure_leaves_no_partial_source_evidence(
@@ -534,10 +358,10 @@ def test_healthy_reimport_returns_verified_persisted_counts(
     assert first.created
     assert not second.created
     # Counts come from the verified persisted materialization.
-    assert second.source_evidence_count == 4
-    assert second.roomplan_record_count == 1
+    assert second.source_evidence_count == 10
+    assert second.roomplan_record_count == 2
     assert second.raw_mesh_binding_count == 1
-    assert second.authority_record_count == 1
+    assert second.authority_record_count == 2
 
     # The same integrity routine is reusable standalone.
     assert repository.verify_persisted_ingestion(plan) == second

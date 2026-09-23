@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/measurements.schema.json",
+  "title": "HTDT Capture Measurements v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "measurements"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.measurements"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "measurements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/measurement"
+      }
+    }
+  },
+  "$defs": {
+    "instrument": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instrument_class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "make_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calibration_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calibration_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurement_id",
+        "quantity_type",
+        "value",
+        "unit",
+        "endpoint_refs",
+        "acquisition_method",
+        "user_attestation",
+        "provenance_class",
+        "evidence_refs"
+      ],
+      "properties": {
+        "measurement_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "quantity_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number"
+              }
+            }
+          ]
+        },
+        "unit": {
+          "enum": [
+            "m",
+            "rad",
+            "1",
+            "s",
+            "degC",
+            "%"
+          ]
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "endpoint_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "acquisition_method": {
+          "enum": [
+            "tape_measure",
+            "laser_distance_meter",
+            "manufacturer_specification",
+            "lidar_derived",
+            "roomplan_derived",
+            "other",
+            "external_instrument"
+          ]
+        },
+        "instrument": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/instrument"
+            }
+          ]
+        },
+        "stated_uncertainty": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "user_attestation": {
+          "enum": [
+            "not_attested",
+            "attested"
+          ]
+        },
+        "provenance_class": {
+          "enum": [
+            "user_attested_measurement",
+            "apple_roomplan_inference",
+            "arkit_mesh_reconstruction",
+            "imported_reference",
+            "capture_app_derived"
+          ]
+        },
+        "source_value_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_authority": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sourceAuthority"
+            }
+          ]
+        },
+        "derivation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/derivation"
+            }
+          ]
+        },
+        "instrument_authority": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/instrumentReference"
+            }
+          ]
+        },
+        "author_operator_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "instrumentReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instrument_id",
+        "profile_version",
+        "profile_sha256"
+      ],
+      "properties": {
+        "instrument_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "profile_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "profile_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "sourceAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "equipment_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "equipment_id",
+                "equipment_version",
+                "equipment_hash"
+              ],
+              "properties": {
+                "equipment_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "equipment_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "equipment_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          ]
+        },
+        "document_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "document_revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "property_key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "source_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "derivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "algorithm_version",
+        "source_refs"
+      ],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "algorithm_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

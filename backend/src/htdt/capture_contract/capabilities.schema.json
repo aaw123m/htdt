@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/capabilities.schema.json",
+  "title": "HTDT Capture Capabilities v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "roomplan_supported",
+    "world_tracking_supported",
+    "scene_reconstruction_supported",
+    "scene_depth_supported",
+    "smoothed_scene_depth_supported",
+    "high_resolution_frame_supported"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.capabilities"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "roomplan_supported": {
+      "type": "boolean"
+    },
+    "world_tracking_supported": {
+      "type": "boolean"
+    },
+    "scene_reconstruction_supported": {
+      "type": "boolean"
+    },
+    "scene_depth_supported": {
+      "type": "boolean"
+    },
+    "smoothed_scene_depth_supported": {
+      "type": "boolean"
+    },
+    "high_resolution_frame_supported": {
+      "type": "boolean"
+    },
+    "combined_mode_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roomplan_mesh_ok": {
+          "type": "boolean"
+        },
+        "roomplan_scene_depth_ok": {
+          "type": "boolean"
+        },
+        "same_session_depth_after_roomplan_stop_ok": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

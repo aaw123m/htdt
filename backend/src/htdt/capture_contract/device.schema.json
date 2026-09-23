@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/device.schema.json",
+  "title": "HTDT Capture Device v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "platform",
+    "os_version",
+    "hardware_model"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.device"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "platform": {
+      "const": "iOS"
+    },
+    "os_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "os_build": {
+      "type": "string"
+    },
+    "hardware_model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "app_version": {
+      "type": "string"
+    },
+    "app_build": {
+      "type": "string"
+    }
+  }
+}
