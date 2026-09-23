@@ -1073,7 +1073,12 @@ class CollisionResult(BaseModel):
     # geometry, the bounding envelope on both sides, or a mix. Absent in
     # pre-464 payloads; omitted from identity payloads while None.
     geometry_authority: (
-        Literal['exact_body_geometry', 'bounding_envelope', 'mixed_body_geometry']
+        Literal[
+            'exact_body_geometry',
+            'bounding_envelope',
+            'mixed_body_geometry',
+            'envelope_unverified',
+        ]
         | None
     ) = None
 
@@ -1664,7 +1669,15 @@ def _collision_results(
                     else (
                         'mixed_body_geometry'
                         if 'exact_body_geometry' in (left_authority, right_authority)
-                        else 'bounding_envelope'
+                        else (
+                            # Issue #656: a mesh body that is not provably
+                            # inside its size_m envelope must not masquerade
+                            # as verified envelope clearance.
+                            'envelope_unverified'
+                            if 'envelope_unverified'
+                            in (left_authority, right_authority)
+                            else 'bounding_envelope'
+                        )
                     )
                 ),
             ))

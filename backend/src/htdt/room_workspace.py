@@ -159,6 +159,7 @@ from .cad_scene import (
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
 )
+from .mesh_import_authority import legacy_mesh_import_authority
 from .raw_mesh import RawMeshImportError, import_raw_visual_mesh
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .prediction_interpretation import PredictionSpatialLink
@@ -1344,6 +1345,12 @@ class RoomWorkspaceController:
         data = path.read_bytes()
         imported = import_raw_visual_mesh(data, source_name=path.name)
         self.repository.store_blob(data)
+        # This legacy path parses source coordinates verbatim and cannot ask
+        # the operator for units/axes — it records an explicit
+        # legacy_assumed_meter authority instead of silently assuming. Use
+        # mesh_import_authority.import_entity_mesh_asset for the declared
+        # unit/axis/anchor path (#669).
+        import_authority = legacy_mesh_import_authority()
         geometry = EntityBodyGeometry(
             kind="mesh_asset",
             mesh=BodyMeshAsset(
@@ -1359,6 +1366,7 @@ class RoomWorkspaceController:
                     BodyMeshTriangle(a=triangle.a, b=triangle.b, c=triangle.c)
                     for triangle in imported.triangles
                 ),
+                import_authority=import_authority,
             ),
         )
         if not self.working.update_entity(entity_id, body_geometry=geometry):

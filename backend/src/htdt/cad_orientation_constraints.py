@@ -5,6 +5,7 @@ from typing import Iterable, Literal
 
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from .cad_constraint_models import (
     CadAllowedRegionConstraint,
@@ -13,7 +14,13 @@ from .cad_constraint_models import (
     CadPairDistanceConstraint,
     CadWallClearanceConstraint,
 )
-from .cad_scene import SceneDocument, SceneEntity, quaternion_to_matrix3, room_vertices
+from .cad_scene import (
+    SceneDocument,
+    SceneEntity,
+    mesh_body_envelope_state,
+    quaternion_to_matrix3,
+    room_vertices,
+)
 from .geometry import polygon_from_vertices
 
 
@@ -23,7 +30,14 @@ _EPS = 1e-9
 # approximation used for circular footprints.
 _CIRCLE_BUFFER_QUAD_SEGS = 32
 
-BodyCollisionAuthority = Literal['exact_body_geometry', 'bounding_envelope']
+# Mesh footprints union one projected polygon per source triangle; beyond a
+# generous triangle budget the union cost stops paying for itself and the
+# entity keeps the (verified) bounding-envelope footprint instead.
+_MESH_FOOTPRINT_TRIANGLE_LIMIT = 4096
+
+BodyCollisionAuthority = Literal[
+    'exact_body_geometry', 'bounding_envelope', 'envelope_unverified'
+]
 
 
 def _local_z_is_world_up(entity: SceneEntity) -> bool:
@@ -46,8 +60,9 @@ def entity_exact_body_footprint(entity: SceneEntity) -> BaseGeometry | None:
     """Exact world XY footprint of an authored body shape, or ``None``.
 
     Returns ``None`` for entities without exact extrusion geometry (box,
-    mesh_asset, missing size) and for tilted bodies whose exact footprint is
-    no longer their extruded XY profile — callers then use the
+    missing size), for tilted bodies whose exact footprint is no longer
+    their extruded XY profile, and for mesh bodies whose triangle soup is
+    not loaded or is too large to union cheaply — callers then use the
     bounding-envelope hull.
     """
 
@@ -55,13 +70,21 @@ def entity_exact_body_footprint(entity: SceneEntity) -> BaseGeometry | None:
     if (
         entity.size_m is None
         or body is None
-        or body.kind not in ('cylinder', 'extruded_polygon')
+        or body.kind not in ('cylinder', 'extruded_polygon', 'mesh_asset')
         or not _local_z_is_world_up(entity)
     ):
         return None
 
     x_m = float(entity.position.x_m)
     y_m = float(entity.position.y_m)
+    if body.kind == 'mesh_asset':
+        mesh = body.mesh
+        if mesh is None or len(mesh.triangles) > _MESH_FOOTPRINT_TRIANGLE_LIMIT:
+            # An unresolved reference keeps the (bounds-verified) envelope;
+            # the body is not treated as an exact footprint it cannot prove.
+            return None
+        return _mesh_asset_world_footprint(entity, mesh)
+
     if body.kind == 'cylinder':
         assert body.radius_m is not None
         return Point(x_m, y_m).buffer(
@@ -84,24 +107,80 @@ def entity_exact_body_footprint(entity: SceneEntity) -> BaseGeometry | None:
     return polygon
 
 
-def entity_collision_geometry_authority(entity: SceneEntity) -> BodyCollisionAuthority:
-    """Whether collision/clearance uses the exact body or the envelope."""
+def _mesh_asset_world_footprint(entity: SceneEntity, mesh) -> BaseGeometry | None:
+    """Concave world XY footprint derived from the resolved mesh triangles.
 
-    return (
-        'exact_body_geometry'
-        if entity_exact_body_footprint(entity) is not None
-        else 'bounding_envelope'
-    )
+    Each source triangle is transformed by the mesh's local scale/offset,
+    rotated by the entity orientation, projected to XY, and unioned — so
+    non-convex bodies (L-shapes, recliners, equipment cut-outs) contribute
+    their true silhouette instead of the size_m envelope rectangle. The
+    body must be upright: a tilted mesh widens its true XY projection.
+    """
+
+    matrix = quaternion_to_matrix3(entity.orientation)
+    px = float(entity.position.x_m)
+    py = float(entity.position.y_m)
+    scale = float(mesh.uniform_scale)
+    offset = mesh.local_offset_m
+    projected: list[Polygon] = []
+    for triangle in mesh.triangles:
+        coords = []
+        for index in (triangle.a, triangle.b, triangle.c):
+            vertex = mesh.vertices[index]
+            local = (
+                float(vertex.x_m) * scale + offset.x_m,
+                float(vertex.y_m) * scale + offset.y_m,
+                float(vertex.z_m) * scale + offset.z_m,
+            )
+            coords.append((
+                px + sum(matrix[0][column] * local[column] for column in range(3)),
+                py + sum(matrix[1][column] * local[column] for column in range(3)),
+            ))
+        if coords[0] != coords[1] and coords[1] != coords[2] and coords[0] != coords[2]:
+            projected.append(Polygon(coords))
+    if not projected:
+        return None
+    footprint = unary_union(projected)
+    if footprint.is_empty or not footprint.is_valid:
+        return None
+    return footprint
+
+
+def entity_collision_geometry_authority(entity: SceneEntity) -> BodyCollisionAuthority:
+    """The authority behind this entity's collision footprint (Issue #656).
+
+    ``exact_body_geometry`` — the footprint is the body's true (possibly
+    concave) silhouette. ``bounding_envelope`` — the size_m envelope is in
+    use AND is verified to contain the authored mesh body. ``envelope_
+    unverified`` — a mesh body is present but not provably inside size_m:
+    the envelope may under-report clearance and the entity is visibly
+    non-safe for collision claims until reconciled.
+    """
+
+    if entity_collision_geometry_authority_is_exact(entity):
+        return 'exact_body_geometry'
+    if (
+        entity.size_m is not None
+        and mesh_body_envelope_state(entity.body_geometry, entity.size_m)
+        == 'envelope_unverified'
+    ):
+        return 'envelope_unverified'
+    return 'bounding_envelope'
+
+
+def entity_collision_geometry_authority_is_exact(entity: SceneEntity) -> bool:
+    return entity_exact_body_footprint(entity) is not None
 
 
 def entity_horizontal_footprint(entity: SceneEntity) -> BaseGeometry:
     """Return the exact XY projection of the oriented entity body.
 
     Entities with authored extrusion body geometry (cylinder, polygon
-    footprint) contribute their exact upright footprint. Other physical
-    entities use the convex hull of all eight oriented box corners so
-    pitch/roll remain conservative in XY. Non-physical entities degrade to a
-    point at their world position.
+    footprint) contribute their exact upright footprint; resolved upright
+    mesh bodies contribute their mesh-derived concave silhouette. Other
+    physical entities use the convex hull of all eight oriented box
+    corners so pitch/roll remain conservative in XY. Non-physical entities
+    degrade to a point at their world position.
     """
 
     if entity.size_m is None:
