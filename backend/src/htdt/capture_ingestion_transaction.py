@@ -206,7 +206,7 @@ def _binding_handoff_source_ids(
 
 
 class CaptureIngestorIdentity(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     name: Literal['htdt-capture-reference-ingestor']
     version: Literal['1.0.0']
@@ -216,7 +216,7 @@ class CaptureIngestorIdentity(BaseModel):
 
 
 class CaptureBundleIdentity(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     bundle_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
     capture_schema: Literal['htdt.capture.bundle']
@@ -255,7 +255,7 @@ class CaptureBundleIdentity(BaseModel):
 
 
 class CaptureSourceEvidence(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     source_evidence_id: str = Field(pattern=r'^[0-9a-f]{64}$')
     bundle_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -285,7 +285,7 @@ class CaptureSourceEvidence(BaseModel):
 
 
 class CaptureRoomPlanRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     kind: Literal['raw_scan', 'postprocessed_inference']
     source_evidence_id: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -299,7 +299,7 @@ class CaptureRoomPlanRecord(BaseModel):
 
 
 class CaptureAuthorityRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     authority_record_handoff_id: str = Field(pattern=r'^[0-9a-f]{64}$')
     record_kind: Literal['annotation', 'measurement']
@@ -326,7 +326,7 @@ class CaptureAuthorityRecord(BaseModel):
 
 
 class CaptureIngestionPlan(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     schema: Literal['htdt.capture.ingestion-plan']
     schema_version: Literal['1.0.0']
