@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+from hashlib import sha256
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from htdt.cad_ir_analysis import (
+    IR_ANALYSIS_ALGORITHM_SHA256,
+    CadIRAnalysisRepository,
+    IRAnalysisSpec,
+    build_ir_analysis_spec,
+    replay_ir_analysis,
+    run_ir_analysis,
+)
+from htdt.cad_repository import SceneRepository
+from htdt.cad_scene import make_f1_scene
+
+
+FS = 48000.0
+
+
+def _ir(tau_s: float = 0.08, length_s: float = 0.8, noise_level: float = 0.0, seed: int = 7):
+    rng = np.random.default_rng(seed)
+    n = int(length_s * FS)
+    t = np.arange(n) / FS
+    h = rng.standard_normal(n) * np.exp(-t / tau_s)
+    h[0] = 1.0
+    if noise_level:
+        h += rng.standard_normal(n) * noise_level
+    return tuple(float(v) for v in h)
+
+
+def _spec(measurement_id='meas-1', **overrides):
+    kwargs: dict = {
+        'measurement_id': measurement_id,
+        'dataset_id': f'ir-{measurement_id}',
+        'dataset_sha256': sha256(b'ir-bytes').hexdigest(),
+        'sample_rate_hz': FS,
+        'tf_window_s': 0.05,
+        'tf_overlap': 0.5,
+    }
+    kwargs.update(overrides)
+    return build_ir_analysis_spec(**kwargs)
+
+
+def test_spec_identity_rejects_tampering():
+    spec = _spec()
+    payload = spec.model_dump(mode='python')
+    payload['tf_window_s'] = 0.1
+    with pytest.raises(Exception, match='spec hash mismatch'):
+        IRAnalysisSpec(**payload)
+
+
+def test_etc_and_markers_are_derived():
+    ir = _ir(tau_s=0.03, length_s=0.4)
+    result = run_ir_analysis(
+        _spec(), ir, created_at='2026-09-23T00:00:00+00:00'
+    )
+    assert len(result.etc_db) == len(result.etc_time_s) == len(ir)
+    assert max(result.etc_db) == pytest.approx(0.0)
+    # Markers carry relative delay only — never absolute arrival claims.
+    for marker in result.markers:
+        assert marker.delay_s > 0
+    assert result.effective_alignment == 'none'
+
+
+def test_decay_metrics_estimate_on_clean_ir():
+    ir = _ir(tau_s=0.05, length_s=1.0)
+    result = run_ir_analysis(_spec(), ir, created_at='2026-09-23T00:00:00+00:00')
+    metrics = {m.metric: m for m in result.metrics}
+    assert metrics['edt'].status == 'estimated'
+    # Amplitude decay e^{-t/tau} gives a -8.686/tau dB/s energy slope.
+    assert metrics['edt'].value_s == pytest.approx(60.0 * 0.05 / 8.686, rel=0.1)
+    assert metrics['t20'].status in ('estimated', 'unknown', 'blocked')
+    assert metrics['edt'].fit_interval_db == (0.0, -10.0)
+
+
+def test_noisy_tail_blocks_deep_metrics_not_edt():
+    # High noise floor limits usable range below the T30 interval.
+    ir = _ir(tau_s=0.05, length_s=0.8, noise_level=0.02)
+    result = run_ir_analysis(_spec(), ir, created_at='2026-09-23T00:00:00+00:00')
+    metrics = {m.metric: m for m in result.metrics}
+    assert metrics['t30'].status in ('blocked', 'unknown')
+    assert metrics['t30'].value_s is None
+    assert metrics['t30'].usable_dynamic_range_db is not None
+
+
+def test_blocked_capability_keeps_metrics_blocked():
+    ir = _ir(tau_s=0.05, length_s=1.0)
+    result = run_ir_analysis(
+        _spec(),
+        ir,
+        capabilities={'decay': 'BLOCKED'},
+        created_at='2026-09-23T00:00:00+00:00',
+    )
+    assert all(m.status == 'blocked' for m in result.metrics)
+
+
+def test_absolute_common_time_requires_capability():
+    ir = _ir(length_s=0.3)
+    spec = _spec(alignment='absolute_common_time')
+    result = run_ir_analysis(
+        spec, ir, created_at='2026-09-23T00:00:00+00:00'
+    )
+    assert result.effective_alignment == 'relative_time'
+    assert any('common-timing' in w for w in result.warnings)
+    allowed = run_ir_analysis(
+        spec,
+        ir,
+        capabilities={'common_timing': 'ALLOWED'},
+        created_at='2026-09-23T00:00:00+00:00',
+    )
+    assert allowed.effective_alignment == 'absolute_common_time'
+
+
+def test_truncation_is_recorded():
+    ir = _ir(tau_s=0.2, length_s=1.0)
+    spec = _spec(window_start_s=0.0, window_end_s=0.05)
+    result = run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+    assert result.truncated is True
+    assert any('truncat' in w for w in result.warnings)
+
+
+def test_band_filtered_analysis():
+    ir = _ir(tau_s=0.1, length_s=0.8)
+    spec = _spec(band_center_hz=500.0, band_fraction='octave')
+    result = run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+    assert result.decay_db and len(result.decay_db) == len(result.decay_time_s)
+
+
+def test_spectrogram_records_transform_settings():
+    ir = _ir(length_s=0.4)
+    spec = _spec(tf_window_s=0.02, tf_overlap=0.5)
+    result = run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+    assert result.spec_times_s
+    assert result.spec_freqs_hz
+    assert all(len(row) == len(result.spec_freqs_hz) for row in result.spec_levels_db)
+
+
+def test_replay_and_repository(tmp_path: Path):
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    scene_repository.save(make_f1_scene(), parent_revision_id=None)
+    repository = CadIRAnalysisRepository(scene_repository)
+    spec = _spec()
+    repository.save_spec(spec)
+    ir = _ir(tau_s=0.05, length_s=0.8)
+    result = run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+    repository.save_result(result)
+    assert repository.get_spec(spec.spec_id) == spec
+    assert repository.get_result(result.result_id) == result
+    replay_ir_analysis(result, spec, ir)
+    with pytest.raises(ValueError, match='different spec'):
+        replay_ir_analysis(result, _spec(measurement_id='other'), ir)
+
+
+def test_algorithm_identity_is_versioned():
+    assert len(IR_ANALYSIS_ALGORITHM_SHA256) == 64

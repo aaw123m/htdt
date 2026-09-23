@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QScrollArea,
+    QSpinBox,
+    QSplitter,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -54,7 +56,17 @@ from .ui_theme import (
 from .workflow_shell import WorkspaceFactory, WorkspaceMount
 
 
-_CONTEXT_IDS = ("import", "assignment", "quality", "comparison")
+_CONTEXT_IDS = ("import", "assignment", "campaign", "quality", "comparison")
+
+_CELL_STATUS_LABELS = {
+    "not_started": "未着手",
+    "staged": "取込済",
+    "assignment_incomplete": "割当未完了",
+    "quality_pending": "品質確認待ち",
+    "retake_required": "要再測定",
+    "completed": "完了",
+    "skipped": "スキップ",
+}
 _USER_ROLE = int(Qt.ItemDataRole.UserRole)
 
 
@@ -277,6 +289,7 @@ class MeasurementPageWorkspace(QWidget):
         self._rew_rows: list[dict[str, Any]] = []
         self._quality_views: tuple[MeasurementView, ...] = ()
         self._last_comparison: CadMeasurementComparison | None = None
+        self._saved_comparisons: tuple[CadMeasurementComparison, ...] = ()
         self._retake_source_id: str | None = None
 
         self.setObjectName("measurementPageWorkspace")
@@ -285,6 +298,14 @@ class MeasurementPageWorkspace(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        # Persistent selection context (#586): the active measurement or
+        # comparison identity stays visually tied to the detail/plot below.
+        self.context_label = QLabel(self)
+        self.context_label.setObjectName("measurementContextLabel")
+        self.context_label.setContentsMargins(24, 8, 24, 4)
+        self.context_label.setText("測定未選択")
+        root.addWidget(self.context_label)
 
         self.notice = QLabel(self)
         self.notice.setObjectName("measurementWorkspaceNotice")
@@ -299,6 +320,7 @@ class MeasurementPageWorkspace(QWidget):
 
         self._build_import_page()
         self._build_assignment_page()
+        self._build_campaign_page()
         self._build_quality_page()
         self._build_comparison_page()
         self.refresh()
@@ -312,6 +334,7 @@ class MeasurementPageWorkspace(QWidget):
         self.current_context_id = context_id
         self.pages.setCurrentIndex(_CONTEXT_IDS.index(context_id))
         self.refresh()
+        self._update_context_label()
 
     def focus_entity(self, entity_id: str) -> None:
         for row_index, row in enumerate(self._quality_views):
@@ -323,6 +346,7 @@ class MeasurementPageWorkspace(QWidget):
     def refresh(self) -> None:
         self._refresh_pending()
         self._refresh_assignment_options()
+        self._refresh_campaign()
         self._refresh_quality()
         self._refresh_comparison_choices()
 
@@ -495,8 +519,18 @@ class MeasurementPageWorkspace(QWidget):
         assign_card, assign_layout = _card("割り当て", host)
         form = QFormLayout()
 
+        # Grouped by operator meaning (#586): identity, evidence class, then
+        # source/routing — instead of one visually flat form.
+        identity_label = QLabel("測定の識別", assign_card)
+        set_typography_role(identity_label, TypographyRole.SECONDARY)
+        form.addRow(identity_label)
+
         self.target_combo = QComboBox(assign_card)
         form.addRow("測定位置", self.target_combo)
+
+        evidence_label = QLabel("証拠クラス", assign_card)
+        set_typography_role(evidence_label, TypographyRole.SECONDARY)
+        form.addRow(evidence_label)
 
         self.evidence_combo = QComboBox(assign_card)
         for label, value in (
@@ -508,11 +542,18 @@ class MeasurementPageWorkspace(QWidget):
             self.evidence_combo.addItem(label, value)
         form.addRow("証拠種別", self.evidence_combo)
 
+        # Typed human labels (#586): the raw role token stays searchable via
+        # the editable combo, but normal presentation is the localized label.
         self.channel_combo = QComboBox(assign_card)
         self.channel_combo.setEditable(True)
-        self.channel_combo.addItems(
-            ["unknown", "front_left", "center", "front_right", "subwoofer"]
-        )
+        for label, value in (
+            ("不明", "unknown"),
+            ("フロント左 (FL)", "front_left"),
+            ("センター (C)", "center"),
+            ("フロント右 (FR)", "front_right"),
+            ("サブウーファー (LFE/Sub)", "subwoofer"),
+        ):
+            self.channel_combo.addItem(label, value)
         form.addRow("入力役割", self.channel_combo)
 
         self.radiation_combo = QComboBox(assign_card)
@@ -524,6 +565,10 @@ class MeasurementPageWorkspace(QWidget):
         ):
             self.radiation_combo.addItem(label, value)
         form.addRow("放射範囲", self.radiation_combo)
+
+        routing_label = QLabel("音源 / ルーティング", assign_card)
+        set_typography_role(routing_label, TypographyRole.SECONDARY)
+        form.addRow(routing_label)
 
         self.routing_combo = QComboBox(assign_card)
         for label, value in (
@@ -543,14 +588,27 @@ class MeasurementPageWorkspace(QWidget):
         self.source_speaker_list.setMaximumHeight(150)
         assign_layout.addWidget(self.source_speaker_list)
 
+        # Compact pre-save review (#586 §4): the exact semantic assignment
+        # in human terms before commit — no separate confirmation dialog.
+        self.assignment_summary_label = QLabel("", assign_card)
+        self.assignment_summary_label.setWordWrap(True)
+        assign_layout.addWidget(self.assignment_summary_label)
+
         save_row = QHBoxLayout()
         save_row.addStretch(1)
-        self.assignment_save_button = QPushButton("割り当てて保存", assign_card)
+        self.assignment_save_button = QPushButton("測定を保存", assign_card)
         set_primary_action(self.assignment_save_button)
         self.assignment_save_button.clicked.connect(self._commit_assignment)
         save_row.addWidget(self.assignment_save_button)
         assign_layout.addLayout(save_row)
         layout.addWidget(assign_card)
+
+        self.target_combo.currentIndexChanged.connect(self._update_assignment_summary)
+        self.evidence_combo.currentIndexChanged.connect(self._update_assignment_summary)
+        self.channel_combo.currentIndexChanged.connect(self._update_assignment_summary)
+        self.radiation_combo.currentIndexChanged.connect(self._update_assignment_summary)
+        self.routing_combo.currentIndexChanged.connect(self._update_assignment_summary)
+        self.source_speaker_list.itemChanged.connect(self._update_assignment_summary)
         layout.addStretch(1)
         self.pages.addWidget(page)
 
@@ -621,7 +679,11 @@ class MeasurementPageWorkspace(QWidget):
             index = self.target_combo.findData(retake_view.target_entity_id)
             if index >= 0:
                 self.target_combo.setCurrentIndex(index)
-            self.channel_combo.setCurrentText(retake_view.channel_role)
+            channel_index = self.channel_combo.findData(retake_view.channel_role)
+            if channel_index >= 0:
+                self.channel_combo.setCurrentIndex(channel_index)
+            else:
+                self.channel_combo.setCurrentText(retake_view.channel_role)
             index = self.radiation_combo.findData(retake_view.radiation_scope)
             if index >= 0:
                 self.radiation_combo.setCurrentIndex(index)
@@ -636,6 +698,29 @@ class MeasurementPageWorkspace(QWidget):
                     if item.data(Qt.ItemDataRole.UserRole) in wanted_sources
                     else Qt.CheckState.Unchecked
                 )
+        self._update_assignment_summary()
+
+    def _update_assignment_summary(self, *_args: object) -> None:
+        if not hasattr(self, "assignment_summary_label"):
+            return
+        target = self.target_combo.currentText() or "—"
+        channel_data = self.channel_combo.currentData()
+        channel = (
+            _channel_role_label(str(channel_data))
+            if isinstance(channel_data, str) and channel_data
+            else (self.channel_combo.currentText() or "不明")
+        )
+        evidence = self.evidence_combo.currentText() or "—"
+        routing = self.routing_combo.currentText() or "—"
+        sources = [
+            self.source_speaker_list.item(index).text()
+            for index in range(self.source_speaker_list.count())
+            if self.source_speaker_list.item(index).checkState() == Qt.CheckState.Checked
+        ]
+        source_text = " / ".join(sources) if sources else "未指定"
+        self.assignment_summary_label.setText(
+            f"保存内容: {target} · {channel} · {evidence} · 音源 {source_text} · ルーティング {routing}"
+        )
 
     def _commit_assignment(self) -> None:
         target_id = self.target_combo.currentData()
@@ -650,7 +735,12 @@ class MeasurementPageWorkspace(QWidget):
             for index in range(self.source_speaker_list.count())
             if self.source_speaker_list.item(index).checkState() == Qt.CheckState.Checked
         )
-        channel_role = self.channel_combo.currentText().strip() or "unknown"
+        channel_data = self.channel_combo.currentData()
+        channel_role = (
+            str(channel_data)
+            if isinstance(channel_data, str) and channel_data
+            else (self.channel_combo.currentText().strip() or "unknown")
+        )
         assignment = MeasurementAssignment(
             measurement_entity_id=target_id,
             evidence_type=str(self.evidence_combo.currentData()),  # type: ignore[arg-type]
@@ -694,6 +784,276 @@ class MeasurementPageWorkspace(QWidget):
             SemanticState.SUCCESS,
         )
         self.refresh()
+
+    # ------------------------------------------------------------------
+    # Campaign runner page (#529)
+
+    def _build_campaign_page(self) -> None:
+        page, host, layout = _page(
+            "測定キャンペーン",
+            "音源×測定位置×リピートの計画をガイド付きで実行します。REWが取得エンジンです。",
+        )
+        page.setObjectName("measurementCampaignPage")
+
+        plan_card, plan_layout = _card("計画", host)
+        plan_row = QHBoxLayout()
+        self.campaign_plan_combo = QComboBox(plan_card)
+        plan_row.addWidget(self.campaign_plan_combo, 1)
+        self.campaign_repeat = QSpinBox(plan_card)
+        self.campaign_repeat.setRange(1, 16)
+        self.campaign_repeat.setValue(1)
+        self.campaign_repeat.setPrefix("リピート ")
+        plan_row.addWidget(self.campaign_repeat)
+        self.campaign_create_button = QPushButton("計画を作成", plan_card)
+        self.campaign_create_button.clicked.connect(self._create_campaign_plan)
+        plan_row.addWidget(self.campaign_create_button)
+        self.campaign_open_button = QPushButton("実行を開始 / 再開", plan_card)
+        set_primary_action(self.campaign_open_button)
+        self.campaign_open_button.clicked.connect(self._open_campaign_run)
+        plan_row.addWidget(self.campaign_open_button)
+        plan_layout.addLayout(plan_row)
+        layout.addWidget(plan_card)
+
+        matrix_card, matrix_layout = _card("計画セル", host)
+        self.campaign_table = QTableWidget(0, 5, matrix_card)
+        self.campaign_table.setHorizontalHeaderLabels(
+            ["入力役割", "測定位置", "リピート", "状態", "測定"]
+        )
+        self.campaign_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.campaign_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.campaign_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.campaign_table.verticalHeader().setVisible(False)
+        self.campaign_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.campaign_table.horizontalHeader().setStretchLastSection(True)
+        self.campaign_table.itemSelectionChanged.connect(
+            self._campaign_selection_changed
+        )
+        self.campaign_table.setMinimumHeight(220)
+        matrix_layout.addWidget(self.campaign_table)
+        layout.addWidget(matrix_card)
+
+        step_card, step_layout = _card("現在のステップ", host)
+        self.campaign_step_label = QLabel("キャンペーンを開いてください", step_card)
+        self.campaign_step_label.setWordWrap(True)
+        step_layout.addWidget(self.campaign_step_label)
+        self.campaign_progress_label = QLabel("", step_card)
+        self.campaign_progress_label.setWordWrap(True)
+        step_layout.addWidget(self.campaign_progress_label)
+
+        commit_row = QHBoxLayout()
+        self.campaign_measurement_combo = QComboBox(step_card)
+        commit_row.addWidget(self.campaign_measurement_combo, 1)
+        self.campaign_commit_button = QPushButton("このセルに登録", step_card)
+        self.campaign_commit_button.clicked.connect(self._commit_campaign_cell)
+        commit_row.addWidget(self.campaign_commit_button)
+        self.campaign_skip_button = QPushButton("スキップ", step_card)
+        self.campaign_skip_button.clicked.connect(self._skip_campaign_cell)
+        commit_row.addWidget(self.campaign_skip_button)
+        step_layout.addLayout(commit_row)
+
+        next_row = QHBoxLayout()
+        next_row.addStretch(1)
+        self.campaign_next_button = QPushButton("次の未完了セルへ", step_card)
+        self.campaign_next_button.clicked.connect(self._select_next_campaign_cell)
+        next_row.addWidget(self.campaign_next_button)
+        step_layout.addLayout(next_row)
+        layout.addWidget(step_card)
+        layout.addStretch(1)
+        self.pages.addWidget(page)
+
+        self._campaign_run_id: str | None = None
+
+    def _campaign_target_names(self) -> dict[str, str]:
+        try:
+            return {
+                target.entity_id: target.name
+                for target in self.controller.assignment_targets()
+            }
+        except Exception:
+            return {}
+
+    def _refresh_campaign(self) -> None:
+        plans = self.controller.runner_plans()
+        previous = self.campaign_plan_combo.currentData()
+        self.campaign_plan_combo.blockSignals(True)
+        self.campaign_plan_combo.clear()
+        for plan in plans:
+            self.campaign_plan_combo.addItem(
+                f"{len(plan.cells)} セル · {plan.plan_id[:12]}", plan.plan_id
+            )
+        if previous is not None:
+            index = self.campaign_plan_combo.findData(previous)
+            if index >= 0:
+                self.campaign_plan_combo.setCurrentIndex(index)
+        self.campaign_plan_combo.blockSignals(False)
+
+        names = self._campaign_target_names()
+        self.campaign_measurement_combo.clear()
+        for row in self.controller.measurement_views():
+            if row.dataset_id is None:
+                continue
+            self.campaign_measurement_combo.addItem(
+                f"{_channel_role_label(row.channel_role)} · {row.target_name} · "
+                f"{_evidence_label(row.evidence_type)}",
+                row.measurement_id,
+            )
+
+        if self._campaign_run_id is None or self.controller.runner_repository.get_run(
+            self._campaign_run_id
+        ) is None:
+            self.campaign_table.setRowCount(0)
+            self.campaign_step_label.setText("キャンペーンを開いてください")
+            self.campaign_progress_label.setText("")
+            return
+
+        plan = self.controller.runner_plan_for_run(self._campaign_run_id)
+        states = self.controller.runner_cell_states(self._campaign_run_id)
+        self.campaign_table.setRowCount(len(plan.cells))
+        for cell in plan.cells:
+            state = states[cell.cell_index]
+            values = (
+                _channel_role_label(cell.channel_role),
+                names.get(cell.target_entity_id, cell.target_entity_id),
+                str(cell.repeat_index + 1),
+                _CELL_STATUS_LABELS[state.status],
+                state.measurement_id or "—",
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole, cell.cell_index)
+                self.campaign_table.setItem(cell.cell_index, column, item)
+
+        progress = self.controller.runner_progress(self._campaign_run_id)
+        self.campaign_progress_label.setText(
+            f"完了 {progress.completed} / 必要 {progress.total} · "
+            f"未着手 {progress.not_started} · 品質確認待ち {progress.quality_pending} · "
+            f"要再測定 {progress.retake_required} · スキップ {progress.skipped}"
+        )
+        next_index = self.controller.runner_next_incomplete(self._campaign_run_id)
+        step = self.controller.runner_guided_step(self._campaign_run_id)
+        if step is None:
+            self.campaign_step_label.setText("計画された全セルが完了しました")
+        else:
+            self.campaign_step_label.setText(
+                f"次: {_channel_role_label(step.channel_role)} · "
+                f"{names.get(step.target_entity_id, step.target_entity_id)} · "
+                f"リピート {step.repeat_index + 1} · 音源 "
+                f"{' / '.join(step.source_speaker_ids)}"
+            )
+        if next_index is not None:
+            self.campaign_table.selectRow(next_index)
+
+    def _create_campaign_plan(self) -> None:
+        try:
+            plan = self.controller.create_runner_plan(
+                repeat_count=int(self.campaign_repeat.value())
+            )
+        except Exception as exc:
+            self._set_notice(f"計画を作成できませんでした · {exc}", SemanticState.ERROR)
+            return
+        self._set_notice(
+            f"{len(plan.cells)} セルの計画を作成しました。「実行を開始 / 再開」で開始します。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _open_campaign_run(self) -> None:
+        plan_id = self.campaign_plan_combo.currentData()
+        if not isinstance(plan_id, str) or not plan_id:
+            self._set_notice("先に計画を作成してください。", SemanticState.WARNING)
+            return
+        run = self.controller.open_runner(plan_id)
+        self._campaign_run_id = run.run_id
+        self._set_notice(
+            "キャンペーンを開きました。次の未完了セルに従ってREWで取得してください。",
+            None,
+        )
+        self._refresh_campaign()
+
+    def _campaign_selection_changed(self) -> None:
+        row_index = self.campaign_table.currentRow()
+        if row_index < 0 or self._campaign_run_id is None:
+            return
+        cell_index_item = self.campaign_table.item(row_index, 0)
+        if cell_index_item is None:
+            return
+        cell_index = cell_index_item.data(Qt.ItemDataRole.UserRole)
+        try:
+            step = self.controller.runner_guided_step(
+                self._campaign_run_id, int(cell_index)
+            )
+        except Exception:
+            return
+        if step is None:
+            return
+        names = self._campaign_target_names()
+        self.campaign_step_label.setText(
+            f"選択: {_channel_role_label(step.channel_role)} · "
+            f"{names.get(step.target_entity_id, step.target_entity_id)} · "
+            f"リピート {step.repeat_index + 1} · 音源 "
+            f"{' / '.join(step.source_speaker_ids)}"
+            + (f" · {step.notes}" if step.notes else "")
+        )
+
+    def _selected_campaign_cell(self) -> int | None:
+        row_index = self.campaign_table.currentRow()
+        if row_index < 0:
+            return None
+        item = self.campaign_table.item(row_index, 0)
+        if item is None:
+            return None
+        value = item.data(Qt.ItemDataRole.UserRole)
+        return int(value) if value is not None else None
+
+    def _commit_campaign_cell(self) -> None:
+        cell_index = self._selected_campaign_cell()
+        measurement_id = self.campaign_measurement_combo.currentData()
+        if self._campaign_run_id is None or cell_index is None:
+            self._set_notice("先にセルを選択してください。", SemanticState.WARNING)
+            return
+        if not isinstance(measurement_id, str) or not measurement_id:
+            self._set_notice(
+                "登録する保存済み測定を選択してください。", SemanticState.WARNING
+            )
+            return
+        try:
+            self.controller.runner_commit_cell(
+                self._campaign_run_id, cell_index, measurement_id
+            )
+        except Exception as exc:
+            self._set_notice(f"セルへ登録できませんでした · {exc}", SemanticState.ERROR)
+            return
+        self._set_notice("計画セルに測定を登録しました。", SemanticState.SUCCESS)
+        self._refresh_campaign()
+
+    def _skip_campaign_cell(self) -> None:
+        cell_index = self._selected_campaign_cell()
+        if self._campaign_run_id is None or cell_index is None:
+            self._set_notice("先にセルを選択してください。", SemanticState.WARNING)
+            return
+        try:
+            self.controller.runner_skip_cell(self._campaign_run_id, cell_index)
+        except Exception as exc:
+            self._set_notice(f"スキップできませんでした · {exc}", SemanticState.ERROR)
+            return
+        self._refresh_campaign()
+
+    def _select_next_campaign_cell(self) -> None:
+        if self._campaign_run_id is None:
+            return
+        next_index = self.controller.runner_next_incomplete(self._campaign_run_id)
+        if next_index is None:
+            self._set_notice("未完了のセルはありません。", SemanticState.SUCCESS)
+            return
+        self.campaign_table.selectRow(next_index)
 
     # ------------------------------------------------------------------
     # Quality page
@@ -745,7 +1105,6 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_table.itemSelectionChanged.connect(self._quality_selection_changed)
         self.quality_table.setMinimumHeight(220)
         table_layout.addWidget(self.quality_table)
-        layout.addWidget(table_card)
 
         detail_card, detail_layout = _card("選択した測定", host)
         self.quality_detail = QLabel("測定を選択してください", detail_card)
@@ -757,7 +1116,15 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_plot.setLabel("left", "レベル", units="dB")
         _set_plot_appearance(self.quality_plot)
         detail_layout.addWidget(self.quality_plot)
-        layout.addWidget(detail_card)
+
+        # Synchronized table + detail split (#586): row selection and its
+        # plot/detail stay adjacent instead of separated by a long scroll.
+        quality_split = QSplitter(Qt.Orientation.Horizontal, host)
+        quality_split.addWidget(table_card)
+        quality_split.addWidget(detail_card)
+        quality_split.setStretchFactor(0, 1)
+        quality_split.setStretchFactor(1, 1)
+        layout.addWidget(quality_split)
 
         report_card, report_layout = _card("品質レポート", host)
         self.quality_report_label = QLabel("測定を選択してください", report_card)
@@ -871,6 +1238,7 @@ class MeasurementPageWorkspace(QWidget):
             self.quality_capabilities_label.setText("")
             self.retake_label.setText("保存済み測定はありません")
             self.retake_button.setEnabled(False)
+            self._update_context_label()
         elif not self.quality_table.selectedItems():
             self.quality_table.selectRow(0)
             self._show_quality_row(0)
@@ -998,6 +1366,7 @@ class MeasurementPageWorkspace(QWidget):
             name=_evidence_label(row.evidence_type),
         )
         self.quality_plot.enableAutoRange()
+        self._update_context_label()
 
     def _start_retake(self) -> None:
         row_index = self.quality_table.currentRow()
@@ -1029,23 +1398,41 @@ class MeasurementPageWorkspace(QWidget):
         form.addRow("実測", self.measured_combo)
         form.addRow("予測", self.predicted_combo)
 
-        self.compare_low = QDoubleSpinBox(setup_card)
+        # One coherent band control (#586): low–high range plus presets
+        # rather than two disconnected form rows.
+        band_widget = QWidget(setup_card)
+        band_row = QHBoxLayout(band_widget)
+        band_row.setContentsMargins(0, 0, 0, 0)
+        self.compare_low = QDoubleSpinBox(band_widget)
         self.compare_low.setRange(1.0, 100000.0)
         self.compare_low.setValue(20.0)
         self.compare_low.setSuffix(" Hz")
-        self.compare_high = QDoubleSpinBox(setup_card)
+        band_row.addWidget(self.compare_low)
+        band_row.addWidget(QLabel("–", band_widget))
+        self.compare_high = QDoubleSpinBox(band_widget)
         self.compare_high.setRange(1.0, 100000.0)
         self.compare_high.setValue(20000.0)
         self.compare_high.setSuffix(" Hz")
-        form.addRow("下限", self.compare_low)
-        form.addRow("上限", self.compare_high)
+        band_row.addWidget(self.compare_high)
+        band_full = QPushButton("全帯域", band_widget)
+        band_full.clicked.connect(
+            lambda: (self.compare_low.setValue(20.0), self.compare_high.setValue(20000.0))
+        )
+        band_row.addWidget(band_full)
+        band_lf = QPushButton("低域", band_widget)
+        band_lf.clicked.connect(
+            lambda: (self.compare_low.setValue(20.0), self.compare_high.setValue(300.0))
+        )
+        band_row.addWidget(band_lf)
+        band_row.addStretch(1)
+        form.addRow("比較帯域", band_widget)
         setup_layout.addLayout(form)
 
         compare_row = QHBoxLayout()
         self.comparison_availability = QLabel("", setup_card)
         self.comparison_availability.setWordWrap(True)
         compare_row.addWidget(self.comparison_availability, 1)
-        self.compare_button = QPushButton("比較して保存", setup_card)
+        self.compare_button = QPushButton("比較結果を保存", setup_card)
         set_primary_action(self.compare_button)
         self.compare_button.clicked.connect(self._run_comparison)
         compare_row.addWidget(self.compare_button)
@@ -1070,6 +1457,25 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(plot_card)
 
         result_card, result_layout = _card("比較結果", host)
+        self.comparison_state_label = QLabel("プレビュー（未保存）", result_card)
+        set_typography_role(self.comparison_state_label, TypographyRole.SECONDARY)
+        result_layout.addWidget(self.comparison_state_label)
+        # Aligned metric rows (#586): scannable name/value pairs rather than
+        # a prose sentence, with no generic score.
+        self.comparison_metrics = QTableWidget(0, 2, result_card)
+        self.comparison_metrics.setHorizontalHeaderLabels(["指標", "値"])
+        self.comparison_metrics.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.comparison_metrics.verticalHeader().setVisible(False)
+        self.comparison_metrics.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.comparison_metrics.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.comparison_metrics.setMaximumHeight(150)
+        result_layout.addWidget(self.comparison_metrics)
         self.comparison_result = QLabel("比較未実行", result_card)
         self.comparison_result.setWordWrap(True)
         result_layout.addWidget(self.comparison_result)
@@ -1091,8 +1497,15 @@ class MeasurementPageWorkspace(QWidget):
         layout.addStretch(1)
         self.pages.addWidget(page)
 
-        self.measured_combo.currentIndexChanged.connect(self._preview_comparison_pair)
-        self.predicted_combo.currentIndexChanged.connect(self._preview_comparison_pair)
+        self.measured_combo.currentIndexChanged.connect(
+            self._comparison_selection_changed
+        )
+        self.predicted_combo.currentIndexChanged.connect(
+            self._comparison_selection_changed
+        )
+        self.comparison_history.itemSelectionChanged.connect(
+            self._history_selection_changed
+        )
 
     def _refresh_comparison_choices(self) -> None:
         measured = self.controller.comparison_candidates("measured")
@@ -1125,6 +1538,7 @@ class MeasurementPageWorkspace(QWidget):
 
         self._preview_comparison_pair()
         comparisons = self.controller.saved_comparisons()
+        self._saved_comparisons = comparisons
         self.comparison_history.setRowCount(len(comparisons))
         for row_index, comparison in enumerate(comparisons):
             rms = "—" if comparison.rms_difference_db is None else f"{comparison.rms_difference_db:.3f} dB"
@@ -1159,6 +1573,24 @@ class MeasurementPageWorkspace(QWidget):
             if index >= 0:
                 combo.setCurrentIndex(index)
         combo.blockSignals(False)
+
+    def _history_selection_changed(self) -> None:
+        """Selecting a saved comparison reloads its exact analysis (#586)."""
+        row_index = self.comparison_history.currentRow()
+        comparisons = getattr(self, "_saved_comparisons", ())
+        if not (0 <= row_index < len(comparisons)):
+            return
+        saved = comparisons[row_index]
+        self._last_comparison = saved
+        self.comparison_state_label.setText("保存済み比較")
+        self._show_comparison(saved)
+
+    def _comparison_selection_changed(self) -> None:
+        # Selector-driven preview is visibly distinct from a persisted
+        # comparison (#586): preview never poses as saved evidence.
+        self._last_comparison = None
+        self.comparison_state_label.setText("プレビュー（未保存）")
+        self._preview_comparison_pair()
 
     def _preview_comparison_pair(self) -> None:
         self.comparison_plot.clear()
@@ -1208,6 +1640,7 @@ class MeasurementPageWorkspace(QWidget):
             self._set_notice(f"比較できませんでした · {exc}", SemanticState.ERROR)
             return
         self._last_comparison = saved
+        self.comparison_state_label.setText("保存済み比較")
         self._show_comparison(saved)
         self._set_notice(
             "比較結果を保存しました。",
@@ -1219,10 +1652,23 @@ class MeasurementPageWorkspace(QWidget):
         rms = "—" if saved.rms_difference_db is None else f"{saved.rms_difference_db:.3f} dB"
         mean = "—" if saved.mean_difference_db is None else f"{saved.mean_difference_db:.3f} dB"
         shape = "—" if saved.shape_rms_db is None else f"{saved.shape_rms_db:.3f} dB"
+        metrics = (
+            ("RMS差", rms),
+            ("形状RMS", shape),
+            ("平均差", mean),
+            ("有効点", f"{saved.valid_points:,} / {saved.total_grid_points:,}"),
+            ("実帯域", _format_band(saved.actual_band_hz)),
+        )
+        self.comparison_metrics.setRowCount(len(metrics))
+        for row_index, (name, value) in enumerate(metrics):
+            self.comparison_metrics.setItem(row_index, 0, QTableWidgetItem(name))
+            value_item = QTableWidgetItem(value)
+            value_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            self.comparison_metrics.setItem(row_index, 1, value_item)
         self.comparison_result.setText(
-            f"有効点 {saved.valid_points:,} / {saved.total_grid_points:,} · "
-            f"平均差 {mean} · RMS差 {rms} · 形状RMS {shape}\n"
-            f"実帯域 {_format_band(saved.actual_band_hz)}"
+            f"実測 − 予測 · {saved.comparison_id}"
         )
         self.difference_plot.clear()
         self.difference_plot.plot(
@@ -1236,6 +1682,37 @@ class MeasurementPageWorkspace(QWidget):
             name="実測 − 予測",
         )
         self.difference_plot.enableAutoRange()
+        self._update_context_label()
+
+    def _update_context_label(self) -> None:
+        """Keep the persistent context header bound to the active selection."""
+        if self.current_context_id == "comparison":
+            saved = self._last_comparison
+            if saved is None:
+                self.context_label.setText("比較: プレビュー（未保存）")
+                return
+            self.context_label.setText(
+                f"保存済み比較 · {_format_band(saved.actual_band_hz)} · {saved.created_at}"
+            )
+            return
+        if self.current_context_id == "quality":
+            row_index = self.quality_table.currentRow()
+            if 0 <= row_index < len(self._quality_views):
+                row = self._quality_views[row_index]
+                self.context_label.setText(
+                    f"{_channel_role_label(row.channel_role)} · {row.target_name} · "
+                    f"{_evidence_label(row.evidence_type)} · "
+                    f"{'現在の配置' if row.scene_matches_current else '測定時の配置'} · "
+                    f"品質: {_quality_label(row.quality_status)}"
+                )
+                return
+        if self.current_context_id == "import":
+            pending = self.controller.pending_import
+            self.context_label.setText(
+                f"読み込み中: {pending.source_label}" if pending is not None else "測定未選択"
+            )
+            return
+        self.context_label.setText("測定未選択")
 
     # ------------------------------------------------------------------
 

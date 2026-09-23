@@ -659,7 +659,7 @@ def test_retake_button_guides_to_import_and_commit_records_lineage(tmp_path: Pat
         controller.stage_rew_text(b"20 70\n40 71\n80 69\n", "retake.txt")
         workspace.refresh()
         assert workspace.target_combo.currentData() == "point-mlp"
-        assert workspace.channel_combo.currentText() == "front_left"
+        assert workspace.channel_combo.currentData() == "front_left"
         workspace._commit_assignment()
 
         views = {row.measurement_id: row for row in controller.measurement_views()}
@@ -743,7 +743,7 @@ def test_measurement_workspace_is_page_based_and_shell_mountable(tmp_path: Path)
     workspace = mount.widget
     assert isinstance(workspace, MeasurementPageWorkspace)
     assert workspace.parent() is None
-    assert workspace.pages.count() == 4
+    assert workspace.pages.count() == 5
     assert workspace.findChildren(QDockWidget) == []
 
     assert mount.on_context_changed is not None

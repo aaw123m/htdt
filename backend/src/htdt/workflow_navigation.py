@@ -65,6 +65,7 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
     WorkspaceId.MEASUREMENT: (
         WorkspaceContext("import", "読み込み"),
         WorkspaceContext("assignment", "割り当て"),
+        WorkspaceContext("campaign", "キャンペーン"),
         WorkspaceContext("quality", "品質"),
         WorkspaceContext("comparison", "比較"),
     ),
