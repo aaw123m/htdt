@@ -1,0 +1,187 @@
+{
+  "schema_version": "r100b-mfem-finite-record-evidence-summary-1",
+  "issue": 180,
+  "pull_request": 199,
+  "recorded_date": "2026-09-19",
+  "fixture_id": "wave-concave-l-room-v1",
+  "outcome": "FAIL",
+  "qualification": "non_converged",
+  "promotion": {
+    "independent_reference_established": false,
+    "finest_trace_promoted": false,
+    "finest_trace_role": "raw_finest_unqualified_observation",
+    "central_reference_integration": false,
+    "reason": "Frozen transient MFEM refinement did not converge; no candidate/reference comparison may use the finest trace as truth."
+  },
+  "authority": {
+    "r100a_manifest_id": "r100a-canonical-v1",
+    "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+    "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+    "source_normalization": "volume_velocity_m3_s",
+    "source_record": "q[0]=1 m3/s; q[n>0]=0",
+    "source_t0": "sample_zero",
+    "record_interval": "[0,2 s)",
+    "solver_time_step_policy": "solver_native_recorded",
+    "harmonic_fourier_sign": "exp(-i*omega*t)",
+    "finite_record_dtft_kernel": "exp(+i*2*pi*f*n*dt)",
+    "finite_record_dtft_measure": "dt_weighted_sum",
+    "transfer": "P_T/Q_T",
+    "pressure_quantity": "physical p=rho*d(phi)/dt",
+    "density_kg_m3": 1.2,
+    "sound_speed_m_s": 343,
+    "geometry": "exact-five-hex-concave-L-prism",
+    "boundary": "rigid natural Neumann",
+    "source_position_m": [
+      1,
+      1,
+      1
+    ],
+    "receiver_position_m": [
+      5,
+      1,
+      1
+    ],
+    "window": "none",
+    "filter": "none",
+    "zero_padding": "none"
+  },
+  "solver": {
+    "candidate_id": "mfem-v4.10-d964264",
+    "mfem_version": "4.10.0",
+    "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "formulation": "M*phi_tt+c^2*K*phi=c^2*b*q",
+    "source_mapping": "phi_t(0+)=c^2*dt*M^-1*b*q[0]",
+    "integrator": "Newmark(beta=0.25,gamma=0.5)",
+    "algorithmic_damping": "none",
+    "linear_relative_tolerance": 1e-12,
+    "qualification_residual_limit": 1e-8
+  },
+  "refinement": {
+    "plan_frozen_before_results": true,
+    "kind": "coupled_h1_p_order_and_solver_native_dt",
+    "levels": [
+      {
+        "level_id": "p2-dt1over6000",
+        "order": 2,
+        "sample_rate_hz": 6000,
+        "dt_s": 0.00016666666666666666,
+        "sample_count": 12000,
+        "last_sample_time_s": 1.9998333333333334,
+        "elements": 5,
+        "ndofs": 99,
+        "solve_s": 0.9052959,
+        "source_mass_relative_residual": 3.3116973896286623e-13,
+        "max_implicit_relative_residual": 1.356191350887892e-12,
+        "raw_output_sha256": "c049287e12b89dfdea881883c9caa1c1e784e888daaa1fe6f85d8299e12087a3"
+      },
+      {
+        "level_id": "p3-dt1over8000",
+        "order": 3,
+        "sample_rate_hz": 8000,
+        "dt_s": 0.000125,
+        "sample_count": 16000,
+        "last_sample_time_s": 1.999875,
+        "elements": 5,
+        "ndofs": 256,
+        "solve_s": 5.4247721,
+        "source_mass_relative_residual": 2.8235638865652613e-13,
+        "max_implicit_relative_residual": 1.4222180553827145e-12,
+        "raw_output_sha256": "dc40e4426cb1ffa8961bb63a221910577795ce728c6aa7d7824ce48fab6ecf2e"
+      },
+      {
+        "level_id": "p4-dt1over10000",
+        "order": 4,
+        "sample_rate_hz": 10000,
+        "dt_s": 0.0001,
+        "sample_count": 20000,
+        "last_sample_time_s": 1.9999,
+        "elements": 5,
+        "ndofs": 525,
+        "solve_s": 28.5922535,
+        "source_mass_relative_residual": 8.95194124281782e-14,
+        "max_implicit_relative_residual": 1.4143243945573548e-12,
+        "raw_output_sha256": "74315c45182bfbdb58a68cb6dba5556c5c3c1fd0cd384fa0d2ee10a9c0dba442"
+      },
+      {
+        "level_id": "p5-dt1over12000",
+        "order": 5,
+        "sample_rate_hz": 12000,
+        "dt_s": 0.00008333333333333333,
+        "sample_count": 24000,
+        "last_sample_time_s": 1.9999166666666666,
+        "elements": 5,
+        "ndofs": 936,
+        "solve_s": 101.9493222,
+        "source_mass_relative_residual": 1.824607308140333e-13,
+        "max_implicit_relative_residual": 1.1025183195001105e-12,
+        "raw_output_sha256": "64fd030bfeba8c41ce8a6e07065e451ed4a5aaf594ab586c7d2f18b7b9d76276"
+      }
+    ],
+    "complex_rms_relative_sequence": [
+      1.4162720769581487,
+      1.0545476045220035,
+      1.23278716056076
+    ],
+    "complex_rms_relative_strictly_decreasing": false,
+    "final_pair": {
+      "coarse": "p4-dt1over10000",
+      "fine": "p5-dt1over12000",
+      "magnitude_max_abs_db": 35.08819531606021,
+      "magnitude_max_relative": 16.80364180532249,
+      "phase_max_error_deg": 179.72890333019876,
+      "magnitude_sample_count": 281,
+      "phase_sample_count": 281
+    },
+    "qualification_fraction_of_frozen_tolerance": 0.25,
+    "reference_qualification_limits": {
+      "magnitude_absolute_db": 0.1875,
+      "magnitude_relative": 0.0125,
+      "phase_deg": 2
+    },
+    "frozen_candidate_tolerances_unchanged": {
+      "magnitude_absolute_db": 0.75,
+      "magnitude_relative": 0.05,
+      "phase_deg": 8
+    }
+  },
+  "resources": {
+    "native_build_s": 559.4197363,
+    "fem_assembly_s": 0.1485029,
+    "solve_s": 136.8716437,
+    "postprocess_s": 2.464117799999997,
+    "peak_process_tree_ram_mb": 14.109375,
+    "work_disk_mb": 7.710732460021973,
+    "raw_output_mb": 7.710732460021973,
+    "probe_executable_mb": 7.10791015625
+  },
+  "provenance": {
+    "github_actions_run_id": 35439744627,
+    "github_actions_artifact_id": 10583118482,
+    "github_actions_artifact_zip_sha256": "aeb2a03966d5291b5ecfde520657d1d14ea385eb89b563f00d13214fdd80277c",
+    "artifact_json_sha256": "7e78bebe300c547718e77fa15e7accdbb7e18da1a88a10c68010761753a33f57",
+    "evidence_head_sha": "5033051dd19311a0133468bf8bb752290dc9b78b",
+    "github_actions_checkout_sha": "2831e0c47f6fc7af23bff9b7f063c2dc4b318f96",
+    "probe_cpp_sha256": "edae26636ee1bc27039eb6fb2d42aabba145e26ed667e9ed8d89abe237a5a928",
+    "probe_script_sha256": "f4e8e985c062d63089b751f3520f2fbf6364a83048cf04a843564064655d4f1b",
+    "probe_executable_sha256": "b9f7dee0a20013a1a401c1b192e0f62d3bc04b36fe394b64e1227a6ae54e86be",
+    "cmake_cache_sha256": "8b3093d312a009c46431120de4d73de596892db6231c49cf3d497c73b02fe3e8",
+    "dependency_versions": {
+      "python": "3.12.10",
+      "pydantic": "2.13.4",
+      "psutil": "7.2.2"
+    }
+  },
+  "hard_rule_attestation": {
+    "pffdtd_used_as_reference": false,
+    "pr154_harmonic_trace_promoted": false,
+    "tolerance_relaxed": false,
+    "artificial_damping_added": false,
+    "window_added": false,
+    "filter_added": false,
+    "steady_state_substituted_for_finite_record": false,
+    "production_solver_selected": false,
+    "r110_advanced": false,
+    "rdc_used": false
+  },
+  "interpretation": "MFEM v4.10 can represent and execute the R100A-4 finite-record quantity, so this is not a representation BLOCKED state. The frozen sequence produced valid raw finite-record observations but failed numerical convergence. The outcome is therefore FAIL/non-converged; no independent reference exists from this run."
+}

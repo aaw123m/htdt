@@ -1,0 +1,146 @@
+name: R100B MFEM GL2 Exact Four Substeps
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/htdt/acoustic_bakeoff_mfem_transient_experiment.py'
+      - 'backend/tests/test_acoustic_bakeoff_mfem_transient_experiment.py'
+      - 'benchmarks/acoustics/r100b_mfem_transient_experiment_plan.json'
+      - 'benchmarks/acoustics/r100b_mfem_modal_experiment_plan.json'
+      - 'benchmarks/acoustics/evidence/r100b_mfem_modal_2026-09-20.json'
+      - 'benchmarks/acoustics/mfem_probe/concave_finite_record.cpp'
+      - 'scripts/run_r100b_mfem_transient_experiment.py'
+      - 'scripts/run_r100b_mfem_modal_experiment.py'
+      - '.github/workflows/r100b-mfem-transient-experiment.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: r100b-mfem-transient-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-mfem-transient:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      PYTHONUTF8: '1'
+      PYTHONPATH: backend/src
+      MFEM_SHA: d964264cdb9a13e94a201b6c236c7721e0c8765f
+      EXPERIMENT_DIR: artifacts/r100b/mfem_transient
+      EXPERIMENT_REPORT: artifacts/r100b/mfem_transient/report.json
+      HTDT_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      HTDT_TASK_START_MAIN_SHA: c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96
+      HTDT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || 'c77b8b50d7e4f9706c08e64a1daa7a7a51e8ed96' }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install focused HTDT transient runtime
+        run: python -m pip install -e ".\\backend[dev]" psutil numpy==2.1.3 scipy==1.14.1
+
+      - name: Validate frozen transient experiment contract
+        run: python -m pytest backend\\tests\\test_acoustic_bakeoff_mfem_transient_experiment.py
+
+      - name: Preflight transient experiment runner
+        run: python -m py_compile scripts\\run_r100b_mfem_transient_experiment.py
+
+      - name: Checkout exact MFEM candidate
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'mfem-r100b-transient'
+          git clone --filter=blob:none https://github.com/mfem/mfem.git $root
+          git -C $root checkout --detach $env:MFEM_SHA
+          $actual = (git -C $root rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($actual -ne $env:MFEM_SHA) {
+            throw "MFEM checkout mismatch: $actual"
+          }
+          "MFEM_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure and build semidiscrete-system authority probe
+        shell: pwsh
+        run: |
+          $build = Join-Path $env:RUNNER_TEMP 'mfem-r100b-transient-build'
+          "MFEM_BUILD_DIR=$build" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $timer = [System.Diagnostics.Stopwatch]::StartNew()
+          cmake -S benchmarks\\acoustics\\mfem_probe -B $build -A x64 -DHTDT_MFEM_SOURCE_DIR="$env:MFEM_ROOT" -DMFEM_USE_EXCEPTIONS=ON
+          if ($LASTEXITCODE -ne 0) {
+            $timer.Stop()
+            "MFEM_RUNTIME_AVAILABLE=0" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BLOCK_REASON=MFEM v4.10 serial configure failed for transient experiment." | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BUILD_S=$($timer.Elapsed.TotalSeconds.ToString('R',[Globalization.CultureInfo]::InvariantCulture))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+          cmake --build $build --config Release --target r100b_mfem_concave_finite_record --parallel 4
+          $buildExit = $LASTEXITCODE
+          $timer.Stop()
+          "MFEM_BUILD_S=$($timer.Elapsed.TotalSeconds.ToString('R',[Globalization.CultureInfo]::InvariantCulture))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if ($buildExit -ne 0) {
+            "MFEM_RUNTIME_AVAILABLE=0" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BLOCK_REASON=MFEM semidiscrete export target build failed." | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+          $exe = Get-ChildItem -Path $build -Recurse -Filter 'r100b_mfem_concave_finite_record.exe' | Select-Object -First 1
+          if ($null -eq $exe) {
+            "MFEM_RUNTIME_AVAILABLE=0" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "MFEM_BLOCK_REASON=MFEM finite-record executable missing after successful build." | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
+          "MFEM_RUNTIME_AVAILABLE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MFEM_PROBE_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run predeclared exact four-substep transient experiment
+        if: env.MFEM_RUNTIME_AVAILABLE == '1'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:EXPERIMENT_DIR | Out-Null
+          $work = Join-Path $env:EXPERIMENT_DIR 'raw'
+          python scripts\\run_r100b_mfem_transient_experiment.py --manifest benchmarks\\acoustics\\r100a_manifest.json --candidates benchmarks\\acoustics\\r100b_candidates.json --plan benchmarks\\acoustics\\r100b_mfem_transient_experiment_plan.json --modal-plan benchmarks\\acoustics\\r100b_mfem_modal_experiment_plan.json --modal-evidence benchmarks\\acoustics\\evidence\\r100b_mfem_modal_2026-09-20.json --mfem-root $env:MFEM_ROOT --executable $env:MFEM_PROBE_EXE --work-dir $work --output $env:EXPERIMENT_REPORT --native-build-s $env:MFEM_BUILD_S
+
+      - name: Record setup/build BLOCKED experiment
+        if: env.MFEM_RUNTIME_AVAILABLE != '1'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:EXPERIMENT_DIR | Out-Null
+          $work = Join-Path $env:EXPERIMENT_DIR 'raw'
+          python scripts\\run_r100b_mfem_transient_experiment.py --manifest benchmarks\\acoustics\\r100a_manifest.json --candidates benchmarks\\acoustics\\r100b_candidates.json --plan benchmarks\\acoustics\\r100b_mfem_transient_experiment_plan.json --modal-plan benchmarks\\acoustics\\r100b_mfem_modal_experiment_plan.json --modal-evidence benchmarks\\acoustics\\evidence\\r100b_mfem_modal_2026-09-20.json --mfem-root $env:MFEM_ROOT --work-dir $work --output $env:EXPERIMENT_REPORT --native-build-s $env:MFEM_BUILD_S --blocked-reason "$env:MFEM_BLOCK_REASON"
+
+      - name: Show exact-four-substep experiment outcome
+        shell: pwsh
+        run: |
+          $report = Get-Content -Raw $env:EXPERIMENT_REPORT | ConvertFrom-Json
+          Write-Host "R100B_TRANSIENT_WORKFLOW=$($report.workflow_execution_status)"
+          Write-Host "R100B_TRANSIENT_OUTCOME=$($report.decision.outcome)"
+          Write-Host "R100B_NUMERICAL=$($report.decision.numerical_convergence_status)"
+          Write-Host "R100B_MODAL_AGREEMENT=$($report.decision.modal_reference_agreement_status)"
+          Write-Host "R100B_CURRENT_TOLERANCE=$($report.decision.current_r100a_tolerance_status)"
+          Write-Host "R100B_PRODUCTION_SUITABILITY=$($report.decision.production_suitability_status)"
+          Write-Host "R100B_PRODUCTION_ADOPTION=$($report.decision.production_adoption_decision)"
+          Write-Host "R100B_REPORT_IDENTITY=$($report.decision.deterministic_report_identity_sha256)"
+          Write-Host "R100B_SUBSTEPS_PER_OUTPUT=$($report.plan.integrator.substeps_per_output_interval)"
+          foreach ($attempt in $report.decision.attempt_results) {
+            Write-Host ("R100B_STEP_AUTHORITY=$($attempt.attempt_id) output_dt=$($attempt.output_interval_s) substeps=$($attempt.substeps_per_output_interval) internal_dt=$($attempt.internal_step_s) internal_steps=$($attempt.internal_step_count)")
+          }
+          foreach ($pair in $report.decision.pair_metrics) {
+            Write-Host ("R100B_PAIR=$($pair.coarse_attempt_id)->$($pair.fine_attempt_id) rms=$($pair.complex_rms_relative) mag_db=$($pair.magnitude_max_abs_db) mag_rel=$($pair.magnitude_max_relative) phase=$($pair.phase_max_error_deg)")
+          }
+          foreach ($pair in $report.decision.modal_reference_metrics) {
+            Write-Host ("R100B_MODAL_PAIR=$($pair.attempt_id)->$($pair.modal_attempt_id) rms=$($pair.complex_rms_relative) mag_db=$($pair.magnitude_max_abs_db) mag_rel=$($pair.magnitude_max_relative) phase=$($pair.phase_max_error_deg)")
+          }
+
+      - name: Upload immutable transient evidence bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: r100b-mfem-transient-experiment
+          path: artifacts/r100b/mfem_transient
+          if-no-files-found: error
+          retention-days: 90

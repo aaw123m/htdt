@@ -1,0 +1,98 @@
+{
+  "schema_version": "r100b-candidates-1",
+  "manifest_id": "htdt-issue-101-r100b-initial-candidates",
+  "researched_on": "2026-09-18",
+  "candidates": [
+    {
+      "candidate_id": "pffdtd-main-aa319f6",
+      "display_name": "PFFDTD upstream reuse/adapter evaluation",
+      "role": "wave_primary_evaluation",
+      "method_family": "fdtd",
+      "evaluation_scope": "shipping_candidate",
+      "upstream_url": "https://github.com/bsxfun/pffdtd",
+      "source_ref": "main",
+      "source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+      "source_evidence": "GitHub branch authority: refs/heads/main at aa319f6c86517cb95aabfae8656277da62c3ead5; upstream README documents 3D room FDTD, multithreaded CPU, CUDA, voxelization and frequency-dependent impedance boundaries.",
+      "license_spdx": "MIT",
+      "license_evidence": "https://github.com/bsxfun/pffdtd/blob/aa319f6c86517cb95aabfae8656277da62c3ead5/LICENSE",
+      "redistribution_status": "pass",
+      "redistribution_notes": "Pinned source carries MIT license. Transitive dependencies and any modified/redistributed binaries remain separately auditable at packaging time.",
+      "windows_packaging_status": "linux_upstream_port_required",
+      "windows_packaging_notes": "Upstream README explicitly targets Linux and uses make/HDF5 for C/CUDA builds. R100B must prove or reject a maintained native-Windows/portable adapter path before this candidate can pass the Windows hard gate.",
+      "cpu_path_status": "documented_upstream",
+      "gpu_path_status": "documented_upstream",
+      "required_representation": "voxel_grid",
+      "probe_capabilities": [
+        "wave_rigid",
+        "wave_impedance"
+      ],
+      "notes": [
+        "FDTD-first is evaluation order only; this entry is not a production selection.",
+        "CPU correctness is evaluated first. CUDA is optional acceleration and cannot be a correctness dependency.",
+        "Portal continuity is not claimed from upstream documentation and therefore is not in probe_capabilities."
+      ]
+    },
+    {
+      "candidate_id": "mfem-v4.10-d964264",
+      "display_name": "MFEM v4.10 acoustic FEM reference/alternative",
+      "role": "wave_reference",
+      "method_family": "fem",
+      "evaluation_scope": "shipping_candidate",
+      "upstream_url": "https://github.com/mfem/mfem",
+      "source_ref": "v4.10",
+      "source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+      "source_evidence": "GitHub annotated tag v4.10 resolves to commit d964264cdb9a13e94a201b6c236c7721e0c8765f; release published 2026-09-01.",
+      "license_spdx": "BSD-3-Clause",
+      "license_evidence": "https://github.com/mfem/mfem/blob/v4.10/LICENSE",
+      "redistribution_status": "pass",
+      "redistribution_notes": "Pinned MFEM source carries BSD-3-Clause. Optional third-party solver/mesher dependencies are not implicitly approved by this status.",
+      "windows_packaging_status": "documented_native",
+      "windows_packaging_notes": "MFEM documents CMake/Visual Studio Windows builds. The HTDT acoustic prototype and any optional dependency stack still require an actual GitHub Actions Windows package probe.",
+      "cpu_path_status": "documented_upstream",
+      "gpu_path_status": "probe_pending",
+      "required_representation": "volume_mesh",
+      "probe_capabilities": [
+        "portal_continuity",
+        "wave_impedance",
+        "wave_radiation_termination",
+        "wave_rigid"
+      ],
+      "notes": [
+        "Acts as the primary independent wave reference/production alternative in R100B.",
+        "A Gmsh/PETSc dependency is not assumed; exact meshing/linear-solver choices remain benchmark-gated.",
+        "Portal continuity probe permission was added with Issue #159; PR #160 fixture PASS is separate evidence and probe_capabilities alone never constitute PASS.",
+        "R100A-3 radiation-termination probe permission is added with Issue #163 only for the exact frozen Robin adapter; the capability declaration is not PASS evidence."
+      ]
+    },
+    {
+      "candidate_id": "pyroomacoustics-v0.10.1-f02b01d",
+      "display_name": "pyroomacoustics v0.10.1 geometric reference",
+      "role": "geometric_reference",
+      "method_family": "geometric",
+      "evaluation_scope": "reference_only",
+      "upstream_url": "https://github.com/LCAV/pyroomacoustics",
+      "source_ref": "v0.10.1",
+      "source_commit_sha": "f02b01dd6609709e2089aefa5d1e59c91d3a0601",
+      "source_evidence": "GitHub release v0.10.1 published 2026-05-01 resolves to commit f02b01dd6609709e2089aefa5d1e59c91d3a0601; release notes document the CMake build modernization and ray-tracing/directivity work inherited from v0.10.0.",
+      "license_spdx": "MIT",
+      "license_evidence": "https://github.com/LCAV/pyroomacoustics/blob/v0.10.1/LICENSE",
+      "redistribution_status": "pass",
+      "redistribution_notes": "Pinned release carries MIT license. R100B uses it as a reference first; a future shipping decision would separately re-evaluate wheel/native dependency packaging.",
+      "windows_packaging_status": "python_package_probe_pending",
+      "windows_packaging_notes": "v0.10.1 modernizes builds to pyproject/CMake/cibuildwheel, but HTDT has not yet proven its exact Python 3.12 Windows installation path in this bakeoff.",
+      "cpu_path_status": "documented_upstream",
+      "gpu_path_status": "unsupported",
+      "required_representation": "polyhedral_room",
+      "probe_capabilities": [
+        "geometric_specular",
+        "geometric_scattering",
+        "stochastic_rays"
+      ],
+      "notes": [
+        "Reference role only in R100B; it is not a low-frequency full-wave authority.",
+        "Probe capability permits evaluation but does not assert support for every HTDT obstacle/portal semantic.",
+        "Randomized ray evidence must bind its seed and convergence controls."
+      ]
+    }
+  ]
+}

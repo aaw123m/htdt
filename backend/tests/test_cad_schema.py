@@ -1,0 +1,637 @@
+from __future__ import annotations
+
+from pathlib import Path
+import sqlite3
+
+import pytest
+
+from htdt.cad_measurement_repository import CadMeasurementRepository
+from htdt.cad_repository import SceneRepository
+from htdt.cad_schema import (
+    NATIVE_SCHEMA_VERSION,
+    NativeSchemaError,
+    check_native_schema_compatibility,
+    read_native_schema_version,
+)
+from htdt.cad_scene import make_f1_scene
+
+
+# The exact CREATE TABLE DDL that pre-versioning (0.1.0-era) releases ran in
+# the native CAD database. Kept independent of htdt.cad_schema so the test
+# proves the adoption gate accepts the shapes real legacy releases produced.
+_LEGACY_DDL = (
+    '''CREATE TABLE scene_revisions (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        revision_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        parent_revision_id TEXT,
+        created_at_utc TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
+    )''',
+    '''CREATE TABLE scene_recovery_snapshots (
+        document_id TEXT PRIMARY KEY,
+        source_revision_id TEXT,
+        updated_at_utc TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        FOREIGN KEY(source_revision_id) REFERENCES scene_revisions(revision_id)
+    )''',
+    '''CREATE TABLE editor_view_states (
+        document_id TEXT PRIMARY KEY,
+        selected_id TEXT,
+        hidden_ids_json TEXT NOT NULL,
+        locked_ids_json TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL,
+        selected_ids_json TEXT NOT NULL DEFAULT '[]'
+    )''',
+    '''CREATE TABLE cad_adaptive_plans (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        search_spec_id TEXT NOT NULL,
+        validation_id TEXT NOT NULL,
+        execution_scope TEXT NOT NULL,
+        selected_candidate_id TEXT NOT NULL,
+        adaptive_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
+    )''',
+    '''CREATE TABLE cad_constraint_workspaces (
+        document_id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL,
+        updated_at_utc TEXT NOT NULL,
+        payload_json TEXT NOT NULL
+    )''',
+    '''CREATE TABLE cad_extended_model_capabilities (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        capability_id TEXT NOT NULL UNIQUE,
+        model_id TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        evidence_scope TEXT NOT NULL,
+        capability_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL
+    )''',
+    '''CREATE TABLE cad_extended_search_specs (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        extended_search_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        base_search_spec_id TEXT NOT NULL,
+        capability_id TEXT NOT NULL,
+        extended_search_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(base_search_spec_id)
+            REFERENCES cad_search_specs(search_spec_id),
+        FOREIGN KEY(capability_id)
+            REFERENCES cad_extended_model_capabilities(capability_id)
+    )''',
+    '''CREATE TABLE cad_measurement_assets (
+        sha256 TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL
+    )''',
+    '''CREATE TABLE cad_measurements (
+        measurement_id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL,
+        scene_revision_id TEXT NOT NULL REFERENCES scene_revisions(revision_id),
+        scene_content_hash TEXT NOT NULL,
+        measurement_entity_id TEXT NOT NULL,
+        measurement_position_json TEXT NOT NULL,
+        measurement_direction_json TEXT,
+        evidence_type TEXT NOT NULL,
+        channel_role TEXT NOT NULL,
+        source_speaker_ids_json TEXT NOT NULL,
+        radiation_scope TEXT NOT NULL,
+        routing_evidence TEXT NOT NULL,
+        captured_at TEXT,
+        imported_at TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        external_source_id TEXT,
+        quality_status TEXT NOT NULL,
+        quality_reasons_json TEXT NOT NULL,
+        quality_source TEXT NOT NULL,
+        provenance_json TEXT NOT NULL
+    )''',
+    '''CREATE TABLE cad_frequency_responses (
+        dataset_id TEXT PRIMARY KEY,
+        measurement_id TEXT NOT NULL UNIQUE REFERENCES cad_measurements(measurement_id),
+        frequency_blob BLOB NOT NULL,
+        level_blob BLOB NOT NULL,
+        phase_blob BLOB,
+        phase_status TEXT NOT NULL,
+        level_reference TEXT NOT NULL,
+        smoothing TEXT,
+        processing_json TEXT NOT NULL,
+        source_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
+        importer_version TEXT NOT NULL
+    )''',
+    '''CREATE TABLE cad_measurement_comparisons (
+        comparison_id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL,
+        dataset_a_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
+        dataset_b_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
+        scene_revision_a_id TEXT NOT NULL REFERENCES scene_revisions(revision_id),
+        scene_revision_b_id TEXT NOT NULL REFERENCES scene_revisions(revision_id),
+        created_at TEXT NOT NULL,
+        result_json TEXT NOT NULL
+    )''',
+    '''CREATE TABLE cad_measurement_plans (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        search_spec_id TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        applied_scene_revision_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        plan_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        FOREIGN KEY(applied_scene_revision_id) REFERENCES scene_revisions(revision_id)
+    )''',
+    '''CREATE TABLE cad_model_validations (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        validation_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        search_spec_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        recommendation_gate TEXT NOT NULL,
+        validation_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
+    )''',
+    '''CREATE TABLE cad_objective_evaluations (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        evaluation_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        scene_revision_id TEXT NOT NULL,
+        scene_content_hash TEXT NOT NULL,
+        search_spec_id TEXT NOT NULL,
+        search_spec_sha256 TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        evaluation_sha256 TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id),
+        FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
+    )''',
+    '''CREATE TABLE cad_pareto_sets (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        pareto_set_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        scene_revision_id TEXT NOT NULL,
+        scene_content_hash TEXT NOT NULL,
+        search_spec_id TEXT NOT NULL,
+        search_spec_sha256 TEXT NOT NULL,
+        pareto_sha256 TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id),
+        FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
+    )''',
+    '''CREATE TABLE cad_prediction_results (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        prediction_id TEXT NOT NULL UNIQUE,
+        run_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        scene_revision_id TEXT NOT NULL,
+        scene_content_hash TEXT NOT NULL,
+        constraint_workspace_hash TEXT,
+        model_id TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        result_kind TEXT NOT NULL,
+        geometry_compatibility TEXT NOT NULL,
+        parameters_json TEXT NOT NULL,
+        input_snapshot_json TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        submitted_at_utc TEXT NOT NULL,
+        completed_at_utc TEXT NOT NULL,
+        status TEXT NOT NULL,
+        assumptions_json TEXT NOT NULL,
+        warnings_json TEXT NOT NULL,
+        modes_json TEXT NOT NULL,
+        reflections_json TEXT NOT NULL,
+        FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id)
+    )''',
+    '''CREATE TABLE cad_roomsim_batch_specs (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_run_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        scene_revision_id TEXT NOT NULL,
+        scene_content_hash TEXT NOT NULL,
+        search_spec_id TEXT NOT NULL,
+        search_spec_sha256 TEXT NOT NULL,
+        candidate_set_sha256 TEXT NOT NULL,
+        batch_spec_sha256 TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id),
+        FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
+    )''',
+    '''CREATE TABLE cad_roomsim_candidate_attempts (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        attempt_id TEXT NOT NULL UNIQUE,
+        batch_run_id TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        attempt_index INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        attempt_sha256 TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        completed_at_utc TEXT NOT NULL,
+        UNIQUE(batch_run_id, candidate_id, attempt_index),
+        FOREIGN KEY(batch_run_id) REFERENCES cad_roomsim_batch_specs(batch_run_id)
+    )''',
+    '''CREATE TABLE cad_search_specs (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        search_spec_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        scene_revision_id TEXT NOT NULL,
+        scene_content_hash TEXT NOT NULL,
+        constraint_workspace_hash TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        search_spec_sha256 TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id)
+    )''',
+    '''CREATE TABLE cad_validation_campaigns (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        search_spec_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        candidate_set_sha256 TEXT NOT NULL,
+        campaign_sha256 TEXT NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL,
+        created_at_utc TEXT NOT NULL,
+        FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
+    )''',
+)
+
+
+def _create_database(path: Path, *statements: str) -> bytes:
+    with sqlite3.connect(path) as connection:
+        for statement in statements:
+            connection.execute(statement)
+    return path.read_bytes()
+
+
+def test_new_native_database_records_schema_version(tmp_path: Path) -> None:
+    path = tmp_path / 'cad.sqlite3'
+
+    repository = SceneRepository(path)
+    repository.save(make_f1_scene(), parent_revision_id=None)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            'SELECT schema_version, description '
+            'FROM native_schema_migrations ORDER BY schema_version'
+        ).fetchall()
+    assert rows == [
+        (1, 'adopt pre-versioned native CAD schema as baseline v1'),
+        (2, 'migrate native schema to v2'),
+        (3, 'migrate native schema to v3'),
+        (4, 'migrate native schema to v4'),
+        (5, 'migrate native schema to v5'),
+    ]
+
+
+def test_pre_versioned_native_database_is_adopted_without_rewriting_data(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'legacy.sqlite3'
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            '''CREATE TABLE editor_view_states (
+                document_id TEXT PRIMARY KEY,
+                selected_id TEXT,
+                hidden_ids_json TEXT NOT NULL,
+                locked_ids_json TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL
+            )'''
+        )
+        connection.execute(
+            'INSERT INTO editor_view_states VALUES (?, ?, ?, ?, ?)',
+            ('doc', 'speaker-fl', '[]', '[]', '2026-09-17T00:00:00+00:00'),
+        )
+
+    repository = SceneRepository(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+    state = repository.view_state('doc')
+    assert state is not None
+    assert state.selected_id == 'speaker-fl'
+
+
+def test_newer_native_schema_is_rejected_fail_closed(tmp_path: Path) -> None:
+    path = tmp_path / 'future.sqlite3'
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            '''CREATE TABLE native_schema_metadata (
+                singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                schema_version INTEGER NOT NULL
+            )'''
+        )
+        connection.execute(
+            'INSERT INTO native_schema_metadata(singleton, schema_version) VALUES (1, ?)',
+            (NATIVE_SCHEMA_VERSION + 1,),
+        )
+
+    with pytest.raises(NativeSchemaError, match='newer than this application'):
+        SceneRepository(path)
+
+
+def test_unversioned_unrelated_database_is_not_claimed_as_native(tmp_path: Path) -> None:
+    path = tmp_path / 'unrelated.sqlite3'
+    with sqlite3.connect(path) as connection:
+        connection.execute('CREATE TABLE unrelated(value TEXT NOT NULL)')
+
+    with pytest.raises(NativeSchemaError, match='unrelated tables'):
+        SceneRepository(path)
+
+
+def test_unversioned_database_with_only_unknown_cad_table_is_rejected(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'cad-only.sqlite3'
+    before = _create_database(
+        path,
+        'CREATE TABLE cad_notes(note TEXT NOT NULL)',
+        "INSERT INTO cad_notes VALUES ('not a htdt table')",
+    )
+
+    with pytest.raises(NativeSchemaError, match='unrelated tables'):
+        SceneRepository(path)
+
+    assert path.read_bytes() == before
+
+
+def test_unversioned_database_mixing_legacy_and_unknown_cad_tables_is_rejected(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'mixed.sqlite3'
+    before = _create_database(
+        path,
+        _LEGACY_DDL[0],
+        'CREATE TABLE cad_notes(note TEXT NOT NULL)',
+    )
+
+    with pytest.raises(NativeSchemaError, match='unrelated tables'):
+        SceneRepository(path)
+
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    'ddl',
+    (
+        # recognized name, missing required column
+        '''CREATE TABLE scene_revisions (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            revision_id TEXT NOT NULL UNIQUE,
+            document_id TEXT NOT NULL,
+            parent_revision_id TEXT,
+            created_at_utc TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
+        )''',
+        # recognized name, wrong column type
+        '''CREATE TABLE scene_revisions (
+            seq TEXT PRIMARY KEY,
+            revision_id TEXT NOT NULL UNIQUE,
+            document_id TEXT NOT NULL,
+            parent_revision_id TEXT,
+            created_at_utc TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
+        )''',
+        # recognized name, missing UNIQUE constraint
+        '''CREATE TABLE scene_revisions (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            revision_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            parent_revision_id TEXT,
+            created_at_utc TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
+        )''',
+        # recognized name, missing foreign key
+        '''CREATE TABLE scene_revisions (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            revision_id TEXT NOT NULL UNIQUE,
+            document_id TEXT NOT NULL,
+            parent_revision_id TEXT,
+            created_at_utc TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            payload_json TEXT NOT NULL
+        )''',
+        # recognized name, unexpected extra column
+        '''CREATE TABLE scene_revisions (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            revision_id TEXT NOT NULL UNIQUE,
+            document_id TEXT NOT NULL,
+            parent_revision_id TEXT,
+            created_at_utc TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            injected TEXT,
+            FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
+        )''',
+    ),
+    ids=(
+        'missing-column',
+        'wrong-column-type',
+        'missing-unique-constraint',
+        'missing-foreign-key',
+        'extra-column',
+    ),
+)
+def test_unversioned_recognized_table_with_wrong_shape_is_rejected(
+    tmp_path: Path,
+    ddl: str,
+) -> None:
+    path = tmp_path / 'malformed.sqlite3'
+    before = _create_database(path, ddl)
+
+    with pytest.raises(NativeSchemaError, match='pre-versioning signatures'):
+        SceneRepository(path)
+
+    assert path.read_bytes() == before
+
+
+def test_unversioned_database_missing_referenced_legacy_table_is_rejected(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'dangling-fk.sqlite3'
+    # cad_measurements only ever existed beside scene_revisions; a database
+    # containing the table without its foreign-key target is not adoptable.
+    before = _create_database(path, _LEGACY_DDL[8])
+
+    with pytest.raises(NativeSchemaError, match='missing referenced tables'):
+        SceneRepository(path)
+
+    assert path.read_bytes() == before
+
+
+def test_unversioned_database_with_only_migration_table_is_rejected(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'migrations-only.sqlite3'
+    before = _create_database(
+        path,
+        '''CREATE TABLE native_schema_migrations (
+            schema_version INTEGER PRIMARY KEY,
+            applied_at_utc TEXT NOT NULL,
+            description TEXT NOT NULL
+        )''',
+    )
+
+    with pytest.raises(NativeSchemaError, match='unrelated tables'):
+        SceneRepository(path)
+
+    assert path.read_bytes() == before
+
+
+def test_pre_versioned_database_with_full_legacy_table_set_is_adopted(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'legacy-full.sqlite3'
+    with sqlite3.connect(path) as connection:
+        for statement in _LEGACY_DDL:
+            connection.execute(statement)
+        connection.execute(
+            '''INSERT INTO scene_revisions(
+                revision_id, document_id, parent_revision_id,
+                created_at_utc, content_hash, payload_json
+            ) VALUES ('rev-1', 'doc-1', NULL, '2026-09-17T00:00:00+00:00', 'hash', '{}')'''
+        )
+
+    repository = SceneRepository(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+    revision = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    assert repository.get(revision.revision_id) is not None
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            'SELECT revision_id, content_hash FROM scene_revisions ORDER BY seq'
+        ).fetchall()
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+    assert rows[0] == ('rev-1', 'hash')
+    assert {'scene_revisions', 'cad_search_specs', 'cad_roomsim_candidate_attempts'} <= tables
+
+
+def test_pre_versioned_database_with_legacy_subset_is_adopted(tmp_path: Path) -> None:
+    path = tmp_path / 'legacy-subset.sqlite3'
+    _create_database(
+        path,
+        _LEGACY_DDL[0],
+        _LEGACY_DDL[1],
+        '''CREATE TABLE editor_view_states (
+            document_id TEXT PRIMARY KEY,
+            selected_id TEXT,
+            hidden_ids_json TEXT NOT NULL,
+            locked_ids_json TEXT NOT NULL,
+            updated_at_utc TEXT NOT NULL
+        )''',
+        _LEGACY_DDL[4],
+    )
+
+    SceneRepository(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+
+
+def test_unversioned_empty_database_is_adopted(tmp_path: Path) -> None:
+    path = tmp_path / 'empty.sqlite3'
+    _create_database(path, 'CREATE TABLE dropped(value TEXT)', 'DROP TABLE dropped')
+
+    SceneRepository(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+
+
+def test_check_native_schema_compatibility_rejects_unversioned_foreign_db(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'foreign.sqlite3'
+    before = _create_database(path, 'CREATE TABLE cad_notes(note TEXT NOT NULL)')
+
+    with pytest.raises(NativeSchemaError, match='unrelated tables'):
+        check_native_schema_compatibility(path)
+
+    assert path.read_bytes() == before
+
+
+def test_check_native_schema_compatibility_accepts_genuine_legacy_db(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / 'legacy.sqlite3'
+    _create_database(path, _LEGACY_DDL[0], _LEGACY_DDL[4])
+
+    assert check_native_schema_compatibility(path) == 0
+
+
+def test_legacy_prediction_table_with_lazy_result_identity_column_is_adopted(
+    tmp_path: Path,
+) -> None:
+    """result_sha256 is an optional lazy-migration column on legacy rows."""
+    path = tmp_path / 'legacy-predictions.sqlite3'
+    _create_database(
+        path,
+        _LEGACY_DDL[0],  # scene_revisions (foreign-key target)
+        _LEGACY_DDL[15],  # cad_prediction_results without result_sha256
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'ALTER TABLE cad_prediction_results ADD COLUMN result_sha256 TEXT'
+        )
+
+    assert check_native_schema_compatibility(path) == 0
+    SceneRepository(path)
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+
+
+def test_legacy_frequency_response_table_gains_lazy_identity_columns(
+    tmp_path: Path,
+) -> None:
+    """dataset_sha256/transformation_sha256 are optional lazy-migration columns.
+
+    A pre-versioning database may lack them entirely; adoption accepts the
+    table and ``CadMeasurementRepository`` then appends both lazily. Rows
+    written before the columns existed keep NULL and are non-authoritative.
+    """
+    path = tmp_path / 'legacy-fr.sqlite3'
+    _create_database(
+        path,
+        _LEGACY_DDL[0],  # scene_revisions (foreign-key target)
+        _LEGACY_DDL[7],  # cad_measurement_assets (foreign-key target)
+        _LEGACY_DDL[8],  # cad_measurements (foreign-key target)
+        _LEGACY_DDL[9],  # cad_frequency_responses without identity columns
+    )
+
+    assert check_native_schema_compatibility(path) == 0
+    scene_repository = SceneRepository(path)
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+
+    CadMeasurementRepository(scene_repository)
+    with sqlite3.connect(path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                'PRAGMA table_info(cad_frequency_responses)'
+            )
+        }
+    assert {'dataset_sha256', 'transformation_sha256'} <= columns

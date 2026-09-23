@@ -1,0 +1,78 @@
+# R100B MFEM spatial h-refinement experiment
+
+## Scope
+
+This document records the Issue #101 / R100B selection-changing MFEM spatial convergence slice for `wave-rectangular-convergence-v1`. HTDT-Capture, R130D, R140, R150, R160, R170, UX, and the shared implementation roadmap/status documents are out of scope.
+
+## Frozen authority
+
+- task-start `main`: `9e6066259ec58c093e9a7587550ccf907f28402f`
+- initial frozen-plan commit: `c181fb62993e5dcbff719feac02b013a0459d5d2`
+- final pre-result plan identity commit: `e4ac01664603bbfd9e761ebd15d2e530896a337e`
+- R100A manifest id: `htdt-issue-101-r100a-benchmark-authority`
+- R100A semantic hash: `a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7`
+- candidate: `mfem-v4.10-d964264`
+- MFEM source commit: `d964264cdb9a13e94a201b6c236c7721e0c8765f`
+- H1 order: 2
+- uniform refinements: exact 0 / 1 / 2
+- record: exact current R100A 2 s finite record
+- frequency grid: mechanically derived current R100A 20..300 Hz / 1 Hz grid
+- observable: finite-record complex `P_T(f)/Q_T(f)`
+- temporal integrator: PR #289 GL2 / Padé [2/2] identity
+- output sample rate: 12000 Hz
+- substeps per output interval: exact 4
+- adaptive stepping: false
+- result-driven masks/exclusions: false
+- geometry fitting / source-receiver shift / tolerance relaxation: false
+- h3 / p-order retry: false
+
+The temporal identity was strengthened after the initial plan-only commit but before any authoritative h0/h1/h2 numerical result was produced. The final pre-result content is therefore bound to the later plan identity commit above; the initial commit is retained for audit history.
+
+## Implementation
+
+The MFEM exporter builds the exact current R100A axis-aligned rectangular box and exports the H1 p2 semidiscrete mass/stiffness matrices plus source and receiver delta functionals for each predeclared refinement. Python then validates all non-spatial bindings, applies the same sparse SuperLU-backed fourth-order GL2 / Padé [2/2] propagation contract as PR #289, records the exact 95996 internal steps for the 2 s / 12000 Hz output record, computes direct scored-frequency DTFT `P_T/Q_T`, and evaluates current R100A monotonic complex-RMS convergence.
+
+Each refinement records element/DOF counts, mass/stiffness nnz, assembly and factorization times, stepping and total solve time, peak RSS, disk/output size, internal-step count, residual evidence, semidiscrete identity, and transfer identity. Resource overflow is fail-closed; no result-driven retry is permitted.
+
+Typed `BakeoffFixtureEvidence` is generated for the exact current authority binding. Admissibility is only reported PASS when the existing production-readiness resolver actually includes the new record in the target fixture check; constructing a syntactically valid record alone is not sufficient.
+
+## Acceptance
+
+The authority is current R100A `wave-rectangular-convergence-v1`:
+
+- acceptance relation: `monotonic_convergence`
+- final complex RMS absolute tolerance: 0.02
+- final complex RMS relative tolerance: 0.02
+- separate dB/phase gate: none
+
+The report also records adjacent `h0 -> h1` and `h1 -> h2` complex RMS absolute/relative metrics. R100A monotonic convergence remains evaluated against the finest representation, so error reduction is assessed as `h0 vs h2` compared with `h1 vs h2`.
+
+## Decision separation
+
+The authoritative report keeps these independent:
+
+- workflow execution
+- spatial numerical convergence
+- current R100A fixture tolerance
+- resource suitability
+- typed evidence admissibility
+- candidate-wide readiness
+- production solver selection
+
+An experiment PASS is not production adoption. `production_solver_selected=false` is invariant.
+
+## Evidence status
+
+Authoritative numerical evidence is produced only by `.github/workflows/r100b-mfem-spatial-refinement.yml`. The final run id, artifact id/digest, refinement metrics, resources, readiness before/after, and final decision are appended after the successful authoritative workflow completes.
+
+## Authoritative result
+
+The authoritative GitHub Actions run was `35546506102` (job `106173302135`) at implementation head `fae8fbc5647cdae0f9fe6a3192d2c61e6968f95a`. Artifact `10616154340` has digest `sha256:faab6d2d373c348f0a279faa1f50e433ad0d0353614720f4fde73e99c56ee644`; deterministic report identity is `580a1e6a1bcc227ad960b6a54bc982f7b306757a0058f193ba17be20216a3690`.
+
+All three predeclared numerical levels completed without retry: h0 = 1 element / 27 DOFs, h1 = 8 / 125, h2 = 64 / 729. Mass/stiffness nnz are 729 / 729, 4913 / 4913, and 35937 / 35937. Every level executed exactly 95996 internal GL2 steps. Total solve times were 2.2196305 s, 7.5214398 s, and 77.3274416 s; peak RSS was 77.890625 MiB, 79.890625 MiB, and 96.1796875 MiB. Maximum checked internal-step residuals remained below 4.4e-15.
+
+Adjacent complex RMS changed from h0→h1 = 634.3778133296515 absolute / 1.1124181783263547 relative to h1→h2 = 2051.501589723451 / 1.0371906979821301. Against the finest h2 representation, h0 error is 1997.3399296377147 / 1.009807843243144 and h1 error is 2051.501589723451 / 1.0371906979821295, so current R100A monotonic convergence fails. The final h1→h2 values also exceed the current R100A 0.02 absolute / 0.02 relative tolerance by orders of magnitude.
+
+Resource evidence is fail-closed. The three numerical solves themselves remain within the predeclared 300 s per-refinement ceiling, but the full pinned MFEM candidate build took 878.4277483 s versus the current R100A 60 s compile budget; therefore resource suitability is BLOCKED. Canonical R100B semantics preserve the executed physics result as typed fixture FAIL rather than overwriting it with BLOCKED; a numerical PASS would still be prevented from becoming typed PASS while resources are over budget.
+
+Decision separation: workflow execution PASS; spatial numerical convergence FAIL; current R100A fixture tolerance FAIL; resource suitability BLOCKED; typed evidence admissibility PASS; candidate-wide readiness NO_GO before and after; production solver selection false; overall experiment outcome FAIL. The exact current-authority FAIL record is persisted in `benchmarks/acoustics/evidence/r100b_mfem_spatial_refinement_2026-09-21.json` and in the production-adoption evidence ledger; resource BLOCKED remains separately recorded.

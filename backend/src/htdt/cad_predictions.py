@@ -1,0 +1,439 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from math import isclose
+from uuid import uuid4
+
+from .acoustics import ACOUSTICS_ALGORITHM_VERSION, first_order_reflections, rectangular_room_modes
+from .cad_prediction_models import (
+    CadPredictionResult,
+    CadPredictedReflection,
+    CadPredictedRoomMode,
+    PredictionGeometryCompatibility,
+    canonical_prediction_json,
+    prediction_input_hash,
+    prediction_result_sha256,
+)
+from .cad_repository import SceneRevision
+from .cad_scene import (
+    Position3,
+    RoomPrism,
+    SceneEntity,
+    acoustic_reference_position,
+    room_vertices,
+)
+
+
+RECTANGULAR_GEOMETRY_MODEL_ID = 'htdt.rectangular_geometry'
+RECTANGULAR_GEOMETRY_MODEL_VERSION = ACOUSTICS_ALGORITHM_VERSION
+RECTANGULAR_GEOMETRY_ASSUMPTIONS = (
+    'rectangular_room',
+    'point_source_geometry',
+    'modal_frequency_only_amplitude_and_damping_not_modelled',
+    'specular_first_order_reflection_geometry',
+    'reflection_amplitude_and_phase_not_modelled',
+    'speaker_directivity_not_modelled',
+    'candidate_frequencies_are_not_measured_diagnoses',
+)
+
+
+@dataclass(frozen=True)
+class RectangularRoomFrame:
+    origin_x_m: float
+    origin_y_m: float
+    width_m: float
+    depth_m: float
+    height_m: float
+
+
+def exact_rectangular_room_frame(room: RoomPrism, *, tolerance: float = 1e-9) -> RectangularRoomFrame | None:
+    """Return an axis-aligned rectangular frame without silently approximating polygon rooms."""
+
+    if room.footprint_vertices is None:
+        return RectangularRoomFrame(0.0, 0.0, room.width_m, room.depth_m, room.height_m)
+
+    vertices = room_vertices(room)
+    if len(vertices) != 4:
+        return None
+    min_x, min_y, max_x, max_y = room.bounds_m
+    expected = (
+        (min_x, min_y),
+        (max_x, min_y),
+        (max_x, max_y),
+        (min_x, max_y),
+    )
+    actual = tuple((vertex.x_m, vertex.y_m) for vertex in vertices)
+    for corner in expected:
+        if not any(
+            isclose(corner[0], point[0], abs_tol=tolerance, rel_tol=0.0)
+            and isclose(corner[1], point[1], abs_tol=tolerance, rel_tol=0.0)
+            for point in actual
+        ):
+            return None
+    return RectangularRoomFrame(min_x, min_y, max_x - min_x, max_y - min_y, room.height_m)
+
+
+def _position_payload(position: Position3 | None) -> dict[str, float] | None:
+    return None if position is None else position.model_dump(mode='json')
+
+
+def _local_position(position: Position3, frame: RectangularRoomFrame) -> tuple[float, float, float]:
+    return (
+        position.x_m - frame.origin_x_m,
+        position.y_m - frame.origin_y_m,
+        position.z_m,
+    )
+
+
+def _inside_frame(position: Position3, frame: RectangularRoomFrame, *, tolerance: float = 1e-9) -> bool:
+    return (
+        frame.origin_x_m - tolerance <= position.x_m <= frame.origin_x_m + frame.width_m + tolerance
+        and frame.origin_y_m - tolerance <= position.y_m <= frame.origin_y_m + frame.depth_m + tolerance
+        and -tolerance <= position.z_m <= frame.height_m + tolerance
+    )
+
+
+def _surface_identities(revision: SceneRevision, frame: RectangularRoomFrame) -> dict[str, str]:
+    room = revision.document.room
+    if room is None:
+        return {}
+    identities = {
+        'left_x0': f'room:{room.room_id}:left',
+        'right_xW': f'room:{room.room_id}:right',
+        'front_y0': f'room:{room.room_id}:front',
+        'rear_yD': f'room:{room.room_id}:rear',
+        'floor_z0': f'room:{room.room_id}:floor',
+        'ceiling_zH': f'room:{room.room_id}:ceiling',
+    }
+    topology = revision.document.wall_topology
+    if topology is None:
+        return identities
+
+    vertices = {vertex.vertex_id: vertex for vertex in room_vertices(room)}
+    matches: dict[str, list[str]] = {key: [] for key in ('left_x0', 'right_xW', 'front_y0', 'rear_yD')}
+    min_x = frame.origin_x_m
+    max_x = frame.origin_x_m + frame.width_m
+    min_y = frame.origin_y_m
+    max_y = frame.origin_y_m + frame.depth_m
+    for wall in topology.walls:
+        start = vertices.get(wall.from_vertex_id)
+        end = vertices.get(wall.to_vertex_id)
+        if start is None or end is None:
+            continue
+        if isclose(start.x_m, min_x, abs_tol=1e-9) and isclose(end.x_m, min_x, abs_tol=1e-9):
+            matches['left_x0'].append(wall.wall_id)
+        elif isclose(start.x_m, max_x, abs_tol=1e-9) and isclose(end.x_m, max_x, abs_tol=1e-9):
+            matches['right_xW'].append(wall.wall_id)
+        elif isclose(start.y_m, min_y, abs_tol=1e-9) and isclose(end.y_m, min_y, abs_tol=1e-9):
+            matches['front_y0'].append(wall.wall_id)
+        elif isclose(start.y_m, max_y, abs_tol=1e-9) and isclose(end.y_m, max_y, abs_tol=1e-9):
+            matches['rear_yD'].append(wall.wall_id)
+    for key, wall_ids in matches.items():
+        if wall_ids:
+            identities[key] = 'wall:' + ','.join(sorted(wall_ids))
+    return identities
+
+
+@dataclass(frozen=True)
+class RectangularGeometryModelInput:
+    """Canonical rectangular-geometry request compiled from one exact SceneRevision."""
+
+    parameters_json: str
+    input_snapshot_json: str
+    input_hash: str
+    geometry_compatibility: PredictionGeometryCompatibility
+    receiver_position: Position3
+    frame: RectangularRoomFrame | None
+    speaker_references: tuple[tuple[SceneEntity, Position3], ...]
+    surface_identities: dict[str, str]
+
+
+def rectangular_geometry_model_input(
+    revision: SceneRevision,
+    receiver_entity_id: str,
+    *,
+    max_mode_hz: float = 300.0,
+    sound_speed_m_s: float = 343.0,
+) -> RectangularGeometryModelInput:
+    """Compile the canonical rectangular-geometry request for one exact SceneRevision.
+
+    Single request-compilation authority shared by the prediction analyzer, the
+    request-identity builder and persistence-boundary input replay.
+    """
+
+    room = revision.document.room
+    if room is None:
+        raise ValueError('prediction requires a room')
+    receiver_entity = revision.document.entity(receiver_entity_id)
+    receiver = acoustic_reference_position(receiver_entity)
+    if receiver is None:
+        raise ValueError('receiver entity has no acoustic reference position')
+
+    parameters_json = canonical_prediction_json(
+        {'max_mode_hz': float(max_mode_hz), 'sound_speed_m_s': float(sound_speed_m_s)}
+    )
+    speaker_inputs: list[dict[str, object]] = []
+    speaker_references: list[tuple[SceneEntity, Position3]] = []
+    for entity in revision.document.entities:
+        if entity.kind != 'speaker':
+            continue
+        reference = acoustic_reference_position(entity)
+        speaker_inputs.append(
+            {
+                'entity_id': entity.entity_id,
+                'speaker_role': entity.speaker_role,
+                'acoustic_reference_position': _position_payload(reference),
+            }
+        )
+        if reference is not None:
+            speaker_references.append((entity, reference))
+
+    frame = exact_rectangular_room_frame(room)
+    if frame is None:
+        input_snapshot_json = canonical_prediction_json(
+            {
+                'room': room.model_dump(mode='json'),
+                'receiver_entity_id': receiver_entity_id,
+                'receiver_position': _position_payload(receiver),
+                'speakers': speaker_inputs,
+                'approximation_rule': None,
+            }
+        )
+        return RectangularGeometryModelInput(
+            parameters_json=parameters_json,
+            input_snapshot_json=input_snapshot_json,
+            input_hash=prediction_input_hash(input_snapshot_json),
+            geometry_compatibility='unsupported',
+            receiver_position=receiver,
+            frame=None,
+            speaker_references=tuple(speaker_references),
+            surface_identities={},
+        )
+
+    if not _inside_frame(receiver, frame):
+        raise ValueError('receiver acoustic reference is outside the rectangular room')
+    surface_identities = _surface_identities(revision, frame)
+    input_snapshot_json = canonical_prediction_json(
+        {
+            'room_frame': {
+                'origin_x_m': frame.origin_x_m,
+                'origin_y_m': frame.origin_y_m,
+                'width_m': frame.width_m,
+                'depth_m': frame.depth_m,
+                'height_m': frame.height_m,
+            },
+            'receiver_entity_id': receiver_entity_id,
+            'receiver_position': _position_payload(receiver),
+            'speakers': speaker_inputs,
+            'surface_identities': surface_identities,
+            'approximation_rule': None,
+        }
+    )
+    return RectangularGeometryModelInput(
+        parameters_json=parameters_json,
+        input_snapshot_json=input_snapshot_json,
+        input_hash=prediction_input_hash(input_snapshot_json),
+        geometry_compatibility='exact_for_model_geometry',
+        receiver_position=receiver,
+        frame=frame,
+        speaker_references=tuple(speaker_references),
+        surface_identities=surface_identities,
+    )
+
+
+def _make_result(
+    *,
+    run_id: str,
+    revision: SceneRevision,
+    result_kind: str,
+    compatibility: str,
+    parameters_json: str,
+    input_snapshot_json: str,
+    submitted_at_utc: str,
+    completed_at_utc: str,
+    constraint_workspace_hash: str | None,
+    warnings: tuple[str, ...],
+    modes: tuple[CadPredictedRoomMode, ...] = (),
+    reflections: tuple[CadPredictedReflection, ...] = (),
+) -> CadPredictionResult:
+    fields = {
+        'prediction_id': str(uuid4()),
+        'run_id': run_id,
+        'document_id': revision.document_id,
+        'scene_revision_id': revision.revision_id,
+        'scene_content_hash': revision.content_hash,
+        'constraint_workspace_hash': constraint_workspace_hash,
+        'model_id': RECTANGULAR_GEOMETRY_MODEL_ID,
+        'model_version': RECTANGULAR_GEOMETRY_MODEL_VERSION,
+        'result_kind': result_kind,
+        'geometry_compatibility': compatibility,
+        'parameters_json': parameters_json,
+        'input_snapshot_json': input_snapshot_json,
+        'input_hash': prediction_input_hash(input_snapshot_json),
+        'submitted_at_utc': submitted_at_utc,
+        'completed_at_utc': completed_at_utc,
+        'assumptions': RECTANGULAR_GEOMETRY_ASSUMPTIONS,
+        'warnings': warnings,
+        'modes': modes,
+        'reflections': reflections,
+    }
+    # Seal the result with its versioned output identity: ``result_sha256``
+    # commits to every semantic field (and only those — storage ids and
+    # timestamps are excluded), so two honest runs of the same model input
+    # produce the same output identity.
+    provisional = CadPredictionResult.model_construct(result_sha256='0' * 64, **fields)
+    return CadPredictionResult(
+        result_sha256=prediction_result_sha256(provisional.result_identity_payload()),
+        **fields,
+    )
+
+
+def analyze_native_rectangular_geometry(
+    revision: SceneRevision,
+    receiver_entity_id: str,
+    *,
+    max_mode_hz: float = 300.0,
+    sound_speed_m_s: float = 343.0,
+    constraint_workspace_hash: str | None = None,
+) -> tuple[CadPredictionResult, CadPredictionResult]:
+    """Run the existing rectangular geometry model against one exact native revision."""
+
+    model_input = rectangular_geometry_model_input(
+        revision,
+        receiver_entity_id,
+        max_mode_hz=max_mode_hz,
+        sound_speed_m_s=sound_speed_m_s,
+    )
+    parameters_json = model_input.parameters_json
+    input_snapshot_json = model_input.input_snapshot_json
+    run_id = str(uuid4())
+    submitted_at = datetime.now(timezone.utc).isoformat()
+
+    frame = model_input.frame
+    if frame is None:
+        completed_at = datetime.now(timezone.utc).isoformat()
+        warnings = ('rectangular_geometry_model_requires_axis_aligned_rectangular_room',)
+        return (
+            _make_result(
+                run_id=run_id,
+                revision=revision,
+                result_kind='geometry_modes',
+                compatibility='unsupported',
+                parameters_json=parameters_json,
+                input_snapshot_json=input_snapshot_json,
+                submitted_at_utc=submitted_at,
+                completed_at_utc=completed_at,
+                constraint_workspace_hash=constraint_workspace_hash,
+                warnings=warnings,
+            ),
+            _make_result(
+                run_id=run_id,
+                revision=revision,
+                result_kind='geometry_reflections',
+                compatibility='unsupported',
+                parameters_json=parameters_json,
+                input_snapshot_json=input_snapshot_json,
+                submitted_at_utc=submitted_at,
+                completed_at_utc=completed_at,
+                constraint_workspace_hash=constraint_workspace_hash,
+                warnings=warnings,
+            ),
+        )
+
+    receiver = model_input.receiver_position
+    surface_identities = model_input.surface_identities
+
+    modes = tuple(
+        CadPredictedRoomMode(
+            n_x=mode.n_x,
+            n_y=mode.n_y,
+            n_z=mode.n_z,
+            frequency_hz=mode.frequency_hz,
+            mode_class=mode.mode_class,
+        )
+        for mode in rectangular_room_modes(
+            frame.width_m,
+            frame.depth_m,
+            frame.height_m,
+            max_hz=max_mode_hz,
+            sound_speed_m_s=sound_speed_m_s,
+        )
+    )
+
+    warnings: list[str] = []
+    reflections: list[CadPredictedReflection] = []
+    for entity, source in model_input.speaker_references:
+        if not _inside_frame(source, frame):
+            warnings.append(f'speaker_acoustic_reference_outside_room:{entity.entity_id}')
+            continue
+        local_source = _local_position(source, frame)
+        local_receiver = _local_position(receiver, frame)
+        for candidate in first_order_reflections(
+            frame.width_m,
+            frame.depth_m,
+            frame.height_m,
+            local_source,
+            local_receiver,
+            speaker_id=entity.entity_id,
+            speaker_role=str(entity.speaker_role),
+            sound_speed_m_s=sound_speed_m_s,
+        ):
+            point = Position3(
+                x_m=candidate.reflection_point_m[0] + frame.origin_x_m,
+                y_m=candidate.reflection_point_m[1] + frame.origin_y_m,
+                z_m=candidate.reflection_point_m[2],
+            )
+            reflections.append(
+                CadPredictedReflection(
+                    speaker_entity_id=entity.entity_id,
+                    speaker_role=str(entity.speaker_role),
+                    surface_key=candidate.surface,
+                    surface_identity=surface_identities[candidate.surface],
+                    reflection_position=point,
+                    source_position=source,
+                    receiver_position=receiver,
+                    direct_length_m=candidate.direct_length_m,
+                    reflected_length_m=candidate.reflected_length_m,
+                    excess_length_m=candidate.excess_length_m,
+                    excess_delay_ms=candidate.excess_delay_ms,
+                    first_destructive_hz=candidate.first_destructive_hz,
+                )
+            )
+    referenced = {entity.entity_id for entity, _source in model_input.speaker_references}
+    missing = [
+        entity.entity_id
+        for entity in revision.document.entities
+        if entity.kind == 'speaker' and entity.entity_id not in referenced
+    ]
+    warnings.extend(f'speaker_acoustic_reference_unknown:{entity_id}' for entity_id in missing)
+    completed_at = datetime.now(timezone.utc).isoformat()
+    warning_tuple = tuple(dict.fromkeys(warnings))
+    return (
+        _make_result(
+            run_id=run_id,
+            revision=revision,
+            result_kind='geometry_modes',
+            compatibility='exact_for_model_geometry',
+            parameters_json=parameters_json,
+            input_snapshot_json=input_snapshot_json,
+            submitted_at_utc=submitted_at,
+            completed_at_utc=completed_at,
+            constraint_workspace_hash=constraint_workspace_hash,
+            warnings=warning_tuple,
+            modes=modes,
+        ),
+        _make_result(
+            run_id=run_id,
+            revision=revision,
+            result_kind='geometry_reflections',
+            compatibility='exact_for_model_geometry',
+            parameters_json=parameters_json,
+            input_snapshot_json=input_snapshot_json,
+            submitted_at_utc=submitted_at,
+            completed_at_utc=completed_at,
+            constraint_workspace_hash=constraint_workspace_hash,
+            warnings=warning_tuple,
+            reflections=tuple(reflections),
+        ),
+    )

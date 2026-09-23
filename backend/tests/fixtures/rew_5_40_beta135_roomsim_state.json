@@ -1,0 +1,119 @@
+{
+  "absorptions": {
+    "back": 0.1,
+    "ceiling": 0.1,
+    "floor": 0.05,
+    "front": 0.1,
+    "left": 0.1,
+    "right": 0.1
+  },
+  "head_position": {
+    "fromFloor": 1.0,
+    "fromLeft": 2.0,
+    "fromRear": 1.9,
+    "unit": "metres"
+  },
+  "mic_positions": [
+    "Main",
+    "To left",
+    "To right",
+    "In front",
+    "Behind",
+    "Above",
+    "Below"
+  ],
+  "mic_posn_offsets": {
+    "above": 0.3,
+    "behind": 0.3,
+    "below": 0.3,
+    "inFront": 0.3,
+    "left": 0.3,
+    "right": 0.3,
+    "unit": "metres"
+  },
+  "options": {
+    "alignSubsIndividually": false,
+    "crossoverFrequencyHz": 80,
+    "showAnechoicResponses": false,
+    "subsDelayms": 0,
+    "subsHaveSameDelay": false,
+    "timeAlignSpeakersAndSubs": true,
+    "useCrossoverFilter": true
+  },
+  "room_is_sealed": false,
+  "room_size": {
+    "height": 2.4,
+    "length": 5.0,
+    "unit": "metres",
+    "width": 4.0
+  },
+  "sources": {
+    "active": [
+      "Sub1",
+      "Left",
+      "Right"
+    ],
+    "details": {
+      "Left": {
+        "configuration": {
+          "delayms": 0,
+          "enclosureType": "Sealed",
+          "gaindB": 0,
+          "invert": false,
+          "lfMinus3dBHz": 80
+        },
+        "position": {
+          "fromFloor": 1.0,
+          "fromLeft": 1.0,
+          "fromRear": 4.0,
+          "unit": "metres"
+        }
+      },
+      "Right": {
+        "configuration": {
+          "delayms": 0,
+          "enclosureType": "Sealed",
+          "gaindB": 0,
+          "invert": false,
+          "lfMinus3dBHz": 80
+        },
+        "position": {
+          "fromFloor": 1.0,
+          "fromLeft": 3.0,
+          "fromRear": 4.0,
+          "unit": "metres"
+        }
+      },
+      "Sub1": {
+        "configuration": {
+          "delayms": 0,
+          "enclosureType": "Ported",
+          "gaindB": 0,
+          "invert": false,
+          "lfMinus3dBHz": 30
+        },
+        "position": {
+          "fromFloor": 0.15,
+          "fromLeft": 0.15,
+          "fromRear": 4.7,
+          "unit": "metres"
+        }
+      }
+    },
+    "recognized": [
+      "Left",
+      "Right",
+      "Sub1",
+      "Sub2",
+      "Sub3",
+      "Sub4",
+      "Sub5",
+      "Sub6",
+      "Sub7",
+      "Sub8"
+    ]
+  },
+  "version": {
+    "message": "5.40 Beta 135 API 0.9.8"
+  }
+}

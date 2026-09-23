@@ -1,0 +1,29 @@
+# Issue #167 representative imperfect raw visual mesh fixture.
+# Deliberately contains an open sheet, duplicate/coplanar overlap,
+# a non-manifold edge, a tiny sliver, and a separate inward tetrahedron.
+v 0 0 0
+v 2 0 0
+v 2 2 0
+v 0 2 0
+f 1 2 3
+f 1 3 4
+f 1 2 3
+v 0.5 0.2 0
+v 1.8 0.2 0
+v 0.5 1.5 0
+f 5 6 7
+v 1 0 1
+f 1 2 8
+v 5 0 0
+v 5.000000001 0 0
+v 5 0.000000000000001 0
+f 9 10 11
+# Closed tetrahedron with every face wound inward.
+v 10 0 0
+v 11 0 0
+v 10 1 0
+v 10 0 1
+f 12 13 14
+f 12 15 13
+f 12 14 15
+f 13 15 14

@@ -1,0 +1,495 @@
+{
+  "schema_version": "htdt.r130d.general3d-self-convergence-run-summary-1",
+  "source": {
+    "workflow_run_id": 35513920639,
+    "workflow_run_number": 25,
+    "workflow_name": "R130D Independent General-3D Validation",
+    "artifact_id": 10606905738,
+    "artifact_name": "r130d-independent-general3d-validation",
+    "artifact_digest_sha256": "a6e1117b52d6827287dcc6d6339b251913822642158329da18c75b0455db4006",
+    "full_evidence_semantic_sha256": "aab68a65a7d5c40e5477c71e9efd6898b0672febb9a8d74c7cd69b8973798e20",
+    "repository_head": "f9802da57f47d6fa64961014de509350092e49bf"
+  },
+  "plan": {
+    "plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+    "plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+    "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+    "fixture_sha256": "b846084627eb266d174e8412b5737b8691bbc279ff21e066c48dc61ded1d72c3",
+    "physical_quantity": {
+      "quantity": "finite_record_complex_acoustic_pressure_per_volume_velocity",
+      "unit": "Pa/(m3/s)",
+      "record_interval": "[0,T)",
+      "duration_s": 0.25,
+      "frequency_hz": [
+        40,
+        80
+      ],
+      "phasor_convention": "exp(-i*omega*t)",
+      "analysis_fourier_kernel": "exp(+i*omega*t)",
+      "source_contract": "discrete unit volume-velocity impulse q[0]=1 m3/s; q[n>0]=0; compare P_T/Q_T",
+      "pffdtd_artifact_normalization": "divide stored absolute complex pressure by the exact complex AcousticWaveExcitationAuthority Q(f) before comparison",
+      "mfem_initial_condition": "phi(0)=0; phi_t(0+)=c^2*dt*M^-1*b*q0",
+      "pressure_conversion": "p=rho*d(phi)/dt; full-basis modal reconstruction evaluates rho*r^T*phi_t",
+      "normalization_claim": "Both solvers are compared as finite-record P_T/Q_T for the same point volume-velocity impulse contract and the same exact source/receiver coordinates; 40/80 Hz are record-coherent at T=0.25 s; no taper, fitted scale, phase offset, or frequency shift is permitted.",
+      "window_function": "rectangular_no_taper",
+      "frequency_bin_policy": "record_coherent_integer_cycles",
+      "source_normalization": "unit discrete volume-velocity impulse",
+      "receiver_observable": "point acoustic pressure",
+      "geometry_units": "m"
+    },
+    "acceptance": {
+      "magnitude_mask_relative_db": -50,
+      "reference_self_convergence": {
+        "complex_rms_relative_max": 0.05,
+        "magnitude_max_relative": 0.08,
+        "phase_max_deg": 5
+      },
+      "pffdtd_self_convergence": {
+        "complex_rms_relative_max": 0.2,
+        "magnitude_max_relative": 0.25,
+        "phase_max_deg": 15
+      },
+      "cross_solver_fine_fine": {
+        "complex_rms_relative_max": 0.35,
+        "magnitude_max_relative": 0.4,
+        "magnitude_max_db": 3,
+        "phase_max_deg": 25
+      },
+      "rules": [
+        "Every predeclared MFEM 1/2/3 and PFFDTD 8/10/12 level must execute; missing, reordered, or substituted levels fail closed.",
+        "Each solver self-convergence PASS requires the final adjacent pair to satisfy the unchanged PR #282 metric thresholds and complex-RMS, magnitude-relative, and phase adjacent-pair errors to decrease toward the fine level.",
+        "Cross-solver acceptance is evaluated only when both self-convergence states are SELF_CONVERGENCE_PASS and the physical observable contract matches.",
+        "No fitted amplitude scale, phase rotation, frequency shift, taper, or post-hoc threshold/refinement change is allowed.",
+        "A fixture PASS validates only this bounded sloped single-region rigid fixture.",
+        "40 Hz and 80 Hz must be coherent integer-cycle bins of the frozen 0.25 s rectangular record."
+      ]
+    },
+    "frozen_mfem_refinements": [
+      1,
+      2,
+      3
+    ],
+    "frozen_pffdtd_ppw": [
+      8,
+      10,
+      12
+    ]
+  },
+  "solver_identity": {
+    "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "pffdtd_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5"
+  },
+  "runtime": {
+    "platform": "Windows-2025Server-10.0.26100-SP0",
+    "python": "3.12.10",
+    "numpy": "1.26.4",
+    "scipy": "1.14.1",
+    "logical_cpus": 4,
+    "mfem_build_seconds": 1010.6033317
+  },
+  "contract_audit": {
+    "state": "MATCH",
+    "source_position_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_position_m": [
+      2.5,
+      2,
+      2
+    ],
+    "boundary_condition": "natural_neumann_rigid",
+    "density_kg_m3": 1.2,
+    "sound_speed_m_s": 343.2,
+    "unit": "Pa/(m3/s)",
+    "phasor_convention": "exp(-i*omega*t)",
+    "analysis_fourier_kernel": "exp(+i*omega*t)",
+    "record_duration_s": 0.25,
+    "window_function": "rectangular_no_taper",
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "valid_overlapping_numerical_band_hz": [
+      0,
+      100
+    ],
+    "fitted_amplitude_scale": false,
+    "fitted_phase_rotation": false,
+    "frequency_shift": false
+  },
+  "mfem_levels": [
+    {
+      "refinement": 1,
+      "elements": 48,
+      "dofs": 125,
+      "polynomial_order": 2,
+      "mesh_characteristic_size_m": 3.2015621187164243,
+      "max_frequency_hz": 459.2021531125442,
+      "generalized_eigen_seconds": 0.3387645000000248,
+      "checkpoint_rss_max_mb": 264.15234375,
+      "transfer_pa_per_m3_s": [
+        [
+          22.09444234817552,
+          9.918892223867068
+        ],
+        [
+          -24.049770677803888,
+          -0.6011502054551858
+        ]
+      ],
+      "timings_s": {
+        "system_export": 0.023486900000079913,
+        "generalized_eigen": 0.3387645000000248,
+        "modal_reconstruction": 0.004839700000047742
+      },
+      "estimated_dense_modal_bytes": 750000,
+      "sample_rate_hz": 12000,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional located by Mesh::FindPoints",
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) continuous-H1 point functional"
+    },
+    {
+      "refinement": 2,
+      "elements": 384,
+      "dofs": 729,
+      "polynomial_order": 2,
+      "mesh_characteristic_size_m": 1.6007810593582121,
+      "max_frequency_hz": 925.3382517847907,
+      "generalized_eigen_seconds": 8.160381199999847,
+      "checkpoint_rss_max_mb": 292.2734375,
+      "transfer_pa_per_m3_s": [
+        [
+          20.4509172032659,
+          -1.168982468533045
+        ],
+        [
+          -10.452883021440876,
+          -218.14222365145602
+        ]
+      ],
+      "timings_s": {
+        "system_export": 0.05546609999987595,
+        "generalized_eigen": 8.160381199999847,
+        "modal_reconstruction": 0.02551480000010997
+      },
+      "estimated_dense_modal_bytes": 25509168,
+      "sample_rate_hz": 12000,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional located by Mesh::FindPoints",
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) continuous-H1 point functional"
+    },
+    {
+      "refinement": 3,
+      "elements": 3072,
+      "dofs": 4913,
+      "polynomial_order": 2,
+      "mesh_characteristic_size_m": 0.8003905296791061,
+      "max_frequency_hz": 1856.0542355511056,
+      "generalized_eigen_seconds": 26.524318699999867,
+      "checkpoint_rss_max_mb": 1401.80859375,
+      "transfer_pa_per_m3_s": [
+        [
+          -24.623804962781954,
+          2.4212982864254116
+        ],
+        [
+          -14.169471220600029,
+          -217.3078904142101
+        ]
+      ],
+      "timings_s": {
+        "system_export": 0.3828587000000425,
+        "generalized_eigen": 26.524318699999867,
+        "modal_reconstruction": 0.1596950000000561
+      },
+      "estimated_dense_modal_bytes": 1158603312,
+      "sample_rate_hz": 12000,
+      "dt_s": 0.00008333333333333333,
+      "sample_count": 3000,
+      "source_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) point functional located by Mesh::FindPoints",
+      "receiver_representation": "MFEM DomainLFIntegrator(DeltaCoefficient) continuous-H1 point functional"
+    }
+  ],
+  "pffdtd_levels": [
+    {
+      "points_per_wavelength": 8,
+      "grid_spacing_m": 0.429,
+      "grid_dimensions": [
+        18,
+        18,
+        18
+      ],
+      "grid_cell_count": 5832,
+      "boundary_node_count": 808,
+      "time_step_s": 0.0007209661486505452,
+      "time_step_count": 347,
+      "courant_c_dt_over_h": 0.5767729189204361,
+      "cfl_fraction_of_3d_cartesian_limit": 0.9989999999999999,
+      "solve_seconds": 13.293590199999926,
+      "estimated_peak_memory_bytes": 1763808,
+      "transfer_pa_per_m3_s": [
+        [
+          -34.92513607705468,
+          -13.008151753896083
+        ],
+        [
+          -34.79457934155918,
+          -94.57358931689443
+        ]
+      ],
+      "active_cell_count": 5832,
+      "active_cell_count_semantics": "allocated Cartesian update grid; boundary_node_count is reported separately",
+      "record_requested_duration_s": 0.25,
+      "record_last_sample_time_s": 0.24945428743308865,
+      "record_next_sample_time_s": 0.2501752535817392,
+      "timings_s": {
+        "compile": 1.765324999999848,
+        "solve": 13.293590199999926,
+        "postprocess": 0.004031499999882726
+      },
+      "source_representation": "PFFDTD SimComms eight-node trilinear interpolation at exact physical source xyz",
+      "receiver_representation": "PFFDTD SimComms eight-node trilinear interpolation/recombination at exact physical receiver xyz"
+    },
+    {
+      "points_per_wavelength": 10,
+      "grid_spacing_m": 0.3432,
+      "grid_dimensions": [
+        20,
+        20,
+        20
+      ],
+      "grid_cell_count": 8000,
+      "boundary_node_count": 1442,
+      "time_step_s": 0.0005767729189204362,
+      "time_step_count": 434,
+      "courant_c_dt_over_h": 0.5767729189204361,
+      "cfl_fraction_of_3d_cartesian_limit": 0.9989999999999999,
+      "solve_seconds": 0.07391559999996389,
+      "estimated_peak_memory_bytes": 2414208,
+      "transfer_pa_per_m3_s": [
+        [
+          -23.79175672506672,
+          34.05195148492657
+        ],
+        [
+          220.12588490165516,
+          -463.1821162252182
+        ]
+      ],
+      "active_cell_count": 8000,
+      "active_cell_count_semantics": "allocated Cartesian update grid; boundary_node_count is reported separately",
+      "record_requested_duration_s": 0.25,
+      "record_last_sample_time_s": 0.24974267389254887,
+      "record_next_sample_time_s": 0.2503194468114693,
+      "timings_s": {
+        "compile": 0.25783149999983834,
+        "solve": 0.07391559999996389,
+        "postprocess": 0.0038085000001046865
+      },
+      "source_representation": "PFFDTD SimComms eight-node trilinear interpolation at exact physical source xyz",
+      "receiver_representation": "PFFDTD SimComms eight-node trilinear interpolation/recombination at exact physical receiver xyz"
+    },
+    {
+      "points_per_wavelength": 12,
+      "grid_spacing_m": 0.286,
+      "grid_dimensions": [
+        22,
+        22,
+        22
+      ],
+      "grid_cell_count": 10648,
+      "boundary_node_count": 2018,
+      "time_step_s": 0.0004806440991003634,
+      "time_step_count": 521,
+      "courant_c_dt_over_h": 0.576772918920436,
+      "cfl_fraction_of_3d_cartesian_limit": 0.9989999999999997,
+      "solve_seconds": 0.08841639999991457,
+      "estimated_peak_memory_bytes": 3208608,
+      "transfer_pa_per_m3_s": [
+        [
+          15.497498999874912,
+          13.537245252928091
+        ],
+        [
+          -69.78140073908766,
+          -121.8334884485062
+        ]
+      ],
+      "active_cell_count": 10648,
+      "active_cell_count_semantics": "allocated Cartesian update grid; boundary_node_count is reported separately",
+      "record_requested_duration_s": 0.25,
+      "record_last_sample_time_s": 0.24993493153218896,
+      "record_next_sample_time_s": 0.25041557563128936,
+      "timings_s": {
+        "compile": 0.12804340000002412,
+        "solve": 0.08841639999991457,
+        "postprocess": 0.0036677000000508997
+      },
+      "source_representation": "PFFDTD SimComms eight-node trilinear interpolation at exact physical source xyz",
+      "receiver_representation": "PFFDTD SimComms eight-node trilinear interpolation/recombination at exact physical receiver xyz"
+    }
+  ],
+  "adjacent_comparisons": {
+    "mfem": [
+      {
+        "coarse_refinement": 1,
+        "fine_refinement": 2,
+        "complex_rms_relative": 0.9949966914407217,
+        "magnitude_max_relative": 0.8898438335734191,
+        "magnitude_max_db": 19.159823729668965,
+        "phase_max_deg": 85.82474174719296,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40,
+            "complex_relative": 0.5472005701677977,
+            "magnitude_relative": 0.1823088923595267,
+            "magnitude_db": 1.4546191201016636,
+            "phase_deg": 27.44830563613499
+          },
+          {
+            "frequency_hz": 80,
+            "complex_relative": 0.9980450818032304,
+            "magnitude_relative": 0.8898438335734191,
+            "magnitude_db": 19.159823729668965,
+            "phase_deg": 85.82474174719296
+          }
+        ]
+      },
+      {
+        "coarse_refinement": 2,
+        "fine_refinement": 3,
+        "complex_rms_relative": 0.20704266998106935,
+        "magnitude_max_relative": 0.17210277835836021,
+        "magnitude_max_db": 1.6404714972595844,
+        "phase_max_deg": 177.6555572902266,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40,
+            "complex_relative": 1.8275180698703641,
+            "magnitude_relative": 0.17210277835836021,
+            "magnitude_db": 1.6404714972595844,
+            "phase_deg": 177.6555572902266
+          },
+          {
+            "frequency_hz": 80,
+            "complex_relative": 0.017491379493391787,
+            "magnitude_relative": 0.0028615671648039827,
+            "magnitude_db": 0.02481976179004411,
+            "phase_deg": 0.9872804471096117
+          }
+        ]
+      }
+    ],
+    "pffdtd": [
+      {
+        "coarse_ppw": 8,
+        "fine_ppw": 10,
+        "complex_rms_relative": 0.8761219168261092,
+        "magnitude_max_relative": 0.8034993026847357,
+        "magnitude_max_db": 14.13271808239866,
+        "phase_max_deg": 75.48664328096115,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40,
+            "complex_relative": 1.164154285209148,
+            "magnitude_relative": 0.10281994251116061,
+            "magnitude_db": 0.9424077695212351,
+            "phase_deg": 75.48664328096115
+          },
+          {
+            "frequency_hz": 80,
+            "complex_relative": 0.8739186164453012,
+            "magnitude_relative": 0.8034993026847357,
+            "magnitude_db": 14.13271808239866,
+            "phase_deg": 45.61834000170515
+          }
+        ]
+      },
+      {
+        "coarse_ppw": 10,
+        "fine_ppw": 12,
+        "complex_rms_relative": 3.171427115345244,
+        "magnitude_max_relative": 2.6525614377313196,
+        "magnitude_max_db": 11.251950593937991,
+        "phase_max_deg": 83.80402351293702,
+        "frequency_metrics": [
+          {
+            "frequency_hz": 40,
+            "complex_relative": 2.1539485964133083,
+            "magnitude_relative": 1.0187260629768586,
+            "magnitude_db": 6.101547801268796,
+            "phase_deg": 83.80402351293702
+          },
+          {
+            "frequency_hz": 80,
+            "complex_relative": 3.1897237679549817,
+            "magnitude_relative": 2.6525614377313196,
+            "magnitude_db": 11.251950593937991,
+            "phase_deg": 55.221635183461814
+          }
+        ]
+      }
+    ]
+  },
+  "convergence": {
+    "mfem": {
+      "state": "SELF_CONVERGENCE_FAILED",
+      "complex_rms_trend": "DECREASING",
+      "magnitude_relative_trend": "DECREASING",
+      "phase_trend": "NON_DECREASING",
+      "final_pair_status": "FAIL"
+    },
+    "pffdtd": {
+      "state": "SELF_CONVERGENCE_FAILED",
+      "complex_rms_trend": "NON_DECREASING",
+      "magnitude_relative_trend": "NON_DECREASING",
+      "phase_trend": "NON_DECREASING",
+      "final_pair_status": "FAIL"
+    }
+  },
+  "cross_solver": {
+    "eligible": false,
+    "state": "CROSS_SOLVER_BLOCKED",
+    "metrics": null
+  },
+  "final_state": {
+    "execution_state": "PASS",
+    "contract_state": "MATCH",
+    "reference_self_convergence_state": "SELF_CONVERGENCE_FAILED",
+    "pffdtd_self_convergence_state": "SELF_CONVERGENCE_FAILED",
+    "cross_solver_state": "CROSS_SOLVER_BLOCKED",
+    "validation_state": "NOT_VALIDATED"
+  },
+  "nonclaims": {
+    "production_solver_selected": false,
+    "concave_validated": false,
+    "multi_region_validated": false,
+    "portal_validated": false,
+    "owned_room_evidence": false,
+    "gpu_validated": false,
+    "rdc_calls": 0,
+    "htdt_capture_changed": false
+  },
+  "diagnostic_notes": {
+    "requested_record_coherence": "40/80 Hz are integer-cycle frequencies for requested T=0.25 s.",
+    "discrete_record_sampling": {
+      "mfem_n_dt_s": 0.25,
+      "pffdtd_n_dt_s_by_ppw": {
+        "8": 0.2501752535817392,
+        "10": 0.2503194468114693,
+        "12": 0.25041557563128936
+      },
+      "interpretation": "PFFDTD finite_record_pressure_transfer consumes every native sample with timestamp in [0,T); because Nt*dt differs slightly by PPW, exact discrete-DTFT coherence is level-dependent even though requested T is fixed. This is retained as a sampling/observable diagnosis and is not used to retune the completed plan."
+    },
+    "outcome_interpretation": [
+      "The 250 ms requested window did not restore self-convergence, so the PR #282 60 ms record was not the sole cause.",
+      "MFEM complex-RMS and magnitude trends improve, but final thresholds fail and 40 Hz shows a near-180 degree fine-pair phase change.",
+      "PFFDTD 8/10/12 PPW is non-monotone in complex-RMS, magnitude-relative, and phase trend.",
+      "No cross-solver metric is eligible because both self-convergence gates failed."
+    ]
+  }
+}

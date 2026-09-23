@@ -1,0 +1,78 @@
+name: R140 GPU Execution Authority
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/htdt/cad_r140_gpu_execution.py'
+      - 'backend/src/htdt/cad_r140_executor.py'
+      - 'backend/src/htdt/cad_multifidelity_execution.py'
+      - 'backend/tests/test_cad_r140_gpu_execution.py'
+      - 'backend/tests/test_cad_r140_executor.py'
+      - 'scripts/run_r140_gpu_validation_gate.py'
+      - 'docs/ISSUE_101_R140_GPU_EQUIVALENCE_2026-09-20.md'
+      - '.github/workflows/r140-gpu-execution-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authority-and-cpu-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install HTDT
+        run: python -m pip install -e "./backend[dev]"
+
+      - name: Run R140 GPU authority and CPU executor regression tests
+        run: |
+          python -m pytest \
+            backend/tests/test_cad_r140_gpu_execution.py \
+            backend/tests/test_cad_r140_executor.py
+
+  hardware-validation-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      EVIDENCE_OUTPUT: artifacts/r140/gpu_validation_gate.json
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Probe hardware acceptance without fabricating GPU evidence
+        run: python scripts/run_r140_gpu_validation_gate.py --output "$EVIDENCE_OUTPUT"
+
+      - name: Enforce no-GPU / no-backend non-claims
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = json.loads(Path(os.environ['EVIDENCE_OUTPUT']).read_text())
+          assert evidence['repository_gpu_candidate_backend_available'] is False
+          assert evidence['hardware_numerical_validation'] == 'NOT_RUN'
+          assert evidence['gpu_validation_state'] == 'NOT_VALIDATED'
+          assert evidence['execution_acceptance'] == 'BLOCKED'
+          assert evidence['gpu_numerical_equivalence_validated'] is False
+          assert evidence['production_gpu_support'] is False
+          assert evidence['synthetic_or_mock_promoted_to_numerical_evidence'] is False
+          assert evidence['rdc_calls'] == 0
+
+      - name: Upload R140 GPU validation gate evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: r140-gpu-validation-gate
+          path: artifacts/r140/gpu_validation_gate.json
+          if-no-files-found: error

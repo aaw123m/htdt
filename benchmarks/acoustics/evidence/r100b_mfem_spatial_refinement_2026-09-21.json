@@ -1,0 +1,232 @@
+{
+  "schema_version": "r100b-mfem-spatial-refinement-evidence-1",
+  "issue": 101,
+  "slice": "R100B MFEM rigid rectangular spatial h-refinement",
+  "task_start_main_sha": "9e6066259ec58c093e9a7587550ccf907f28402f",
+  "initial_plan_commit_sha": "c181fb62993e5dcbff719feac02b013a0459d5d2",
+  "frozen_plan_commit_sha": "e4ac01664603bbfd9e761ebd15d2e530896a337e",
+  "frozen_plan_sha256": "875f8cfe021d33caaab5f7cae665b5ed97836d5cedb03db825b9ecd94697305f",
+  "authority": {
+    "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+    "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+    "fixture_id": "wave-rectangular-convergence-v1",
+    "candidate_id": "mfem-v4.10-d964264",
+    "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707"
+  },
+  "artifact": {
+    "workflow_run_id": 35546506102,
+    "job_id": 106173302135,
+    "artifact_id": 10616154340,
+    "artifact_name": "r100b-mfem-spatial-refinement",
+    "artifact_digest": "sha256:faab6d2d373c348f0a279faa1f50e433ad0d0353614720f4fde73e99c56ee644",
+    "artifact_size_bytes": 230917,
+    "authoritative_implementation_head": "fae8fbc5647cdae0f9fe6a3192d2c61e6968f95a",
+    "report_identity_sha256": "580a1e6a1bcc227ad960b6a54bc982f7b306757a0058f193ba17be20216a3690"
+  },
+  "experiment": {
+    "refinements": [
+      0,
+      1,
+      2
+    ],
+    "h1_order": 2,
+    "output_sample_rate_hz": 12000,
+    "substeps_per_output_interval": 4,
+    "internal_rate_hz": 48000,
+    "observation_time_s": 2,
+    "frequency_start_hz": 20,
+    "frequency_stop_hz": 300,
+    "frequency_step_hz": 1,
+    "frequency_count": 281,
+    "record_interval": "[0,T)",
+    "adaptive_stepping": false,
+    "result_driven_retries": false
+  },
+  "level_results": [
+    {
+      "refinement": 0,
+      "elements": 1,
+      "dofs": 27,
+      "mass_nnz": 729,
+      "stiffness_nnz": 729,
+      "assembly_s": 0.0004091,
+      "mass_factorization_s": 0.00036100000033911783,
+      "pade_factorization_s": 0.0002044000002570101,
+      "stepping_s": 2.21906510000008,
+      "total_solve_s": 2.219630500000676,
+      "peak_rss_mb": 77.890625,
+      "work_disk_mb": 0.05470466613769531,
+      "output_disk_mb": 0.017314910888671875,
+      "internal_step_count": 95996,
+      "mass_solve_relative_residual": 1.1031642600251564e-16,
+      "max_checked_step_relative_residual": 1.2323430884238654e-15,
+      "checked_step_residual_count": 375,
+      "source_spectrum_min_abs": 0.00008333333333333333,
+      "semidiscrete_identity_sha256": "a5676c8c5584d10c682e99e7102f2605d0620c09203d0b4347adc37b257695f4",
+      "transfer_identity_sha256": "b7c2c90f6407a61993ab927722d8da9822e1a9c656c591fb4e27b56b08e6173b"
+    },
+    {
+      "refinement": 1,
+      "elements": 8,
+      "dofs": 125,
+      "mass_nnz": 4913,
+      "stiffness_nnz": 4913,
+      "assembly_s": 0.0017671,
+      "mass_factorization_s": 0.0006177000000207045,
+      "pade_factorization_s": 0.0015604000000166707,
+      "stepping_s": 7.519261700000243,
+      "total_solve_s": 7.52143980000028,
+      "peak_rss_mb": 79.890625,
+      "work_disk_mb": 0.2632942199707031,
+      "output_disk_mb": 0.01736736297607422,
+      "internal_step_count": 95996,
+      "mass_solve_relative_residual": 3.097392616456473e-16,
+      "max_checked_step_relative_residual": 3.216385907073784e-15,
+      "checked_step_residual_count": 375,
+      "source_spectrum_min_abs": 0.00008333333333333333,
+      "semidiscrete_identity_sha256": "dc865de6bb7686e40b97329ed81641915de8eef2c86680b31a3ca8a0686b0f7f",
+      "transfer_identity_sha256": "2de177caf4597ee911dadbdd13497939de1f86930a3a5a033eaa008c225fe846"
+    },
+    {
+      "refinement": 2,
+      "elements": 64,
+      "dofs": 729,
+      "mass_nnz": 35937,
+      "stiffness_nnz": 35937,
+      "assembly_s": 0.0134533,
+      "mass_factorization_s": 0.004791400000158319,
+      "pade_factorization_s": 0.03435159999980897,
+      "stepping_s": 77.28829859999996,
+      "total_solve_s": 77.32744159999993,
+      "peak_rss_mb": 96.1796875,
+      "work_disk_mb": 1.878408432006836,
+      "output_disk_mb": 0.01743316650390625,
+      "internal_step_count": 95996,
+      "mass_solve_relative_residual": 4.206774372410101e-16,
+      "max_checked_step_relative_residual": 4.323388004076266e-15,
+      "checked_step_residual_count": 375,
+      "source_spectrum_min_abs": 0.00008333333333333333,
+      "semidiscrete_identity_sha256": "a984754923f982f4c633f67126b91ec58d1c0ea3e35fd26fb51d1b29363cd30f",
+      "transfer_identity_sha256": "4e4206822c18301eaceddcb70a87b68b99397b56a16c367a4b08cb7c3d1be261"
+    }
+  ],
+  "adjacent_complex_metrics": [
+    {
+      "pair": "h0->h1",
+      "complex_rms_absolute": 634.3778133296515,
+      "complex_rms_relative": 1.1124181783263547
+    },
+    {
+      "pair": "h1->h2",
+      "complex_rms_absolute": 2051.501589723451,
+      "complex_rms_relative": 1.0371906979821301
+    }
+  ],
+  "r100a_against_finest": [
+    {
+      "pair": "h0->h2",
+      "complex_rms_absolute": 1997.3399296377147,
+      "complex_rms_relative": 1.009807843243144
+    },
+    {
+      "pair": "h1->h2",
+      "complex_rms_absolute": 2051.501589723451,
+      "complex_rms_relative": 1.0371906979821301
+    }
+  ],
+  "r100a_tolerance": {
+    "complex_rms_absolute": 0.02,
+    "complex_rms_relative": 0.02
+  },
+  "resource_aggregate": {
+    "native_build_s": 878.4277483,
+    "solve_s": 87.06851190000089,
+    "postprocess_s": 0.8344415999995363,
+    "peak_rss_mb": 96.1796875,
+    "disk_mb": 2.1964073181152344,
+    "output_mb": 0.052115440368652344
+  },
+  "decision_separation": {
+    "workflow_execution": "PASS",
+    "spatial_numerical_convergence": "FAIL",
+    "current_r100a_fixture_tolerance": "FAIL",
+    "resource_suitability": "BLOCKED",
+    "typed_evidence_admissibility": "PASS",
+    "candidate_wide_readiness_before": "NO_GO",
+    "candidate_wide_readiness_after": "NO_GO",
+    "production_solver_selected": false,
+    "experiment_outcome": "FAIL"
+  },
+  "readiness_record": {
+    "evidence_id": "mfem-spatial-refinement-35546506102",
+    "candidate_id": "mfem-v4.10-d964264",
+    "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "candidate_semantic_hash": "d7845fa151ccada42e741b5fc49b0576ade9ab9fd74ca18adeb3989f47c0ed13",
+    "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+    "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+    "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+    "target_kind": "fixture",
+    "fixture_id": "wave-rectangular-convergence-v1",
+    "hard_gate_category": null,
+    "reported_status": "fail",
+    "evidence_ref": "benchmarks/acoustics/evidence/r100b_mfem_spatial_refinement_2026-09-21.json",
+    "fixture_evidence": {
+      "fixture_id": "wave-rectangular-convergence-v1",
+      "status": "fail",
+      "evidence_ref": "benchmarks/acoustics/evidence/r100b_mfem_spatial_refinement_2026-09-21.json",
+      "adapter_id": "htdt-r100b-mfem-spatial-refinement",
+      "adapter_version": "1",
+      "backend_version": "d964264cdb9a",
+      "precision": "float64",
+      "compile_s": 878.4277483,
+      "solve_s": 87.06851190000089,
+      "postprocess_s": 0.8344415999995363,
+      "peak_ram_mb": 96.1796875,
+      "disk_mb": 2.1964073181152344,
+      "output_mb": 0.052115440368652344,
+      "observables": [
+        {
+          "observable_id": "convergence",
+          "status": "fail",
+          "summary": "convergence absolute complex RMS error is not strictly decreasing; convergence relative complex RMS error is not strictly decreasing; convergence final absolute complex RMS error 2051.501589723451 > 0.02; convergence final relative complex RMS error 1.0371906979821295 > 0.02",
+          "absolute_error": 2051.501589723451,
+          "relative_error": 1.0371906979821295,
+          "phase_error_deg": null,
+          "statistical_stddev": null,
+          "difference_from_peer": null
+        }
+      ],
+      "diagnostics": [
+        "Executed physics evidence is FAIL and remains FAIL even though resource suitability is independently BLOCKED.",
+        "Spatial complex-RMS convergence FAIL: h0-vs-h2 abs/rel 1997.3399296377147 / 1.009807843243144, h1-vs-h2 2051.501589723451 / 1.0371906979821295.",
+        "Current R100A final absolute/relative tolerance is 0.02 / 0.02; no dB/phase gate was applied.",
+        "Native MFEM build 878.4277483 s exceeds current R100A max_compile_s=60, while all h0/h1/h2 numerical solves remain within their frozen solve ceilings.",
+        "Exact H1 p2 uniform refinements 0/1/2 and exact four GL2/Padé[2/2] substeps per 12000 Hz output interval."
+      ]
+    },
+    "hard_gate_evidence": null,
+    "platform": {
+      "os": "Windows-2025Server-10.0.26100-SP0",
+      "architecture": "AMD64",
+      "python_version": "3.12.10",
+      "cpu": "AMD64 Family 25 Model 1 Stepping 1, AuthenticAMD",
+      "logical_threads": 4,
+      "thread_budget": 4,
+      "gpu": null,
+      "device_notes": "GitHub-hosted Windows MFEM v4.10 serial H1 p2 spatial h-refinement / sparse GL2 experiment."
+    },
+    "notes": [
+      "Authoritative numerical workflow run 35546506102, job 106173302135, artifact 10616154340.",
+      "Artifact digest sha256:faab6d2d373c348f0a279faa1f50e433ad0d0353614720f4fde73e99c56ee644.",
+      "Exact current R100A/candidate authority binding; executed numerical FAIL is preserved independently of resource BLOCKED.",
+      "Experiment FAIL != production adoption; production_solver_selected=false."
+    ]
+  },
+  "known_limitations": [
+    "This slice qualifies only the current rigid rectangular spatial-convergence fixture.",
+    "The resource BLOCKED status is caused by the current R100A max_compile_s ceiling; all three numerical refinements themselves completed within the predeclared per-refinement solve ceiling.",
+    "No h3, p-order, record-duration, frequency-grid, time-step, geometry, source/receiver, mask, or tolerance retry was performed."
+  ],
+  "typed_status_semantics": "Executed observable FAIL is retained as typed fixture FAIL; resource suitability remains independently BLOCKED because native build exceeds current R100A compile budget."
+}

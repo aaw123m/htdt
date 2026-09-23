@@ -1,0 +1,116 @@
+{
+  "schema_version": "r100b-evidence-summary-1",
+  "evidence_id": "pffdtd-rigid-rectangular-modes-2026-09-18",
+  "recorded_on": "2026-09-18",
+  "tracking_issue": 101,
+  "source_pr": 115,
+  "workflow": {
+    "name": "R100B PFFDTD Rigid Modes",
+    "run_id": 35349358027,
+    "head_sha": "19ebaeee6de787d3c4a4998d048b5cbb77e71532",
+    "conclusion": "success"
+  },
+  "artifact": {
+    "id": 10549576187,
+    "digest": "sha256:0f97ada6fd1555e89de24168316526b20b7a6a874a0281b4f1f0ac22aa96632e",
+    "expires_at": "2026-12-17T13:17:33Z",
+    "signal_archive": "pffdtd_rigid_modes_signals.npz",
+    "signal_archive_sha256": "019766f208fa4e6a4bee93bb26d56700c095e5ff2f0b6b76289db4ae5b9c6b85"
+  },
+  "authority": {
+    "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+    "r100a_semantic_hash": "f63135d67c588e23f3b47dba56fb3e39a140b7590d7596a538898a5383a1aa81",
+    "candidate_manifest_hash": "58314d89ad7a0e462ff49fde67f53d4b235afd920fe5e4b4f651c3cd2684b764",
+    "candidate_id": "pffdtd-main-aa319f6",
+    "candidate_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "compatibility_diff_sha256": "da1efb7ca1724fafee03c2868b83d0722de2ce0722a991e4a8bd7c36319e9fd4",
+    "fixture_id": "wave-rigid-rectangular-modes-v1",
+    "run_semantic_hash": "c54f7ec2758f94e5ed4b433a002b0cc30ccfe0a841d42ad2fbe0bf35470855f9"
+  },
+  "result": {
+    "fixture_status": "pass",
+    "method": "three-level Cartesian grid refinement; deterministic Hann-window spectral peak estimation; second-order Richardson extrapolation from h=0.25 and h=0.125 m",
+    "grid_spacings_m": [
+      0.5,
+      0.25,
+      0.125
+    ],
+    "pffdtd_sound_speed_m_s": 343.2,
+    "r100a_sound_speed_m_s": 343,
+    "observables": [
+      {
+        "observable_id": "m010",
+        "expected_hz": 34.3,
+        "coarse_hz": 34.218337112104216,
+        "medium_hz": 34.28734897121789,
+        "fine_hz": 34.30491348682626,
+        "extrapolated_hz": 34.31076832536238,
+        "absolute_error_hz": 0.0107683253623847,
+        "relative_error": 0.0003139453458421196,
+        "delta_ratio": 3.92904994663131,
+        "status": "pass"
+      },
+      {
+        "observable_id": "m100",
+        "expected_hz": 42.875,
+        "coarse_hz": 42.71531885101065,
+        "medium_hz": 42.85615311707385,
+        "fine_hz": 42.890952002917786,
+        "extrapolated_hz": 42.90255163153243,
+        "absolute_error_hz": 0.027551631532432452,
+        "relative_error": 0.0006426036509022147,
+        "delta_ratio": 4.0470912400706265,
+        "status": "pass"
+      },
+      {
+        "observable_id": "m110",
+        "expected_hz": 54.90679033598668,
+        "coarse_hz": 54.827426190311,
+        "medium_hz": 54.910277618116375,
+        "fine_hz": 54.93124039121048,
+        "extrapolated_hz": 54.93822798224185,
+        "absolute_error_hz": 0.03143764625517065,
+        "relative_error": 0.0005725639044423614,
+        "delta_ratio": 3.9523123888924605,
+        "status": "pass"
+      },
+      {
+        "observable_id": "m001",
+        "expected_hz": 68.6,
+        "coarse_hz": 67.87778175285628,
+        "medium_hz": 68.45395598108327,
+        "fine_hz": 68.59382363188561,
+        "extrapolated_hz": 68.64044618215306,
+        "absolute_error_hz": 0.04044618215306173,
+        "relative_error": 0.0005895944920271389,
+        "delta_ratio": 4.119424505393441,
+        "status": "pass"
+      }
+    ],
+    "resources": {
+      "compile_s": 6.014080199999967,
+      "solve_s": 0.5861198000000059,
+      "postprocess_s": 0.06587159999997994,
+      "peak_ram_mb": 202.6640625,
+      "disk_mb": 1.2384815216064453,
+      "output_mb": 0.3873291015625
+    }
+  },
+  "scope": {
+    "proves": [
+      "PFFDTD passes the R100A rigid rectangular analytical eigenfrequency fixture under the declared refinement/extrapolation authority.",
+      "Recorded resources are within this fixture's R100A resource budget.",
+      "The evidence is reproducibly bound to the exact R100A manifest, candidate manifest, pinned PFFDTD source and compatibility diff."
+    ],
+    "does_not_prove": [
+      "candidate-wide physics correctness",
+      "PFFDTD grid/transfer convergence fixture",
+      "complex impedance correctness",
+      "concave-room correctness",
+      "Portal or hybrid support",
+      "Windows product packaging",
+      "production solver selection",
+      "owned-room validation"
+    ]
+  }
+}

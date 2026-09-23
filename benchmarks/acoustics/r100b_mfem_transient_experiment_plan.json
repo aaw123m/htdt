@@ -1,0 +1,107 @@
+{
+  "schema_version": "r100b-mfem-transient-experiment-plan-3",
+  "plan_id": "r100b-mfem-gl2-exact-four-substeps-current-authority-2026-09-20",
+  "authority": {
+    "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
+    "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+    "fixture_id": "wave-concave-l-room-v1",
+    "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
+    "candidate_id": "mfem-v4.10-d964264",
+    "candidate_semantic_hash": "d7845fa151ccada42e741b5fc49b0576ade9ab9fd74ca18adeb3989f47c0ed13",
+    "candidate_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f"
+  },
+  "spatial_system": {
+    "h1_order": 2,
+    "uniform_refinements": 1,
+    "expected_elements": 40,
+    "expected_ndofs": 525,
+    "geometry": "exact-five-hex-l-prism",
+    "boundary_model": "natural-neumann-rigid",
+    "primary_field": "velocity_potential_phi",
+    "governing_equation": "M*phi_tt+Kc2*phi=c^2*b*q",
+    "mass_assembly": "MFEM MassIntegrator",
+    "stiffness_assembly": "MFEM DiffusionIntegrator(c^2)",
+    "source_functional": "MFEM DomainLFIntegrator(DeltaCoefficient)",
+    "receiver_functional": "MFEM DomainLFIntegrator(DeltaCoefficient)"
+  },
+  "integrator": {
+    "algorithm_id": "gauss-legendre-2stage-pade22-linear",
+    "algorithm_version": "1",
+    "order": 4,
+    "propagation_form": "Pade[2/2] of first-order Hamiltonian generator; algebraically equal to 2-stage Gauss-Legendre RK for linear autonomous systems",
+    "dissipation_model": "none; symmetric/symplectic rational propagator",
+    "candidate_matrix_policy": "sparse CSR/CSC only; no dense inverse; no eigendecomposition",
+    "step_factorization": "factor sparse 2N block denominator once per sample-rate attempt and reuse every homogeneous step",
+    "mass_factorization": "factor sparse M once and reuse for all source-kick solves",
+    "linear_solver": "SuperLU via scipy.sparse.linalg.splu",
+    "permutation": "COLAMD",
+    "diagonal_pivot_threshold": 1,
+    "equilibration": true,
+    "iterative_refinement": "DOUBLE",
+    "numerical_precision": "IEEE-754 float64",
+    "scipy_version": "1.14.1",
+    "numpy_version": "2.1.3",
+    "residual_relative_tolerance": 1e-10,
+    "residual_check_interval_steps": 256,
+    "substeps_per_output_interval": 4,
+    "substep_policy": "fixed equal GL2 substeps per output interval; no adaptive stepping"
+  },
+  "numerical_contract": {
+    "quantity": "finite_record_complex_pressure_transfer",
+    "unit": "Pa/(m3/s)",
+    "source_normalization": "volume_velocity_m3_s",
+    "coordinate_system": "x_right_y_rear_z_up",
+    "interpolation": "linear_complex",
+    "fourier_sign": "exp(-i*omega*t)",
+    "finite_record_dtft_kernel": "exp(+i*2*pi*f*n*dt)",
+    "record_interval": "half_open_0_T",
+    "observation_time_s": 2,
+    "frequency_start_hz": 20,
+    "frequency_stop_hz": 300,
+    "frequency_step_hz": 1,
+    "magnitude_null_mask_below_db": -60,
+    "phase_null_mask_below_db": -40,
+    "magnitude_absolute_tolerance_db": 0.75,
+    "magnitude_relative_tolerance": 0.05,
+    "phase_tolerance_deg": 8
+  },
+  "resource_ceiling": {
+    "cpu_thread_budget": 4,
+    "ram_budget_mb": 8192,
+    "disk_budget_mb": 2048,
+    "max_solve_s_per_attempt": 300,
+    "max_output_mb_per_attempt": 512,
+    "subprocess_wall_timeout_s": 330
+  },
+  "modal_reference": {
+    "reference_kind": "diagnostic_full_basis_modal_pr277",
+    "pull_request": 277,
+    "evidence_path": "benchmarks/acoustics/evidence/r100b_mfem_modal_2026-09-20.json",
+    "modal_plan_path": "benchmarks/acoustics/r100b_mfem_modal_experiment_plan.json",
+    "modal_plan_file_sha256": "15c1faf1e24ef99910912666d476ba784b7724edcb58517e3f62c40415e624de",
+    "expected_system_numeric_identity_sha256": "f48eb9a7fc5881fd8d2f26b32fc1f20df0f71290ecc4ed0337087073555cc61d",
+    "expected_basis_size": 525,
+    "production_execution_candidate": false,
+    "candidate_must_not_require_reference": true
+  },
+  "attempts": [
+    {
+      "attempt_id": "transient-6000",
+      "sample_rate_hz": 6000
+    },
+    {
+      "attempt_id": "transient-9000",
+      "sample_rate_hz": 9000
+    },
+    {
+      "attempt_id": "transient-12000",
+      "sample_rate_hz": 12000
+    }
+  ],
+  "promotion": {
+    "require_all_attempts": true,
+    "best_trace_selection_forbidden": true,
+    "nonconverged_promotion_forbidden": true,
+    "production_adoption_automatic_go_forbidden": true
+  }
+}

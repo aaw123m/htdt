@@ -1,0 +1,36 @@
+{
+  "schema_version": "r100b-adoption-1",
+  "profile_id": "htdt-r100b-low-band-wave-adoption-v1",
+  "selection_scope": "low_band_wave_solver",
+  "allowed_candidate_roles": [
+    "wave_primary_evaluation",
+    "wave_reference"
+  ],
+  "required_capabilities": [
+    "wave_rigid",
+    "wave_impedance",
+    "wave_radiation_termination",
+    "portal_continuity"
+  ],
+  "required_fixture_ids": [
+    "wave-rigid-rectangular-modes-v1",
+    "wave-rectangular-convergence-v1",
+    "wave-normal-incidence-impedance-v1",
+    "wave-concave-l-room-v1",
+    "wave-portal-split-room-v1",
+    "wave-explicit-radiation-termination-v1"
+  ],
+  "deferred_fixture_ids": [
+    "geometric-direct-first-reflection-v1",
+    "geometric-reflecting-counter-v1",
+    "geometric-seed-repeatability-v1",
+    "hybrid-overlap-continuity-v1"
+  ],
+  "notes": [
+    "This profile is the fail-closed R100B adoption gate for the low-band production wave solver only.",
+    "Geometric-reference and hybrid-overlap fixtures remain separate later-role evidence and are not silently treated as passed by this profile.",
+    "Candidate probe_capabilities are permission to evaluate a fixture, not proof that the required capability has passed.",
+    "R100A-3 makes explicit radiation termination a distinct required wave capability; omitting it cannot remove the termination fixture from selection.",
+    "Changing this adoption profile does not rewrite historical R100B run hashes; selected decisions bind the exact profile hash."
+  ]
+}

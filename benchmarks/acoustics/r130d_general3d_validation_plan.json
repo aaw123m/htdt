@@ -1,0 +1,274 @@
+{
+  "schema_version": "htdt.r130d.general3d-validation-plan-1",
+  "plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+  "purpose": "Diagnose PR #282 self-convergence failure and rerun a predeclared bounded MFEM/PFFDTD refinement series with a record-coherent finite window; thresholds and schedules are frozen before numerical results.",
+  "fixture": {
+    "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+    "source_key": "sloped",
+    "geometry_kind": "explicit_polyhedral",
+    "vertices_m": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        4,
+        0,
+        0
+      ],
+      [
+        4,
+        4,
+        0
+      ],
+      [
+        0,
+        4,
+        0
+      ],
+      [
+        0,
+        0,
+        4
+      ],
+      [
+        4,
+        0,
+        4
+      ],
+      [
+        4,
+        4,
+        3
+      ],
+      [
+        0,
+        4,
+        3
+      ]
+    ],
+    "faces": [
+      [
+        "floor",
+        [
+          0,
+          3,
+          2,
+          1
+        ]
+      ],
+      [
+        "front",
+        [
+          0,
+          1,
+          5,
+          4
+        ]
+      ],
+      [
+        "right",
+        [
+          1,
+          2,
+          6,
+          5
+        ]
+      ],
+      [
+        "back",
+        [
+          3,
+          7,
+          6,
+          2
+        ]
+      ],
+      [
+        "left",
+        [
+          0,
+          4,
+          7,
+          3
+        ]
+      ],
+      [
+        "ceiling",
+        [
+          4,
+          5,
+          6,
+          7
+        ]
+      ]
+    ],
+    "base_tetrahedra": [
+      [
+        0,
+        1,
+        2,
+        6
+      ],
+      [
+        0,
+        2,
+        3,
+        6
+      ],
+      [
+        0,
+        3,
+        7,
+        6
+      ],
+      [
+        0,
+        7,
+        4,
+        6
+      ],
+      [
+        0,
+        4,
+        5,
+        6
+      ],
+      [
+        0,
+        5,
+        1,
+        6
+      ]
+    ],
+    "base_tetrahedralization_volume_m3": 56,
+    "source_position_m": [
+      1.5,
+      2,
+      2
+    ],
+    "receiver_position_m": [
+      2.5,
+      2,
+      2
+    ],
+    "boundary_model": "natural_neumann_rigid",
+    "density_kg_m3": 1.2,
+    "sound_speed_m_s": 343.2
+  },
+  "physical_quantity": {
+    "quantity": "finite_record_complex_acoustic_pressure_per_volume_velocity",
+    "unit": "Pa/(m3/s)",
+    "record_interval": "[0,T)",
+    "duration_s": 0.25,
+    "frequency_hz": [
+      40,
+      80
+    ],
+    "phasor_convention": "exp(-i*omega*t)",
+    "analysis_fourier_kernel": "exp(+i*omega*t)",
+    "source_contract": "discrete unit volume-velocity impulse q[0]=1 m3/s; q[n>0]=0; compare P_T/Q_T",
+    "pffdtd_artifact_normalization": "divide stored absolute complex pressure by the exact complex AcousticWaveExcitationAuthority Q(f) before comparison",
+    "mfem_initial_condition": "phi(0)=0; phi_t(0+)=c^2*dt*M^-1*b*q0",
+    "pressure_conversion": "p=rho*d(phi)/dt; full-basis modal reconstruction evaluates rho*r^T*phi_t",
+    "normalization_claim": "Both solvers are compared as finite-record P_T/Q_T for the same point volume-velocity impulse contract and the same exact source/receiver coordinates; 40/80 Hz are record-coherent at T=0.25 s; no taper, fitted scale, phase offset, or frequency shift is permitted.",
+    "window_function": "rectangular_no_taper",
+    "frequency_bin_policy": "record_coherent_integer_cycles",
+    "source_normalization": "unit discrete volume-velocity impulse",
+    "receiver_observable": "point acoustic pressure",
+    "geometry_units": "m"
+  },
+  "independent_reference": {
+    "solver": "MFEM",
+    "source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+    "formulation": "continuous Galerkin H1 tetrahedral semidiscrete velocity-potential wave equation",
+    "spatial_discretization": "fixed audited 6-tetra base mesh with MFEM uniform tetra refinement",
+    "pffdtd_voxel_or_triangle_intersection_reuse": false,
+    "polynomial_order": 2,
+    "uniform_refinements": [
+      1,
+      2,
+      3
+    ],
+    "expected_element_counts": [
+      48,
+      384,
+      3072
+    ],
+    "boundary_condition": "natural homogeneous Neumann",
+    "mass_assembly": "MFEM MassIntegrator",
+    "stiffness_assembly": "MFEM DiffusionIntegrator(c^2)",
+    "source_functional": "MFEM DomainLFIntegrator(DeltaCoefficient)",
+    "receiver_functional": "MFEM DomainLFIntegrator(DeltaCoefficient)",
+    "modal_solver": "SciPy generalized symmetric eigh(Kc2,M), full basis, no modal truncation",
+    "modal_numpy_version": "1.26.4",
+    "modal_scipy_version": "1.14.1",
+    "modal_sample_rate_hz": 12000,
+    "mass_orthonormality_max_abs_tolerance": 1e-9,
+    "generalized_eigen_residual_relative_tolerance": 1e-9,
+    "expected_dofs": [
+      125,
+      729,
+      4913
+    ]
+  },
+  "pffdtd": {
+    "source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "backend": "Python/Numba CPU",
+    "points_per_wavelength": [
+      8,
+      10,
+      12
+    ],
+    "fmax_hz": 100,
+    "max_grid_cells": 300000,
+    "max_time_steps": 2048,
+    "max_output_bytes": 67108864,
+    "max_solver_wall_seconds": 240,
+    "solver_threads": 4,
+    "setup_processes": 1
+  },
+  "acceptance": {
+    "magnitude_mask_relative_db": -50,
+    "reference_self_convergence": {
+      "complex_rms_relative_max": 0.05,
+      "magnitude_max_relative": 0.08,
+      "phase_max_deg": 5
+    },
+    "pffdtd_self_convergence": {
+      "complex_rms_relative_max": 0.2,
+      "magnitude_max_relative": 0.25,
+      "phase_max_deg": 15
+    },
+    "cross_solver_fine_fine": {
+      "complex_rms_relative_max": 0.35,
+      "magnitude_max_relative": 0.4,
+      "magnitude_max_db": 3,
+      "phase_max_deg": 25
+    },
+    "rules": [
+      "Every predeclared MFEM 1/2/3 and PFFDTD 8/10/12 level must execute; missing, reordered, or substituted levels fail closed.",
+      "Each solver self-convergence PASS requires the final adjacent pair to satisfy the unchanged PR #282 metric thresholds and complex-RMS, magnitude-relative, and phase adjacent-pair errors to decrease toward the fine level.",
+      "Cross-solver acceptance is evaluated only when both self-convergence states are SELF_CONVERGENCE_PASS and the physical observable contract matches.",
+      "No fitted amplitude scale, phase rotation, frequency shift, taper, or post-hoc threshold/refinement change is allowed.",
+      "A fixture PASS validates only this bounded sloped single-region rigid fixture.",
+      "40 Hz and 80 Hz must be coherent integer-cycle bins of the frozen 0.25 s rectangular record."
+    ]
+  },
+  "resource_ceiling": {
+    "workflow_timeout_minutes": 60,
+    "mfem_build_parallelism": 4,
+    "max_reference_wall_seconds_per_level": 900,
+    "max_reference_peak_ram_mb": 6144,
+    "max_total_evidence_mb": 256
+  },
+  "scope_nonclaims": {
+    "production_solver_selected": false,
+    "concave_validated": false,
+    "multi_region_validated": false,
+    "portal_validated": false,
+    "owned_room_evidence": false,
+    "gpu_validated": false
+  }
+}

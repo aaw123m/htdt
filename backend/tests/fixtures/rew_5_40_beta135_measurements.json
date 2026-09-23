@@ -1,0 +1,17 @@
+{
+  "1": {
+    "title": "HTDT synthetic real-API fixture",
+    "notes": "Frequency Response imported from API",
+    "date": "2026-Sep-16 12:11:10",
+    "uuid": "01628624-ee2a-4a0f-99bb-9cf9e1b9c859",
+    "startFreq": 20.0,
+    "endFreq": 20041.156,
+    "inverted": false,
+    "sampleRate": 48000.0,
+    "rewVersion": "V5.40 beta 135",
+    "splOffsetdB": 0.0,
+    "alignSPLOffsetdB": 0.0,
+    "micCalPath": "Not applicable",
+    "soundcardCalPath": "Not applicable"
+  }
+}

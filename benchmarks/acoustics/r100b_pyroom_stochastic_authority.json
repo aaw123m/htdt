@@ -1,0 +1,58 @@
+{
+  "schema_version": "r100b-pyroom-stochastic-1",
+  "authority_id": "issue-153-pyroom-stochastic-v1",
+  "fixture_id": "geometric-seed-repeatability-v1",
+  "candidate_id": "pyroomacoustics-v0.10.1-f02b01d",
+  "backend_version": "0.10.1",
+  "same_seed_repeats": 2,
+  "independent_seeds": [
+    20260919,
+    20260920,
+    20260921,
+    20260922
+  ],
+  "ray_budgets": [
+    8192,
+    32768,
+    131072
+  ],
+  "sampling_rate_hz": 16000,
+  "receiver_radius_sequence_m": [
+    0.6,
+    0.45,
+    0.3
+  ],
+  "histogram_bin_size_sequence_s": [
+    0.008,
+    0.004,
+    0.002
+  ],
+  "energy_threshold": 1e-7,
+  "time_threshold_s": 0.4,
+  "frequency_hz": [
+    500,
+    1000,
+    2000
+  ],
+  "sample_times_s": [
+    0.04,
+    0.08,
+    0.12,
+    0.16,
+    0.2,
+    0.24,
+    0.28,
+    0.32
+  ],
+  "estimator": "normalized-schroeder-energy-decay-db",
+  "stddev_ddof": 1,
+  "require_exact_same_seed_histogram_replay": true,
+  "notes": [
+    "This R100B authority refines stochastic ray/sample and receiver-estimator budget without changing the frozen R100A-2 fixture.",
+    "Each refinement level increases ray count while reducing receiver radius and histogram-bin width; all required sample times are shared across levels.",
+    "Same-seed deterministic replay is a separate prerequisite and is not statistical convergence.",
+    "Statistical convergence uses independent seeds at every refinement level and retains seed-to-seed variation.",
+    "The R100A-2 observable tolerance remains authoritative; this file does not add or relax pass tolerances.",
+    "A sample with insufficient positive cumulative ray energy is recorded as insufficient_support and is never converted to a zero response."
+  ]
+}
