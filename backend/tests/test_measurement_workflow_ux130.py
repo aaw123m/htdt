@@ -363,6 +363,9 @@ def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Pat
         "arrival_time",
         "decay",
         "calibrated_response",
+        "frequency_response_corrected",
+        "absolute_spl",
+        "absolute_noise_level",
         "repeatability",
         "polarity",
     ]
@@ -372,6 +375,9 @@ def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Pat
     assert decisions["common_timing"] == "UNKNOWN"
     assert decisions["arrival_time"] == "BLOCKED"
     assert decisions["calibrated_response"] == "BLOCKED"
+    assert decisions["frequency_response_corrected"] == "BLOCKED"
+    assert decisions["absolute_spl"] == "UNKNOWN"
+    assert decisions["absolute_noise_level"] == "UNKNOWN"
     assert decisions["polarity"] == "UNKNOWN"
 
     # Independent checks are independently visible.
@@ -442,7 +448,7 @@ def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
     assert view.retake_guidance is None
 
     decisions = {cap.claim: cap.decision for cap in view.capabilities}
-    assert len(view.capabilities) == 8
+    assert len(view.capabilities) == 11
     # Dataset-local claims keep dataset verdicts; everything else fails closed.
     assert decisions["magnitude_response"] == "ALLOWED"
     assert decisions["phase_response"] == "ALLOWED"
@@ -450,6 +456,9 @@ def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
     assert decisions["arrival_time"] == "UNKNOWN"
     assert decisions["decay"] == "UNKNOWN"
     assert decisions["calibrated_response"] == "UNKNOWN"
+    assert decisions["frequency_response_corrected"] == "UNKNOWN"
+    assert decisions["absolute_spl"] == "UNKNOWN"
+    assert decisions["absolute_noise_level"] == "UNKNOWN"
     assert decisions["repeatability"] == "UNKNOWN"
     assert decisions["polarity"] == "UNKNOWN"
 
