@@ -66,6 +66,16 @@ from .measurement_workflow import (
     RewReadSource,
 )
 from .native_worker import WORKER_CANCELLED, NativeWorkerPool
+from .scientific_plot_style import (
+    PlotCursor,
+    TraceSemantic,
+    add_reference_line,
+    add_scientific_legend,
+    apply_scientific_appearance,
+    link_x_axis,
+    show_plot_state,
+    trace_pen,
+)
 from .ui_theme import (
     DARK_THEME,
     SemanticState,
@@ -308,6 +318,14 @@ def _trace_color(view: MeasurementView) -> Any:
     return tokens.predicted if view.evidence_type == "predicted" else tokens.measured
 
 
+def _trace_semantic(view: MeasurementView) -> TraceSemantic:
+    return (
+        TraceSemantic.PREDICTED
+        if view.evidence_type == "predicted"
+        else TraceSemantic.MEASURED
+    )
+
+
 def _format_band(band: tuple[float, float] | None) -> str:
     if band is None:
         return "—"
@@ -315,20 +333,10 @@ def _format_band(band: tuple[float, float] | None) -> str:
 
 
 def _set_plot_appearance(plot: pg.PlotWidget) -> None:
-    tokens = DARK_THEME
-    plot.setBackground(tokens.surfaces.canvas.hex)
-    plot.showGrid(x=True, y=True, alpha=0.18)
-    plot.setLogMode(x=True, y=False)
-    item = plot.getPlotItem()
-    item.setContentsMargins(10, 8, 10, 10)
-    item.setDownsampling(auto=True, mode="peak")
-    item.setClipToView(True)
-    item.getViewBox().setDefaultPadding(0.03)
-    for axis_name in ("bottom", "left"):
-        axis = plot.getAxis(axis_name)
-        axis.setPen(tokens.surfaces.border_strong.hex)
-        axis.setTextPen(tokens.text.secondary.hex)
-        axis.setStyle(tickTextOffset=8, autoExpandTextSpace=True)
+    """Standard scientific canvas — shared grammar lives in
+    ``scientific_plot_style`` (#579); this stays as the local call-site shim."""
+
+    apply_scientific_appearance(plot)
 
 
 def _card(title: str, parent: QWidget | None = None) -> tuple[QFrame, QVBoxLayout]:
@@ -1999,7 +2007,7 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_plot.setLabel("bottom", "周波数", units="Hz")
         self.quality_plot.setLabel("left", "レベル", units="dB")
         _set_plot_appearance(self.quality_plot)
-        self.quality_plot.addLegend()
+        add_scientific_legend(self.quality_plot)
         detail_layout.addWidget(self.quality_plot)
 
         phase_row = QHBoxLayout()
@@ -2018,6 +2026,8 @@ class MeasurementPageWorkspace(QWidget):
         self.phase_plot.setLabel("bottom", "周波数", units="Hz")
         self.phase_plot.setLabel("left", "位相", units="deg")
         _set_plot_appearance(self.phase_plot)
+        # Magnitude/phase share frequency navigation (#579 §8).
+        link_x_axis(self.quality_plot, self.phase_plot)
         detail_layout.addWidget(self.phase_plot)
 
         # Synchronized table + detail split (#586): row selection and its
@@ -2365,6 +2375,12 @@ class MeasurementPageWorkspace(QWidget):
         if row is None or row.dataset_id is None:
             self.provenance_label.setText("")
             self.phase_state_label.setText("")
+            # Designed no-data state instead of an empty dark graph (#579).
+            show_plot_state(
+                self.quality_plot,
+                "測定がありません",
+                detail="測定を読み込むと周波数応答を表示できます。",
+            )
             return
         dataset = self.controller.dataset(row.dataset_id)
         summary = processing_summary(dataset)
@@ -2375,45 +2391,42 @@ class MeasurementPageWorkspace(QWidget):
 
         fraction = self.quality_smoothing_combo.currentData()
         trace = _trace_color(row)
-        if row.evidence_type == "predicted":
-            style = Qt.PenStyle.DashLine
-        else:
-            style = Qt.PenStyle.SolidLine
         if isinstance(fraction, int) and fraction:
             derived = smoothed_level_trace(dataset, fraction)
-            # The exact stored samples stay visible underneath; the smoothed
-            # view is a derived overlay, clearly labelled as such.
+            # The exact stored samples stay visible underneath as a dimmed
+            # baseline; the smoothed view is a derived overlay, clearly
+            # labelled as such (#579 §1).
             self.quality_plot.plot(
                 dataset.frequency_hz,
                 dataset.level_db,
-                pen=pg.mkPen(trace.hex, width=1, style=Qt.PenStyle.DotLine),
+                pen=trace_pen(
+                    TraceSemantic.BASELINE, color=trace.hex, dimmed=True
+                ),
                 name="保存データ",
             )
             self.quality_plot.plot(
                 derived.frequency_hz,
                 derived.level_db,
-                pen=pg.mkPen(trace.hex, width=2, style=style),
+                pen=trace_pen(_trace_semantic(row), color=trace.hex),
                 name=trace_label(dataset, fraction),
             )
         else:
             self.quality_plot.plot(
                 dataset.frequency_hz,
                 dataset.level_db,
-                pen=pg.mkPen(trace.hex, width=2, style=style),
+                pen=trace_pen(_trace_semantic(row), color=trace.hex),
                 name="保存データ",
             )
         target = self.quality_target_combo.currentData()
         if target is not None:
-            # Overlay drawn at declared absolute levels — no renormalization
-            # is ever applied silently to either trace.
+            # Target reads as a fine dotted low-saturation accent, always
+            # named — never confused with evidence (#579 §11). Overlay drawn
+            # at declared absolute levels — no renormalization is ever
+            # applied silently to either trace.
             self.quality_plot.plot(
                 [point.frequency_hz for point in target.points],
                 [point.level_db for point in target.points],
-                pen=pg.mkPen(
-                    DARK_THEME.semantic.warning.hex,
-                    width=2,
-                    style=Qt.PenStyle.DashLine,
-                ),
+                pen=trace_pen(TraceSemantic.TARGET),
                 name=f"ターゲット（{target.normalization.method}）",
             )
 
@@ -2434,7 +2447,7 @@ class MeasurementPageWorkspace(QWidget):
         self.phase_plot.plot(
             trace_phase.frequency_hz,
             trace_phase.phase_deg,
-            pen=pg.mkPen(trace.hex, width=2, style=style),
+            pen=trace_pen(_trace_semantic(row), color=trace.hex),
             name=(
                 "位相（アンラップ表示）"
                 if trace_phase.unwrapped
@@ -2785,19 +2798,44 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(setup_card)
 
         plot_card, plot_layout = _card("周波数応答", host)
+        cursor_row = QHBoxLayout()
+        self.comparison_cursor_check = QCheckBox("カーソル", plot_card)
+        self.comparison_cursor_check.toggled.connect(
+            self._toggle_comparison_cursor
+        )
+        cursor_row.addWidget(self.comparison_cursor_check)
+        self.comparison_cursor_readout = QLabel("", plot_card)
+        set_typography_role(
+            self.comparison_cursor_readout, TypographyRole.SECONDARY
+        )
+        cursor_row.addWidget(self.comparison_cursor_readout, 1)
+        plot_layout.addLayout(cursor_row)
+
         self.comparison_plot = pg.PlotWidget(plot_card)
         self.comparison_plot.setMinimumHeight(280)
         self.comparison_plot.setLabel("bottom", "周波数", units="Hz")
         self.comparison_plot.setLabel("left", "レベル", units="dB")
         _set_plot_appearance(self.comparison_plot)
-        self.comparison_plot.addLegend()
+        add_scientific_legend(self.comparison_plot)
         plot_layout.addWidget(self.comparison_plot)
+        # Presentation-only probe shared by the stacked comparison plots:
+        # one X cursor keeps frequency navigation aligned (#579 §7-8).
+        self._comparison_cursor = PlotCursor(self.comparison_plot)
+        self._comparison_cursor.line.sigPositionChanged.connect(
+            lambda _line: self._update_comparison_cursor_readout()
+        )
+        self._cursor_traces: list[tuple[str, list[float], list[float]]] = []
 
         self.difference_plot = pg.PlotWidget(plot_card)
         self.difference_plot.setMinimumHeight(180)
         self.difference_plot.setLabel("bottom", "周波数", units="Hz")
         self.difference_plot.setLabel("left", "A − B", units="dB")
         _set_plot_appearance(self.difference_plot)
+        # Explicit 0 dB reference — a difference graph without a zero line
+        # hides which side is louder (#579 §6).
+        add_reference_line(self.difference_plot, 0.0)
+        # Frequency navigation stays shared between FR and difference.
+        link_x_axis(self.comparison_plot, self.difference_plot)
         plot_layout.addWidget(self.difference_plot)
 
         self.phase_compare_plot = pg.PlotWidget(plot_card)
@@ -2805,7 +2843,8 @@ class MeasurementPageWorkspace(QWidget):
         self.phase_compare_plot.setLabel("bottom", "周波数", units="Hz")
         self.phase_compare_plot.setLabel("left", "位相", units="deg")
         _set_plot_appearance(self.phase_compare_plot)
-        self.phase_compare_plot.addLegend()
+        add_scientific_legend(self.phase_compare_plot)
+        link_x_axis(self.comparison_plot, self.phase_compare_plot)
         plot_layout.addWidget(self.phase_compare_plot)
         layout.addWidget(plot_card)
 
@@ -3065,58 +3104,91 @@ class MeasurementPageWorkspace(QWidget):
         side: str,
         smoothing_fraction: int,
         color_hex: str,
-        style: Qt.PenStyle,
+        semantic: TraceSemantic,
     ) -> None:
         dataset = self.controller.dataset(dataset_id)
         label = f"{side}: {trace_label(dataset, smoothing_fraction)}"
         if smoothing_fraction:
             derived = smoothed_level_trace(dataset, smoothing_fraction)
+            # Stored samples stay underneath as a dim baseline — never the
+            # same pen grammar as evidence traces (#579 §1).
             self.comparison_plot.plot(
                 dataset.frequency_hz,
                 dataset.level_db,
-                pen=pg.mkPen(color_hex, width=1, style=Qt.PenStyle.DotLine),
+                pen=trace_pen(
+                    TraceSemantic.BASELINE, color=color_hex, dimmed=True
+                ),
                 name=f"{side}: 保存データ",
             )
             self.comparison_plot.plot(
                 derived.frequency_hz,
                 derived.level_db,
-                pen=pg.mkPen(color_hex, width=2, style=style),
+                pen=trace_pen(semantic, color=color_hex),
                 name=label,
+            )
+            self._cursor_traces.append(
+                (label, list(derived.frequency_hz), list(derived.level_db))
             )
         else:
             self.comparison_plot.plot(
                 dataset.frequency_hz,
                 dataset.level_db,
-                pen=pg.mkPen(color_hex, width=2, style=style),
+                pen=trace_pen(semantic, color=color_hex),
                 name=label,
             )
+            self._cursor_traces.append(
+                (label, list(dataset.frequency_hz), list(dataset.level_db))
+            )
+        self._update_comparison_cursor_readout()
 
     def _preview_comparison_pair(self) -> None:
         self.comparison_plot.clear()
+        # clear() drops non-curve items — re-seat the shared probe (#579).
+        self.comparison_plot.addItem(
+            self._comparison_cursor.line, ignoreBounds=True
+        )
         self.phase_compare_plot.clear()
         self.phase_compare_plot.setVisible(False)
         a_id = self.measured_combo.currentData()
         b_id = self.predicted_combo.currentData()
         tokens = DARK_THEME.scientific
+        self._cursor_traces = []
+        # Pen grammar encodes the dataset's evidence type, not its slot —
+        # under the 任意 A/B preset a predicted dataset may sit in slot A
+        # and must still draw dashed (#579 §1).
+        semantics_by_dataset = {
+            row.dataset_id: _trace_semantic(row)
+            for row in self.controller.comparison_candidates()
+            if row.dataset_id
+        }
+        semantic_of = lambda dataset_id: semantics_by_dataset.get(
+            dataset_id, TraceSemantic.MEASURED
+        )
         if isinstance(a_id, str) and a_id:
             self._plot_dataset_trace(
                 a_id, "A", int(self.smooth_a_combo.currentData()),
-                tokens.primary_trace.hex, Qt.PenStyle.SolidLine,
+                tokens.primary_trace.hex, semantic_of(a_id),
             )
         if isinstance(b_id, str) and b_id:
             self._plot_dataset_trace(
                 b_id, "B", int(self.smooth_b_combo.currentData()),
-                tokens.secondary_trace.hex, Qt.PenStyle.DashLine,
+                tokens.secondary_trace.hex, semantic_of(b_id),
             )
         if a_id or b_id:
             self.comparison_plot.enableAutoRange()
+        else:
+            # Designed empty state rather than a bare dark canvas (#579 §13).
+            show_plot_state(
+                self.comparison_plot,
+                "A と B にデータセットを選択すると比較を表示します。",
+            )
 
         # Stored phase for eligible A/B (#489): phase availability stays a
         # separate axis from common timing and is never implied by it.
         phases_plotted = 0
-        for dataset_id, side, color_hex, style in (
-            (a_id, "A", tokens.primary_trace.hex, Qt.PenStyle.SolidLine),
-            (b_id, "B", tokens.secondary_trace.hex, Qt.PenStyle.DashLine),
+        for dataset_id, side, color_hex, semantic in (
+            (a_id, "A", tokens.primary_trace.hex, semantic_of(a_id)),
+            (b_id, "B", tokens.secondary_trace.hex, semantic_of(b_id)),
         ):
             if not (isinstance(dataset_id, str) and dataset_id):
                 continue
@@ -3126,7 +3198,7 @@ class MeasurementPageWorkspace(QWidget):
             self.phase_compare_plot.plot(
                 trace.frequency_hz,
                 trace.phase_deg,
-                pen=pg.mkPen(color_hex, width=2, style=style),
+                pen=trace_pen(semantic, color=color_hex),
                 name=f"{side}: 位相",
             )
             phases_plotted += 1
@@ -3219,18 +3291,33 @@ class MeasurementPageWorkspace(QWidget):
             + " · ".join(spec_lines)
         )
         self.difference_plot.clear()
+        # Zero reference is recreated after clear (clear() removes items too).
+        add_reference_line(self.difference_plot, 0.0)
         self.difference_plot.plot(
             saved.grid_hz,
             saved.difference_db,
-            pen=pg.mkPen(
-                DARK_THEME.scientific.primary_trace.hex,
-                width=2,
-                style=Qt.PenStyle.DotLine,
+            pen=trace_pen(
+                TraceSemantic.DERIVED,
+                color=DARK_THEME.scientific.primary_trace.hex,
             ),
             name="A − B",
         )
         self.difference_plot.enableAutoRange()
         self._update_context_label()
+
+    def _toggle_comparison_cursor(self, checked: bool) -> None:
+        self._comparison_cursor.set_active(checked)
+        self._update_comparison_cursor_readout()
+
+    def _update_comparison_cursor_readout(self) -> None:
+        if not self._comparison_cursor.active:
+            self.comparison_cursor_readout.setText("")
+            return
+        self.comparison_cursor_readout.setText(
+            self._comparison_cursor.nearest_readout(
+                self._cursor_traces, value_unit="dB"
+            ).replace("\n", "   ")
+        )
 
     def _update_context_label(self) -> None:
         """Keep the persistent context header bound to the active selection."""
