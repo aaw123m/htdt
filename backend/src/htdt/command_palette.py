@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 
-from PySide6.QtCore import QObject, Qt
-from PySide6.QtGui import QKeySequence, QPalette, QShortcut
+from PySide6.QtCore import QObject, QRect, QSize, Qt
+from PySide6.QtGui import QColor, QFontMetrics, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
+    QStyle,
+    QStyledItemDelegate,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -22,9 +24,15 @@ from PySide6.QtWidgets import (
 from .command_registry import (
     CommandContext,
     CommandRegistry,
-    CommandSearchResult,
     command_shortcut_allowed,
 )
+from .palette_search import (
+    CommandPaletteProvider,
+    PaletteResult,
+    PaletteResultKind,
+    PaletteSearchService,
+)
+from .workflow_navigation import WorkspaceDeepLink
 
 
 def is_text_input_widget(widget: QWidget | None) -> bool:
@@ -126,24 +134,119 @@ class CommandShortcutBinder(QObject):
         self.refresh()
 
 
+_RESULT_ROLE = Qt.ItemDataRole.UserRole + 1
+
+_KIND_GLYPHS = {
+    PaletteResultKind.NAVIGATION: '→',
+    PaletteResultKind.ACTION: '▶',
+    PaletteResultKind.ENTITY: '◈',
+    PaletteResultKind.DATA: '◆',
+    PaletteResultKind.SETTINGS: '⚙',
+    PaletteResultKind.HELP: '?',
+}
+
+
+class PaletteResultDelegate(QStyledItemDelegate):
+    """Structured row: kind icon, title, subtitle and a right shortcut badge."""
+
+    ROW_HEIGHT = 52
+
+    def sizeHint(self, option, index):  # noqa: N802
+        result: PaletteResult | None = index.data(_RESULT_ROLE)
+        if result is None:
+            return QSize(option.rect.width(), 22)
+        return QSize(option.rect.width(), self.ROW_HEIGHT)
+
+    def paint(self, painter, option, index) -> None:
+        result: PaletteResult | None = index.data(_RESULT_ROLE)
+        if result is None:
+            super().paint(painter, option, index)
+            return
+        painter.save()
+        palette = option.palette
+        base = palette.color(QPalette.ColorRole.Base)
+        text_color = palette.color(QPalette.ColorRole.Text)
+        dim = palette.color(QPalette.ColorRole.PlaceholderText)
+        if not result.available:
+            text_color = dim
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, palette.color(QPalette.ColorRole.Highlight))
+            text_color = palette.color(QPalette.ColorRole.HighlightedText)
+            dim = text_color
+
+        rect = option.rect
+        icon_rect = QRect(rect.left() + 10, rect.top() + 13, 26, 26)
+        painter.setPen(QColor(base).darker(140) if base.lightness() > 128 else dim)
+        painter.drawText(
+            icon_rect,
+            Qt.AlignmentFlag.AlignCenter,
+            _KIND_GLYPHS.get(result.kind, '•'),
+        )
+
+        metrics = QFontMetrics(option.font)
+        right = rect.right() - 12
+        if result.shortcut:
+            badge_width = metrics.horizontalAdvance(result.shortcut) + 16
+            badge = QRect(right - badge_width, rect.top() + 14, badge_width, 24)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(dim).lighter(160) if dim.lightness() < 160 else QColor(dim).darker(140))
+            painter.setOpacity(0.25)
+            painter.drawRoundedRect(badge, 4, 4)
+            painter.setOpacity(1.0)
+            painter.setPen(text_color)
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, result.shortcut)
+            right = badge.left() - 8
+
+        text_left = icon_rect.right() + 10
+        painter.setPen(text_color)
+        title_rect = QRect(text_left, rect.top() + 7, right - text_left, 20)
+        painter.drawText(
+            title_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            metrics.elidedText(result.title, Qt.TextElideMode.ElideRight, title_rect.width()),
+        )
+        detail = result.disabled_reason or result.subtitle
+        if detail:
+            small_font = painter.font()
+            small_font.setPointSizeF(max(small_font.pointSizeF() - 1.0, 7.0))
+            painter.setFont(small_font)
+            painter.setPen(dim)
+            detail_rect = QRect(text_left, rect.top() + 27, right - text_left, 18)
+            painter.drawText(
+                detail_rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                metrics.elidedText(detail, Qt.TextElideMode.ElideRight, detail_rect.width()),
+            )
+        painter.restore()
+
+
 class CommandPalette(QDialog):
+    """Ctrl+K palette over the composable PaletteSearchService."""
+
     def __init__(
         self,
-        registry: CommandRegistry,
+        service: PaletteSearchService | CommandRegistry,
         *,
         context_provider: Callable[[], CommandContext | None] | None = None,
+        on_deep_link: Callable[[WorkspaceDeepLink], bool] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.registry = registry
+        if isinstance(service, PaletteSearchService):
+            self.service = service
+        else:
+            self.service = PaletteSearchService(
+                (CommandPaletteProvider(service),),
+                on_deep_link=on_deep_link,
+            )
         self.context_provider = context_provider or (lambda: None)
         self.setWindowTitle('コマンド検索')
         self.setModal(False)
-        self.resize(620, 430)
+        self.resize(640, 460)
 
         layout = QVBoxLayout(self)
         self.search_field = QLineEdit(self)
-        self.search_field.setPlaceholderText('機能や操作を検索…')
+        self.search_field.setPlaceholderText('機能・項目・設定・ヘルプを検索…')
         self.search_field.setClearButtonEnabled(True)
         self.search_field.textChanged.connect(self.refresh_results)
         self.search_field.returnPressed.connect(self.activate_current)
@@ -151,6 +254,7 @@ class CommandPalette(QDialog):
 
         self.results_list = QListWidget(self)
         self.results_list.setUniformItemSizes(False)
+        self.results_list.setItemDelegate(PaletteResultDelegate(self.results_list))
         self.results_list.currentItemChanged.connect(self._selection_changed)
         self.results_list.itemActivated.connect(self._activate_item)
         layout.addWidget(self.results_list, 1)
@@ -158,6 +262,10 @@ class CommandPalette(QDialog):
         self.detail_label = QLabel(self)
         self.detail_label.setWordWrap(True)
         layout.addWidget(self.detail_label)
+
+        # Focus-safe close: Esc clears the query first, then dismisses.
+        self._escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self._escape.activated.connect(self._escape_pressed)
 
         self.refresh_results('')
 
@@ -167,16 +275,39 @@ class CommandPalette(QDialog):
         self.search_field.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self.search_field.selectAll()
 
+    def _escape_pressed(self) -> None:
+        if self.search_field.text():
+            self.search_field.clear()
+        else:
+            self.hide()
+
     def refresh_results(self, query: str) -> None:
         context = self.context_provider()
-        results = self.registry.search(query, context=context)
+        if query.strip():
+            results = self.service.search(query, context=context)
+            grouped: list[PaletteResult] = list(results)
+        else:
+            grouped = list(self.service.suggested(context=context))
+
         self.results_list.clear()
-        for result in results:
+        last_group: str | None = None
+        for result in grouped:
+            group = result.group
+            if group is not None and group != last_group:
+                header = QListWidgetItem(group)
+                header.setFlags(Qt.ItemFlag.NoItemFlags)
+                header.setForeground(
+                    self.palette().color(QPalette.ColorRole.PlaceholderText)
+                )
+                self.results_list.addItem(header)
+                last_group = group
+            elif group is None and last_group is not None and query.strip():
+                last_group = None
             self.results_list.addItem(self._item_for_result(result))
 
         if self.results_list.count() == 0:
-            item = QListWidgetItem('該当するコマンドがありません')
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            item = QListWidgetItem('該当する項目がありません')
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
             item.setForeground(
                 self.palette().color(QPalette.ColorRole.PlaceholderText)
             )
@@ -184,18 +315,28 @@ class CommandPalette(QDialog):
             self.detail_label.setText('')
             return
 
-        self.results_list.setCurrentRow(0)
+        for row in range(self.results_list.count()):
+            if self.results_list.item(row).flags() & Qt.ItemFlag.ItemIsSelectable:
+                self.results_list.setCurrentRow(row)
+                break
         self._selection_changed(self.results_list.currentItem(), None)
 
-    def _item_for_result(self, result: CommandSearchResult) -> QListWidgetItem:
-        definition = result.definition
-        suffix = '' if definition.shortcut is None else f'    {definition.shortcut}'
-        text = f'{definition.display_name}{suffix}'
-        if not result.availability.enabled:
-            text += f'\n利用不可 · {result.availability.disabled_reason}'
-        item = QListWidgetItem(text)
-        item.setData(Qt.ItemDataRole.UserRole, definition.command_id)
-        if not result.availability.enabled:
+    def _item_for_result(self, result: PaletteResult) -> QListWidgetItem:
+        item = QListWidgetItem()
+        item.setData(_RESULT_ROLE, result)
+        item.setData(
+            Qt.ItemDataRole.UserRole,
+            result.command_id if result.command_id is not None else result.result_id,
+        )
+        # The delegate paints the structured row; text() still carries the
+        # full content for tests, accessibility, and disabled-reason display.
+        parts = [result.title]
+        if result.subtitle:
+            parts.append(result.subtitle)
+        if not result.available and result.disabled_reason:
+            parts.append(result.disabled_reason)
+        item.setText(" — ".join(parts))
+        if not result.available:
             item.setForeground(
                 self.palette().color(QPalette.ColorRole.PlaceholderText)
             )
@@ -209,26 +350,14 @@ class CommandPalette(QDialog):
         if current is None:
             self.detail_label.setText('')
             return
-        command_id = current.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(command_id, str):
+        result: PaletteResult | None = current.data(_RESULT_ROLE)
+        if result is None:
             self.detail_label.setText('')
             return
-        definition = self.registry.definition(command_id)
-        availability = self.registry.availability(command_id)
-        context_labels = {
-            CommandContext.GLOBAL: '共通',
-            CommandContext.OVERVIEW: '概要',
-            CommandContext.ROOM: '部屋',
-            CommandContext.MEASUREMENT: '測定',
-            CommandContext.OPTIMIZATION: '最適化',
-        }
-        contexts = ' / '.join(context_labels[context] for context in definition.contexts)
-        if availability.enabled:
-            self.detail_label.setText(f'利用場所 · {contexts}')
-        else:
-            self.detail_label.setText(
-                f'{availability.disabled_reason} · 利用場所 · {contexts}'
-            )
+        detail_parts = [part for part in (result.subtitle,) if part]
+        if not result.available and result.disabled_reason:
+            detail_parts.insert(0, result.disabled_reason)
+        self.detail_label.setText(' · '.join(detail_parts))
 
     def activate_current(self) -> None:
         self._activate_item(self.results_list.currentItem())
@@ -236,31 +365,36 @@ class CommandPalette(QDialog):
     def _activate_item(self, item: QListWidgetItem | None) -> None:
         if item is None:
             return
-        command_id = item.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(command_id, str):
+        result: PaletteResult | None = item.data(_RESULT_ROLE)
+        if result is None:
             return
-        if self.registry.execute(command_id):
+        if not result.available:
+            self.detail_label.setText(
+                result.disabled_reason or '現在は実行できません'
+            )
+            return
+        if self.service.activate(result):
             self.hide()
             return
-        availability = self.registry.availability(command_id)
-        self.detail_label.setText(availability.disabled_reason or '現在は実行できません')
+        self.detail_label.setText('現在は実行できません')
 
 
 class CommandPaletteController(QObject):
-    """Own the Ctrl+K entry point; shell/workspace code only supplies registry context."""
+    """Own the Ctrl+K entry point; shell/workspace code only supplies context."""
 
     def __init__(
         self,
         window: QWidget,
-        registry: CommandRegistry,
+        service: PaletteSearchService | CommandRegistry,
         *,
         context_provider: Callable[[], CommandContext | None] | None = None,
+        on_deep_link: Callable[[WorkspaceDeepLink], bool] | None = None,
     ) -> None:
         super().__init__(window)
-        self.registry = registry
         self.palette = CommandPalette(
-            registry,
+            service,
             context_provider=context_provider,
+            on_deep_link=on_deep_link,
             parent=window,
         )
         self.open_shortcut = QShortcut(QKeySequence('Ctrl+K'), window)

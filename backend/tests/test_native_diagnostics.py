@@ -227,6 +227,8 @@ def test_gui_startup_failure_is_logged_and_reported(
         native_cad, "report_launch_failure", lambda **kwargs: reported.append(kwargs)
     )
     monkeypatch.setattr(native_cad, "QApplication", _FakeApplication)
+    # The bundled theme reaches real Qt font APIs that need a live QApplication.
+    monkeypatch.setattr(native_cad, "apply_dark_theme", lambda _app: None)
 
     def _broken_repository(_path: Path) -> None:
         raise NativeSchemaError(
@@ -262,7 +264,9 @@ def test_successful_gui_startup_unchanged(
     )
     monkeypatch.setattr(native_cad, "QApplication", _FakeApplication)
     monkeypatch.setattr(native_cad, "SceneRepository", _FakeRepository)
+    monkeypatch.setattr(native_cad, "apply_dark_theme", lambda _app: None)
     monkeypatch.setattr(native_cad, "OptimizationWorkspaceWindow", _FakeWindow)
+    monkeypatch.setattr(native_cad, "build_workflow_shell", _FakeWindow)
 
     assert native_cad.main(["--data-dir", str(data_dir)]) == 0
 

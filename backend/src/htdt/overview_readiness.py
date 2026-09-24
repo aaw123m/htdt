@@ -22,6 +22,63 @@ OverviewSeverity = Literal['blocker', 'warning']
 OverviewNavigationTarget = WorkspaceDeepLink
 
 
+class OverviewArea:
+    """Lifecycle areas used to group Overview notices (#443)."""
+
+    ROOM = 'room'
+    EQUIPMENT = 'equipment'
+    MEASUREMENT = 'measurement'
+    PREDICTION = 'prediction'
+    OPTIMIZATION = 'optimization'
+    VARIANT = 'variant'
+
+
+OverviewAreaId = str
+
+#: Display order and Japanese labels for lifecycle grouping.
+OVERVIEW_AREA_LABELS: dict[str, str] = {
+    OverviewArea.ROOM: '部屋',
+    OverviewArea.EQUIPMENT: '機材・ソース',
+    OverviewArea.MEASUREMENT: '測定',
+    OverviewArea.PREDICTION: '予測',
+    OverviewArea.OPTIMIZATION: '最適化・検証',
+    OverviewArea.VARIANT: 'SystemVariant',
+}
+OVERVIEW_AREA_ORDER: tuple[str, ...] = (
+    OverviewArea.ROOM,
+    OverviewArea.EQUIPMENT,
+    OverviewArea.MEASUREMENT,
+    OverviewArea.PREDICTION,
+    OverviewArea.VARIANT,
+    OverviewArea.OPTIMIZATION,
+)
+
+_NOTICE_AREA: dict[str, str] = {
+    'room.missing': OverviewArea.ROOM,
+    'room.geometry_incomplete': OverviewArea.ROOM,
+    'speaker.missing': OverviewArea.ROOM,
+    'speaker.role_missing': OverviewArea.ROOM,
+    'speaker.role_duplicate': OverviewArea.ROOM,
+    'measurement.missing': OverviewArea.MEASUREMENT,
+    'measurement.common_timing_unverified': OverviewArea.MEASUREMENT,
+    'measurement.phase_timing_unavailable': OverviewArea.MEASUREMENT,
+    'equipment.binding_missing': OverviewArea.EQUIPMENT,
+    'prediction.unsupported_geometry': OverviewArea.PREDICTION,
+    'prediction.stale': OverviewArea.PREDICTION,
+    'prediction.missing': OverviewArea.PREDICTION,
+    'validation.recommendation_blocked': OverviewArea.OPTIMIZATION,
+}
+
+
+def notice_area(code: str) -> str:
+    """Map a notice code to its lifecycle area (impact.* -> optimization)."""
+    if code in _NOTICE_AREA:
+        return _NOTICE_AREA[code]
+    if code.startswith('impact.'):
+        return OverviewArea.OPTIMIZATION
+    return OverviewArea.OPTIMIZATION
+
+
 @dataclass(frozen=True, slots=True)
 class OverviewAction:
     action_id: str
@@ -35,6 +92,48 @@ class OverviewNotice:
     severity: OverviewSeverity
     message: str
     action: OverviewAction | None = None
+
+    @property
+    def area(self) -> str:
+        return notice_area(self.code)
+
+    @property
+    def state_label(self) -> str:
+        """Non-color state signal for cards (color alone never gates UX)."""
+        return '要対応' if self.severity == 'blocker' else '警告'
+
+
+#: Coarse lifecycle bucket for an active SystemVariant, combining the
+#: physical lifecycle and the measurement campaign stage.
+OverviewVariantStage = Literal[
+    'proposed',
+    'applied',
+    'as_built',
+    'campaign_preregistered',
+    'measured_unvalidated',
+]
+
+
+@dataclass(frozen=True, slots=True)
+class OverviewVariantState:
+    """Per-variant lifecycle presentation on the Overview (#443)."""
+
+    variant_id: str
+    name: str
+    stage: OverviewVariantStage
+    lifecycle_label: str
+    stage_label: str
+    detail: str
+    action: OverviewAction | None = None
+
+
+_VARIANT_STAGE_LABELS: dict[str, str] = {
+    'proposed': '提案のみ',
+    'applied': '適用済み（設置記録なし）',
+    'as_built': '設置済み',
+    'campaign_preregistered': '測定キャンペーン登録済み',
+    'measured_unvalidated': '実測済み・未検証',
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +156,7 @@ class OverviewReadinessViewModel:
     warnings: tuple[OverviewNotice, ...]
     next_action: OverviewAction | None
     optimization_ready: bool
+    variant_states: tuple[OverviewVariantState, ...] = ()
     recent_activity: tuple[OverviewActivityItem, ...] = ()
 
 
@@ -114,12 +214,35 @@ class ValidationReadSource(Protocol):
     ) -> tuple[CadModelValidationRecord, ...]: ...
 
 
+class VariantLifecycleReadSource(Protocol):
+    """SystemVariant lifecycle + measurement-campaign stage (#443).
+
+    Satisfied by ``SystemExpansionWorkflowService`` — the same authority the
+    Optimization workspace reads — so Overview never recomputes the lifecycle.
+    """
+
+    def variants(self) -> tuple: ...
+
+    def lifecycle(self, variant_id: str): ...
+
+    def measurement(self, variant_id: str): ...
+
+
+class EquipmentBindingReadSource(Protocol):
+    """Latest equipment/source binding for a scene entity (#443)."""
+
+    def get_binding_for_entity(self, document_id: str, entity_id: str): ...
+
+
 ROOM_GEOMETRY = OverviewNavigationTarget(WorkspaceId.ROOM, 'geometry')
 ROOM_PLACEMENT = OverviewNavigationTarget(WorkspaceId.ROOM, 'placement')
+ROOM_OBJECTS = OverviewNavigationTarget(WorkspaceId.ROOM, 'objects')
 ROOM_ACOUSTICS = OverviewNavigationTarget(WorkspaceId.ROOM, 'acoustics')
 MEASUREMENT_IMPORT = OverviewNavigationTarget(WorkspaceId.MEASUREMENT, 'import')
 MEASUREMENT_QUALITY = OverviewNavigationTarget(WorkspaceId.MEASUREMENT, 'quality')
+MEASUREMENT_CAMPAIGN = OverviewNavigationTarget(WorkspaceId.MEASUREMENT, 'campaign')
 OPTIMIZATION_SETUP = OverviewNavigationTarget(WorkspaceId.OPTIMIZATION, 'setup')
+OPTIMIZATION_COMPARISON = OverviewNavigationTarget(WorkspaceId.OPTIMIZATION, 'comparison')
 OPTIMIZATION_VALIDATION = OverviewNavigationTarget(WorkspaceId.OPTIMIZATION, 'validation')
 
 
@@ -129,6 +252,26 @@ def _action(
     target: OverviewNavigationTarget,
 ) -> OverviewAction:
     return OverviewAction(action_id=action_id, label=label, target=target)
+
+
+def _variant_stage(lifecycle, measurement) -> OverviewVariantStage:
+    """Combine the physical lifecycle with the campaign stage (#443).
+
+    ``applied`` means an application exists without an as-built record;
+    ``measured_unvalidated`` means campaign measurement completed while
+    O60/R180 validation is still pending.
+    """
+    state = getattr(lifecycle, 'state', 'proposed')
+    if state == 'current':
+        return 'applied'
+    if state == 'proposed':
+        return 'proposed'
+    if state == 'as_built':
+        mstate = getattr(measurement, 'state', 'unplanned')
+        if mstate in ('campaign_preregistered', 'evidence_incomplete'):
+            return 'campaign_preregistered'
+        return 'as_built'
+    return 'measured_unvalidated'
 
 
 def _validation_reason_ja(reasons: tuple[str, ...]) -> str:
@@ -191,6 +334,8 @@ class OverviewReadinessService:
         quality_source: MeasurementQualityReadSource | None = None,
         activity_source: ActivityReadSource | None = None,
         impact_source: SceneRevisionReadSource | None = None,
+        variant_source: VariantLifecycleReadSource | None = None,
+        equipment_source: EquipmentBindingReadSource | None = None,
     ) -> None:
         self._scene_source = scene_source
         self._measurement_source = measurement_source
@@ -200,6 +345,8 @@ class OverviewReadinessService:
         self._quality_source = quality_source
         self._activity_source = activity_source
         self._impact_source = impact_source
+        self._variant_source = variant_source
+        self._equipment_source = equipment_source
 
     def read(
         self,
@@ -460,12 +607,17 @@ class OverviewReadinessService:
             )
 
         warnings.extend(
+            self._equipment_notices(document_id, speakers)
+        )
+        warnings.extend(
             self._impact_notices(
                 revision,
                 completed_predictions=completed_predictions,
                 measurements=measurements,
             )
         )
+
+        variant_states = self._variant_states()
 
         setup_blocked = any(
             notice.code
@@ -497,6 +649,7 @@ class OverviewReadinessService:
             warnings=tuple(warnings),
             next_action=next_action,
             optimization_ready=optimization_ready,
+            variant_states=variant_states,
             recent_activity=self._recent_activity(document_id),
         )
 
@@ -513,6 +666,88 @@ class OverviewReadinessService:
             )
             for event in self._activity_source.recent(document_id, limit=8)
         )
+
+    def _equipment_notices(
+        self,
+        document_id: str,
+        speakers: tuple,
+    ) -> tuple[OverviewNotice, ...]:
+        """Relevant-only equipment/source readiness (#443).
+
+        Shown only while real speakers exist and at least one lacks a
+        persisted equipment binding — equipment/source capability gates
+        prediction quality, so an empty or bound-complete rig stays silent.
+        """
+        if self._equipment_source is None or not speakers:
+            return ()
+        unbound = tuple(
+            speaker
+            for speaker in speakers
+            if self._equipment_source.get_binding_for_entity(
+                document_id, speaker.entity_id
+            )
+            is None
+        )
+        if not unbound:
+            return ()
+        return (
+            OverviewNotice(
+                code='equipment.binding_missing',
+                severity='warning',
+                message=(
+                    f'{len(unbound)}台のスピーカーに機材・ソースモデルが'
+                    '設定されていません。予測の精度が制限されます。'
+                ),
+                action=_action(
+                    'equipment.bind_speakers',
+                    '機材を設定',
+                    ROOM_OBJECTS,
+                ),
+            ),
+        )
+
+    def _variant_states(self) -> tuple[OverviewVariantState, ...]:
+        """Per-variant lifecycle + measurement stage (#443, read-only)."""
+        if self._variant_source is None:
+            return ()
+        states: list[OverviewVariantState] = []
+        for variant in self._variant_source.variants():
+            lifecycle = self._variant_source.lifecycle(variant.variant_id)
+            measurement = self._variant_source.measurement(variant.variant_id)
+            stage = _variant_stage(lifecycle, measurement)
+            if stage in ('proposed', 'applied'):
+                action = _action(
+                    'variant.review_comparison',
+                    '比較を確認',
+                    OPTIMIZATION_COMPARISON,
+                )
+            elif stage == 'campaign_preregistered':
+                action = _action(
+                    'variant.open_campaign',
+                    'キャンペーンを確認',
+                    MEASUREMENT_CAMPAIGN,
+                )
+            else:
+                action = _action(
+                    'variant.open_validation',
+                    '検証へ進む',
+                    OPTIMIZATION_VALIDATION,
+                )
+            states.append(
+                OverviewVariantState(
+                    variant_id=variant.variant_id,
+                    name=getattr(variant, 'name', variant.variant_id),
+                    stage=stage,
+                    lifecycle_label=getattr(lifecycle, 'label', stage),
+                    stage_label=_VARIANT_STAGE_LABELS[stage],
+                    detail=(
+                        f'{getattr(lifecycle, "validation_label", "")} · '
+                        f'{getattr(measurement, "state_label", "")}'
+                    ).strip(' ·'),
+                    action=action,
+                )
+            )
+        return tuple(states)
 
     _IMPACT_KIND_JA: dict[str, str] = {
         'prediction': '予測',

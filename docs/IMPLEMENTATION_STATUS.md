@@ -32,7 +32,7 @@ N70はIssue #63 / PR #64、N80 workspaceはIssue #65 / PR #74、O60 software val
 | A13 | stale、UI responsiveness、明示cancel、document change、clean close/no worker PASS |
 | A14 | 8頂点L-room、rectangular-only model=`unsupported`、無silent approximation、overlayなし、scalar control gated PASS |
 | F5 | 50 editable objects＋10,000 markers、1 non-pickable actor、初回11.406 ms、orbit p95 27.963 ms PASS |
-| native entry | `htdt-native` / `run-native.ps1` / `python -m htdt.native_cad` はN80a `OptimizationWorkspaceWindow` compositionを起動 |
+| native entry | `htdt-native` / `run-native.ps1` / `python -m htdt.native_cad` はworkflow-first shellをdefaultで起動。`--legacy-ui`で旧`OptimizationWorkspaceWindow` compositionへrollback可。起動時にactive compositionがdiagnosticsへ記録される（UX160 launch-path task） |
 | browser UI | 新CAD機能は凍結。native release CIからfrontend buildを除外済み。二重実装しない |
 | N90 stable product head | `968a9461435ac37138ddd15526140c06613fccb8` / CI #458 PASS / Windows Release Artifact #23 PASS |
 | N90 accepted gate head | `3ee2fb91b4976d7b0cac7b13718222cd6e359b76` / A15 owned-Windows PASS |
