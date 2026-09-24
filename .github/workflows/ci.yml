@@ -107,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     runs-on: windows-latest
     env:
       PYTHONUTF8: '1'
@@ -123,8 +123,11 @@ jobs:
       - name: Install backend
         run: python -m pip install -e ".\backend[dev]"
 
-      - name: Test backend (shard ${{ matrix.shard }}/4)
+      - name: Test backend (shard ${{ matrix.shard }}/12)
         shell: pwsh
         run: |
-          $files = python scripts\pytest_shard.py backend\tests --num-shards 4 --shard ${{ matrix.shard }}
-          python -m pytest $files -n auto --dist loadscope
+          $sel = @(); $des = @()
+          foreach ($l in (python scripts\pytest_shard.py backend\tests --num-shards 12 --shard ${{ matrix.shard }} --weights scripts\test_durations.json)) {
+            if ($l.StartsWith('deselect:')) { $des += '--deselect'; $des += $l.Substring(9) } else { $sel += $l }
+          }
+          python -m pytest $sel $des -n auto --dist loadscope

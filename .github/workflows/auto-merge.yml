@@ -10,9 +10,11 @@ name: Auto-merge
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize, labeled, unlabeled]
-  check_suite:
+  # check_suite.completed does not fire for suites produced by GitHub Actions
+  # itself; workflow_run.completed on the CI workflows is the reliable signal.
+  workflow_run:
+    workflows: ["CI", "Windows Release Artifact"]
     types: [completed]
-  status:
   workflow_dispatch:
 
 permissions:
@@ -55,9 +57,12 @@ jobs:
             fi
 
             local blockers
+            # The `merge` check is this workflow's own job reporting on the
+            # triggering commit — still pending while we run. Excluding it
+            # lets a PR merge itself once its real checks are green.
             blockers=$(gh pr checks "$pr_number" --repo "$REPO" \
               --json name,bucket \
-              --jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | map(.name + "=" + .bucket) | join(", ")') || {
+              --jq '[.[] | select(.bucket != "pass" and .bucket != "skipping" and .name != "merge")] | map(.name + "=" + .bucket) | join(", ")') || {
                 echo "PR #$pr_number: could not read checks, skipping"
                 return 0
               }

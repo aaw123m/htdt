@@ -289,12 +289,12 @@ jobs:
   package-tests:
     # The backend suite under the shipped dependency closure used to run
     # serially inside the `package` job (the largest share of its runtime).
-    # It now runs sharded across four runners in parallel with the build;
+    # It now runs sharded across twelve runners in parallel with the build;
     # same coverage, same locked-closure verification.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     runs-on: windows-latest
     env:
       PYTHONUTF8: "1"
@@ -305,7 +305,18 @@ jobs:
         with:
           python-version: "3.12.10"
 
+      - name: Cache shipped-closure venv
+        id: closure-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # Fully pinned by the hash-verified lock + dev extras — safe to reuse
+          # verbatim until either input changes. pythonLocation is stable on
+          # hosted runners so absolute venv paths survive restore.
+          path: ${{ runner.temp }}\htdt-shipped-closure
+          key: htdt-shipped-closure-${{ hashFiles('backend/requirements-n05-windows.lock', 'backend/pyproject.toml') }}
+
       - name: Install shipped closure + test harness
+        if: steps.closure-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           # The release gate must exercise the exact third-party closure that
@@ -322,12 +333,15 @@ jobs:
           & $py -m pip install --disable-pip-version-check -e ".\backend[dev]"
           if ($LASTEXITCODE -ne 0) { throw "Test harness install failed with exit code $LASTEXITCODE" }
 
-      - name: Test backend shard ${{ matrix.shard }}/4 under shipped closure
+      - name: Test backend shard ${{ matrix.shard }}/12 under shipped closure
         shell: pwsh
         run: |
           $py = Join-Path $env:RUNNER_TEMP "htdt-shipped-closure\Scripts\python.exe"
-          $files = python scripts\pytest_shard.py backend\tests --num-shards 4 --shard ${{ matrix.shard }}
-          & $py -m pytest $files -n auto --dist loadscope
+          $sel = @(); $des = @()
+          foreach ($l in (python scripts\pytest_shard.py backend\tests --num-shards 12 --shard ${{ matrix.shard }} --weights scripts\test_durations.json)) {
+            if ($l.StartsWith('deselect:')) { $des += '--deselect'; $des += $l.Substring(9) } else { $sel += $l }
+          }
+          & $py -m pytest $sel $des -n auto --dist loadscope
           if ($LASTEXITCODE -ne 0) { throw "Backend tests failed under the shipped closure (exit code $LASTEXITCODE)" }
           # The dev harness overlay must never move a locked package.
           & $py scripts\check_dependency_lock.py --verify-installed
