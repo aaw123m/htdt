@@ -1698,7 +1698,12 @@ class WorkflowApplicationComposition:
                 )
             )
         for comparison in comparisons:
-            series.append(series_from_comparison(comparison))
+            series.append(
+                series_from_comparison(
+                    comparison,
+                    current_scene_revision_id=current_revision_id,
+                )
+            )
         title, ok = QInputDialog.getText(
             self.shell,
             "解析エクスポート",
