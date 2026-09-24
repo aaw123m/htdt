@@ -219,6 +219,8 @@ class BackupMetadataView(QFrame):
             ("archive_size", "アーカイブ"),
             ("database_size", "データベース"),
             ("measurement_assets", "測定アセット"),
+            ("auxiliary", "補助データ"),
+            ("excluded", "バックアップ対象外"),
             ("managed_size", "管理対象合計"),
             ("file_count", "保存ファイル"),
             ("path", "ファイル"),
@@ -240,6 +242,16 @@ class BackupMetadataView(QFrame):
         self._values["measurement_assets"].setText(
             f"{metadata.measurement_asset_count:,} 件 / "
             f"{_format_bytes(metadata.measurement_asset_size_bytes)}"
+        )
+        # #769: 'whole-data' is a declared contract — show which registry
+        # components the archive carries and which are deliberately out.
+        auxiliary = metadata.auxiliary_components
+        self._values["auxiliary"].setText(
+            ", ".join(auxiliary) if auxiliary else "なし"
+        )
+        excluded = metadata.excluded_categories
+        self._values["excluded"].setText(
+            ", ".join(excluded) if excluded else "なし"
         )
         self._values["managed_size"].setText(_format_bytes(metadata.managed_size_bytes))
         self._values["file_count"].setText(f"{metadata.file_count:,} 件")
