@@ -40,28 +40,6 @@ jobs:
         with:
           python-version: "3.12.10"
 
-      - name: Test backend under shipped dependency closure
-        shell: pwsh
-        run: |
-          # The release gate must exercise the exact third-party closure that
-          # ships: create a clean venv on the pinned interpreter, install the
-          # hash-verified lock, then overlay only the pinned dev test harness
-          # (backend[dev] extras). pytest imports htdt from backend/src via the
-          # pytest pythonpath config — the same source PyInstaller packages.
-          python --version
-          $venv = Join-Path $env:RUNNER_TEMP "htdt-shipped-closure"
-          python -m venv $venv
-          $py = Join-Path $venv "Scripts\python.exe"
-          & $py -m pip install --disable-pip-version-check --require-hashes -r backend\requirements-n05-windows.lock
-          if ($LASTEXITCODE -ne 0) { throw "Locked dependency install failed with exit code $LASTEXITCODE" }
-          & $py -m pip install --disable-pip-version-check -e ".\backend[dev]"
-          if ($LASTEXITCODE -ne 0) { throw "Test harness install failed with exit code $LASTEXITCODE" }
-          & $py -m pytest backend\tests -n auto --dist loadscope
-          if ($LASTEXITCODE -ne 0) { throw "Backend tests failed under the shipped closure (exit code $LASTEXITCODE)" }
-          # The dev harness overlay must never move a locked package.
-          & $py scripts\check_dependency_lock.py --verify-installed
-          if ($LASTEXITCODE -ne 0) { throw "Installed closure diverged from the lock" }
-
       - name: Build locked native package
         shell: pwsh
         run: |
@@ -307,3 +285,50 @@ jobs:
             ${{ runner.temp }}\htdt-installer\HTDT-Setup-*.exe
             ${{ runner.temp }}\htdt-installer\HTDT-Setup-*.manifest.json
           if-no-files-found: error
+
+  package-tests:
+    # The backend suite under the shipped dependency closure used to run
+    # serially inside the `package` job (the largest share of its runtime).
+    # It now runs sharded across four runners in parallel with the build;
+    # same coverage, same locked-closure verification.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12.10"
+
+      - name: Install shipped closure + test harness
+        shell: pwsh
+        run: |
+          # The release gate must exercise the exact third-party closure that
+          # ships: create a clean venv on the pinned interpreter, install the
+          # hash-verified lock, then overlay only the pinned dev test harness
+          # (backend[dev] extras). pytest imports htdt from backend/src via the
+          # pytest pythonpath config — the same source PyInstaller packages.
+          python --version
+          $venv = Join-Path $env:RUNNER_TEMP "htdt-shipped-closure"
+          python -m venv $venv
+          $py = Join-Path $venv "Scripts\python.exe"
+          & $py -m pip install --disable-pip-version-check --require-hashes -r backend\requirements-n05-windows.lock
+          if ($LASTEXITCODE -ne 0) { throw "Locked dependency install failed with exit code $LASTEXITCODE" }
+          & $py -m pip install --disable-pip-version-check -e ".\backend[dev]"
+          if ($LASTEXITCODE -ne 0) { throw "Test harness install failed with exit code $LASTEXITCODE" }
+
+      - name: Test backend shard ${{ matrix.shard }}/4 under shipped closure
+        shell: pwsh
+        run: |
+          $py = Join-Path $env:RUNNER_TEMP "htdt-shipped-closure\Scripts\python.exe"
+          $files = python scripts\pytest_shard.py backend\tests --num-shards 4 --shard ${{ matrix.shard }}
+          & $py -m pytest $files -n auto --dist loadscope
+          if ($LASTEXITCODE -ne 0) { throw "Backend tests failed under the shipped closure (exit code $LASTEXITCODE)" }
+          # The dev harness overlay must never move a locked package.
+          & $py scripts\check_dependency_lock.py --verify-installed
+          if ($LASTEXITCODE -ne 0) { throw "Installed closure diverged from the lock" }
