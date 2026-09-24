@@ -9,6 +9,10 @@ import threading
 import pytest
 from pydantic import ValidationError
 
+from htdt.cad_measurement_authorities import (
+    build_acoustic_level_calibration,
+    build_dataset_level_reference,
+)
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
     QUALITY_ALGORITHM_SHA256,
@@ -364,6 +368,28 @@ def test_explicit_quality_metadata_opens_only_supported_claims(tmp_path: Path) -
         minimum_polarity_confidence=0.9,
         maximum_repeatability_rms_db=1.0,
     )
+    # Absolute-level claims (#861) additionally resolve the persisted
+    # dataset level reference and its bound acoustic level calibration.
+    level_calibration = build_acoustic_level_calibration(
+        method='acoustic_calibrator',
+        reference_level_db_spl=94.0,
+        reference_frequency_hz=1000.0,
+        calibrated_at_utc='2026-09-18T00:00:00+00:00',
+        validity_scope='measurement',
+    )
+    quality_repository.save_level_calibration(level_calibration)
+    level_reference = build_dataset_level_reference(
+        measurement_id=record.measurement_id,
+        dataset_id=dataset.dataset_id,
+        dataset_sha256=dataset.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=level_calibration.calibration_id,
+        calibration_sha256=level_calibration.calibration_sha256,
+    )
+    quality_repository.save_dataset_level_reference(level_reference)
+    acquisition_record = quality_repository.get_acquisition_context(
+        acquisition.acquisition_context_id
+    )
     report = build_measurement_quality_report(
         measurement=record,
         dataset=dataset,
@@ -371,6 +397,12 @@ def test_explicit_quality_metadata_opens_only_supported_claims(tmp_path: Path) -
         profile=profile,
         acquisition_context=acquisition,
         observation=observation,
+        dataset_level_reference=level_reference,
+        level_calibration=level_calibration,
+        acquisition_context_record=acquisition_record,
+        observation_record=quality_repository.get_observation(
+            observation.observation_id
+        ),
         report_id='report-rich',
         created_at_utc='2026-09-19T00:03:00+00:00',
     )

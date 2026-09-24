@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import closing
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
@@ -26,6 +27,10 @@ from .cad_measurement_models import (
     RadiationScope,
     RoutingEvidence,
 )
+from .cad_listener_pose import (
+    CadListenerPoseRepository,
+    pose_acoustic_reference_position,
+)
 from .cad_measurement_targets import CadMeasurementTargetLineage
 from .cad_measurement_quality import (
     MACHINE_OBSERVATION_SOURCES,
@@ -45,27 +50,61 @@ from .cad_measurement_repository import (
     CadMeasurementRepository,
     VerifiedMeasurementAsset,
 )
-from .cad_scene import acoustic_reference_position
+from .cad_scene import Position3, acoustic_reference_position
 from .cad_schema import check_native_schema_compatibility
 from .managed_assets import (
     ManagedAssetError,
     ManagedAssetStore,
     verify_managed_asset,
 )
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 class MeasurementLineageConflictError(ValueError):
     """A retake-lineage save violated the single-head supersession contract."""
 
 
+@dataclass(frozen=True, slots=True)
+class _ReportBindings:
+    """Authorities resolved for one report validation pass.
+
+    ``_validate_report_bindings`` produces this so replay re-derives the
+    capability matrix from the *resolved* persisted authorities — never from
+    report-embedded claims.
+    """
+
+    measurement: CadMeasurementRecord
+    dataset: CadFrequencyResponseDataset
+    acquisition_context: CadAcquisitionContext | None
+    observation: CadMeasurementObservation | None
+    dataset_level_reference: CadDatasetLevelReference | None
+    level_calibration: CadAcousticLevelCalibration | None
+
+
 class CadMeasurementQualityRepository:
     """Append-only quality and retake evidence over the native N60 measurement authority."""
 
-    def __init__(self, measurement_repository: CadMeasurementRepository) -> None:
+    def __init__(
+        self,
+        measurement_repository: CadMeasurementRepository,
+        *,
+        listener_pose_repository: CadListenerPoseRepository | None = None,
+        pose_evidence_resolver: Callable[[ExactExternalAuthorityRef, str], Position3 | None] | None = None,
+    ) -> None:
         self.measurement_repository = measurement_repository
         self.path = Path(measurement_repository.path)
         self.assets_dir = Path(measurement_repository.assets_dir)
         self._asset_store = ManagedAssetStore(self.assets_dir)
+        self.listener_pose_repository = (
+            listener_pose_repository
+            if listener_pose_repository is not None
+            else CadListenerPoseRepository(self.path)
+        )
+        # #863: resolves a correction's pose_evidence_ref into the observed
+        # world position the authority records. None fails closed — a
+        # spatially-different reassignment without a resolver can never
+        # persist.
+        self.pose_evidence_resolver = pose_evidence_resolver
         check_native_schema_compatibility(self.path)
         self._initialize()
 
@@ -525,7 +564,7 @@ class CadMeasurementQualityRepository:
         self,
         report: CadMeasurementQualityReport,
         measurement: CadMeasurementRecord,
-    ) -> None:
+    ) -> CadAcquisitionContext | None:
         """Resolve the report's context binding against the persisted authority.
 
         A non-``unknown`` ``source_kind`` string is never proof of existence:
@@ -533,7 +572,8 @@ class CadMeasurementQualityRepository:
         the exact content hash and source kind, covering this measurement, and
         the report's timing evidence must equal the context's attested values
         verbatim. Timing evidence without a bound context — or diverging from
-        the resolved one — fails closed.
+        the resolved one — fails closed. Returns the resolved context so the
+        replay can feed scope checks (instrument identity, session scope).
         """
         binding = report.acquisition_context
         if binding is None:
@@ -544,7 +584,7 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'timing reference evidence requires a bound acquisition context'
                 )
-            return
+            return None
         context = self.get_acquisition_context(binding.acquisition_context_id)
         if context is None:
             raise ValueError(
@@ -567,13 +607,86 @@ class CadMeasurementQualityRepository:
                     f'timing evidence field {field} diverges from the resolved '
                     'acquisition context'
                 )
+        return context
+
+    def _resolve_level_reference(
+        self,
+        report: CadMeasurementQualityReport,
+        measurement: CadMeasurementRecord,
+        dataset: CadFrequencyResponseDataset,
+    ) -> tuple[CadDatasetLevelReference | None, CadAcousticLevelCalibration | None]:
+        """Resolve the report's level-reference pin against persisted authorities (#861).
+
+        When the report pins a ``CadDatasetLevelReference`` the pin must
+        resolve to the persisted row for the exact bound dataset — matching
+        id, content hash and declared kind (the mirrored kind guard blocks a
+        binding that re-labels ``dbfs``/``unknown`` semantics as
+        ``absolute_spl``) — and the calibration it binds must resolve with
+        the exact pinned hash. A report claiming a level-reference pin for a
+        dataset whose persisted reference changed fails closed.
+        """
+        binding = report.level_reference
+        if binding is None:
+            return None, None
+        reference = self.get_dataset_level_reference(dataset.dataset_id)
+        if reference is None:
+            raise ValueError(
+                'quality report references unknown dataset level reference: '
+                f'{binding.level_reference_id}'
+            )
+        if (
+            reference.level_reference_id != binding.level_reference_id
+            or reference.level_reference_sha256 != binding.level_reference_sha256
+        ):
+            raise ValueError('quality report dataset level reference hash mismatch')
+        if reference.level_reference_kind != binding.level_reference_kind:
+            raise ValueError(
+                'quality report dataset level reference kind mismatch'
+            )
+        if (
+            reference.measurement_id != measurement.measurement_id
+            or reference.dataset_id != dataset.dataset_id
+        ):
+            raise ValueError(
+                'dataset level reference does not bind this measurement/dataset'
+            )
+        # The canonical level reference is the source of truth for strong
+        # level semantics (#861): the legacy producer-declared dataset field
+        # must not contradict it — 'unknown' is a non-claim that never
+        # disagrees, while a producer-declared 'dbfs'/'relative' dataset can
+        # never be bound to absolute_spl semantics.
+        legacy = dataset.level_reference
+        if reference.level_reference_kind == 'absolute_spl':
+            if legacy not in {'unknown', 'spl', 'absolute_spl'}:
+                raise ValueError(
+                    'dataset legacy level_reference disagrees with the bound '
+                    f'absolute_spl authority: {legacy}'
+                )
+        elif legacy == 'absolute_spl':
+            raise ValueError(
+                'dataset legacy level_reference claims absolute SPL but the '
+                f'bound authority declares {reference.level_reference_kind}'
+            )
+        calibration: CadAcousticLevelCalibration | None = None
+        if reference.calibration_id is not None:
+            calibration = self.get_level_calibration(reference.calibration_id)
+            if calibration is None:
+                raise ValueError(
+                    'dataset level reference resolves to an unknown level '
+                    f'calibration: {reference.calibration_id}'
+                )
+            if calibration.calibration_sha256 != reference.calibration_sha256:
+                raise ValueError(
+                    'dataset level reference calibration hash mismatch'
+                )
+        return reference, calibration
 
     def _resolve_observation(
         self,
         report: CadMeasurementQualityReport,
         measurement: CadMeasurementRecord,
         dataset: CadFrequencyResponseDataset,
-    ) -> None:
+    ) -> CadMeasurementObservation | None:
         """Resolve the report's observation binding against the persisted authority.
 
         Every non-default observation evidence field requires a persisted
@@ -598,7 +711,7 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'evidence_source requires a bound measurement observation'
                 )
-            return
+            return None
         observation = self.get_observation(binding.observation_id)
         if observation is None:
             raise ValueError(
@@ -630,6 +743,7 @@ class CadMeasurementQualityRepository:
             raise ValueError(
                 'evidence_source diverges from the resolved observation authority'
             )
+        return observation
 
     def _resolve_calibration_authority(
         self,
@@ -688,7 +802,7 @@ class CadMeasurementQualityRepository:
     def _validate_report_bindings(
         self,
         report: CadMeasurementQualityReport,
-    ) -> tuple[CadMeasurementRecord, CadFrequencyResponseDataset]:
+    ) -> _ReportBindings:
         measurement = self.measurement_repository.get_measurement(report.measurement_id)
         if measurement is None:
             raise ValueError(f'quality report references unknown measurement: {report.measurement_id}')
@@ -749,18 +863,32 @@ class CadMeasurementQualityRepository:
                 )
             repeat_datasets.append(repeat_dataset)
 
-        self._resolve_acquisition_context(report, measurement)
-        self._resolve_observation(report, measurement, dataset)
+        context = self._resolve_acquisition_context(report, measurement)
+        observation = self._resolve_observation(report, measurement, dataset)
         self._resolve_calibration_authority(report)
         self._resolve_repeatability(report, repeat_datasets)
-        return measurement, dataset
-
-    def _validate_current_report(self, report: CadMeasurementQualityReport) -> None:
-        measurement, dataset = self._validate_report_bindings(report)
-        rebuilt = replay_measurement_quality_report(
-            report,
+        level_reference, level_calibration = self._resolve_level_reference(
+            report, measurement, dataset
+        )
+        return _ReportBindings(
             measurement=measurement,
             dataset=dataset,
+            acquisition_context=context,
+            observation=observation,
+            dataset_level_reference=level_reference,
+            level_calibration=level_calibration,
+        )
+
+    def _validate_current_report(self, report: CadMeasurementQualityReport) -> None:
+        bindings = self._validate_report_bindings(report)
+        rebuilt = replay_measurement_quality_report(
+            report,
+            measurement=bindings.measurement,
+            dataset=bindings.dataset,
+            dataset_level_reference=bindings.dataset_level_reference,
+            level_calibration=bindings.level_calibration,
+            acquisition_context_record=bindings.acquisition_context,
+            observation_record=bindings.observation,
         )
         if rebuilt != report:
             raise ValueError('quality report does not match canonical quality algorithm output')
@@ -1428,10 +1556,148 @@ class CadMeasurementQualityRepository:
     # ------------------------------------------------------------------
     # Seat-derived measurement target lineage (#472)
 
+    def _validate_target_lineage(
+        self, lineage: CadMeasurementTargetLineage
+    ) -> None:
+        """Prove the seat→point derivation against pinned revisions (#862).
+
+        The sealed hash only proves the payload was not edited after
+        construction — it says nothing about whether the derivation ever
+        happened. ``creation_revision_id`` is the revision containing the
+        created point; the seat was read from that revision's parent
+        (explicitly pinned via ``source_scene_revision_id`` when present).
+        All entity resolution happens at the pinned revisions, never at
+        current head.
+        """
+        scene_repository = self.measurement_repository.scene_repository
+        created = scene_repository.get(lineage.creation_revision_id)
+        if created is None:
+            raise ValueError(
+                'measurement target lineage references unknown creation '
+                f'revision: {lineage.creation_revision_id}'
+            )
+        if created.document_id != lineage.document_id:
+            raise ValueError(
+                'measurement target lineage creation revision belongs to a '
+                'different document'
+            )
+        if (
+            lineage.creation_scene_content_hash is not None
+            and lineage.creation_scene_content_hash != created.content_hash
+        ):
+            raise ValueError(
+                'measurement target lineage creation revision content hash '
+                'mismatch'
+            )
+
+        if lineage.source_scene_revision_id is not None:
+            if created.parent_revision_id != lineage.source_scene_revision_id:
+                raise ValueError(
+                    'measurement target lineage source revision is not the '
+                    'creation revision parent'
+                )
+            source_revision_id = lineage.source_scene_revision_id
+        else:
+            source_revision_id = created.parent_revision_id
+            if source_revision_id is None:
+                raise ValueError(
+                    'measurement target lineage creation revision has no '
+                    'source revision'
+                )
+        source = scene_repository.get(source_revision_id)
+        if source is None:
+            raise ValueError(
+                'measurement target lineage references unknown source '
+                f'revision: {source_revision_id}'
+            )
+        if source.document_id != lineage.document_id:
+            raise ValueError(
+                'measurement target lineage source revision belongs to a '
+                'different document'
+            )
+        if (
+            lineage.source_scene_content_hash is not None
+            and lineage.source_scene_content_hash != source.content_hash
+        ):
+            raise ValueError(
+                'measurement target lineage source revision content hash '
+                'mismatch'
+            )
+
+        try:
+            seat = source.document.entity(lineage.source_seat_id)
+        except KeyError as exc:
+            raise ValueError(
+                'measurement target lineage references unknown source seat '
+                f'at its source revision: {lineage.source_seat_id}'
+            ) from exc
+        if seat.kind != 'seat':
+            raise ValueError(
+                f'measurement target lineage source entity is not a seat: '
+                f'{lineage.source_seat_id}'
+            )
+        seat_reference = acoustic_reference_position(seat)
+        if seat_reference is None:
+            raise ValueError(
+                f'measurement target lineage source seat '
+                f'{lineage.source_seat_id} has no acoustic listener '
+                'reference at the pinned source revision'
+            )
+        if lineage.source_pose_ref is not None:
+            pose = self.listener_pose_repository.get_pose(
+                lineage.source_pose_ref.authority_id
+            )
+            if pose is None:
+                raise ValueError(
+                    'measurement target lineage references unknown listener '
+                    f'pose: {lineage.source_pose_ref.authority_id}'
+                )
+            if pose.authority_ref() != lineage.source_pose_ref:
+                raise ValueError(
+                    'measurement target lineage listener pose hash mismatch'
+                )
+            if pose.seat_entity_id != seat.entity_id:
+                raise ValueError(
+                    'measurement target lineage listener pose is bound to a '
+                    'different seat'
+                )
+            listener_position = pose_acoustic_reference_position(seat, pose)
+        else:
+            listener_position = seat_reference
+        if listener_position != lineage.initial_position:
+            raise ValueError(
+                'measurement target lineage initial position does not match '
+                'the source listener reference at the pinned source revision'
+            )
+
+        try:
+            point = created.document.entity(lineage.measurement_point_id)
+        except KeyError as exc:
+            raise ValueError(
+                'measurement target lineage references unknown measurement '
+                f'point at its creation revision: {lineage.measurement_point_id}'
+            ) from exc
+        if point.kind != 'measurement_point':
+            raise ValueError(
+                f'measurement target lineage created entity is not a '
+                f'measurement point: {lineage.measurement_point_id}'
+            )
+        if acoustic_reference_position(point) != lineage.initial_position:
+            raise ValueError(
+                'measurement target lineage created point position does not '
+                'match the declared initial position'
+            )
+
     def save_target_lineage(
         self, lineage: CadMeasurementTargetLineage
     ) -> None:
-        """Persist a seat-derived measurement-point derivation record."""
+        """Persist a seat-derived measurement-point derivation record.
+
+        The derivation itself is proven against the pinned revisions (#862)
+        before the sealed row is written — a self-consistent hash alone is
+        never evidence the seat→point relationship existed.
+        """
+        self._validate_target_lineage(lineage)
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1474,9 +1740,14 @@ class CadMeasurementQualityRepository:
             ).fetchone()
         if row is None:
             return None
-        return CadMeasurementTargetLineage.model_validate_json(
+        lineage = CadMeasurementTargetLineage.model_validate_json(
             row['payload_json']
         )
+        # Authoritative reads re-prove the historical derivation (#862) — a
+        # persisted row whose seat/revision/point claims no longer resolve
+        # fails closed rather than surfacing as exact lineage.
+        self._validate_target_lineage(lineage)
+        return lineage
 
     def list_target_lineages(
         self, document_id: str
@@ -1489,10 +1760,13 @@ class CadMeasurementQualityRepository:
                 'target_lineage_id',
                 (document_id,),
             ).fetchall()
-        return tuple(
+        lineages = tuple(
             CadMeasurementTargetLineage.model_validate_json(row['payload_json'])
             for row in rows
         )
+        for lineage in lineages:
+            self._validate_target_lineage(lineage)
+        return lineages
 
     # ------------------------------------------------------------------
     # Disposition / assignment-correction authority (#509)
@@ -1558,7 +1832,13 @@ class CadMeasurementQualityRepository:
             ).fetchone()
         if row is None:
             return None
-        return CadMeasurementDisposition.model_validate_json(row['payload_json'])
+        disposition = CadMeasurementDisposition.model_validate_json(
+            row['payload_json']
+        )
+        # Revalidate on read (#863): a 'corrected' disposition whose pinned
+        # correction no longer validates must fail closed.
+        self._validate_disposition(disposition)
+        return disposition
 
     def list_dispositions(
         self,
@@ -1574,10 +1854,13 @@ class CadMeasurementQualityRepository:
                 ''',
                 (measurement_id,),
             ).fetchall()
-        return tuple(
+        dispositions = tuple(
             CadMeasurementDisposition.model_validate_json(row['payload_json'])
             for row in rows
         )
+        for disposition in dispositions:
+            self._validate_disposition(disposition)
+        return dispositions
 
     def latest_disposition(
         self,
@@ -1595,7 +1878,11 @@ class CadMeasurementQualityRepository:
             ).fetchone()
         if row is None:
             return None
-        return CadMeasurementDisposition.model_validate_json(row['payload_json'])
+        disposition = CadMeasurementDisposition.model_validate_json(
+            row['payload_json']
+        )
+        self._validate_disposition(disposition)
+        return disposition
 
     def _validate_correction(self, correction: CadMeasurementCorrection) -> None:
         """A correction must pin the subject's exact bound dataset and valid entities."""
@@ -1629,10 +1916,66 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'corrected entity does not exist in the source revision'
                 ) from exc
-            if acoustic_reference_position(entity) is None:
+            corrected_position = acoustic_reference_position(entity)
+            if corrected_position is None:
                 raise ValueError(
                     'corrected entity has no acoustic reference position'
                 )
+            # #863: a target-entity relabel never rewrites physical truth. When
+            # the corrected target's acoustic reference equals the immutable
+            # import position exactly, the label swap is provably position-
+            # preserving. Any spatial difference requires exact pose evidence
+            # pinned by ``pose_evidence_ref`` — never an implicit tolerance.
+            if (
+                corrected_position != subject.measurement_position
+                and correction.measurement_entity_id
+                != subject.measurement_entity_id
+            ):
+                if correction.correction_kind == 'assignment_label_only':
+                    raise ValueError(
+                        'label-only target correction is not position-'
+                        'compatible with the immutable measurement position'
+                    )
+                if correction.pose_evidence_ref is None:
+                    raise ValueError(
+                        'target correction to a different position requires '
+                        'pinned pose evidence (#732)'
+                    )
+                resolver = self.pose_evidence_resolver
+                if resolver is None:
+                    raise ValueError(
+                        'no pose-evidence resolver configured — a spatially '
+                        'different correction cannot be verified'
+                    )
+                observed = resolver(
+                    correction.pose_evidence_ref, correction.document_id
+                )
+                if observed is None:
+                    raise ValueError(
+                        'pose evidence does not resolve to a valid authority '
+                        'for this document'
+                    )
+                if observed != corrected_position:
+                    raise ValueError(
+                        'resolved pose evidence position does not match the '
+                        'corrected target acoustic reference'
+                    )
+            elif correction.pose_evidence_ref is not None:
+                # A pose ref on a position-preserving correction must still
+                # resolve — it is claimed authority, never decoration.
+                resolver = self.pose_evidence_resolver
+                observed = (
+                    None
+                    if resolver is None
+                    else resolver(
+                        correction.pose_evidence_ref, correction.document_id
+                    )
+                )
+                if observed is None:
+                    raise ValueError(
+                        'pose evidence does not resolve to a valid authority '
+                        'for this document'
+                    )
         if correction.source_speaker_ids is not None:
             for source_id in correction.source_speaker_ids:
                 try:
@@ -1696,7 +2039,14 @@ class CadMeasurementQualityRepository:
             ).fetchone()
         if row is None:
             return None
-        return CadMeasurementCorrection.model_validate_json(row['payload_json'])
+        correction = CadMeasurementCorrection.model_validate_json(
+            row['payload_json']
+        )
+        # Authoritative reads revalidate the exact subject/dataset/entity/
+        # pose-evidence bindings (#863) — a row that can no longer prove its
+        # corrected binding fails closed instead of elevating as authority.
+        self._validate_correction(correction)
+        return correction
 
     def list_corrections(
         self,
@@ -1712,10 +2062,13 @@ class CadMeasurementQualityRepository:
                 ''',
                 (measurement_id,),
             ).fetchall()
-        return tuple(
+        corrections = tuple(
             CadMeasurementCorrection.model_validate_json(row['payload_json'])
             for row in rows
         )
+        for correction in corrections:
+            self._validate_correction(correction)
+        return corrections
 
     def latest_correction(
         self,
@@ -1733,4 +2086,8 @@ class CadMeasurementQualityRepository:
             ).fetchone()
         if row is None:
             return None
-        return CadMeasurementCorrection.model_validate_json(row['payload_json'])
+        correction = CadMeasurementCorrection.model_validate_json(
+            row['payload_json']
+        )
+        self._validate_correction(correction)
+        return correction

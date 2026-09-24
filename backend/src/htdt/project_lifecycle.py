@@ -255,35 +255,67 @@ class ProjectLibrary:
         *,
         project_id: str | None = None,
         cloned_from_project_id: str | None = None,
+        connection: sqlite3.Connection | None = None,
     ) -> ProjectRecord:
-        """Idempotently register one document as a managed project."""
+        """Idempotently register one document as a managed project.
 
-        now = _utc_now()
-        with closing(self._connect()) as connection, connection:
-            existing = connection.execute(
-                'SELECT * FROM project_registry WHERE document_id=?',
-                (document_id,),
-            ).fetchone()
-            if existing is not None:
-                return self._row_to_record(existing)
-            record = (
-                project_id or uuid4().hex,
+        ``connection`` (#864): when supplied, the insert runs inside the
+        caller's transaction — the caller owns BEGIN/COMMIT/ROLLBACK so the
+        registration commits atomically with sibling stores sharing the same
+        SQLite file (e.g. template-instantiated project creation).
+        """
+
+        if connection is not None:
+            return self._register_in_connection(
+                connection,
                 document_id,
-                display_name or document_id,
-                'active',
-                cloned_from_project_id,
-                now,
-                now,
-                None,
+                display_name,
+                project_id=project_id,
+                cloned_from_project_id=cloned_from_project_id,
             )
-            connection.execute(
-                'INSERT INTO project_registry('
-                'project_id, document_id, display_name, status, '
-                'cloned_from_project_id, created_at_utc, updated_at_utc, '
-                'archived_at_utc'
-                ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                record,
+        with closing(self._connect()) as connection, connection:
+            return self._register_in_connection(
+                connection,
+                document_id,
+                display_name,
+                project_id=project_id,
+                cloned_from_project_id=cloned_from_project_id,
             )
+
+    def _register_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        document_id: str,
+        display_name: str,
+        *,
+        project_id: str | None = None,
+        cloned_from_project_id: str | None = None,
+    ) -> ProjectRecord:
+        now = _utc_now()
+        existing = connection.execute(
+            'SELECT * FROM project_registry WHERE document_id=?',
+            (document_id,),
+        ).fetchone()
+        if existing is not None:
+            return self._row_to_record(existing)
+        record = (
+            project_id or uuid4().hex,
+            document_id,
+            display_name or document_id,
+            'active',
+            cloned_from_project_id,
+            now,
+            now,
+            None,
+        )
+        connection.execute(
+            'INSERT INTO project_registry('
+            'project_id, document_id, display_name, status, '
+            'cloned_from_project_id, created_at_utc, updated_at_utc, '
+            'archived_at_utc'
+            ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            record,
+        )
         return ProjectRecord(
             project_id=record[0],
             document_id=document_id,
