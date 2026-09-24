@@ -20,6 +20,7 @@ from .cad_r110_source import (
     compile_r110_source_model,
 )
 from .cad_repository import SceneRepository
+from .cad_source_response import CadSourceResponseRepository
 from .cad_schema import ensure_native_schema
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
@@ -40,6 +41,7 @@ class CadR110SourceRepository:
         directivity_repository: CadDirectivityRepository | None = None,
         binding_repository: CadEquipmentBindingRepository | None = None,
         installation_repository: CadInstallationContextRepository | None = None,
+        source_response_repository: CadSourceResponseRepository | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.variant_repository = (
@@ -78,6 +80,11 @@ class CadR110SourceRepository:
                 scene_repository,
                 self.equipment_repository,
             )
+        )
+        self.source_response_repository = (
+            source_response_repository
+            if source_response_repository is not None
+            else CadSourceResponseRepository(scene_repository.path)
         )
         self.path = Path(scene_repository.path)
         ensure_native_schema(self.path)
@@ -239,6 +246,26 @@ class CadR110SourceRepository:
                     'persisted R110 source references missing installation '
                     'context'
                 )
+        source_response = None
+        if model.source_response_authority_sha256 is not None:
+            source_response = (
+                self.source_response_repository.get_response_by_sha256(
+                    model.source_response_authority_sha256
+                )
+            )
+            if (
+                source_response is None
+                or source_response.response_id
+                != model.source_response_authority_id
+                or source_response.authority_version
+                != model.source_response_authority_version
+                or source_response.capability_tier
+                != model.source_response_capability_tier
+            ):
+                raise ValueError(
+                    'persisted R110 source references missing source '
+                    'response authority'
+                )
 
         return (
             scene_revision,
@@ -247,6 +274,7 @@ class CadR110SourceRepository:
             dataset,
             binding_semantics,
             installation_context,
+            source_response,
         )
 
     def _validate_exact_authorities(
@@ -260,6 +288,7 @@ class CadR110SourceRepository:
             dataset,
             binding_semantics,
             installation_context,
+            source_response,
         ) = self._resolve_exact_authorities(model)
         recompiled = compile_r110_source_model(
             scene_revision=scene_revision,
@@ -269,6 +298,7 @@ class CadR110SourceRepository:
             directivity_dataset=dataset,
             binding_semantics=binding_semantics,
             installation_context=installation_context,
+            source_response=source_response,
         )
         if recompiled != model:
             raise ValueError(
@@ -282,6 +312,7 @@ class CadR110SourceRepository:
         system_variant_id: str,
         source_entity_id: str,
         directivity_dataset_sha256: str | None = None,
+        source_response_sha256: str | None = None,
     ) -> R110CompiledSourceModel:
         variant = self.variant_repository.get_variant(system_variant_id)
         if variant is None:
@@ -323,6 +354,16 @@ class CadR110SourceRepository:
             if dataset is None:
                 raise ValueError('DirectivityDataset does not exist')
 
+        source_response = None
+        if source_response_sha256 is not None:
+            source_response = (
+                self.source_response_repository.get_response_by_sha256(
+                    source_response_sha256
+                )
+            )
+            if source_response is None:
+                raise ValueError('SourceFrequencyResponseAuthority does not exist')
+
         binding_semantics = self.binding_repository.get_binding_for_entity(
             scene_revision.document_id,
             source_entity_id,
@@ -342,6 +383,7 @@ class CadR110SourceRepository:
             directivity_dataset=dataset,
             binding_semantics=binding_semantics,
             installation_context=installation_context,
+            source_response=source_response,
         )
 
     def save_model(

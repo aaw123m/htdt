@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_scene import Direction3, Position3
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 QUALITY_ALGORITHM_VERSION = 'measurement-quality-1'
@@ -357,6 +358,10 @@ class CadAcquisitionContext(BaseModel):
     timing_reference_sha256: str | None = Field(
         default=None, pattern=r'^[0-9a-f]{64}$'
     )
+    # #479: exact AcousticEnvironmentProfile the measurement was captured
+    # under; predicted-vs-measured comparisons claim environment
+    # compatibility from this authority, never from ambient assumptions.
+    environment_ref: ExactExternalAuthorityRef | None = None
     created_at_utc: str = Field(min_length=1)
     notes: tuple[str, ...] = ()
     provenance_json: str = '{}'
@@ -404,6 +409,8 @@ class CadAcquisitionContext(BaseModel):
             )
         if self.timing_reference_sha256 is not None:
             payload['timing_reference_sha256'] = self.timing_reference_sha256
+        if self.environment_ref is not None:
+            payload['environment_ref'] = self.environment_ref.model_dump(mode='json')
         return payload
 
 
@@ -529,6 +536,7 @@ def build_acquisition_context(
     playback: CadPlaybackCapture | dict[str, Any] | None = None,
     measurement_direction: Direction3 | None = None,
     timing_reference_sha256: str | None = None,
+    environment_ref: ExactExternalAuthorityRef | None = None,
     acquisition_context_id: str | None = None,
     created_at_utc: str | None = None,
     notes: Sequence[str] = (),
@@ -557,6 +565,7 @@ def build_acquisition_context(
         'playback': playback,
         'measurement_direction': measurement_direction,
         'timing_reference_sha256': timing_reference_sha256,
+        'environment_ref': environment_ref,
         'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
         'notes': tuple(notes),
         'provenance_json': provenance_json,

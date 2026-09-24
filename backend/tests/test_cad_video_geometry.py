@@ -515,7 +515,9 @@ def test_baseline_projection_and_viewing_are_deterministic_but_rear_sightline_fa
     assert sightline['seat-rear'].blocking_seat_ids == ('seat-front',)
     assert first.geometry_status == 'FAIL'
     assert first.screen_acoustic_effect_status == 'UNKNOWN'
-    assert 'no acoustic transmission/reflection model' in first.screen_acoustic_effect_reason
+    # #541: a legacy acoustically_transparent flag is never acoustic truth —
+    # UNKNOWN stands until an exact AcousticScreenTransferAuthority is bound.
+    assert 'AcousticScreenTransferAuthority' in first.screen_acoustic_effect_reason
 
 
 def test_system_variant_can_raise_rear_row_on_riser_and_replace_projector_without_mutating_baseline(

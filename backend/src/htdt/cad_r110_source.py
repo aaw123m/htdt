@@ -46,6 +46,7 @@ R110_AIM_AXIS_AUTHORITY = 'scene-entity-aim-xyz-v1'
 
 R110SourceCapabilityName = Literal[
     'geometry_reference_point',
+    'source_response',
     'magnitude_directivity',
     'complex_directivity',
     'coherent_phase',
@@ -212,6 +213,24 @@ class R110CompiledSourceModel(BaseModel):
 
     # #476/#540: explicit binding/installation authorities bound into the
     # compiled source when present; absent on pre-existing models.
+    # #542: optional frequency-dependent source response authority — kept
+    # separate from directivity and from scalar sensitivity semantics.
+    source_response_authority_id: str | None = Field(
+        default=None,
+        min_length=1,
+    )
+    source_response_authority_version: str | None = Field(
+        default=None,
+        min_length=1,
+    )
+    source_response_authority_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
+    source_response_capability_tier: str | None = Field(
+        default=None,
+        min_length=1,
+    )
     equipment_binding_semantics_sha256: str | None = Field(
         default=None,
         pattern=r'^[0-9a-f]{64}$',
@@ -267,6 +286,18 @@ class R110CompiledSourceModel(BaseModel):
                 raise ValueError(
                     'electrical sensitivity capability does not match compiled reference'
                 )
+        response_identity = (
+            self.source_response_authority_id,
+            self.source_response_authority_version,
+            self.source_response_authority_sha256,
+            self.source_response_capability_tier,
+        )
+        if any(value is not None for value in response_identity):
+            if any(value is None for value in response_identity):
+                raise ValueError(
+                    'Source response authority identity fields must be supplied '
+                    'together'
+                )
         capability_names = [item.capability for item in self.capabilities]
         if len(capability_names) != len(set(capability_names)):
             raise ValueError('R110 capability status entries must be unique')
@@ -278,8 +309,24 @@ class R110CompiledSourceModel(BaseModel):
             'electrical_sensitivity_reference',
             'acoustic_wave_excitation_normalization',
         }
+        if 'source_response' in capability_names:
+            expected = expected | {'source_response'}
         if set(capability_names) != expected:
             raise ValueError('R110 capability status set is incomplete')
+        if self.source_response_authority_id is not None:
+            response_status = next(
+                (
+                    item
+                    for item in self.capabilities
+                    if item.capability == 'source_response'
+                ),
+                None,
+            )
+            if response_status is None:
+                raise ValueError(
+                    'bound source response authority requires a source_response '
+                    'capability entry'
+                )
         if len(self.unsupported_reasons) != len(set(self.unsupported_reasons)):
             raise ValueError('R110 unsupported reasons must be unique')
         if self.semantic_sha256 != _digest(self.semantic_payload()):
@@ -296,6 +343,10 @@ class R110CompiledSourceModel(BaseModel):
             'equipment_binding_semantics_sha256',
             'installation_context_sha256',
             'installation_capability',
+            'source_response_authority_id',
+            'source_response_authority_version',
+            'source_response_authority_sha256',
+            'source_response_capability_tier',
         ):
             if payload.get(key) is None:
                 payload.pop(key, None)
@@ -374,6 +425,7 @@ def compile_r110_source_model(
     directivity_dataset: DirectivityDataset | None = None,
     binding_semantics: EquipmentBindingSemantics | None = None,
     installation_context: SpeakerInstallationContext | None = None,
+    source_response: 'SourceFrequencyResponseAuthority | None' = None,
 ) -> R110CompiledSourceModel:
     """Compile one exact variant source without selecting or adapting a wave solver."""
 
@@ -397,6 +449,20 @@ def compile_r110_source_model(
         source_entity_id,
         equipment_definition,
     )
+
+    if source_response is not None:
+        if (
+            source_response.equipment_definition_id
+            != equipment_definition.definition_id
+            or source_response.equipment_definition_version
+            != equipment_definition.version
+            or source_response.equipment_definition_sha256
+            != equipment_definition.semantic_sha256
+        ):
+            raise ValueError(
+                'SourceFrequencyResponseAuthority does not bind the exact '
+                'EquipmentDefinition'
+            )
 
     if binding_semantics is not None:
         if (
@@ -620,6 +686,23 @@ def compile_r110_source_model(
         ),
     )
 
+    if source_response is not None:
+        response_ready = source_response.capability_tier != 'UNKNOWN'
+        capability_statuses = (
+            *capability_statuses,
+            R110CapabilityStatus(
+                capability='source_response',
+                decision='SUPPORTED' if response_ready else 'UNSUPPORTED',
+                reason=(
+                    'exact bound frequency-dependent source response authority '
+                    f'({source_response.capability_tier})'
+                    if response_ready
+                    else 'bound source response authority is UNKNOWN — no '
+                    'output capability is fabricated'
+                ),
+            ),
+        )
+
     directivity_normalization = (
         None
         if directivity_dataset is None
@@ -713,6 +796,18 @@ def compile_r110_source_model(
         ],
         'unsupported_reasons': list(dict.fromkeys(reasons)),
     }
+
+    if source_response is not None:
+        payload['source_response_authority_id'] = source_response.response_id
+        payload['source_response_authority_version'] = (
+            source_response.authority_version
+        )
+        payload['source_response_authority_sha256'] = (
+            source_response.semantic_sha256
+        )
+        payload['source_response_capability_tier'] = (
+            source_response.capability_tier
+        )
 
     if binding_semantics is not None:
         payload['equipment_binding_semantics_sha256'] = (

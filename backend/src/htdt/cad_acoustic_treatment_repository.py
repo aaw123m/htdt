@@ -434,6 +434,23 @@ class CadAcousticTreatmentRepository:
             self._validate_definition_authority(definition)
         return definitions
 
+    def list_definitions(
+        self,
+    ) -> tuple[AcousticTreatmentDefinition, ...]:
+        """Every persisted treatment definition version, reopen-validated (#451)."""
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_acoustic_treatment_definitions '
+                'ORDER BY seq ASC'
+            ).fetchall()
+        definitions = tuple(
+            AcousticTreatmentDefinition.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+        for definition in definitions:
+            self._validate_definition_authority(definition)
+        return definitions
+
     def evaluate_placement_surface_binding(
         self,
         placement: AcousticTreatmentPlacement,

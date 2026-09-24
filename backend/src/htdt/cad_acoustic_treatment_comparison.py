@@ -661,3 +661,24 @@ class CadAcousticTreatmentComparisonRepository:
         )
         self._validate(spec)
         return spec
+
+    def list_all(
+        self,
+    ) -> tuple[TreatmentDesignComparisonSpec, ...]:
+        """Every persisted comparison spec, validated on read (#451)."""
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_acoustic_treatment_comparisons
+                ORDER BY seq ASC
+                """
+            ).fetchall()
+        specs: list[TreatmentDesignComparisonSpec] = []
+        for row in rows:
+            spec = TreatmentDesignComparisonSpec.model_validate_json(
+                row['payload_json']
+            )
+            self._validate(spec)
+            specs.append(spec)
+        return tuple(specs)

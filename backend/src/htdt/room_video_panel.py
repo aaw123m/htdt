@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_screen_transfer import TIER_LABELS
 from .cad_video_workspace import VideoGeometryWorkspace
 from .ui_theme import TypographyRole, set_typography_role
 
@@ -126,6 +128,85 @@ class ProjectorSpecDialog(QDialog):
         }
 
 
+class ScreenTransferDialog(QDialog):
+    """Register one AcousticScreenTransferAuthority for a screen (#541).
+
+    The declared tier is explicit evidence: UNKNOWN is the honest default,
+    AT_CLAIM marks an unmeasured acoustically-transparent claim, and sampled
+    tiers require typed rows ``freq_hz[,angle_deg[,magnitude[,phase_deg[,reflection]]]]``
+    — coefficients are never synthesized.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("スクリーン伝達権威を登録")
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.label = QLineEdit()
+        self.label.setPlaceholderText("例: メインスクリーン AT-2000")
+        form.addRow("名称", self.label)
+        self.tier = QComboBox()
+        for value, label_text in TIER_LABELS.items():
+            self.tier.addItem(f"{value} — {label_text}", value)
+        form.addRow("capability tier", self.tier)
+        self.freq_min = QDoubleSpinBox()
+        self.freq_min.setRange(1.0, 20000.0)
+        self.freq_min.setValue(20.0)
+        self.freq_min.setSuffix(' Hz')
+        self.freq_max = QDoubleSpinBox()
+        self.freq_max.setRange(1.0, 24000.0)
+        self.freq_max.setValue(8000.0)
+        self.freq_max.setSuffix(' Hz')
+        form.addRow("有効周波数 最小", self.freq_min)
+        form.addRow("有効周波数 最大", self.freq_max)
+        self.condition = QLineEdit()
+        self.condition.setPlaceholderText("測定条件（例: 法線入射, free-field）")
+        form.addRow("測定条件", self.condition)
+        self.provenance = QLineEdit()
+        self.provenance.setPlaceholderText("出典（例: メーカー測定 / 現場実測）")
+        form.addRow("出典", self.provenance)
+        self.samples = QPlainTextEdit()
+        self.samples.setPlaceholderText(
+            "周波数依存特性 — 1行1点: freq_hz[,angle_deg[,magnitude[,phase_deg[,reflection]]]]"
+        )
+        self.samples.setMaximumHeight(90)
+        form.addRow("サンプル", self.samples)
+        self.notes = QLineEdit()
+        form.addRow("備考", self.notes)
+        layout.addLayout(form)
+        hint = QLabel(
+            "tierに見合わない係数は保存されません — 測定されていない透過特性は"
+            "UNKNOWN/AT_CLAIMとして正直に記録されます。"
+        )
+        hint.setWordWrap(True)
+        set_typography_role(hint, TypographyRole.SECONDARY)
+        layout.addWidget(hint)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if not self.label.text().strip() or not self.provenance.text().strip():
+            return
+        super().accept()
+
+    def values(self) -> dict[str, object]:
+        return {
+            'label': self.label.text().strip(),
+            'capability_tier': self.tier.currentData(),
+            'frequency_minimum_hz': float(self.freq_min.value()),
+            'frequency_maximum_hz': float(self.freq_max.value()),
+            'measurement_condition': self.condition.text().strip(),
+            'provenance': self.provenance.text().strip(),
+            'samples_text': self.samples.toPlainText().strip(),
+            'notes': self.notes.text().strip(),
+        }
+
+
 class _SpinRow(QWidget):
     """Tiny (label, spinbox) row used per numeric binding field."""
 
@@ -153,6 +234,10 @@ class RoomVideoPanel(QWidget):
     evaluateRequested = Signal(object)  # variant_id or None
     viewFromSeatRequested = Signal(object)  # seat entity id or None
     createSpecRequested = Signal()
+    poseChanged = Signal(str, object)  # (seat entity id, pose_id or None)
+    poseSaveRequested = Signal(str)  # seat entity id
+    transferChanged = Signal(str, object)  # (screen entity id, transfer_id or None)
+    transferSaveRequested = Signal(str)  # screen entity id
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -207,16 +292,24 @@ class RoomVideoPanel(QWidget):
         self.frame_clearance.setRange(0.0, 2.0)
         self.frame_clearance.setSingleStep(0.01)
         self.frame_clearance.setSuffix(' m')
-        self.acoustic_combo = QComboBox()
-        self.acoustic_combo.addItem("不明", None)
-        self.acoustic_combo.addItem("透過あり", True)
-        self.acoustic_combo.addItem("透過なし", False)
+        self.transfer_combo = QComboBox()
+        self.transfer_combo.addItem("不明（transfer権威なし）", None)
+        self.transfer_combo.setToolTip(
+            "スクリーンの音響透過/反射権威 (#541) — ATフラグではなく versioned authority"
+        )
+        self.transfer_save_button = QPushButton("登録…")
+        self.transfer_save_button.setToolTip(
+            "このスクリーンの伝達特性権威を新規登録します"
+        )
+        transfer_row = QHBoxLayout()
+        transfer_row.addWidget(self.transfer_combo, stretch=1)
+        transfer_row.addWidget(self.transfer_save_button)
         screen_form.addRow("表示幅", self.screen_width)
         screen_form.addRow("表示高さ", self.screen_height)
         screen_form.addRow("中心オフセット X", self.screen_offset_x)
         screen_form.addRow("中心オフセット Z", self.screen_offset_z)
         screen_form.addRow("フレーム余白", self.frame_clearance)
-        screen_form.addRow("音響透過", self.acoustic_combo)
+        screen_form.addRow("音響伝達", transfer_row)
         layout.addLayout(screen_form)
 
         # --- seat bindings -----------------------------------------------------
@@ -297,11 +390,17 @@ class RoomVideoPanel(QWidget):
             self.max_axis_deviation,
         ):
             spin.valueChanged.connect(lambda _v: self.bindingsChanged.emit())
-        self.acoustic_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
+        self.transfer_combo.currentIndexChanged.connect(
+            lambda _i: self._transfer_selected(self.transfer_combo.currentData())
+        )
+        self.transfer_save_button.clicked.connect(
+            lambda _c: self.transferSaveRequested.emit(self._screen_entity_id)
+        )
         self.projector_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
         self.spec_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
 
         self._syncing = False
+        self._screen_entity_id: str | None = None
 
     # -- data-in ----------------------------------------------------------------
 
@@ -312,6 +411,8 @@ class RoomVideoPanel(QWidget):
         specifications: tuple,
         variants: tuple,
         seat_names: dict[str, str],
+        seat_poses: dict[str, tuple[tuple[tuple[str, str], ...], str | None]] | None = None,
+        screen_transfers: tuple[tuple[tuple[str, str], ...], str | None] | None = None,
     ) -> None:
         """Refresh all widgets from authoritative state."""
 
@@ -368,8 +469,7 @@ class RoomVideoPanel(QWidget):
                     self.screen_offset_x.setValue(binding.image_center_offset_local_m.x_m)
                     self.screen_offset_z.setValue(binding.image_center_offset_local_m.z_m)
                     self.frame_clearance.setValue(binding.frame_clearance_m)
-                    index = self.acoustic_combo.findData(binding.acoustically_transparent)
-                    self.acoustic_combo.setCurrentIndex(index if index >= 0 else 0)
+                self._screen_entity_id = screen.entity_id
 
             # Rebuild per-seat rows only when seat set changed.
             seat_ids = [entity.entity_id for entity in seats]
@@ -400,6 +500,19 @@ class RoomVideoPanel(QWidget):
                     form.addRow(head_z)
                     form.addRow(head_r)
                     form.addRow("ライザー", riser_combo)
+                    pose_combo = QComboBox()
+                    pose_combo.addItem("カスタム（手動値）", None)
+                    pose_combo.setToolTip(
+                        "座席のリスナーポーズ権威 (#632) — 選択時は眼/頭オフセットがポーズから導出されます"
+                    )
+                    pose_save = QPushButton("ポーズ保存…")
+                    pose_save.setToolTip(
+                        "現在の眼/頭オフセットをこの座席のリスナーポーズ権威として保存します"
+                    )
+                    pose_row = QHBoxLayout()
+                    pose_row.addWidget(pose_combo, stretch=1)
+                    pose_row.addWidget(pose_save)
+                    form.addRow("ポーズ", pose_row)
                     self.seats_box.addWidget(card)
                     self._seat_widgets[seat.entity_id] = {
                         'row_id': row_id,
@@ -407,26 +520,101 @@ class RoomVideoPanel(QWidget):
                         'head_z': head_z,
                         'head_r': head_r,
                         'riser': riser_combo,
+                        'pose': pose_combo,
                     }
                     self.seat_view_combo.addItem(seat.name, seat.entity_id)
                     row_id.textChanged.connect(lambda _t: self.bindingsChanged.emit())
                     riser_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
-                    eye_z.spin.valueChanged.connect(lambda _v: self.bindingsChanged.emit())
-                    head_z.spin.valueChanged.connect(lambda _v: self.bindingsChanged.emit())
-                    head_r.spin.valueChanged.connect(lambda _v: self.bindingsChanged.emit())
+                    eye_z.spin.valueChanged.connect(
+                        lambda _v, sid=seat.entity_id: self._seat_customized(sid)
+                    )
+                    head_z.spin.valueChanged.connect(
+                        lambda _v, sid=seat.entity_id: self._seat_customized(sid)
+                    )
+                    head_r.spin.valueChanged.connect(
+                        lambda _v, sid=seat.entity_id: self._seat_customized(sid)
+                    )
+                    pose_combo.currentIndexChanged.connect(
+                        lambda _i, sid=seat.entity_id, c=pose_combo: self._pose_selected(sid, c.currentData())
+                    )
+                    pose_save.clicked.connect(
+                        lambda _checked, sid=seat.entity_id: self.poseSaveRequested.emit(sid)
+                    )
             for seat in seats:
                 binding = workspace.seat_bindings.get(seat.entity_id)
-                if binding is None:
-                    continue
-                widgets = self._seat_widgets[seat.entity_id]
-                widgets['row_id'].setText(binding.row_id)
-                widgets['eye_z'].spin.setValue(binding.eye_reference_offset_local_m.z_m)
-                widgets['head_z'].spin.setValue(binding.head_center_offset_local_m.z_m)
-                widgets['head_r'].spin.setValue(binding.head_radius_m)
-                index = widgets['riser'].findData(binding.riser_entity_id)
-                widgets['riser'].setCurrentIndex(index if index >= 0 else 0)
+                if binding is not None:
+                    widgets = self._seat_widgets[seat.entity_id]
+                    widgets['row_id'].setText(binding.row_id)
+                    widgets['eye_z'].spin.setValue(binding.eye_reference_offset_local_m.z_m)
+                    widgets['head_z'].spin.setValue(binding.head_center_offset_local_m.z_m)
+                    widgets['head_r'].spin.setValue(binding.head_radius_m)
+                    index = widgets['riser'].findData(binding.riser_entity_id)
+                    widgets['riser'].setCurrentIndex(index if index >= 0 else 0)
+                pose_info = (seat_poses or {}).get(seat.entity_id)
+                if pose_info is not None:
+                    items, selected_id = pose_info
+                    self.set_seat_pose_options(seat.entity_id, items, selected_id)
+            self._apply_screen_transfer_options(screen_transfers)
         finally:
             self._syncing = False
+
+    def _apply_screen_transfer_options(
+        self,
+        screen_transfers: tuple[tuple[tuple[str, str], ...], str | None] | None,
+    ) -> None:
+        if screen_transfers is None:
+            return
+        items, selected_id = screen_transfers
+        self.transfer_combo.blockSignals(True)
+        self.transfer_combo.clear()
+        self.transfer_combo.addItem("不明（transfer権威なし）", None)
+        for label, transfer_id in items:
+            self.transfer_combo.addItem(label, transfer_id)
+        index = self.transfer_combo.findData(selected_id)
+        self.transfer_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.transfer_combo.blockSignals(False)
+
+    def _transfer_selected(self, transfer_id: object) -> None:
+        if not self._syncing and self._screen_entity_id is not None:
+            self.transferChanged.emit(self._screen_entity_id, transfer_id)
+
+    def set_seat_pose_options(
+        self,
+        seat_id: str,
+        items: tuple[tuple[str, str], ...],
+        selected_id: str | None,
+    ) -> None:
+        """Populate the pose combo of one seat card (#632)."""
+
+        widgets = self._seat_widgets.get(seat_id)
+        if widgets is None:
+            return
+        combo = widgets['pose']
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("カスタム（手動値）", None)
+        for label, pose_id in items:
+            combo.addItem(label, pose_id)
+        index = combo.findData(selected_id)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _pose_selected(self, seat_id: str, pose_id: object) -> None:
+        if not self._syncing:
+            self.poseChanged.emit(seat_id, pose_id)
+
+    def _seat_customized(self, seat_id: str) -> None:
+        # Editing the offsets manually means the seat no longer follows a
+        # bound pose — the combo resets to カスタム and the selection clears.
+        widgets = self._seat_widgets.get(seat_id)
+        if widgets is not None and not self._syncing:
+            combo = widgets['pose']
+            if combo.currentIndex() != 0:
+                combo.blockSignals(True)
+                combo.setCurrentIndex(0)
+                combo.blockSignals(False)
+                self.poseChanged.emit(seat_id, None)
+        self.bindingsChanged.emit()
 
     # -- data-out -----------------------------------------------------------------
 
@@ -443,7 +631,6 @@ class RoomVideoPanel(QWidget):
             'image_center_offset_x_m': float(self.screen_offset_x.value()),
             'image_center_offset_z_m': float(self.screen_offset_z.value()),
             'frame_clearance_m': float(self.frame_clearance.value()),
-            'acoustically_transparent': self.acoustic_combo.currentData(),
         }
 
     def current_seat_bindings(self) -> dict[str, dict[str, object]]:

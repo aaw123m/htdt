@@ -97,7 +97,25 @@ from .cad_orientation_display import (
     forward_aim_delta_deg,
     orientation_from_view_angles,
 )
+from .cad_listener_pose import (
+    CadListenerPoseRepository,
+    listener_pose_for_seat,
+    seat_binding_from_pose,
+)
 from .cad_repository import RecoverySnapshot, SceneRepository
+from .cad_screen_transfer import (
+    CadScreenTransferRepository,
+    TransferSample,
+    build_screen_transfer,
+    transfer_capability_label,
+)
+from .cad_equipment import FrequencyDomain
+from .cad_acoustic_material import CadAcousticMaterialRepository
+from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
+from .cad_acoustic_treatment_comparison import (
+    CadAcousticTreatmentComparisonRepository,
+)
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .cad_geometric_constraints import (
     AuthoringConstraint,
     AuthoringConstraintSet,
@@ -216,7 +234,11 @@ from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
 from .room_history_panel import RoomHistoryPanel
-from .room_video_panel import ProjectorSpecDialog, RoomVideoPanel
+from .room_video_panel import (
+    ProjectorSpecDialog,
+    RoomVideoPanel,
+    ScreenTransferDialog,
+)
 
 
 ROOM_CONTEXT_IDS = (
@@ -327,7 +349,17 @@ class RoomWorkspaceController:
         self.video_workspace_repository = CadVideoWorkspaceRepository(repository.path)
         self.video_workspace: VideoGeometryWorkspace | None = None
         self.video_geometry_repository = CadVideoGeometryRepository(repository)
+        self.screen_transfer_repository = CadScreenTransferRepository(repository.path)
         self.variant_repository = CadSystemVariantRepository(repository)
+        self.material_repository = CadAcousticMaterialRepository(repository.path)
+        self.treatment_repository = CadAcousticTreatmentRepository(
+            repository, self.variant_repository
+        )
+        self.treatment_comparison_repository = (
+            CadAcousticTreatmentComparisonRepository(
+                repository, variant_repository=self.variant_repository
+            )
+        )
         self._underlay_calibration: dict | None = None
         self._constraint_state = None  # AuthoringConstraintSet, lazy
         self._last_constraint_notes: tuple[str, ...] = ()
@@ -689,11 +721,20 @@ class RoomWorkspaceController:
             )
             if variant is None:
                 raise EditStateError("選択したバリアントが見つかりません")
+        screen_transfers = None
+        if request.screen.screen_transfer_ref is not None:
+            screen_transfers = {}
+            transfer = self.screen_transfer_repository.get_transfer(
+                request.screen.screen_transfer_ref.authority_id
+            )
+            if transfer is not None:
+                screen_transfers[transfer.transfer_id] = transfer
         return evaluate_video_geometry(
             baseline=head,
             variant=variant,
             projector_specification=specification,
             request=request,
+            screen_transfers=screen_transfers,
         )
 
     # -- revision history (#485) -------------------------------------------------------
@@ -3263,6 +3304,7 @@ class RoomWorkspace(QWidget):
         self.setObjectName("roomWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
         self.controller = RoomWorkspaceController(repository, document_id)
+        self.listener_pose_repository = CadListenerPoseRepository(repository.path)
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
         self.geometry_input = None
@@ -3391,6 +3433,10 @@ class RoomWorkspace(QWidget):
         )
         self.video_panel = RoomVideoPanel()
         self.video_panel.bindingsChanged.connect(self._video_bindings_changed)
+        self.video_panel.poseChanged.connect(self._seat_pose_changed)
+        self.video_panel.poseSaveRequested.connect(self._seat_pose_saved)
+        self.video_panel.transferChanged.connect(self._screen_transfer_changed)
+        self.video_panel.transferSaveRequested.connect(self._screen_transfer_saved)
         self.video_panel.evaluateRequested.connect(self._video_evaluate)
         self.video_panel.viewFromSeatRequested.connect(self._view_from_seat)
         self.video_panel.createSpecRequested.connect(self._video_create_spec)
@@ -4780,6 +4826,9 @@ class RoomWorkspace(QWidget):
         screen_bindings = dict(workspace.screen_bindings)
         if screens:
             values = self.video_panel.current_screen_values()
+            screen_transfer = self.screen_transfer_repository.selected_transfer(
+                self.controller.document_id, screens[0].entity_id
+            )
             screen_bindings[screens[0].entity_id] = ScreenGeometryBinding(
                 entity_id=screens[0].entity_id,
                 visible_width_m=float(values["visible_width_m"]),
@@ -4790,9 +4839,14 @@ class RoomWorkspace(QWidget):
                     z_m=float(values["image_center_offset_z_m"]),
                 ),
                 frame_clearance_m=float(values["frame_clearance_m"]),
-                acoustically_transparent=values["acoustically_transparent"],
+                screen_transfer_ref=(
+                    None
+                    if screen_transfer is None
+                    else screen_transfer.authority_ref()
+                ),
             )
         seat_bindings = dict(workspace.seat_bindings)
+        seat_pose_refs: dict[str, ExactExternalAuthorityRef] = {}
         seat_values = self.video_panel.current_seat_bindings()
         for entity in self.controller.document.entities:
             if entity.kind != "seat":
@@ -4801,6 +4855,21 @@ class RoomWorkspace(QWidget):
             if values is None:
                 seat_bindings.setdefault(
                     entity.entity_id, default_seat_binding(entity.entity_id)
+                )
+                continue
+            pose = self.listener_pose_repository.selected_pose(
+                self.controller.document_id, entity.entity_id
+            )
+            if pose is not None:
+                # A bound pose is the eye/head authority (#632): the binding
+                # derives from the pose's offsets, not the manual spins.
+                seat_pose_refs[entity.entity_id] = pose.authority_ref()
+                seat_bindings[entity.entity_id] = seat_binding_from_pose(
+                    pose,
+                    row_id=str(values["row_id"]) if values is not None else 'row-1',
+                    riser_entity_id=(
+                        values["riser_entity_id"] if values is not None else None
+                    ),
                 )
                 continue
             seat_bindings[entity.entity_id] = SeatGeometryBinding(
@@ -4837,9 +4906,192 @@ class RoomWorkspace(QWidget):
                 "projector_specification_sha256": self.video_panel.current_specification_sha256(),
                 "screen_bindings": screen_bindings,
                 "seat_bindings": seat_bindings,
+                "seat_pose_refs": seat_pose_refs,
                 "policy": policy,
             }
         )
+
+    def _seat_pose_changed(self, seat_id: str, pose_id: object) -> None:
+        """Persist/clear the selected listener pose for a seat (#632) and
+        materialize its offsets into the seat card spins so what the user
+        sees is exactly what the pose authority says."""
+        if pose_id is None:
+            self.listener_pose_repository.clear_selection(
+                self.controller.document_id, seat_id
+            )
+        else:
+            pose = self.listener_pose_repository.get_pose(str(pose_id))
+            if pose is None:
+                return
+            self.listener_pose_repository.select_pose(
+                self.controller.document_id, pose
+            )
+            widgets = self.video_panel._seat_widgets.get(seat_id)
+            if widgets is not None:
+                # Guard: spin writes must not read as a manual customization
+                # that would clear the pose selection just stored.
+                self.video_panel._syncing = True
+                try:
+                    widgets['eye_z'].spin.setValue(
+                        pose.eye_reference_offset_local_m.z_m
+                    )
+                    widgets['head_z'].spin.setValue(
+                        pose.head_center_offset_local_m.z_m
+                    )
+                    widgets['head_r'].spin.setValue(pose.head_radius_m)
+                finally:
+                    self.video_panel._syncing = False
+        self._video_bindings_changed()
+
+    def _screen_transfer_changed(
+        self, screen_id: str, transfer_id: object
+    ) -> None:
+        """Persist/clear the selected screen-transfer authority (#541)."""
+        if transfer_id is None:
+            self.screen_transfer_repository.clear_selection(
+                self.controller.document_id, screen_id
+            )
+        else:
+            transfer = self.screen_transfer_repository.get_transfer(
+                str(transfer_id)
+            )
+            if transfer is None:
+                return
+            self.screen_transfer_repository.select_transfer(
+                self.controller.document_id, transfer
+            )
+        self._video_bindings_changed()
+
+    def _screen_transfer_saved(self, screen_id: str) -> None:
+        """Register a new screen-transfer authority bound to the screen
+        (#541) from the typed dialog values — sample rows are parsed
+        strictly; malformed input is rejected, not guessed."""
+        screen = next(
+            (
+                entity
+                for entity in self.controller.document.entities
+                if entity.entity_id == screen_id and entity.kind == "screen"
+            ),
+            None,
+        )
+        if screen is None:
+            return
+        dialog = ScreenTransferDialog(self)
+        if dialog.exec() != ScreenTransferDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        samples: list[TransferSample] = []
+        for line_number, line in enumerate(
+            str(values['samples_text']).splitlines(), start=1
+        ):
+            line = line.strip()
+            if not line:
+                continue
+            parts = [part.strip() for part in line.split(',')]
+            try:
+                fields = [float(part) for part in parts]
+            except ValueError:
+                self._set_status(
+                    f"サンプル{line_number}行目が数値ではありません", error=True
+                )
+                return
+            try:
+                samples.append(
+                    TransferSample(
+                        frequency_hz=fields[0],
+                        incidence_angle_deg=(
+                            fields[1] if len(fields) > 1 else None
+                        ),
+                        magnitude=fields[2] if len(fields) > 2 else None,
+                        phase_deg=fields[3] if len(fields) > 3 else None,
+                        reflection_magnitude=(
+                            fields[4] if len(fields) > 4 else None
+                        ),
+                    )
+                )
+            except ValueError as exc:
+                self._set_status(
+                    f"サンプル{line_number}行目が不正です: {exc}", error=True
+                )
+                return
+        try:
+            transfer = build_screen_transfer(
+                screen_entity_id=screen_id,
+                label=str(values['label']),
+                capability_tier=values['capability_tier'],
+                provenance=str(values['provenance']),
+                transfer_samples=tuple(samples),
+                valid_frequency_domain=(
+                    FrequencyDomain(
+                        minimum_hz=float(values['frequency_minimum_hz']),
+                        maximum_hz=float(values['frequency_maximum_hz']),
+                    )
+                    if samples
+                    else None
+                ),
+                measurement_condition=str(values['measurement_condition']),
+                notes=str(values['notes']),
+            )
+        except ValueError as exc:
+            self._set_status(str(exc), error=True)
+            return
+        self.screen_transfer_repository.save_transfer(transfer)
+        self.screen_transfer_repository.select_transfer(
+            self.controller.document_id, transfer
+        )
+        self._sync_video_panel()
+        self._video_bindings_changed()
+        self._set_status(
+            f"伝達権威 '{transfer.label}' を登録しました "
+            f"({transfer_capability_label(transfer.capability_tier)})"
+        )
+
+    def _seat_pose_saved(self, seat_id: str) -> None:
+        """Materialize the seat card's current offsets as a sealed
+        ListenerPoseAuthority bound to the seat (#632), then select it."""
+        seat = next(
+            (
+                entity
+                for entity in self.controller.document.entities
+                if entity.entity_id == seat_id and entity.kind == "seat"
+            ),
+            None,
+        )
+        if seat is None:
+            return
+        if seat.acoustic_reference_offset_m is None:
+            self._set_status(
+                "この座席には音響基準点がありません — 先にリスニング位置を定義してください",
+                error=True,
+            )
+            return
+        label, ok = QInputDialog.getText(
+            self, "ポーズ保存", "ポーズ名:", text=f"{seat.name} ポーズ"
+        )
+        if not ok or not label.strip():
+            return
+        widgets = self.video_panel._seat_widgets.get(seat_id)
+        if widgets is None:
+            return
+        pose = listener_pose_for_seat(
+            seat,
+            label=label.strip(),
+            eye_reference_offset_local_m=Offset3(
+                x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value())
+            ),
+            head_center_offset_local_m=Offset3(
+                x_m=0.0, y_m=0.0, z_m=float(widgets['head_z'].spin.value())
+            ),
+            head_radius_m=float(widgets['head_r'].spin.value()),
+            provenance='authored in Room video panel (UX120)',
+        )
+        self.listener_pose_repository.save_pose(pose)
+        self.listener_pose_repository.select_pose(
+            self.controller.document_id, pose
+        )
+        self._sync_video_panel()
+        self._video_bindings_changed()
+        self._set_status(f"ポーズ '{pose.label}' を保存しました")
 
     def _video_bindings_changed(self) -> None:
         if self.video_panel._syncing:
@@ -4870,12 +5122,53 @@ class RoomWorkspace(QWidget):
             for entity in self.controller.document.entities
             if entity.kind == "seat"
         }
+        seat_poses = {}
+        for seat_id in seat_names:
+            poses = self.listener_pose_repository.list_poses_for_seat(seat_id)
+            selected = self.listener_pose_repository.selected_pose(
+                self.controller.document_id, seat_id
+            )
+            seat_poses[seat_id] = (
+                tuple((pose.label, pose.pose_id) for pose in poses),
+                None if selected is None else selected.pose_id,
+            )
+        screen_transfers = None
+        screens = [
+            entity
+            for entity in self.controller.document.entities
+            if entity.kind == "screen"
+        ]
+        if screens:
+            transfers = self.screen_transfer_repository.list_transfers_for_screen(
+                screens[0].entity_id
+            )
+            selected_transfer = (
+                self.screen_transfer_repository.selected_transfer(
+                    self.controller.document_id, screens[0].entity_id
+                )
+            )
+            screen_transfers = (
+                tuple(
+                    (
+                        f"{item.label} · {transfer_capability_label(item.capability_tier)}",
+                        item.transfer_id,
+                    )
+                    for item in transfers
+                ),
+                (
+                    None
+                    if selected_transfer is None
+                    else selected_transfer.transfer_id
+                ),
+            )
         self.video_panel.sync_document(
             self.controller.document,
             workspace,
             specifications,
             variants,
             seat_names,
+            seat_poses,
+            screen_transfers,
         )
         missing = video_workspace_missing_inputs(
             self.controller.committed_document, workspace

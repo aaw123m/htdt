@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Any, Iterable, Literal, Protocol, get_args
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Protocol, get_args
 from uuid import uuid4
+
+from .cad_listener_pose import CadListenerPoseRepository
+
+if TYPE_CHECKING:
+    from .cad_listener_pose import ListenerPoseAuthority
+    from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 from .cad_measurement_disposition import (
     MEASUREMENT_ELIGIBLE_DISPOSITIONS,
@@ -70,6 +76,7 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import (
     Direction3,
     acoustic_reference_position,
+    is_measurement_target_eligible,
     is_unassigned_speaker_role,
 )
 from .comparison import FrequencyResponse, compare_frequency_responses
@@ -145,6 +152,10 @@ class AcquisitionCapture:
     clock_source: str | None = None
     sample_rate_hz: int | None = None
     delay_correction_s: float | None = None
+    # #479: exact AcousticEnvironmentProfile the capture runs under; the
+    # persisted context seals it so predicted-vs-measured environment
+    # comparison resolves from authority, not assumptions.
+    environment_ref: 'ExactExternalAuthorityRef | None' = None
     notes: tuple[str, ...] = ()
 
     @classmethod
@@ -159,6 +170,7 @@ class AcquisitionCapture:
             clock_source=context.clock_source,
             sample_rate_hz=context.sample_rate_hz,
             delay_correction_s=context.delay_correction_s,
+            environment_ref=context.environment_ref,
             notes=context.notes,
         )
 
@@ -408,6 +420,7 @@ class MeasurementWorkflowController:
         measurement_repository: CadMeasurementRepository | None = None,
         quality_repository: CadMeasurementQualityRepository | None = None,
         rew_client: RewReadSource | None = None,
+        listener_pose_repository: CadListenerPoseRepository | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.document_id = document_id
@@ -432,6 +445,11 @@ class MeasurementWorkflowController:
         self.runner_repository = CadMeasurementRunnerRepository(
             scene_repository,
             self.measurement_repository,
+        )
+        self.listener_pose_repository = (
+            listener_pose_repository
+            if listener_pose_repository is not None
+            else CadListenerPoseRepository(scene_repository.path)
         )
 
     @property
@@ -595,11 +613,18 @@ class MeasurementWorkflowController:
         return revision
 
     def assignment_targets(self) -> tuple[AssignmentTarget, ...]:
+        """Eligible measurement targets: listener positions, never speakers.
+
+        Source/measurement-receiver semantics are separate (#475): a
+        speaker's acoustic reference serves directivity/excitation — it is
+        not a seat target. Seat-to-point binding stays on the #472 lineage
+        path (``derive_measurement_point_from_seat``).
+        """
         revision = self._assignment_revision()
         return tuple(
             AssignmentTarget(entity.entity_id, entity.name, entity.kind)
             for entity in revision.document.entities
-            if acoustic_reference_position(entity) is not None
+            if is_measurement_target_eligible(entity)
         )
 
     def source_speakers(self) -> tuple[SpeakerTarget, ...]:
@@ -783,12 +808,39 @@ class MeasurementWorkflowController:
             measurement_id
         )
 
+    def measurement_environment_ref(
+        self,
+        measurement_id: str,
+    ) -> 'ExactExternalAuthorityRef | None':
+        """The exact AcousticEnvironmentProfile a measurement was captured
+        under (#479) — resolved from its persisted acquisition context."""
+        for context in self.quality_repository.list_acquisition_contexts():
+            if measurement_id in context.subject_measurement_ids:
+                return context.environment_ref
+        return None
+
+    def environment_compatibility_for(
+        self,
+        measurement_id: str,
+        prediction_environment: 'ExactExternalAuthorityRef | None',
+    ) -> str:
+        """Predicted-vs-measured environment claim (#479):
+        'same' | 'different' | 'unknown' — never a stronger claim than the
+        sealed authorities support."""
+        from .cad_acoustic_environment import environment_compatibility
+
+        return environment_compatibility(
+            prediction_environment,
+            self.measurement_environment_ref(measurement_id),
+        )
+
     def derive_measurement_point_from_seat(
         self,
         source_seat_id: str,
         *,
         measurement_point_id: str,
         name: str | None = None,
+        listener_pose: 'ListenerPoseAuthority | None' = None,
     ) -> CadMeasurementTargetLineage:
         """Create a measurement point at a seat's listener reference (#472).
 
@@ -805,12 +857,20 @@ class MeasurementWorkflowController:
         )
 
         revision = self.latest_revision()
+        if listener_pose is None:
+            # A seat with a selected pose derives its measurement point from
+            # the pose authority (#632); without one the seat's own
+            # acoustic reference offset applies as before.
+            listener_pose = self.listener_pose_repository.selected_pose(
+                self.document_id, source_seat_id
+            )
         try:
             new_document = derive_measurement_point_document(
                 revision.document,
                 source_seat_id=source_seat_id,
                 measurement_point_id=measurement_point_id,
                 name=name,
+                listener_pose=listener_pose,
             )
         except MeasurementTargetError as exc:
             raise MeasurementWorkflowError(str(exc)) from exc
@@ -830,6 +890,11 @@ class MeasurementWorkflowController:
             source_seat_id=source_seat_id,
             creation_revision_id=result.revision.revision_id,
             initial_position=position,
+            source_pose_ref=(
+                None
+                if listener_pose is None
+                else listener_pose.authority_ref()
+            ),
         )
         self.quality_repository.save_target_lineage(lineage)
         return lineage
@@ -1790,6 +1855,7 @@ class MeasurementWorkflowController:
             playback=assignment.acquisition.playback,
             measurement_direction=assignment.measurement_direction,
             timing_reference_sha256=assignment.acquisition.timing_reference_sha256,
+            environment_ref=assignment.acquisition.environment_ref,
             notes=assignment.acquisition.notes,
         )
         self.quality_repository.save_acquisition_context(context)
