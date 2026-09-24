@@ -4,17 +4,41 @@ from __future__ import annotations
 
 from contextlib import closing
 import sqlite3
+from typing import TYPE_CHECKING
 
 from .cad_repository import SceneRepository
 from .cad_system_health import (
+    HealthAuthorityRef,
     HealthCheckPlan,
     HealthCheckRun,
     SystemHealthBaseline,
 )
 
+if TYPE_CHECKING:
+    from .cad_authority_refs import AuthorityRefResolver
+
 
 class SystemHealthConflictError(ValueError):
     """A baseline/plan/run save violated append-only identity rules."""
+
+
+#: HealthAuthorityRef kinds that name canonical persisted authorities. Other
+#: kinds (external instruments, declared provenance) have no canonical table
+#: and stay declared-only — absence is never fabricated as a failure.
+_AUTHORITY_RESOLVER_KINDS: dict[str, str] = {
+    'operating_preset': 'operating_preset',
+    'system_variant': 'system_variant',
+    'measurement': 'measurement',
+    'design_checkpoint': 'design_checkpoint',
+    'design_comparison_set': 'design_comparison_set',
+    'prediction': 'prediction',
+    'validation': 'validation',
+    'standards': 'standards',
+    'robustness': 'robustness',
+    'scene_revision': 'scene_revision',
+    'as_built': 'as_built',
+    'measured_state': 'measured_state',
+}
 
 
 class CadSystemHealthRepository:
@@ -24,8 +48,18 @@ class CadSystemHealthRepository:
     and a new run never rewrites the baseline or earlier runs.
     """
 
-    def __init__(self, scene_repository: SceneRepository) -> None:
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        *,
+        ref_resolver: 'AuthorityRefResolver | None' = None,
+    ) -> None:
         self.scene_repository = scene_repository
+        if ref_resolver is None:
+            from .cad_authority_refs import CanonicalAuthorityRefResolver
+
+            ref_resolver = CanonicalAuthorityRefResolver(scene_repository)
+        self.ref_resolver = ref_resolver
         self.path = scene_repository.path
         self._initialize()
 
@@ -269,3 +303,111 @@ class CadSystemHealthRepository:
             HealthCheckRun.model_validate_json(row['payload_json'])
             for row in rows
         )
+
+    # ------------------------------------------------------------------
+    # Persisted-record verification (#757 semantic audit)
+
+    def verify_persisted_baseline(
+        self, baseline_id: str
+    ) -> SystemHealthBaseline:
+        """Re-run baseline invariants on a persisted row.
+
+        The scene pin must resolve, the document scope must match, the
+        operating-preset binding (when pinned) must resolve to the exact
+        preset revision, and every authority ref naming a canonical kind
+        must resolve, stay in-project, and match its semantic hash.
+        """
+        baseline = self.get_baseline(baseline_id)
+        if baseline is None:
+            raise ValueError(f'health baseline {baseline_id} no longer resolves')
+        revision = self.scene_repository.get(baseline.scene_revision_id)
+        if revision is None:
+            raise ValueError('baseline pins a SceneRevision that is not persisted')
+        if revision.content_hash != baseline.scene_content_hash:
+            raise ValueError('baseline SceneRevision content hash mismatch')
+        if revision.document_id != baseline.document_id:
+            raise ValueError('baseline SceneRevision belongs to another document')
+        if baseline.operating_preset_id is not None:
+            self._assert_resolves(
+                'operating_preset',
+                baseline.operating_preset_id,
+                baseline.operating_preset_sha256,
+                baseline.document_id,
+            )
+        for ref in baseline.source_refs + baseline.instrument_refs:
+            self._assert_health_ref(ref, baseline.document_id)
+        return baseline
+
+    def verify_persisted_plan(self, plan_id: str) -> HealthCheckPlan:
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            raise ValueError(f'health check plan {plan_id} no longer resolves')
+        baseline = self.get_baseline(plan.baseline_id)
+        if baseline is None:
+            raise ValueError('health check plan requires a persisted baseline')
+        if baseline.baseline_sha256 != plan.baseline_sha256:
+            raise ValueError('health check plan is bound to a different baseline')
+        if baseline.document_id != plan.document_id:
+            raise ValueError('health check plan belongs to another document')
+        for check in plan.checks:
+            for ref in check.required_context:
+                self._assert_health_ref(ref, plan.document_id)
+        return plan
+
+    def verify_persisted_run(self, run_id: str) -> HealthCheckRun:
+        run = self.get_run(run_id)
+        if run is None:
+            raise ValueError(f'health check run {run_id} no longer resolves')
+        plan = self.get_plan(run.plan_id)
+        if plan is None:
+            raise ValueError('health run requires a persisted check plan')
+        if plan.plan_sha256 != run.plan_sha256:
+            raise ValueError('health run is bound to a different plan')
+        if plan.document_id != run.document_id:
+            raise ValueError('health run belongs to another document')
+        return run
+
+    def _assert_health_ref(
+        self, ref: HealthAuthorityRef, document_id: str
+    ) -> None:
+        resolver_kind = _AUTHORITY_RESOLVER_KINDS.get(ref.kind)
+        if resolver_kind is None:
+            return
+        self._assert_resolves(
+            resolver_kind, ref.ref_id, ref.ref_sha256, document_id
+        )
+
+    def _assert_resolves(
+        self,
+        resolver_kind: str,
+        ref_id: str,
+        ref_sha256: str | None,
+        document_id: str,
+    ) -> None:
+        resolved = self.ref_resolver.resolve(resolver_kind, ref_id, document_id)
+        if resolved is None:
+            raise ValueError(
+                f'references a {resolver_kind} authority that does not resolve'
+            )
+        if (
+            resolved.document_id is not None
+            and resolved.document_id != document_id
+        ):
+            raise ValueError(
+                f'{resolver_kind} authority belongs to another document'
+            )
+        if resolved.semantic_sha256 is not None:
+            if ref_sha256 is None:
+                raise ValueError(
+                    f'ref must pin the {resolver_kind} semantic hash to claim '
+                    'an exact reference'
+                )
+            if ref_sha256 != resolved.semantic_sha256:
+                raise ValueError(
+                    f'{resolver_kind} hash does not match the canonical authority'
+                )
+        elif ref_sha256 is not None:
+            raise ValueError(
+                f'ref supplies a hash the id-only {resolver_kind} authority '
+                'does not expose'
+            )

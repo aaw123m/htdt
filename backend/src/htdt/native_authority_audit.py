@@ -51,6 +51,7 @@ AuditFailureClass = Literal[
     'missing_evidence',
     'stale_authority',
     'noncanonical_derivation',
+    'unclassified',
 ]
 
 @dataclass(frozen=True)
@@ -71,15 +72,46 @@ class AuthorityAuditReport:
     database_path: Path
     checked: tuple[tuple[str, int], ...]
     diagnostics: tuple[AuthorityAuditDiagnostic, ...]
+    #: Tables that carried neither a replay probe, an evidence-bytes check,
+    #: nor an explicit coverage-policy entry. Always empty on a passing
+    #: report — an unclassified table means the audit never saw its rows
+    #: and cannot claim coverage for them.
+    unclassified_tables: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
-        return not self.diagnostics
+        return not self.diagnostics and not self.unclassified_tables
+
+    @property
+    def coverage_counts(self) -> dict[str, int]:
+        """Tables covered per coverage class (replayed/evidence_bytes/
+        structural_only/operational_metadata) plus unclassified count."""
+        counts = {
+            'replayed_records': 0,
+            'structural_only_tables': 0,
+            'operational_metadata_tables': 0,
+            'unclassified_tables': len(self.unclassified_tables),
+        }
+        for name, count in self.checked:
+            if name.startswith('structural:'):
+                counts['structural_only_tables'] += 1
+            elif name.startswith('metadata:'):
+                counts['operational_metadata_tables'] += 1
+            else:
+                counts['replayed_records'] += count
+        return counts
 
     def summary(self) -> str:
         if self.ok:
             total = sum(count for _, count in self.checked)
-            return f'authority graph audit passed ({total} records replayed)'
+            counts = self.coverage_counts
+            return (
+                f'authority graph audit passed ({total} records checked; '
+                f"{counts['replayed_records']} replayed, "
+                f"{counts['structural_only_tables']} structural-only tables, "
+                f"{counts['operational_metadata_tables']} operational "
+                'metadata tables, 0 unclassified)'
+            )
         lines = [
             f'authority graph audit failed ({len(self.diagnostics)} diagnostics):'
         ]
@@ -90,6 +122,12 @@ class AuthorityAuditReport:
             )
         if len(self.diagnostics) > 20:
             lines.append(f'  ... {len(self.diagnostics) - 20} more')
+        for table in self.unclassified_tables[:10]:
+            lines.append(f'  [coverage:{table}] unclassified table')
+        if len(self.unclassified_tables) > 10:
+            lines.append(
+                f'  ... {len(self.unclassified_tables) - 10} more unclassified'
+            )
         return '\n'.join(lines)
 
 
@@ -404,6 +442,34 @@ class _RepositoryChain:
             )
 
             return CaptureIngestionRepository(scene)
+        if name == 'comparison':
+            from .cad_design_comparison_repository import (
+                CadDesignComparisonRepository,
+            )
+
+            return CadDesignComparisonRepository(scene)
+        if name == 'presets':
+            from .cad_operating_preset_repository import (
+                CadOperatingPresetRepository,
+            )
+
+            return CadOperatingPresetRepository(scene)
+        if name == 'health':
+            from .cad_system_health_repository import (
+                CadSystemHealthRepository,
+            )
+
+            return CadSystemHealthRepository(scene)
+        if name == 'checkpoints':
+            from .cad_design_checkpoint_repository import (
+                CadDesignCheckpointRepository,
+            )
+
+            return CadDesignCheckpointRepository(scene)
+        if name == 'project_library':
+            from .project_lifecycle import ProjectLibrary
+
+            return ProjectLibrary(self.db_path)
         raise KeyError(name)
 
 
@@ -1038,6 +1104,79 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('attestation_id',),
         _get('applicability', 'get'),
     ),
+    # ---- #718 hardening families ---------------------------------------
+    _ReplayProbe(
+        'design_comparison_set',
+        'cad_design_comparison_sets',
+        ('set_id',),
+        _get('comparison', 'verify_persisted_set'),
+    ),
+    _ReplayProbe(
+        'operating_preset',
+        'cad_operating_presets',
+        ('preset_id',),
+        _get('presets', 'verify_persisted_preset'),
+    ),
+    _ReplayProbe(
+        'applied_preset_state',
+        'cad_applied_preset_states',
+        ('applied_id',),
+        _get('presets', 'verify_persisted_applied_state'),
+    ),
+    _ReplayProbe(
+        'preset_measurement_binding',
+        'cad_preset_measurement_bindings',
+        ('binding_id',),
+        _get('presets', 'verify_persisted_measurement_binding'),
+    ),
+    _ReplayProbe(
+        'health_baseline',
+        'cad_health_baselines',
+        ('baseline_id',),
+        _get('health', 'verify_persisted_baseline'),
+    ),
+    _ReplayProbe(
+        'health_check_plan',
+        'cad_health_check_plans',
+        ('plan_id',),
+        _get('health', 'verify_persisted_plan'),
+    ),
+    _ReplayProbe(
+        'health_check_run',
+        'cad_health_check_runs',
+        ('run_id',),
+        _get('health', 'verify_persisted_run'),
+    ),
+    _ReplayProbe(
+        'constraint_snapshot',
+        'cad_constraint_snapshots',
+        ('snapshot_id',),
+        _get('checkpoints', 'verify_persisted_snapshot'),
+    ),
+    _ReplayProbe(
+        'design_checkpoint',
+        'cad_design_checkpoints',
+        ('checkpoint_id',),
+        _get('checkpoints', 'verify_persisted_checkpoint'),
+    ),
+    _ReplayProbe(
+        'checkpoint_restore',
+        'cad_checkpoint_restores',
+        ('restore_id',),
+        _get('checkpoints', 'verify_persisted_restore'),
+    ),
+    _ReplayProbe(
+        'project_registry',
+        'project_registry',
+        ('project_id',),
+        _get('project_library', 'verify_project_registration'),
+    ),
+    _ReplayProbe(
+        'project_tombstone',
+        'project_tombstones',
+        ('tombstone_id',),
+        _get('project_library', 'verify_persisted_tombstone'),
+    ),
 )
 
 # Managed-asset manifest/evidence tables: every row must resolve to the
@@ -1093,15 +1232,190 @@ _ASSET_TABLES: tuple[
 # (external-resolver domains and link/metadata tables). They are still
 # enumerated so raw payload corruption cannot slip through the audit.
 _REPLAY_TABLES = frozenset(probe.table for probe in _REPLAY_PROBES)
-_SKIP_STRUCTURAL_TABLES = frozenset(
-    {
-        'sqlite_sequence',
-        'native_schema_metadata',
-        'native_schema_migrations',
-        'scene_document_heads',
-        'htdt_content_blobs',
-    }
-) | _REPLAY_TABLES | frozenset(table for table, *_rest in _ASSET_TABLES)
+
+#: Explicit coverage policy for every persistent table that carries no
+#: replay probe and no managed-bytes check — each entry is
+#: ``(coverage class, bounded reason)``. Classes:
+#:
+#: - ``STRUCTURAL_ONLY``: rows carry semantic payload claims but no
+#:   canonical replay path exists yet; the strongest available
+#:   verification is schema + JSON-payload parse. The reason records why
+#:   no replay exists — "JSON parses" alone is not a semantic audit.
+#: - ``OPERATIONAL_METADATA``: bookkeeping/editor/derived state with no
+#:   independent semantic claim (schema versions, head pointers, editor
+#:   payloads, ingestion bookkeeping).
+#: - ``EPHEMERAL``: transient state that may be stale by design.
+#:
+#: A persistent table absent from this registry and from the replay/asset
+#: registries is reported UNCLASSIFIED and fails the audit: coverage is
+#: fail-closed, never inferred from parseability.
+_TABLE_POLICY: dict[str, tuple[str, str]] = {
+    'sqlite_sequence': (
+        'OPERATIONAL_METADATA',
+        'sqlite autoincrement bookkeeping',
+    ),
+    'native_schema_metadata': (
+        'OPERATIONAL_METADATA',
+        'schema version bookkeeping, not user authority',
+    ),
+    'native_schema_migrations': (
+        'OPERATIONAL_METADATA',
+        'migration history bookkeeping',
+    ),
+    'scene_document_heads': (
+        'OPERATIONAL_METADATA',
+        'mutable head pointer derived from scene_revisions',
+    ),
+    'scene_recovery_snapshots': (
+        'OPERATIONAL_METADATA',
+        'crash-recovery payload replaced by the next save; not an '
+        'authoritative derivation',
+    ),
+    'editor_camera_states': (
+        'OPERATIONAL_METADATA',
+        'editor camera payload — viewport convenience, not design authority',
+    ),
+    'editor_named_views': (
+        'OPERATIONAL_METADATA',
+        'editor named-view payloads — presentation convenience, not '
+        'design authority',
+    ),
+    'editor_view_states': (
+        'OPERATIONAL_METADATA',
+        'editor view-state payloads — presentation convenience, not '
+        'design authority',
+    ),
+    'floor_plan_underlays': (
+        'OPERATIONAL_METADATA',
+        'editor floor-plan underlay payloads — UI convenience, not '
+        'design authority',
+    ),
+    'seating_layout_specs': (
+        'OPERATIONAL_METADATA',
+        'editor seating-layout payloads — UI convenience, not design '
+        'authority',
+    ),
+    'authoring_constraint_sets': (
+        'OPERATIONAL_METADATA',
+        'UI-authored constraint hint payloads — convenience, not design '
+        'authority',
+    ),
+    'capture_bundles': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion staging-bundle bookkeeping',
+    ),
+    'capture_revisions': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion revision bookkeeping',
+    ),
+    'capture_roomplan_records': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion room-plan bookkeeping',
+    ),
+    'capture_source_evidence': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion source-evidence bookkeeping',
+    ),
+    'capture_revision_conflicts': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion conflict bookkeeping',
+    ),
+    'capture_raw_visual_mesh_bindings': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion raw-mesh binding bookkeeping',
+    ),
+    'capture_coordinate_authorities': (
+        'STRUCTURAL_ONLY',
+        'coordinate-authority linkage claims; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_authority_records': (
+        'STRUCTURAL_ONLY',
+        'capture authority linkage claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_authority_links': (
+        'STRUCTURAL_ONLY',
+        'ingestion authority-link claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_mesh_links': (
+        'STRUCTURAL_ONLY',
+        'ingestion mesh-link claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_source_links': (
+        'STRUCTURAL_ONLY',
+        'ingestion source-link claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_lineages': (
+        'STRUCTURAL_ONLY',
+        'ingestion lineage claims retained across deletion; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_amplifier_electrical_limits': (
+        'STRUCTURAL_ONLY',
+        'electrical-limit payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_equipment_binding_semantics': (
+        'STRUCTURAL_ONLY',
+        'binding-semantics payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_frequency_resolved_evaluations': (
+        'STRUCTURAL_ONLY',
+        'frequency-resolved evaluation payload authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_installation_contexts': (
+        'STRUCTURAL_ONLY',
+        'installation-context payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_measurement_attachments': (
+        'STRUCTURAL_ONLY',
+        'measurement attachment payload authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'cad_measurement_corrections': (
+        'STRUCTURAL_ONLY',
+        'measurement correction payload authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'cad_measurement_dispositions': (
+        'STRUCTURAL_ONLY',
+        'measurement disposition payload authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r120_compile_inputs': (
+        'STRUCTURAL_ONLY',
+        'compile-input record; derivations are re-verified via the '
+        'compiled-geometry replay probe',
+    ),
+    'cad_r120_leak_diagnostic_inputs': (
+        'STRUCTURAL_ONLY',
+        'leak-diagnostic input record; derivations are re-verified via '
+        'the leak-diagnostic replay probe',
+    ),
+    'cad_raw_mesh_repair_bundles': (
+        'STRUCTURAL_ONLY',
+        'mesh-repair bundle payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_speaker_impedances': (
+        'STRUCTURAL_ONLY',
+        'speaker impedance payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_calibration_lifecycle_events': (
+        'OPERATIONAL_METADATA',
+        'append-only lifecycle event log — operational bookkeeping',
+    ),
+}
 
 
 def _classify_error(exc: BaseException) -> AuditFailureClass:
@@ -1376,10 +1690,16 @@ def audit_native_authority_graph(
                 count += 1
             checked.append(('content_blob', count))
 
-        # ---- structural payload tier -------------------------------------
-        covered = set(_SKIP_STRUCTURAL_TABLES) | {
-            table for table, *_ in _ASSET_TABLES
-        } | {'capture_ingestion_runs'}
+        # ---- coverage classification tier ------------------------------
+        # Every persistent table is covered exactly once: a replay probe,
+        # an evidence-bytes check, or an explicit _TABLE_POLICY entry.
+        # Anything else is UNCLASSIFIED and fails closed.
+        asset_tables = {table for table, *_ in _ASSET_TABLES}
+        covered = (
+            _REPLAY_TABLES
+            | asset_tables
+            | {'capture_ingestion_runs', 'htdt_content_blobs'}
+        )
         tables = [
             row['name']
             for row in connection.execute(
@@ -1387,37 +1707,62 @@ def audit_native_authority_graph(
                 "WHERE type='table' ORDER BY name"
             ).fetchall()
         ]
+        unclassified: list[str] = []
         for table in tables:
             if table in covered:
                 continue
+            policy = _TABLE_POLICY.get(table)
+            if policy is None:
+                unclassified.append(table)
+                diagnostics.append(
+                    AuthorityAuditDiagnostic(
+                        authority='coverage',
+                        record_ref=table,
+                        failure_class='unclassified',
+                        dependency=table,
+                        message=(
+                            f'table {table} has no coverage policy entry — '
+                            'classify it (replay probe, evidence bytes, '
+                            'STRUCTURAL_ONLY, EPHEMERAL, or '
+                            'OPERATIONAL_METADATA) before the audit can '
+                            'claim coverage'
+                        ),
+                    )
+                )
+                continue
+            policy_kind, _reason = policy
+            label = (
+                'metadata'
+                if policy_kind in {'OPERATIONAL_METADATA', 'EPHEMERAL'}
+                else 'structural'
+            )
             payload_columns = [
                 column
                 for column in _table_columns(connection, table)
                 if column.endswith('_json')
             ]
-            if not payload_columns:
-                continue
             count = 0
-            select = ', '.join(f'"{c}"' for c in payload_columns)
-            for row in connection.execute(
-                f'SELECT {select} FROM "{table}"'
-                + _order_clause(connection, table)
-            ).fetchall():
-                for column in payload_columns:
-                    raw = row[column]
-                    if raw is None:
-                        continue
-                    try:
-                        json.loads(raw)
-                    except Exception as exc:  # noqa: BLE001
-                        record(
-                            table,
-                            f'row {count}',
-                            exc,
-                            dependency=f'{table}.{column}',
-                        )
-                count += 1
-            checked.append((f'structural:{table}', count))
+            if payload_columns:
+                select = ', '.join(f'"{c}"' for c in payload_columns)
+                for row in connection.execute(
+                    f'SELECT {select} FROM "{table}"'
+                    + _order_clause(connection, table)
+                ).fetchall():
+                    for column in payload_columns:
+                        raw = row[column]
+                        if raw is None:
+                            continue
+                        try:
+                            json.loads(raw)
+                        except Exception as exc:  # noqa: BLE001
+                            record(
+                                table,
+                                f'row {count}',
+                                exc,
+                                dependency=f'{table}.{column}',
+                            )
+                    count += 1
+            checked.append((f'{label}:{table}', count))
     finally:
         connection.close()
 
@@ -1425,6 +1770,7 @@ def audit_native_authority_graph(
         database_path=db_path,
         checked=tuple(checked),
         diagnostics=tuple(diagnostics),
+        unclassified_tables=tuple(unclassified),
     )
 
 
