@@ -16,10 +16,9 @@ from .cad_body_mesh import (
 )
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
 from .cad_schema import (
-    _SCENE_DOCUMENT_HEADS_DDL,
     backfill_scene_document_heads,
     ensure_native_schema,
-    ensure_scene_revision_lineage_columns,
+    require_native_tables,
 )
 from .content_blobs import (
     ensure_content_blob_store,
@@ -189,122 +188,20 @@ class SceneRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS scene_revisions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    revision_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    parent_revision_id TEXT,
-                    created_at_utc TEXT NOT NULL,
-                    content_hash TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    detached INTEGER NOT NULL DEFAULT 0,
-                    detached_reason TEXT,
-                    FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id)
-                )
-                '''
-            )
-            connection.execute(
-                'CREATE INDEX IF NOT EXISTS idx_scene_revisions_document_seq '
-                'ON scene_revisions(document_id, seq DESC)'
-            )
-            # Explicit current-head authority (#626): current document state
-            # is whatever this table points at, never MAX(scene_revisions.seq).
-            connection.execute(_SCENE_DOCUMENT_HEADS_DDL)
-            # Detached-lineage markers; already present on v5-migrated
-            # databases, appended here for databases created before the
-            # columns existed (and for any exotic path that skipped the
-            # versioned migration).
-            ensure_scene_revision_lineage_columns(connection)
             # Reconstruct explicit heads for databases written before the
             # head authority existed; a no-op once every document has one.
             backfill_scene_document_heads(connection)
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS scene_recovery_snapshots (
-                    document_id TEXT PRIMARY KEY,
-                    source_revision_id TEXT,
-                    updated_at_utc TEXT NOT NULL,
-                    content_hash TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(source_revision_id) REFERENCES scene_revisions(revision_id)
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS editor_view_states (
-                    document_id TEXT PRIMARY KEY,
-                    selected_id TEXT,
-                    hidden_ids_json TEXT NOT NULL,
-                    locked_ids_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL
-                )
-                '''
-            )
-            # scene_revision_labels is created lazily (see _ensure_revision_labels):
-            # an opt-in per-revision feature should not grow every project DB
-            # by default, and pre-change databases simply lack the table.
-            columns = {row['name'] for row in connection.execute('PRAGMA table_info(editor_view_states)')}
-            if 'selected_ids_json' not in columns:
-                connection.execute(
-                    "ALTER TABLE editor_view_states ADD COLUMN selected_ids_json TEXT NOT NULL DEFAULT '[]'"
-                )
-            if 'snap_json' not in columns:
-                connection.execute(
-                    "ALTER TABLE editor_view_states ADD COLUMN snap_json TEXT"
-                )
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS editor_camera_states (
-                    document_id TEXT PRIMARY KEY,
-                    payload_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS editor_named_views (
-                    document_id TEXT NOT NULL,
-                    view_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    PRIMARY KEY (document_id, view_id)
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS floor_plan_underlays (
-                    document_id TEXT NOT NULL,
-                    underlay_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    PRIMARY KEY (document_id, underlay_id)
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS seating_layout_specs (
-                    document_id TEXT NOT NULL,
-                    spec_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    PRIMARY KEY (document_id, spec_id)
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS authoring_constraint_sets (
-                    document_id TEXT PRIMARY KEY,
-                    payload_json TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL
-                )
-                '''
+            require_native_tables(
+                connection,
+                'scene_revisions',
+                'scene_document_heads',
+                'scene_recovery_snapshots',
+                'editor_view_states',
+                'editor_camera_states',
+                'editor_named_views',
+                'floor_plan_underlays',
+                'seating_layout_specs',
+                'authoring_constraint_sets',
             )
 
     def current_head(self, document_id: str) -> SceneRevision | None:
@@ -899,18 +796,9 @@ class SceneRepository:
             )
 
     def _ensure_revision_labels(self, connection) -> None:
-        connection.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS scene_revision_labels (
-                revision_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                label TEXT NOT NULL,
-                note TEXT NOT NULL DEFAULT '',
-                updated_at_utc TEXT NOT NULL,
-                FOREIGN KEY(revision_id) REFERENCES scene_revisions(revision_id)
-            )
-            '''
-        )
+        # The table is part of the canonical contract; verify instead of
+        # lazily creating it (#302).
+        require_native_tables(connection, 'scene_revision_labels')
 
     def set_revision_label(
         self,
@@ -1174,6 +1062,10 @@ class SceneRepository:
         content_hash = scene_content_hash(document)
         if content_hash != row['content_hash']:
             raise ValueError(f"scene revision hash mismatch: {row['revision_id']}")
+        if document.document_id != row['document_id']:
+            raise ValueError(
+                f"scene revision document mismatch: {row['revision_id']}"
+            )
         # Issue #653: rehydrate the in-memory mesh cache from the blob store;
         # the persisted payload only carries the compact reference. A missing
         # or corrupt blob fails closed rather than rendering silently.

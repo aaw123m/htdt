@@ -16,7 +16,10 @@ from .cad_multifidelity import (
     MultiFidelityPlan,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 
 
 R140_EXECUTION_SCHEMA_VERSION = 1
@@ -477,42 +480,7 @@ class CadMultiFidelityExecutionRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_r140_execution_tasks (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    execution_input_sha256 TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL,
-                    stage_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_r140_task_plan_stage_seq
-                    ON cad_r140_execution_tasks(plan_id, stage_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_r140_execution_schedules (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    schedule_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_r140_execution_cache (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    cache_entry_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    execution_input_sha256 TEXT NOT NULL UNIQUE,
-                    task_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(task_id)
-                        REFERENCES cad_r140_execution_tasks(task_id)
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_r140_execution_tasks', 'cad_r140_execution_schedules', 'cad_r140_execution_cache')
 
     def _resolve_external(
         self,

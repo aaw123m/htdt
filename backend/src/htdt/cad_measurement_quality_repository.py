@@ -46,7 +46,10 @@ from .cad_measurement_repository import (
     VerifiedMeasurementAsset,
 )
 from .cad_scene import acoustic_reference_position
-from .cad_schema import check_native_schema_compatibility
+from .cad_schema import (
+    check_native_schema_compatibility,
+    require_native_tables,
+)
 from .managed_assets import (
     ManagedAssetError,
     ManagedAssetStore,
@@ -78,154 +81,7 @@ class CadMeasurementQualityRepository:
     def _initialize(self) -> None:
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_measurement_quality_reports (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    report_id TEXT NOT NULL UNIQUE,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
-                    raw_asset_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
-                    report_sha256 TEXT NOT NULL,
-                    profile_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_quality_measurement_seq
-                    ON cad_measurement_quality_reports(measurement_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_quality_dataset_seq
-                    ON cad_measurement_quality_reports(dataset_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_lineage (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    lineage_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    supersedes_measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    selected_measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    lineage_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_document_seq
-                    ON cad_measurement_lineage(document_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_measurement
-                    ON cad_measurement_lineage(measurement_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_supersedes
-                    ON cad_measurement_lineage(supersedes_measurement_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_acquisition_contexts (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    acquisition_context_id TEXT NOT NULL UNIQUE,
-                    acquisition_context_sha256 TEXT NOT NULL,
-                    source_kind TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_observations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    observation_id TEXT NOT NULL UNIQUE,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    observation_sha256 TEXT NOT NULL,
-                    source_kind TEXT NOT NULL,
-                    observed_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_observations_measurement_seq
-                    ON cad_measurement_observations(measurement_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_quality_calibration_files (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_timing_references (
-                    timing_reference_id TEXT PRIMARY KEY,
-                    timing_reference_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_acoustic_level_calibrations (
-                    calibration_id TEXT PRIMARY KEY,
-                    calibration_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_dataset_level_references (
-                    level_reference_id TEXT PRIMARY KEY,
-                    dataset_id TEXT NOT NULL UNIQUE REFERENCES cad_frequency_responses(dataset_id),
-                    level_reference_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_routing_profiles (
-                    routing_profile_id TEXT PRIMARY KEY,
-                    routing_profile_sha256 TEXT NOT NULL UNIQUE,
-                    profile_name TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_wiring_checks (
-                    check_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    check_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_wiring_checks_document
-                    ON cad_wiring_checks(document_id, created_at_utc);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_target_lineages (
-                    target_lineage_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    measurement_point_id TEXT NOT NULL,
-                    target_lineage_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_target_lineages_document
-                    ON cad_measurement_target_lineages(document_id);
-                CREATE INDEX IF NOT EXISTS idx_target_lineages_point
-                    ON cad_measurement_target_lineages(measurement_point_id);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_dispositions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    disposition_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    disposition TEXT NOT NULL,
-                    correction_id TEXT,
-                    disposition_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_measurement_seq
-                    ON cad_measurement_dispositions(measurement_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_document_seq
-                    ON cad_measurement_dispositions(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_corrections (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    correction_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
-                    dataset_sha256 TEXT NOT NULL,
-                    correction_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_corrections_measurement_seq
-                    ON cad_measurement_corrections(measurement_id, seq ASC);
-                '''
-            )
+            require_native_tables(connection, 'cad_measurement_quality_reports', 'cad_measurement_lineage', 'cad_acquisition_contexts', 'cad_measurement_observations', 'cad_quality_calibration_files', 'cad_timing_references', 'cad_acoustic_level_calibrations', 'cad_dataset_level_references', 'cad_routing_profiles', 'cad_wiring_checks', 'cad_measurement_target_lineages', 'cad_measurement_dispositions', 'cad_measurement_corrections')
 
     def _validate_acquisition_context(self, context: CadAcquisitionContext) -> None:
         """Every subject must be an existing measurement in one document.

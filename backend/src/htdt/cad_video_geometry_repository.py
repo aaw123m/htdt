@@ -9,7 +9,10 @@ import sqlite3
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_video_geometry import (
     ProjectorSpecification,
@@ -89,74 +92,7 @@ class CadVideoGeometryRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_projector_specifications (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    specification_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    specification_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(specification_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_projector_specification_seq
-                    ON cad_projector_specifications(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_assets (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_projector_spec_evidence (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evidence_sha256 TEXT NOT NULL UNIQUE,
-                    evidence_kind TEXT NOT NULL,
-                    source_sha256 TEXT,
-                    manufacturer TEXT,
-                    model TEXT,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_projector_spec_evidence_seq
-                    ON cad_projector_spec_evidence(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_projector_spec_source_assets (
-                    source_asset_sha256 TEXT PRIMARY KEY
-                        REFERENCES cad_measurement_assets(sha256),
-                    evidence_sha256 TEXT NOT NULL
-                        REFERENCES cad_projector_spec_evidence(evidence_sha256),
-                    filename TEXT,
-                    media_type TEXT,
-                    recorded_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_video_geometry_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    system_variant_id TEXT,
-                    system_variant_sha256 TEXT,
-                    projector_specification_sha256 TEXT NOT NULL,
-                    request_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(projector_specification_sha256)
-                        REFERENCES cad_projector_specifications(specification_sha256)
-                );
-                CREATE INDEX IF NOT EXISTS idx_video_geometry_revision_seq
-                    ON cad_video_geometry_evaluations(scene_revision_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_video_geometry_variant_seq
-                    ON cad_video_geometry_evaluations(system_variant_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_projector_specifications', 'cad_measurement_assets', 'cad_projector_spec_evidence', 'cad_projector_spec_source_assets', 'cad_video_geometry_evaluations')
 
     def _verified_asset_file(
         self,

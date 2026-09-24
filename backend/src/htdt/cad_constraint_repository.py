@@ -7,7 +7,10 @@ from pathlib import Path
 import sqlite3
 
 from .cad_constraint_models import CadConstraintSet
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 
 
 class CadConstraintRepository:
@@ -27,16 +30,7 @@ class CadConstraintRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_constraint_workspaces (
-                    document_id TEXT PRIMARY KEY,
-                    schema_version INTEGER NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                '''
-            )
+            require_native_tables(connection, 'cad_constraint_workspaces')
 
     def load(self, document_id: str) -> CadConstraintSet:
         if not document_id:

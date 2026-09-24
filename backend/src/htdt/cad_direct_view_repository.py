@@ -11,6 +11,7 @@ from .cad_direct_view import (
     DirectViewGeometryEvaluation,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 def _utc_now() -> str:
@@ -37,33 +38,7 @@ class CadDirectViewRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_direct_view_specifications (
-                    specification_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    specification_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    PRIMARY KEY (specification_id, version)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_direct_view_evaluations (
-                    evaluation_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    system_variant_id TEXT,
-                    request_sha256 TEXT NOT NULL,
-                    geometry_status TEXT NOT NULL,
-                    evaluation_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_direct_view_specifications', 'cad_direct_view_evaluations')
 
     # ------------------------------------------------------------------
     # Display specifications

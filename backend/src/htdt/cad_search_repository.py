@@ -8,6 +8,7 @@ import sqlite3
 from .cad_repository import SceneRepository
 from .cad_search import require_search_spec_authority
 from .cad_search_models import CAD_SEARCH_SCHEMA_VERSION, CadSearchSpec
+from .cad_schema import require_native_tables
 
 
 class CadSearchRepository:
@@ -26,26 +27,7 @@ class CadSearchRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_search_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    search_spec_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    constraint_workspace_hash TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    search_spec_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id)
-                )
-                '''
-            )
-            connection.execute(
-                'CREATE INDEX IF NOT EXISTS idx_cad_search_document_seq '
-                'ON cad_search_specs(document_id, seq DESC)'
-            )
+            require_native_tables(connection, 'cad_search_specs')
 
     def _require_spec_authority(self, spec: CadSearchSpec) -> None:
         """Re-resolve the exact SceneRevision and replay the pinned compiler.

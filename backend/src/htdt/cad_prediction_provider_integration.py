@@ -26,7 +26,10 @@ from .cad_prediction_provider import (
     build_prediction_provider_binding,
 )
 from .cad_repository import SceneRevision
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_search_models import CadSearchSpec
 from .comparison import FrequencyResponse
 from .optimization_objectives import (
@@ -283,19 +286,7 @@ class CadPredictionProviderObjectiveRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_prediction_provider_objectives (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    connection_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    provider_id TEXT NOT NULL,
-                    provider_binding_id TEXT NOT NULL,
-                    evaluation_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_prediction_provider_objectives')
 
     def _validate(
         self,

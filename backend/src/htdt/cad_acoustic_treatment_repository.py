@@ -16,7 +16,10 @@ from .cad_acoustic_treatment import (
     evaluate_treatment_surface_binding,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import check_native_schema_compatibility
+from .cad_schema import (
+    check_native_schema_compatibility,
+    require_native_tables,
+)
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
@@ -59,73 +62,7 @@ class CadAcousticTreatmentRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_treatment_definitions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    definition_id TEXT NOT NULL,
-                    definition_version TEXT NOT NULL,
-                    definition_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(definition_id, definition_version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_treatment_definition_id_seq
-                    ON cad_acoustic_treatment_definitions(definition_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_acoustic_treatment_placements (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    instance_id TEXT NOT NULL,
-                    placement_version INTEGER NOT NULL,
-                    lifecycle TEXT NOT NULL,
-                    definition_id TEXT NOT NULL,
-                    definition_version TEXT NOT NULL,
-                    definition_sha256 TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    system_variant_id TEXT,
-                    placement_sha256 TEXT NOT NULL UNIQUE,
-                    previous_placement_sha256 TEXT,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(instance_id, placement_version),
-                    FOREIGN KEY(definition_id, definition_version)
-                        REFERENCES cad_acoustic_treatment_definitions(definition_id, definition_version),
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(system_variant_id)
-                        REFERENCES cad_system_variants(variant_id),
-                    FOREIGN KEY(previous_placement_sha256)
-                        REFERENCES cad_acoustic_treatment_placements(placement_sha256)
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_treatment_placement_scene_seq
-                    ON cad_acoustic_treatment_placements(scene_revision_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_acoustic_treatment_placement_variant_seq
-                    ON cad_acoustic_treatment_placements(system_variant_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_acoustic_treatment_placement_instance_seq
-                    ON cad_acoustic_treatment_placements(instance_id, placement_version ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_assets (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_treatment_evidence_authorities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evidence_id TEXT NOT NULL UNIQUE,
-                    evidence_sha256 TEXT NOT NULL UNIQUE,
-                    source_kind TEXT NOT NULL,
-                    source_id TEXT NOT NULL,
-                    source_version TEXT NOT NULL,
-                    source_sha256 TEXT,
-                    subject_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_treatment_evidence_source
-                    ON cad_treatment_evidence_authorities(
-                        source_kind, source_id, source_version, seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_acoustic_treatment_definitions', 'cad_acoustic_treatment_placements', 'cad_measurement_assets', 'cad_treatment_evidence_authorities')
 
     def save_source_asset(self, *, filename: str, data: bytes) -> str:
         """Retain exact treatment source bytes as a managed content-addressed asset.

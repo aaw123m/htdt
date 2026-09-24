@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .cad_project_activity import ProjectActivityNote
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class CadProjectActivityNoteRepository:
@@ -29,25 +30,12 @@ class CadProjectActivityNoteRepository:
         return connection
 
     def _initialize(self) -> None:
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_project_notes (
-                    note_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    note_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_project_notes',
             )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_project_notes_document
-                ON cad_project_notes(document_id)
-                """
-            )
+
 
     def save_note(self, note: ProjectActivityNote) -> ProjectActivityNote:
         self._validate(note)

@@ -30,7 +30,10 @@ from .cad_geometric_acoustics_portal import GeometricPortalGraph
 from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_repository import SceneRepository
 from .cad_scene import acoustic_reference_position
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_wave_excitation import CadWaveExcitationRepository
@@ -181,51 +184,7 @@ class CadAcousticSnapshotRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_scene_snapshots (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    snapshot_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    system_variant_id TEXT,
-                    system_variant_sha256 TEXT,
-                    r120_compiled_geometry_id TEXT NOT NULL,
-                    r120_compiled_geometry_sha256 TEXT NOT NULL,
-                    material_boundary_configuration_sha256 TEXT NOT NULL,
-                    environment_authority_sha256 TEXT,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(system_variant_id)
-                        REFERENCES cad_system_variants(variant_id),
-                    FOREIGN KEY(r120_compiled_geometry_id)
-                        REFERENCES cad_r120_compiled_geometry(compiled_geometry_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_snapshot_scene
-                    ON cad_acoustic_scene_snapshots(scene_revision_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_acoustic_prediction_requests (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    request_id TEXT NOT NULL UNIQUE,
-                    request_semantic_sha256 TEXT NOT NULL UNIQUE,
-                    acoustic_scene_snapshot_id TEXT NOT NULL,
-                    acoustic_scene_snapshot_sha256 TEXT NOT NULL,
-                    deterministic_input_hash TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(acoustic_scene_snapshot_id)
-                        REFERENCES cad_acoustic_scene_snapshots(snapshot_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_request_snapshot
-                    ON cad_acoustic_prediction_requests(
-                        acoustic_scene_snapshot_id, seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_acoustic_scene_snapshots', 'cad_acoustic_prediction_requests')
 
     def _validate_snapshot(
         self,

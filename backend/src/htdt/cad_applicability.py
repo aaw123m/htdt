@@ -30,6 +30,7 @@ from .cad_validation_metrics import (
     _canonical_sha256,
 )
 from .comparison import FrequencyResponse
+from .cad_schema import ensure_native_schema, require_native_tables
 
 
 APPLICABILITY_EVALUATOR_VERSION = '1'
@@ -202,6 +203,8 @@ class CadApplicabilityAttestationRepository:
 
     def __init__(self, path) -> None:
         self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_native_schema(self.path)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -212,22 +215,7 @@ class CadApplicabilityAttestationRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_applicability_attestations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    attestation_id TEXT NOT NULL UNIQUE,
-                    attestation_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    code TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    attested_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_applicability_attestations_spec
-                    ON cad_applicability_attestations(search_spec_id, seq ASC);
-                '''
-            )
+            require_native_tables(connection, 'cad_applicability_attestations')
 
     def save(
         self,

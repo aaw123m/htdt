@@ -15,7 +15,7 @@ import unicodedata
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from htdt.cad_repository import SceneRepository
-from htdt.cad_schema import ensure_native_schema
+from htdt.cad_schema import ensure_native_schema, require_native_tables
 from htdt.capture_bundle import (
     MAX_MANIFEST_BYTES,
     MAX_SOURCE_REF_BYTES,
@@ -1097,237 +1097,266 @@ class CaptureIngestionRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
-                    lineage_digest TEXT PRIMARY KEY
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_ingestion_runs (
-                    ingestion_run_id TEXT PRIMARY KEY,
-                    lineage_digest TEXT NOT NULL,
-                    plan_sha256 TEXT NOT NULL,
-                    bundle_digest TEXT NOT NULL,
-                    capture_revision_id TEXT NOT NULL,
-                    capture_series_id TEXT NOT NULL,
-                    parent_revision_id TEXT,
-                    capture_session_ids_json TEXT NOT NULL,
-                    coordinate_space_ids_json TEXT NOT NULL,
-                    ingestor_name TEXT NOT NULL,
-                    ingestor_version TEXT NOT NULL,
-                    configuration_digest TEXT NOT NULL,
-                    plan_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(lineage_digest)
-                        REFERENCES capture_ingestion_lineages(lineage_digest)
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_source_evidence (
-                    source_evidence_id TEXT PRIMARY KEY,
-                    bundle_digest TEXT NOT NULL,
-                    capture_revision_id TEXT NOT NULL,
-                    logical_path TEXT NOT NULL,
-                    payload_sha256 TEXT NOT NULL,
-                    byte_count INTEGER NOT NULL,
-                    media_type TEXT NOT NULL,
-                    producer TEXT NOT NULL,
-                    provenance_class TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    source_refs_json TEXT NOT NULL,
-                    import_origin TEXT NOT NULL
-                        DEFAULT 'unsigned_capture_bundle_import',
-                    payload_blob BLOB NOT NULL,
-                    UNIQUE(bundle_digest, logical_path)
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_ingestion_source_links (
-                    ingestion_run_id TEXT NOT NULL,
-                    source_evidence_id TEXT NOT NULL,
-                    PRIMARY KEY(ingestion_run_id, source_evidence_id),
-                    FOREIGN KEY(ingestion_run_id)
-                        REFERENCES capture_ingestion_runs(ingestion_run_id),
-                    FOREIGN KEY(source_evidence_id)
-                        REFERENCES capture_source_evidence(source_evidence_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_roomplan_records (
-                    ingestion_run_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    source_evidence_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    PRIMARY KEY(
-                        ingestion_run_id, kind, source_evidence_id
-                    ),
-                    FOREIGN KEY(ingestion_run_id)
-                        REFERENCES capture_ingestion_runs(ingestion_run_id),
-                    FOREIGN KEY(source_evidence_id)
-                        REFERENCES capture_source_evidence(source_evidence_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_raw_visual_mesh_bindings (
-                    binding_id TEXT PRIMARY KEY,
-                    handoff_id TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    anchor_index_source_evidence_id TEXT
-                        REFERENCES capture_source_evidence(source_evidence_id)
-                        ON DELETE RESTRICT,
-                    geometry_source_evidence_id TEXT
-                        REFERENCES capture_source_evidence(source_evidence_id)
-                        ON DELETE RESTRICT
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_ingestion_mesh_links (
-                    ingestion_run_id TEXT NOT NULL,
-                    binding_id TEXT NOT NULL,
-                    PRIMARY KEY(ingestion_run_id, binding_id),
-                    FOREIGN KEY(ingestion_run_id)
-                        REFERENCES capture_ingestion_runs(ingestion_run_id),
-                    FOREIGN KEY(binding_id)
-                        REFERENCES capture_raw_visual_mesh_bindings(binding_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_authority_records (
-                    authority_record_handoff_id TEXT PRIMARY KEY,
-                    source_evidence_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(source_evidence_id)
-                        REFERENCES capture_source_evidence(source_evidence_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_revisions (
-                    capture_revision_id TEXT PRIMARY KEY,
-                    capture_series_id TEXT NOT NULL,
-                    parent_revision_id TEXT,
-                    bundle_digest TEXT NOT NULL,
-                    capture_schema TEXT NOT NULL,
-                    capture_schema_version TEXT NOT NULL,
-                    topology_state TEXT NOT NULL,
-                    first_lineage_digest TEXT NOT NULL,
-                    registered_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_bundles (
-                    bundle_digest TEXT PRIMARY KEY,
-                    capture_revision_id TEXT NOT NULL,
-                    manifest_sha256 TEXT NOT NULL,
-                    app_name TEXT NOT NULL,
-                    app_version TEXT NOT NULL,
-                    app_build TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    finalized_at TEXT NOT NULL,
-                    manifest_blob BLOB NOT NULL DEFAULT X''
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_revision_conflicts (
-                    capture_revision_id TEXT NOT NULL,
-                    detail TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    PRIMARY KEY(capture_revision_id, detail)
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_ingestion_authority_links (
-                    ingestion_run_id TEXT NOT NULL,
-                    authority_record_handoff_id TEXT NOT NULL,
-                    PRIMARY KEY(
-                        ingestion_run_id, authority_record_handoff_id
-                    ),
-                    FOREIGN KEY(ingestion_run_id)
-                        REFERENCES capture_ingestion_runs(ingestion_run_id),
-                    FOREIGN KEY(authority_record_handoff_id)
-                        REFERENCES capture_authority_records(
-                            authority_record_handoff_id
-                        )
-                );
-
-                '''
+            require_native_tables(
+                connection,
+                'capture_ingestion_lineages',
+                'capture_ingestion_runs',
+                'capture_source_evidence',
+                'capture_ingestion_source_links',
+                'capture_roomplan_records',
+                'capture_raw_visual_mesh_bindings',
+                'capture_ingestion_mesh_links',
+                'capture_authority_records',
+                'capture_revisions',
+                'capture_bundles',
+                'capture_revision_conflicts',
+                'capture_ingestion_authority_links',
+                'capture_coordinate_authorities',
+                'htdt_content_blobs',
             )
-            self._ensure_run_quality_columns(connection)
-            self._migrate_revision_registry(connection)
-            ensure_content_blob_store(connection)
-            self._migrate_run_identity(connection)
-            # The run-identity rebuild swaps in a fresh runs table; re-add
-            # the persisted quality columns to it.
-            self._ensure_run_quality_columns(connection)
-            # Lineage rows are the unique foreign-key parent shared by the
-            # run-scoped schema and the lineage-keyed capture tables; seed
-            # them for databases already holding new-shape run rows.
-            connection.execute(
-                '''
-                INSERT OR IGNORE INTO capture_ingestion_lineages(
-                    lineage_digest
-                )
-                SELECT DISTINCT lineage_digest FROM capture_ingestion_runs
-                '''
+
+    def _converge_schema(self, connection: sqlite3.Connection) -> None:
+        """Legacy-shape tail of the schema-authority migration (#302).
+
+        Plain ``CREATE TABLE`` lives in ``cad_schema_ddl`` and runs inside
+        the versioned migration; this sequence converges databases whose
+        persisted shapes predate the canonical contract (rebuilds ordered
+        around foreign-key rewrites, payload-driven backfills) and then
+        installs the capture tables so every supported open path converges
+        the same way. Invoked by ``ensure_native_schema`` and re-verified
+        idempotently here.
+        """
+        connection.executescript(
+            '''
+            CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
+                lineage_digest TEXT PRIMARY KEY
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_ingestion_runs (
+                ingestion_run_id TEXT PRIMARY KEY,
+                lineage_digest TEXT NOT NULL,
+                plan_sha256 TEXT NOT NULL,
+                bundle_digest TEXT NOT NULL,
+                capture_revision_id TEXT NOT NULL,
+                capture_series_id TEXT NOT NULL,
+                parent_revision_id TEXT,
+                capture_session_ids_json TEXT NOT NULL,
+                coordinate_space_ids_json TEXT NOT NULL,
+                ingestor_name TEXT NOT NULL,
+                ingestor_version TEXT NOT NULL,
+                configuration_digest TEXT NOT NULL,
+                plan_json TEXT NOT NULL,
+                recorded_at_utc TEXT NOT NULL,
+                FOREIGN KEY(lineage_digest)
+                    REFERENCES capture_ingestion_lineages(lineage_digest)
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_source_evidence (
+                source_evidence_id TEXT PRIMARY KEY,
+                bundle_digest TEXT NOT NULL,
+                capture_revision_id TEXT NOT NULL,
+                logical_path TEXT NOT NULL,
+                payload_sha256 TEXT NOT NULL,
+                byte_count INTEGER NOT NULL,
+                media_type TEXT NOT NULL,
+                producer TEXT NOT NULL,
+                provenance_class TEXT NOT NULL,
+                role TEXT NOT NULL,
+                source_refs_json TEXT NOT NULL,
+                import_origin TEXT NOT NULL
+                    DEFAULT 'unsigned_capture_bundle_import',
+                payload_blob BLOB NOT NULL,
+                UNIQUE(bundle_digest, logical_path)
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_ingestion_source_links (
+                ingestion_run_id TEXT NOT NULL,
+                source_evidence_id TEXT NOT NULL,
+                PRIMARY KEY(ingestion_run_id, source_evidence_id),
+                FOREIGN KEY(ingestion_run_id)
+                    REFERENCES capture_ingestion_runs(ingestion_run_id),
+                FOREIGN KEY(source_evidence_id)
+                    REFERENCES capture_source_evidence(source_evidence_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_roomplan_records (
+                ingestion_run_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                source_evidence_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY(
+                    ingestion_run_id, kind, source_evidence_id
+                ),
+                FOREIGN KEY(ingestion_run_id)
+                    REFERENCES capture_ingestion_runs(ingestion_run_id),
+                FOREIGN KEY(source_evidence_id)
+                    REFERENCES capture_source_evidence(source_evidence_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_raw_visual_mesh_bindings (
+                binding_id TEXT PRIMARY KEY,
+                handoff_id TEXT NOT NULL UNIQUE,
+                payload_json TEXT NOT NULL,
+                anchor_index_source_evidence_id TEXT
+                    REFERENCES capture_source_evidence(source_evidence_id)
+                    ON DELETE RESTRICT,
+                geometry_source_evidence_id TEXT
+                    REFERENCES capture_source_evidence(source_evidence_id)
+                    ON DELETE RESTRICT
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_ingestion_mesh_links (
+                ingestion_run_id TEXT NOT NULL,
+                binding_id TEXT NOT NULL,
+                PRIMARY KEY(ingestion_run_id, binding_id),
+                FOREIGN KEY(ingestion_run_id)
+                    REFERENCES capture_ingestion_runs(ingestion_run_id),
+                FOREIGN KEY(binding_id)
+                    REFERENCES capture_raw_visual_mesh_bindings(binding_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_authority_records (
+                authority_record_handoff_id TEXT PRIMARY KEY,
+                source_evidence_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                FOREIGN KEY(source_evidence_id)
+                    REFERENCES capture_source_evidence(source_evidence_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_revisions (
+                capture_revision_id TEXT PRIMARY KEY,
+                capture_series_id TEXT NOT NULL,
+                parent_revision_id TEXT,
+                bundle_digest TEXT NOT NULL,
+                capture_schema TEXT NOT NULL,
+                capture_schema_version TEXT NOT NULL,
+                topology_state TEXT NOT NULL,
+                first_lineage_digest TEXT NOT NULL,
+                registered_at_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_bundles (
+                bundle_digest TEXT PRIMARY KEY,
+                capture_revision_id TEXT NOT NULL,
+                manifest_sha256 TEXT NOT NULL,
+                app_name TEXT NOT NULL,
+                app_version TEXT NOT NULL,
+                app_build TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                finalized_at TEXT NOT NULL,
+                manifest_blob BLOB NOT NULL DEFAULT X''
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_revision_conflicts (
+                capture_revision_id TEXT NOT NULL,
+                detail TEXT NOT NULL,
+                recorded_at_utc TEXT NOT NULL,
+                PRIMARY KEY(capture_revision_id, detail)
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_ingestion_authority_links (
+                ingestion_run_id TEXT NOT NULL,
+                authority_record_handoff_id TEXT NOT NULL,
+                PRIMARY KEY(
+                    ingestion_run_id, authority_record_handoff_id
+                ),
+                FOREIGN KEY(ingestion_run_id)
+                    REFERENCES capture_ingestion_runs(ingestion_run_id),
+                FOREIGN KEY(authority_record_handoff_id)
+                    REFERENCES capture_authority_records(
+                        authority_record_handoff_id
+                    )
+            );
+
+            '''
+        )
+        self._ensure_run_quality_columns(connection)
+        self._migrate_revision_registry(connection)
+        ensure_content_blob_store(connection)
+        self._migrate_run_identity(connection)
+        # The run-identity rebuild swaps in a fresh runs table; re-add
+        # the persisted quality columns to it.
+        self._ensure_run_quality_columns(connection)
+        # Lineage rows are the unique foreign-key parent shared by the
+        # run-scoped schema and the lineage-keyed capture tables; seed
+        # them for databases already holding new-shape run rows.
+        connection.execute(
+            '''
+            INSERT OR IGNORE INTO capture_ingestion_lineages(
+                lineage_digest
             )
-            # Created after the run-identity rebuild: under foreign_keys=ON
-            # ALTER TABLE ... RENAME rewrites references to the dropped
-            # _legacy name, so a table that persists must not reference the
-            # renamed capture_ingestion_runs until the new one exists.
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS capture_coordinate_authorities (
-                    coordinate_authority_id TEXT PRIMARY KEY,
-                    bundle_digest TEXT NOT NULL,
-                    capture_revision_id TEXT NOT NULL,
-                    coordinate_space_id TEXT NOT NULL,
-                    registered_by_run_id TEXT NOT NULL
-                        REFERENCES capture_ingestion_runs(ingestion_run_id),
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(bundle_digest, coordinate_space_id)
-                )
-                '''
+            SELECT DISTINCT lineage_digest FROM capture_ingestion_runs
+            '''
+        )
+        # Created after the run-identity rebuild: under foreign_keys=ON
+        # ALTER TABLE ... RENAME rewrites references to the dropped
+        # _legacy name, so a table that persists must not reference the
+        # renamed capture_ingestion_runs until the new one exists.
+        connection.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS capture_coordinate_authorities (
+                coordinate_authority_id TEXT PRIMARY KEY,
+                bundle_digest TEXT NOT NULL,
+                capture_revision_id TEXT NOT NULL,
+                coordinate_space_id TEXT NOT NULL,
+                registered_by_run_id TEXT NOT NULL
+                    REFERENCES capture_ingestion_runs(ingestion_run_id),
+                recorded_at_utc TEXT NOT NULL,
+                UNIQUE(bundle_digest, coordinate_space_id)
             )
-            self._migrate_source_import_origin(connection)
-            self._register_persisted_coordinate_authorities(connection)
-            self._externalize_inline_source_payloads(connection)
-            self._compact_legacy_mesh_bindings(connection)
-            self._normalize_mesh_binding_sources(connection)
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS
-                    idx_capture_ingestion_runs_lineage
-                ON capture_ingestion_runs(lineage_digest)
-                '''
+            '''
+        )
+        self._migrate_source_import_origin(connection)
+        self._register_persisted_coordinate_authorities(connection)
+        self._externalize_inline_source_payloads(connection)
+        self._compact_legacy_mesh_bindings(connection)
+        self._normalize_mesh_binding_sources(connection)
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS
+                idx_capture_ingestion_runs_lineage
+            ON capture_ingestion_runs(lineage_digest)
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS
+                idx_capture_ingestion_runs_revision
+            ON capture_ingestion_runs(capture_revision_id)
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS
+                idx_capture_ingestion_runs_series
+            ON capture_ingestion_runs(capture_series_id)
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS
+                idx_capture_coordinate_authority_scope
+            ON capture_coordinate_authorities(
+                bundle_digest, coordinate_space_id
             )
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS
-                    idx_capture_ingestion_runs_revision
-                ON capture_ingestion_runs(capture_revision_id)
-                '''
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_capture_mesh_binding_anchor_source
+            ON capture_raw_visual_mesh_bindings(
+                anchor_index_source_evidence_id
             )
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS
-                    idx_capture_ingestion_runs_series
-                ON capture_ingestion_runs(capture_series_id)
-                '''
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_capture_mesh_binding_geometry_source
+            ON capture_raw_visual_mesh_bindings(
+                geometry_source_evidence_id
             )
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS
-                    idx_capture_coordinate_authority_scope
-                ON capture_coordinate_authorities(
-                    bundle_digest, coordinate_space_id
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS idx_capture_mesh_binding_anchor_source
-                ON capture_raw_visual_mesh_bindings(
-                    anchor_index_source_evidence_id
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS idx_capture_mesh_binding_geometry_source
-                ON capture_raw_visual_mesh_bindings(
-                    geometry_source_evidence_id
-                )
-                '''
-            )
+            '''
+        )
 
     def _migrate_run_identity(self, connection: sqlite3.Connection) -> None:
         """Split persisted run identity from the stable lineage digest (#413).
@@ -2299,7 +2328,7 @@ class CaptureIngestionRepository:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 '''
-                SELECT plan_json
+                SELECT *
                 FROM capture_ingestion_runs
                 WHERE ingestion_run_id=?
                 ''',
@@ -2307,7 +2336,9 @@ class CaptureIngestionRepository:
             ).fetchone()
         if row is None:
             return None
-        return CaptureIngestionPlan.model_validate_json(row['plan_json'])
+        plan = CaptureIngestionPlan.model_validate_json(row['plan_json'])
+        self._verify_run_row_plan(row, plan)
+        return plan
 
     def get_ingestion(
         self, lineage_digest: str
@@ -2321,7 +2352,7 @@ class CaptureIngestionRepository:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 '''
-                SELECT plan_json
+                SELECT *
                 FROM capture_ingestion_runs
                 WHERE lineage_digest=?
                 ORDER BY recorded_at_utc DESC, ingestion_run_id DESC
@@ -2331,7 +2362,9 @@ class CaptureIngestionRepository:
             ).fetchone()
         if row is None:
             return None
-        return CaptureIngestionPlan.model_validate_json(row['plan_json'])
+        plan = CaptureIngestionPlan.model_validate_json(row['plan_json'])
+        self._verify_run_row_plan(row, plan)
+        return plan
 
     def get_source_evidence(
         self,
@@ -2376,6 +2409,7 @@ class CaptureIngestionRepository:
             row = connection.execute(
                 '''
                 SELECT payload_json,
+                       handoff_id,
                        anchor_index_source_evidence_id,
                        geometry_source_evidence_id
                 FROM capture_raw_visual_mesh_bindings
@@ -2389,6 +2423,7 @@ class CaptureIngestionRepository:
                 connection,
                 row['payload_json'],
                 binding_id=binding_id,
+                expected_handoff_id=row['handoff_id'],
                 normalized_source_ids=(
                     row['anchor_index_source_evidence_id'],
                     row['geometry_source_evidence_id'],
@@ -2483,7 +2518,8 @@ class CaptureIngestionRepository:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 '''
-                SELECT payload_json
+                SELECT authority_record_handoff_id, source_evidence_id,
+                       payload_json
                 FROM capture_authority_records
                 WHERE authority_record_handoff_id=?
                 ''',
@@ -2491,9 +2527,19 @@ class CaptureIngestionRepository:
             ).fetchone()
         if row is None:
             return None
-        return CaptureAuthorityRecord.model_validate_json(
+        record = CaptureAuthorityRecord.model_validate_json(
             row['payload_json']
         )
+        if (
+            record.authority_record_handoff_id
+            != row['authority_record_handoff_id']
+            or record.source_evidence_id != row['source_evidence_id']
+        ):
+            raise CaptureIngestionTransactionError(
+                'persisted authority record row disagrees with its payload: '
+                f'{authority_record_handoff_id}'
+            )
+        return record
 
     def source_evidence_count(self) -> int:
         with closing(self._connect()) as connection:
@@ -2504,7 +2550,44 @@ class CaptureIngestionRepository:
             )
 
     @staticmethod
+    def _verify_run_row_plan(
+        row: sqlite3.Row, plan: CaptureIngestionPlan
+    ) -> None:
+        """Row/payload invariant (#313): duplicated run columns must equal
+        the canonical plan's lineage, bundle, revision and ingestor fields."""
+
+        if sha256(str(row['plan_json']).encode('utf-8')).hexdigest() != str(
+            row['plan_sha256']
+        ):
+            raise CaptureIngestionTransactionError(
+                'persisted ingestion run row disagrees with its plan: '
+                f'{row["ingestion_run_id"]}'
+            )
+        parent_revision_id = row['parent_revision_id']
+        if (
+            str(row['lineage_digest']) != plan.lineage_digest
+            or str(row['bundle_digest']) != plan.bundle.bundle_digest
+            or str(row['capture_revision_id'])
+            != plan.bundle.capture_revision_id
+            or str(row['capture_series_id'])
+            != plan.bundle.capture_series_id
+            or (
+                None if parent_revision_id is None else str(parent_revision_id)
+            ) != plan.bundle.parent_revision_id
+            or str(row['ingestor_name']) != plan.ingestor.name
+            or str(row['ingestor_version']) != plan.ingestor.version
+            or str(row['configuration_digest'])
+            != plan.ingestor.configuration_digest
+        ):
+            raise CaptureIngestionTransactionError(
+                'persisted ingestion run row disagrees with its plan: '
+                f'{row["ingestion_run_id"]}'
+            )
+
+    @staticmethod
     def _run_from_row(row: sqlite3.Row) -> CaptureIngestionRun:
+        plan = CaptureIngestionPlan.model_validate_json(row['plan_json'])
+        CaptureIngestionRepository._verify_run_row_plan(row, plan)
         return CaptureIngestionRun(
             ingestion_run_id=str(row['ingestion_run_id']),
             lineage_digest=str(row['lineage_digest']),
@@ -3219,6 +3302,7 @@ class CaptureIngestionRepository:
         payload_json: str,
         *,
         binding_id: str | None = None,
+        expected_handoff_id: str | None = None,
         normalized_source_ids: tuple[object, object] | None = None,
     ) -> CaptureRawVisualMeshBinding:
         """Rebuild a persisted binding from either storage representation.
@@ -3261,6 +3345,15 @@ class CaptureIngestionRepository:
                     'persisted mesh binding does not reproduce its recorded '
                     'identity'
                 )
+        if (
+            expected_handoff_id is not None
+            and binding.handoff.raw_visual_mesh_handoff_id
+            != expected_handoff_id
+        ):
+            raise CaptureIngestionTransactionError(
+                'persisted mesh binding row disagrees with its payload: '
+                f'{binding.binding_id}'
+            )
         if normalized_source_ids is not None:
             anchor_index_id, geometry_id = normalized_source_ids
             if not isinstance(anchor_index_id, str) or not isinstance(
@@ -4512,3 +4605,17 @@ class CaptureIngestionRepository:
             quality_payload_sha256=state.payload_sha256,
             supplemental_document_count=len(plan.supplemental_documents),
         )
+
+
+def run_capture_schema_convergence(connection: sqlite3.Connection) -> None:
+    """Legacy-shape tail of the schema-authority migration (#302).
+
+    ``ensure_native_schema`` invokes this while converging databases whose
+    persisted shapes predate the canonical contract; it runs the same
+    sequence ``CaptureIngestionRepository._initialize`` applies, without
+    constructing a repository instance (the helpers it reaches use only
+    ``connection`` and parameter-free class helpers).
+    """
+
+    repository = CaptureIngestionRepository.__new__(CaptureIngestionRepository)
+    repository._converge_schema(connection)

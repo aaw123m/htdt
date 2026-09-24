@@ -12,7 +12,10 @@ from typing import Any, Literal, Protocol, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_topology_comparison import TopologyComparisonEvaluation
 from .cad_robust_pareto import O90RobustParetoEvaluation
 
@@ -833,61 +836,7 @@ class CadMultiFidelityRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_multifidelity_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    domain TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_multifidelity_stage_results (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    result_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL,
-                    stage_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(plan_id)
-                        REFERENCES cad_multifidelity_plans(plan_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_multifidelity_stage_plan_seq
-                    ON cad_multifidelity_stage_results(plan_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_multifidelity_screening_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(plan_id)
-                        REFERENCES cad_multifidelity_plans(plan_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_multifidelity_finalizations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    finalization_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    screening_evaluation_id TEXT NOT NULL,
-                    final_comparison_evaluation_id TEXT NOT NULL,
-                    claim_state TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(screening_evaluation_id)
-                        REFERENCES cad_multifidelity_screening_evaluations(evaluation_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_multifidelity_finalization_screening_seq
-                    ON cad_multifidelity_finalizations(
-                        screening_evaluation_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_multifidelity_plans', 'cad_multifidelity_stage_results', 'cad_multifidelity_screening_evaluations', 'cad_multifidelity_finalizations')
 
     def _resolve_authority(
         self,

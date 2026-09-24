@@ -24,7 +24,10 @@ from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
-from .cad_schema import check_native_schema_compatibility
+from .cad_schema import (
+    check_native_schema_compatibility,
+    require_native_tables,
+)
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
 
@@ -137,87 +140,7 @@ class CadCalibrationRepository:
     def _initialize(self) -> None:
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_calibration_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL REFERENCES scene_revisions(revision_id),
-                    system_variant_id TEXT NOT NULL REFERENCES cad_system_variants(variant_id),
-                    source_measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    source_dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
-                    quality_report_id TEXT NOT NULL REFERENCES cad_measurement_quality_reports(report_id),
-                    plan_semantic_sha256 TEXT NOT NULL,
-                    support_state TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_calibration_plan_document_seq
-                    ON cad_calibration_plans(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_calibration_exports (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    export_id TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL REFERENCES cad_calibration_plans(plan_id),
-                    exported_settings_semantic_sha256 TEXT NOT NULL,
-                    adapter_id TEXT NOT NULL,
-                    adapter_version TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_calibration_export_plan_seq
-                    ON cad_calibration_exports(plan_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_calibration_verification_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    verification_plan_id TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL REFERENCES cad_calibration_plans(plan_id),
-                    export_id TEXT NOT NULL REFERENCES cad_calibration_exports(export_id),
-                    verification_semantic_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_calibration_verification_plan_seq
-                    ON cad_calibration_verification_plans(plan_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_calibration_verification_registrations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    registration_id TEXT NOT NULL UNIQUE,
-                    registration_sha256 TEXT NOT NULL UNIQUE,
-                    verification_plan_id TEXT NOT NULL UNIQUE
-                        REFERENCES cad_calibration_verification_plans(verification_plan_id),
-                    verification_plan_semantic_sha256 TEXT NOT NULL,
-                    registered_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_calibration_verification_completions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    completion_id TEXT NOT NULL UNIQUE,
-                    completion_sha256 TEXT NOT NULL UNIQUE,
-                    verification_plan_id TEXT NOT NULL
-                        REFERENCES cad_calibration_verification_plans(verification_plan_id),
-                    result TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_calibration_verification_completion_plan_seq
-                    ON cad_calibration_verification_completions(verification_plan_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_calibration_lifecycle_events (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event_id TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL REFERENCES cad_calibration_plans(plan_id),
-                    state TEXT NOT NULL,
-                    event_semantic_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_calibration_lifecycle_plan_seq
-                    ON cad_calibration_lifecycle_events(plan_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_calibration_plans', 'cad_calibration_exports', 'cad_calibration_verification_plans', 'cad_calibration_verification_registrations', 'cad_calibration_verification_completions', 'cad_calibration_lifecycle_events')
 
     def _source_authorities(self, plan: CadCalibrationPlan):
         revision = self.scene_repository.get(plan.scene_revision_id)

@@ -23,6 +23,7 @@ from .cad_equipment_instance import (
 )
 from .cad_equipment import EquipmentDataProvenance
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 InstalledEffectiveState = Literal['current', 'replaced', 'removed']
@@ -42,55 +43,7 @@ class CadInstalledEquipmentRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_installed_equipment_instances (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    instance_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    equipment_class TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_installed_instance_document
-                    ON cad_installed_equipment_instances(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_installed_definition_bindings (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    binding_id TEXT NOT NULL UNIQUE,
-                    instance_id TEXT NOT NULL,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_installed_binding_instance
-                    ON cad_installed_definition_bindings(instance_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_installed_device_observations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    observation_id TEXT NOT NULL UNIQUE,
-                    instance_id TEXT NOT NULL,
-                    observation_kind TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_installed_observation_instance
-                    ON cad_installed_device_observations(instance_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_installed_equipment_replacements (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    replacement_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    removed_instance_id TEXT NOT NULL,
-                    installed_instance_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_installed_replacement_document
-                    ON cad_installed_equipment_replacements(document_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_installed_equipment_instances', 'cad_installed_definition_bindings', 'cad_installed_device_observations', 'cad_installed_equipment_replacements')
 
     # ------------------------------------------------------------------
     # Instances

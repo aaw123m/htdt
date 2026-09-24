@@ -47,7 +47,10 @@ from urllib.parse import parse_qs, urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
@@ -333,64 +336,7 @@ class CaptureReceiverService:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS capture_receiver_config (
-                    id INTEGER PRIMARY KEY CHECK(id=1),
-                    receiver_instance_id TEXT NOT NULL,
-                    display_name TEXT NOT NULL,
-                    host TEXT NOT NULL,
-                    port INTEGER NOT NULL,
-                    enabled INTEGER NOT NULL,
-                    pinned_identity TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS capture_receiver_pairings (
-                    pairing_id TEXT PRIMARY KEY,
-                    pairing_token TEXT NOT NULL UNIQUE,
-                    receiver_instance_id TEXT NOT NULL,
-                    project_ref TEXT,
-                    endpoint_url TEXT NOT NULL,
-                    capability_endpoint_url TEXT,
-                    missions_endpoint_url TEXT,
-                    pinned_identity TEXT NOT NULL,
-                    confirmation_code TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    confirmed_at_utc TEXT,
-                    expires_at_utc TEXT,
-                    capture_instance_id TEXT
-                );
-                CREATE TABLE IF NOT EXISTS capture_receiver_deliveries (
-                    delivery_key TEXT PRIMARY KEY,
-                    pairing_id TEXT NOT NULL
-                        REFERENCES capture_receiver_pairings(pairing_id),
-                    artifact_kind TEXT NOT NULL,
-                    artifact_id TEXT,
-                    artifact_digest TEXT,
-                    capture_revision_id TEXT,
-                    bundle_digest TEXT,
-                    archive_sha256 TEXT NOT NULL,
-                    archive_bytes INTEGER NOT NULL,
-                    outcome TEXT NOT NULL,
-                    staging_ref TEXT,
-                    lineage_digest TEXT,
-                    detail TEXT NOT NULL,
-                    received_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS capture_mission_packages (
-                    package_id TEXT PRIMARY KEY,
-                    pairing_id TEXT,
-                    descriptor_json TEXT NOT NULL,
-                    payload_sha256 TEXT NOT NULL,
-                    byte_size INTEGER NOT NULL,
-                    status TEXT NOT NULL,
-                    status_detail TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL
-                );
-                '''
-            )
-            ensure_content_blob_store(connection)
+            require_native_tables(connection, 'capture_receiver_config', 'capture_receiver_pairings', 'capture_receiver_deliveries', 'capture_mission_packages')
 
     def _config_row(self) -> sqlite3.Row | None:
         with closing(self._connect()) as connection:

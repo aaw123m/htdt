@@ -21,7 +21,10 @@ from .cad_r110_source import (
 )
 from .cad_repository import SceneRepository
 from .cad_source_response import CadSourceResponseRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
 
@@ -98,31 +101,7 @@ class CadR110SourceRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_r110_compiled_source_models (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    system_variant_id TEXT NOT NULL,
-                    system_variant_sha256 TEXT NOT NULL,
-                    source_entity_id TEXT NOT NULL,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    directivity_dataset_sha256 TEXT,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(system_variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_r110_source_variant_entity
-                    ON cad_r110_compiled_source_models(
-                        system_variant_id, source_entity_id, seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_r110_compiled_source_models')
 
     def _resolve_exact_authorities(
         self,

@@ -29,6 +29,12 @@ from .native_backup import (
     restore_backup as native_restore_backup,
     validate_backup as native_validate_backup,
 )
+from .storage_maintenance import (
+    StorageGcResult,
+    StorageReport,
+    plan_storage_gc,
+    run_storage_gc,
+)
 
 
 class DataManagementBusyError(RuntimeError):
@@ -50,6 +56,8 @@ class DataOperationKind(str, Enum):
     VALIDATE_RESTORE = 'validate_restore'
     RESTORE = 'restore'
     RELOCATE = 'relocate'
+    SCAN_STORAGE = 'scan_storage'
+    GC_STORAGE = 'gc_storage'
 
 
 class DataOperationPhase(str, Enum):
@@ -58,6 +66,8 @@ class DataOperationPhase(str, Enum):
     VALIDATING = 'validating'
     RESTORING = 'restoring'
     RELOCATING = 'relocating'
+    SCANNING = 'scanning'
+    COLLECTING = 'collecting'
     RELOADING = 'reloading'
 
 
@@ -415,6 +425,8 @@ class DataManagementController(QObject):
     restore_preview_ready = Signal(object)
     restore_completed = Signal(object)
     relocation_completed = Signal(object)
+    storage_scan_completed = Signal(object)
+    storage_gc_completed = Signal(object)
     operation_failed = Signal(object)
 
     def __init__(
@@ -553,6 +565,46 @@ class DataManagementController(QObject):
             lifecycle_mode='relocate',
         )
 
+    def scan_storage(self) -> str:
+        """#501/#760: run the managed-assets inventory on the worker thread.
+
+        ``plan_storage_gc`` walks every authority table, so it must not run
+        on the UI thread for large stores.
+        """
+
+        self._assert_owner_thread()
+        self._assert_idle()
+        operation_id = uuid4().hex
+
+        def job(emit: Callable[[DataOperationPhase, str], None]) -> StorageReport:
+            emit(DataOperationPhase.SCANNING, '管理対象ストレージを確認しています')
+            return plan_storage_gc(self.backend.data_dir)
+
+        return self._start(
+            operation_id=operation_id,
+            kind=DataOperationKind.SCAN_STORAGE,
+            job=job,
+            lifecycle_mode='none',
+        )
+
+    def gc_storage(self) -> str:
+        """Delete unreachable managed assets after re-proving unreachability."""
+
+        self._assert_owner_thread()
+        self._assert_idle()
+        operation_id = uuid4().hex
+
+        def job(emit: Callable[[DataOperationPhase, str], None]) -> StorageGcResult:
+            emit(DataOperationPhase.COLLECTING, '未参照アセットを再検証して削除しています')
+            return run_storage_gc(self.backend.data_dir)
+
+        return self._start(
+            operation_id=operation_id,
+            kind=DataOperationKind.GC_STORAGE,
+            job=job,
+            lifecycle_mode='none',
+        )
+
     def _start(
         self,
         *,
@@ -666,6 +718,10 @@ class DataManagementController(QObject):
             self.restore_preview_ready.emit(result)
         elif active.kind is DataOperationKind.RELOCATE:
             self.relocation_completed.emit(result)
+        elif active.kind is DataOperationKind.SCAN_STORAGE:
+            self.storage_scan_completed.emit(result)
+        elif active.kind is DataOperationKind.GC_STORAGE:
+            self.storage_gc_completed.emit(result)
         else:
             self.restore_completed.emit(result)
 
@@ -731,4 +787,8 @@ class DataManagementController(QObject):
             return 'バックアップを検証できませんでした'
         if kind is DataOperationKind.RELOCATE:
             return 'データ保存場所を移動できませんでした'
+        if kind is DataOperationKind.SCAN_STORAGE:
+            return 'ストレージを確認できませんでした'
+        if kind is DataOperationKind.GC_STORAGE:
+            return 'ストレージを整理できませんでした'
         return 'バックアップから復元できませんでした'
