@@ -11,12 +11,19 @@ is never equated with completed planned evidence.
 
 from __future__ import annotations
 
+from datetime import datetime
 from hashlib import sha256
 import json
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 RunnerCellStatus = Literal[
@@ -46,6 +53,17 @@ def _hash(payload: Any) -> str:
     return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
+def _require_aware_timestamp(value: str, label: str) -> str:
+    """Runner authority rows must carry unambiguous instants (#853)."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f'{label} must be ISO-8601') from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f'{label} must be timezone-aware')
+    return value
+
+
 class RunnerCellSpec(BaseModel):
     """One planned acquisition cell: exact source × target × repeat."""
 
@@ -71,6 +89,9 @@ class MeasurementRunnerPlan(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     plan_id: str = Field(min_length=1)
+    #: Owning project document (#853) — a plan only exists inside the
+    #: project that owns its scene revision; lists are always scoped.
+    document_id: str = Field(min_length=1)
     scene_revision_id: str = Field(min_length=1)
     scene_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     cells: tuple[RunnerCellSpec, ...] = Field(min_length=1)
@@ -89,6 +110,7 @@ class MeasurementRunnerPlan(BaseModel):
         return {
             'schema_version': RUNNER_SCHEMA_VERSION,
             'plan_id': self.plan_id,
+            'document_id': self.document_id,
             'scene_revision_id': self.scene_revision_id,
             'scene_content_hash': self.scene_content_hash,
             'cells': [c.model_dump(mode='json') for c in self.cells],
@@ -114,6 +136,11 @@ class RunnerCellEvent(BaseModel):
     reason: str = ''
     created_at: str = Field(min_length=1)
 
+    @field_validator('created_at')
+    @classmethod
+    def _aware_created(cls, value: str) -> str:
+        return _require_aware_timestamp(value, 'runner event created_at')
+
     @model_validator(mode='after')
     def valid_event(self) -> 'RunnerCellEvent':
         if self.status == 'completed' and self.measurement_id is None:
@@ -132,6 +159,11 @@ class MeasurementRunnerRun(BaseModel):
     plan_id: str = Field(min_length=1)
     plan_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     started_at: str = Field(min_length=1)
+
+    @field_validator('started_at')
+    @classmethod
+    def _aware_started(cls, value: str) -> str:
+        return _require_aware_timestamp(value, 'runner run started_at')
 
 
 class RunnerCellState(BaseModel):
@@ -181,6 +213,7 @@ class RunnerProgress(BaseModel):
 
 def build_runner_plan(
     *,
+    document_id: str,
     scene_revision_id: str,
     scene_content_hash: str,
     sources: tuple[tuple[str, tuple[str, ...]], ...],
@@ -213,6 +246,7 @@ def build_runner_plan(
                     )
     payload: dict[str, Any] = {
         'plan_id': plan_id or str(uuid4()),
+        'document_id': document_id,
         'scene_revision_id': scene_revision_id,
         'scene_content_hash': scene_content_hash,
         'cells': cells,
@@ -229,11 +263,14 @@ def resolve_cell_states(
     plan: MeasurementRunnerPlan,
     events: tuple[RunnerCellEvent, ...],
 ) -> dict[int, RunnerCellState]:
-    """Latest-event-wins resolution; cells without events are not_started."""
+    """Last-event-wins resolution; cells without events are not_started.
+
+    Events arrive in authoritative append order (durable row order), so an
+    equal or reordered ``created_at`` can never flip the winner (#853).
+    """
     latest: dict[int, RunnerCellEvent] = {}
     for event in events:
-        if event.cell_index not in latest or event.created_at >= latest[event.cell_index].created_at:
-            latest[event.cell_index] = event
+        latest[event.cell_index] = event
     states: dict[int, RunnerCellState] = {}
     for cell in plan.cells:
         event = latest.get(cell.cell_index)

@@ -468,6 +468,11 @@ class CadMeasurementRepository:
         dataset_a_id: str,
         dataset_b_id: str,
         result: ComparisonResult,
+        *,
+        semantics_json: str | None = None,
+        label_a: str | None = None,
+        label_b: str | None = None,
+        level_compatibility: str | None = None,
     ) -> CadMeasurementComparison:
         """Persist a comparison only if it replays exactly from bound datasets.
 
@@ -514,6 +519,10 @@ class CadMeasurementRepository:
                 scene_revision_b_id=rows[1]['scene_revision_id'],
                 created_at=_utc_now(),
                 result=result,
+                semantics_json=semantics_json,
+                label_a=label_a,
+                label_b=label_b,
+                level_compatibility=level_compatibility,
             )
             result_payload = {
                 **asdict(result),
@@ -522,6 +531,10 @@ class CadMeasurementRepository:
                 'algorithm_sha256': comparison.algorithm_sha256,
                 'spec_sha256': comparison.spec_sha256,
                 'comparison_sha256': comparison.comparison_sha256,
+                'semantics_json': comparison.semantics_json,
+                'label_a': comparison.label_a,
+                'label_b': comparison.label_b,
+                'level_compatibility': comparison.level_compatibility,
             }
             connection.execute(
                 '''INSERT INTO cad_measurement_comparisons(

@@ -19,6 +19,7 @@ from .cad_calibration import (
     evaluate_calibration_support,
     exact_verification_plan_registration,
 )
+from .cad_measurement_effective import CadEffectiveMeasurementResolver
 from .cad_measurement_quality import dataset_sha256, measurement_sha256
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
@@ -127,6 +128,9 @@ class CadCalibrationRepository:
         self.system_variant_repository = system_variant_repository
         self.measurement_repository = measurement_repository
         self.quality_repository = quality_repository
+        self._effective = CadEffectiveMeasurementResolver(
+            measurement_repository, quality_repository
+        )
         self.path = paths.pop()
         check_native_schema_compatibility(self.path)
         self._initialize()
@@ -170,6 +174,13 @@ class CadCalibrationRepository:
         measurement = self.measurement_repository.get_measurement(plan.source_measurement_id)
         if measurement is None:
             raise ValueError('CalibrationPlan references unknown source Measurement')
+        # Lifecycle gate (#509/#844): the canonical source must currently be
+        # eligible — excluded/misassigned/test/duplicate evidence cannot
+        # silently build a CalibrationPlan, and a corrected measurement is
+        # judged by its corrected binding.
+        self._effective.require_normal_use(
+            plan.source_measurement_id, purpose='calibration source'
+        )
         if plan.source_measurement_sha256 != measurement_sha256(measurement):
             raise ValueError('CalibrationPlan source Measurement hash mismatch')
         if (
@@ -435,6 +446,9 @@ class CadCalibrationRepository:
                 raise ValueError(
                     f'verification plan references unknown Measurement: {measurement_id}'
                 )
+            self._effective.require_normal_use(
+                measurement_id, purpose='calibration verification'
+            )
             if (
                 measurement.document_id != plan.document_id
                 or measurement.scene_revision_id != plan.scene_revision_id
@@ -481,12 +495,23 @@ class CadCalibrationRepository:
         for row in rows:
             if row['measurement_id'] in before_ids:
                 continue
-            if row['channel_role'] not in routing:
+            # Qualifying evidence must currently be eligible (#509/#844): an
+            # excluded/test/duplicate measurement must not block registration
+            # by posing as existing qualifying after-evidence, and a corrected
+            # binding decides the entity/channel match.
+            try:
+                evidence = self._effective.require_normal_use(
+                    str(row['measurement_id']),
+                    purpose='calibration verification after evidence',
+                )
+            except ValueError:
+                continue
+            if evidence.channel_role not in routing:
                 continue
             position = Position3.model_validate(
                 json.loads(row['measurement_position_json'])
             )
-            if (row['measurement_entity_id'], position) in points:
+            if (evidence.measurement_entity_id, position) in points:
                 return str(row['measurement_id'])
         return None
 
@@ -896,6 +921,9 @@ class CadCalibrationRepository:
                 raise ValueError(
                     f'calibration lifecycle references unknown Measurement: {measurement_id}'
                 )
+            self._effective.require_normal_use(
+                measurement_id, purpose='calibration lifecycle'
+            )
             if (
                 measurement.document_id != plan.document_id
                 or measurement.scene_revision_id != plan.scene_revision_id

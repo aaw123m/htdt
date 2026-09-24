@@ -13,6 +13,7 @@ from .cad_applicability import (
     rederive_applicability_check,
     resolve_applicability_context,
 )
+from .cad_measurement_effective import CadEffectiveMeasurementResolver
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation import (
     CadModelValidationRecord,
@@ -69,6 +70,7 @@ class CadModelValidationRepository:
         self.roomsim_repository = roomsim_repository
         self.measurement_repository = measurement_repository
         self.objective_repository = objective_repository
+        self._effective = CadEffectiveMeasurementResolver(measurement_repository)
         self.path = Path(search_repository.path)
         repositories = (roomsim_repository, measurement_repository)
         if any(Path(repository.path) != self.path for repository in repositories):
@@ -342,6 +344,24 @@ class CadModelValidationRepository:
                         if ref.evidence_class == 'measured' and ref.source_kind == 'cad_measurement'
                     )
         return tuple(sorted(measurement_ids))
+
+    def _validate_measurement_lifecycle(
+        self,
+        record: CadModelValidationRecord,
+    ) -> None:
+        """Every bound measurement must currently be eligible (#509/#839).
+
+        The check runs inside the shared save/read authority path: a record
+        cannot be *created* over excluded/misassigned/test/duplicate
+        evidence, and a record whose evidence was dispositioned *after* save
+        fails re-attestation on authoritative reads — it stays inspectable
+        via ``inspect``/``integrity_problems`` but can no longer authorize
+        production work.
+        """
+        for measurement_id in self._evidence_measurement_ids(record):
+            self._effective.require_normal_use(
+                measurement_id, purpose='O60 model validation evidence'
+            )
 
     def _validate_evidence_scope(self, record: CadModelValidationRecord) -> None:
         if record.evidence_scope != 'owned_room':
@@ -758,6 +778,7 @@ class CadModelValidationRepository:
             self._validate_objective_samples(record)
             self._validate_sensitivity(record, spec)
             self._validate_repeatability_and_separation(record, plans)
+            self._validate_measurement_lifecycle(record)
             self._validate_evidence_scope(record)
             self._validate_campaign_binding(record, plans)
             self._validate_applicability_authority(record, spec)

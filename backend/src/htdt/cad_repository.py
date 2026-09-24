@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -38,6 +39,81 @@ MAX_VIEW_STATE_ID_COUNT = 1_000_000
 
 class SceneRevisionConflictError(ValueError):
     """A SceneRevision save violated the document's single-head lineage contract."""
+
+
+class AuthoringConstraintIntegrityError(ValueError):
+    """The persisted authoring-constraint authority is unreadable.
+
+    Raised instead of silently substituting an empty set (#843): corrupt
+    authority stays retained and blocks mutation until the user repairs it.
+    """
+
+
+def _constraint_revision_sha256(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False
+    )
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+
+@dataclass(frozen=True)
+class AuthoringConstraintRevision:
+    """One immutable version of the document's authoring-constraint set (#843).
+
+    Each save appends a sealed revision that binds the constraint payload to
+    the SceneRevision it was authored under and to its predecessor — a
+    historical design state resolves the exact authority that governed it,
+    never a mutable singleton.
+    """
+
+    constraint_revision_id: str
+    document_id: str
+    supersedes_id: str | None
+    scene_revision_id: str | None
+    payload: dict
+    created_at_utc: str
+    constraint_revision_sha256: str
+
+    def identity_payload(self) -> dict[str, Any]:
+        return {
+            'constraint_revision_id': self.constraint_revision_id,
+            'document_id': self.document_id,
+            'supersedes_id': self.supersedes_id,
+            'scene_revision_id': self.scene_revision_id,
+            'payload': self.payload,
+            'created_at_utc': self.created_at_utc,
+        }
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        document_id: str,
+        payload: dict,
+        supersedes_id: str | None,
+        scene_revision_id: str | None,
+        constraint_revision_id: str | None = None,
+    ) -> 'AuthoringConstraintRevision':
+        revision = cls(
+            constraint_revision_id=constraint_revision_id or str(uuid4()),
+            document_id=document_id,
+            supersedes_id=supersedes_id,
+            scene_revision_id=scene_revision_id,
+            payload=payload,
+            created_at_utc=datetime.now(timezone.utc).isoformat(),
+            constraint_revision_sha256='0' * 64,
+        )
+        return cls(
+            constraint_revision_id=revision.constraint_revision_id,
+            document_id=revision.document_id,
+            supersedes_id=revision.supersedes_id,
+            scene_revision_id=revision.scene_revision_id,
+            payload=revision.payload,
+            created_at_utc=revision.created_at_utc,
+            constraint_revision_sha256=_constraint_revision_sha256(
+                revision.identity_payload()
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -202,6 +278,27 @@ class SceneRepository:
                 'floor_plan_underlays',
                 'seating_layout_specs',
                 'authoring_constraint_sets',
+            )
+            # Immutable versioned authoring-constraint authority (#843): every
+            # constraint edit appends a sealed revision bound to the scene
+            # revision it was authored under; the singleton payload row only
+            # points at the current head.
+            connection.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS authoring_constraint_revisions (
+                    constraint_revision_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    supersedes_id TEXT,
+                    scene_revision_id TEXT,
+                    payload_json TEXT NOT NULL,
+                    constraint_revision_sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                )
+                '''
+            )
+            connection.execute(
+                'CREATE INDEX IF NOT EXISTS idx_acr_document_created '
+                'ON authoring_constraint_revisions(document_id, created_at_utc)'
             )
 
     def current_head(self, document_id: str) -> SceneRevision | None:
@@ -1044,13 +1141,260 @@ class SceneRepository:
         self._delete_payload('seating_spec', document_id, spec_id)
 
     # Authoring constraints ---------------------------------------------------
+    #
+    # Versioned design authority (#843): every save appends an immutable,
+    # hash-sealed AuthoringConstraintRevision bound to the SceneRevision it
+    # was authored under and to its predecessor. The singleton
+    # ``authoring_constraint_sets`` row keeps only a head pointer — a
+    # historical design state resolves the exact constraint set that
+    # governed it, and a corrupt head fails closed instead of reading as an
+    # empty set.
 
-    def save_authoring_constraints(self, document_id: str, payload: dict) -> None:
-        self._save_payload('authoring_constraints', document_id, payload)
+    _CONSTRAINT_HEAD_KEY = 'head_constraint_revision_id'
+
+    def _row_to_constraint_revision(
+        self, row: sqlite3.Row
+    ) -> AuthoringConstraintRevision:
+        try:
+            payload = json.loads(row['payload_json'])
+            if not isinstance(payload, dict):
+                raise ValueError('payload is not a JSON object')
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise AuthoringConstraintIntegrityError(
+                f"authoring constraint revision "
+                f"{row['constraint_revision_id']} is unreadable: {exc}"
+            ) from exc
+        revision = AuthoringConstraintRevision(
+            constraint_revision_id=row['constraint_revision_id'],
+            document_id=row['document_id'],
+            supersedes_id=row['supersedes_id'],
+            scene_revision_id=row['scene_revision_id'],
+            payload=payload,
+            created_at_utc=row['created_at_utc'],
+            constraint_revision_sha256=row['constraint_revision_sha256'],
+        )
+        if (
+            _constraint_revision_sha256(revision.identity_payload())
+            != revision.constraint_revision_sha256
+        ):
+            raise AuthoringConstraintIntegrityError(
+                'authoring constraint revision hash mismatch: '
+                f"{revision.constraint_revision_id}"
+            )
+        return revision
+
+    def _authoring_head_row(self, document_id: str) -> sqlite3.Row | None:
+        """Raw singleton head-pointer row — never auto-purged on corruption.
+
+        Unlike disposable editor payloads, a corrupt constraint head must
+        stay retained and visible as an integrity problem (#843).
+        """
+        with closing(self._connect()) as connection:
+            return connection.execute(
+                'SELECT payload_json, updated_at_utc '
+                'FROM authoring_constraint_sets WHERE document_id=?',
+                (document_id,),
+            ).fetchone()
+
+    def authoring_constraint_head(
+        self, document_id: str
+    ) -> AuthoringConstraintRevision | None:
+        """Resolve the current head of the constraint authority.
+
+        Fails closed with ``AuthoringConstraintIntegrityError`` when the
+        persisted head pointer or revision row is unreadable. Legacy
+        singleton rows written before versioning (a bare constraint-set
+        payload) are still readable as authority material.
+        """
+        row = self._authoring_head_row(document_id)
+        if row is None:
+            return None
+        try:
+            stored = json.loads(row['payload_json'])
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise AuthoringConstraintIntegrityError(
+                'authoring constraint authority is unreadable and was '
+                f'retained: {exc}'
+            ) from exc
+        if not isinstance(stored, dict):
+            raise AuthoringConstraintIntegrityError(
+                'authoring constraint authority is unreadable and was retained'
+            )
+        head_id = stored.get(self._CONSTRAINT_HEAD_KEY)
+        if head_id is None:
+            # Legacy pre-versioned singleton: the payload itself is the set.
+            if not stored:
+                return None
+            return AuthoringConstraintRevision(
+                constraint_revision_id='',
+                document_id=document_id,
+                supersedes_id=None,
+                scene_revision_id=None,
+                payload=stored,
+                created_at_utc=row['updated_at_utc'],
+                constraint_revision_sha256='',
+            )
+        with closing(self._connect()) as connection:
+            revision_row = connection.execute(
+                'SELECT * FROM authoring_constraint_revisions '
+                'WHERE constraint_revision_id=? AND document_id=?',
+                (head_id, document_id),
+            ).fetchone()
+        if revision_row is None:
+            raise AuthoringConstraintIntegrityError(
+                f'authoring constraint head {head_id} is not a persisted '
+                'revision; authority cannot be resolved'
+            )
+        revision = self._row_to_constraint_revision(revision_row)
+        claimed_sha = stored.get('head_constraint_revision_sha256')
+        if (
+            claimed_sha is not None
+            and claimed_sha != revision.constraint_revision_sha256
+        ):
+            raise AuthoringConstraintIntegrityError(
+                'authoring constraint head pointer disagrees with the '
+                'sealed revision it claims'
+            )
+        return revision
+
+    def save_authoring_constraints(
+        self,
+        document_id: str,
+        payload: dict,
+        *,
+        scene_revision_id: str | None = None,
+    ) -> AuthoringConstraintRevision:
+        """Append one immutable constraint revision and advance the head.
+
+        The previous head resolves first — a corrupt authority refuses the
+        write rather than letting a new set bury the only record of the old
+        relationships (#843).
+        """
+        head = self.authoring_constraint_head(document_id)
+        revision = AuthoringConstraintRevision.build(
+            document_id=document_id,
+            payload=payload,
+            supersedes_id=(
+                None if head is None else head.constraint_revision_id or None
+            ),
+            scene_revision_id=scene_revision_id,
+        )
+        pointer = {
+            self._CONSTRAINT_HEAD_KEY: revision.constraint_revision_id,
+            'head_constraint_revision_sha256': revision.constraint_revision_sha256,
+        }
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            connection.execute(
+                'INSERT INTO authoring_constraint_revisions('
+                'constraint_revision_id, document_id, supersedes_id, '
+                'scene_revision_id, payload_json, '
+                'constraint_revision_sha256, created_at_utc'
+                ') VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (
+                    revision.constraint_revision_id,
+                    revision.document_id,
+                    revision.supersedes_id,
+                    revision.scene_revision_id,
+                    json.dumps(
+                        revision.payload,
+                        separators=(',', ':'),
+                        ensure_ascii=False,
+                    ),
+                    revision.constraint_revision_sha256,
+                    revision.created_at_utc,
+                ),
+            )
+            connection.execute(
+                'INSERT INTO authoring_constraint_sets('
+                'document_id, payload_json, updated_at_utc'
+                ') VALUES (?, ?, ?) '
+                'ON CONFLICT(document_id) DO UPDATE SET '
+                'payload_json=excluded.payload_json, '
+                'updated_at_utc=excluded.updated_at_utc',
+                (
+                    document_id,
+                    json.dumps(pointer, separators=(',', ':'), ensure_ascii=False),
+                    updated_at,
+                ),
+            )
+            connection.commit()
+        return revision
 
     def authoring_constraints(self, document_id: str) -> EditorPayloadRecord | None:
-        records = self._payloads('authoring_constraints', document_id)
-        return records[0] if records else None
+        """The document's current authoring-constraint set payload."""
+        head = self.authoring_constraint_head(document_id)
+        if head is None:
+            return None
+        return EditorPayloadRecord(
+            document_id=document_id,
+            record_id=head.constraint_revision_id or document_id,
+            payload=head.payload,
+            updated_at_utc=head.created_at_utc,
+        )
+
+    def list_authoring_constraint_revisions(
+        self, document_id: str
+    ) -> tuple[AuthoringConstraintRevision, ...]:
+        """The full immutable constraint lineage, newest first (#843)."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT * FROM authoring_constraint_revisions '
+                'WHERE document_id=? '
+                'ORDER BY created_at_utc DESC, constraint_revision_id',
+                (document_id,),
+            ).fetchall()
+        return tuple(self._row_to_constraint_revision(row) for row in rows)
+
+    def authoring_constraints_for_scene(
+        self, document_id: str, scene_revision_id: str
+    ) -> AuthoringConstraintRevision | None:
+        """The constraint authority governing one historical SceneRevision.
+
+        An exact binding wins; otherwise the newest revision written at or
+        before that scene's commit still governs (constraints carry forward
+        until the next constraint edit).
+        """
+        with closing(self._connect()) as connection:
+            scene_row = connection.execute(
+                'SELECT created_at_utc FROM scene_revisions '
+                'WHERE revision_id=? AND document_id=?',
+                (scene_revision_id, document_id),
+            ).fetchone()
+            if scene_row is None:
+                return None
+            exact = connection.execute(
+                'SELECT * FROM authoring_constraint_revisions '
+                'WHERE document_id=? AND scene_revision_id=? '
+                'ORDER BY created_at_utc DESC, constraint_revision_id LIMIT 1',
+                (document_id, scene_revision_id),
+            ).fetchone()
+            if exact is not None:
+                return self._row_to_constraint_revision(exact)
+            inherited = connection.execute(
+                'SELECT * FROM authoring_constraint_revisions '
+                'WHERE document_id=? AND created_at_utc<=? '
+                'ORDER BY created_at_utc DESC, constraint_revision_id LIMIT 1',
+                (document_id, scene_row['created_at_utc']),
+            ).fetchone()
+        if inherited is None:
+            return None
+        return self._row_to_constraint_revision(inherited)
+
+    def repair_authoring_constraints(self, document_id: str) -> bool:
+        """Discard the corrupt/legacy singleton head so a fresh set can save.
+
+        Immutable revision history is never touched — the repair only clears
+        the head pointer, an explicit user action (#843).
+        """
+        with closing(self._connect()) as connection, connection:
+            deleted = connection.execute(
+                'DELETE FROM authoring_constraint_sets WHERE document_id=?',
+                (document_id,),
+            ).rowcount
+            connection.commit()
+        return deleted > 0
 
     @staticmethod
     def _row_to_revision(

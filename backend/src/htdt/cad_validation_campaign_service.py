@@ -7,7 +7,9 @@ from typing import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .cad_measurement_effective import CadEffectiveMeasurementResolver
 from .cad_measurement_quality import dataset_sha256
+from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation import CadModelValidationRecord
 from .cad_model_validation_service import (
@@ -91,6 +93,7 @@ class CadValidationCampaignService:
         self.measurement_repository = measurement_repository
         self.objective_repository = objective_repository
         self.validation_service = validation_service
+        self._effective = CadEffectiveMeasurementResolver(measurement_repository)
         paths = {
             str(campaign_repository.path),
             str(roomsim_repository.path),
@@ -180,10 +183,18 @@ class CadValidationCampaignService:
         records = []
         reasons: list[str] = []
         for measurement_id in plan.measurement_ids:
-            record = self.measurement_repository.get_measurement(measurement_id)
-            if record is None:
-                reasons.append(f'unknown measurement {measurement_id}')
+            # Lifecycle gate (#509/#844): a durable campaign registration and
+            # an owned_room provenance string alone are not eligibility — the
+            # measurement must currently be usable evidence, and matching
+            # runs on the effective corrected binding.
+            try:
+                resolved = self._effective.require_normal_use(
+                    measurement_id, purpose='O60 validation campaign evidence'
+                )
+            except ValueError as exc:
+                reasons.append(str(exc))
                 continue
+            record = resolved.measurement
             if record.evidence_type != 'measured':
                 reasons.append(f'{measurement_id}: evidence_type is not measured')
                 continue
