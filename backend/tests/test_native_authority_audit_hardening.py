@@ -682,6 +682,29 @@ def test_audit_rejects_registry_unknown_clone_source(tmp_path: Path):
     assert 'unknown source' in diagnostics[0].message
 
 
+def test_audit_covers_gui_created_tables(tmp_path: Path):
+    """A real app launch creates repository tables the test fixtures do
+    not (the Overview mount builds the topology-search repository).
+    Regression cover for the cutover regression found in review: the
+    coverage registry must classify every one of them."""
+    from htdt.cad_system_variant_repository import (
+        CadSystemVariantRepository,
+    )
+    from htdt.cad_topology_search_repository import (
+        CadTopologySearchRepository,
+    )
+
+    data_dir, scene_repository, _result = _seeded(tmp_path)
+    CadTopologySearchRepository(
+        CadSystemVariantRepository(scene_repository)
+    )
+    report = audit_native_authority_graph(
+        data_dir / 'cad-scenes.sqlite3'
+    )
+    assert report.ok, report.summary()
+    assert report.coverage_counts['unclassified_tables'] == 0
+
+
 def test_audit_accepts_valid_clone_lineage(tmp_path: Path):
     data_dir, _scene_repository, _result = _seeded(tmp_path)
     library = ProjectLibrary(data_dir / 'cad-scenes.sqlite3')
