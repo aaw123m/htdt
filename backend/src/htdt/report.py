@@ -28,11 +28,18 @@ from .cad_calibration_repository import (
 )
 from .cad_orientation_constraints import entity_collision_geometry_authority
 from .cad_repository import SceneRevision
+from .cad_cable_run import CableRun, evaluate_cable_run_freshness
+from .cad_installation_datum import (
+    InstallationDatum,
+    evaluate_datum_freshness,
+    reproject_datum_coordinates,
+)
 from .cad_scene import (
     SceneDocument,
     SceneEntity,
     is_unassigned_speaker_role,
     quaternion_to_euler_deg,
+    room_vertices,
     scene_content_hash,
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
@@ -195,8 +202,8 @@ section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20
 </main></body></html>'''
 
 
-INSTALLATION_OUTPUT_SCHEMA_VERSION = 4
-INSTALLATION_OUTPUT_AUTHORITY_VERSION = 'installation-output-4'
+INSTALLATION_OUTPUT_SCHEMA_VERSION = 5
+INSTALLATION_OUTPUT_AUTHORITY_VERSION = 'installation-output-5'
 INSTALLATION_REPORT_RENDERER_VERSION = 'installation-report-3'
 
 
@@ -522,23 +529,81 @@ class InstallationCalibrationSummary(BaseModel):
     lifecycle_events: tuple[tuple[str, str, str], ...] = ()
 
 
+class InstallationDatumSummary(BaseModel):
+    """Read-only installation summary of the installation-datum authority
+    (#537): which datum record was bound, and the frame it reproduces."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: Literal['AVAILABLE', 'UNKNOWN']
+    datum_id: str | None = None
+    datum_version: str | None = None
+    datum_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    freshness_status: Literal['current', 'stale', 'missing'] | None = None
+    freshness_reasons: tuple[str, ...] = ()
+    origin_x_m: float | None = None
+    origin_y_m: float | None = None
+    x_axis_dx: float | None = None
+    x_axis_dy: float | None = None
+    y_axis_dx: float | None = None
+    y_axis_dy: float | None = None
+    rotation_deg: float | None = None
+    reason: str = Field(min_length=1)
+
+
+class InstallationCableRunSummary(BaseModel):
+    """One recorded cable run inside the wiring summary (#538)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    run_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    label: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    medium: str = Field(min_length=1)
+    gauge: str | None = None
+    from_label: str = Field(min_length=1)
+    to_label: str = Field(min_length=1)
+    signal_path_edge_id: str | None = None
+    segment_count: int = Field(ge=1)
+    path_kinds: tuple[str, ...]
+    total_length_m: float
+    freshness_status: Literal['current', 'stale', 'missing']
+    freshness_reasons: tuple[str, ...] = ()
+
+
+class InstallationWiringSummary(BaseModel):
+    """Read-only installation summary of the cable-run authority (#538)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: Literal['AVAILABLE', 'UNKNOWN']
+    runs: tuple[InstallationCableRunSummary, ...] = ()
+    run_count: int = Field(default=0, ge=0)
+    total_length_m: float | None = None
+    reason: str = Field(min_length=1)
+
+
 class InstallationOutput(BaseModel):
     """Immutable semantic installation snapshot.
 
     Generation metadata such as exported_at is intentionally absent from this
-    model and therefore cannot alter semantic_sha256. Serialized v1/v2 remain
-    loadable; new generation uses v3 treatment/calibration summaries and v4
-    body-geometry/clearance-basis fields (issue #464).
+    model and therefore cannot alter semantic_sha256. Serialized v1-v4 remain
+    loadable; new generation uses v3 treatment/calibration summaries, v4
+    body-geometry/clearance-basis fields and v5 installation-datum/cable-run
+    summaries (issues #537/#538).
     """
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal[1, 2, 3, 4] = INSTALLATION_OUTPUT_SCHEMA_VERSION
+    schema_version: Literal[1, 2, 3, 4, 5] = INSTALLATION_OUTPUT_SCHEMA_VERSION
     authority_version: Literal[
         'installation-output-1',
         'installation-output-2',
         'installation-output-3',
         'installation-output-4',
+        'installation-output-5',
     ] = INSTALLATION_OUTPUT_AUTHORITY_VERSION
     coordinate_system: Literal['htdt-x-right-y-rear-z-up-m'] = 'htdt-x-right-y-rear-z-up-m'
     authority: InstallationAuthorityBinding
@@ -550,6 +615,8 @@ class InstallationOutput(BaseModel):
     standards: InstallationStandardsSummary | None = None
     treatment: InstallationTreatmentSummary | None = None
     calibration: InstallationCalibrationSummary | None = None
+    datum: InstallationDatumSummary | None = None
+    cable_runs: InstallationWiringSummary | None = None
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
@@ -580,14 +647,29 @@ class InstallationOutput(BaseModel):
                 raise ValueError(
                     'InstallationOutput v3 requires explicit projector/standards/treatment/calibration summaries'
                 )
-        else:
-            if self.authority_version != INSTALLATION_OUTPUT_AUTHORITY_VERSION:
+            if self.datum is not None or self.cable_runs is not None:
+                raise ValueError('InstallationOutput v3 cannot contain v5 authority summaries')
+        elif self.schema_version == 4:
+            if self.authority_version != 'installation-output-4':
                 raise ValueError('InstallationOutput v4 authority version mismatch')
             if any(item is None for item in (
                 self.projector, self.standards, self.treatment, self.calibration
             )):
                 raise ValueError(
                     'InstallationOutput v4 requires explicit projector/standards/treatment/calibration summaries'
+                )
+            if self.datum is not None or self.cable_runs is not None:
+                raise ValueError('InstallationOutput v4 cannot contain v5 authority summaries')
+        else:
+            if self.authority_version != INSTALLATION_OUTPUT_AUTHORITY_VERSION:
+                raise ValueError('InstallationOutput v5 authority version mismatch')
+            if any(item is None for item in (
+                self.projector, self.standards, self.treatment,
+                self.calibration, self.datum, self.cable_runs,
+            )):
+                raise ValueError(
+                    'InstallationOutput v5 requires explicit projector/standards/'
+                    'treatment/calibration/datum/wiring summaries'
                 )
         if self.semantic_sha256 != _semantic_digest(self.identity_payload()):
             raise ValueError('InstallationOutput semantic hash mismatch')
@@ -610,6 +692,9 @@ class InstallationOutput(BaseModel):
         if self.schema_version >= 3:
             payload['treatment'] = self.treatment.model_dump(mode='json') if self.treatment else None
             payload['calibration'] = self.calibration.model_dump(mode='json') if self.calibration else None
+        if self.schema_version >= 5:
+            payload['datum'] = self.datum.model_dump(mode='json') if self.datum else None
+            payload['cable_runs'] = self.cable_runs.model_dump(mode='json') if self.cable_runs else None
         return payload
 
 
@@ -1284,12 +1369,150 @@ def _calibration_summary(
     )
 
 
+def _datum_summary(
+    *,
+    revision: SceneRevision,
+    document: SceneDocument,
+    effective_hash: str,
+    datum: InstallationDatum | None,
+) -> InstallationDatumSummary:
+    """Surface the bound installation datum and its reproducible frame."""
+
+    if datum is None:
+        return InstallationDatumSummary(
+            status='UNKNOWN',
+            reason='no InstallationDatum authority is bound',
+        )
+    room = document.room
+    wall_topology = getattr(document, 'wall_topology', None)
+    walls = () if wall_topology is None else wall_topology.walls
+    if room is None:
+        return InstallationDatumSummary(
+            status='UNKNOWN',
+            datum_id=datum.datum_id,
+            datum_version=datum.version,
+            datum_sha256=datum.semantic_sha256,
+            reason='the document has no room geometry to resolve the datum',
+        )
+    freshness = evaluate_datum_freshness(
+        datum,
+        scene_content_hash=effective_hash,
+        present_vertex_ids=tuple(
+            vertex.vertex_id for vertex in room_vertices(room)
+        ),
+        present_wall_ids=tuple(wall.wall_id for wall in walls),
+    )
+    if freshness.status != 'current':
+        return InstallationDatumSummary(
+            status='UNKNOWN',
+            datum_id=datum.datum_id,
+            datum_version=datum.version,
+            datum_sha256=datum.semantic_sha256,
+            freshness_status=freshness.status,
+            freshness_reasons=freshness.reasons,
+            reason='the bound datum no longer maps onto the room geometry',
+        )
+    reprojection = reproject_datum_coordinates(datum, room=room, walls=walls)
+    if reprojection.status != 'AVAILABLE':
+        return InstallationDatumSummary(
+            status='UNKNOWN',
+            datum_id=datum.datum_id,
+            datum_version=datum.version,
+            datum_sha256=datum.semantic_sha256,
+            freshness_status=freshness.status,
+            freshness_reasons=freshness.reasons,
+            reason=reprojection.reason,
+        )
+    return InstallationDatumSummary(
+        status='AVAILABLE',
+        datum_id=datum.datum_id,
+        datum_version=datum.version,
+        datum_sha256=datum.semantic_sha256,
+        freshness_status=freshness.status,
+        freshness_reasons=freshness.reasons,
+        origin_x_m=reprojection.origin_x_m,
+        origin_y_m=reprojection.origin_y_m,
+        x_axis_dx=reprojection.x_axis_dx,
+        x_axis_dy=reprojection.x_axis_dy,
+        y_axis_dx=reprojection.y_axis_dx,
+        y_axis_dy=reprojection.y_axis_dy,
+        rotation_deg=reprojection.rotation_deg,
+        reason='exact InstallationDatum authority is bound and resolves',
+    )
+
+
+def _wiring_summary(
+    *,
+    document: SceneDocument,
+    effective_hash: str,
+    runs: Sequence[CableRun],
+    signal_path_edge_ids: Sequence[str],
+) -> InstallationWiringSummary:
+    """Surface recorded cable runs with per-run freshness.
+
+    ``signal_path_edge_ids`` supplies the currently-resolvable signal-path
+    edge ids (AVSignalPath is a separate authority, not scene geometry), so a
+    run pinned to an absent edge reports ``missing`` instead of guessing.
+    """
+
+    if not runs:
+        return InstallationWiringSummary(
+            status='UNKNOWN',
+            reason='no CableRun authority is bound',
+        )
+    present_entities = {entity.entity_id for entity in document.entities}
+    rows: list[InstallationCableRunSummary] = []
+    for run in sorted(runs, key=lambda item: (item.run_id, item.version)):
+        freshness = evaluate_cable_run_freshness(
+            run,
+            scene_content_hash=effective_hash,
+            present_entity_ids=tuple(present_entities),
+            present_signal_path_edge_ids=signal_path_edge_ids,
+        )
+        rows.append(InstallationCableRunSummary(
+            run_id=run.run_id,
+            version=run.version,
+            run_sha256=run.semantic_sha256,
+            label=run.label,
+            kind=run.kind,
+            medium=run.medium,
+            gauge=run.gauge,
+            from_label=run.from_endpoint.label,
+            to_label=run.to_endpoint.label,
+            signal_path_edge_id=run.signal_path_edge_id,
+            segment_count=len(run.segments),
+            path_kinds=tuple(segment.path_kind for segment in run.segments),
+            total_length_m=run.total_length_m,
+            freshness_status=freshness.status,
+            freshness_reasons=freshness.reasons,
+        ))
+    current_runs = [
+        item for item in rows if item.freshness_status == 'current'
+    ]
+    if not current_runs:
+        return InstallationWiringSummary(
+            status='UNKNOWN',
+            runs=tuple(rows),
+            run_count=len(rows),
+            reason='every recorded cable run is stale or missing anchors',
+        )
+    return InstallationWiringSummary(
+        status='AVAILABLE',
+        runs=tuple(rows),
+        run_count=len(rows),
+        total_length_m=sum(item.total_length_m for item in rows),
+        reason='exact CableRun authority is bound',
+    )
+
+
 def _installation_sections(
     *,
     projector: InstallationProjectorSummary,
     standards: InstallationStandardsSummary,
     treatment: InstallationTreatmentSummary,
     calibration: InstallationCalibrationSummary,
+    datum: InstallationDatumSummary,
+    cable_runs: InstallationWiringSummary,
 ) -> tuple[InstallationSectionStatus, ...]:
     return (
         InstallationSectionStatus(
@@ -1328,6 +1551,24 @@ def _installation_sections(
                 else 'no exact AcousticTreatment placement authority is bound'
             ),
         ),
+        InstallationSectionStatus(
+            section='installation_datum',
+            status=datum.status,
+            reason=(
+                'exact InstallationDatum authority is bound'
+                if datum.status == 'AVAILABLE'
+                else 'no usable InstallationDatum authority is bound'
+            ),
+        ),
+        InstallationSectionStatus(
+            section='cable_runs',
+            status=cable_runs.status,
+            reason=(
+                'exact CableRun authority is bound'
+                if cable_runs.status == 'AVAILABLE'
+                else 'no usable CableRun authority is bound'
+            ),
+        ),
     )
 
 
@@ -1347,6 +1588,9 @@ def build_installation_output(
     calibration_export_snapshot: CadCalibrationExportSnapshot | None = None,
     verification_measurement_plan: CadVerificationMeasurementPlan | None = None,
     calibration_lifecycle_events: Sequence[CadCalibrationLifecycleEvent] = (),
+    installation_datum: InstallationDatum | None = None,
+    cable_runs: Sequence[CableRun] = (),
+    signal_path_edge_ids: Sequence[str] = (),
 ) -> InstallationOutput:
     """Derive one semantic installation snapshot without creating editable truth."""
 
@@ -1383,6 +1627,18 @@ def build_installation_output(
         export_snapshot=calibration_export_snapshot,
         verification_plan=verification_measurement_plan,
         lifecycle_events=calibration_lifecycle_events,
+    )
+    datum = _datum_summary(
+        revision=revision,
+        document=document,
+        effective_hash=effective_hash,
+        datum=installation_datum,
+    )
+    cable_run_summary = _wiring_summary(
+        document=document,
+        effective_hash=effective_hash,
+        runs=cable_runs,
+        signal_path_edge_ids=signal_path_edge_ids,
     )
 
     supported_kinds = {'speaker', 'seat', 'screen', 'projector', 'measurement_point'}
@@ -1423,6 +1679,8 @@ def build_installation_output(
         standards=standards,
         treatment=treatment,
         calibration=calibration,
+        datum=datum,
+        cable_runs=cable_run_summary,
     )
     identity = {
         'schema_version': INSTALLATION_OUTPUT_SCHEMA_VERSION,
@@ -1437,6 +1695,8 @@ def build_installation_output(
         'standards': standards.model_dump(mode='json'),
         'treatment': treatment.model_dump(mode='json'),
         'calibration': calibration.model_dump(mode='json'),
+        'datum': datum.model_dump(mode='json'),
+        'cable_runs': cable_run_summary.model_dump(mode='json'),
     }
     return InstallationOutput(
         coordinate_system=document.coordinate_system,
@@ -1447,6 +1707,8 @@ def build_installation_output(
         sections=sections,
         projector=projector,
         standards=standards,
+        datum=datum,
+        cable_runs=cable_run_summary,
         treatment=treatment,
         calibration=calibration,
         semantic_sha256=_semantic_digest(identity),
@@ -1746,6 +2008,72 @@ def _calibration_report_block(summary: InstallationCalibrationSummary | None) ->
     )
 
 
+def _datum_report_block(summary: InstallationDatumSummary | None) -> str:
+    if summary is None or summary.status == 'UNKNOWN':
+        detail = ''
+        if summary is not None and summary.datum_id is not None:
+            detail = (
+                f'<p>InstallationDatum: <code>{escape(summary.datum_id)}</code> '
+                f'v{escape(summary.datum_version or "UNKNOWN")} — '
+                f'{escape(summary.reason)}</p>'
+            )
+        return (
+            '<section><h2>Installation datum</h2>'
+            '<p>UNKNOWN — no usable InstallationDatum authority is bound.</p>'
+            f'{detail}</section>'
+        )
+    return (
+        '<section><h2>Installation datum</h2>'
+        f'<p>InstallationDatum: <code>{escape(summary.datum_id or "UNKNOWN")}</code> '
+        f'v{escape(summary.datum_version or "UNKNOWN")} / '
+        f'<code>{escape(summary.datum_sha256 or "UNKNOWN")}</code></p>'
+        f'<p>Origin: ({_metric(summary.origin_x_m)}, {_metric(summary.origin_y_m)}) m · '
+        f'rotation: {_metric(summary.rotation_deg)}° · '
+        f'freshness: {escape(summary.freshness_status or "UNKNOWN")}</p>'
+        '<details><summary>Exact datum authority summary</summary><pre>'
+        f'{escape(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))}'
+        '</pre></details></section>'
+    )
+
+
+def _wiring_report_block(summary: InstallationWiringSummary | None) -> str:
+    if summary is None or summary.status == 'UNKNOWN':
+        detail = ''
+        if summary is not None and summary.runs:
+            detail = f'<p>{escape(summary.reason)}</p>'
+        return (
+            '<section><h2>Cable runs</h2>'
+            '<p>UNKNOWN — no usable CableRun authority is bound.</p>'
+            f'{detail}</section>'
+        )
+    rows = ''.join(
+        '<tr>'
+        f'<td><code>{escape(item.run_id)}</code></td>'
+        f'<td>v{escape(item.version)}</td>'
+        f'<td>{escape(item.label)}</td>'
+        f'<td>{escape(item.kind)}</td>'
+        f'<td>{escape(item.medium)}{"" if item.gauge is None else " " + escape(item.gauge)}</td>'
+        f'<td>{escape(item.from_label)} → {escape(item.to_label)}</td>'
+        f'<td>{escape(", ".join(item.path_kinds))}</td>'
+        f'<td>{_metric(item.total_length_m)}</td>'
+        f'<td>{escape(item.freshness_status)}</td>'
+        '</tr>'
+        for item in summary.runs
+    )
+    return (
+        '<section><h2>Cable runs</h2>'
+        f'<p>{summary.run_count} run(s) · total recorded length: '
+        f'{_metric(summary.total_length_m)} m</p>'
+        '<table><thead><tr><th>Run</th><th>Version</th><th>Label</th>'
+        '<th>Kind</th><th>Medium</th><th>Endpoints</th><th>Path kinds</th>'
+        '<th>Length (m)</th><th>Freshness</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+        '<details><summary>Exact wiring authority summary</summary><pre>'
+        f'{escape(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))}'
+        '</pre></details></section>'
+    )
+
+
 def render_installation_report_html(
     output: InstallationOutput,
     *,
@@ -1801,6 +2129,8 @@ def render_installation_report_html(
     standards_block = _standards_report_block(output.standards)
     treatment_block = _treatment_report_block(output.treatment)
     calibration_block = _calibration_report_block(output.calibration)
+    datum_block = _datum_report_block(output.datum)
+    wiring_block = _wiring_report_block(output.cable_runs)
     semantic_json = json.dumps(output.model_dump(mode='json'), ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/')
 
     return f'''<!doctype html>
@@ -1827,6 +2157,8 @@ section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20
 {standards_block}
 {treatment_block}
 {calibration_block}
+{datum_block}
+{wiring_block}
 <section><h2>Section availability</h2><table><thead><tr><th>Section</th><th>Status</th><th>Reason</th></tr></thead><tbody>{section_rows}</tbody></table></section>
 <section><h2>Machine-readable semantic snapshot</h2><p class="muted">This embedded JSON excludes exported_at and other generation metadata.</p><details><summary>Show JSON</summary><pre>{escape(json.dumps(output.model_dump(mode='json'), ensure_ascii=False, indent=2))}</pre></details></section>
 <script type="application/json" id="htdt-installation-output">{semantic_json}</script>

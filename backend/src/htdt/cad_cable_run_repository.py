@@ -1,0 +1,159 @@
+"""Append-only persistence for cable runs (#538)."""
+
+from __future__ import annotations
+
+from contextlib import closing
+import sqlite3
+
+from .cad_cable_run import CableRun
+from .cad_repository import SceneRepository
+
+
+class CableRunConflictError(ValueError):
+    """A cable-run save violated append-only identity rules."""
+
+
+class CadCableRunRepository:
+    """Native storage for versioned CableRun records.
+
+    ``(run_id, version)`` is saved exactly once: changing a route appends a
+    new version row, never an UPDATE. Every save re-checks the pinned
+    SceneRevision exists with the recorded content hash.
+    """
+
+    def __init__(self, scene_repository: SceneRepository) -> None:
+        self.scene_repository = scene_repository
+        self.path = scene_repository.path
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        connection.execute('PRAGMA foreign_keys=ON')
+        return connection
+
+    def _initialize(self) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cad_cable_runs (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    document_id TEXT NOT NULL,
+                    scene_revision_id TEXT NOT NULL,
+                    scene_content_hash TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    total_length_m REAL NOT NULL,
+                    semantic_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    recorded_at_utc TEXT NOT NULL,
+                    UNIQUE(run_id, version)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_cable_run_doc
+                ON cad_cable_runs(document_id, seq ASC)
+                """
+            )
+
+    def save_run(self, run: CableRun) -> None:
+        if self.get_run(run.run_id, run.version) is not None:
+            raise CableRunConflictError(
+                'CableRun (run_id, version) is append-only'
+            )
+        revision = self.scene_repository.get(run.scene_revision_id)
+        if revision is None:
+            raise ValueError('cable run pins a SceneRevision that is not persisted')
+        if revision.content_hash != run.scene_content_hash:
+            raise ValueError('cable run SceneRevision content hash mismatch')
+        if revision.document_id != run.document_id:
+            raise ValueError('cable run SceneRevision belongs to another document')
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO cad_cable_runs (
+                    run_id, version, document_id, scene_revision_id,
+                    scene_content_hash, kind, total_length_m,
+                    semantic_sha256, payload_json, recorded_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.run_id,
+                    run.version,
+                    run.document_id,
+                    run.scene_revision_id,
+                    run.scene_content_hash,
+                    run.kind,
+                    run.total_length_m,
+                    run.semantic_sha256,
+                    run.model_dump_json(),
+                    run.created_at_utc,
+                ),
+            )
+
+    def get_run(self, run_id: str, version: str) -> CableRun | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT payload_json FROM cad_cable_runs
+                WHERE run_id=? AND version=?
+                """,
+                (run_id, version),
+            ).fetchone()
+        if row is None:
+            return None
+        return CableRun.model_validate_json(row['payload_json'])
+
+    def get_run_by_hash(self, semantic_sha256: str) -> CableRun | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT payload_json FROM cad_cable_runs
+                WHERE semantic_sha256=?
+                """,
+                (semantic_sha256,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CableRun.model_validate_json(row['payload_json'])
+
+    def list_runs(self, document_id: str) -> tuple[CableRun, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_cable_runs
+                WHERE document_id=?
+                ORDER BY seq ASC
+                """,
+                (document_id,),
+            ).fetchall()
+        return tuple(
+            CableRun.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def list_run_versions(self, run_id: str) -> tuple[CableRun, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_cable_runs
+                WHERE run_id=?
+                ORDER BY seq ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return tuple(
+            CableRun.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+
+__all__ = [
+    'CadCableRunRepository',
+    'CableRunConflictError',
+]
