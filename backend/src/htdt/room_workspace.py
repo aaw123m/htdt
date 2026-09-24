@@ -7,7 +7,7 @@ from typing import Protocol, cast
 from uuid import uuid4
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QCursor, QGuiApplication
+from PySide6.QtGui import QColor, QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
@@ -195,6 +197,7 @@ from .room_viewport import (
 from .theater_document import TheaterWorkingDocument
 from .ui_theme import (
     ControlSize,
+    DARK_THEME,
     SemanticState,
     SurfaceRole,
     TypographyRole,
@@ -530,7 +533,9 @@ class RoomWorkspaceController:
     def set_entities_hidden(self, entity_ids: tuple[str, ...], hidden: bool) -> int:
         changed = 0
         for entity_id in entity_ids:
-            if entity_id in self.view_state.hidden_ids != hidden:
+            # Note: `x in s != flag` is a chained comparison, not a flag test —
+            # compare the membership result explicitly.
+            if (entity_id in self.view_state.hidden_ids) != hidden:
                 self.view_state.set_hidden(entity_id, hidden)
                 changed += 1
         if changed:
@@ -540,7 +545,7 @@ class RoomWorkspaceController:
     def set_entities_locked(self, entity_ids: tuple[str, ...], locked: bool) -> int:
         changed = 0
         for entity_id in entity_ids:
-            if entity_id in self.view_state.locked_ids != locked:
+            if (entity_id in self.view_state.locked_ids) != locked:
                 self.view_state.set_locked(entity_id, locked)
                 changed += 1
         if changed:
@@ -1668,6 +1673,374 @@ class ObjectPalette(QFrame):
         layout.addStretch(1)
 
 
+class InspectorValidationError(ValueError):
+    """Field-level validation failure carrying the owning inspector section.
+
+    The workspace maps ``section`` to the section's inline error label so a
+    rejected commit surfaces next to the field that caused it (#583).
+    """
+
+    def __init__(self, section: str, message: str) -> None:
+        super().__init__(message)
+        self.section = section
+
+
+class _PendingTextSpinBox(QDoubleSpinBox):
+    """SpinBox that keeps typed-but-uninterpreted text across hide/show.
+
+    ``QAbstractSpinBox`` re-syncs the line editor to the current value on
+    ``showEvent`` — any ancestor hide/show cycle silently drops in-flight
+    input (#583). A line that differs from the canonical display text is a
+    pending edit, so it is restored after the base re-sync runs.
+    """
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
+        editor = self.lineEdit()
+        pending = editor.text() if editor is not None else ""
+        # Canonical display text for the current (committed) value — a line
+        # that differs from it is an uncommitted edit worth preserving.
+        canonical = (
+            self.prefix() + self.textFromValue(self.value()) + self.suffix()
+        ).strip()
+        super().showEvent(event)
+        if editor is not None and pending and pending.strip() != canonical:
+            editor.setText(pending)
+
+
+class MetricSpinBox(_PendingTextSpinBox):
+    """Length field: SI metres stay authoritative; display unit is cosmetic.
+
+    Step size scales with keyboard modifiers — plain = fine, Shift = ×10,
+    Ctrl = ×0.1 — so arrow keys cover both rough and precise adjustment
+    (#583). Wheel input is ignored unless the field has focus, which keeps
+    page scrolling from silently editing values.
+    """
+
+    UNIT_SCALES: dict[str, float] = {
+        'm': 1.0,
+        'cm': 100.0,
+        'mm': 1000.0,
+        'inch': 39.37007874015748,
+    }
+    UNIT_SUFFIXES: dict[str, str] = {
+        'm': ' m',
+        'cm': ' cm',
+        'mm': ' mm',
+        'inch': ' in',
+    }
+    # Sensible per-unit base steps (display units).
+    UNIT_STEPS: dict[str, float] = {
+        'm': 0.001,
+        'cm': 0.1,
+        'mm': 1.0,
+        'inch': 0.05,
+    }
+    UNIT_DECIMALS: dict[str, int] = {
+        'm': 3,
+        'cm': 2,
+        'mm': 1,
+        'inch': 3,
+    }
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        minimum_m: float = -1000.0,
+        maximum_m: float = 1000.0,
+    ) -> None:
+        super().__init__(parent)
+        self._display_unit = 'm'
+        self._minimum_m = minimum_m
+        self._maximum_m = maximum_m
+        self._base_step = self.UNIT_STEPS['m']
+        self.setKeyboardTracking(False)
+        self._apply_unit()
+
+    def _apply_unit(self) -> None:
+        scale = self.UNIT_SCALES[self._display_unit]
+        self.setRange(self._minimum_m * scale, self._maximum_m * scale)
+        self._base_step = self.UNIT_STEPS[self._display_unit]
+        self.setSingleStep(self._base_step)
+        self.setDecimals(self.UNIT_DECIMALS[self._display_unit])
+        self.setSuffix(self.UNIT_SUFFIXES[self._display_unit])
+
+    def set_display_unit(self, unit: str, *, decimals: int | None = None) -> None:
+        if unit not in self.UNIT_SCALES:
+            return
+        if unit == self._display_unit and decimals is None:
+            return
+        value_m = self.value_m()
+        self._display_unit = unit
+        self._apply_unit()
+        if decimals is not None:
+            self.setDecimals(decimals)
+        self.setValue(value_m * self.UNIT_SCALES[unit])
+
+    def value_m(self) -> float:
+        return self.value() / self.UNIT_SCALES[self._display_unit]
+
+    def set_value_m(self, value: float) -> None:
+        self.setValue(value * self.UNIT_SCALES[self._display_unit])
+
+    def stepBy(self, steps: int) -> None:
+        modifiers = QGuiApplication.keyboardModifiers()
+        factor = 1.0
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            factor = 10.0
+        elif modifiers & Qt.KeyboardModifier.ControlModifier:
+            factor = 0.1
+        self.setSingleStep(self._base_step * factor)
+        try:
+            super().stepBy(steps)
+        finally:
+            self.setSingleStep(self._base_step)
+
+    def wheelEvent(self, event: object) -> None:  # noqa: N802 - Qt override
+        # Ignore wheel changes while unfocused so scrolling the inspector page
+        # never mutates a field the user happened to hover (#583 scroll-safety).
+        if self.hasFocus():
+            super().wheelEvent(event)  # type: ignore[arg-type]
+        else:
+            event.ignore()  # type: ignore[attr-defined]
+
+
+class Vector3Editor(QFrame):
+    """Compact X/Y/Z editor triplet with per-axis mixed/dirty badges.
+
+    Axis groups reflow between one horizontal row and a vertical stack at a
+    width breakpoint, so the control stays usable at the inspector's narrow
+    column width (#583). ``None`` values render an explicit "未定義" state —
+    an unknown size is never presented as an editable 0.000 (#583).
+    """
+
+    AXES: tuple[str, ...] = ('X', 'Y', 'Z')
+    _WIDE_BREAKPOINT = 278
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        minimum_m: float = -1000.0,
+    ) -> None:
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        self._grid_host = QWidget()
+        self._grid = QGridLayout(self._grid_host)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(6)
+        self._grid.setVerticalSpacing(4)
+        outer.addWidget(self._grid_host)
+        self.fields: dict[str, MetricSpinBox] = {}
+        self._badges: dict[str, QLabel] = {}
+        self._groups: list[QWidget] = []
+        for axis in self.AXES:
+            group = QWidget()
+            row = QHBoxLayout(group)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(4)
+            label = QLabel(axis)
+            label.setFixedWidth(12)
+            field = MetricSpinBox(minimum_m=minimum_m)
+            badge = QLabel('混在')
+            badge.setVisible(False)
+            set_typography_role(badge, TypographyRole.SECONDARY)
+            row.addWidget(label)
+            row.addWidget(field, 1)
+            row.addWidget(badge)
+            self._groups.append(group)
+            self.fields[axis] = field
+            self._badges[axis] = badge
+        self._relayout()
+        self._unknown_label = QLabel('未定義')
+        self._unknown_label.setVisible(False)
+        set_typography_role(self._unknown_label, TypographyRole.SECONDARY)
+        outer.addWidget(self._unknown_label)
+        self._baseline_display: tuple[float, float, float] | None = None
+
+    def _relayout(self) -> None:
+        wide = self.width() >= self._WIDE_BREAKPOINT
+        for index, group in enumerate(self._groups):
+            if wide:
+                self._grid.addWidget(group, 0, index)
+            else:
+                self._grid.addWidget(group, index, 0)
+
+    def resizeEvent(self, event: object) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)  # type: ignore[arg-type]
+        self._relayout()
+
+    def set_known(self, known: bool, *, unknown_text: str = '未定義') -> None:
+        """Toggle between editable axes and the explicit "unknown" state."""
+
+        self._grid_host.setVisible(known)
+        self._unknown_label.setText(unknown_text)
+        self._unknown_label.setVisible(not known)
+        if not known:
+            self._baseline_display = None
+            for badge in self._badges.values():
+                badge.setVisible(False)
+
+    def set_values_m(
+        self,
+        values: tuple[float, float, float],
+        *,
+        preserve: set[QWidget] | None = None,
+    ) -> None:
+        baseline = list(
+            self._baseline_display
+            if self._baseline_display is not None
+            else (0.0, 0.0, 0.0)
+        )
+        for index, (axis, value) in enumerate(zip(self.AXES, values, strict=True)):
+            field = self.fields[axis]
+            if preserve and field in preserve:
+                continue
+            blocker = QSignalBlocker(field)
+            try:
+                field.set_value_m(value)
+            finally:
+                del blocker
+            baseline[index] = field.value()
+        self._baseline_display = tuple(baseline)
+
+    def values_m(self) -> tuple[float, float, float]:
+        return tuple(field.value_m() for field in self.fields.values())
+
+    def edited_axes_m(self) -> dict[int, float]:
+        """Axes the user changed since load, keyed 0/1/2 → SI metres."""
+
+        if self._baseline_display is None:
+            return {}
+        edited: dict[int, float] = {}
+        for index, field in enumerate(self.fields.values()):
+            if abs(field.value() - self._baseline_display[index]) > 1e-9:
+                edited[index] = field.value_m()
+        return edited
+
+    def merged_values_m(
+        self,
+        exact: tuple[float, float, float],
+    ) -> tuple[float, float, float]:
+        """Exact authority values where unedited, field values where edited.
+
+        Same contract as ``SelectionInspector._edited_angles``: untouched axes
+        contribute the exact stored value so committing one axis never snaps
+        the others to the display rounding.
+        """
+
+        edited = self.edited_axes_m()
+        return tuple(edited.get(index, exact[index]) for index in range(3))
+
+    def set_mixed_axes(self, axes: set[int]) -> None:
+        for index, axis in enumerate(self.AXES):
+            self._badges[axis].setVisible(index in axes)
+
+    def set_read_only(self, read_only: bool) -> None:
+        for field in self.fields.values():
+            field.setReadOnly(read_only)
+
+    def set_display_unit(self, unit: str, *, decimals: int | None = None) -> None:
+        for field in self.fields.values():
+            field.set_display_unit(unit, decimals=decimals)
+        if self._baseline_display is not None:
+            self._baseline_display = tuple(
+                field.value() for field in self.fields.values()
+            )
+
+
+class InspectorSection(QFrame):
+    """One titled inspector group with an inline error line (#583).
+
+    ``collapsible`` sections (Advanced) keep a toggle header; the error label
+    stays hidden until ``show_error`` paints it, and clears on the next
+    ``set_entity`` refresh.
+    """
+
+    def __init__(
+        self,
+        title: str,
+        parent: QWidget | None = None,
+        *,
+        collapsible: bool = False,
+        expanded: bool = True,
+    ) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        if collapsible:
+            self.header = QToolButton()
+            self.header.setText(title)
+            self.header.setCheckable(True)
+            self.header.setChecked(expanded)
+            self.header.setArrowType(
+                Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+            )
+            self.header.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+            )
+            self.header.toggled.connect(self._toggle_body)
+        else:
+            self.header = QLabel(title)
+        set_typography_role(self.header, TypographyRole.SECTION_TITLE)
+        layout.addWidget(self.header)
+        self.body = QWidget()
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(0, 0, 0, 0)
+        self.body_layout.setSpacing(6)
+        layout.addWidget(self.body)
+        self.error_label = QLabel()
+        self.error_label.setWordWrap(True)
+        self.error_label.setVisible(False)
+        error_palette = self.error_label.palette()
+        error_palette.setColor(
+            error_palette.ColorRole.WindowText,
+            QColor(DARK_THEME.semantic.error.hex),
+        )
+        self.error_label.setPalette(error_palette)
+        layout.addWidget(self.error_label)
+        if collapsible:
+            self.body.setVisible(expanded)
+
+    def _toggle_body(self, checked: bool) -> None:
+        self.body.setVisible(checked)
+        if isinstance(self.header, QToolButton):
+            self.header.setArrowType(
+                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+            )
+
+    def show_error(self, message: str | None) -> None:
+        self.error_label.setText(message or '')
+        self.error_label.setVisible(bool(message))
+        # Surface the error even inside a collapsed section.
+        if message and isinstance(self.header, QToolButton):
+            if not self.header.isChecked():
+                self.header.setChecked(True)
+
+    def clear_error(self) -> None:
+        self.show_error(None)
+
+    def resizeEvent(self, event: object) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._relayout_forms()
+
+    def _relayout_forms(self) -> None:
+        """Narrow sections wrap form labels above their fields (#583)."""
+
+        wrap = (
+            QFormLayout.RowWrapPolicy.WrapAllRows
+            if self.width() < 300
+            else QFormLayout.RowWrapPolicy.DontWrapRows
+        )
+        for index in range(self.body_layout.count()):
+            layout = self.body_layout.itemAt(index).layout()
+            if isinstance(layout, QFormLayout):
+                layout.setRowWrapPolicy(wrap)
+
+
 class SelectionInspector(QFrame):
     editCommitted = Signal()
     aimTargetRequested = Signal(str)
@@ -1697,102 +2070,73 @@ class SelectionInspector(QFrame):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
-        title = QLabel("選択項目")
-        set_typography_role(title, TypographyRole.SECTION_TITLE)
-        layout.addWidget(title)
+        self.title_label = QLabel("選択項目")
+        set_typography_role(self.title_label, TypographyRole.SECTION_TITLE)
+        layout.addWidget(self.title_label)
         self.empty_label = QLabel("3Dビューで項目を選択してください")
         self.empty_label.setWordWrap(True)
         set_typography_role(self.empty_label, TypographyRole.SECONDARY)
         layout.addWidget(self.empty_label)
+        self.state_label = QLabel("")
+        self.state_label.setWordWrap(True)
+        set_typography_role(self.state_label, TypographyRole.SECONDARY)
+        layout.addWidget(self.state_label)
+        self.error_label = QLabel()
+        self.error_label.setWordWrap(True)
+        self.error_label.setVisible(False)
+        error_palette = self.error_label.palette()
+        error_palette.setColor(
+            error_palette.ColorRole.WindowText,
+            QColor(DARK_THEME.semantic.error.hex),
+        )
+        self.error_label.setPalette(error_palette)
+        layout.addWidget(self.error_label)
+
+        self._entity: SceneEntity | None = None
+        self._entity_id: str | None = None
+        self._selection: tuple[SceneEntity, ...] = ()
+        self._editable = False
+        self._aim_targets: tuple[SceneEntity, ...] = ()
+        self._baseline: dict[str, object] = {}
+        self._dirty_widgets: set[QWidget] = set()
 
         form_host = QWidget()
-        self.form = QFormLayout(form_host)
-        self.form.setContentsMargins(0, 0, 0, 0)
+        form_layout = QVBoxLayout(form_host)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(14)
+
+        # -- 識別 (identity) ---------------------------------------------------
+        self.identity_section = InspectorSection("識別")
+        identity_form = QFormLayout()
+        identity_form.setContentsMargins(0, 0, 0, 0)
         self.kind_label = QLabel("—")
-        self.name_field = QLineEdit()
-        self.role_field = QComboBox()
-        self.role_field.setEditable(True)
-        self.role_field.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.role_field.addItem(SPEAKER_ROLE_UNASSIGNED_LABEL)
-        self.role_field.addItems(SPEAKER_ROLE_SUGGESTIONS)
-        role_edit = self.role_field.lineEdit()
-        if role_edit is not None:
-            role_edit.setPlaceholderText("役割を選択または入力（例: FL / C / TFL）")
-        self.form.addRow("種類", self.kind_label)
-        self.form.addRow("名前", self.name_field)
-        self.form.addRow("役割", self.role_field)
-
-        self.position_fields: dict[str, QDoubleSpinBox] = {}
-        for axis in ("X", "Y", "Z"):
-            field = self._metric_field()
-            self.position_fields[axis] = field
-            self.form.addRow(f"位置 {axis}", field)
-
-        self.size_fields: dict[str, QDoubleSpinBox] = {}
-        for axis in ("X", "Y", "Z"):
-            field = self._metric_field(minimum=0.001)
-            self.size_fields[axis] = field
-            self.form.addRow(f"寸法 {axis}", field)
-
-        # Issue-464 body geometry authoring: shape picker plus per-kind
-        # parameters. ``size_m`` stays the bounding envelope; richer bodies
-        # must fit inside it.
-        self._entity: SceneEntity | None = None
-        self._shape_label = QLabel("形状")
-        self.shape_field = QComboBox()
-        for shape_kind, shape_label in BODY_SHAPE_ITEMS:
-            self.shape_field.addItem(shape_label, userData=shape_kind)
-        self.form.addRow(self._shape_label, self.shape_field)
-
-        self._radius_label = QLabel("半径")
-        self.radius_field = self._metric_field(minimum=0.001)
-        self.form.addRow(self._radius_label, self.radius_field)
-
-        self._footprint_label = QLabel("フットプリント")
-        self.footprint_field = QLineEdit()
-        self.footprint_field.setPlaceholderText("x,y; x,y; …（物体ローカル m）")
-        self.form.addRow(self._footprint_label, self.footprint_field)
-
-        self._mesh_label = QLabel("メッシュ")
-        self.mesh_summary = QLabel("未設定")
-        self.mesh_summary.setWordWrap(True)
-        set_typography_role(self.mesh_summary, TypographyRole.SECONDARY)
-        self.mesh_button = QPushButton("メッシュを選択…")
-        set_control_size(self.mesh_button, ControlSize.COMPACT)
-        mesh_row = QWidget()
-        mesh_row_layout = QHBoxLayout(mesh_row)
-        mesh_row_layout.setContentsMargins(0, 0, 0, 0)
-        mesh_row_layout.setSpacing(6)
-        mesh_row_layout.addWidget(self.mesh_summary, 1)
-        mesh_row_layout.addWidget(self.mesh_button)
-        self.mesh_row = mesh_row
-        self.form.addRow(self._mesh_label, mesh_row)
-
-        self.shape_field.activated.connect(lambda _index=-1: self._shape_activated())
-        self.radius_field.editingFinished.connect(self.editCommitted.emit)
-        self.footprint_field.editingFinished.connect(self.editCommitted.emit)
-        self._basis_label = QLabel("衝突・クリアランス")
-        self.basis_value = QLabel("—")
-        self.basis_value.setWordWrap(True)
-        set_typography_role(self.basis_value, TypographyRole.SECONDARY)
-        self.form.addRow(self._basis_label, self.basis_value)
-
-        self.mesh_button.clicked.connect(
-            lambda checked=False: self.meshImportRequested.emit()
+        self.kind_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
         )
+        self.name_field = QLineEdit()
+        identity_form.addRow("種類", self.kind_label)
+        identity_form.addRow("名前", self.name_field)
+        self.identity_section.body_layout.addLayout(identity_form)
+        form_layout.addWidget(self.identity_section)
 
-        # Transform — numeric physical orientation (#470). Backed by the exact
-        # persisted quaternion; one field commit is one Undo transaction.
-        # Issue #660: the displayed angles use the same installation-facing
-        # vocabulary as the acoustic-aim block (水平向き/仰角 + ねじれ), so the
-        # same world direction reads as the same numbers in both places.
+        # -- 変換 (transform): position vector + physical orientation ----------
+        self.transform_section = InspectorSection("変換")
+        transform_form = QFormLayout()
+        transform_form.setContentsMargins(0, 0, 0, 0)
+        self.position_editor = Vector3Editor()
+        self.position_fields = self.position_editor.fields
+        transform_form.addRow("位置", self.position_editor)
+        # Numeric physical orientation (#470), backed by the exact persisted
+        # quaternion; one field commit is one Undo transaction. #660: the
+        # displayed angles use the same installation-facing vocabulary as the
+        # acoustic-aim block so the same direction reads as the same numbers.
         self.orientation_header = QLabel("姿勢")
         set_typography_role(self.orientation_header, TypographyRole.SECTION_TITLE)
         self.orientation_header.setToolTip(
             "本体の正面（+Y）の向きを設置作業向けの角度（°）で正確に編集します。"
             "基準姿勢（全て 0°）では本体の正面は +Y（部屋後方）を向きます"
         )
-        self.form.addRow(self.orientation_header)
+        transform_form.addRow(self.orientation_header)
         self.orientation_labels: dict[str, QLabel] = {}
         self.orientation_fields: dict[str, QDoubleSpinBox] = {}
         orientation_tooltips = {
@@ -1817,20 +2161,70 @@ class SelectionInspector(QFrame):
             field.setToolTip(orientation_tooltips[axis])
             self.orientation_labels[axis] = label
             self.orientation_fields[axis] = field
-            self.form.addRow(label, field)
-        self.orientation_detail = QLabel("—")
-        self.orientation_detail.setWordWrap(True)
-        set_typography_role(self.orientation_detail, TypographyRole.SECONDARY)
-        self.orientation_detail.setToolTip(
-            "内部表現（厳密な Z-Y-X Euler: Yaw/Pitch/Roll）· 読み取り専用"
-        )
-        self.form.addRow(self.orientation_detail)
+            transform_form.addRow(label, field)
         self._orientation_widgets: tuple[QWidget, ...] = (
             self.orientation_header,
             *self.orientation_labels.values(),
             *self.orientation_fields.values(),
-            self.orientation_detail,
         )
+        self.transform_section.body_layout.addLayout(transform_form)
+        form_layout.addWidget(self.transform_section)
+
+        # -- 形状 (geometry): size vector + body-shape parameters (#464) --------
+        self.geometry_section = InspectorSection("形状")
+        geometry_form = QFormLayout()
+        geometry_form.setContentsMargins(0, 0, 0, 0)
+        self.size_editor = Vector3Editor(minimum_m=0.001)
+        self.size_fields = self.size_editor.fields
+        geometry_form.addRow("寸法", self.size_editor)
+        self._shape_label = QLabel("形状")
+        self.shape_field = QComboBox()
+        for shape_kind, shape_label in BODY_SHAPE_ITEMS:
+            self.shape_field.addItem(shape_label, userData=shape_kind)
+        geometry_form.addRow(self._shape_label, self.shape_field)
+        self._radius_label = QLabel("半径")
+        self.radius_field = self._metric_field(minimum=0.001)
+        geometry_form.addRow(self._radius_label, self.radius_field)
+        self._footprint_label = QLabel("フットプリント")
+        self.footprint_field = QLineEdit()
+        self.footprint_field.setPlaceholderText("x,y; x,y; …（物体ローカル m）")
+        geometry_form.addRow(self._footprint_label, self.footprint_field)
+        self._mesh_label = QLabel("メッシュ")
+        self.mesh_summary = QLabel("未設定")
+        self.mesh_summary.setWordWrap(True)
+        set_typography_role(self.mesh_summary, TypographyRole.SECONDARY)
+        self.mesh_button = QPushButton("メッシュを選択…")
+        set_control_size(self.mesh_button, ControlSize.COMPACT)
+        mesh_row = QWidget()
+        mesh_row_layout = QHBoxLayout(mesh_row)
+        mesh_row_layout.setContentsMargins(0, 0, 0, 0)
+        mesh_row_layout.setSpacing(6)
+        mesh_row_layout.addWidget(self.mesh_summary, 1)
+        mesh_row_layout.addWidget(self.mesh_button)
+        self.mesh_row = mesh_row
+        geometry_form.addRow(self._mesh_label, mesh_row)
+        self._basis_label = QLabel("衝突・クリアランス")
+        self.basis_value = QLabel("—")
+        self.basis_value.setWordWrap(True)
+        set_typography_role(self.basis_value, TypographyRole.SECONDARY)
+        geometry_form.addRow(self._basis_label, self.basis_value)
+        self.geometry_section.body_layout.addLayout(geometry_form)
+        form_layout.addWidget(self.geometry_section)
+
+        # -- スピーカー ----------------------------------------------------------
+        self.speaker_section = InspectorSection("スピーカー")
+        speaker_form = QFormLayout()
+        speaker_form.setContentsMargins(0, 0, 0, 0)
+        self.role_field = QComboBox()
+        self.role_field.setEditable(True)
+        self.role_field.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.role_field.addItem(SPEAKER_ROLE_UNASSIGNED_LABEL)
+        self.role_field.addItems(SPEAKER_ROLE_SUGGESTIONS)
+        role_edit = self.role_field.lineEdit()
+        if role_edit is not None:
+            role_edit.setPlaceholderText("役割を選択または入力（例: FL / C / TFL）")
+        speaker_form.addRow("役割", self.role_field)
+        self.speaker_section.body_layout.addLayout(speaker_form)
 
         # Speaker-only acoustic aim block (#470): independent authority from the
         # cabinet pose. Unknown aim is never shown as a zero vector.
@@ -1898,8 +2292,45 @@ class SelectionInspector(QFrame):
         aim_actions.addWidget(self.aim_align_button)
         known_layout.addLayout(aim_actions)
         aim_layout.addWidget(self.aim_known_host)
-        self.form.addRow(self.aim_section)
+        self.speaker_section.body_layout.addWidget(self.aim_section)
+        form_layout.addWidget(self.speaker_section)
 
+        # -- 詳細 (advanced): identifiers + internal orientation (collapsed) ----
+        self.advanced_section = InspectorSection(
+            "詳細", collapsible=True, expanded=False
+        )
+        advanced_form = QFormLayout()
+        advanced_form.setContentsMargins(0, 0, 0, 0)
+        self.id_label = QLabel("—")
+        self.id_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        set_typography_role(self.id_label, TypographyRole.SECONDARY)
+        advanced_form.addRow("ID", self.id_label)
+        self.orientation_detail = QLabel("—")
+        self.orientation_detail.setWordWrap(True)
+        set_typography_role(self.orientation_detail, TypographyRole.SECONDARY)
+        self.orientation_detail.setToolTip(
+            "内部表現（厳密な Z-Y-X Euler: Yaw/Pitch/Roll）· 読み取り専用"
+        )
+        advanced_form.addRow("内部姿勢", self.orientation_detail)
+        self.advanced_section.body_layout.addLayout(advanced_form)
+        form_layout.addWidget(self.advanced_section)
+
+        self._sections: dict[str, InspectorSection] = {
+            'identity': self.identity_section,
+            'transform': self.transform_section,
+            'geometry': self.geometry_section,
+            'speaker': self.speaker_section,
+            'advanced': self.advanced_section,
+        }
+
+        self.shape_field.activated.connect(lambda _index=-1: self._shape_activated())
+        self.radius_field.editingFinished.connect(self.editCommitted.emit)
+        self.footprint_field.editingFinished.connect(self.editCommitted.emit)
+        self.mesh_button.clicked.connect(
+            lambda checked=False: self.meshImportRequested.emit()
+        )
         self.name_field.editingFinished.connect(self.editCommitted.emit)
         self.role_field.activated.connect(
             lambda _index=-1: self.editCommitted.emit()
@@ -1915,20 +2346,44 @@ class SelectionInspector(QFrame):
         ):
             field.editingFinished.connect(self.editCommitted.emit)
 
+        # In-progress edits mark their field so uncommitted input is visible
+        # and preserved across same-entity refreshes (#583).
+        self.name_field.textChanged.connect(
+            lambda _text: self._mark_dirty(self.name_field)
+        )
+        self.footprint_field.textChanged.connect(
+            lambda _text: self._mark_dirty(self.footprint_field)
+        )
+        for field in (
+            *self.position_fields.values(),
+            *self.size_fields.values(),
+            self.radius_field,
+            *self.orientation_fields.values(),
+            self.aim_yaw_field,
+            self.aim_pitch_field,
+        ):
+            field.valueChanged.connect(
+                lambda _value, widget=field: self._mark_dirty(widget)
+            )
+            # In-flight text (typed but not yet interpreted) is also an
+            # in-progress edit — mark it so same-entity refreshes never
+            # reset the field's visible input (#583, Ctrl+S flush order).
+            line_edit = field.lineEdit()
+            if line_edit is not None:
+                line_edit.textChanged.connect(
+                    lambda _text, widget=field: self._mark_dirty(
+                        widget, restyle=False
+                    )
+                )
+
         layout.addWidget(form_host)
         layout.addStretch(1)
         self.form_host = form_host
         self.set_entity(None, editable=False)
 
     @staticmethod
-    def _metric_field(*, minimum: float = -1000.0) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
-        field.setRange(minimum, 1000.0)
-        field.setDecimals(4)
-        field.setSingleStep(0.01)
-        field.setSuffix(" m")
-        field.setKeyboardTracking(False)
-        return field
+    def _metric_field(*, minimum: float = -1000.0) -> MetricSpinBox:
+        return MetricSpinBox(minimum_m=minimum)
 
     @staticmethod
     def _angle_field(
@@ -1936,7 +2391,7 @@ class SelectionInspector(QFrame):
         minimum: float = -180.0,
         maximum: float = 180.0,
     ) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
+        field = _PendingTextSpinBox()
         field.setRange(minimum, maximum)
         field.setDecimals(3)
         field.setSingleStep(1.0)
@@ -1991,12 +2446,42 @@ class SelectionInspector(QFrame):
         *,
         editable: bool,
         aim_targets: tuple[SceneEntity, ...] = (),
+        selection: tuple[SceneEntity, ...] = (),
+        preserve_dirty: bool | None = None,
     ) -> None:
+        previous_id = self._entity_id
         self._entity = entity
+        self._selection = selection
+        self._editable = editable
+        self._aim_targets = aim_targets
+        self._entity_id = entity.entity_id if entity is not None else None
+        self.clear_errors()
         self.empty_label.setVisible(entity is None)
         self.form_host.setVisible(entity is not None)
         if entity is None:
+            self.title_label.setText("選択項目")
+            self.state_label.setText("")
+            self.state_label.setVisible(False)
+            self._baseline = {}
+            self._dirty_widgets.clear()
             return
+        if preserve_dirty is None:
+            # A refresh of the same entity keeps fields the user is still
+            # editing; switching entities always reloads (#583).
+            preserve_dirty = self._entity_id == previous_id
+        if not preserve_dirty:
+            self._clear_all_dirty()
+
+        kind_text = self.KIND_LABELS.get(entity.kind, entity.kind)
+        self.title_label.setText(entity.name or kind_text)
+        state_bits = [kind_text]
+        if len(selection) > 1:
+            state_bits.append(f"{len(selection)}項目選択中 · 編集は全項目へ適用")
+        if not editable:
+            state_bits.append("読み取り専用")
+        self.state_label.setText(" · ".join(state_bits))
+        self.state_label.setVisible(True)
+
         role_edit = self.role_field.lineEdit()
         blockers = [
             QSignalBlocker(self.name_field),
@@ -2013,8 +2498,9 @@ class SelectionInspector(QFrame):
             *([QSignalBlocker(role_edit)] if role_edit is not None else []),
         ]
         try:
-            self.kind_label.setText(self.KIND_LABELS.get(entity.kind, entity.kind))
-            self.name_field.setText(entity.name)
+            self.kind_label.setText(kind_text)
+            if self.name_field not in self._dirty_widgets:
+                self.name_field.setText(entity.name)
             role = entity.speaker_role or ""
             if is_unassigned_speaker_role(role):
                 self.role_field.setCurrentIndex(0)
@@ -2025,54 +2511,92 @@ class SelectionInspector(QFrame):
                 else:
                     self.role_field.setCurrentIndex(-1)
                     self.role_field.setEditText(role)
-            self.role_field.setVisible(entity.kind == "speaker")
-            self.name_field.setEnabled(editable)
-            self.role_field.setEnabled(editable and entity.kind == "speaker")
-            for field, value in zip(
-                self.position_fields.values(),
+            self.name_field.setReadOnly(not editable)
+            self.role_field.setEnabled(editable)
+
+            # Transforms — grouped X/Y/Z vector editors. Per-axis mixed badges
+            # mark values that differ across a multi-selection.
+            self.position_editor.set_values_m(
                 (entity.position.x_m, entity.position.y_m, entity.position.z_m),
-                strict=True,
-            ):
-                field.setValue(value)
-                field.setEnabled(editable)
+                preserve=self._dirty_widgets,
+            )
+            self.position_editor.set_mixed_axes(
+                self._mixed_axes(
+                    selection,
+                    lambda item: (
+                        item.position.x_m, item.position.y_m, item.position.z_m
+                    ),
+                )
+            )
+            self.position_editor.set_read_only(not editable)
             if entity.size_m is None:
-                for field in self.size_fields.values():
-                    field.setValue(0.0)
-                    field.setEnabled(False)
+                self.size_editor.set_known(False)
             else:
-                for field, value in zip(
-                    self.size_fields.values(),
+                self.size_editor.set_known(True)
+                self.size_editor.set_values_m(
                     (entity.size_m.x_m, entity.size_m.y_m, entity.size_m.z_m),
-                    strict=True,
-                ):
-                    field.setValue(value)
-                    field.setEnabled(editable)
+                    preserve=self._dirty_widgets,
+                )
+                self.size_editor.set_mixed_axes(
+                    self._mixed_axes(
+                        selection,
+                        lambda item: (
+                            None
+                            if item.size_m is None
+                            else (
+                                item.size_m.x_m,
+                                item.size_m.y_m,
+                                item.size_m.z_m,
+                            )
+                        ),
+                    )
+                )
+            self.size_editor.set_read_only(not editable)
+
             # Heading/elevation/twist rows exist only for physical bodies; a
             # measurement point is a reference position without a pose to author.
             physical = entity.kind in PHYSICAL_ENTITY_KINDS
             for widget in self._orientation_widgets:
                 widget.setVisible(physical)
+            self.orientation_detail.setVisible(physical)
             if physical:
                 angles = body_view_angles(entity.orientation)
-                self.orientation_fields["heading"].setValue(
+                heading_field = self.orientation_fields["heading"]
+                heading_display = (
                     angles.heading_deg
                     if angles.heading_deg is not None
-                    else self.orientation_fields["heading"].minimum()
+                    else heading_field.minimum()
                 )
-                self.orientation_fields["elevation"].setValue(angles.elevation_deg)
-                self.orientation_fields["twist"].setValue(angles.twist_deg)
+                for axis, value in (
+                    ("heading", heading_display),
+                    ("elevation", angles.elevation_deg),
+                    ("twist", angles.twist_deg),
+                ):
+                    field = self.orientation_fields[axis]
+                    if field not in self._dirty_widgets:
+                        field.setValue(value)
                 for field in self.orientation_fields.values():
-                    field.setEnabled(editable)
+                    field.setReadOnly(not editable)
+                self._baseline["orientation"] = (
+                    heading_display,
+                    angles.elevation_deg,
+                    angles.twist_deg,
+                )
                 yaw, pitch, roll = quaternion_to_euler_deg(entity.orientation)
                 self.orientation_detail.setText(
                     f"内部 Euler · Yaw {yaw:.4f}° · Pitch {pitch:.4f}° · Roll {roll:.4f}°"
                 )
-            self.aim_section.setVisible(entity.kind == "speaker")
+            self.speaker_section.setVisible(entity.kind == "speaker")
             if entity.kind == "speaker":
                 self._set_aim_state(entity, editable=editable, aim_targets=aim_targets)
+                self._baseline["aim"] = (
+                    self.aim_yaw_field.value(),
+                    self.aim_pitch_field.value(),
+                )
 
             # Body geometry authoring (Issue #464): ``size_m`` stays the
             # bounding envelope; shape fields edit the refined body.
+            self.geometry_section.setVisible(entity.size_m is not None)
             body = entity.body_geometry
             body_kind = body.kind if body is not None else "box"
             index = self.shape_field.findData(body_kind)
@@ -2085,24 +2609,26 @@ class SelectionInspector(QFrame):
             )
             if body is not None and body.radius_m is not None:
                 radius_default = float(body.radius_m)
-            self.radius_field.setValue(radius_default)
-            if body is not None and body.footprint_vertices:
-                self.footprint_field.setText(
-                    format_footprint_vertices(body.footprint_vertices)
-                )
-            elif entity.size_m is not None:
-                half_x = entity.size_m.x_m * 0.5
-                half_y = entity.size_m.y_m * 0.5
-                self.footprint_field.setText(format_footprint_vertices((
-                    FootprintVertex(x_m=-half_x, y_m=-half_y),
-                    FootprintVertex(x_m=half_x, y_m=-half_y),
-                    FootprintVertex(x_m=half_x, y_m=half_y),
-                    FootprintVertex(x_m=-half_x, y_m=half_y),
-                )))
-            else:
-                self.footprint_field.clear()
-            self.radius_field.setEnabled(editable)
-            self.footprint_field.setEnabled(editable)
+            if self.radius_field not in self._dirty_widgets:
+                self.radius_field.set_value_m(radius_default)
+            if self.footprint_field not in self._dirty_widgets:
+                if body is not None and body.footprint_vertices:
+                    self.footprint_field.setText(
+                        format_footprint_vertices(body.footprint_vertices)
+                    )
+                elif entity.size_m is not None:
+                    half_x = entity.size_m.x_m * 0.5
+                    half_y = entity.size_m.y_m * 0.5
+                    self.footprint_field.setText(format_footprint_vertices((
+                        FootprintVertex(x_m=-half_x, y_m=-half_y),
+                        FootprintVertex(x_m=half_x, y_m=-half_y),
+                        FootprintVertex(x_m=half_x, y_m=half_y),
+                        FootprintVertex(x_m=-half_x, y_m=half_y),
+                    )))
+                else:
+                    self.footprint_field.clear()
+            self.radius_field.setReadOnly(not editable)
+            self.footprint_field.setReadOnly(not editable)
             if body is not None and body.mesh is not None:
                 self.mesh_summary.setText(
                     f"{body.mesh.source_name} · {body.mesh.asset_format} · "
@@ -2114,8 +2640,130 @@ class SelectionInspector(QFrame):
             self.mesh_button.setEnabled(editable and entity.size_m is not None)
             self._sync_shape_visibility(body_kind)
             self._refresh_basis_label()
+
+            self.id_label.setText(entity.entity_id)
+
+            self._baseline.update(
+                {
+                    "name": entity.name,
+                    "role": self.role_field.currentText(),
+                    "shape": body_kind,
+                    "radius": self.radius_field.value(),
+                    "footprint": self.footprint_field.text(),
+                }
+            )
+            # Fields whose value again matches the freshly loaded baseline are
+            # no longer dirty (e.g. an edit that just committed successfully).
+            for widget in tuple(self._dirty_widgets):
+                if self._widget_matches_baseline(widget):
+                    self._clear_widget_dirty(widget)
         finally:
             del blockers
+
+    # -- presentation state -----------------------------------------------------
+
+    def _mark_dirty(self, widget: QWidget, *, restyle: bool = True) -> None:
+        self._dirty_widgets.add(widget)
+        widget.setProperty("inspectorDirty", True)
+        # polish() on a QAbstractSpinBox resets the line text to
+        # textFromValue — never restyle while it holds un-interpreted input.
+        if restyle:
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+
+    def _clear_widget_dirty(self, widget: QWidget) -> None:
+        self._dirty_widgets.discard(widget)
+        widget.setProperty("inspectorDirty", False)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    def _clear_all_dirty(self) -> None:
+        for widget in tuple(self._dirty_widgets):
+            self._clear_widget_dirty(widget)
+
+    def _widget_matches_baseline(self, widget: QWidget) -> bool:
+        if widget is self.name_field:
+            return self.name_field.text() == self._baseline.get("name", "")
+        if widget is self.footprint_field:
+            return self.footprint_field.text() == self._baseline.get(
+                "footprint", ""
+            )
+        if widget is self.radius_field:
+            return abs(
+                self.radius_field.value() - float(self._baseline.get("radius", 0.0))
+            ) <= 1e-9
+        for editor, key in (
+            (self.position_editor, "position"),
+            (self.size_editor, "size"),
+        ):
+            for axis, field in editor.fields.items():
+                if widget is field:
+                    baseline = editor._baseline_display
+                    if baseline is None:
+                        return True
+                    index = editor.AXES.index(axis)
+                    return abs(field.value() - baseline[index]) <= 1e-9
+        return False
+
+    @staticmethod
+    def _mixed_axes(
+        entities: tuple[SceneEntity, ...],
+        values_of: Callable[[SceneEntity], tuple[float, ...] | None],
+    ) -> set[int]:
+        """Axis indices whose values differ across the selection (#583)."""
+
+        rows = [values_of(entity) for entity in entities]
+        if len(rows) < 2:
+            return set()
+        mixed: set[int] = set()
+        for index in range(3):
+            values = [None if row is None else row[index] for row in rows]
+            first = values[0]
+            if any(
+                (value is None) != (first is None)
+                or (
+                    value is not None
+                    and first is not None
+                    and abs(value - first) > 1e-6
+                )
+                for value in values[1:]
+            ):
+                mixed.add(index)
+        return mixed
+
+    def show_error(self, section: str | None, message: str) -> None:
+        """Surface a rejected commit near the field that caused it (#583)."""
+
+        if section and section in self._sections:
+            self._sections[section].show_error(message)
+        else:
+            self.error_label.setText(message)
+            self.error_label.setVisible(True)
+
+    def clear_errors(self) -> None:
+        self.error_label.setText("")
+        self.error_label.setVisible(False)
+        for section in self._sections.values():
+            section.clear_error()
+
+    def reset_current_entity(self) -> None:
+        """Restore exact authority values after a rejected commit (#583)."""
+
+        self._clear_all_dirty()
+        self.set_entity(
+            self._entity,
+            editable=self._editable,
+            aim_targets=self._aim_targets,
+            selection=self._selection,
+            preserve_dirty=False,
+        )
+
+    def set_display_units(self, *, length_unit: str, precision: int = 3) -> None:
+        """Apply #496 display units to every length field (storage stays SI)."""
+
+        for editor in (self.position_editor, self.size_editor):
+            editor.set_display_unit(length_unit, decimals=precision)
+        self.radius_field.set_display_unit(length_unit, decimals=precision)
 
     def _set_aim_state(
         self,
@@ -2228,8 +2876,9 @@ class SelectionInspector(QFrame):
         twist = edited_twist[0] if edited_twist is not None else exact.twist_deg
         if heading is None and abs(elevation) < 90.0 - 1e-6:
             # The user cleared a horizontal heading on a non-vertical pose.
-            raise ValueError(
-                "正面が水平方向を向く姿勢では水平向きを指定してください（垂直時のみ不定可）"
+            raise InspectorValidationError(
+                'transform',
+                "正面が水平方向を向く姿勢では水平向きを指定してください（垂直時のみ不定可）",
             )
         return orientation_from_view_angles(
             heading_deg=heading,
@@ -2247,6 +2896,98 @@ class SelectionInspector(QFrame):
             exact,
         )
 
+    def _body_geometry_from_fields(
+        self,
+        entity: SceneEntity,
+    ) -> EntityBodyGeometry | None:
+        """Current shape fields as body geometry (``box`` → ``None``).
+
+        Raises ``InspectorValidationError`` tagged to the geometry section on
+        malformed input so the workspace can paint the error next to the
+        offending field (#583).
+        """
+
+        shape = str(self.shape_field.currentData() or "box")
+        if shape == "cylinder":
+            return EntityBodyGeometry(
+                kind="cylinder",
+                radius_m=self.radius_field.value_m(),
+            )
+        if shape == "extruded_polygon":
+            try:
+                vertices = parse_footprint_vertices(self.footprint_field.text())
+            except ValueError as exc:
+                raise InspectorValidationError('geometry', str(exc)) from exc
+            return EntityBodyGeometry(
+                kind="extruded_polygon",
+                footprint_vertices=vertices,
+            )
+        if shape == "mesh_asset":
+            existing = entity.body_geometry
+            if existing is not None and existing.kind == "mesh_asset":
+                return existing
+            raise InspectorValidationError(
+                'geometry',
+                "メッシュボディは「メッシュを選択…」からインポートしてください",
+            )
+        # "box" downgrades to no explicit body geometry (legacy envelope).
+        return None
+
+    def _body_geometry_edited(self, entity: SceneEntity) -> object:
+        """``_UNSET`` when the shape fields still match the loaded baseline."""
+
+        if entity.size_m is None:
+            return _UNSET
+        shape = str(self.shape_field.currentData() or "box")
+        if shape != self._baseline.get("shape"):
+            return True
+        if shape == "cylinder" and abs(
+            self.radius_field.value() - float(self._baseline.get("radius", 0.0))
+        ) > 1e-9:
+            return True
+        if shape == "extruded_polygon" and self.footprint_field.text() != self._baseline.get(
+            "footprint", ""
+        ):
+            return True
+        if shape == "mesh_asset" and entity.body_geometry is None:
+            return True
+        return _UNSET
+
+    def edited_values(self, entity: SceneEntity) -> dict[str, object]:
+        """Only the properties the user changed since load (#583 batch commit).
+
+        Vector axes come back per-axis (``position_axes``/``size_axes``) so a
+        multi-entity commit edits one axis without flattening the others;
+        orientation and aim stay whole-property since they share a pose unit.
+        """
+
+        edited: dict[str, object] = {}
+        if self.name_field.text() != self._baseline.get("name", entity.name):
+            edited["name"] = self.name_field.text()
+        position_axes = self.position_editor.edited_axes_m()
+        if position_axes:
+            edited["position_axes"] = position_axes
+        if entity.size_m is not None:
+            size_axes = self.size_editor.edited_axes_m()
+            if size_axes:
+                edited["size_axes"] = size_axes
+        if entity.kind == "speaker":
+            if self.role_field.currentText() != self._baseline.get("role"):
+                text = self.role_field.currentText().strip()
+                edited["role"] = (
+                    "" if not text or text == SPEAKER_ROLE_UNASSIGNED_LABEL else text
+                )
+            aim = self._edited_aim_angles(entity)
+            if aim is not None:
+                edited["aim_yaw_pitch_deg"] = aim
+        if entity.kind in PHYSICAL_ENTITY_KINDS:
+            orientation = self._edited_orientation(entity)
+            if orientation is not None:
+                edited["orientation"] = orientation
+        if self._body_geometry_edited(entity) is not _UNSET:
+            edited["body_geometry"] = self._body_geometry_from_fields(entity)
+        return edited
+
     def values(
         self,
         entity: SceneEntity,
@@ -2259,46 +3000,25 @@ class SelectionInspector(QFrame):
         tuple[float, float] | None,
         EntityBodyGeometry | None,
     ]:
-        position = Position3(
-            x_m=self.position_fields["X"].value(),
-            y_m=self.position_fields["Y"].value(),
-            z_m=self.position_fields["Z"].value(),
+        # Unedited axes contribute their exact authority values — committing
+        # one axis never snaps the others to the display rounding (#583).
+        px, py, pz = self.position_editor.merged_values_m(
+            (entity.position.x_m, entity.position.y_m, entity.position.z_m)
         )
+        position = Position3(x_m=px, y_m=py, z_m=pz)
         size = None
         if entity.size_m is not None:
-            size = Size3(
-                x_m=self.size_fields["X"].value(),
-                y_m=self.size_fields["Y"].value(),
-                z_m=self.size_fields["Z"].value(),
+            sx, sy, sz = self.size_editor.merged_values_m(
+                (entity.size_m.x_m, entity.size_m.y_m, entity.size_m.z_m)
             )
+            size = Size3(x_m=sx, y_m=sy, z_m=sz)
         role = None
         if entity.kind == "speaker":
             text = self.role_field.currentText().strip()
             role = "" if not text or text == SPEAKER_ROLE_UNASSIGNED_LABEL else text
-        body_geometry: EntityBodyGeometry | None = None
-        if entity.size_m is not None:
-            shape = str(self.shape_field.currentData() or "box")
-            if shape == "cylinder":
-                body_geometry = EntityBodyGeometry(
-                    kind="cylinder",
-                    radius_m=self.radius_field.value(),
-                )
-            elif shape == "extruded_polygon":
-                body_geometry = EntityBodyGeometry(
-                    kind="extruded_polygon",
-                    footprint_vertices=parse_footprint_vertices(
-                        self.footprint_field.text()
-                    ),
-                )
-            elif shape == "mesh_asset":
-                existing = entity.body_geometry
-                if existing is not None and existing.kind == "mesh_asset":
-                    body_geometry = existing
-                else:
-                    raise ValueError(
-                        "メッシュボディは「メッシュを選択…」からインポートしてください"
-                    )
-            # "box" downgrades to no explicit body geometry (legacy envelope).
+        body_geometry: EntityBodyGeometry | None = entity.body_geometry
+        if entity.size_m is not None and self._body_geometry_edited(entity) is not _UNSET:
+            body_geometry = self._body_geometry_from_fields(entity)
         return (
             self.name_field.text(),
             position,
@@ -4520,28 +5240,36 @@ class RoomWorkspace(QWidget):
         if entity_id is None:
             return
         entity = self.controller.document.entity(entity_id)
+        selection_ids = tuple(self.controller.view_state.selection) or (entity_id,)
         try:
-            (
-                name,
-                position,
-                size,
-                role,
-                orientation,
-                aim_angles,
-                body_geometry,
-            ) = self.inspector.values(entity)
-            changed = self.controller.update_selected(
-                name=name,
-                position=position,
-                size_m=size,
-                speaker_role=role,
-                orientation=orientation,
-                aim_yaw_pitch_deg=aim_angles,
-                body_geometry=body_geometry,
-            )
+            if len(selection_ids) > 1:
+                changed = self._commit_inspector_batch(entity, selection_ids)
+            else:
+                (
+                    name,
+                    position,
+                    size,
+                    role,
+                    orientation,
+                    aim_angles,
+                    body_geometry,
+                ) = self.inspector.values(entity)
+                changed = self.controller.update_selected(
+                    name=name,
+                    position=position,
+                    size_m=size,
+                    speaker_role=role,
+                    orientation=orientation,
+                    aim_yaw_pitch_deg=aim_angles,
+                    body_geometry=body_geometry,
+                )
         except (EditStateError, ValueError) as exc:
+            # Rejected commits keep the user's in-progress edits (never a
+            # silent drop) and pin the error beside the field that caused it
+            # (#583). update_entities is atomic, so authority is unchanged.
             self._pending_editor_rejected = True
-            self._refresh_inspector()
+            section = exc.section if isinstance(exc, InspectorValidationError) else None
+            self.inspector.show_error(section, str(exc))
             self._set_status(str(exc), error=True)
             return
         if changed:
@@ -4549,6 +5277,77 @@ class RoomWorkspace(QWidget):
             self._refresh()
             suffix = " / " + " / ".join(notes) if notes else ""
             self._set_status(f"選択項目を更新しました{suffix}")
+
+    def _commit_inspector_batch(
+        self,
+        primary: SceneEntity,
+        selection_ids: tuple[str, ...],
+    ) -> bool:
+        """Apply the inspector's edited fields to every editable selection member.
+
+        Per-axis position/size edits merge into each entity's own values —
+        multi-edit never flattens unedited axes (#583). Name and speaker role
+        stay primary-only; transforms, orientation, aim and body geometry fan
+        out under the entity-kind guards the single edit path uses.
+        """
+
+        if not self.controller.can_edit:
+            raise EditStateError("現在の状態では選択項目を編集できません")
+        edited = self.inspector.edited_values(primary)
+        if not edited:
+            return False
+        name = cast("str | None", edited.get("name"))
+        position_axes = cast("dict[int, float] | None", edited.get("position_axes"))
+        size_axes = cast("dict[int, float] | None", edited.get("size_axes"))
+        orientation = cast("Quaternion4 | None", edited.get("orientation"))
+        aim_angles = cast(
+            "tuple[float, float] | None", edited.get("aim_yaw_pitch_deg")
+        )
+        role = cast("str | None", edited.get("role"))
+        body_geometry_present = "body_geometry" in edited
+        body_geometry = edited.get("body_geometry")
+        updates: dict[str, dict[str, object]] = {}
+        for entity_id in selection_ids:
+            if self.controller.view_state.is_locked(entity_id):
+                continue
+            entity = self.controller.document.entity(entity_id)
+            patch: dict[str, object] = {}
+            if entity_id == primary.entity_id:
+                if name is not None:
+                    patch["name"] = name.strip() or entity.name
+                if role is not None and entity.kind == "speaker":
+                    patch["speaker_role"] = role
+            if position_axes:
+                patch["position"] = Position3(
+                    x_m=position_axes.get(0, entity.position.x_m),
+                    y_m=position_axes.get(1, entity.position.y_m),
+                    z_m=position_axes.get(2, entity.position.z_m),
+                )
+            if size_axes and entity.size_m is not None:
+                patch["size_m"] = Size3(
+                    x_m=size_axes.get(0, entity.size_m.x_m),
+                    y_m=size_axes.get(1, entity.size_m.y_m),
+                    z_m=size_axes.get(2, entity.size_m.z_m),
+                )
+            if orientation is not None and entity.kind in PHYSICAL_ENTITY_KINDS:
+                patch["orientation"] = orientation
+            if aim_angles is not None and entity.kind == "speaker":
+                patch["aim_xyz"] = direction_from_yaw_pitch_deg(
+                    yaw_deg=aim_angles[0],
+                    pitch_deg=aim_angles[1],
+                )
+            if body_geometry_present and entity.size_m is not None:
+                patch["body_geometry"] = body_geometry
+            if patch:
+                updates[entity_id] = patch
+        if not updates:
+            return False
+        changed = self.controller.update_entities(updates)
+        if changed:
+            notes = self.controller.propagate_constraints(set(updates))
+            if notes:
+                self.controller._last_constraint_notes = notes
+        return changed
 
     def _aim_target_committed(self, target_id: object) -> None:
         try:
@@ -4674,12 +5473,23 @@ class RoomWorkspace(QWidget):
             and self.controller.can_edit
             and not self.controller.view_state.is_locked(entity.entity_id)
         )
+        selection: list[SceneEntity] = []
+        for member_id in self.controller.view_state.selection:
+            try:
+                selection.append(self.controller.document.entity(member_id))
+            except KeyError:
+                continue
         aim_targets = (
             self.controller.aim_targets()
             if entity is not None and entity.kind == "speaker"
             else ()
         )
-        self.inspector.set_entity(entity, editable=editable, aim_targets=aim_targets)
+        self.inspector.set_entity(
+            entity,
+            editable=editable,
+            aim_targets=aim_targets,
+            selection=tuple(selection),
+        )
 
     def _render(self, *, reset_camera: bool = False) -> None:
         overlays = replace(

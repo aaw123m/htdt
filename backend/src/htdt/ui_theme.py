@@ -71,7 +71,9 @@ class ScientificTokens:
     secondary_trace: ColorToken
     grid: ColorToken
     cursor: ColorToken
+    target: ColorToken
     scale: tuple[ColorToken, ...]
+    channels: tuple[ColorToken, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +89,25 @@ class ViewportTokens:
     gizmo_x: ColorToken
     gizmo_y: ColorToken
     gizmo_z: ColorToken
+    categories: 'ViewportCategoryTokens'
+
+
+@dataclass(frozen=True, slots=True)
+class ViewportCategoryTokens:
+    """Muted per-category fills for the semantic entity palette (#572).
+
+    Values stay low-saturation and keep clear distance from the scientific
+    trace palette (measured/predicted/cursor) so traces and status overlays
+    never visually collide with entity categories.
+    """
+
+    architecture: ColorToken
+    source: ColorToken
+    listener: ColorToken
+    display: ColorToken
+    treatment: ColorToken
+    infrastructure: ColorToken
+    reference: ColorToken
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,11 +237,25 @@ SCIENTIFIC = ScientificTokens(
     secondary_trace=ColorToken('#94A0AC'),
     grid=ColorToken('#2E3945'),
     cursor=ColorToken('#E9CE7A'),
+    target=ColorToken('#C9AE63'),
     scale=(
         ColorToken('#440154'),
         ColorToken('#31688E'),
         ColorToken('#35B779'),
         ColorToken('#FDE725'),
+    ),
+    # Bounded muted channel palette for multi-series legends (#579). Distinct
+    # from the evidence semantics (measured/predicted) so channel identity and
+    # evidence state never share a color.
+    channels=(
+        ColorToken('#7ED6FF'),
+        ColorToken('#F2A6C0'),
+        ColorToken('#9FD18B'),
+        ColorToken('#E4C06B'),
+        ColorToken('#8FB8C9'),
+        ColorToken('#C9A8E8'),
+        ColorToken('#D9A87E'),
+        ColorToken('#8FC9B4'),
     ),
 )
 
@@ -236,6 +271,15 @@ VIEWPORT = ViewportTokens(
     gizmo_x=ColorToken('#D66A6A'),
     gizmo_y=ColorToken('#6EBD78'),
     gizmo_z=ColorToken('#668FE0'),
+    categories=ViewportCategoryTokens(
+        architecture=ColorToken('#7E8791'),
+        source=ColorToken('#A8845C'),
+        listener=ColorToken('#7D9B86'),
+        display=ColorToken('#8494A8'),
+        treatment=ColorToken('#9B88A0'),
+        infrastructure=ColorToken('#8F857B'),
+        reference=ColorToken('#A9975F'),
+    ),
 )
 
 DARK_THEME = DarkThemeTokens(
@@ -403,6 +447,10 @@ QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled, QComboBox:disab
     background-color: {interaction.disabled_surface.hex};
     color: {t.disabled.hex};
     border-color: {s.separator.hex};
+}}
+/* In-progress (uncommitted) inspector edits — left accent tick (#583). */
+QLineEdit[inspectorDirty="true"], QDoubleSpinBox[inspectorDirty="true"], QComboBox[inspectorDirty="true"] {{
+    border-left: 3px solid {a.primary.hex};
 }}
 
 QAbstractItemView {{

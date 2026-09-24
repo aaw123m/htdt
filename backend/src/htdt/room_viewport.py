@@ -322,6 +322,193 @@ def _entity_mesh(entity: SceneEntity) -> pv.PolyData:
     return mesh
 
 
+# -- semantic visual language (#572) ------------------------------------------
+#
+# Entity kinds map onto a small set of functional categories. Each category has
+# a muted theme color (``viewport.categories``) and, for the kinds that need to
+# read at a glance, a low-cost glyph proxy built in entity-local render
+# coordinates. The authored ``size_m`` envelope stays the geometric authority:
+# semantic actors are render-only extras layered on (or inside) that envelope,
+# and they remain pickable and mapped back to the entity id like the envelope.
+
+_SEMANTIC_CATEGORY_BY_KIND: dict[str, str] = {
+    'speaker': 'source',
+    'seat': 'listener',
+    'screen': 'display',
+    'display': 'display',
+    'projector': 'display',
+    'av_equipment': 'infrastructure',
+    'riser': 'architecture',
+    'furniture': 'architecture',
+    'measurement_point': 'reference',
+    # 'treatment' is reserved for a future entity kind; the palette slot exists
+    # so treatment surfaces keep the same muted-mauve identity when they land.
+}
+
+# Category labels mirror room_workspace KIND_LABELS wording for the kinds that
+# actually appear in the legend.
+_CATEGORY_LEGEND_LABELS: dict[str, str] = {
+    'architecture': '建築・家具',
+    'source': 'スピーカー',
+    'listener': '座席・受聴位置',
+    'display': 'スクリーン・映像',
+    'treatment': '音響処理',
+    'infrastructure': '機器・ラック',
+    'reference': '測定点',
+}
+
+
+def _entity_category(entity: SceneEntity) -> str:
+    return _SEMANTIC_CATEGORY_BY_KIND.get(entity.kind, 'architecture')
+
+
+def _category_color(category: str) -> str:
+    return getattr(DARK_THEME.viewport.categories, category).hex
+
+
+def _shade_hex(color: str, factor: float) -> str:
+    """Darken a ``#RRGGBB`` hex color toward black by ``factor`` (0..1)."""
+
+    value = int(color.lstrip('#'), 16)
+    r = int(((value >> 16) & 0xFF) * factor)
+    g = int(((value >> 8) & 0xFF) * factor)
+    b = int((value & 0xFF) * factor)
+    return f'#{r:02X}{g:02X}{b:02X}'
+
+
+def _semantic_glyph_local_meshes(entity: SceneEntity) -> tuple[pv.PolyData, ...]:
+    """Semantic glyph proxies in entity-local render coordinates.
+
+    Local frame convention matches ``_entity_local_mesh``: x = local +X,
+    y = -local Y (so the entity front face sits at y = -dy/2), z = local +Z.
+    The pose transform is applied by the caller so these stay cheap template
+    meshes that never touch placement/physics state.
+    """
+
+    size = entity.size_m
+    if size is None:
+        return ()
+    x_m, y_m, z_m = float(size.x_m), float(size.y_m), float(size.z_m)
+    front_y = -y_m * 0.5
+    back_y = y_m * 0.5
+    if entity.kind == 'speaker':
+        # Baffle plate proud of the front face + a driver disc — the cabinet
+        # reads as "speaker" from any angle without needing the front ray.
+        depth = min(0.014, max(y_m * 0.05, 0.005))
+        plate = pv.Cube(
+            center=(0.0, front_y - depth * 0.5 - 0.001, 0.0),
+            x_length=x_m * 0.82,
+            y_length=depth,
+            z_length=z_m * 0.82,
+        )
+        driver = pv.Disc(
+            center=(0.0, front_y - depth - 0.0025, 0.0),
+            inner=0.0,
+            outer=min(x_m, z_m) * 0.20,
+            normal=(0.0, -1.0, 0.0),
+            r_res=28,
+        )
+        return (plate, driver)
+    if entity.kind in ('screen', 'display'):
+        # Image face inset into the front — a frame-thin proud panel.
+        depth = min(0.012, max(y_m * 0.12, 0.006))
+        panel = pv.Cube(
+            center=(0.0, front_y - depth * 0.5 - 0.001, 0.0),
+            x_length=x_m * 0.94,
+            y_length=depth,
+            z_length=z_m * 0.90,
+        )
+        return (panel,)
+    if entity.kind == 'projector':
+        # Lens barrel protruding from the front face.
+        radius = min(x_m, z_m) * 0.16
+        lens = pv.Cylinder(
+            center=(0.0, front_y - 0.018, z_m * 0.08),
+            direction=(0.0, -1.0, 0.0),
+            radius=max(radius, 0.012),
+            height=0.036,
+            resolution=24,
+        )
+        return (lens,)
+    if entity.kind == 'seat':
+        # Backrest slab rising at the rear (+local Y / render +Y) reads as a
+        # seat silhouette in plan and perspective views.
+        thick = max(y_m * 0.14, 0.025)
+        slab = pv.Cube(
+            center=(0.0, back_y - thick * 0.5, z_m * 0.18),
+            x_length=x_m * 0.92,
+            y_length=thick,
+            z_length=z_m * 0.58,
+        )
+        return (slab,)
+    if entity.kind == 'av_equipment':
+        # Rack/rack-stack read: three equipment shelf slats on the front face.
+        depth = min(0.016, max(y_m * 0.06, 0.008))
+        slats = [
+            pv.Cube(
+                center=(0.0, front_y - depth * 0.5 - 0.001, z_m * frac),
+                x_length=x_m * 0.78,
+                y_length=depth,
+                z_length=max(z_m * 0.11, 0.02),
+            )
+            for frac in (-0.27, 0.0, 0.27)
+        ]
+        return tuple(slats)
+    return ()
+
+
+def _semantic_marker_local_meshes(entity: SceneEntity) -> tuple[pv.PolyData, ...]:
+    """Measurement/reference marker: an axis crosshair + a small centre bead."""
+
+    if entity.kind != 'measurement_point':
+        return ()
+    half = 0.11
+    cross = pv.PolyData(
+        np.asarray(
+            [
+                (-half, 0.0, 0.0),
+                (half, 0.0, 0.0),
+                (0.0, -half, 0.0),
+                (0.0, half, 0.0),
+                (0.0, 0.0, -half),
+                (0.0, 0.0, half),
+            ],
+            dtype=float,
+        )
+    )
+    cross.lines = np.asarray(
+        [2, 0, 1, 2, 2, 3, 2, 4, 5],
+        dtype=np.int64,
+    )
+    bead = pv.Sphere(radius=0.028)
+    return (cross, bead)
+
+
+def semantic_entity_meshes(entity: SceneEntity) -> tuple[pv.PolyData, ...]:
+    """Render-only semantic proxies for ``entity``, posed to its transform.
+
+    An empty tuple means the kind relies on its envelope alone (architecture
+    category). Every returned mesh is safe to use as a pickable extra actor —
+    it carries no state and is rebuilt fresh each render.
+    """
+
+    local = (
+        _semantic_glyph_local_meshes(entity)
+        + _semantic_marker_local_meshes(entity)
+    )
+    if not local:
+        return ()
+    matrix = np.asarray(
+        domain_pose_to_render_matrix(entity.position, entity.orientation),
+        dtype=float,
+    )
+    meshes = []
+    for mesh in local:
+        mesh.transform(matrix, inplace=True)
+        meshes.append(mesh)
+    return tuple(meshes)
+
+
 class RoomViewport3D(QFrame):
     """Dark, scene-authority-neutral viewport for the UX120 Room workspace.
 
@@ -462,6 +649,7 @@ class RoomViewport3D(QFrame):
                 name="room-shell",
             )
 
+        semantic_categories: set[str] = set()
         for entity in document.entities:
             if entity.entity_id in self._hidden_ids:
                 # Hidden entities are not rendered, therefore not pickable —
@@ -478,6 +666,8 @@ class RoomViewport3D(QFrame):
             mesh = self._apply_section(_entity_mesh(entity))
             if mesh is None:
                 continue
+            category = _entity_category(entity)
+            fill_color = _category_color(category)
             edge_color = DARK_THEME.viewport.geometry_edge.hex
             if is_selected:
                 edge_color = DARK_THEME.viewport.selection_outline.hex
@@ -485,7 +675,7 @@ class RoomViewport3D(QFrame):
                 edge_color = DARK_THEME.text.muted.hex
             actor = self.plotter.add_mesh(
                 mesh,
-                color=DARK_THEME.viewport.geometry.hex,
+                color=fill_color,
                 show_edges=True,
                 edge_color=edge_color,
                 line_width=3 if is_primary else (2 if is_selected else 1),
@@ -498,6 +688,27 @@ class RoomViewport3D(QFrame):
                 name=f"entity-{entity.entity_id}",
             )
             self._actor_entity_ids[id(actor)] = entity.entity_id
+            # Semantic glyph proxies read as the entity's type at a glance;
+            # they are render-only, pick back to the entity, and dim with it.
+            glyph_opacity = (0.55 if is_locked else 0.98) if not focused_out else 0.12
+            for index, glyph in enumerate(semantic_entity_meshes(entity)):
+                glyph = self._apply_section(glyph)
+                if glyph is None:
+                    continue
+                glyph_actor = self.plotter.add_mesh(
+                    glyph,
+                    color=_shade_hex(fill_color, 0.72),
+                    show_edges=False,
+                    line_width=2 if is_selected else 1,
+                    opacity=glyph_opacity,
+                    ambient=0.30,
+                    diffuse=0.55,
+                    specular=0.15,
+                    specular_power=16.0,
+                    pickable=True,
+                    name=f"glyph-{entity.entity_id}-{index}",
+                )
+                self._actor_entity_ids[id(glyph_actor)] = entity.entity_id
             if (
                 entity.size_m is not None
                 and entity.body_geometry is not None
@@ -514,6 +725,7 @@ class RoomViewport3D(QFrame):
                     pickable=False,
                     name=f"envelope-{entity.entity_id}",
                 )
+            semantic_categories.add(category)
 
         if selected_id is not None:
             try:
@@ -563,6 +775,7 @@ class RoomViewport3D(QFrame):
             self._render_acoustic_overlay(document)
         if overlays.labels:
             self._render_labels(document, selected_id)
+        self._render_category_legend(semantic_categories)
 
         self.plotter.add_axes(
             color=DARK_THEME.text.muted.hex,
@@ -572,6 +785,30 @@ class RoomViewport3D(QFrame):
         if reset_camera:
             self.fit_scene()
         self.plotter.render()
+
+    def _render_category_legend(self, categories: set[str]) -> None:
+        """Small category key — appears only when two or more categories show.
+
+        The legend names categories, not individual entities, so it stays
+        compact as the scene grows. Entity labels remain the opt-in detail.
+        """
+
+        if len(categories) < 2:
+            return
+        labels = [
+            (_CATEGORY_LEGEND_LABELS[category], _category_color(category))
+            for category in sorted(categories)
+        ]
+        self.plotter.add_legend(
+            labels=labels,
+            loc="lower right",
+            face="rectangle",
+            size=(0.17, 0.035 * len(labels) + 0.02),
+            bcolor=DARK_THEME.text.secondary.hex,
+            border=False,
+            background_opacity=0.55,
+            name="semantic-category-legend",
+        )
 
     def render_measurement_overlay(
         self,
@@ -625,9 +862,12 @@ class RoomViewport3D(QFrame):
         if not entities:
             return
         for entity in entities:
+            # Ghosts stay wireframe — the proposed/current grammar is unchanged;
+            # only the fill color now carries the entity category (#572).
+            ghost_color = _category_color(_entity_category(entity))
             actor = self.plotter.add_mesh(
                 _entity_mesh(entity),
-                color=DARK_THEME.viewport.geometry_edge.hex,
+                color=ghost_color,
                 style="wireframe",
                 line_width=4 if entity.entity_id == selected_id else 2,
                 opacity=0.62 if entity.entity_id == selected_id else 0.34,
@@ -636,6 +876,18 @@ class RoomViewport3D(QFrame):
                 render=False,
             )
             self._actor_proposed_entity_ids[id(actor)] = entity.entity_id
+            for index, glyph in enumerate(semantic_entity_meshes(entity)):
+                glyph_actor = self.plotter.add_mesh(
+                    glyph,
+                    color=ghost_color,
+                    style="wireframe",
+                    line_width=2 if entity.entity_id == selected_id else 1,
+                    opacity=0.62 if entity.entity_id == selected_id else 0.30,
+                    pickable=True,
+                    name=f"proposal-glyph-{entity.entity_id}-{index}",
+                    render=False,
+                )
+                self._actor_proposed_entity_ids[id(glyph_actor)] = entity.entity_id
         self.plotter.add_text(
             label,
             name="proposal-ghost-label",
