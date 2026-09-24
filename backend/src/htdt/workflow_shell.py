@@ -49,10 +49,19 @@ from .workflow_navigation import (
     normalize_workspace_context,
     normalize_workspace_id,
 )
+from .workspace_dirty_state import (
+    DeactivationContext,
+    DirtyResolutionAction,
+    WorkspaceDirtyState,
+)
 
 
 DeactivationGuard: TypeAlias = Callable[[], tuple[bool, str | None]]
 CloseGuard: TypeAlias = Callable[[], tuple[bool, str | None]]
+DirtyStateProvider: TypeAlias = Callable[[], WorkspaceDirtyState]
+DirtyStateResolver: TypeAlias = Callable[
+    [DirtyResolutionAction], tuple[bool, str | None]
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +80,8 @@ class WorkspaceMount:
     on_activate: Callable[[], None] | None = None
     on_deactivate: Callable[[], None] | None = None
     before_deactivate: DeactivationGuard | None = None
+    dirty_state: DirtyStateProvider | None = None
+    resolve_dirty_state: DirtyStateResolver | None = None
     on_context_changed: Callable[[str], None] | None = None
     on_entity_requested: Callable[[str], None] | None = None
     on_close: Callable[[], None] | None = None
@@ -87,6 +98,8 @@ class WorkspaceMount:
         on_activate: Callable[[], None] | None = None,
         on_deactivate: Callable[[], None] | None = None,
         before_deactivate: DeactivationGuard | None = None,
+        dirty_state: DirtyStateProvider | None = None,
+        resolve_dirty_state: DirtyStateResolver | None = None,
         on_context_changed: Callable[[str], None] | None = None,
         on_entity_requested: Callable[[str], None] | None = None,
         focus_kinds: Iterable[NavigationTargetKind] = (),
@@ -97,6 +110,8 @@ class WorkspaceMount:
             on_activate=on_activate,
             on_deactivate=on_deactivate,
             before_deactivate=before_deactivate,
+            dirty_state=dirty_state,
+            resolve_dirty_state=resolve_dirty_state,
             on_context_changed=on_context_changed,
             on_entity_requested=on_entity_requested,
             on_close=widget.close,
@@ -202,6 +217,12 @@ class WorkspaceRouter(QStackedWidget):
         if current is not None and current.before_deactivate is not None:
             allowed, reason = current.before_deactivate()
             if not allowed:
+                # #610/#678: offer the operator an explicit Save/Discard/
+                # Recover-Draft decision before hard-blocking the switch.
+                allowed, reason = self._resolve_or_keep(
+                    current, "navigate", reason
+                )
+            if not allowed:
                 self.last_block_reason = reason or "現在の作業を完了してから画面を切り替えてください"
                 return None
 
@@ -266,6 +287,45 @@ class WorkspaceRouter(QStackedWidget):
                 label = self._registrations[workspace_id].label
                 return False, reason or f"{label}の作業を完了してから復元してください"
         return True, None
+
+    def mounts(self) -> tuple[tuple[DestinationId, WorkspaceMount], ...]:
+        """All mounted workspaces (project switch / exit resolution scans them)."""
+        return tuple(self._mounts.items())
+
+    def resolve_dispose_all(
+        self,
+        context: DeactivationContext,
+    ) -> tuple[bool, str | None]:
+        """``can_dispose_all`` with explicit dirty-state resolution (#610).
+
+        Each blocked mount gets the operator's explicit choice (save, discard,
+        keep as draft, recover, cancel). Only mounts that resolve cleanly
+        allow the dispose to proceed.
+        """
+        for workspace_id, mount in self._mounts.items():
+            if mount.before_deactivate is None:
+                continue
+            allowed, reason = mount.before_deactivate()
+            if not allowed:
+                allowed, reason = self._resolve_or_keep(mount, context, reason)
+            if not allowed:
+                label = self._registrations[workspace_id].label
+                return False, reason or f"{label}の作業を完了してから復元してください"
+        return True, None
+
+    def _resolve_or_keep(
+        self,
+        mount: WorkspaceMount,
+        context: DeactivationContext,
+        reason: str | None,
+    ) -> tuple[bool, str | None]:
+        from .dirty_state_dialog import resolve_mount_dirty_state
+
+        if resolve_mount_dirty_state(mount, context, parent=self):
+            if mount.before_deactivate is None:
+                return True, None
+            return mount.before_deactivate()
+        return False, reason
 
     def dispose_mounts(self) -> None:
         mounts = tuple(self._mounts.values())
@@ -758,7 +818,7 @@ class WorkflowShellWindow(QMainWindow):
         self.router.setEnabled(True)
 
     def dispose_data_workspaces(self) -> None:
-        allowed, reason = self.router.can_dispose_all()
+        allowed, reason = self.router.resolve_dispose_all("dispose")
         if not allowed:
             raise RuntimeError(reason or "現在の作業を完了してから復元してください")
         self.router.dispose_mounts()
@@ -770,13 +830,13 @@ class WorkflowShellWindow(QMainWindow):
                 self.statusBar().showMessage(reason or "現在の処理が完了してから終了してください")
                 event.ignore()
                 return
-        current = self.router.mount(self.router.current_workspace_id) if self.router.current_workspace_id else None
-        if current is not None and current.before_deactivate is not None:
-            allowed, reason = current.before_deactivate()
-            if not allowed:
-                self.statusBar().showMessage(reason or "現在の作業を完了してから終了してください")
-                event.ignore()
-                return
+        # #610: app exit gets the same explicit resolution as navigation,
+        # checked across every mounted workspace, not only the current one.
+        allowed, reason = self.router.resolve_dispose_all("exit")
+        if not allowed:
+            self.statusBar().showMessage(reason or "現在の作業を完了してから終了してください")
+            event.ignore()
+            return
         self.router.shutdown()
         super().closeEvent(event)
 

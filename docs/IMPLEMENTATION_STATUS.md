@@ -3,6 +3,26 @@
 > 更新: 2026-09-21 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90E software authority実装済み・actual owned-room evidence残件 / O100A〜O100G workflow-first software UX実装済み / UX160はPR #291の部分owned-Windows acceptanceと具体的不具合修正をmain反映したがfull gateはBLOCKED / Issue #170 StandardsProfile + workspace integration実装 / Issue #101: PR #289 R100B exact 4 GL2 substeps experimentはunchanged numerical gate PASSだがcandidate-wide production adoption NO_GO、PR #295 R130D target-window diagnostic後もNOT_VALIDATED、PR #292 R150 bounded one-Portal first-order reflectionをmain反映、PR #287 R160 unequal-grid reconciliation authority維持 / production solver・full numerical・R180・実室model gate未通過
 > 実装順は[ロードマップ](IMPLEMENTATION_ROADMAP.md)。旧browser/backendの詳細履歴は[2026-09-16 archive](IMPLEMENTATION_STATUS_ARCHIVE_2026-09-16.md)へ保存する。
 
+## 正本ドキュメントの責任分担と更新チェックリスト
+
+一つの実装事実を複数文書へ手で複写しない。責任は次のとおり:
+
+| 文書 | 役割 |
+|---|---|
+| IMPLEMENTATION_STATUS.md（本書） | mainに実装済みの**現在の事実**の唯一の正本 |
+| IMPLEMENTATION_ROADMAP.md | 実装順・依存・完了gate。実装済みfactは本書へ委ねる |
+| PROJECT_PLAN.md | 製品スコープ・non-goal。詳細なmilestone状態の複写はしない |
+| README.md | operator/developer向けの簡潔な現在地。詳細状態は本書の該当節へリンク |
+
+milestone状態を実質的に変えるPRは、関連する現在地の面だけを確認する:
+
+- 本書: 該当する現在状態の記述を更新（必須）
+- IMPLEMENTATION_ROADMAP.md: gate/markerが変わった場合のみ
+- README.md: ユーザーから見えるトップレベル状態が変わった場合のみ
+- PROJECT_PLAN.md: 製品スコープ/non-goalが変わった場合のみ
+
+過去の記録は見出しか行に基準日・snapshotと明示し、現在状態のように書かない。softwareが実装済みでも最終的な物理/visual acceptanceが未完了の場合、「残件」を実装残ではなくacceptance gate残と区別して書く。
+
 ## Native CAD — 現在地
 
 **N05〜N90のnative CAD release pathとO10〜O80のsoftware pathは実装済み。O90 robust/tolerance-aware optimizationはIssue #140で正式計画化し、O90A robustness authorityをPR #145、bounded multidimensional O90B foundationをPR #149で実装。Issue #146 completionでcanonical O90B authorityを完了し、O90CはPR #228/#236/#238でauditable multi-fidelity screening、R140 exact execution/cache、common-fidelity robust-Pareto finalizationまで実装済み。O90D workflow-first robustness software UIはPR #249で実装済み。O90E software authorityはPR #266で実装済みだが、actual owned-room evidenceは未登録のためproduction robustness gateはclosedのまま。UX160 owned-Windows visual acceptanceは未完了。O100 system expansion / virtual channel topology optimizationはIssue #142で正式計画化し、O100AをPR #144、O100BをPR #150、O100CをIssue #168、O100DをIssue #169、O100EをPR #228、O100FをIssue #229 / PR #231/#232/#233で実装。O100G backendはPR #235/#239でproposal lineage / explicit As-built / exact measured evidence、PR #244でSystemVariant-specific MeasurementPlan/Campaignまで実装済み。PR #255でRoom/Optimize workflow-first UX、Japanese-first lifecycle badge、proposal ghost、SystemVariant comparison、既存O90D「ばらつき耐性」内のread-only O100F proposal robustness表示、apply confirmation、SystemVariant measurement-state presentationを実装。Windows DPI/font/mouse/3D readability/clipping/first-use clarityはUX160 owned-Windows gateとして未完了。O70はPR #92/#93、O80はPR #94でmain反映済み。PR #94 merge `6faf554bcf3670f64ff13c530fa4fc79ab1881b8` はCI #548 / run `35313405578` とWindows Release Artifact #93 / run `35313405629`をPASSし、real-repository synthetic O10→O80 laneとpackaged seed/installerまで検証した。Issue #101のpost-0.1 arbitrary-room R-seriesはR100AをPR #110 / merge `1714c078d4063f59da93f0d733171547f7eb486d` でmain反映済み。R100B authority基盤はPR #111 / merge `7be0127fb352c7073d4a686f2e77cc22bc06eac3` でmain反映済み。raw observation evaluator / pyroomacoustics reference probeはPR #112 / merge `5725f8f2eecb150773202bf324132a34a40ba492`、PFFDTD Windows Python/Numba platform smokeはPR #113 / merge `ea5f5b8631e5097d37788210b2652b3089a28807` でmain反映済み。PR #115 / run `35349358027` でPFFDTD R100A rigid rectangular eigenfrequency fixtureは3段階grid convergence + p=2 Richardson extrapolationにより4 observableすべてPASS。accepted evidence summaryを `benchmarks/acoustics/evidence/r100b_pffdtd_rigid_modes_2026-09-18.json` に固定済み。MFEM rigid-room independent referenceはPR #114 / merge `245a3efc66144b81742d65c62ad99ba081fe7426` でmain反映済み。PR #116でpressure authority欠落を修正するR100A-2（density明示）とPFFDTD complex-pressure convergenceを実装し、専用workflowをPASS。R100A hash変更により旧R100B artifactはcurrent selectionにはstaleとなり、新authorityで再実行する。PR #151でPFFDTD native DEF boundary/reflection-functionによるexplicit impedance gateはPASSしたが、spatial FDTD incident/reflected pressure decompositionは未検証。PR #154でMFEM concave independent referenceを追加し、solver-qualified p2–p5 solveは得られたもののp-refinement非収束のためconcave referenceはFAIL、impedance complex-R extractionはR100A-2にincident/reflected decomposition authorityが無いためBLOCKED。PR #155でpyroomacoustics stochastic seed/convergence evidenceを追加し、same-seed raw histogram replayは再現したがfine estimatorのinsufficient supportによりfixtureはFAIL/non-converged。PR #160でMFEM Portal continuity cross-fixture gateを追加し、同一conforming mesh・内部共有面・境界条件なしの表現で281点のmagnitude/phase比較が全て一致してPortal fixtureはPASS。PR #267でcandidate-wide production-adoption readiness gateを実装し、current evidenceのmachine decisionは`NO_GO / additional evidence required`、ready candidateは0件。production solver selectionは未完了。一方、PR #243でbounded PFFDTD candidate wave execution、PR #250でactual CPU-baseline R140 executorをmainへ接続し、PR #259でpinned R130A PFFDTD Python/Numba CPU candidateのsolver-specific resource estimator・workload authority・actual R140 executor integrationを追加した。R150はPR #245でbounded deterministic direct/first-specular GA adapter foundation、PR #253でexact R120 semantic surfaceに基づくgeneral planar single-region first-orderを成立させ、PR #258でordered surface pairのbounded deterministic second-order specular reflectionまで拡張し、PR #265でexact 2-region + 1 open Portal + maximum 1 crossingのbounded deterministic direct propagationを追加した。R160はPR #254のtyped foundationに続き、PR #262でexact R130/R150 artifactをbindするbounded composition authorityまで実装した。さらにPR #260でR100Bのexact frequency-independent purely-resistive specific-impedance→PFFDTD DEF mappingを再利用し、actual non-rigid material executionまでR130B vertical sliceを接続した。PR #264でR130C positive-real normalized-admittance DEF authority、causal/passive/stable contract、valid-band fail-closed、deterministic compiled boundary、mixed-material PFFDTD execution、solver-specific resource-estimate provenance、independent normal-incidence magnitude/phase/passivity referenceまでを追加した。これらはproduction adoptionやfull R130/R150 numerical validationを意味しない。実室の独立validation evidenceもまだ無いため、`production_owned_room` recommendationとowned-room directional capabilityはIssue #83のreal-data gate成立までdisabledを維持する。**
@@ -526,7 +546,7 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - all-pass correction、coherent inter-channel phase correction、proprietary adapters、advanced PEQ generation、#174 joint optimization、owned-room production recommendation enablementはdeferred。
 - 詳細: [CalibrationPlan authority](CALIBRATION_PLAN.md)
 
-### Issue #142 / O100G MeasurementPlan / Campaign — 2026-09-20
+### Issue #142 / O100G MeasurementPlan / Campaign — 2026-09-20（当時のスナップショット）
 
 - exact SystemVariant/Application/applied-revision binding: implemented
 - exact AsBuilt record and actual revision binding: implemented
@@ -538,7 +558,7 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - measured lifecycle transition: reuses existing SystemVariantMeasuredRecord
 - generic N60 measurement auto-promotion: prohibited
 - O60 validation/recommendation implication: none
-- O100G overall status: partial; workflow UX/ghost-badge/measured comparison/UX160 remain
+- O100G overall status（2026-09-20時点）: partial。以後PR #255でworkflow-first software UX・badge/ghost・comparison・apply confirmation・measured presentationをmain反映済み。現行状態は上部のO100 tracking行を正本とする（残件はUX160 owned-Windows visual acceptanceのみ）
 - RDC: not used
 
 Details: [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md).
@@ -704,3 +724,68 @@ vendored fixture bundle (HTDT-Capture pinned commit
   is byte-identical to HTDT-Capture's phase-6 generator output (a
   production-Swift-authored bundle is preferred when available, per the
   registry note).
+
+## Project workflow authorities — 2026-09-24
+
+Issues #609, #610, #614, #620, #654, #655, #667, #668, #678 (backend authority
+and workspace UX; no hardware/physical-room evidence involved).
+
+- **DesignDecisionRecord (#654)** (`htdt/cad_design_decision.py` +
+  `cad_design_decision_repository.py`): immutable append-only record of the
+  adopted alternative — selected_ref ∈ considered_refs, typed authority
+  refs, decision_scope, lifecycle_intent, rationale tags, accepted
+  tradeoffs/assumption refs, supersedes chain, sha256 self-verifying.
+  No auto-winner: the record never picks a winner itself.
+- **ProjectActionItem + spatial notes (#667)** (`htdt/cad_action_item.py` +
+  `cad_action_item_repository.py`): action_id/statuses/priority, typed
+  subject refs (entity/measurement/prediction/calibration/decision/…),
+  optional ActionSpatialAnchor that is NOT a SceneEntity, archive over
+  delete, upsert repository with cross-document rebind rejection. No
+  PM-suite features (no assignees/due dates/comments).
+- **Evidence-gap register (#620)** (`htdt/cad_evidence_register.py` +
+  `cad_assumption_decision.py` + repository): derived rebuildable register
+  projecting UNKNOWN/MISSING_EVIDENCE/ASSUMED/INFERRED/UNVERIFIED/
+  UNSUPPORTED/UNRESOLVED_DEPENDENCY/STALE classifications plus
+  USER_ATTESTED via scoped `AssumptionDecision` records (design-checkpoint /
+  analysis-study / project / commissioning-run scopes, expiry, supersedes).
+  Deterministic gap_id from the semantic payload; no confidence score.
+- **ProjectTemplate (#614)** (`htdt/cad_project_template.py` + repository):
+  template authority (speakers + design brief + measurement spec only —
+  measurements/capture/bindings/serials/predictions/calibrations never
+  copied), save-from-document preview, materialization with fresh entity
+  ids, `create_project_from_template` with a fresh document identity and
+  recorded instantiation provenance. Built-ins: 5.1.4 and 7.1.4 theater
+  starters (Dolby-style azimuths) and a TV-room starter using direct-view
+  display intent (never a fake projector/passive screen).
+- **CalibrationDeviceAdapter framework (#609)** (`htdt/cad_device_adapter.py`
+  + `cad_device_adapter_file.py`): capability/materialization/apply/
+  read-back contract keeping exported settings, bound-device materialized
+  payloads, apply acknowledgments and observed installed state strictly
+  separate — apply is never conflated with installed state and read-back
+  requires explicit operator-confirmed device binding. `FileCalibrationAdapter`
+  is the deterministic offline Stage-A adapter (file materialization +
+  read-back JSON); `apply` is capability-gated (`supports_apply=False`
+  raises `AdapterCapabilityError`) and live adapters require
+  `operator_confirmed` plus binding-sha equality. `diff_observed_vs_exported`
+  gives field-level deviation semantics on top of `CadAppliedSettingsRecord`.
+- **Dirty-state resolution UX (#610 + #678)** (`htdt/workspace_dirty_state.py`
+  + `htdt/dirty_state_dialog.py` + shell/controller ports): navigation,
+  app exit, project switch and data dispose now offer explicit
+  Save/Discard/Recover-Draft/keep-as-draft/cancel decisions through one
+  shared prompt contract instead of a hard block. `WorkspaceMount` gained
+  `dirty_state` + `resolve_dirty_state` ports; Room/Optimization/
+  Measurement mounts implement them (staged `_pending` measurement imports
+  joined the contract). keep_draft persists a recovery snapshot and
+  releases exactly that acknowledged state — new edits re-block; preview
+  is never silently committed; a failed resolution keeps the context.
+- **Docs only (#655, #668)**: `docs/PRODUCT_DOMAIN_BOUNDARY_CHARTER.md`
+  (Tier A/B/C depth + canonical domain map, linked from PROJECT_PLAN.md
+  and the README docs table); O100G status made consistent across README /
+  PROJECT_PLAN / IMPLEMENTATION_STATUS (PR #255 software implemented;
+  historical snapshots labeled), plus a canonical-document responsibility
+  and per-surface update checklist at the top of IMPLEMENTATION_STATUS.md.
+- **Verified on Linux**: scoped pytest for each authority (10 + 8 + 15 + 11
+  + 10 + 14 cases) plus the affected workflow-shell/measurement/seed
+  suites; `python -m compileall src/htdt` clean. QMessageBox interaction,
+  native-window exit flow and Windows DPI behavior are GUI/Windows-gated
+  and untested here.

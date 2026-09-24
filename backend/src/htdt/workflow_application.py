@@ -95,6 +95,7 @@ from .room_prediction import RoomPredictionController, RoomPredictionPanel
 from .room_transform_input import RoomEntityTransformController
 from .room_viewport import RoomViewport3D
 from .room_workspace import RoomWorkspace
+from .workspace_dirty_state import WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .workflow_help import HelpDialog
 from .workflow_navigation import (
@@ -367,7 +368,9 @@ class WorkflowApplicationComposition:
         """Switch the whole composition to another persisted document (#649)."""
         if document_id == self.document_id:
             return
-        allowed, reason = self.shell.router.can_dispose_all()
+        # #610: project switching offers the same explicit Save/Discard/
+        # Recover-Draft resolution instead of a hard block.
+        allowed, reason = self.shell.router.resolve_dispose_all('project_switch')
         if not allowed:
             self.shell.statusBar().showMessage(
                 reason or '現在の作業を完了してからプロジェクトを切り替えてください'
@@ -967,6 +970,11 @@ class WorkflowApplicationComposition:
                 return allowed, reason
             return workspace.before_deactivate()
 
+        def dirty_state() -> WorkspaceDirtyState:
+            if prediction.before_deactivate()[0] is False:
+                return 'busy'
+            return workspace.controller.dirty_state()
+
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
             if target.primary_id is None:
                 return TargetFocusResult(focused=True)
@@ -985,6 +993,8 @@ class WorkflowApplicationComposition:
             on_activate=activate,
             on_deactivate=deactivate,
             before_deactivate=before_deactivate,
+            dirty_state=dirty_state,
+            resolve_dirty_state=workspace.controller.resolve_dirty_state,
             on_context_changed=workspace.set_context,
             on_entity_requested=workspace.select_entity,
             on_close=close,

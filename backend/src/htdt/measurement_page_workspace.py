@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from hashlib import sha256
+import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -75,6 +77,7 @@ from .ui_theme import (
     set_typography_role,
 )
 from .workflow_shell import WorkspaceFactory, WorkspaceMount
+from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 
 
 _CONTEXT_IDS = ("import", "assignment", "campaign", "quality", "comparison")
@@ -388,6 +391,9 @@ class MeasurementPageWorkspace(QWidget):
         self._spatial_context: Any = None
         self._spatial_viewport: Any = None
         self._spatial_viewport_failed = False
+        # Semantic identity of the staged import acknowledged via keep_draft
+        # (#610/#796); a re-staged or re-created import re-blocks.
+        self._pending_release: str | None = None
 
         self.setObjectName("measurementPageWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
@@ -3298,10 +3304,70 @@ class MeasurementPageWorkspace(QWidget):
         self.notice.setVisible(bool(message))
         set_semantic_state(self.notice, state)
 
+    @staticmethod
+    def _pending_token(pending: PendingMeasurementImport) -> str:
+        """Exact identity of the staged import (#796).
+
+        A semantic hash of the staged content — source, scene pins, sample
+        payload and scalar stage fields — not the Python object id, so a
+        re-created equivalent pending object cannot silently defeat the
+        acknowledgement.
+        """
+
+        payload = {
+            'source_kind': pending.source_kind,
+            'source_label': pending.source_label,
+            'scene_revision_id': pending.scene_revision_id,
+            'scene_content_hash': pending.scene_content_hash,
+            'frequency_hz': pending.frequency_hz,
+            'level_db': pending.level_db,
+            'has_phase_samples': pending.has_phase_samples,
+            'scene_revision_explicit': pending.scene_revision_explicit,
+            'raw_filename': pending.raw_filename,
+            'raw_text_head': (
+                None if pending.raw_text is None
+                else pending.raw_text[:4000].decode('utf-8', 'replace')
+            ),
+        }
+        blob = json.dumps(
+            payload, sort_keys=True, separators=(',', ':'),
+            ensure_ascii=False, allow_nan=False,
+        ).encode('utf-8')
+        return sha256(blob).hexdigest()
+
     def before_deactivate(self) -> tuple[bool, str | None]:
         if self._job_pool.active_count:
             return False, "REWの読み込み処理が完了してから画面を切り替えてください"
+        pending = self.controller.pending_import
+        if pending is not None and self._pending_token(pending) != self._pending_release:
+            return False, "取り込み途中の測定データを確定または破棄してから画面を切り替えてください"
         return True, None
+
+    def dirty_state(self) -> WorkspaceDirtyState:
+        """#610: the staged import joins the deactivation contract."""
+        if self._job_pool.active_count:
+            return 'busy'
+        pending = self.controller.pending_import
+        if pending is not None and self._pending_token(pending) != self._pending_release:
+            return 'pending_import'
+        return 'clean'
+
+    def resolve_dirty_state(
+        self, action: DirtyResolutionAction
+    ) -> tuple[bool, str | None]:
+        pending = self.controller.pending_import
+        if action == 'keep_draft':
+            if pending is None:
+                return False, '取り込み途中のデータがありません'
+            # Acknowledge this exact staged import; a new stage re-blocks.
+            self._pending_release = self._pending_token(pending)
+            return True, '取り込み途中のデータを残しました'
+        if action == 'discard_pending':
+            self.controller.clear_pending()
+            self._pending_release = None
+            self.refresh()
+            return True, '取り込み途中のデータを破棄しました'
+        return False, 'この状態では実行できない操作です'
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._disposed = True
@@ -3325,6 +3391,8 @@ def build_measurement_workspace_mount(
         workspace,
         on_activate=workspace.refresh,
         before_deactivate=workspace.before_deactivate,
+        dirty_state=workspace.dirty_state,
+        resolve_dirty_state=workspace.resolve_dirty_state,
         on_context_changed=workspace.set_context,
         on_entity_requested=workspace.focus_entity,
     )
