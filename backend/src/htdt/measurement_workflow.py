@@ -58,6 +58,7 @@ from .cad_measurement_quality import (
     unestablished_capability_claims,
     unestablished_common_timing_capability,
 )
+from .cad_measurement_authorities import routing_profile_binding
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurement_runner import (
@@ -156,6 +157,14 @@ class AcquisitionCapture:
     # persisted context seals it so predicted-vs-measured environment
     # comparison resolves from authority, not assumptions.
     environment_ref: 'ExactExternalAuthorityRef | None' = None
+    # #849/#850: explicit scope identity the persisted context proves —
+    # the immutable acquisition session the capture belongs to, the full
+    # device/path/clock configuration fingerprint (persistent timing
+    # scope) and the input-chain fingerprint (instrument calibration
+    # scope).
+    acquisition_session_id: str | None = None
+    signal_path_identity: str | None = None
+    input_path_identity: str | None = None
     notes: tuple[str, ...] = ()
 
     @classmethod
@@ -171,6 +180,9 @@ class AcquisitionCapture:
             sample_rate_hz=context.sample_rate_hz,
             delay_correction_s=context.delay_correction_s,
             environment_ref=context.environment_ref,
+            acquisition_session_id=context.acquisition_session_id,
+            signal_path_identity=context.signal_path_identity,
+            input_path_identity=context.input_path_identity,
             notes=context.notes,
         )
 
@@ -720,8 +732,17 @@ class MeasurementWorkflowController:
         profile's entry for the assignment role carries — used only when the
         assignment left ``source_speaker_ids`` empty, so an explicit manual
         selection always wins over a derived one.
+
+        ``routing_evidence='verified'`` is the strong claim: it requires a
+        bound profile scoped to this exact document whose entry for the
+        role was itself verified — a bare evidence label can never stand
+        in for a resolvable routing authority (#858).
         """
         if assignment.routing_profile_id is None:
+            if assignment.routing_evidence == 'verified':
+                raise MeasurementWorkflowError(
+                    "検証済みルーティングを主張するには保存済みルーティングプロファイルが必要です"
+                )
             return None, ()
         profile = self.quality_repository.get_routing_profile(
             assignment.routing_profile_id
@@ -731,7 +752,36 @@ class MeasurementWorkflowController:
                 f"保存済みルーティングプロファイルを確認できません: "
                 f"{assignment.routing_profile_id}"
             )
+        if (
+            profile.document_id is not None
+            and profile.document_id != self.document_id
+        ):
+            raise MeasurementWorkflowError(
+                "ルーティングプロファイルはこのプロジェクトのものではありません"
+            )
         entry = profile.entry_for_role(assignment.channel_role)
+        if assignment.routing_evidence == 'verified' and (
+            profile.document_id is None
+            or entry is None
+            or entry.verification != 'verified'
+        ):
+            raise MeasurementWorkflowError(
+                "検証済みルーティングの主張には、このプロジェクトにスコープされた"
+                "プロファイル内の検証済みチャネルマップエントリが必要です"
+            )
+        if (
+            entry is not None
+            and entry.observed_speaker_ids
+            and assignment.source_speaker_ids
+            and frozenset(assignment.source_speaker_ids)
+            != frozenset(entry.observed_speaker_ids)
+        ):
+            # The summary cannot silently contradict the bound verified
+            # authority — diverging speakers require a different profile.
+            raise MeasurementWorkflowError(
+                "割り当てのソーススピーカーがルーティングプロファイルの"
+                "検証済みエントリと一致しません"
+            )
         provenance: dict[str, Any] = {
             'routing_profile_id': profile.routing_profile_id,
             'routing_profile_sha256': profile.routing_profile_sha256,
@@ -1856,9 +1906,29 @@ class MeasurementWorkflowController:
             measurement_direction=assignment.measurement_direction,
             timing_reference_sha256=assignment.acquisition.timing_reference_sha256,
             environment_ref=assignment.acquisition.environment_ref,
+            acquisition_session_id=assignment.acquisition.acquisition_session_id,
+            signal_path_identity=assignment.acquisition.signal_path_identity,
+            input_path_identity=assignment.acquisition.input_path_identity,
+            routing_profile=self._routing_context_binding(assignment),
             notes=assignment.acquisition.notes,
         )
         self.quality_repository.save_acquisition_context(context)
+
+    def _routing_context_binding(
+        self, assignment: MeasurementAssignment
+    ):
+        """Exact routing-profile binding persisted on the context (#858)."""
+        if assignment.routing_profile_id is None:
+            return None
+        profile = self.quality_repository.get_routing_profile(
+            assignment.routing_profile_id
+        )
+        if profile is None:
+            raise MeasurementWorkflowError(
+                f"保存済みルーティングプロファイルを確認できません: "
+                f"{assignment.routing_profile_id}"
+            )
+        return routing_profile_binding(profile)
 
     def discard_batch_committed(self) -> None:
         """Drop committed entries from the queue (keeps unfinished items)."""
