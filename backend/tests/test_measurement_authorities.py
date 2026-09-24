@@ -244,6 +244,7 @@ def test_level_calibration_roundtrip(tmp_path):
     calibration = build_acoustic_level_calibration(
         method='acoustic_calibrator',
         instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
         input_path_identity='umik-1:usb-in:ch0:gain-unity',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
@@ -263,6 +264,14 @@ def test_manufacturer_sensitivity_is_not_absolute_spl():
         assert not calibration_supports_absolute_spl(
             build_acoustic_level_calibration(method=method)
         )
+    # A bare method enum authorizes nothing — each capable method must
+    # carry its minimum evidence set, and the builder refuses records
+    # that lack it (#827/#850).
+    for method in ('acoustic_calibrator', 'rew_spl_session', 'reference_meter_transfer'):
+        with pytest.raises(ValueError):
+            build_acoustic_level_calibration(method=method)
+    # The build-time minimum alone is still not complete evidence: input
+    # chain, result/session record and applicability scope are missing.
     for method, kwargs in (
         (
             'acoustic_calibrator',
@@ -274,8 +283,37 @@ def test_manufacturer_sensitivity_is_not_absolute_spl():
         ('rew_spl_session', {'acquisition_session_id': 'sess-1'}),
         ('reference_meter_transfer', {'instrument_identity': 'sc-05 sn-1234'}),
     ):
-        assert calibration_supports_absolute_spl(
+        assert not calibration_supports_absolute_spl(
             build_acoustic_level_calibration(method=method, **kwargs)
+        )
+    complete = {
+        'acoustic_calibrator': dict(
+            instrument_identity='sc-05 sn-1234',
+            instrument_profile='cal-session-2026-09-20',
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            reference_level_db_spl=94.0,
+            reference_frequency_hz=1000.0,
+            validity_scope='instrument',
+        ),
+        'rew_spl_session': dict(
+            instrument_profile='rew-spl-2026-09-20',
+            acquisition_session_id='sess-1',
+            input_device_label='focusrite-scarlett',
+            reference_level_db_spl=83.0,
+            validity_scope='session',
+        ),
+        'reference_meter_transfer': dict(
+            instrument_identity='b&k-2250 sn-8001',
+            instrument_profile='transfer-2026-09-20',
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            input_device_label='focusrite-scarlett',
+            reference_level_db_spl=94.0,
+            validity_scope='instrument',
+        ),
+    }
+    for method, evidence in complete.items():
+        assert calibration_supports_absolute_spl(
+            build_acoustic_level_calibration(method=method, **evidence)
         )
 
 
@@ -284,6 +322,8 @@ def test_dataset_level_reference_binding(tmp_path):
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
     calibration = build_acoustic_level_calibration(
         method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
         calibrated_at_utc='2026-09-20T00:00:00+00:00',
@@ -291,6 +331,14 @@ def test_dataset_level_reference_binding(tmp_path):
         subject_measurement_id=record.measurement_id,
     )
     quality_repository.save_level_calibration(calibration)
+    # The exact acquisition context covering the dataset's measurement is
+    # required before the calibration's applicability is verifiable (#827).
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(record.measurement_id,),
+        )
+    )
 
     reference = build_dataset_level_reference(
         measurement_id=record.measurement_id,
@@ -321,6 +369,128 @@ def test_absolute_spl_requires_supporting_calibration(tmp_path):
     )
     with pytest.raises(ValueError, match='absolute SPL'):
         quality_repository.save_dataset_level_reference(reference)
+
+
+def _complete_spl_calibration(**overrides):
+    kwargs = dict(
+        method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        reference_level_db_spl=94.0,
+        reference_frequency_hz=1000.0,
+        calibrated_at_utc='2026-09-20T00:00:00+00:00',
+        validity_scope='instrument',
+    )
+    kwargs.update(overrides)
+    return build_acoustic_level_calibration(**kwargs)
+
+
+def _absolute_spl_reference(record, dataset, calibration):
+    return build_dataset_level_reference(
+        measurement_id=record.measurement_id,
+        dataset_id=dataset.dataset_id,
+        dataset_sha256=dataset.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+
+
+def test_absolute_spl_rejects_incomplete_calibration_evidence(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    # A calibrator record that passes the build-time minimum but lacks the
+    # input-chain identity and a declared applicability scope documents
+    # evidence gaps, not an authorized absolute SPL claim (#827).
+    partial = _complete_spl_calibration(
+        instrument_identity=None,
+        input_device_label=None,
+        input_channel=None,
+        input_path_identity=None,
+        validity_scope='unknown',
+    )
+    quality_repository.save_level_calibration(partial)
+    with pytest.raises(ValueError, match='missing evidence'):
+        quality_repository.save_dataset_level_reference(
+            _absolute_spl_reference(record, dataset, partial)
+        )
+
+
+def test_absolute_spl_requires_covering_acquisition_context(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    calibration = _complete_spl_calibration()
+    quality_repository.save_level_calibration(calibration)
+    # Only a context covering a *different* measurement exists — the
+    # instrument-scoped calibration's applicability to THIS dataset's
+    # acquisition can never be proven (#827/#859).
+    other, _ = _save_measurement(measurement_repository, revision, 'm-2')
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(other.measurement_id,),
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        )
+    )
+    with pytest.raises(ValueError, match='does not cover'):
+        quality_repository.save_dataset_level_reference(
+            _absolute_spl_reference(record, dataset, calibration)
+        )
+
+
+def test_absolute_spl_rejects_inapplicable_calibration(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    # The calibration was taken on a different microphone chain than the
+    # acquisition context used for this dataset.
+    calibration = _complete_spl_calibration(
+        instrument_identity='other-mic sn-9999',
+    )
+    quality_repository.save_level_calibration(calibration)
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(record.measurement_id,),
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            microphone=CadMicrophoneCapture(
+                model='UMIK-1',
+                serial='sc-05 sn-1234',
+                connection='focusrite-scarlett',
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match='does not apply'):
+        quality_repository.save_dataset_level_reference(
+            _absolute_spl_reference(record, dataset, calibration)
+        )
+
+
+def test_absolute_spl_accepted_when_calibration_applies(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    calibration = _complete_spl_calibration(
+        input_device_label='focusrite-scarlett',
+    )
+    quality_repository.save_level_calibration(calibration)
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(record.measurement_id,),
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            microphone=CadMicrophoneCapture(
+                model='UMIK-1',
+                serial='sc-05 sn-1234',
+                connection='focusrite-scarlett',
+            ),
+        )
+    )
+    reference = _absolute_spl_reference(record, dataset, calibration)
+    quality_repository.save_dataset_level_reference(reference)
+    assert (
+        quality_repository.get_dataset_level_reference(dataset.dataset_id)
+        == reference
+    )
 
 
 def test_non_absolute_level_reference_forbids_calibration(tmp_path):
@@ -1317,6 +1487,8 @@ def test_calibration_applies_only_to_declared_subject(tmp_path):
     m2, d2 = _save_measurement(measurement_repository, revision, 'm-2')
     calibration = build_acoustic_level_calibration(
         method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
         validity_scope='measurement',
@@ -1360,6 +1532,9 @@ def test_calibration_session_scope_uses_context_session(tmp_path):
     m2, d2 = _save_measurement(measurement_repository, revision, 'm-2')
     calibration = build_acoustic_level_calibration(
         method='rew_spl_session',
+        instrument_profile='rew-spl-2026-09-20',
+        input_device_label='focusrite-scarlett',
+        reference_level_db_spl=83.0,
         validity_scope='session',
         acquisition_session_id='sess-1',
     )
@@ -1404,9 +1579,12 @@ def test_calibration_instrument_scope_uses_input_path(tmp_path):
     m1, d1 = _save_measurement(measurement_repository, revision, 'm-1')
     calibration = build_acoustic_level_calibration(
         method='reference_meter_transfer',
-        validity_scope='instrument',
         instrument_identity='sc-05 sn-1234',
+        instrument_profile='transfer-2026-09-20',
         input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        input_device_label='focusrite-scarlett',
+        reference_level_db_spl=94.0,
+        validity_scope='instrument',
     )
     quality_repository.save_level_calibration(calibration)
     # No context proves the input chain → applicability cannot be proven.
@@ -1435,6 +1613,8 @@ def test_calibration_unknown_scope_stays_uncalibrated(tmp_path):
     m1, d1 = _save_measurement(measurement_repository, revision, 'm-1')
     calibration = build_acoustic_level_calibration(
         method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
     )
@@ -1447,7 +1627,7 @@ def test_calibration_unknown_scope_stays_uncalibrated(tmp_path):
         calibration_id=calibration.calibration_id,
         calibration_sha256=calibration.calibration_sha256,
     )
-    with pytest.raises(ValueError, match='does not cover'):
+    with pytest.raises(ValueError, match='applicability scope'):
         quality_repository.save_dataset_level_reference(reference)
 
 
