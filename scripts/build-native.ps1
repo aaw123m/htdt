@@ -126,6 +126,7 @@ try {
         --add-data "$RuntimeIcon;htdt_branding" `
         --add-data "$BuildInfoFile;htdt_build" `
         --paths "$RepoRoot\backend\src" `
+        --collect-submodules htdt `
         --collect-all pyvista `
         --collect-all pyvistaqt `
         --distpath $OutputDir `
