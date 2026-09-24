@@ -466,7 +466,9 @@ class MeasurementWorkflowController:
         self.listener_pose_repository = (
             listener_pose_repository
             if listener_pose_repository is not None
-            else CadListenerPoseRepository(scene_repository.path)
+            else CadListenerPoseRepository(
+                scene_repository.path, scene_repository
+            )
         )
 
     @property

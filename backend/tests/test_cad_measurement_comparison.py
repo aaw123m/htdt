@@ -421,8 +421,12 @@ def _level_calibration(quality_repository, *, method='acoustic_calibrator'):
 
     calibration = build_acoustic_level_calibration(
         method=method,
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        input_path_identity='umik-1:usb-in:ch0:gain-unity',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
+        validity_scope='instrument',
     )
     quality_repository.save_level_calibration(calibration)
     return calibration
@@ -435,7 +439,18 @@ def _bind_level_reference(
     calibration=None,
 ) -> None:
     from htdt.cad_measurement_authorities import build_dataset_level_reference
+    from htdt.cad_measurement_quality import build_acquisition_context
 
+    if kind == 'absolute_spl' and calibration is not None:
+        # An instrument-scoped calibration only applies to acquisitions on
+        # the same input path — persist a covering context (#850/#859).
+        quality_repository.save_acquisition_context(
+            build_acquisition_context(
+                source_kind='native',
+                subject_measurement_ids=(dataset.measurement_id,),
+                input_path_identity=calibration.input_path_identity,
+            )
+        )
     quality_repository.save_dataset_level_reference(
         build_dataset_level_reference(
             measurement_id=dataset.measurement_id,

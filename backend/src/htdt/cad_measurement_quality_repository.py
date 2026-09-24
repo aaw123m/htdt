@@ -20,6 +20,7 @@ from .cad_measurement_authorities import (
     CadWiringVerificationCheck,
     _validate_calibration_scope_identity,
     _validate_timing_scope_identity,
+    absolute_spl_evidence_gaps,
     calibration_applies_to,
     calibration_supports_absolute_spl,
     timing_reference_scope_is_applicable,
@@ -1190,14 +1191,13 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'dataset level reference binds an unknown calibration'
                 )
-            if (
-                reference.level_reference_kind == 'absolute_spl'
-                and not calibration_supports_absolute_spl(calibration)
-            ):
-                raise ValueError(
-                    'bound calibration method does not authorize '
-                    'absolute SPL'
-                )
+            if reference.level_reference_kind == 'absolute_spl':
+                gaps = absolute_spl_evidence_gaps(calibration)
+                if gaps:
+                    raise ValueError(
+                        'bound calibration does not authorize absolute SPL '
+                        f'— missing evidence: {", ".join(gaps)}'
+                    )
             if (
                 reference.level_reference_kind == 'absolute_spl'
                 and not self._calibration_applies_to_measurement(
@@ -1212,6 +1212,10 @@ class CadMeasurementQualityRepository:
                     'bound calibration scope does not cover this '
                     'measurement acquisition — absolute SPL requires '
                     'proven applicability'
+                )
+            if reference.level_reference_kind == 'absolute_spl':
+                self._verify_absolute_spl_applicability(
+                    reference, calibration
                 )
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
@@ -1240,6 +1244,75 @@ class CadMeasurementQualityRepository:
                     reference.created_at_utc,
                 ),
             )
+
+    def _verify_absolute_spl_applicability(
+        self,
+        reference: CadDatasetLevelReference,
+        calibration: CadAcousticLevelCalibration,
+    ) -> None:
+        """Cross-check the calibration's declared input chain (#827).
+
+        Beyond scope replay, input-chain fields declared on both the
+        calibration and a covering acquisition context must agree: a
+        calibration taken on a different input device or microphone chain
+        never transfers silently. Fields declared on only one side are
+        documented but not contradicted.
+        """
+        contexts = self._acquisition_contexts_covering(
+            reference.measurement_id
+        )
+        mismatches = [
+            mismatch
+            for context in contexts
+            if (mismatch := self._calibration_context_mismatch(calibration, context))
+            is not None
+        ]
+        if mismatches and len(mismatches) == len(contexts):
+            raise ValueError(
+                'bound calibration does not apply to the dataset '
+                f'acquisition context: {mismatches[0]}'
+            )
+
+    @staticmethod
+    def _calibration_context_mismatch(
+        calibration: CadAcousticLevelCalibration,
+        context: CadAcquisitionContext,
+    ) -> str | None:
+        microphone = context.microphone
+        if (
+            calibration.input_device_label is not None
+            and microphone is not None
+            and microphone.connection is not None
+            and calibration.input_device_label != microphone.connection
+        ):
+            return (
+                'calibration input device differs from the acquisition '
+                'input device'
+            )
+        if (
+            calibration.method
+            in ('acoustic_calibrator', 'rew_spl_session')
+            and calibration.instrument_identity is not None
+            and microphone is not None
+        ):
+            mic_identities = {
+                value
+                for value in (
+                    microphone.serial,
+                    microphone.model,
+                    microphone.manufacturer,
+                )
+                if value
+            }
+            if (
+                mic_identities
+                and calibration.instrument_identity not in mic_identities
+            ):
+                return (
+                    'calibration instrument identity does not match the '
+                    'acquisition microphone'
+                )
+        return None
 
     def get_dataset_level_reference(
         self, dataset_id: str
