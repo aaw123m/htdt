@@ -47,13 +47,30 @@ from htdt.cad_hybrid_prediction_provider import (
     CadHybridPredictionProviderRepository,
     HybridPredictionProvider,
     build_hybrid_prediction_provider,
+    build_hybrid_provider_binding,
     evaluate_excitation_volume_velocity,
     hybrid_provider_frequency_response,
+    require_hybrid_binding_current,
 )
 from htdt.cad_hybrid_prediction_provider_integration import (
     CadHybridPredictionProviderObjectiveRepository,
+    bind_hybrid_provider_to_adaptive_validation,
+    bind_hybrid_provider_to_validation,
+    bind_measurement_plan_hybrid_prediction,
+    build_hybrid_provider_measurement_validation,
     build_hybrid_provider_objective_connection,
     target_objective_evaluation_from_hybrid_provider,
+)
+from htdt.cad_measurement_loop import build_measurement_plan
+from htdt.cad_measurement_models import (
+    CadFrequencyResponseDataset,
+    CadMeasurementRecord,
+)
+from htdt.cad_measurement_repository import CadMeasurementRepository
+from htdt.cad_measurements import (
+    HTDT_DECLARED_IMPORTER_VERSION,
+    canonical_json,
+    declared_fr_raw,
 )
 from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_objectives import build_pareto_set
@@ -61,8 +78,13 @@ from htdt.cad_prediction_provider import (
     CadPredictionProviderRepository,
     build_r130_low_band_prediction_provider,
 )
+from htdt.cad_document import WorkingDocument
 from htdt.cad_scene import Direction3, Position3, RoomPrism
-from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
+from htdt.cad_search import (
+    apply_candidate_positions,
+    build_cad_search_spec,
+    generate_cad_candidates,
+)
 from htdt.cad_search_models import CadSearchAxis
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_wave_excitation import (
@@ -864,3 +886,209 @@ def test_o30_exact_binding_and_o40_regression_without_algorithm_change(
     )
     objective_repository.save_pareto_set(pareto)
     assert objective_repository.get_pareto_set(pareto.pareto_set_id) == pareto
+
+
+def test_o50_plan_o60_residual_and_o70_bind_exact_hybrid_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle(tmp_path / 'validation', monkeypatch)
+    provider = bundle['hybrid_repository'].save(bundle['provider'])
+    fixture = bundle['fixture']
+    spec, search_repository, _first_candidate_id = _search_fixture(bundle)
+
+    page = generate_cad_candidates(fixture['scene_repository'], spec, limit=10)
+    candidate = page.candidates[0]
+    receiver = bundle['candidate'].receivers[0]
+    constraints = CadConstraintSet(
+        document_id=fixture['revision'].document_id,
+        constraints=(),
+    )
+    working = WorkingDocument(
+        fixture['revision'].document,
+        source_revision_id=fixture['revision'].revision_id,
+    )
+    apply_candidate_positions(
+        working,
+        candidate,
+        spec=spec,
+        current_constraint_set=constraints,
+    )
+    applied = fixture['scene_repository'].save(
+        working.committed_document,
+        parent_revision_id=fixture['revision'].revision_id,
+    ).revision
+    plan = build_measurement_plan(
+        fixture['scene_repository'],
+        search_repository,
+        search_spec_id=spec.search_spec_id,
+        candidate_id=candidate.candidate_id,
+        applied_scene_revision_id=applied.revision_id,
+    )
+    plan_binding = build_hybrid_provider_binding(
+        provider,
+        consumer_kind='O50_MEASUREMENT_PLAN',
+        consumer_id=plan.plan_id,
+        required_observables=('frequency_response_magnitude',),
+    )
+    bundle['hybrid_repository'].save_binding(plan_binding)
+    bound_plan = bind_measurement_plan_hybrid_prediction(plan, plan_binding)
+    assert bound_plan.prediction_provider_binding_id == plan_binding.binding_id
+    assert bound_plan.supersedes_plan_sha256 == plan.plan_sha256
+
+    measurement_repository = CadMeasurementRepository(fixture['scene_repository'])
+    measurement_repository.save_measurement_plan(plan)
+    measurement_repository.save_measurement_plan(bound_plan)
+    assert measurement_repository.latest_measurement_plans(
+        spec.search_spec_id
+    ) == (bound_plan,)
+
+    raw = declared_fr_raw(
+        frequency_hz=(40.0, 60.0, 80.0),
+        level_db=(94.0, 92.0, 91.0),
+        phase_status='absent',
+        processing={'fixture_raw': 'r170b-o60-measurement'},
+    )
+    measurement = CadMeasurementRecord(
+        measurement_id='r170b-measurement',
+        document_id=fixture['revision'].document_id,
+        scene_revision_id=fixture['revision'].revision_id,
+        scene_content_hash=fixture['revision'].content_hash,
+        measurement_entity_id=receiver.entity_id,
+        measurement_position=Position3(
+            x_m=receiver.position_m[0],
+            y_m=receiver.position_m[1],
+            z_m=receiver.position_m[2],
+        ),
+        evidence_type='measured',
+        channel_role='FL',
+        source_speaker_ids=(provider.source_entity_id,),
+        radiation_scope='single',
+        routing_evidence='manual',
+        imported_at='2026-09-24T00:00:00+00:00',
+        source_kind='unknown',
+    )
+    dataset = CadFrequencyResponseDataset(
+        dataset_id='r170b-dataset',
+        measurement_id=measurement.measurement_id,
+        frequency_hz=(40.0, 60.0, 80.0),
+        level_db=(94.0, 92.0, 91.0),
+        phase_deg=None,
+        phase_status='absent',
+        processing_json=canonical_json({'fixture_raw': 'r170b-o60-measurement'}),
+        source_sha256=sha256(raw).hexdigest(),
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
+    )
+    measurement_repository.save(
+        measurement,
+        dataset,
+        raw_filename='r170b.txt',
+        raw_bytes=raw,
+    )
+
+    validation = build_hybrid_provider_measurement_validation(
+        provider=provider,
+        source_entity_id=provider.source_entity_id,
+        receiver_id=provider.receiver_id,
+        measurement_repository=measurement_repository,
+        measurement_id=measurement.measurement_id,
+        document_id=fixture['revision'].document_id,
+        search_spec_id=spec.search_spec_id,
+        search_spec_sha256=spec.search_spec_sha256,
+        candidate_set_sha256=page.candidate_set_sha256,
+        candidate_id=candidate.candidate_id,
+        split='holdout',
+        low_hz=40.0,
+        high_hz=80.0,
+        max_holdout_rms_db=30.0,
+        evidence_scope='synthetic_fixture',
+    )
+    assert validation.pairs[0].prediction_source_id == provider.provider_id
+    assert validation.model_id == provider.adapter_id
+
+    with pytest.raises(ValueError, match='document identity'):
+        build_hybrid_provider_measurement_validation(
+            provider=provider,
+            source_entity_id=provider.source_entity_id,
+            receiver_id=provider.receiver_id,
+            measurement_repository=measurement_repository,
+            measurement_id=measurement.measurement_id,
+            document_id='other-document',
+            search_spec_id=spec.search_spec_id,
+            search_spec_sha256=spec.search_spec_sha256,
+            candidate_set_sha256=page.candidate_set_sha256,
+            candidate_id=candidate.candidate_id,
+            split='holdout',
+            low_hz=40.0,
+            high_hz=80.0,
+            max_holdout_rms_db=30.0,
+        )
+
+    o60_binding = bind_hybrid_provider_to_validation(provider, validation)
+    o70_binding = bind_hybrid_provider_to_adaptive_validation(provider, validation)
+    assert o60_binding.consumer_kind == 'O60_VALIDATION'
+    assert o60_binding.consumer_id == validation.validation_id
+    assert o60_binding.provider_ref == provider.ref()
+    assert o60_binding.base_provider_ref == provider.base_provider_ref
+    assert o70_binding.consumer_kind == 'O70_ADAPTIVE'
+    assert o70_binding.consumer_semantic_sha256 == validation.validation_sha256
+    bundle['hybrid_repository'].save_binding(o60_binding)
+    bundle['hybrid_repository'].save_binding(o70_binding)
+    assert bundle['hybrid_repository'].get_binding(o60_binding.binding_id) == o60_binding
+    assert bundle['hybrid_repository'].bindings_for_consumer(
+        consumer_kind='O60_VALIDATION',
+        consumer_id=validation.validation_id,
+    ) == (o60_binding,)
+
+    require_hybrid_binding_current(
+        o60_binding,
+        provider,
+        provider.base_current_authority,
+    )
+    foreign = build_hybrid_provider_measurement_validation(
+        provider=provider,
+        source_entity_id=provider.source_entity_id,
+        receiver_id=provider.receiver_id,
+        measurement_repository=measurement_repository,
+        measurement_id=measurement.measurement_id,
+        document_id=fixture['revision'].document_id,
+        search_spec_id=spec.search_spec_id,
+        search_spec_sha256=spec.search_spec_sha256,
+        candidate_set_sha256=page.candidate_set_sha256,
+        candidate_id='unrelated-candidate',
+        split='calibration',
+        low_hz=40.0,
+        high_hz=80.0,
+        max_holdout_rms_db=30.0,
+    )
+    with pytest.raises(ValueError, match='does not reference this hybrid provider'):
+        bind_hybrid_provider_to_validation(
+            provider,
+            foreign.model_copy(
+                update={
+                    'pairs': tuple(
+                        pair.model_copy(update={'prediction_source_id': 'other'})
+                        for pair in foreign.pairs
+                    )
+                }
+            ),
+        )
+    assert foreign.pairs[0].candidate_id == 'unrelated-candidate'
+
+    with pytest.raises(ValueError, match='authority is stale'):
+        require_hybrid_binding_current(
+            o60_binding,
+            provider,
+            provider.base_current_authority.model_copy(
+                update={'scene_revision_id': 'stale-revision'}
+            ),
+        )
+    with pytest.raises(ValueError, match='observable is unsupported'):
+        build_hybrid_provider_binding(
+            provider,
+            consumer_kind='O60_VALIDATION',
+            consumer_id='v-unsupported',
+            required_observables=('impulse_response',),
+        )
+    with pytest.raises(ValueError, match='O50 hybrid-provider binding'):
+        bind_measurement_plan_hybrid_prediction(plan, o60_binding)

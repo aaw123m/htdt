@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import closing
 from hashlib import sha256
 import json
@@ -44,6 +44,7 @@ HYBRID_PREDICTION_PROVIDER_AUTHORITY_VERSION = (
 )
 HYBRID_PREDICTION_PROVIDER_ADAPTER_ID = 'htdt.r170b.r160_numerical_hybrid'
 HYBRID_PREDICTION_PROVIDER_ADAPTER_VERSION = '1'
+HYBRID_PROVIDER_BINDING_AUTHORITY_VERSION = 'r170b-hybrid-provider-binding-1'
 HYBRID_PRESSURE_RECONSTRUCTION = (
     'P_hybrid(f)=H_hybrid(f)*Q(f)_converted_to_exp(+i*omega*t)'
 )
@@ -52,6 +53,11 @@ SPL_REFERENCE_PA = 20.0e-6
 HybridProviderEvidenceState = Literal['candidate']
 HybridProviderEvidenceScope = Literal['unvalidated']
 HybridProviderStaleState = Literal['CURRENT', 'STALE']
+HybridProviderConsumerKind = Literal[
+    'O50_MEASUREMENT_PLAN',
+    'O60_VALIDATION',
+    'O70_ADAPTIVE',
+]
 
 
 HybridArtifactResolver = Callable[[str], NumericalHybridResponseArtifact | None]
@@ -656,6 +662,103 @@ def hybrid_provider_frequency_response(
     )
 
 
+class HybridPredictionProviderBinding(BaseModel):
+    """Immutable O50/O60/O70 consumer binding to one exact R170B provider."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_version: Literal[
+        'r170b-hybrid-provider-binding-1'
+    ] = HYBRID_PROVIDER_BINDING_AUTHORITY_VERSION
+    binding_id: str = Field(
+        pattern=r'^r170b-hybrid-provider-binding:[0-9a-f]{64}$'
+    )
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    provider_ref: HybridPredictionProviderRef
+    base_provider_ref: PredictionProviderRef
+    consumer_kind: HybridProviderConsumerKind
+    consumer_id: str = Field(min_length=1)
+    consumer_semantic_sha256: str | None = Field(
+        default=None,
+        pattern=r'^[0-9a-f]{64}$',
+    )
+    required_observables: tuple[str, ...] = Field(min_length=1)
+    expected_authority: ProviderCurrentAuthority
+    stale_state: Literal['CURRENT'] = 'CURRENT'
+
+    @model_validator(mode='after')
+    def validate_identity(self) -> 'HybridPredictionProviderBinding':
+        if len(self.required_observables) != len(set(self.required_observables)):
+            raise ValueError('R170B provider binding observables must be unique')
+        expected = _semantic_hash(self.semantic_payload())
+        if self.semantic_sha256 != expected:
+            raise ValueError('R170B provider binding semantic hash mismatch')
+        if self.binding_id != f'r170b-hybrid-provider-binding:{expected}':
+            raise ValueError('R170B provider binding id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode='json',
+            exclude={'binding_id', 'semantic_sha256'},
+        )
+
+
+def build_hybrid_provider_binding(
+    provider: HybridPredictionProvider,
+    *,
+    consumer_kind: HybridProviderConsumerKind,
+    consumer_id: str,
+    required_observables: Sequence[str],
+    consumer_semantic_sha256: str | None = None,
+) -> HybridPredictionProviderBinding:
+    required = tuple(sorted(set(required_observables)))
+    if not required:
+        raise ValueError('R170B provider binding requires observable capabilities')
+    for observable in required:
+        provider.require_observable(observable)
+    core = {
+        'authority_version': HYBRID_PROVIDER_BINDING_AUTHORITY_VERSION,
+        'provider_ref': provider.ref().model_dump(mode='json'),
+        'base_provider_ref': provider.base_provider_ref.model_dump(mode='json'),
+        'consumer_kind': consumer_kind,
+        'consumer_id': consumer_id,
+        'consumer_semantic_sha256': consumer_semantic_sha256,
+        'required_observables': list(required),
+        'expected_authority': provider.base_current_authority.model_dump(mode='json'),
+        'stale_state': 'CURRENT',
+    }
+    digest = _semantic_hash(core)
+    return HybridPredictionProviderBinding(
+        binding_id=f'r170b-hybrid-provider-binding:{digest}',
+        semantic_sha256=digest,
+        provider_ref=provider.ref(),
+        base_provider_ref=provider.base_provider_ref,
+        consumer_kind=consumer_kind,
+        consumer_id=consumer_id,
+        consumer_semantic_sha256=consumer_semantic_sha256,
+        required_observables=required,
+        expected_authority=provider.base_current_authority,
+    )
+
+
+def require_hybrid_binding_current(
+    binding: HybridPredictionProviderBinding,
+    provider: HybridPredictionProvider,
+    current: ProviderCurrentAuthority,
+) -> None:
+    if binding.provider_ref != provider.ref():
+        raise ValueError('R170B provider binding references another provider')
+    if binding.base_provider_ref != provider.base_provider_ref:
+        raise ValueError('R170B provider binding base provider mismatch')
+    if binding.expected_authority != provider.base_current_authority:
+        raise ValueError('R170B provider binding exact authority mismatch')
+    if binding.expected_authority != current:
+        raise ValueError('R170B provider binding authority is stale')
+    for observable in binding.required_observables:
+        provider.require_observable(observable)
+
+
 class CadHybridPredictionProviderRepository:
     """Append-only R170B persistence with exact R170A/R160 reopen validation."""
 
@@ -695,7 +798,7 @@ class CadHybridPredictionProviderRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
+            connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS cad_hybrid_prediction_providers (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -707,7 +810,23 @@ class CadHybridPredictionProviderRepository:
                     source_entity_id TEXT NOT NULL,
                     receiver_id TEXT NOT NULL,
                     payload_json TEXT NOT NULL
-                )
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_hybrid_prediction_provider_bindings (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    binding_id TEXT NOT NULL UNIQUE,
+                    semantic_sha256 TEXT NOT NULL UNIQUE,
+                    provider_id TEXT NOT NULL,
+                    consumer_kind TEXT NOT NULL,
+                    consumer_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_hybrid_provider_binding_consumer
+                    ON cad_hybrid_prediction_provider_bindings(
+                        consumer_kind,
+                        consumer_id,
+                        seq ASC
+                    );
                 """
             )
 
@@ -858,4 +977,100 @@ class CadHybridPredictionProviderRepository:
             return None
         return self._validate(
             HybridPredictionProvider.model_validate_json(row['payload_json'])
+        )
+
+    def _validate_binding(
+        self,
+        binding: HybridPredictionProviderBinding,
+    ) -> HybridPredictionProviderBinding:
+        binding = HybridPredictionProviderBinding.model_validate(
+            binding.model_dump(mode='python')
+        )
+        provider = self.get(binding.provider_ref.provider_id)
+        if provider is None or provider.ref() != binding.provider_ref:
+            raise ValueError('R170B binding provider is missing/stale')
+        if binding.base_provider_ref != provider.base_provider_ref:
+            raise ValueError('R170B binding base provider mismatch')
+        if binding.expected_authority != provider.base_current_authority:
+            raise ValueError('R170B binding exact authority is stale')
+        for observable in binding.required_observables:
+            provider.require_observable(observable)
+        return binding
+
+    def save_binding(
+        self,
+        binding: HybridPredictionProviderBinding,
+    ) -> HybridPredictionProviderBinding:
+        binding = self._validate_binding(binding)
+        payload = _canonical_json(binding.model_dump(mode='json'))
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                'SELECT semantic_sha256, payload_json '
+                'FROM cad_hybrid_prediction_provider_bindings WHERE binding_id=?',
+                (binding.binding_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing['semantic_sha256'] != binding.semantic_sha256
+                    or existing['payload_json'] != payload
+                ):
+                    raise ValueError('R170B provider binding identity collision')
+                return self._validate_binding(binding)
+            connection.execute(
+                """
+                INSERT INTO cad_hybrid_prediction_provider_bindings(
+                    binding_id,
+                    semantic_sha256,
+                    provider_id,
+                    consumer_kind,
+                    consumer_id,
+                    payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    binding.binding_id,
+                    binding.semantic_sha256,
+                    binding.provider_ref.provider_id,
+                    binding.consumer_kind,
+                    binding.consumer_id,
+                    payload,
+                ),
+            )
+        return binding
+
+    def get_binding(
+        self,
+        binding_id: str,
+    ) -> HybridPredictionProviderBinding | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_hybrid_prediction_provider_bindings '
+                'WHERE binding_id=?',
+                (binding_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._validate_binding(
+            HybridPredictionProviderBinding.model_validate_json(row['payload_json'])
+        )
+
+    def bindings_for_consumer(
+        self,
+        *,
+        consumer_kind: HybridProviderConsumerKind,
+        consumer_id: str,
+    ) -> tuple[HybridPredictionProviderBinding, ...]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_hybrid_prediction_provider_bindings '
+                'WHERE consumer_kind=? AND consumer_id=? ORDER BY seq ASC',
+                (consumer_kind, consumer_id),
+            ).fetchall()
+        return tuple(
+            self._validate_binding(
+                HybridPredictionProviderBinding.model_validate_json(
+                    row['payload_json']
+                )
+            )
+            for row in rows
         )
