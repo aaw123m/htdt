@@ -54,6 +54,22 @@ INBOX_REGISTRATION_DOMAIN = 'htdt.capture.cross-revision-registration.v1'
 CAPTURE_INBOX_UNASSIGNED_SCOPE = 'capture-inbox-unassigned'
 
 
+def capture_inbox_item_project_id(item: 'CaptureInboxItem') -> str | None:
+    """Canonical project-scope resolution for one Capture Inbox item.
+
+    ``scope`` is the assigned project/document id or the shared
+    unassigned scope. This is the single resolver consumers use to
+    decide whether an item belongs to a project: unassigned
+    (application-scoped) deliveries and legacy items without a resolvable
+    scope return ``None`` so they can never leak into a project-scoped
+    view such as the activity timeline or evidence register.
+    """
+    scope = getattr(item, 'scope', None)
+    if not scope or scope == CAPTURE_INBOX_UNASSIGNED_SCOPE:
+        return None
+    return scope
+
+
 class CaptureInboxError(ValueError):
     pass
 

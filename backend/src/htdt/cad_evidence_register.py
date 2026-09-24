@@ -44,6 +44,7 @@ from .cad_assumption_decision import (
 from .cad_construction_assembly import element_evidence
 from .cad_measurement_quality import gate_measurement_claim
 from .cad_scene import is_unassigned_speaker_role
+from .capture_inbox import capture_inbox_item_project_id
 from .workflow_navigation import (
     ApplicationDestinationId,
     DestinationId,
@@ -1023,11 +1024,11 @@ class ProjectEvidenceGapRegister:
             return []
         gaps: list[ProjectEvidenceGap] = []
         for item in self._inbox_source.list_items():
-            # Canonical Capture Inbox scoping (#798): an item belongs to a
-            # project only through its assigned ``scope`` (a document id).
-            # ``capture-inbox-unassigned`` and foreign scopes never project
-            # into this project's register.
-            if getattr(item, 'scope', None) != document_id:
+            # Canonical Capture Inbox scoping (#798/#737): an item belongs
+            # to a project only through its assigned ``scope`` (a document
+            # id). ``capture-inbox-unassigned`` and foreign scopes never
+            # project into this project's register.
+            if capture_inbox_item_project_id(item) != document_id:
                 continue
             item_id = getattr(item, 'inbox_item_id', None) or getattr(item, 'id', '')
             if not item_id:

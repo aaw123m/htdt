@@ -144,34 +144,114 @@ def test_conflicting_node_contribution_fails() -> None:
         )
 
 
+def _rev(
+    revision_id: str,
+    document_id: str = 'doc-1',
+    parent: str | None = None,
+    detached: bool = False,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        revision_id=revision_id,
+        document_id=document_id,
+        parent_revision_id=parent,
+        created_at_utc='2026-01-01T00:00:00Z',
+        content_hash=f'h-{revision_id}',
+        detached=detached,
+    )
+
+
 def test_scene_revision_adapter() -> None:
-    revisions = [
-        SimpleNamespace(
-            revision_id='rev-1',
-            document_id='doc-1',
-            parent_revision_id=None,
-            created_at_utc='2026-01-01T00:00:00Z',
-            content_hash='h1',
-            detached=False,
-        ),
-        SimpleNamespace(
-            revision_id='rev-2',
-            document_id='doc-1',
-            parent_revision_id='rev-1',
-            created_at_utc='2026-01-02T00:00:00Z',
-            content_hash='h2',
-            detached=False,
-        ),
-    ]
-    graph = build_authority_graph([scene_revision_authority_source(revisions)])
+    revisions = [_rev('rev-1'), _rev('rev-2', parent='rev-1')]
+    graph = build_authority_graph(
+        [
+            scene_revision_authority_source(
+                revisions, head_by_document={'doc-1': 'rev-2'}
+            )
+        ]
+    )
     kinds = {e.kind for e in graph.edges}
     assert AuthorityEdgeKind.SUPERSEDES in kinds
     assert AuthorityEdgeKind.BINDS_TO in kinds
     rev1 = graph.node('room:scene_revision:rev-1')
-    assert rev1 is not None and rev1.authority_hash == 'h1'
+    assert rev1 is not None and rev1.authority_hash == 'h-rev-1'
+    assert rev1.lifecycle == AuthorityLifecycle.HISTORICAL
     # Superseded revision is downstream of the newer revision's SUPERSEDES edge.
     rev2 = graph.node('room:scene_revision:rev-2')
     assert rev2 is not None and rev2.lifecycle == AuthorityLifecycle.CURRENT
+
+
+def test_scene_revision_lifecycle_follows_explicit_head() -> None:
+    """#747: only the explicit head is CURRENT; everything else HISTORICAL."""
+    revisions = [
+        _rev('rev-1'),
+        _rev('rev-2', parent='rev-1'),
+        _rev('rev-3', parent='rev-2'),
+    ]
+    graph = build_authority_graph(
+        [
+            scene_revision_authority_source(
+                revisions, head_by_document={'doc-1': 'rev-3'}
+            )
+        ]
+    )
+    assert graph.node('room:scene_revision:rev-3').lifecycle == (
+        AuthorityLifecycle.CURRENT
+    )
+    assert graph.node('room:scene_revision:rev-2').lifecycle == (
+        AuthorityLifecycle.HISTORICAL
+    )
+    assert graph.node('room:scene_revision:rev-1').lifecycle == (
+        AuthorityLifecycle.HISTORICAL
+    )
+
+    # Explicit head wins even when it is not the newest revision.
+    graph = build_authority_graph(
+        [
+            scene_revision_authority_source(
+                revisions, head_by_document={'doc-1': 'rev-1'}
+            )
+        ]
+    )
+    assert graph.node('room:scene_revision:rev-1').lifecycle == (
+        AuthorityLifecycle.CURRENT
+    )
+    assert graph.node('room:scene_revision:rev-3').lifecycle == (
+        AuthorityLifecycle.HISTORICAL
+    )
+
+
+def test_scene_revision_detached_is_detail_not_lifecycle() -> None:
+    """#747: detached marks intentional off-head lineage, never CURRENT."""
+    revisions = [
+        _rev('rev-1'),
+        _rev('rev-2', parent='rev-1'),
+        _rev('branch-1', parent='rev-1', detached=True),
+    ]
+    graph = build_authority_graph(
+        [
+            scene_revision_authority_source(
+                revisions, head_by_document={'doc-1': 'rev-2'}
+            )
+        ]
+    )
+    branch = graph.node('room:scene_revision:branch-1')
+    assert branch.lifecycle == AuthorityLifecycle.HISTORICAL
+    assert branch.detached is True
+
+
+def test_scene_revision_unresolvable_head_is_unknown() -> None:
+    """#747: a corrupt/missing head fails loudly instead of CURRENT."""
+    revisions = [_rev('rev-1'), _rev('rev-2', parent='rev-1')]
+    for heads in (None, {}, {'doc-1': None}):
+        graph = build_authority_graph(
+            [scene_revision_authority_source(revisions, head_by_document=heads)]
+        )
+        assert graph.node('room:scene_revision:rev-1').lifecycle == (
+            AuthorityLifecycle.UNKNOWN
+        )
+        assert graph.node('room:scene_revision:rev-2').lifecycle == (
+            AuthorityLifecycle.UNKNOWN
+        )
 
 
 def test_inspector_summary_and_dependents() -> None:
