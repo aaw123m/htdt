@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from .cad_dependency_impact import WatchedArtifact, build_dependency_impact_report
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
@@ -38,6 +38,17 @@ class OverviewNotice:
 
 
 @dataclass(frozen=True, slots=True)
+class OverviewActivityItem:
+    """One row of the Overview 'Recent activity' strip (#615)."""
+
+    event_id: str
+    kind: str
+    title: str
+    occurred_at_utc: str
+    deep_link: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class OverviewReadinessViewModel:
     """Read-only presentation model for the workflow-first Overview."""
 
@@ -46,6 +57,7 @@ class OverviewReadinessViewModel:
     warnings: tuple[OverviewNotice, ...]
     next_action: OverviewAction | None
     optimization_ready: bool
+    recent_activity: tuple[OverviewActivityItem, ...] = ()
 
 
 class SceneReadSource(Protocol):
@@ -87,6 +99,12 @@ class PredictionReadSource(Protocol):
 
 class SearchReadSource(Protocol):
     def list_specs(self, document_id: str) -> tuple[CadSearchSpec, ...]: ...
+
+
+class ActivityReadSource(Protocol):
+    def recent(
+        self, document_id: str, *, limit: int = 8
+    ) -> tuple[Any, ...]: ...
 
 
 class ValidationReadSource(Protocol):
@@ -171,6 +189,7 @@ class OverviewReadinessService:
         search_source: SearchReadSource,
         validation_source: ValidationReadSource,
         quality_source: MeasurementQualityReadSource | None = None,
+        activity_source: ActivityReadSource | None = None,
         impact_source: SceneRevisionReadSource | None = None,
     ) -> None:
         self._scene_source = scene_source
@@ -179,6 +198,7 @@ class OverviewReadinessService:
         self._search_source = search_source
         self._validation_source = validation_source
         self._quality_source = quality_source
+        self._activity_source = activity_source
         self._impact_source = impact_source
 
     def read(
@@ -477,6 +497,21 @@ class OverviewReadinessService:
             warnings=tuple(warnings),
             next_action=next_action,
             optimization_ready=optimization_ready,
+            recent_activity=self._recent_activity(document_id),
+        )
+
+    def _recent_activity(self, document_id: str) -> tuple[OverviewActivityItem, ...]:
+        if self._activity_source is None:
+            return ()
+        return tuple(
+            OverviewActivityItem(
+                event_id=event.event_id,
+                kind=event.kind,
+                title=event.title,
+                occurred_at_utc=event.occurred_at_utc,
+                deep_link=event.deep_link,
+            )
+            for event in self._activity_source.recent(document_id, limit=8)
         )
 
     _IMPACT_KIND_JA: dict[str, str] = {
