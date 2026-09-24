@@ -17,7 +17,10 @@ from .cad_measurement_runner import (
     RunnerCellStatus,
     next_incomplete_cell,
     resolve_cell_states,
+
 )
+
+from .cad_schema import require_native_tables
 
 
 class RunnerError(ValueError):
@@ -49,40 +52,7 @@ class CadMeasurementRunnerRepository:
 
     def _initialize(self) -> None:
         with self._connect() as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_measurement_runner_plans (
-                    plan_id TEXT PRIMARY KEY,
-                    scene_revision_id TEXT NOT NULL,
-                    plan_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_measurement_runner_runs (
-                    run_id TEXT PRIMARY KEY,
-                    plan_id TEXT NOT NULL REFERENCES cad_measurement_runner_plans(plan_id),
-                    plan_sha256 TEXT NOT NULL,
-                    started_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_measurement_runner_events (
-                    event_id TEXT PRIMARY KEY,
-                    run_id TEXT NOT NULL REFERENCES cad_measurement_runner_runs(run_id),
-                    cell_index INTEGER NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_measurement_runner_plans', 'cad_measurement_runner_runs', 'cad_measurement_runner_events')
 
     def save_plan(self, plan: MeasurementRunnerPlan) -> None:
         if self.get_plan(plan.plan_id) is not None:

@@ -17,6 +17,7 @@ from .cad_prediction_models import (
 )
 from .cad_prediction_request import verify_prediction_input, verify_prediction_output
 from .cad_repository import SceneRepository, SceneRevision
+from .cad_schema import require_native_tables
 
 
 class CadPredictionRepository:
@@ -35,62 +36,7 @@ class CadPredictionRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_prediction_results (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    prediction_id TEXT NOT NULL UNIQUE,
-                    run_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    constraint_workspace_hash TEXT,
-                    model_id TEXT NOT NULL,
-                    model_version TEXT NOT NULL,
-                    result_kind TEXT NOT NULL,
-                    geometry_compatibility TEXT NOT NULL,
-                    parameters_json TEXT NOT NULL,
-                    input_snapshot_json TEXT NOT NULL,
-                    input_hash TEXT NOT NULL,
-                    submitted_at_utc TEXT NOT NULL,
-                    completed_at_utc TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    assumptions_json TEXT NOT NULL,
-                    warnings_json TEXT NOT NULL,
-                    modes_json TEXT NOT NULL,
-                    reflections_json TEXT NOT NULL,
-                    result_sha256 TEXT,
-                    FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id)
-                )
-                '''
-            )
-            # Output-identity migration: rows written before result_sha256
-            # existed keep NULL and are non-authoritative — reads fail closed
-            # (``_row_to_result``) rather than silently fabricating a hash for
-            # output this version never attested.
-            columns = {
-                row['name']
-                for row in connection.execute('PRAGMA table_info(cad_prediction_results)')
-            }
-            if 'result_sha256' not in columns:
-                connection.execute(
-                    'ALTER TABLE cad_prediction_results ADD COLUMN result_sha256 TEXT'
-                )
-            connection.execute(
-                'CREATE INDEX IF NOT EXISTS idx_prediction_document_seq '
-                'ON cad_prediction_results(document_id, seq DESC)'
-            )
-            connection.execute(
-                'CREATE INDEX IF NOT EXISTS idx_prediction_run_seq '
-                'ON cad_prediction_results(run_id, seq ASC)'
-            )
-            # One run occupies each (run_id, result_kind) slot exactly once:
-            # the run-level write authority enforces it deterministically and
-            # this index is the stored backstop for it.
-            connection.execute(
-                'CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_run_result_kind '
-                'ON cad_prediction_results(run_id, result_kind)'
-            )
+            require_native_tables(connection, 'cad_prediction_results')
 
     def _source_revision(self, result: CadPredictionResult) -> SceneRevision:
         source = self.scene_repository.get(result.scene_revision_id)

@@ -13,6 +13,7 @@ from .cad_installation_context import (
 )
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class CadInstallationContextRepository:
@@ -46,23 +47,7 @@ class CadInstallationContextRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_installation_contexts (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    context_id TEXT NOT NULL,
-                    version_key TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    entity_id TEXT NOT NULL,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(context_id, version_key)
-                );
-                CREATE INDEX IF NOT EXISTS idx_installation_context_entity
-                    ON cad_installation_contexts(document_id, entity_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_installation_contexts')
 
     def _check_context(self, context: SpeakerInstallationContext) -> None:
         if self.equipment_repository.get_definition_by_hash(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import zipfile
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
@@ -10,12 +11,12 @@ from PySide6.QtWidgets import QApplication
 from .build_info import version_string
 from .cad_composition import CadEditorWindow
 from .cad_repository import SceneRepository
-from .cad_scene import F1_DOCUMENT_ID
 from .cad_synthetic_demo import seed_synthetic_optimization_demo
 from .constraint_editor import ConstraintEditorWindow
 from .default_document import log_default_document_classification
 from .measurement_editor import MeasurementEditorWindow
 from .measurement_workspace import MeasurementWorkspaceWindow
+from .legacy_data import inspect_legacy_store, migrate_legacy_data
 from .native_backup import create_backup, restore_backup
 from .native_diagnostics import (
     NativeDiagnostics,
@@ -40,6 +41,8 @@ from .launch_intents import (
 )
 from .native_editor import default_data_dir
 from .optimization_workspace import OptimizationWorkspaceWindow
+from .project_bundle import import_project_bundle
+from .project_library_repository import ProjectLibraryRepository
 from .prediction_workspace import PredictionWorkspaceWindow
 from .runtime_instance import SingleInstanceGuard, read_lock_metadata
 from .theater_workflow import TheaterWorkflowWindow
@@ -66,10 +69,16 @@ __all__ = [
 ]
 
 
-def build_workflow_shell(repository: SceneRepository, document_id: str) -> WorkflowShellWindow:
+def build_workflow_shell(
+    repository: SceneRepository,
+    document_id: str,
+    project_library: ProjectLibraryRepository | None = None,
+) -> WorkflowShellWindow:
     """Build the integrated workflow application while preserving the public API."""
 
-    return build_workflow_application(repository, document_id)
+    return build_workflow_application(
+        repository, document_id, project_library=project_library
+    )
 
 
 def _packaged_application_icon() -> Path | None:
@@ -111,10 +120,11 @@ def _route_launch_intent(
         intent.path,
     )
     if intent.kind == 'open_project':
-        QMessageBox.information(
-            window,
-            "HTDT project",
-            f"Opened {describe_launch_intent(intent)}.",
+        _route_open_project_intent(
+            intent,
+            window=window,
+            repository=repository,
+            diagnostics=diagnostics,
         )
         return
     if intent.kind == 'preview_capture':
@@ -155,6 +165,80 @@ def _route_launch_intent(
         window,
         "HTDT",
         f"Don't know how to open {Path(intent.path).name}.",
+    )
+
+
+def _route_open_project_intent(
+    intent: HTDTLaunchIntent,
+    *,
+    window,
+    repository: SceneRepository,
+    diagnostics: NativeDiagnostics,
+) -> None:
+    """Dispatch an ``open_project`` intent by file content, not extension.
+
+    ``.htdtproject`` is overloaded (#736): a ZIP member is a #488 portable
+    project bundle and is imported through the bundle authority before any
+    project switch; a small JSON ``htdt-project-ref`` descriptor names a
+    project that already lives in this data root. Neither path may report
+    "opened" without an import/switch actually happening.
+    """
+
+    from PySide6.QtWidgets import QMessageBox
+
+    path = Path(intent.path)
+    application = getattr(window, 'workflow_application', None)
+
+    if path.is_file() and zipfile.is_zipfile(path):
+        try:
+            result = import_project_bundle(repository, path)
+        except Exception as exc:
+            diagnostics.logger.warning(
+                'project bundle import failed for %s: %s', path, exc
+            )
+            QMessageBox.warning(
+                window,
+                "HTDT project",
+                f"Could not import {describe_launch_intent(intent)}:\n{exc}",
+            )
+            return
+        diagnostics.logger.info(
+            'project bundle imported: %s -> document %s (mode=%s)',
+            path,
+            result.document_id,
+            result.import_mode,
+        )
+        if application is not None:
+            application._open_project(result.document_id)
+        QMessageBox.information(
+            window,
+            "HTDT project",
+            f"Imported {describe_launch_intent(intent)}.",
+        )
+        return
+
+    document_id = intent.document_id
+    if document_id and application is not None:
+        if application.project_library.get_by_document_id(document_id) is None:
+            QMessageBox.warning(
+                window,
+                "HTDT project",
+                f"Project {document_id} is not in this data root — it "
+                "was not opened.",
+            )
+            return
+        application._open_project(document_id)
+        QMessageBox.information(
+            window,
+            "HTDT project",
+            f"Opened {describe_launch_intent(intent)}.",
+        )
+        return
+
+    QMessageBox.information(
+        window,
+        "HTDT project",
+        f"Opened {describe_launch_intent(intent)}.",
     )
 
 
@@ -213,10 +297,36 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         for intent in initial_intents:
             if intent.kind == 'open_project' and intent.document_id:
                 args.document_id = intent.document_id
+        # #598: detect the retired browser authority in the same data root.
+        # Read-only; legacy data outside the canonical store is warned in
+        # diagnostics and in Settings > Data Management rather than migrated
+        # implicitly.
+        legacy_report = inspect_legacy_store(args.data_dir)
+        if legacy_report.state in {'populated', 'unreadable'}:
+            diagnostics.logger.warning(
+                'legacy browser data detected (state=%s counts=%s): '
+                'htdt.sqlite3 is retired and no longer backed up; run '
+                '`htdt-native --migrate-legacy-data` to migrate and archive it',
+                legacy_report.state,
+                legacy_report.table_counts,
+            )
+        else:
+            diagnostics.logger.info(
+                'legacy browser store state: %s', legacy_report.state
+            )
+        # #450: resolve the project to open through the library — most recent
+        # project wins, existing documents migrate in as named projects, and
+        # an explicit --document-id still binds (and registers) directly.
+        project_library = ProjectLibraryRepository(repository)
+        project_entry = project_library.resolve_startup_document(
+            args.document_id
+        )
         window = (
-            OptimizationWorkspaceWindow(repository, args.document_id)
+            OptimizationWorkspaceWindow(repository, project_entry.document_id)
             if args.legacy_ui
-            else build_workflow_shell(repository, args.document_id)
+            else build_workflow_shell(
+                repository, project_entry.document_id, project_library
+            )
         )
         window.show()
 
@@ -300,7 +410,9 @@ def main(argv: list[str] | None = None) -> int:
     # root that is unavailable fails closed rather than silently reopening
     # the default location.
     parser.add_argument("--data-dir", type=Path, default=None)
-    parser.add_argument("--document-id", default=F1_DOCUMENT_ID)
+    # #450: the project library owns the default document; --document-id is
+    # now an explicit-override path only, not the happy path.
+    parser.add_argument("--document-id", default=None)
     # #612: files passed positionally are document-open intents — the Windows
     # file associations invoke `HTDT.exe "%1"` which lands here.
     parser.add_argument(
@@ -342,6 +454,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="seed an explicitly synthetic O10-O80 development demo and exit",
     )
+    maintenance.add_argument(
+        "--migrate-legacy-data",
+        action="store_true",
+        help=(
+            "migrate the retired browser store (htdt.sqlite3) into native "
+            "projects, archive it, and exit"
+        ),
+    )
     # Reports the display version ("<version>+g<sha>[.dirty]") so a packaged
     # binary identifies the exact source build it was produced from. This is
     # the same version recorded in installer AppVersion and backup manifests.
@@ -375,6 +495,8 @@ def main(argv: list[str] | None = None) -> int:
         launch_mode = "automatic-backup"
     elif args.seed_synthetic_demo:
         launch_mode = "seed-synthetic-demo"
+    elif args.migrate_legacy_data:
+        launch_mode = "migrate-legacy-data"
     else:
         launch_mode = "gui"
     maintenance_request = launch_mode != "gui"
@@ -458,6 +580,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"adaptive-extended={result.adaptive_extended_plan_id}"
             )
             print("synthetic demo is development-only and does not unlock owned-room recommendation")
+            return 0
+        if args.migrate_legacy_data:
+            repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
+            result = migrate_legacy_data(
+                args.data_dir,
+                project_library=ProjectLibraryRepository(repository),
+            )
+            print(f"legacy migration: {result.model_dump_json()}")
             return 0
 
         return _run_gui(args, diagnostics)

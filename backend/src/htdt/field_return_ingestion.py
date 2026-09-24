@@ -18,6 +18,7 @@ from .project_identity import (
     classify_project_reference,
     resolve_project_reference,
 )
+from .cad_schema import ensure_native_schema, require_native_tables
 
 
 class FieldReturnError(ValueError):
@@ -407,6 +408,8 @@ class FieldReturnRepository:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_native_schema(self.path)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -417,22 +420,7 @@ class FieldReturnRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS field_return_contributions (
-                    contribution_id TEXT PRIMARY KEY,
-                    artifact_sha256 TEXT NOT NULL,
-                    validation_state TEXT NOT NULL,
-                    routing TEXT NOT NULL,
-                    matched_project_id TEXT,
-                    mission_id TEXT,
-                    plan_sha256 TEXT,
-                    manifest_json TEXT,
-                    detail TEXT,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                '''
-            )
+            require_native_tables(connection, 'field_return_contributions')
 
     def stage(
         self,

@@ -33,6 +33,11 @@ from .data_management import (
     RestoreResult,
 )
 from .data_relocation import ManagedDataRelocationPlan
+from .legacy_data import inspect_legacy_store
+from .storage_maintenance import (
+    StorageGcResult,
+    StorageReport,
+)
 from .ui_theme import (
     ControlSize,
     SemanticState,
@@ -443,6 +448,47 @@ class DataManagementWidget(QWidget):
         operations_layout.addLayout(actions)
         layout.addWidget(operations_card)
 
+        storage_card = QFrame(content)
+        storage_card.setObjectName("dataManagementStorageCard")
+        set_surface_role(storage_card, SurfaceRole.RAISED)
+        storage_layout = QVBoxLayout(storage_card)
+        storage_layout.setContentsMargins(18, 16, 18, 16)
+        storage_layout.setSpacing(12)
+
+        storage_title = QLabel("ストレージとエビデンス管理", storage_card)
+        set_typography_role(storage_title, TypographyRole.SECTION_TITLE)
+        storage_layout.addWidget(storage_title)
+
+        storage_text = QLabel(
+            "管理対象ストレージの内訳を確認し、どの権威からも参照されない"
+            "孤立アセットを削除候補として表示します。"
+            "削除は確認後にのみ実行されます。",
+            storage_card,
+        )
+        storage_text.setWordWrap(True)
+        set_typography_role(storage_text, TypographyRole.BODY)
+        storage_layout.addWidget(storage_text)
+
+        storage_actions = QHBoxLayout()
+        storage_actions.setSpacing(10)
+        self.storage_button = QPushButton(
+            "ストレージを確認", storage_card
+        )
+        self.storage_button.setObjectName("dataManagementStorageButton")
+        set_control_size(self.storage_button, ControlSize.STANDARD)
+        self.storage_button.clicked.connect(self._show_storage_inventory)
+        storage_actions.addWidget(self.storage_button)
+        storage_actions.addStretch(1)
+        storage_layout.addLayout(storage_actions)
+
+        self.legacy_label = QLabel("", storage_card)
+        self.legacy_label.setWordWrap(True)
+        set_typography_role(self.legacy_label, TypographyRole.BODY)
+        set_semantic_state(self.legacy_label, SemanticState.WARNING)
+        storage_layout.addWidget(self.legacy_label)
+        self._refresh_legacy_warning()
+        layout.addWidget(storage_card)
+
         self.preview_metadata = BackupMetadataView(title="復元前の確認", parent=content)
         self.preview_metadata.setObjectName("dataManagementRestorePreview")
         self.preview_metadata.hide()
@@ -483,6 +529,8 @@ class DataManagementWidget(QWidget):
         controller.restore_preview_ready.connect(self._on_restore_preview_ready)
         controller.restore_completed.connect(self._on_restore_completed)
         controller.relocation_completed.connect(self._on_relocation_completed)
+        controller.storage_scan_completed.connect(self._on_storage_scan_completed)
+        controller.storage_gc_completed.connect(self._on_storage_gc_completed)
         controller.operation_failed.connect(self._on_operation_failed)
 
         self._refresh_actions()
@@ -654,6 +702,104 @@ class DataManagementWidget(QWidget):
             self.progress_bar.setValue(value)
             self.progress_bar.setTextVisible(True)
 
+    def _refresh_legacy_warning(self) -> None:
+        """#598: surface the retired store so users can archive it.
+
+        The legacy database is outside the canonical native backup, so its
+        presence is a durability warning, not just an inventory fact.
+        """
+
+        try:
+            report = inspect_legacy_store(self.controller.backend.data_dir)
+        except Exception:  # noqa: BLE001 - warning must never break the page
+            self.legacy_label.hide()
+            return
+        if report.state == 'populated':
+            self.legacy_label.setText(
+                "レガシーブラウザデータ (htdt.sqlite3) を検出しました。"
+                "このデータはバックアップ対象外のため、"
+                "htdt-native --migrate-legacy-data で移行してください。"
+            )
+            self.legacy_label.show()
+        elif report.state == 'unreadable':
+            self.legacy_label.setText(
+                "レガシーデータベースを読み取れませんでした: "
+                f"{report.detail}"
+            )
+            self.legacy_label.show()
+        else:
+            self.legacy_label.hide()
+
+    def _show_storage_inventory(self) -> None:
+        """#501/#760: kick the async inventory — see ``_on_storage_scan_completed``."""
+
+        self.controller.scan_storage()
+
+    def _on_storage_scan_completed(self, report: StorageReport) -> None:
+        """Inventory -> candidates -> explicit confirm -> async GC."""
+
+        lines: list[str] = []
+        for category in report.categories:
+            lines.append(
+                f"{category.category}: {category.file_count} 件 / "
+                f"物理 {_format_bytes(category.physical_unique_bytes)}"
+                f"（論理参照 {_format_bytes(category.logical_referenced_bytes)}"
+                f"・未参照 {_format_bytes(category.unreferenced_bytes)}）"
+            )
+        if report.missing_referenced:
+            lines.append("")
+            lines.append(
+                "整合性エラー: 参照されているアセットが見つかりません:"
+            )
+            for missing in report.missing_referenced[:8]:
+                lines.append(f"・{missing.digest} ({missing.relative_path})")
+        if report.orphan_candidates:
+            lines.append("")
+            lines.append(
+                f"削除候補: {len(report.orphan_candidates)} 件 / "
+                f"{_format_bytes(report.reclaimable_bytes)} を回収可能"
+            )
+        else:
+            lines.append("")
+            lines.append("削除候補はありません。")
+
+        if not report.orphan_candidates:
+            QMessageBox.information(
+                self, "ストレージの確認結果", "\n".join(lines)
+            )
+            return
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("孤立アセットの削除")
+        box.setText("\n".join(lines))
+        box.setInformativeText(
+            "削除対象はどの権威からも参照されていないアセットのみです。"
+            "実行前に各候補の参照可否を再検証します。"
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.button(QMessageBox.StandardButton.Yes).setText("削除を実行")
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        self.controller.gc_storage()
+
+    def _on_storage_gc_completed(self, result: StorageGcResult) -> None:
+        QMessageBox.information(
+            self,
+            "ストレージを整理しました",
+            f"{result.deleted_files} 件の孤立アセットを削除し、"
+            f"{_format_bytes(result.freed_bytes)} を回収しました。"
+            + (
+                f"\nスキップ: {len(result.skipped_digests)} 件"
+                if result.skipped_digests
+                else ""
+            ),
+        )
+        self._refresh_legacy_warning()
+
     def _on_backup_created(self, result: BackupCreateResult) -> None:
         self.result_metadata.title.setText("作成したバックアップ")
         self.result_metadata.set_metadata(result.metadata, validated=True)
@@ -751,6 +897,7 @@ class DataManagementWidget(QWidget):
         self.migration_export_button.setEnabled(available)
         self.migration_import_button.setEnabled(available)
         self.relocate_button.setEnabled(available)
+        self.storage_button.setEnabled(available)
         self.restore_button.setEnabled(
             available and self._restore_preview is not None
         )

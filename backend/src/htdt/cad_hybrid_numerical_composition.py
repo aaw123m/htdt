@@ -33,7 +33,10 @@ from .cad_hybrid_grid_reconciliation import (
     validate_frequency_grid,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_wave_excitation import AcousticWaveExcitationAuthority
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
@@ -1316,16 +1319,7 @@ class CadNumericalHybridResponseRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS r160_numerical_hybrid_responses (
-                    artifact_id TEXT PRIMARY KEY,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    composition_spec_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'r160_numerical_hybrid_responses')
 
     def _rebuild(
         self,

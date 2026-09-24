@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import htdt.native_cad as native_cad
 
@@ -17,6 +18,19 @@ class _FakeApplication:
 
     def exec(self) -> int:
         return 0
+
+
+class _FakeProjectLibraryRepository:
+    """Schema-bypassing stand-in: the real library verifies the migrated
+    schema, which these tests never create."""
+
+    def __init__(self, _repository) -> None:
+        pass
+
+    def resolve_startup_document(self, document_id: str | None):
+        return SimpleNamespace(
+            document_id=document_id or 'default-project-document'
+        )
 
 
 class _FakeWindow:
@@ -37,12 +51,17 @@ def _stub_gui(monkeypatch, *, workflow_cls=_FakeWindow, legacy_cls=_FakeWindow):
     monkeypatch.setattr(
         native_cad,
         'build_workflow_shell',
-        lambda repository, document_id: created.setdefault('workflow', workflow_cls(repository, document_id)),
+        lambda repository, document_id, project_library=None: created.setdefault('workflow', workflow_cls(repository, document_id)),
     )
     monkeypatch.setattr(
         native_cad,
         'OptimizationWorkspaceWindow',
         lambda repository, document_id: created.setdefault('legacy', legacy_cls(repository, document_id)),
+    )
+    monkeypatch.setattr(
+        native_cad,
+        'ProjectLibraryRepository',
+        _FakeProjectLibraryRepository,
     )
     return app, created
 

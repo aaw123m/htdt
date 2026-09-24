@@ -6,6 +6,7 @@ from contextlib import closing
 import sqlite3
 
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_system_health import (
     HealthCheckPlan,
     HealthCheckRun,
@@ -36,46 +37,14 @@ class CadSystemHealthRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_health_baselines (
-                    baseline_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    baseline_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_health_check_plans (
-                    plan_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    baseline_id TEXT NOT NULL,
-                    baseline_sha256 TEXT NOT NULL,
-                    plan_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_health_check_runs (
-                    run_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    plan_id TEXT NOT NULL,
-                    run_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_health_baselines',
+                'cad_health_check_plans',
+                'cad_health_check_runs',
             )
 
-    # ------------------------------------------------------------------
-    # Baselines
 
     def save_baseline(self, baseline: SystemHealthBaseline) -> None:
         if self.get_baseline(baseline.baseline_id) is not None:

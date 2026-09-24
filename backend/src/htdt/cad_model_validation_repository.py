@@ -30,6 +30,7 @@ from .cad_validation_metrics import (
     build_sensitivity_check,
 )
 from .comparison import FrequencyResponse
+from .cad_schema import require_native_tables
 
 
 class CadModelValidationIntegrityError(ValueError):
@@ -98,25 +99,7 @@ class CadModelValidationRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_model_validations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    validation_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    model_id TEXT NOT NULL,
-                    model_version TEXT NOT NULL,
-                    recommendation_gate TEXT NOT NULL,
-                    validation_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_model_validation_search_seq
-                    ON cad_model_validations(search_spec_id, seq ASC);
-                '''
-            )
+            require_native_tables(connection, 'cad_model_validations')
 
     @staticmethod
     def _plan_linked(

@@ -12,6 +12,7 @@ from .cad_design_checkpoint import (
     ProjectDesignCheckpoint,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 def _utc_now() -> str:
@@ -43,45 +44,14 @@ class CadDesignCheckpointRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_constraint_snapshots (
-                    snapshot_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    constraint_sha256 TEXT NOT NULL,
-                    snapshot_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_design_checkpoints (
-                    checkpoint_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    checkpoint_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_checkpoint_restores (
-                    restore_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    checkpoint_id TEXT NOT NULL,
-                    restore_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_constraint_snapshots',
+                'cad_design_checkpoints',
+                'cad_checkpoint_restores',
             )
 
-    # ------------------------------------------------------------------
-    # Constraint workspace snapshots
 
     def save_snapshot(self, snapshot: ConstraintWorkspaceSnapshot) -> None:
         if self.get_snapshot(snapshot.snapshot_id) is not None:

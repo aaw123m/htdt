@@ -22,7 +22,10 @@ from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant_lifecycle import (
     CadSystemVariantLifecycleRepository,
     SystemVariantAsBuiltRecord,
@@ -1032,55 +1035,7 @@ class CadSystemVariantMeasurementCampaignRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id TEXT NOT NULL UNIQUE,
-                    plan_sha256 TEXT NOT NULL UNIQUE,
-                    variant_id TEXT NOT NULL,
-                    as_built_record_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_campaigns (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    campaign_sha256 TEXT NOT NULL UNIQUE,
-                    variant_id TEXT NOT NULL,
-                    as_built_record_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_campaign_registrations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    registration_id TEXT NOT NULL UNIQUE,
-                    registration_sha256 TEXT NOT NULL UNIQUE,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    campaign_sha256 TEXT NOT NULL,
-                    registered_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_plan_completions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    completion_id TEXT NOT NULL UNIQUE,
-                    completion_sha256 TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL,
-                    campaign_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_campaign_completions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    completion_id TEXT NOT NULL UNIQUE,
-                    completion_sha256 TEXT NOT NULL UNIQUE,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    measured_record_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_system_variant_measurement_plans', 'cad_system_variant_measurement_campaigns', 'cad_system_variant_measurement_campaign_registrations', 'cad_system_variant_measurement_plan_completions', 'cad_system_variant_measurement_campaign_completions')
 
     def _validate_plan(
         self,

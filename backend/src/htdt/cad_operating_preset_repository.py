@@ -11,6 +11,7 @@ from .cad_operating_preset import (
     TheaterOperatingPreset,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class OperatingPresetConflictError(ValueError):
@@ -37,46 +38,14 @@ class CadOperatingPresetRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_operating_presets (
-                    preset_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    preset_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_applied_preset_states (
-                    applied_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    preset_id TEXT NOT NULL,
-                    preset_sha256 TEXT NOT NULL,
-                    confirmed_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_preset_measurement_bindings (
-                    binding_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    preset_id TEXT NOT NULL,
-                    preset_sha256 TEXT NOT NULL,
-                    bound_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_operating_presets',
+                'cad_applied_preset_states',
+                'cad_preset_measurement_bindings',
             )
 
-    # ------------------------------------------------------------------
-    # Presets
 
     def save_preset(self, preset: TheaterOperatingPreset) -> None:
         if self.get_preset(preset.preset_id) is not None:

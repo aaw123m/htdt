@@ -15,7 +15,10 @@ from .cad_acoustic_snapshot import AcousticPredictionRequest
 from .cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from .cad_equipment import FrequencyDomain
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -409,32 +412,7 @@ class CadAcousticSolverResultRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_solver_results (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    result_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    execution_id TEXT NOT NULL,
-                    dispatch_binding_id TEXT NOT NULL,
-                    prediction_request_id TEXT NOT NULL,
-                    acoustic_scene_snapshot_id TEXT NOT NULL,
-                    deterministic_solver_input_hash TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_solver_result_request_seq
-                    ON cad_acoustic_solver_results(
-                        prediction_request_id,
-                        seq ASC
-                    );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_solver_result_dispatch_seq
-                    ON cad_acoustic_solver_results(
-                        dispatch_binding_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_acoustic_solver_results')
 
     def _resolve_external(
         self,

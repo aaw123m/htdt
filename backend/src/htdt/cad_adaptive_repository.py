@@ -16,6 +16,7 @@ from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_search import iter_cad_candidate_pages
 from .cad_search_repository import CadSearchRepository
+from .cad_schema import require_native_tables
 
 
 class CadAdaptivePlanRepository:
@@ -47,25 +48,7 @@ class CadAdaptivePlanRepository:
     def _initialize(self) -> None:
         # Kept idempotent so opening an already-migrated database is harmless.
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_adaptive_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    validation_id TEXT NOT NULL,
-                    execution_scope TEXT NOT NULL,
-                    selected_candidate_id TEXT NOT NULL,
-                    adaptive_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_adaptive_search_seq
-                    ON cad_adaptive_plans(search_spec_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_adaptive_plans')
 
     def _all_candidates(self, spec):
         candidates = []
