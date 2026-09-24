@@ -22,6 +22,8 @@ dependencies = [
   # PDF floor-plan underlay pages (#534); imported lazily only when a .pdf
   # file is imported, so image/DXF flows work without it.
   "PyMuPDF==1.26.7",
+  # QR encoding for printable field labels (#665); pure-python, no imaging deps.
+  "segno==1.6.6",
 ]
 
 [project.scripts]
