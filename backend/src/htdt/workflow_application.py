@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QPointF
-from PySide6.QtWidgets import QFileDialog, QMenu, QMessageBox
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QInputDialog,
+    QMenu,
+    QMessageBox,
+)
 
 from .application_pages import (
     ActivityPage,
@@ -34,6 +40,7 @@ from .cad_prediction_repository import CadPredictionRepository
 from .cad_repository import SceneRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_search_repository import CadSearchRepository
+from .cad_system_variant_repository import CadSystemVariantRepository
 from .command_palette import CommandPaletteController
 from .command_registry import (
     CommandAvailability,
@@ -49,6 +56,12 @@ from .data_management import (
 from .data_management_ui import build_data_management_component
 from .equipment_catalog_export import export_equipment_catalog_snapshot
 from .equipment_library import EquipmentLibraryDialog, EquipmentLibraryService
+from .installation_handoff import (
+    build_installation_handoff,
+    handoff_preview_text,
+    write_handoff_package,
+)
+from .installation_output_authority import InstallationReportService
 from .measurement_page_workspace import build_measurement_workspace_mount
 from .measurement_workflow import MeasurementWorkflowController
 from .navigation_target import NavigationTarget, NavigationTargetKind
@@ -228,6 +241,10 @@ class WorkflowApplicationComposition:
         self.registry.bind(
             "equipment.export_capture_catalog",
             execute=self._export_capture_equipment_catalog,
+        )
+        self.registry.bind(
+            "installation.export_handoff",
+            execute=self._export_installation_handoff,
         )
 
     def _command_context(self) -> CommandContext | None:
@@ -1217,6 +1234,90 @@ class WorkflowApplicationComposition:
             "Capture用機材カタログを書き出しました",
             f"{result.definition_count} 件の機材定義を書き出しました。\n"
             f"カタログSHA-256: {result.snapshot_sha256}",
+        )
+
+    def _export_installation_handoff(self) -> None:
+        """Operator action behind ``installation.export_handoff`` (#453).
+
+        Read-only handoff: the operator explicitly selects the SceneRevision
+        and SystemVariant to package, reviews the completeness of every
+        installation section, then writes the deterministic dimension
+        sheets, settings CSV, coordinates CSV and project report into a
+        chosen directory.
+        """
+
+        revisions = self.repository.list_revision_summaries(self.document_id)
+        if not revisions:
+            QMessageBox.warning(
+                self.shell,
+                "設置ハンドオフ",
+                "書き出せるシーンリビジョンがありません。",
+            )
+            return
+        revision_labels = [
+            f'{item.revision_id} ({item.created_at_utc})'
+            for item in revisions
+        ]
+        selected, ok = QInputDialog.getItem(
+            self.shell,
+            "設置ハンドオフ",
+            "シーンリビジョンを選択してください",
+            revision_labels,
+            len(revision_labels) - 1,
+            False,
+        )
+        if not ok:
+            return
+        scene_revision_id = revisions[
+            revision_labels.index(selected)
+        ].revision_id
+        variants = CadSystemVariantRepository(
+            self.repository
+        ).list_variants(self.document_id)
+        variant_labels = ['（なし）'] + [
+            f'{item.variant_id} — {item.name}' for item in variants
+        ]
+        selected_variant, ok = QInputDialog.getItem(
+            self.shell,
+            "設置ハンドオフ",
+            "システムバリアントを選択してください",
+            variant_labels,
+            0,
+            False,
+        )
+        if not ok:
+            return
+        system_variant_id = ''
+        if selected_variant != '（なし）':
+            system_variant_id = variants[
+                variant_labels.index(selected_variant) - 1
+            ].variant_id
+        service = InstallationReportService(
+            scene_repository=self.repository
+        )
+        handoff = build_installation_handoff(
+            service,
+            scene_revision_id=scene_revision_id,
+            system_variant_id=system_variant_id,
+            generated_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
+        QMessageBox.information(
+            self.shell,
+            "設置ハンドオフ プレビュー",
+            handoff_preview_text(handoff),
+        )
+        directory = QFileDialog.getExistingDirectory(
+            self.shell,
+            "ハンドオフの保存先フォルダ",
+        )
+        if not directory:
+            return
+        outputs = write_handoff_package(handoff, directory)
+        QMessageBox.information(
+            self.shell,
+            "設置ハンドオフを書き出しました",
+            "次のファイルを書き出しました:\n"
+            + "\n".join(str(path) for path in outputs.values()),
         )
 
     def _can_close_application(self) -> tuple[bool, str | None]:
