@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -27,12 +27,25 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .navigation_target import (
+    NavigationHistory,
+    NavigationIntent,
+    NavigationResolution,
+    NavigationResolver,
+    NavigationTarget,
+    NavigationTargetKind,
+)
 from .workflow_navigation import (
     CANONICAL_WORKSPACE_CONTEXTS,
     CANONICAL_WORKSPACE_LABELS,
+    DestinationId,
+    NavigationScope,
+    PROJECT_WORKSPACE_IDS,
     WorkspaceContext,
     WorkspaceDeepLink,
     WorkspaceId,
+    destination_scope,
+    normalize_destination_id,
     normalize_workspace_context,
     normalize_workspace_id,
 )
@@ -40,6 +53,14 @@ from .workflow_navigation import (
 
 DeactivationGuard: TypeAlias = Callable[[], tuple[bool, str | None]]
 CloseGuard: TypeAlias = Callable[[], tuple[bool, str | None]]
+
+
+@dataclass(frozen=True, slots=True)
+class TargetFocusResult:
+    """What a workspace focus port did with a typed navigation target."""
+
+    focused: bool
+    message: str | None = None
 
 
 @dataclass(slots=True)
@@ -53,6 +74,10 @@ class WorkspaceMount:
     on_context_changed: Callable[[str], None] | None = None
     on_entity_requested: Callable[[str], None] | None = None
     on_close: Callable[[], None] | None = None
+    focus_kinds: frozenset[NavigationTargetKind] = field(
+        default_factory=frozenset
+    )
+    focus_target: Callable[[NavigationTarget], TargetFocusResult] | None = None
 
     @classmethod
     def from_widget(
@@ -64,6 +89,8 @@ class WorkspaceMount:
         before_deactivate: DeactivationGuard | None = None,
         on_context_changed: Callable[[str], None] | None = None,
         on_entity_requested: Callable[[str], None] | None = None,
+        focus_kinds: Iterable[NavigationTargetKind] = (),
+        focus_target: Callable[[NavigationTarget], TargetFocusResult] | None = None,
     ) -> "WorkspaceMount":
         return cls(
             widget=widget,
@@ -73,6 +100,8 @@ class WorkspaceMount:
             on_context_changed=on_context_changed,
             on_entity_requested=on_entity_requested,
             on_close=widget.close,
+            focus_kinds=frozenset(focus_kinds),
+            focus_target=focus_target,
         )
 
 
@@ -81,10 +110,21 @@ WorkspaceFactory: TypeAlias = Callable[[], WorkspaceMount]
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceRegistration:
-    workspace_id: WorkspaceId
+    """One navigable destination; scope says which IA domain owns it."""
+
+    workspace_id: DestinationId
     label: str
     factory: WorkspaceFactory
     contexts: tuple[WorkspaceContext, ...] = ()
+    scope: NavigationScope = NavigationScope.PROJECT
+    focus_kinds: frozenset[NavigationTargetKind] = field(
+        default_factory=frozenset
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "scope", destination_scope(self.workspace_id)
+        )
 
 
 def build_canonical_workspace_registrations(
@@ -113,24 +153,47 @@ class WorkspaceRouter(QStackedWidget):
         self.setObjectName("workflowRouter")
         set_surface_role(self, SurfaceRole.BASE)
         self._registrations = {registration.workspace_id: registration for registration in registrations}
-        if set(self._registrations) != set(WorkspaceId):
-            raise ValueError("workflow router requires exactly the four canonical workspace destinations")
-        self._mounts: dict[WorkspaceId, WorkspaceMount] = {}
-        self._current_workspace_id: WorkspaceId | None = None
+        if not PROJECT_WORKSPACE_IDS.issubset(self._registrations):
+            missing = ", ".join(
+                sorted(item.value for item in PROJECT_WORKSPACE_IDS - set(self._registrations))
+            )
+            raise ValueError(
+                f"workflow router requires the four canonical project workspaces; missing: {missing}"
+            )
+        self._mounts: dict[DestinationId, WorkspaceMount] = {}
+        self._current_workspace_id: DestinationId | None = None
         self.last_block_reason: str | None = None
 
     @property
-    def current_workspace_id(self) -> WorkspaceId | None:
+    def current_workspace_id(self) -> DestinationId | None:
         return self._current_workspace_id
 
-    def registration(self, workspace_id: WorkspaceId | str) -> WorkspaceRegistration:
-        return self._registrations[normalize_workspace_id(workspace_id)]
+    def registration(self, workspace_id: DestinationId | str) -> WorkspaceRegistration:
+        return self._registrations[normalize_destination_id(workspace_id)]
 
-    def mount(self, workspace_id: WorkspaceId | str) -> WorkspaceMount | None:
-        return self._mounts.get(normalize_workspace_id(workspace_id))
+    def registered_ids(self) -> set[DestinationId]:
+        return set(self._registrations)
 
-    def navigate(self, workspace_id: WorkspaceId | str) -> WorkspaceMount | None:
-        destination = normalize_workspace_id(workspace_id)
+    def focus_capabilities(self) -> dict[DestinationId, frozenset[NavigationTargetKind]]:
+        """Target kinds each destination declares it can focus.
+
+        A mounted workspace's own declaration wins over the registration's —
+        capabilities follow the concrete surface, not its registration label.
+        """
+        result: dict[DestinationId, frozenset[NavigationTargetKind]] = {}
+        for destination, registration in self._registrations.items():
+            mount = self._mounts.get(destination)
+            if mount is not None and mount.focus_kinds:
+                result[destination] = mount.focus_kinds
+            else:
+                result[destination] = registration.focus_kinds
+        return result
+
+    def mount(self, workspace_id: DestinationId | str) -> WorkspaceMount | None:
+        return self._mounts.get(normalize_destination_id(workspace_id))
+
+    def navigate(self, workspace_id: DestinationId | str) -> WorkspaceMount | None:
+        destination = normalize_destination_id(workspace_id)
         self.last_block_reason = None
         if destination == self._current_workspace_id:
             return self._ensure_mount(destination)
@@ -152,24 +215,47 @@ class WorkspaceRouter(QStackedWidget):
             mount.on_activate()
         return mount
 
-    def select_context(self, workspace_id: WorkspaceId | str, context_id: str) -> str:
-        destination = normalize_workspace_id(workspace_id)
-        normalized_context = normalize_workspace_context(destination, context_id)
+    def select_context(self, workspace_id: DestinationId | str, context_id: str) -> str:
+        destination = normalize_destination_id(workspace_id)
         registration = self._registrations[destination]
+        normalized_context = (
+            normalize_workspace_context(destination, context_id)
+            if isinstance(destination, WorkspaceId)
+            else context_id
+        )
         valid_ids = {context.context_id for context in registration.contexts}
         if normalized_context not in valid_ids:
             raise ValueError(
-                f"unknown context {context_id!r} for workspace {destination.value!r}"
+                f"unknown context {context_id!r} for destination {destination.value!r}"
             )
         mount = self._ensure_mount(destination)
         if mount.on_context_changed is not None:
             mount.on_context_changed(normalized_context)
         return normalized_context
 
-    def request_entity(self, workspace_id: WorkspaceId | str, entity_id: str) -> None:
-        mount = self._ensure_mount(normalize_workspace_id(workspace_id))
+    def request_entity(self, workspace_id: DestinationId | str, entity_id: str) -> None:
+        mount = self._ensure_mount(normalize_destination_id(workspace_id))
         if mount.on_entity_requested is not None:
             mount.on_entity_requested(entity_id)
+
+    def focus_target(
+        self, destination: DestinationId | str, target: NavigationTarget
+    ) -> TargetFocusResult:
+        """Route a typed target through the mount's focus port (or entity hook)."""
+        mount = self._ensure_mount(normalize_destination_id(destination))
+        if mount.focus_target is not None:
+            return mount.focus_target(target)
+        if (
+            mount.on_entity_requested is not None
+            and target.kind == NavigationTargetKind.SCENE_ENTITY
+            and target.primary_id is not None
+        ):
+            mount.on_entity_requested(target.primary_id)
+            return TargetFocusResult(focused=True)
+        return TargetFocusResult(
+            focused=False,
+            message=f"{target.kind.value}の個別フォーカスはこの画面では未対応です",
+        )
 
     def can_dispose_all(self) -> tuple[bool, str | None]:
         for workspace_id, mount in self._mounts.items():
@@ -197,7 +283,7 @@ class WorkspaceRouter(QStackedWidget):
     def shutdown(self) -> None:
         self.dispose_mounts()
 
-    def _ensure_mount(self, workspace_id: WorkspaceId) -> WorkspaceMount:
+    def _ensure_mount(self, workspace_id: DestinationId) -> WorkspaceMount:
         existing = self._mounts.get(workspace_id)
         if existing is not None:
             return existing
@@ -218,7 +304,7 @@ class WorkflowRail(QFrame):
     def __init__(
         self,
         registrations: Iterable[WorkspaceRegistration],
-        on_navigate: Callable[[WorkspaceId], bool],
+        on_navigate: Callable[[DestinationId], bool],
         on_settings: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -229,7 +315,7 @@ class WorkflowRail(QFrame):
         self.setFixedWidth(self.EXPANDED_WIDTH)
         self._compact = False
 
-        self._buttons: dict[WorkspaceId, QPushButton] = {}
+        self._buttons: dict[DestinationId, QPushButton] = {}
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
 
@@ -242,7 +328,18 @@ class WorkflowRail(QFrame):
         self._layout.addWidget(self._brand)
         self._layout.addSpacing(12)
 
+        last_scope: NavigationScope | None = None
         for registration in registrations:
+            if registration.scope != last_scope:
+                header = QLabel(
+                    "プロジェクト"
+                    if registration.scope == NavigationScope.PROJECT
+                    else "アプリケーション"
+                )
+                header.setObjectName("workflowRailSectionHeader")
+                set_typography_role(header, TypographyRole.SECONDARY)
+                self._layout.addWidget(header)
+                last_scope = registration.scope
             button = QPushButton(registration.label)
             button.setCheckable(True)
             button.setProperty("workspaceId", registration.workspace_id.value)
@@ -283,8 +380,10 @@ class WorkflowRail(QFrame):
         self._layout.setContentsMargins(margin_x, margin_y, margin_x, margin_y)
         self._layout.setSpacing(4 if compact else 6)
 
-    def set_active(self, workspace_id: WorkspaceId | str) -> None:
-        self._buttons[normalize_workspace_id(workspace_id)].setChecked(True)
+    def set_active(self, workspace_id: DestinationId | str) -> None:
+        button = self._buttons.get(normalize_destination_id(workspace_id))
+        if button is not None:
+            button.setChecked(True)
 
 
 class TopContextBar(QFrame):
@@ -312,6 +411,17 @@ class TopContextBar(QFrame):
         self._context_layout.setSpacing(4)
         self._layout.addWidget(self._context_container)
         self._layout.addStretch(1)
+
+        self._project_label = QLabel()
+        self._project_label.setObjectName("workflowProjectChip")
+        set_typography_role(self._project_label, TypographyRole.SECONDARY)
+        self._layout.addWidget(self._project_label)
+
+        self._project_button = QPushButton("切替")
+        self._project_button.setObjectName("workflowProjectSwitchButton")
+        set_control_size(self._project_button, ControlSize.COMPACT)
+        self._project_button.setToolTip("プロジェクトを切り替える")
+        self._layout.addWidget(self._project_button)
 
     @property
     def context_labels(self) -> tuple[str, ...]:
@@ -366,6 +476,26 @@ class TopContextBar(QFrame):
             raise ValueError(f"context {context_id!r} is not visible in the current workspace")
         button.setChecked(True)
 
+    def set_project_identity(
+        self,
+        label: str | None,
+        on_switch: Callable[[], None] | None = None,
+    ) -> None:
+        """Show the active project name; the button switches via the library."""
+        visible = bool(label)
+        self._project_label.setVisible(visible)
+        self._project_label.setText(f"プロジェクト: {label}" if label else "")
+        if on_switch is not None:
+            if self._project_button.receivers("clicked()"):
+                self._project_button.clicked.disconnect()
+            self._project_button.clicked.connect(
+                lambda checked=False: on_switch()
+            )
+            self._project_button.setEnabled(True)
+        else:
+            self._project_button.setEnabled(False)
+        self._project_button.setVisible(visible)
+
     def _clear_contexts(self) -> None:
         if self._context_group is not None:
             self._context_group.deleteLater()
@@ -382,12 +512,13 @@ class WorkflowShellWindow(QMainWindow):
     """Workflow-first shell; domain and SceneRevision authority stay in workspaces."""
 
     settingsRequested = Signal()
+    projectSwitchRequested = Signal()
 
     def __init__(
         self,
         registrations: Iterable[WorkspaceRegistration],
         *,
-        initial_workspace: WorkspaceId = WorkspaceId.OVERVIEW,
+        initial_workspace: DestinationId = WorkspaceId.OVERVIEW,
     ) -> None:
         super().__init__()
         self.setObjectName("workflowShell")
@@ -395,10 +526,17 @@ class WorkflowShellWindow(QMainWindow):
 
         registration_tuple = tuple(registrations)
         self._registrations = {registration.workspace_id: registration for registration in registration_tuple}
-        if set(self._registrations) != set(WorkspaceId):
-            raise ValueError("workflow shell requires exactly the four canonical workspace destinations")
+        if not PROJECT_WORKSPACE_IDS.issubset(self._registrations):
+            missing = ", ".join(
+                sorted(item.value for item in PROJECT_WORKSPACE_IDS - set(self._registrations))
+            )
+            raise ValueError(
+                f"workflow shell requires the four canonical project workspaces; missing: {missing}"
+            )
 
-        self._selected_context: dict[WorkspaceId, str] = {}
+        self._navigation_history = NavigationHistory()
+        self._navigation_resolver = NavigationResolver()
+        self._selected_context: dict[DestinationId, str] = {}
         self._close_guards: list[CloseGuard] = []
         self._data_mutations_frozen = False
         for registration in registration_tuple:
@@ -434,6 +572,11 @@ class WorkflowShellWindow(QMainWindow):
         self.setCentralWidget(root)
         self.resize(1440, 900)
         self._update_responsive_layout()
+        # Application-level Back/Forward history (typed navigation context);
+        # intentionally independent of Scene Undo inside any workspace.
+        QShortcut(QKeySequence("Alt+Left"), self, activated=self.navigation_back)
+        QShortcut(QKeySequence("Alt+Right"), self, activated=self.navigation_forward)
+        self.context_bar.set_project_identity(None, None)
         if not self.navigate(initial_workspace):
             raise RuntimeError("initial workflow workspace could not be activated")
 
@@ -447,11 +590,15 @@ class WorkflowShellWindow(QMainWindow):
         self._update_responsive_layout()
 
     @property
-    def current_workspace_id(self) -> WorkspaceId:
+    def current_workspace_id(self) -> DestinationId:
         current = self.router.current_workspace_id
         if current is None:
             raise RuntimeError("workflow shell has not selected a workspace")
         return current
+
+    @property
+    def navigation_history(self) -> NavigationHistory:
+        return self._navigation_history
 
     @property
     def navigation_labels(self) -> tuple[str, ...]:
@@ -461,11 +608,23 @@ class WorkflowShellWindow(QMainWindow):
     def context_labels(self) -> tuple[str, ...]:
         return self.context_bar.context_labels
 
-    def navigate(self, workspace_id: WorkspaceId | str) -> bool:
+    def set_project_identity(self, label: str | None) -> None:
+        """Show the active project in the context bar with a switch affordance."""
+        self.context_bar.set_project_identity(
+            label,
+            self.projectSwitchRequested.emit if label else None,
+        )
+
+    def navigate(self, workspace_id: DestinationId | str) -> bool:
         if self._data_mutations_frozen:
             self.statusBar().showMessage("データ処理中は画面を切り替えられません")
             return False
-        destination = normalize_workspace_id(workspace_id)
+        destination = normalize_destination_id(workspace_id)
+        if destination not in self._registrations:
+            self.statusBar().showMessage(
+                f"未登録の画面です: {destination.value}"
+            )
+            return False
         previous = self.router.current_workspace_id
         registration = self._registrations[destination]
         mount = self.router.navigate(destination)
@@ -486,14 +645,94 @@ class WorkflowShellWindow(QMainWindow):
     def select_context(self, context_id: str) -> None:
         self._select_current_context(context_id)
 
-    def handle_deep_link(self, target: WorkspaceDeepLink) -> bool:
-        if not self.navigate(target.workspace):
+    def navigate_to_target(
+        self,
+        target: NavigationTarget,
+        *,
+        referrer: str | None = None,
+        record_history: bool = True,
+    ) -> NavigationResolution:
+        """Resolve a typed target, navigate, then focus through the port.
+
+        The resolved link keeps the target's revision/variant authority
+        context; unsupported kinds surface an actionable message instead of
+        any name/newest substitution.
+        """
+        resolution = self._navigation_resolver.resolve(
+            target,
+            registered=self.router.registered_ids(),
+            capabilities=self.router.focus_capabilities(),
+        )
+        if resolution.link is None:
+            self.statusBar().showMessage(resolution.message or "対象を開けません")
+            return resolution
+
+        link = resolution.link
+        if not self.navigate(link.workspace):
+            return NavigationResolution(
+                target=target,
+                link=link,
+                status="unsupported",
+                message=self.router.last_block_reason or "画面を切り替えられません",
+            )
+        if link.section is not None and link.workspace in PROJECT_WORKSPACE_IDS:
+            self.select_context(link.section)
+
+        if resolution.status == "focused":
+            result = self.router.focus_target(link.workspace, target)
+            if result.message:
+                self.statusBar().showMessage(result.message)
+        elif link.entity_id is not None:
+            self.router.request_entity(link.workspace, link.entity_id)
+
+        if record_history:
+            self._navigation_history.record(target, link, referrer=referrer)
+        return resolution
+
+    def navigation_back(self) -> bool:
+        """Application Back: replay the previous typed navigation context."""
+        entry = self._navigation_history.back()
+        if entry is None:
             return False
-        if target.subsection is not None:
-            self.select_context(target.subsection)
-        if target.entity_id is not None:
-            self.router.request_entity(target.workspace, target.entity_id)
+        resolution = self.navigate_to_target(entry.target, record_history=False)
+        if not resolution.ok:
+            self._navigation_history.forward()
+            return False
         return True
+
+    def navigation_forward(self) -> bool:
+        entry = self._navigation_history.forward()
+        if entry is None:
+            return False
+        resolution = self.navigate_to_target(entry.target, record_history=False)
+        if not resolution.ok:
+            self._navigation_history.back()
+            return False
+        return True
+
+    def handle_deep_link(self, target: WorkspaceDeepLink) -> bool:
+        """Legacy workspace deep links route through typed navigation."""
+        kind = target.kind or (
+            NavigationTargetKind.SCENE_ENTITY.value
+            if target.entity_id is not None
+            else NavigationTargetKind.WORKSPACE.value
+        )
+        resolution = self.navigate_to_target(
+            NavigationTarget(
+                kind=NavigationTargetKind(kind),
+                object_ids=(target.entity_id,) if target.entity_id else (),
+                revision_id=target.revision_id,
+                system_variant_id=target.system_variant_id,
+                preferred_destination=target.workspace,
+                preferred_section=target.section,
+                intent=(
+                    NavigationIntent(target.intent)
+                    if target.intent is not None
+                    else NavigationIntent.INSPECT
+                ),
+            )
+        )
+        return resolution.ok
 
     def _select_current_context(self, context_id: str) -> None:
         if self._data_mutations_frozen:

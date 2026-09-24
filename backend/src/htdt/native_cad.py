@@ -167,8 +167,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         icon_path = _packaged_application_icon()
         if icon_path is not None:
             app.setWindowIcon(QIcon(str(icon_path)))
-        if args.workflow_shell:
-            apply_dark_theme(app)
+        apply_dark_theme(app)
         # #606: run the explicit upgrade lifecycle before any repository
         # opens the store — preflight, mandatory recovery copy, migration,
         # verification and an operational journal entry.
@@ -203,6 +202,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # (untouched synthetic fixture vs. real user project) in diagnostics.
         # Read-only; the report never alters persisted data.
         log_default_document_classification(repository, diagnostics.logger)
+        composition = "legacy-optimization" if args.legacy_ui else "workflow-shell"
+        diagnostics.logger.info("root composition: %s", composition)
         # #612: launch intents passed on the command line (e.g. a Windows
         # file-association launch) may name the project to open.
         initial_intents = [
@@ -213,9 +214,9 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             if intent.kind == 'open_project' and intent.document_id:
                 args.document_id = intent.document_id
         window = (
-            build_workflow_shell(repository, args.document_id)
-            if args.workflow_shell
-            else OptimizationWorkspaceWindow(repository, args.document_id)
+            OptimizationWorkspaceWindow(repository, args.document_id)
+            if args.legacy_ui
+            else build_workflow_shell(repository, args.document_id)
         )
         window.show()
 
@@ -311,10 +312,13 @@ def main(argv: list[str] | None = None) -> int:
         "(.htdt-backup) files to open",
     )
     parser.add_argument(
-        "--workflow-shell",
+        "--legacy-ui",
         action="store_true",
-        help="launch the UX110 workflow shell preview instead of the accepted legacy composition",
+        help="launch the legacy OptimizationWorkspaceWindow composition instead of the default workflow shell (rollback)",
     )
+    # Accepted for compatibility: the workflow shell is the default launch
+    # path since UX160, so the old opt-in flag no longer has an effect.
+    parser.add_argument("--workflow-shell", action="store_true", help=argparse.SUPPRESS)
     maintenance = parser.add_mutually_exclusive_group()
     maintenance.add_argument(
         "--backup",
@@ -343,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
     # the same version recorded in installer AppVersion and backup manifests.
     parser.add_argument("--version", action="version", version=f"%(prog)s {version_string()}")
     args = parser.parse_args(argv)
+    if args.workflow_shell and args.legacy_ui:
+        parser.error("--workflow-shell and --legacy-ui cannot be combined")
 
     # #621: resolve the managed root through the documented precedence and
     # fail closed when a configured location is unavailable.

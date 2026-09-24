@@ -2,16 +2,69 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from urllib.parse import quote
+from typing import TypeAlias
+from urllib.parse import parse_qsl, quote, urlparse
+
+
+class NavigationScope(StrEnum):
+    """Which IA domain owns a destination (UX160 IA v2)."""
+
+    PROJECT = "project"
+    APPLICATION = "application"
 
 
 class WorkspaceId(StrEnum):
-    """Stable user-facing workflow destinations."""
+    """Stable user-facing project workflow destinations."""
 
     OVERVIEW = "overview"
     ROOM = "room"
     MEASUREMENT = "measurement"
     OPTIMIZATION = "optimization"
+
+
+class ApplicationDestinationId(StrEnum):
+    """Application-scope destinations that exist outside any one project."""
+
+    PROJECTS = "projects"
+    INBOX = "inbox"
+    ACTIVITY = "activity"
+    LIBRARY = "library"
+    SUPPORT = "support"
+
+
+DestinationId: TypeAlias = WorkspaceId | ApplicationDestinationId
+
+#: The four compact project workspaces that every composition must register.
+#: Additional registered destinations are allowed — the shell no longer
+#: assumes every user-facing destination is one of exactly these four.
+PROJECT_WORKSPACE_IDS: frozenset[WorkspaceId] = frozenset(WorkspaceId)
+
+
+def destination_scope(destination: DestinationId | str) -> NavigationScope:
+    if isinstance(destination, ApplicationDestinationId):
+        return NavigationScope.APPLICATION
+    if isinstance(destination, WorkspaceId):
+        return NavigationScope.PROJECT
+    value = str(destination)
+    try:
+        ApplicationDestinationId(value)
+        return NavigationScope.APPLICATION
+    except ValueError:
+        pass
+    WorkspaceId(value)  # raises for unknown destinations
+    return NavigationScope.PROJECT
+
+
+def normalize_destination_id(value: DestinationId | str) -> DestinationId:
+    if isinstance(value, (WorkspaceId, ApplicationDestinationId)):
+        return value
+    text = str(value)
+    for enum in (WorkspaceId, ApplicationDestinationId):
+        try:
+            return enum(text)
+        except ValueError:
+            continue
+    raise ValueError(f"unknown navigation destination: {text!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,15 +75,28 @@ class WorkspaceContext:
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceDeepLink:
-    """Transport-only navigation target shared by shell, commands and Overview."""
+    """Transport-only navigation target shared by shell, commands and Overview.
 
-    workspace: WorkspaceId
+    ``revision_id``/``system_variant_id`` carry explicit authority context so a
+    link resolves to the same evidence after later saves; ``kind``/``intent``
+    describe the typed target the link was resolved from (when known).
+    """
+
+    workspace: DestinationId
     section: str | None = None
     entity_id: str | None = None
+    revision_id: str | None = None
+    system_variant_id: str | None = None
+    kind: str | None = None
+    intent: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.workspace, WorkspaceId):
-            object.__setattr__(self, "workspace", WorkspaceId(self.workspace))
+        if not isinstance(self.workspace, (WorkspaceId, ApplicationDestinationId)):
+            object.__setattr__(self, "workspace", normalize_destination_id(self.workspace))
+
+    @property
+    def scope(self) -> NavigationScope:
+        return destination_scope(self.workspace)
 
     @property
     def subsection(self) -> str | None:
@@ -38,12 +104,54 @@ class WorkspaceDeepLink:
         return self.section
 
     def as_uri(self) -> str:
-        base = f"htdt://workspace/{self.workspace.value}"
+        if self.scope == NavigationScope.APPLICATION:
+            base = f"htdt://app/{self.workspace.value}"
+        else:
+            base = f"htdt://workspace/{self.workspace.value}"
         if self.section is not None:
             base += f"/{quote(self.section, safe='')}"
+        params: list[tuple[str, str]] = []
         if self.entity_id is not None:
-            base += f"?entity={quote(self.entity_id, safe='')}"
+            params.append(("entity", self.entity_id))
+        if self.revision_id is not None:
+            params.append(("revision", self.revision_id))
+        if self.system_variant_id is not None:
+            params.append(("variant", self.system_variant_id))
+        if self.kind is not None:
+            params.append(("kind", self.kind))
+        if self.intent is not None:
+            params.append(("intent", self.intent))
+        if params:
+            base += "?" + "&".join(
+                f"{key}={quote(value, safe='')}" for key, value in params
+            )
         return base
+
+    @classmethod
+    def from_uri(cls, uri: str) -> "WorkspaceDeepLink":
+        """Parse ``htdt://workspace/...`` and ``htdt://app/...`` deep links."""
+
+        parsed = urlparse(uri)
+        if parsed.scheme != "htdt" or parsed.netloc not in ("workspace", "app"):
+            raise ValueError(f"unsupported deep link URI: {uri!r}")
+        parts = [part for part in parsed.path.split("/") if part]
+        if not parts:
+            raise ValueError(f"missing destination in deep link URI: {uri!r}")
+        destination: DestinationId = (
+            ApplicationDestinationId(parts[0])
+            if parsed.netloc == "app"
+            else WorkspaceId(parts[0])
+        )
+        params = dict(parse_qsl(parsed.query))
+        return cls(
+            workspace=destination,
+            section=parts[1] if len(parts) > 1 else None,
+            entity_id=params.get("entity"),
+            revision_id=params.get("revision"),
+            system_variant_id=params.get("variant"),
+            kind=params.get("kind"),
+            intent=params.get("intent"),
+        )
 
 
 CANONICAL_WORKSPACE_LABELS: dict[WorkspaceId, str] = {
@@ -51,6 +159,15 @@ CANONICAL_WORKSPACE_LABELS: dict[WorkspaceId, str] = {
     WorkspaceId.ROOM: "部屋",
     WorkspaceId.MEASUREMENT: "測定",
     WorkspaceId.OPTIMIZATION: "最適化",
+}
+
+
+APPLICATION_DESTINATION_LABELS: dict[ApplicationDestinationId, str] = {
+    ApplicationDestinationId.PROJECTS: "プロジェクト",
+    ApplicationDestinationId.INBOX: "取り込み",
+    ApplicationDestinationId.ACTIVITY: "アクティビティ",
+    ApplicationDestinationId.LIBRARY: "ライブラリ",
+    ApplicationDestinationId.SUPPORT: "サポート",
 }
 
 
@@ -105,12 +222,19 @@ def normalize_workspace_context(workspace: WorkspaceId | str, context_id: str) -
 
 
 __all__ = [
+    "APPLICATION_DESTINATION_LABELS",
+    "ApplicationDestinationId",
     "CANONICAL_WORKSPACE_CONTEXTS",
     "CANONICAL_WORKSPACE_LABELS",
+    "DestinationId",
+    "NavigationScope",
+    "PROJECT_WORKSPACE_IDS",
     "WORKSPACE_CONTEXT_ALIASES",
     "WorkspaceContext",
     "WorkspaceDeepLink",
     "WorkspaceId",
+    "destination_scope",
+    "normalize_destination_id",
     "normalize_workspace_context",
     "normalize_workspace_id",
 ]

@@ -5,6 +5,17 @@ from pathlib import Path
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QFileDialog, QMenu, QMessageBox
 
+from .application_pages import (
+    ActivityPage,
+    CaptureInboxPage,
+    ProjectLibraryPage,
+    ProjectLibraryService,
+    ReferenceLibraryPage,
+    SupportPage,
+    activity_focus,
+    inbox_focus,
+    list_recent_revisions,
+)
 from .cad_input import (
     CAD_SCENE_COMMAND_IDS,
     CadCommandBindings,
@@ -13,6 +24,8 @@ from .cad_input import (
     unbind_cad_input_commands,
 )
 from .cad_view_state import StandardView
+from .capture_inbox import CaptureInboxRepository
+from .cad_equipment_binding_repository import CadEquipmentBindingRepository
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation_repository import CadModelValidationRepository
@@ -35,22 +48,42 @@ from .data_management import (
 )
 from .data_management_ui import build_data_management_component
 from .equipment_catalog_export import export_equipment_catalog_snapshot
+from .equipment_library import EquipmentLibraryDialog, EquipmentLibraryService
 from .measurement_page_workspace import build_measurement_workspace_mount
 from .measurement_workflow import MeasurementWorkflowController
+from .navigation_target import NavigationTarget, NavigationTargetKind
 from .optimization_workflow_workspace import build_optimization_workspace_mount
 from .overview_readiness import OverviewReadinessService
 from .overview_workspace import OverviewWorkspace
+from .palette_search import (
+    CommandPaletteProvider,
+    PaletteResultKind,
+    PaletteSearchService,
+    SceneEntityPaletteProvider,
+    StaticPaletteProvider,
+    help_destinations,
+    settings_destinations,
+)
 from .room_geometry_input import RoomGeometryInputController
 from .room_geometry_panel import RoomGeometryPanel
 from .room_prediction import RoomPredictionController, RoomPredictionPanel
 from .room_transform_input import RoomEntityTransformController
 from .room_viewport import RoomViewport3D
 from .room_workspace import RoomWorkspace
-from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from .system_expansion_workflow import SystemExpansionWorkflowService
+from .workflow_help import HelpDialog
+from .workflow_navigation import (
+    APPLICATION_DESTINATION_LABELS,
+    ApplicationDestinationId,
+    WorkspaceDeepLink,
+    WorkspaceId,
+)
 from .workflow_settings import DataManagementDialog
 from .workflow_shell import (
+    TargetFocusResult,
     WorkflowShellWindow,
     WorkspaceMount,
+    WorkspaceRegistration,
     build_canonical_workspace_registrations,
 )
 
@@ -150,14 +183,22 @@ class WorkflowApplicationComposition:
                 WorkspaceId.MEASUREMENT: self._make_measurement,
                 WorkspaceId.OPTIMIZATION: self._make_optimization,
             }
-        )
+        ) + self._application_registrations()
         self.shell = WorkflowShellWindow(registrations)
         self.registry.set_deep_link_handler(self.shell.handle_deep_link)
+        self.shell.set_project_identity(document_id)
+        self.shell.projectSwitchRequested.connect(
+            lambda: self.shell.navigate_to_target(
+                NavigationTarget(kind=NavigationTargetKind.PROJECT)
+            )
+        )
 
+        self.palette_service = self._build_palette_service()
         self.command_palette = CommandPaletteController(
             self.shell,
-            self.registry,
-            context_provider=lambda: CommandContext(self.shell.current_workspace_id.value),
+            self.palette_service,
+            context_provider=lambda: self._command_context(),
+            on_deep_link=self._navigate_target,
         )
         self.shell.command_registry = self.registry  # type: ignore[attr-defined]
         self.shell.command_palette_controller = self.command_palette  # type: ignore[attr-defined]
@@ -189,6 +230,200 @@ class WorkflowApplicationComposition:
             execute=self._export_capture_equipment_catalog,
         )
 
+    def _command_context(self) -> CommandContext | None:
+        current = self.shell.router.current_workspace_id
+        if isinstance(current, WorkspaceId):
+            return CommandContext(current.value)
+        return CommandContext.GLOBAL
+
+    def _application_registrations(self) -> tuple[WorkspaceRegistration, ...]:
+        """Application-scope destinations (#649) — real surfaces only."""
+        return (
+            WorkspaceRegistration(
+                workspace_id=ApplicationDestinationId.PROJECTS,
+                label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.PROJECTS],
+                factory=self._make_projects,
+                focus_kinds=frozenset({NavigationTargetKind.PROJECT}),
+            ),
+            WorkspaceRegistration(
+                workspace_id=ApplicationDestinationId.INBOX,
+                label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.INBOX],
+                factory=self._make_inbox,
+                focus_kinds=frozenset({
+                    NavigationTargetKind.CAPTURE_DELIVERY,
+                    NavigationTargetKind.CAPTURE_INBOX_ITEM,
+                }),
+            ),
+            WorkspaceRegistration(
+                workspace_id=ApplicationDestinationId.ACTIVITY,
+                label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.ACTIVITY],
+                factory=self._make_activity,
+                focus_kinds=frozenset({
+                    NavigationTargetKind.ACTIVITY_JOB,
+                    NavigationTargetKind.PROJECT_CHECKPOINT,
+                }),
+            ),
+            WorkspaceRegistration(
+                workspace_id=ApplicationDestinationId.LIBRARY,
+                label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.LIBRARY],
+                factory=self._make_library,
+                focus_kinds=frozenset({NavigationTargetKind.EQUIPMENT_DEFINITION}),
+            ),
+            WorkspaceRegistration(
+                workspace_id=ApplicationDestinationId.SUPPORT,
+                label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.SUPPORT],
+                factory=self._make_support,
+                focus_kinds=frozenset({NavigationTargetKind.HELP_TOPIC}),
+            ),
+        )
+
+    def _build_palette_service(self) -> PaletteSearchService:
+        """Composable palette providers (#585): commands, entities, settings, help."""
+
+        def entities() -> tuple:
+            revision = self.repository.latest(self.document_id)
+            return () if revision is None else revision.document.entities
+
+        def entity_link(entity) -> WorkspaceDeepLink:
+            section = (
+                'placement'
+                if getattr(entity, 'kind', '')
+                in ('speaker', 'seat', 'measurement_point')
+                else 'objects'
+            )
+            return WorkspaceDeepLink(
+                WorkspaceId.ROOM, section, entity_id=entity.entity_id
+            )
+
+        return PaletteSearchService(
+            (
+                CommandPaletteProvider(self.registry),
+                SceneEntityPaletteProvider(entities, entity_link),
+                StaticPaletteProvider(
+                    'settings',
+                    PaletteResultKind.SETTINGS,
+                    settings_destinations(),
+                    self._open_settings_destination,
+                ),
+                StaticPaletteProvider(
+                    'help',
+                    PaletteResultKind.HELP,
+                    help_destinations(),
+                    self._open_help_topic,
+                ),
+            ),
+            on_deep_link=self._navigate_target,
+        )
+
+    def _open_settings_destination(self, destination_id: str) -> bool:
+        if destination_id != 'settings.data':
+            return False
+        self.settings_dialog.open_settings()
+        return True
+
+    def _open_help_topic(self, topic_id: str) -> bool:
+        if topic_id == 'help.shortcuts':
+            HelpDialog.shortcuts(self.registry, parent=self.shell).exec()
+            return True
+        if topic_id == 'help.palette':
+            HelpDialog.palette_usage(parent=self.shell).exec()
+            return True
+        return False
+
+    def _open_project(self, document_id: str) -> None:
+        """Switch the whole composition to another persisted document (#649)."""
+        if document_id == self.document_id:
+            return
+        allowed, reason = self.shell.router.can_dispose_all()
+        if not allowed:
+            self.shell.statusBar().showMessage(
+                reason or '現在の作業を完了してからプロジェクトを切り替えてください'
+            )
+            return
+        self.shell.dispose_data_workspaces()
+        self._unbind_workspace_commands()
+        self.document_id = document_id
+        self.shell.set_project_identity(document_id)
+        if not self.shell.navigate(WorkspaceId.OVERVIEW):
+            raise RuntimeError('プロジェクト切替後の概要画面を再構築できませんでした')
+
+    def _make_projects(self) -> WorkspaceMount:
+        page = ProjectLibraryPage(
+            ProjectLibraryService(self.repository),
+            current_document_id=lambda: self.document_id,
+        )
+        page.project_open_requested.connect(self._open_project)
+        page.commission_requested.connect(self._open_commissioning_wizard)
+        return WorkspaceMount.from_widget(
+            page,
+            on_activate=page.refresh,
+            focus_target=lambda target: TargetFocusResult(focused=True),
+        )
+
+    def _make_inbox(self) -> WorkspaceMount:
+        repository = CaptureInboxRepository(self.repository)
+        page = CaptureInboxPage(
+            repository.list_items,
+            on_navigate=self._navigate_target,
+        )
+        return WorkspaceMount.from_widget(
+            page,
+            on_activate=page.refresh,
+            focus_target=lambda target: inbox_focus(page, target),
+        )
+
+    def _make_activity(self) -> WorkspaceMount:
+        page = ActivityPage(
+            lambda limit: list_recent_revisions(self.repository, limit)
+        )
+        return WorkspaceMount.from_widget(
+            page,
+            on_activate=page.refresh,
+            focus_target=lambda target: activity_focus(page, target),
+        )
+
+    def _make_library(self) -> WorkspaceMount:
+        service = EquipmentLibraryService(self.repository)
+        page = ReferenceLibraryPage(service.definitions)
+
+        def manage() -> None:
+            dialog = EquipmentLibraryDialog(service, parent=page)
+            dialog.exec()
+            page.refresh()
+
+        page.manage_requested.connect(manage)
+        return WorkspaceMount.from_widget(
+            page,
+            on_activate=page.refresh,
+            focus_target=lambda target: (
+                page.focus_definition(target.primary_id)
+                if target.primary_id is not None
+                else TargetFocusResult(focused=True)
+            ),
+        )
+
+    def _make_support(self) -> WorkspaceMount:
+        page = SupportPage(self.data_dir)
+        return WorkspaceMount.from_widget(
+            page,
+            focus_target=lambda target: TargetFocusResult(focused=True),
+        )
+
+    def _open_commissioning_wizard(self) -> None:
+        """First-run project commissioning wizard (#588)."""
+        from .commissioning_wizard import CommissioningWizard
+
+        wizard = CommissioningWizard(
+            self.repository,
+            self.document_id,
+            data_dir=self.data_dir,
+            overview_service=self._build_overview_service(),
+            parent=self.shell,
+        )
+        wizard.navigate_requested.connect(self._navigate_target)
+        if wizard.exec() == wizard.DialogCode.Accepted:
+            self._open_project(wizard.created_document_id)
+
     def _build_overview_service(self) -> OverviewReadinessService:
         measurement_repository = CadMeasurementRepository(self.repository)
         prediction_repository = CadPredictionRepository(self.repository)
@@ -206,6 +441,12 @@ class WorkflowApplicationComposition:
             measurement_repository,
             objective_repository,
         )
+        variant_service = SystemExpansionWorkflowService(
+            self.repository, self.document_id
+        )
+        equipment_bindings = CadEquipmentBindingRepository(
+            self.repository, variant_service.equipment_repository
+        )
         return OverviewReadinessService(
             self.repository,
             measurement_repository,
@@ -214,6 +455,8 @@ class WorkflowApplicationComposition:
             validation_repository,
             quality_source=CadMeasurementQualityRepository(measurement_repository),
             impact_source=self.repository,
+            variant_source=variant_service,
+            equipment_source=equipment_bindings,
         )
 
     def _navigate_target(self, target: WorkspaceDeepLink) -> bool:
@@ -691,6 +934,19 @@ class WorkflowApplicationComposition:
                 return allowed, reason
             return workspace.before_deactivate()
 
+        def focus_target(target: NavigationTarget) -> TargetFocusResult:
+            if target.primary_id is None:
+                return TargetFocusResult(focused=True)
+            try:
+                workspace.controller.document.entity(target.primary_id)
+            except KeyError:
+                return TargetFocusResult(
+                    focused=False,
+                    message='対象の項目がこのプロジェクトに存在しません',
+                )
+            workspace.select_entity(target.primary_id)
+            return TargetFocusResult(focused=True)
+
         return WorkspaceMount(
             widget=workspace,
             on_activate=activate,
@@ -699,6 +955,11 @@ class WorkflowApplicationComposition:
             on_context_changed=workspace.set_context,
             on_entity_requested=workspace.select_entity,
             on_close=close,
+            focus_kinds=frozenset({
+                NavigationTargetKind.SCENE_ENTITY,
+                NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE,
+            }),
+            focus_target=focus_target,
         )
 
     def _open_room_context_menu(
@@ -887,8 +1148,28 @@ class WorkflowApplicationComposition:
             ):
                 self.registry.unbind(command_id)
 
+        def focus_target(target: NavigationTarget) -> TargetFocusResult:
+            section = {
+                NavigationTargetKind.SYSTEM_VARIANT: 'comparison',
+                NavigationTargetKind.OPTIMIZATION_CANDIDATE: 'candidates',
+                NavigationTargetKind.OPTIMIZATION_COMPARISON: 'comparison',
+                NavigationTargetKind.COMMISSIONING_EVALUATION: 'validation',
+            }.get(target.kind, 'setup')
+            select_section = getattr(workspace, 'select_section', None)
+            if select_section is None:
+                return TargetFocusResult(focused=False)
+            select_section(section)
+            return TargetFocusResult(focused=True)
+
         mount.on_activate = activate
         mount.on_deactivate = deactivate
+        mount.focus_kinds = frozenset({
+            NavigationTargetKind.SYSTEM_VARIANT,
+            NavigationTargetKind.OPTIMIZATION_CANDIDATE,
+            NavigationTargetKind.OPTIMIZATION_COMPARISON,
+            NavigationTargetKind.COMMISSIONING_EVALUATION,
+        })
+        mount.focus_target = focus_target
         return mount
 
     def _release_data_handles(self) -> None:
