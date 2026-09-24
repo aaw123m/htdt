@@ -1865,13 +1865,13 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     ),
     _ReplayProbe(
         'project_registry_entry',
-        'project_registry',
+        'htdt_project_documents',
         ('project_id',),
         _get('projects', 'get_project'),
     ),
     _ReplayProbe(
         'project_tombstone',
-        'project_tombstones',
+        'htdt_project_tombstones',
         ('tombstone_id', 'project_id'),
         _verify_project_tombstone,
     ),
@@ -1998,6 +1998,9 @@ _NON_AUTHORITY_TABLES: dict[str, str] = {
     'project_action_items': (
         'project-management annotation, non-normative'
     ),
+    'htdt_storage_gc_pending': (
+        'storage GC work queue — operational state, not retained authority'
+    ),
     'ci_marker': (
         'CI-injected backup/restore round-trip marker — never a product '
         'authority row'
@@ -2094,6 +2097,7 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_acoustic_materials',
                 'cad_acoustic_solver_adapters',
                 'cad_acoustic_solver_results',
+                'cad_acoustic_source_poses',
                 'cad_acoustic_treatment_comparisons',
                 'cad_ambient_comparisons',
                 'cad_ambient_conditions',
@@ -2108,6 +2112,7 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_calibration_lifecycle_events',
                 'cad_commissioning_plans',
                 'cad_commissioning_runs',
+                'cad_compute_benchmarks',
                 'cad_cost_evaluations',
                 'cad_cost_records',
                 'cad_current_topologies',
@@ -2117,6 +2122,8 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_environment_selections',
                 'cad_evidence_observations',
                 'cad_field_evidence',
+                'cad_field_evidence_records',
+                'cad_field_sessions',
                 'cad_frequency_resolved_evaluations',
                 'cad_gain_structure_evaluations',
                 'cad_gain_structure_scenarios',
@@ -2131,6 +2138,7 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_layout_profiles',
                 'cad_line_level_stages',
                 'cad_listener_poses',
+                'cad_measurement_pose_observations',
                 'cad_multi_seat_results',
                 'cad_multi_seat_sets',
                 'cad_multifidelity_finalizations',
@@ -2138,6 +2146,7 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_multifidelity_screening_evaluations',
                 'cad_multifidelity_stage_results',
                 'cad_o90_robust_pareto_evaluations',
+                'cad_planned_observed_deltas',
                 'cad_prediction_providers',
                 'cad_project_notes',
                 'cad_proposal_objective_result_authorities',
@@ -2150,9 +2159,12 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_r140_resource_estimates',
                 'cad_raw_mesh_repair_bundles',
                 'cad_reconciliation_decisions',
+                'cad_review_notes',
                 'cad_room_operating_states',
                 'cad_screen_transfers',
                 'cad_seat_priority_profiles',
+                'cad_site_relationships',
+                'cad_site_spaces',
                 'cad_source_responses',
                 'cad_speaker_impedances',
                 'cad_target_curve_profiles',
@@ -2161,7 +2173,11 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_topology_placement_candidates',
                 'cad_topology_search_specs',
                 'cad_topology_spaces',
+                'cad_validation_cases',
                 'cad_video_geometry_workspaces',
+                'cad_visual_qa_verdicts',
+                'htdt_project_imports',
+                'htdt_legacy_imports',
                 'project_templates',
                 'r150_path_frequency_response_artifacts',
                 'r160_numerical_hybrid_responses',
