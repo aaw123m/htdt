@@ -150,6 +150,9 @@ def test_analysis_export_groups_incompatible_units() -> None:
                 value_class='raw',
                 unit='m',
                 points=(AnalysisSeriesPoint(x=0.0, y=3.0),),
+                source_kind='measurement_dataset',
+                source_id='dist-1',
+                source_sha256='d' * 64,
             ),
             AnalysisSeries(
                 series_id='spl',
@@ -157,6 +160,9 @@ def test_analysis_export_groups_incompatible_units() -> None:
                 value_class='raw',
                 unit='db',
                 points=(AnalysisSeriesPoint(x=20.0, y=80.0),),
+                source_kind='measurement_dataset',
+                source_id='meas-1',
+                source_sha256='a' * 64,
             ),
         ),
         generated_at_utc='2026-09-24T00:00:00+00:00',
@@ -177,11 +183,19 @@ def test_analysis_export_rejects_duplicate_ids() -> None:
                     series_id='s',
                     label='a',
                     value_class='raw',
+                    source_kind='measurement_dataset',
+                    source_id='meas-1',
+                    source_sha256='a' * 64,
                 ),
                 AnalysisSeries(
                     series_id='s',
                     label='b',
                     value_class='derived',
+                    source_kind='measurement_comparison',
+                    source_id='cmp-1',
+                    source_sha256='e' * 64,
+                    operation='measurement_comparison',
+                    operation_version='v1',
                 ),
             ),
             generated_at_utc='2026-09-24T00:00:00+00:00',
@@ -275,10 +289,23 @@ def test_comparison_series_adapter_uses_persisted_identity(tmp_path) -> None:
     comparison = repository.save_comparison(
         dataset_a.dataset_id, dataset_b.dataset_id, result
     )
-    series = series_from_comparison(comparison)
+    series = series_from_comparison(
+        comparison,
+        current_scene_revision_id=revision_b.revision_id,
+    )
     assert series.value_class == 'derived'
     assert series.source_sha256 == comparison.comparison_sha256
+    assert series.operation == 'measurement_comparison'
+    assert series.operation_version == comparison.algorithm_version
+    assert series.operation_sha256 == comparison.algorithm_sha256
+    # revision_b is the declared current head and is one side of the A/B.
+    assert series.historical is False
     assert len(series.points) == len(comparison.difference_db)
+
+    moved = series_from_comparison(
+        comparison, current_scene_revision_id='other-head'
+    )
+    assert moved.historical is True
 
 
 def test_prediction_series_adapter_pins_exact_authority() -> None:
@@ -292,3 +319,65 @@ def test_prediction_series_adapter_pins_exact_authority() -> None:
     assert series.value_class == 'predicted'
     assert series.source_kind == 'prediction'
     assert series.source_sha256 == 'c' * 64
+    assert series.historical is False
+
+    stale = series_from_prediction(
+        ((20.0, 90.0), (40.0, 91.0)),
+        label='predicted seat-1',
+        prediction_ref='pred-1',
+        prediction_sha256='c' * 64,
+        source_scene_revision_id='rev-a',
+        current_scene_revision_id='rev-b',
+    )
+    assert stale.historical is True
+
+
+def test_analysis_export_preserves_source_point_order() -> None:
+    bundle = _bundle()
+    predicted = next(
+        s for s in bundle.series if s.series_id == 'predicted-seat-1'
+    )
+    # The authority's canonical order (40 Hz before 20 Hz) is kept — an
+    # exporter must never silently re-sort a series' points.
+    assert [p.x for p in predicted.points] == [40.0, 20.0]
+
+
+def test_series_value_class_provenance_contract() -> None:
+    with pytest.raises(ValueError, match='source authority pin'):
+        AnalysisSeries(
+            series_id='unpinned',
+            label='unpinned',
+            value_class='raw',
+        )
+    with pytest.raises(ValueError, match='operation'):
+        AnalysisSeries(
+            series_id='derived-no-op',
+            label='derived',
+            value_class='derived',
+            source_kind='measurement_comparison',
+            source_id='cmp-1',
+            source_sha256='e' * 64,
+        )
+    with pytest.raises(ValueError, match='operation'):
+        AnalysisSeries(
+            series_id='raw-with-op',
+            label='raw',
+            value_class='raw',
+            source_kind='measurement_dataset',
+            source_id='meas-1',
+            source_sha256='a' * 64,
+            operation='smoothing',
+            operation_version='v1',
+        )
+    display = AnalysisSeries(
+        series_id='display-1',
+        label='display',
+        value_class='display_transformed',
+        source_kind='measurement_dataset',
+        source_id='meas-1',
+        source_sha256='a' * 64,
+        operation='smoothing',
+        operation_version='octave-1/6-v1',
+        operation_sha256='f' * 64,
+    )
+    assert display.operation_version == 'octave-1/6-v1'
