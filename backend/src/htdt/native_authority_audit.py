@@ -1712,6 +1712,330 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'physical space model authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
+    'cad_topology_spaces': (
+        'STRUCTURAL_ONLY',
+        'topology search space authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_topology_space_options': (
+        'STRUCTURAL_ONLY',
+        'topology space option binding authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_topology_search_specs': (
+        'STRUCTURAL_ONLY',
+        'topology search spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_topology_placement_candidates': (
+        'STRUCTURAL_ONLY',
+        'topology placement candidate authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_topology_candidate_variants': (
+        'STRUCTURAL_ONLY',
+        'topology candidate variant binding authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    # ---- further payload authorities, replay pending ------------------
+    'assumption_decisions': (
+        'STRUCTURAL_ONLY',
+        'assumption decision authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'design_decisions': (
+        'STRUCTURAL_ONLY',
+        'design decision authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'field_return_contributions': (
+        'STRUCTURAL_ONLY',
+        'field return contribution authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'project_action_items': (
+        'STRUCTURAL_ONLY',
+        'project action item authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'project_templates': (
+        'STRUCTURAL_ONLY',
+        'project template authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'template_instantiations': (
+        'STRUCTURAL_ONLY',
+        'template instantiation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'r150_path_frequency_response_artifacts': (
+        'STRUCTURAL_ONLY',
+        'path frequency response artifact authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'r160_numerical_hybrid_responses': (
+        'STRUCTURAL_ONLY',
+        'numerical hybrid response authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_acoustic_materials': (
+        'STRUCTURAL_ONLY',
+        'acoustic material authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_acoustic_solver_adapters': (
+        'STRUCTURAL_ONLY',
+        'acoustic solver adapter authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_acoustic_solver_dispatch_bindings': (
+        'STRUCTURAL_ONLY',
+        'acoustic solver dispatch binding authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_acoustic_solver_results': (
+        'STRUCTURAL_ONLY',
+        'acoustic solver result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_current_topologies': (
+        'STRUCTURAL_ONLY',
+        'current topology authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_deterministic_ga_execution_inputs': (
+        'STRUCTURAL_ONLY',
+        'deterministic GA execution input authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_deterministic_path_artifacts': (
+        'STRUCTURAL_ONLY',
+        'deterministic path artifact authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_environment_profiles': (
+        'STRUCTURAL_ONLY',
+        'environment profile authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_environment_selections': (
+        'STRUCTURAL_ONLY',
+        'environment selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_equipment_upgrades': (
+        'STRUCTURAL_ONLY',
+        'equipment upgrade authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_hybrid_acoustic_results': (
+        'STRUCTURAL_ONLY',
+        'hybrid acoustic result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_hybrid_prediction_provider_bindings': (
+        'STRUCTURAL_ONLY',
+        'hybrid prediction provider binding authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_hybrid_prediction_provider_objectives': (
+        'STRUCTURAL_ONLY',
+        'hybrid prediction provider objective authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_hybrid_prediction_providers': (
+        'STRUCTURAL_ONLY',
+        'hybrid prediction provider authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_hybrid_stitching_policies': (
+        'STRUCTURAL_ONLY',
+        'hybrid stitching policy authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_intervention_alternatives': (
+        'STRUCTURAL_ONLY',
+        'intervention alternative authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_intervention_study_specs': (
+        'STRUCTURAL_ONLY',
+        'intervention study spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_listener_pose_selections': (
+        'STRUCTURAL_ONLY',
+        'listener pose selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_listener_poses': (
+        'STRUCTURAL_ONLY',
+        'listener pose authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_multifidelity_finalizations': (
+        'STRUCTURAL_ONLY',
+        'multifidelity finalization authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_multifidelity_plans': (
+        'STRUCTURAL_ONLY',
+        'multifidelity plan authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_multifidelity_screening_evaluations': (
+        'STRUCTURAL_ONLY',
+        'multifidelity screening evaluation authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_multifidelity_stage_results': (
+        'STRUCTURAL_ONLY',
+        'multifidelity stage result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_o90_robust_pareto_evaluations': (
+        'STRUCTURAL_ONLY',
+        'robust Pareto evaluation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_prediction_provider_bindings': (
+        'STRUCTURAL_ONLY',
+        'prediction provider binding authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_prediction_provider_objectives': (
+        'STRUCTURAL_ONLY',
+        'prediction provider objective authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_prediction_providers': (
+        'STRUCTURAL_ONLY',
+        'prediction provider authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_proposal_objective_result_authorities': (
+        'STRUCTURAL_ONLY',
+        'proposal objective result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_proposal_perturbation_samples': (
+        'STRUCTURAL_ONLY',
+        'proposal perturbation sample authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_proposal_robust_pareto_evaluations': (
+        'STRUCTURAL_ONLY',
+        'proposal robust Pareto evaluation authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_proposal_robustness_evaluations': (
+        'STRUCTURAL_ONLY',
+        'proposal robustness evaluation authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_proposal_robustness_specs': (
+        'STRUCTURAL_ONLY',
+        'proposal robustness spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_attempts': (
+        'STRUCTURAL_ONLY',
+        'R140 execution attempt authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_cache': (
+        'STRUCTURAL_ONLY',
+        'R140 execution cache authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_results': (
+        'STRUCTURAL_ONLY',
+        'R140 execution result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_schedules': (
+        'STRUCTURAL_ONLY',
+        'R140 execution schedule authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_tasks': (
+        'STRUCTURAL_ONLY',
+        'R140 execution task authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_r140_resource_estimates': (
+        'STRUCTURAL_ONLY',
+        'R140 resource estimate authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_screen_transfer_selections': (
+        'STRUCTURAL_ONLY',
+        'screen transfer selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_screen_transfers': (
+        'STRUCTURAL_ONLY',
+        'screen transfer authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_surface_material_assignments': (
+        'STRUCTURAL_ONLY',
+        'surface material assignment authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_upgrade_adoptions': (
+        'STRUCTURAL_ONLY',
+        'upgrade adoption authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_video_geometry_workspaces': (
+        'STRUCTURAL_ONLY',
+        'video geometry workspace authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_mesh_compositions': (
+        'STRUCTURAL_ONLY',
+        'capture mesh composition authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_mission_packages': (
+        'STRUCTURAL_ONLY',
+        'capture mission package authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_receiver_config': (
+        'STRUCTURAL_ONLY',
+        'capture receiver config authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_receiver_deliveries': (
+        'STRUCTURAL_ONLY',
+        'capture receiver delivery authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_receiver_pairings': (
+        'STRUCTURAL_ONLY',
+        'capture receiver pairing authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_semantic_promotions': (
+        'STRUCTURAL_ONLY',
+        'capture semantic promotion authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
 }
 
 
