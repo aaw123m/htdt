@@ -199,3 +199,28 @@ Software integration PASS does not complete R160/R180 numerical or owned-room va
 - R180 changes: 0
 - `docs/IMPLEMENTATION_ROADMAP.md` changes: 0
 - `docs/IMPLEMENTATION_STATUS.md` changes: 0
+
+## 2026-09-24 addendum: O50/O60/O70 consumer bindings
+
+The remaining R170B integration gap above ("O50/O60/O70 hybrid-validation
+changes: 0") is now closed for the typed-provider contract:
+
+- `HybridPredictionProviderBinding` (`r170b-hybrid-provider-binding-1`)
+  records an exact consumer binding over `provider_ref` +
+  `base_provider_ref` + `expected_authority`, persisted in
+  `cad_hybrid_prediction_provider_bindings` with fail-closed
+  revalidation on read.
+- `bind_measurement_plan_hybrid_prediction` (O50) stamps the binding
+  onto a planned `CadMeasurementPlan` through the existing
+  supersedes-plan lifecycle.
+- `build_hybrid_provider_measurement_validation` (O60) builds the
+  residual `CadModelValidationRecord` between the typed hybrid N70
+  response and a `CadMeasurementRecord` bound to the provider's exact
+  `SceneRevision`.
+- `bind_hybrid_provider_to_validation` /
+  `bind_hybrid_provider_to_adaptive_validation` bind O60/O70 consumer
+  records to the exact provider authority; `require_hybrid_binding_current`
+  re-checks staleness before use.
+
+Still not claimed: owned-room evidence, production adoption, R180/R160
+validation completion, or removal of the R100B `NO_GO`.

@@ -13,8 +13,20 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_hybrid_prediction_provider import (
     CadHybridPredictionProviderRepository,
     HybridPredictionProvider,
+    HybridPredictionProviderBinding,
     HybridPredictionProviderRef,
+    build_hybrid_provider_binding,
     hybrid_provider_frequency_response,
+)
+from .cad_measurement_loop import (
+    CadMeasurementPlan,
+    bind_measurement_plan_prediction,
+)
+from .cad_measurement_repository import CadMeasurementRepository
+from .cad_model_validation import (
+    CadModelValidationRecord,
+    EvidenceScope,
+    build_model_validation,
 )
 from .cad_objective_models import CadObjectiveEvaluation, CadObjectiveInputRef
 from .cad_objective_repository import CadObjectiveRepository
@@ -467,3 +479,129 @@ class CadHybridPredictionProviderObjectiveRepository:
                 row['payload_json']
             )
         )
+
+
+def bind_measurement_plan_hybrid_prediction(
+    plan: CadMeasurementPlan,
+    binding: HybridPredictionProviderBinding,
+) -> CadMeasurementPlan:
+    """Bind O50 planning to one exact R170B hybrid prediction authority."""
+
+    if binding.consumer_kind != 'O50_MEASUREMENT_PLAN':
+        raise ValueError('measurement plan requires an O50 hybrid-provider binding')
+    return bind_measurement_plan_prediction(plan, binding)
+
+
+def build_hybrid_provider_measurement_validation(
+    *,
+    provider: HybridPredictionProvider,
+    source_entity_id: str,
+    receiver_id: str,
+    measurement_repository: CadMeasurementRepository,
+    measurement_id: str,
+    document_id: str,
+    search_spec_id: str,
+    search_spec_sha256: str,
+    candidate_set_sha256: str,
+    candidate_id: str,
+    split: Literal['calibration', 'holdout'],
+    low_hz: float,
+    high_hz: float,
+    max_holdout_rms_db: float,
+    evidence_scope: EvidenceScope = 'synthetic_fixture',
+    campaign_id: str | None = None,
+    campaign_sha256: str | None = None,
+) -> CadModelValidationRecord:
+    """O60 residual comparison using the typed hybrid provider."""
+
+    _validate_band(low_hz, high_hz)
+    authority = provider.base_current_authority
+    if document_id != authority.document_id:
+        raise ValueError('R170B validation document identity mismatch')
+    measurement = measurement_repository.get_measurement(measurement_id)
+    if measurement is None:
+        raise ValueError('R170B validation measurement does not exist')
+    if (
+        measurement.document_id != authority.document_id
+        or measurement.scene_revision_id != authority.scene_revision_id
+        or measurement.scene_content_hash != authority.scene_content_hash
+    ):
+        raise ValueError(
+            'R170B validation measurement is not bound to the provider SceneRevision'
+        )
+    dataset = measurement_repository.dataset_for_measurement(measurement_id)
+    if dataset is None:
+        raise ValueError('R170B validation measurement has no frequency response')
+    predicted = hybrid_provider_frequency_response(
+        provider,
+        source_entity_id=source_entity_id,
+        receiver_id=receiver_id,
+        low_hz=low_hz,
+        high_hz=high_hz,
+    )
+    measured = FrequencyResponse(
+        frequency_hz=dataset.frequency_hz,
+        level_db=dataset.level_db,
+    )
+    return build_model_validation(
+        document_id=document_id,
+        search_spec_id=search_spec_id,
+        search_spec_sha256=search_spec_sha256,
+        candidate_set_sha256=candidate_set_sha256,
+        campaign_id=campaign_id,
+        campaign_sha256=campaign_sha256,
+        model_id=provider.adapter_id,
+        model_version=provider.adapter_version,
+        samples=(
+            (
+                candidate_id,
+                split,
+                provider.provider_id,
+                measurement_id,
+                predicted,
+                measured,
+            ),
+        ),
+        low_hz=low_hz,
+        high_hz=high_hz,
+        max_holdout_rms_db=max_holdout_rms_db,
+        evidence_scope=evidence_scope,
+    )
+
+
+def bind_hybrid_provider_to_validation(
+    provider: HybridPredictionProvider,
+    validation: CadModelValidationRecord,
+) -> HybridPredictionProviderBinding:
+    if not any(
+        pair.prediction_source_id == provider.provider_id
+        for pair in validation.pairs
+    ):
+        raise ValueError('O60 validation does not reference this hybrid provider')
+    return build_hybrid_provider_binding(
+        provider,
+        consumer_kind='O60_VALIDATION',
+        consumer_id=validation.validation_id,
+        consumer_semantic_sha256=validation.validation_sha256,
+        required_observables=('frequency_response_magnitude',),
+    )
+
+
+def bind_hybrid_provider_to_adaptive_validation(
+    provider: HybridPredictionProvider,
+    validation: CadModelValidationRecord,
+) -> HybridPredictionProviderBinding:
+    """O70 binds through the exact O60 residual authority, not solver payloads."""
+
+    if not any(
+        pair.prediction_source_id == provider.provider_id
+        for pair in validation.pairs
+    ):
+        raise ValueError('O70 validation does not reference this hybrid provider')
+    return build_hybrid_provider_binding(
+        provider,
+        consumer_kind='O70_ADAPTIVE',
+        consumer_id=validation.validation_id,
+        consumer_semantic_sha256=validation.validation_sha256,
+        required_observables=('frequency_response_magnitude',),
+    )
