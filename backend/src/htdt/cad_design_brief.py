@@ -32,6 +32,7 @@ Contract properties:
 
 from __future__ import annotations
 
+from datetime import datetime
 from hashlib import sha256
 import json
 from typing import Any, Literal, Mapping
@@ -86,6 +87,15 @@ def _canonical_json(payload: Any) -> str:
 
 def _hash(payload: Any) -> str:
     return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
+
+
+def _require_iso8601(value: str, label: str) -> None:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f'{label} must be ISO-8601') from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f'{label} must be timezone-aware')
 
 
 class BriefGoalRef(BaseModel):
@@ -158,6 +168,7 @@ class ProjectDesignBrief(BaseModel):
         ]
         if len(ref_keys) != len(set(ref_keys)):
             raise ValueError('brief authority refs must be unique per kind/ref')
+        _require_iso8601(self.created_at_utc, 'brief created_at_utc')
         if self.brief_sha256 != _hash(self.semantic_payload()):
             raise ValueError('ProjectDesignBrief hash mismatch')
         return self

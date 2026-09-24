@@ -9,6 +9,7 @@ authority that does not exist in this document.
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime
 import sqlite3
 from typing import Mapping
 
@@ -90,6 +91,17 @@ class CadDesignBriefRepository:
                 raise ValueError('superseded brief is not persisted')
             if prior.document_id != brief.document_id:
                 raise ValueError('superseded brief belongs to another document')
+            # Single-head lineage (#832): a document's brief history is one
+            # chain — the supersede target must be its current head, so two
+            # children can never fork the same parent into competing
+            # "latest" briefs.
+            if datetime.fromisoformat(brief.created_at_utc) < (
+                datetime.fromisoformat(prior.created_at_utc)
+            ):
+                raise ValueError(
+                    'a superseding brief cannot predate the brief it '
+                    'supersedes'
+                )
         for goal in brief.goal_refs:
             if goal.ref_id is None:
                 continue  # free_text intent carries no authority ref
@@ -102,6 +114,15 @@ class CadDesignBriefRepository:
                 document_id=brief.document_id,
             )
         with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if brief.supersedes_brief_id is not None and connection.execute(
+                'SELECT 1 FROM cad_design_briefs WHERE supersedes_brief_id=?',
+                (brief.supersedes_brief_id,),
+            ).fetchone() is not None:
+                raise DesignBriefConflictError(
+                    'superseded brief already has a successor — the lineage '
+                    'is single-head'
+                )
             connection.execute(
                 """
                 INSERT INTO cad_design_briefs (
@@ -119,15 +140,35 @@ class CadDesignBriefRepository:
                 ),
             )
 
+    def _check_row(self, row: sqlite3.Row, brief: ProjectDesignBrief) -> None:
+        """Reject a row whose indexed columns disagree with its payload (#832)."""
+        if (
+            row['brief_id'] != brief.brief_id
+            or row['document_id'] != brief.document_id
+            or row['brief_sha256'] != brief.brief_sha256
+            or row['supersedes_brief_id'] != brief.supersedes_brief_id
+            or row['created_at_utc'] != brief.created_at_utc
+        ):
+            raise ValueError(
+                'persisted design brief row disagrees with its payload'
+            )
+
+    def _load_row(self, row: sqlite3.Row) -> ProjectDesignBrief:
+        brief = ProjectDesignBrief.model_validate_json(row['payload_json'])
+        self._check_row(row, brief)
+        return brief
+
     def get_brief(self, brief_id: str) -> ProjectDesignBrief | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_design_briefs WHERE brief_id=?',
+                'SELECT brief_id, document_id, brief_sha256, '
+                'supersedes_brief_id, created_at_utc, payload_json '
+                'FROM cad_design_briefs WHERE brief_id=?',
                 (brief_id,),
             ).fetchone()
         if row is None:
             return None
-        return ProjectDesignBrief.model_validate_json(row['payload_json'])
+        return self._load_row(row)
 
     def list_briefs(
         self,
@@ -136,38 +177,45 @@ class CadDesignBriefRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT brief_id, document_id, brief_sha256,
+                       supersedes_brief_id, created_at_utc, payload_json
                 FROM cad_design_briefs
                 WHERE document_id=?
                 ORDER BY created_at_utc, brief_id
                 """,
                 (document_id,),
             ).fetchall()
-        return tuple(
-            ProjectDesignBrief.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+        return tuple(self._load_row(row) for row in rows)
 
     def latest_brief(self, document_id: str) -> ProjectDesignBrief | None:
-        """Newest appended brief for the document, or ``None``.
+        """The lineage head — the persisted brief nothing supersedes — or
+        ``None``.
 
-        ``None`` means NOT_CONFIGURED — the caller must not infer goals.
+        ``latest`` follows the supersedes chain, never ``created_at_utc``:
+        an out-of-order or fabricated timestamp can never promote a stale
+        record over the lineage head (#832). ``None`` means NOT_CONFIGURED
+        — the caller must not infer goals.
         """
 
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
-                SELECT payload_json
+                SELECT brief_id, document_id, brief_sha256,
+                       supersedes_brief_id, created_at_utc, payload_json
                 FROM cad_design_briefs
                 WHERE document_id=?
+                  AND brief_id NOT IN (
+                      SELECT supersedes_brief_id FROM cad_design_briefs
+                      WHERE document_id=? AND supersedes_brief_id IS NOT NULL
+                  )
                 ORDER BY created_at_utc DESC, brief_id DESC
                 LIMIT 1
                 """,
-                (document_id,),
+                (document_id, document_id),
             ).fetchone()
         if row is None:
             return None
-        return ProjectDesignBrief.model_validate_json(row['payload_json'])
+        return self._load_row(row)
 
 
 __all__ = ['CadDesignBriefRepository', 'DesignBriefConflictError']
