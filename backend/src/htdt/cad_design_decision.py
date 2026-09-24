@@ -120,6 +120,8 @@ DecisionRefKind = Literal[
     'comparison_alternative',
     'design_checkpoint',
     'analysis_study',
+    'intervention_study_spec',
+    'intervention_alternative',
     'assumption_decision',
     'evidence_gap',
     'measurement_plan',
@@ -136,6 +138,8 @@ DECISION_REF_KINDS: frozenset[str] = frozenset(
         'comparison_alternative',
         'design_checkpoint',
         'analysis_study',
+        'intervention_study_spec',
+        'intervention_alternative',
         'assumption_decision',
         'evidence_gap',
         'measurement_plan',
@@ -359,16 +363,85 @@ def build_decision_record(
     )
 
 
+class DesignDecisionIntegrityError(ValueError):
+    """Persisted decision lineage is corrupt (fork, cycle, dangling ref)."""
+
+
+def decision_lineage_issues(
+    decisions: tuple[DesignDecisionRecord, ...],
+) -> tuple[str, ...]:
+    """Detect topology violations in a decision set (#868).
+
+    Supersession is a single-head lineage: one predecessor has at most one
+    successor. Independent roots (records that supersede nothing) are
+    allowed — the violations are a predecessor superseded twice, a
+    supersession pointing at a missing/foreign/self record, and cycles.
+    """
+
+    issues: list[str] = []
+    by_id = {item.decision_id: item for item in decisions}
+    successors: dict[str, list[str]] = {}
+    for item in decisions:
+        predecessor = item.supersedes_decision_id
+        if predecessor is None:
+            continue
+        successors.setdefault(predecessor, []).append(item.decision_id)
+        target = by_id.get(predecessor)
+        if predecessor == item.decision_id:
+            issues.append(f'decision {item.decision_id} supersedes itself')
+        elif target is None:
+            issues.append(
+                f'decision {item.decision_id} supersedes missing '
+                f'predecessor {predecessor}'
+            )
+        elif target.document_id != item.document_id:
+            issues.append(
+                f'decision {item.decision_id} supersedes a decision from '
+                'another document'
+            )
+    for predecessor, children in successors.items():
+        if len(children) > 1:
+            issues.append(
+                f'decision {predecessor} has multiple successors '
+                f'({len(children)}): forked lineage'
+            )
+    # Cycle walk: follow supersedes edges; a revisit means the chain loops.
+    for item in decisions:
+        seen: set[str] = set()
+        cursor: DesignDecisionRecord | None = item
+        while cursor is not None and cursor.supersedes_decision_id is not None:
+            predecessor_id = cursor.supersedes_decision_id
+            if predecessor_id in seen:
+                issues.append(
+                    f'decision {item.decision_id} reaches a supersession '
+                    'cycle'
+                )
+                break
+            seen.add(predecessor_id)
+            cursor = by_id.get(predecessor_id)
+    return tuple(issues)
+
+
 def current_decisions(
     decisions: tuple[DesignDecisionRecord, ...],
 ) -> tuple[DesignDecisionRecord, ...]:
     """Project the decision head(s): drop records superseded by a later one.
+
+    Fails closed on corrupt lineage (#868): a forked, cyclic or dangling
+    supersession graph cannot define a trustworthy current head, so the
+    projection raises :class:`DesignDecisionIntegrityError` instead of
+    silently returning multiple heads.
 
     A superseded decision stays persisted and inspectable — this is only the
     "active selected decision" convenience projection, and overlapping
     scopes are never collapsed by timestamp alone.
     """
 
+    issues = decision_lineage_issues(decisions)
+    if issues:
+        raise DesignDecisionIntegrityError(
+            'design decision lineage is corrupt: ' + '; '.join(issues)
+        )
     superseded = {
         item.supersedes_decision_id
         for item in decisions
@@ -389,7 +462,9 @@ __all__ = [
     'DecisionRationaleTag',
     'DecisionRefKind',
     'DecisionScope',
+    'DesignDecisionIntegrityError',
     'DesignDecisionRecord',
     'build_decision_record',
     'current_decisions',
+    'decision_lineage_issues',
 ]
