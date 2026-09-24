@@ -23,6 +23,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_listener_pose import (
+    ListenerPoseAuthority,
+    pose_acoustic_reference_position,
+)
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import (
     Position3,
@@ -30,6 +34,7 @@ from .cad_scene import (
     SceneEntity,
     acoustic_reference_position,
 )
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 def _canonical_json(payload: Any) -> str:
@@ -80,6 +85,7 @@ class CadMeasurementTargetLineage(BaseModel):
     source_seat_id: str = Field(min_length=1)
     creation_revision_id: str = Field(min_length=1)
     initial_position: Position3
+    source_pose_ref: ExactExternalAuthorityRef | None = None
     created_at_utc: str = Field(min_length=1)
     target_lineage_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -91,7 +97,7 @@ class CadMeasurementTargetLineage(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'target_lineage_id': self.target_lineage_id,
             'document_id': self.document_id,
             'measurement_point_id': self.measurement_point_id,
@@ -100,6 +106,13 @@ class CadMeasurementTargetLineage(BaseModel):
             'initial_position': self.initial_position.model_dump(mode='json'),
             'created_at_utc': self.created_at_utc,
         }
+        # Optional fields join identity only when present (additive
+        # convention) — lineage recorded before poses existed keeps its hash.
+        if self.source_pose_ref is not None:
+            payload['source_pose_ref'] = self.source_pose_ref.model_dump(
+                mode='json'
+            )
+        return payload
 
 
 def build_measurement_target_lineage(
@@ -109,6 +122,7 @@ def build_measurement_target_lineage(
     source_seat_id: str,
     creation_revision_id: str,
     initial_position: Position3,
+    source_pose_ref: ExactExternalAuthorityRef | None = None,
     target_lineage_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> CadMeasurementTargetLineage:
@@ -120,6 +134,7 @@ def build_measurement_target_lineage(
         'source_seat_id': source_seat_id,
         'creation_revision_id': creation_revision_id,
         'initial_position': initial_position,
+        'source_pose_ref': source_pose_ref,
         'created_at_utc': created_at_utc or _utc_now(),
     }
     provisional = CadMeasurementTargetLineage.model_construct(
@@ -138,6 +153,7 @@ def derive_measurement_point_document(
     source_seat_id: str,
     measurement_point_id: str,
     name: str | None = None,
+    listener_pose: ListenerPoseAuthority | None = None,
 ) -> SceneDocument:
     """Return a new document with a measurement point at the seat reference.
 
@@ -172,6 +188,16 @@ def derive_measurement_point_document(
         raise MeasurementTargetError(
             f'measurement point id already exists: {measurement_point_id}'
         )
+    if listener_pose is not None:
+        if listener_pose.seat_entity_id != seat.entity_id:
+            raise MeasurementTargetError(
+                f'listener pose {listener_pose.pose_id} is bound to '
+                f'{listener_pose.seat_entity_id}, not {source_seat_id}'
+            )
+        # The bound pose is the acoustic-reference authority (#632): the point
+        # materializes at the pose's reference resolved through the seat's
+        # current placement, not a fresh derivation at read time.
+        reference = pose_acoustic_reference_position(seat, listener_pose)
     point = SceneEntity(
         entity_id=measurement_point_id,
         kind='measurement_point',

@@ -68,6 +68,11 @@ from .cad_equipment_evidence import build_equipment_manual_evidence
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
 from .cad_scene import Offset3, Size3
+from .cad_source_response import (
+    CadSourceResponseRepository,
+    SourceFrequencyResponseAuthority,
+    build_source_response,
+)
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 _EVIDENCE_KINDS: tuple[tuple[str, EquipmentEvidenceKind], ...] = (
@@ -305,6 +310,36 @@ class EquipmentLibraryService:
             scene_repository,
             self.equipment_repository,
         )
+        self.source_response_repository = CadSourceResponseRepository(
+            scene_repository.path
+        )
+
+    def responses_for_definition(
+        self,
+        definition: EquipmentDefinition,
+    ) -> tuple[SourceFrequencyResponseAuthority, ...]:
+        """All persisted source-response authorities for one definition (#542)."""
+        return tuple(
+            response
+            for response in self.source_response_repository.list_responses_for_equipment(
+                definition.definition_id
+            )
+            if response.equipment_definition_sha256 == definition.semantic_sha256
+        )
+
+    def create_response_authority(
+        self,
+        definition: EquipmentDefinition,
+        **kwargs: object,
+    ) -> SourceFrequencyResponseAuthority:
+        """Register a sealed frequency-response authority bound to the exact
+        definition identity (#542) — capability is declared, never inferred."""
+        response = build_source_response(
+            equipment_definition=definition,
+            **kwargs,
+        )
+        self.source_response_repository.save_response(response)
+        return response
 
     def definitions(self) -> tuple[EquipmentDefinition, ...]:
         return self.equipment_repository.list_definitions()

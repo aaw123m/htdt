@@ -34,6 +34,7 @@ from .cad_video_geometry import (
     VideoGeometryRequest,
     build_video_geometry_request,
 )
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 VIDEO_WORKSPACE_SCHEMA_VERSION = 1
@@ -88,7 +89,6 @@ def default_screen_binding(entity_id: str, *, width_m: float, height_m: float) -
         visible_height_m=height_m,
         image_center_offset_local_m=_offset(0.0, 0.0, 0.0),
         frame_clearance_m=0.05,
-        acoustically_transparent=None,
     )
 
 
@@ -103,6 +103,11 @@ class VideoGeometryWorkspace(BaseModel):
     projector_specification_sha256: str | None = None
     screen_bindings: dict[str, ScreenGeometryBinding] = Field(default_factory=dict)
     seat_bindings: dict[str, SeatGeometryBinding] = Field(default_factory=dict)
+    # Selected listener-pose authority per seat (#632); the seat binding's
+    # eye/head offsets are derived from this exact authority, not re-entered.
+    seat_pose_refs: dict[str, ExactExternalAuthorityRef] = Field(
+        default_factory=dict
+    )
     policy: VideoGeometryPolicy = DEFAULT_POLICY
     collision_entity_ids: tuple[str, ...] = ()
 

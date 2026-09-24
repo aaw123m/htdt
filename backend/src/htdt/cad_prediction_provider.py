@@ -1201,6 +1201,27 @@ class CadPredictionProviderRepository:
             LowBandPredictionProvider.model_validate_json(row['payload_json'])
         )
 
+    def list_providers(
+        self,
+        document_id: str,
+    ) -> tuple[LowBandPredictionProvider, ...]:
+        """All persisted providers for one document, reopen-validated (#457)."""
+
+        if not document_id:
+            raise ValueError('document_id must not be empty')
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_prediction_providers '
+                'WHERE document_id=? ORDER BY seq ASC',
+                (document_id,),
+            ).fetchall()
+        return tuple(
+            self._validate_provider(
+                LowBandPredictionProvider.model_validate_json(row['payload_json'])
+            )
+            for row in rows
+        )
+
     def save_binding(
         self,
         binding: PredictionProviderBinding,

@@ -23,6 +23,7 @@ from .cad_scene import (
     scene_content_hash,
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 VIDEO_GEOMETRY_SCHEMA_VERSION = 1
@@ -794,14 +795,19 @@ def build_projector_specification(
 
 
 class ScreenGeometryBinding(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    # extra='allow' quarantines the legacy v1 ``acoustically_transparent``
+    # flag (#541): old payloads still parse and round-trip byte-identically,
+    # but the flag is dead — it was never acoustic truth and is no longer
+    # part of the request identity. Transfer authority is the
+    # ``screen_transfer_ref`` to an AcousticScreenTransferAuthority.
+    model_config = ConfigDict(frozen=True, extra='allow')
 
     entity_id: str = Field(min_length=1)
     visible_width_m: float = Field(gt=0)
     visible_height_m: float = Field(gt=0)
     image_center_offset_local_m: Offset3 = Field(default_factory=Offset3)
     frame_clearance_m: float = Field(ge=0)
-    acoustically_transparent: bool | None = None
+    screen_transfer_ref: 'ExactExternalAuthorityRef | None' = None
 
     @field_validator('visible_width_m', 'visible_height_m', 'frame_clearance_m')
     @classmethod
@@ -926,7 +932,13 @@ class VideoGeometryRequest(BaseModel):
         if len(self.collision_entity_ids) != len(set(self.collision_entity_ids)):
             raise ValueError('collision entity ids must be unique')
         if self.request_sha256 != _digest(self.identity_payload()):
-            raise ValueError('VideoGeometryRequest semantic hash mismatch')
+            # Pre-#541 payloads may embed the legacy acoustically_transparent
+            # extra in the screen dump; accept that historical identity so
+            # persisted requests still revalidate.
+            legacy = self.identity_payload()
+            legacy['screen'] = self.screen.model_dump(mode='json')
+            if self.request_sha256 != _digest(legacy):
+                raise ValueError('VideoGeometryRequest semantic hash mismatch')
         return self
 
     def identity_payload(self) -> dict[str, Any]:
@@ -937,7 +949,9 @@ class VideoGeometryRequest(BaseModel):
             'projector_specification_id': self.projector_specification_id,
             'projector_specification_version': self.projector_specification_version,
             'projector_specification_sha256': self.projector_specification_sha256,
-            'screen': self.screen.model_dump(mode='json'),
+            'screen': self.screen.model_dump(
+                mode='json', exclude={'acoustically_transparent'}
+            ),
             'seats': [item.model_dump(mode='json') for item in self.seats],
             'policy': self.policy.model_dump(mode='json'),
             'collision_entity_ids': list(self.collision_entity_ids),
@@ -962,7 +976,10 @@ def build_video_geometry_request(
         'projector_specification_id': projector_specification.specification_id,
         'projector_specification_version': projector_specification.version,
         'projector_specification_sha256': projector_specification.specification_sha256,
-        'screen': screen.model_dump(mode='json'),
+        # The quarantined legacy flag never joins request identity (#541).
+        'screen': screen.model_dump(
+            mode='json', exclude={'acoustically_transparent'}
+        ),
         'seats': [item.model_dump(mode='json') for item in ordered_seats],
         'policy': policy.model_dump(mode='json'),
         'collision_entity_ids': list(ordered_collision_ids),
@@ -1786,12 +1803,71 @@ def _target_and_scene(
     return target, scene
 
 
+def _screen_acoustic_effect(
+    screen: ScreenGeometryBinding,
+    screen_transfers: Mapping[str, Any] | None,
+) -> tuple[EvaluationStatus, str]:
+    """Resolve the screen's acoustic effect from the bound transfer
+    authority (#541). The legacy ``acoustically_transparent`` flag is dead
+    data — it is never read as acoustic truth — and an unresolvable or
+    unmeasured authority reports UNKNOWN, never a fabricated effect."""
+
+    legacy_flag = (
+        screen.model_extra.get('acoustically_transparent')
+        if screen.model_extra
+        else None
+    )
+    transfer = None
+    if screen.screen_transfer_ref is not None and screen_transfers is not None:
+        ref = screen.screen_transfer_ref
+        transfer = screen_transfers.get(
+            getattr(ref, 'authority_id', None) or ref.get('authority_id')
+        )
+    if screen.screen_transfer_ref is not None and transfer is None:
+        return (
+            'UNKNOWN',
+            'a screen-transfer authority is bound but could not be resolved '
+            '— no acoustic effect is assumed',
+        )
+    if transfer is None:
+        if legacy_flag is not None:
+            return (
+                'UNKNOWN',
+                'legacy acoustically_transparent flag present but ignored — '
+                'bind an AcousticScreenTransferAuthority for acoustic truth',
+            )
+        return (
+            'UNKNOWN',
+            'no screen-transfer authority bound — the screen acoustic effect '
+            'is unknown',
+        )
+    tier = transfer.capability_tier
+    if tier == 'UNKNOWN':
+        return (
+            'UNKNOWN',
+            f'transfer authority {transfer.transfer_id} declares no transfer '
+            'capability',
+        )
+    if tier == 'AT_CLAIM':
+        return (
+            'UNKNOWN',
+            f'transfer authority {transfer.transfer_id} is an unmeasured AT '
+            'claim — not acoustic truth',
+        )
+    return (
+        'PASS',
+        f'screen transfer authority {transfer.transfer_id} bound '
+        f'(tier {tier}) — evidence available for acoustic propagation models',
+    )
+
+
 def evaluate_video_geometry(
     *,
     baseline: SceneRevision,
     variant: SystemVariant | None,
     projector_specification: ProjectorSpecification,
     request: VideoGeometryRequest,
+    screen_transfers: Mapping[str, Any] | None = None,
 ) -> VideoGeometryEvaluation:
     """Evaluate one exact SceneRevision/SystemVariant without mutating scene truth."""
 
@@ -1864,18 +1940,9 @@ def evaluate_video_geometry(
         *(item.status for item in risers),
         *(item.status for item in collisions),
     ))
-    if request.screen.acoustically_transparent is True:
-        acoustic_status: EvaluationStatus = 'UNKNOWN'
-        acoustic_reason = (
-            'screen is marked acoustically transparent, but this geometry authority '
-            'has no acoustic transmission/reflection model'
-        )
-    elif request.screen.acoustically_transparent is False:
-        acoustic_status = 'NOT_APPLICABLE'
-        acoustic_reason = 'screen is explicitly not acoustically transparent'
-    else:
-        acoustic_status = 'UNKNOWN'
-        acoustic_reason = 'screen acoustic-transparency state is unknown'
+    acoustic_status, acoustic_reason = _screen_acoustic_effect(
+        request.screen, screen_transfers
+    )
 
     identity = {
         'schema_version': VIDEO_GEOMETRY_SCHEMA_VERSION,

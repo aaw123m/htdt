@@ -972,6 +972,58 @@ def acoustic_reference_position(entity: SceneEntity) -> Position3 | None:
     )
 
 
+ReceiverReferenceKind = Literal[
+    'measurement_point',
+    'seat_listening_reference',
+    'entity_acoustic_reference',
+]
+
+_RECEIVER_REFERENCE_LABELS: dict[str, str] = {
+    'measurement_point': '測定点',
+    'seat_listening_reference': '座席耳基準',
+    'entity_acoustic_reference': '音響基準点',
+}
+
+
+def is_listener_receiver_eligible(entity: SceneEntity) -> bool:
+    """Listener/receiver eligibility: a speaker is a source, never a receiver.
+
+    Source/receiver/listener semantics are separate (#475): a speaker's
+    acoustic reference point exists for directivity and wave excitation — it
+    is not a listening position. Source-as-receiver remains possible only
+    through an explicit diagnostic/authoring path, never a default picker.
+    """
+
+    return entity.kind != 'speaker' and acoustic_reference_position(entity) is not None
+
+
+def is_measurement_target_eligible(entity: SceneEntity) -> bool:
+    """Measurement targets are listener positions; speakers are excluded (#475)."""
+
+    return is_listener_receiver_eligible(entity)
+
+
+def receiver_reference_kind(entity: SceneEntity) -> ReceiverReferenceKind | None:
+    """Semantic kind of an entity's listener acoustic reference, if eligible."""
+
+    if not is_listener_receiver_eligible(entity):
+        return None
+    if entity.kind == 'measurement_point':
+        return 'measurement_point'
+    if entity.kind == 'seat':
+        return 'seat_listening_reference'
+    return 'entity_acoustic_reference'
+
+
+def receiver_option_label(entity: SceneEntity) -> str | None:
+    """Picker label carrying reference provenance (``name · kind · semantics``)."""
+
+    kind = receiver_reference_kind(entity)
+    if kind is None:
+        return None
+    return f"{entity.name} · {entity.kind} · {_RECEIVER_REFERENCE_LABELS[kind]}"
+
+
 class SceneDocument(BaseModel):
     model_config = ConfigDict(frozen=True)
     document_id: str = Field(min_length=1)

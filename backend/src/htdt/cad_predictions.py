@@ -23,6 +23,7 @@ from .cad_scene import (
     acoustic_reference_position,
     room_vertices,
 )
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 RECTANGULAR_GEOMETRY_MODEL_ID = 'htdt.rectangular_geometry'
@@ -155,11 +156,17 @@ def rectangular_geometry_model_input(
     *,
     max_mode_hz: float = 300.0,
     sound_speed_m_s: float = 343.0,
+    environment_profile: ExactExternalAuthorityRef | None = None,
 ) -> RectangularGeometryModelInput:
     """Compile the canonical rectangular-geometry request for one exact SceneRevision.
 
     Single request-compilation authority shared by the prediction analyzer, the
     request-identity builder and persistence-boundary input replay.
+
+    ``environment_profile`` is the exact ``AcousticEnvironmentProfile`` ref the
+    ``sound_speed_m_s`` value was sourced from (#479); it is only written into
+    the canonical request when bound, so requests persisted before environment
+    authorities existed keep their canonical shape.
     """
 
     room = revision.document.room
@@ -170,9 +177,18 @@ def rectangular_geometry_model_input(
     if receiver is None:
         raise ValueError('receiver entity has no acoustic reference position')
 
-    parameters_json = canonical_prediction_json(
-        {'max_mode_hz': float(max_mode_hz), 'sound_speed_m_s': float(sound_speed_m_s)}
+    parameters: dict[str, object] = {
+        'max_mode_hz': float(max_mode_hz),
+        'sound_speed_m_s': float(sound_speed_m_s),
+    }
+    environment_dump = (
+        None
+        if environment_profile is None
+        else environment_profile.model_dump(mode='json')
     )
+    if environment_dump is not None:
+        parameters['environment_profile'] = environment_dump
+    parameters_json = canonical_prediction_json(parameters)
     speaker_inputs: list[dict[str, object]] = []
     speaker_references: list[tuple[SceneEntity, Position3]] = []
     for entity in revision.document.entities:
@@ -191,15 +207,16 @@ def rectangular_geometry_model_input(
 
     frame = exact_rectangular_room_frame(room)
     if frame is None:
-        input_snapshot_json = canonical_prediction_json(
-            {
-                'room': room.model_dump(mode='json'),
-                'receiver_entity_id': receiver_entity_id,
-                'receiver_position': _position_payload(receiver),
-                'speakers': speaker_inputs,
-                'approximation_rule': None,
-            }
-        )
+        unsupported_snapshot: dict[str, object] = {
+            'room': room.model_dump(mode='json'),
+            'receiver_entity_id': receiver_entity_id,
+            'receiver_position': _position_payload(receiver),
+            'speakers': speaker_inputs,
+            'approximation_rule': None,
+        }
+        if environment_dump is not None:
+            unsupported_snapshot['environment_profile'] = environment_dump
+        input_snapshot_json = canonical_prediction_json(unsupported_snapshot)
         return RectangularGeometryModelInput(
             parameters_json=parameters_json,
             input_snapshot_json=input_snapshot_json,
@@ -214,22 +231,23 @@ def rectangular_geometry_model_input(
     if not _inside_frame(receiver, frame):
         raise ValueError('receiver acoustic reference is outside the rectangular room')
     surface_identities = _surface_identities(revision, frame)
-    input_snapshot_json = canonical_prediction_json(
-        {
-            'room_frame': {
-                'origin_x_m': frame.origin_x_m,
-                'origin_y_m': frame.origin_y_m,
-                'width_m': frame.width_m,
-                'depth_m': frame.depth_m,
-                'height_m': frame.height_m,
-            },
-            'receiver_entity_id': receiver_entity_id,
-            'receiver_position': _position_payload(receiver),
-            'speakers': speaker_inputs,
-            'surface_identities': surface_identities,
-            'approximation_rule': None,
-        }
-    )
+    snapshot: dict[str, object] = {
+        'room_frame': {
+            'origin_x_m': frame.origin_x_m,
+            'origin_y_m': frame.origin_y_m,
+            'width_m': frame.width_m,
+            'depth_m': frame.depth_m,
+            'height_m': frame.height_m,
+        },
+        'receiver_entity_id': receiver_entity_id,
+        'receiver_position': _position_payload(receiver),
+        'speakers': speaker_inputs,
+        'surface_identities': surface_identities,
+        'approximation_rule': None,
+    }
+    if environment_dump is not None:
+        snapshot['environment_profile'] = environment_dump
+    input_snapshot_json = canonical_prediction_json(snapshot)
     return RectangularGeometryModelInput(
         parameters_json=parameters_json,
         input_snapshot_json=input_snapshot_json,
@@ -296,6 +314,7 @@ def analyze_native_rectangular_geometry(
     max_mode_hz: float = 300.0,
     sound_speed_m_s: float = 343.0,
     constraint_workspace_hash: str | None = None,
+    environment_profile: ExactExternalAuthorityRef | None = None,
 ) -> tuple[CadPredictionResult, CadPredictionResult]:
     """Run the existing rectangular geometry model against one exact native revision."""
 
@@ -304,6 +323,7 @@ def analyze_native_rectangular_geometry(
         receiver_entity_id,
         max_mode_hz=max_mode_hz,
         sound_speed_m_s=sound_speed_m_s,
+        environment_profile=environment_profile,
     )
     parameters_json = model_input.parameters_json
     input_snapshot_json = model_input.input_snapshot_json

@@ -92,6 +92,11 @@ from .palette_search import (
 from .room_geometry_input import RoomGeometryInputController
 from .room_geometry_panel import RoomGeometryPanel
 from .room_prediction import RoomPredictionController, RoomPredictionPanel
+from .room_acoustics_panel import (
+    RoomAcousticsTabs,
+    RoomTreatmentPanel,
+    SurfaceMaterialPanel,
+)
 from .room_transform_input import RoomEntityTransformController
 from .room_viewport import RoomViewport3D
 from .room_workspace import RoomWorkspace
@@ -722,7 +727,11 @@ class WorkflowApplicationComposition:
             parent=workspace,
         )
         prediction_panel = RoomPredictionPanel(prediction)
-        workspace.attach_acoustics_panel(prediction_panel)
+        material_panel = SurfaceMaterialPanel(workspace.controller)
+        treatment_panel = RoomTreatmentPanel(workspace.controller)
+        workspace.attach_acoustics_panel(
+            RoomAcousticsTabs(prediction_panel, material_panel, treatment_panel)
+        )
 
         def show_prediction_overlay(results: object) -> None:
             if (

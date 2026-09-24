@@ -1,0 +1,480 @@
+"""Listener-pose authority — the R-Series seat listener geometry contract
+(#632).
+
+A ``ListenerPoseAuthority`` is a sealed, versioned record bound to one seat
+``SceneEntity`` that carries the full listening-geometry convention in one
+place: head-center, eye, acoustic-reference and ear offsets in seat-local
+coordinates, plus posture/facing. It is the single authority for ear/eye/head
+geometry used by seat ``SeatGeometryBinding``s, measurement-target derivation
+and receiver reference — ear, eye and head positions never silently reuse
+each other (a missing eye/head reference is UNKNOWN, not inferred from ears).
+The seat entity keeps its physical footprint geometry; the pose carries the
+listener-body convention.
+
+Poses carry no identity data about a person — a pose is a posture convention
+labelled by geometry, never a "user profile".
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
+from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .cad_scene import (
+    Offset3,
+    Position3,
+    SceneEntity,
+    quaternion_to_euler_deg,
+    quaternion_to_matrix3,
+)
+from .cad_video_geometry import SeatGeometryBinding
+from .r120_geometry_compiler import ExactExternalAuthorityRef
+from hashlib import sha256
+
+
+ListenerPostureKind = Literal[
+    'upright',
+    'reclined',
+    'leaning_forward',
+    'custom',
+]
+
+_LISTENER_POSE_PREFIX = 'listener-pose:'
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+        allow_nan=False,
+    )
+
+
+def _hash(payload: dict[str, Any]) -> str:
+    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
+
+
+def _require_iso8601(value: str, name: str) -> None:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f'{name} must be ISO-8601') from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f'{name} must be timezone-aware')
+
+
+class ListenerPoseAuthority(BaseModel):
+    """Sealed listener-geometry convention bound to one seat entity.
+
+    All reference offsets are explicit seat-local coordinates — the pose
+    never derives eye/head from ear geometry (or vice versa). ``ear_left``
+    /``ear_right`` are optional because symmetric ears are a modeling choice
+    some flows (single point measurement) do not use; the acoustic reference
+    offset is the mandatory listening-reference point.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    pose_id: str = Field(min_length=1)
+    authority_version: str = Field(min_length=1)
+    seat_entity_id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    head_center_offset_local_m: Offset3
+    eye_reference_offset_local_m: Offset3
+    acoustic_reference_offset_local_m: Offset3
+    head_radius_m: float = Field(gt=0.0, le=0.5)
+    ear_left_offset_local_m: Offset3 | None = None
+    ear_right_offset_local_m: Offset3 | None = None
+    facing_yaw_deg: float = 0.0
+    posture_kind: ListenerPostureKind = 'upright'
+    provenance: str = Field(min_length=1)
+    notes: str = ''
+    created_at_utc: str = Field(min_length=1)
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_pose(self) -> 'ListenerPoseAuthority':
+        _require_iso8601(self.created_at_utc, 'pose created_at_utc')
+        if (self.ear_left_offset_local_m is None) != (
+            self.ear_right_offset_local_m is None
+        ):
+            raise ValueError(
+                'pose ear offsets must be provided as a left/right pair'
+            )
+        if not self.pose_id.startswith(_LISTENER_POSE_PREFIX):
+            raise ValueError('listener pose id must use listener-pose: prefix')
+        if self.semantic_sha256 != _hash(self.identity_payload()):
+            raise ValueError('listener pose semantic hash mismatch')
+        return self
+
+    def identity_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            'pose_id': self.pose_id,
+            'authority_version': self.authority_version,
+            'seat_entity_id': self.seat_entity_id,
+            'label': self.label,
+            'head_center_offset_local_m': (
+                self.head_center_offset_local_m.model_dump(mode='json')
+            ),
+            'eye_reference_offset_local_m': (
+                self.eye_reference_offset_local_m.model_dump(mode='json')
+            ),
+            'acoustic_reference_offset_local_m': (
+                self.acoustic_reference_offset_local_m.model_dump(mode='json')
+            ),
+            'head_radius_m': self.head_radius_m,
+            'facing_yaw_deg': self.facing_yaw_deg,
+            'posture_kind': self.posture_kind,
+            'provenance': self.provenance,
+            'notes': self.notes,
+            'created_at_utc': self.created_at_utc,
+        }
+        # Optional fields join the identity only when present — the same
+        # additive convention the acquisition context uses, so a future pose
+        # extension does not rewrite existing authority hashes.
+        if self.ear_left_offset_local_m is not None:
+            payload['ear_left_offset_local_m'] = (
+                self.ear_left_offset_local_m.model_dump(mode='json')
+            )
+        if self.ear_right_offset_local_m is not None:
+            payload['ear_right_offset_local_m'] = (
+                self.ear_right_offset_local_m.model_dump(mode='json')
+            )
+        return payload
+
+    def authority_ref(self) -> ExactExternalAuthorityRef:
+        return ExactExternalAuthorityRef(
+            authority_id=self.pose_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_sha256,
+        )
+
+
+def build_listener_pose(
+    *,
+    seat_entity_id: str,
+    label: str,
+    head_center_offset_local_m: Offset3,
+    eye_reference_offset_local_m: Offset3,
+    acoustic_reference_offset_local_m: Offset3,
+    head_radius_m: float = 0.10,
+    ear_left_offset_local_m: Offset3 | None = None,
+    ear_right_offset_local_m: Offset3 | None = None,
+    facing_yaw_deg: float = 0.0,
+    posture_kind: ListenerPostureKind = 'upright',
+    provenance: str,
+    notes: str = '',
+    authority_version: str = '1',
+    pose_id: str | None = None,
+    created_at_utc: str | None = None,
+) -> ListenerPoseAuthority:
+    """Assemble a sealed listener pose for a seat."""
+
+    payload: dict[str, Any] = {
+        'pose_id': pose_id or f'{_LISTENER_POSE_PREFIX}{uuid4()}',
+        'authority_version': authority_version,
+        'seat_entity_id': seat_entity_id,
+        'label': label,
+        'head_center_offset_local_m': head_center_offset_local_m,
+        'eye_reference_offset_local_m': eye_reference_offset_local_m,
+        'acoustic_reference_offset_local_m': acoustic_reference_offset_local_m,
+        'head_radius_m': head_radius_m,
+        'ear_left_offset_local_m': ear_left_offset_local_m,
+        'ear_right_offset_local_m': ear_right_offset_local_m,
+        'facing_yaw_deg': facing_yaw_deg,
+        'posture_kind': posture_kind,
+        'provenance': provenance,
+        'notes': notes,
+        'created_at_utc': created_at_utc or _utc_now(),
+    }
+    provisional = ListenerPoseAuthority.model_construct(
+        **payload,
+        semantic_sha256='0' * 64,
+    )
+    return ListenerPoseAuthority.model_validate(
+        {
+            **payload,
+            'semantic_sha256': _hash(provisional.identity_payload()),
+        }
+    )
+
+
+def listener_pose_for_seat(
+    seat: SceneEntity,
+    *,
+    label: str,
+    eye_reference_offset_local_m: Offset3,
+    head_center_offset_local_m: Offset3,
+    head_radius_m: float = 0.10,
+    provenance: str,
+    posture_kind: ListenerPostureKind = 'upright',
+    facing_yaw_deg: float | None = None,
+    ear_left_offset_local_m: Offset3 | None = None,
+    ear_right_offset_local_m: Offset3 | None = None,
+    notes: str = '',
+) -> ListenerPoseAuthority:
+    """Materialize a pose whose acoustic reference mirrors the seat's
+    ``acoustic_reference_offset_m`` — migration without coordinate changes:
+    the same seat-local offset becomes the pose's acoustic convention. The
+    seat must declare the offset; a bare seat position is never treated as
+    the listener's ear location.
+    """
+
+    if seat.kind != 'seat':
+        raise ValueError(f'entity is not a seat: {seat.entity_id}')
+    offset = seat.acoustic_reference_offset_m
+    if offset is None:
+        raise ValueError(
+            f'seat {seat.entity_id} has no acoustic reference offset; '
+            'define the listening position on the seat first'
+        )
+    return build_listener_pose(
+        seat_entity_id=seat.entity_id,
+        label=label,
+        head_center_offset_local_m=head_center_offset_local_m,
+        eye_reference_offset_local_m=eye_reference_offset_local_m,
+        acoustic_reference_offset_local_m=offset,
+        head_radius_m=head_radius_m,
+        ear_left_offset_local_m=ear_left_offset_local_m,
+        ear_right_offset_local_m=ear_right_offset_local_m,
+        facing_yaw_deg=(
+            quaternion_to_euler_deg(seat.orientation)[0]
+            if facing_yaw_deg is None and seat.orientation is not None
+            else (0.0 if facing_yaw_deg is None else facing_yaw_deg)
+        ),
+        posture_kind=posture_kind,
+        provenance=provenance,
+        notes=notes,
+    )
+
+
+def pose_acoustic_reference_position(
+    seat: SceneEntity,
+    pose: ListenerPoseAuthority,
+) -> Position3:
+    """Resolve the pose's acoustic reference into world coordinates through
+    the seat's current placement — the same convention
+    ``acoustic_reference_position`` applies to seat-local offsets."""
+
+    if pose.seat_entity_id != seat.entity_id:
+        raise ValueError(
+            f'pose {pose.pose_id} is bound to seat {pose.seat_entity_id}, '
+            f'not {seat.entity_id}'
+        )
+    matrix = quaternion_to_matrix3(seat.orientation)
+    local = (
+        pose.acoustic_reference_offset_local_m.x_m,
+        pose.acoustic_reference_offset_local_m.y_m,
+        pose.acoustic_reference_offset_local_m.z_m,
+    )
+    rotated = tuple(
+        sum(matrix[row][column] * local[column] for column in range(3))
+        for row in range(3)
+    )
+    return Position3(
+        x_m=seat.position.x_m + rotated[0],
+        y_m=seat.position.y_m + rotated[1],
+        z_m=seat.position.z_m + rotated[2],
+    )
+
+
+def pose_eye_reference_position(
+    seat: SceneEntity,
+    pose: ListenerPoseAuthority,
+) -> Position3:
+    """Resolve the pose's eye reference into world coordinates."""
+
+    if pose.seat_entity_id != seat.entity_id:
+        raise ValueError(
+            f'pose {pose.pose_id} is bound to seat {pose.seat_entity_id}, '
+            f'not {seat.entity_id}'
+        )
+    matrix = quaternion_to_matrix3(seat.orientation)
+    local = (
+        pose.eye_reference_offset_local_m.x_m,
+        pose.eye_reference_offset_local_m.y_m,
+        pose.eye_reference_offset_local_m.z_m,
+    )
+    rotated = tuple(
+        sum(matrix[row][column] * local[column] for column in range(3))
+        for row in range(3)
+    )
+    return Position3(
+        x_m=seat.position.x_m + rotated[0],
+        y_m=seat.position.y_m + rotated[1],
+        z_m=seat.position.z_m + rotated[2],
+    )
+
+
+def seat_binding_from_pose(
+    pose: ListenerPoseAuthority,
+    *,
+    row_id: str = 'seat-1',
+    riser_entity_id: str | None = None,
+) -> SeatGeometryBinding:
+    """Derive the validated SeatGeometryBinding from the pose's own eye/head
+    convention — the binding carries the resolved numbers, so the request
+    identity stays content-addressed.
+    """
+
+    return SeatGeometryBinding(
+        entity_id=pose.seat_entity_id,
+        row_id=row_id,
+        eye_reference_offset_local_m=pose.eye_reference_offset_local_m,
+        head_center_offset_local_m=pose.head_center_offset_local_m,
+        head_radius_m=pose.head_radius_m,
+        riser_entity_id=riser_entity_id,
+    )
+
+
+class CadListenerPoseRepository:
+    """SQLite persistence for listener poses and per-seat selection."""
+
+    def __init__(self, path: Path | str) -> None:
+        self.path = Path(path)
+        self._ensure_schema()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(str(self.path))
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _ensure_schema(self) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cad_listener_poses (
+                    pose_id TEXT PRIMARY KEY,
+                    seat_entity_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cad_listener_pose_selections (
+                    document_id TEXT NOT NULL,
+                    seat_entity_id TEXT NOT NULL,
+                    pose_id TEXT NOT NULL,
+                    pose_sha256 TEXT NOT NULL,
+                    PRIMARY KEY (document_id, seat_entity_id)
+                )
+                """
+            )
+
+    def save_pose(self, pose: ListenerPoseAuthority) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                'INSERT INTO cad_listener_poses'
+                '(pose_id, seat_entity_id, payload_json) VALUES(?,?,?)'
+                ' ON CONFLICT(pose_id) DO UPDATE SET'
+                ' seat_entity_id=excluded.seat_entity_id,'
+                ' payload_json=excluded.payload_json',
+                (
+                    pose.pose_id,
+                    pose.seat_entity_id,
+                    pose.model_dump_json(),
+                ),
+            )
+
+    def get_pose(self, pose_id: str) -> ListenerPoseAuthority | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_listener_poses WHERE pose_id=?',
+                (pose_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return ListenerPoseAuthority.model_validate_json(row['payload_json'])
+
+    def list_poses_for_seat(
+        self,
+        seat_entity_id: str,
+    ) -> tuple[ListenerPoseAuthority, ...]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_listener_poses'
+                ' WHERE seat_entity_id=? ORDER BY pose_id ASC',
+                (seat_entity_id,),
+            ).fetchall()
+        return tuple(
+            ListenerPoseAuthority.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def select_pose(
+        self,
+        document_id: str,
+        pose: ListenerPoseAuthority,
+    ) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                'INSERT INTO cad_listener_pose_selections'
+                '(document_id, seat_entity_id, pose_id, pose_sha256)'
+                ' VALUES(?,?,?,?)'
+                ' ON CONFLICT(document_id, seat_entity_id) DO UPDATE SET'
+                ' pose_id=excluded.pose_id,'
+                ' pose_sha256=excluded.pose_sha256',
+                (
+                    document_id,
+                    pose.seat_entity_id,
+                    pose.pose_id,
+                    pose.semantic_sha256,
+                ),
+            )
+
+    def clear_selection(self, document_id: str, seat_entity_id: str) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                'DELETE FROM cad_listener_pose_selections'
+                ' WHERE document_id=? AND seat_entity_id=?',
+                (document_id, seat_entity_id),
+            )
+
+    def selected_pose(
+        self,
+        document_id: str,
+        seat_entity_id: str,
+    ) -> ListenerPoseAuthority | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT pose_id, pose_sha256 FROM cad_listener_pose_selections'
+                ' WHERE document_id=? AND seat_entity_id=?',
+                (document_id, seat_entity_id),
+            ).fetchone()
+        if row is None:
+            return None
+        pose = self.get_pose(row['pose_id'])
+        if pose is None:
+            return None
+        if pose.semantic_sha256 != row['pose_sha256']:
+            raise ValueError(
+                f'selected listener pose {row["pose_id"]} hash mismatch — '
+                'refusing to resolve a different pose than was selected'
+            )
+        return pose
+
+
+__all__ = [
+    'CadListenerPoseRepository',
+    'ListenerPoseAuthority',
+    'ListenerPostureKind',
+    'build_listener_pose',
+    'listener_pose_for_seat',
+    'pose_acoustic_reference_position',
+    'pose_eye_reference_position',
+    'seat_binding_from_pose',
+]

@@ -8,12 +8,16 @@ from threading import Event
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -25,16 +29,40 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_acoustic_environment import (
+    AcousticEnvironmentProfile,
+    CadAcousticEnvironmentRepository,
+)
 from .cad_constraint_repository import CadConstraintRepository
 from .cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard, PredictionJobToken
 from .cad_prediction_models import CadPredictionResult
+from .cad_prediction_provider import (
+    CadPredictionProviderRepository,
+    LowBandPredictionProvider,
+    PredictionProviderResolution,
+)
 from .cad_prediction_repository import CadPredictionRepository
-from .cad_prediction_request import RectangularGeometryRequestIdentity, rectangular_geometry_request_identity
+from .cad_prediction_request import (
+    RectangularGeometryRequestIdentity,
+    rectangular_geometry_environment_profile_ref,
+    rectangular_geometry_request_identity,
+)
 from .cad_predictions import analyze_native_rectangular_geometry
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_scene import acoustic_reference_position, scene_content_hash
+from .cad_scene import (
+    acoustic_reference_position,
+    is_listener_receiver_eligible,
+    receiver_option_label,
+    scene_content_hash,
+)
 from .cad_search_models import constraint_workspace_snapshot
 from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
+from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .room_prediction_options import (
+    RECTANGULAR_MODEL_KEY,
+    RoomPredictionModelOption,
+    resolve_room_prediction_options,
+)
 from .prediction_interpretation import (
     PredictionFinding,
     PredictionInterpretation,
@@ -61,6 +89,7 @@ class RoomPredictionRunSpec:
     constraint_workspace_hash: str
     identity: RectangularGeometryRequestIdentity
     token: PredictionJobToken
+    environment_profile: ExactExternalAuthorityRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +120,8 @@ class RoomPredictionController(QObject):
             [RoomPredictionRunSpec, Event],
             tuple[CadPredictionResult, ...] | None,
         ] | None = None,
+        environment_repository: CadAcousticEnvironmentRepository | None = None,
+        provider_repository: CadPredictionProviderRepository | None = None,
     ) -> None:
         super().__init__(parent)
         self.scene_repository = scene_repository
@@ -98,6 +129,12 @@ class RoomPredictionController(QObject):
         self.document_id = room_controller.document_id
         self.prediction_repository = CadPredictionRepository(scene_repository)
         self.constraint_repository = CadConstraintRepository(scene_repository.path)
+        self.environment_repository = (
+            environment_repository
+            if environment_repository is not None
+            else CadAcousticEnvironmentRepository(scene_repository.path)
+        )
+        self.provider_repository = provider_repository
         self.job_guard = PredictionJobGuard()
         self._operation = operation or self._analyze
         self._tokens: dict[str, PredictionJobToken] = {}
@@ -125,20 +162,50 @@ class RoomPredictionController(QObject):
     def selected_run_id(self) -> str | None:
         return self._selected_run_id
 
-    def receiver_options(self) -> tuple[tuple[str, str], ...]:
+    def receiver_options(
+        self,
+        *,
+        include_source_receivers: bool = False,
+    ) -> tuple[tuple[str, str], ...]:
+        """Eligible prediction receivers: listener positions, never speakers.
+
+        Source/receiver semantics are separate (#475): a speaker's acoustic
+        reference is for directivity/excitation, not listening. Offering a
+        speaker as receiver is only possible through the explicit diagnostic
+        mode (``include_source_receivers``), which labels it as a source
+        reference rather than a listening position.
+        """
         document = self.room_controller.committed_document
-        return tuple(
-            (entity.entity_id, f"{entity.name} · {entity.kind}")
-            for entity in document.entities
-            if acoustic_reference_position(entity) is not None
-        )
+        options: list[tuple[str, str]] = []
+        for entity in document.entities:
+            if is_listener_receiver_eligible(entity):
+                label = receiver_option_label(entity)
+                assert label is not None
+                options.append((entity.entity_id, label))
+            elif (
+                include_source_receivers
+                and entity.kind == 'speaker'
+                and acoustic_reference_position(entity) is not None
+            ):
+                options.append(
+                    (
+                        entity.entity_id,
+                        f"{entity.name} · {entity.kind} · 診断: 音源基準点",
+                    )
+                )
+        return tuple(options)
 
     def _constraint_hash(self) -> str:
         constraint_set = self.constraint_repository.load(self.document_id)
         _snapshot, digest = constraint_workspace_snapshot(constraint_set)
         return digest
 
-    def _saved_target(self, receiver_entity_id: str) -> SceneRevision:
+    def _saved_target(
+        self,
+        receiver_entity_id: str,
+        *,
+        allow_source_receiver: bool = False,
+    ) -> SceneRevision:
         working = self.room_controller.working
         if working.source_revision_id is None:
             raise ValueError("保存済みSceneRevisionが必要です")
@@ -154,22 +221,154 @@ class RoomPredictionController(QObject):
         entity = revision.document.entity(receiver_entity_id)
         if acoustic_reference_position(entity) is None:
             raise ValueError("選択した受音点に音響基準点がありません")
+        if entity.kind == 'speaker' and not allow_source_receiver:
+            raise ValueError(
+                "スピーカーは音源です。受音点として選択できません "
+                "(診断モードのみ明示的に許可)"
+            )
         return revision
+
+    def environment_profiles(self) -> tuple[AcousticEnvironmentProfile, ...]:
+        return self.environment_repository.list_profiles()
+
+    def selected_environment_profile(self) -> AcousticEnvironmentProfile | None:
+        return self.environment_repository.selected_profile(self.document_id)
+
+    def select_environment_profile(
+        self,
+        profile: AcousticEnvironmentProfile,
+    ) -> None:
+        self.environment_repository.select_profile(self.document_id, profile)
+
+    def create_environment_profile(
+        self,
+        **kwargs: object,
+    ) -> AcousticEnvironmentProfile:
+        from .cad_acoustic_environment import build_acoustic_environment_profile
+
+        profile = build_acoustic_environment_profile(**kwargs)
+        self.environment_repository.save_profile(profile)
+        return profile
+
+    def _resolve_environment(
+        self,
+        environment_profile_id: str | None,
+    ) -> AcousticEnvironmentProfile | None:
+        if environment_profile_id is not None:
+            profile = self.environment_repository.get_profile(environment_profile_id)
+            if profile is None:
+                raise ValueError("選択した環境プロファイルが存在しません")
+            return profile
+        return self.selected_environment_profile()
+
+    def available_providers(self) -> tuple[LowBandPredictionProvider, ...]:
+        if self.provider_repository is None:
+            return ()
+        return self.provider_repository.list_providers(self.document_id)
+
+    def prediction_options(
+        self,
+        receiver_entity_id: str,
+        *,
+        max_mode_hz: float = 300.0,
+        environment_profile_id: str | None = None,
+    ) -> tuple[RoomPredictionModelOption, ...]:
+        """Solver-neutral model/provider option set for the Room flow (#457).
+
+        Resolves READY/BLOCKED/UNSUPPORTED lanes with reasons — the product
+        never assumes the rectangular model and never presents unvalidated
+        providers as production capability.
+        """
+        try:
+            revision = self._saved_target(
+                receiver_entity_id, allow_source_receiver=True
+            )
+        except (ValueError, KeyError) as exc:
+            return (
+                RoomPredictionModelOption(
+                    model_key=RECTANGULAR_MODEL_KEY,
+                    label='簡易矩形モデル',
+                    state='BLOCKED',
+                    reasons=(str(exc),),
+                ),
+            )
+        try:
+            environment = self._resolve_environment(environment_profile_id)
+        except ValueError:
+            environment = None
+        return resolve_room_prediction_options(
+            revision,
+            receiver_entity_id,
+            providers=self.available_providers(),
+            environment_profile=environment,
+            max_mode_hz=max_mode_hz,
+        )
+
+    def provider_view(
+        self,
+        provider_id: str,
+    ) -> tuple[LowBandPredictionProvider, PredictionProviderResolution] | None:
+        """One persisted provider plus its scene-level staleness resolution."""
+
+        provider = next(
+            (
+                item
+                for item in self.available_providers()
+                if item.provider_id == provider_id
+            ),
+            None,
+        )
+        if provider is None:
+            return None
+        from .room_prediction_options import _provider_resolution
+
+        revision = self.room_controller.working.source_revision_id
+        scene_revision = (
+            self.scene_repository.get(revision) if revision is not None else None
+        )
+        if scene_revision is None:
+            scene_revision = self.scene_repository.get(
+                provider.current_authority.scene_revision_id
+            )
+        if scene_revision is None:
+            return None
+        return provider, _provider_resolution(provider, scene_revision)
 
     def prepare_run(
         self,
         receiver_entity_id: str,
         *,
         max_mode_hz: float = 300.0,
-        sound_speed_m_s: float = 343.0,
+        sound_speed_m_s: float | None = None,
+        environment_profile_id: str | None = None,
+        allow_source_receiver: bool = False,
     ) -> RoomPredictionRunSpec:
-        revision = self._saved_target(receiver_entity_id)
+        revision = self._saved_target(
+            receiver_entity_id,
+            allow_source_receiver=allow_source_receiver,
+        )
+        environment = self._resolve_environment(environment_profile_id)
+        environment_profile = (
+            None if environment is None else environment.authority_ref()
+        )
+        if environment is not None:
+            if environment.sound_speed_m_s is None:
+                raise ValueError(
+                    "選択中の環境プロファイルの音速が不明です "
+                    "(不明な値を捏造せず予測をブロックします)"
+                )
+            sound_speed_m_s = environment.sound_speed_m_s
+        resolved_sound_speed = (
+            float(sound_speed_m_s) if sound_speed_m_s is not None else 343.0
+        )
         identity = rectangular_geometry_request_identity(
             revision,
             receiver_entity_id,
             max_mode_hz=max_mode_hz,
-            sound_speed_m_s=sound_speed_m_s,
+            sound_speed_m_s=resolved_sound_speed,
+            environment_profile=environment_profile,
         )
+        sound_speed_m_s = resolved_sound_speed
         constraint_hash = self._constraint_hash()
         token = self.job_guard.submit(
             revision,
@@ -187,6 +386,7 @@ class RoomPredictionController(QObject):
             constraint_workspace_hash=constraint_hash,
             identity=identity,
             token=token,
+            environment_profile=environment_profile,
         )
 
     @staticmethod
@@ -202,16 +402,43 @@ class RoomPredictionController(QObject):
             max_mode_hz=spec.max_mode_hz,
             sound_speed_m_s=spec.sound_speed_m_s,
             constraint_workspace_hash=spec.constraint_workspace_hash,
+            environment_profile=spec.environment_profile,
         )
 
     def start(
         self,
         receiver_entity_id: str,
         *,
+        model_key: str = RECTANGULAR_MODEL_KEY,
         max_mode_hz: float = 300.0,
-        sound_speed_m_s: float = 343.0,
+        environment_profile_id: str | None = None,
+        allow_source_receiver: bool = False,
     ) -> bool:
         if self._disposed:
+            return False
+        if model_key != RECTANGULAR_MODEL_KEY:
+            options = {
+                option.model_key: option
+                for option in self.prediction_options(
+                    receiver_entity_id, max_mode_hz=max_mode_hz
+                )
+            }
+            option = options.get(model_key)
+            if option is None:
+                message = "選択した予測モデルはこの画面では利用できません"
+            elif option.state == 'READY':
+                message = (
+                    "このlaneは計算実行ではなく登録済みprovider出力の参照です "
+                    "— providerビューで確認してください"
+                )
+            else:
+                message = (
+                    f"{option.label}: {option.state} · "
+                    + " / ".join(option.reasons)
+                )
+            self.stateChanged.emit(
+                RoomPredictionRunState(False, message, error=True)
+            )
             return False
         if self.is_busy:
             self.stateChanged.emit(RoomPredictionRunState(True, "予測を実行中です"))
@@ -220,7 +447,8 @@ class RoomPredictionController(QObject):
             spec = self.prepare_run(
                 receiver_entity_id,
                 max_mode_hz=max_mode_hz,
-                sound_speed_m_s=sound_speed_m_s,
+                environment_profile_id=environment_profile_id,
+                allow_source_receiver=allow_source_receiver,
             )
         except Exception as exc:
             self.stateChanged.emit(
@@ -396,11 +624,21 @@ class RoomPredictionController(QObject):
 
     def result_is_current(self, result: CadPredictionResult) -> bool:
         working = self.room_controller.working
-        return bool(
+        if not (
             working.source_revision_id == result.scene_revision_id
             and scene_content_hash(working.committed_document) == result.scene_content_hash
             and self._constraint_hash() == result.constraint_workspace_hash
+        ):
+            return False
+        # A run bound to an environment profile is stale once the document's
+        # selected profile (or its versioned content) no longer matches (#479).
+        bound_ref = rectangular_geometry_environment_profile_ref(result.parameters_json)
+        selected = self.selected_environment_profile()
+        bound_sha = None if bound_ref is None else bound_ref.semantic_hash_sha256
+        selected_sha = (
+            None if selected is None else selected.semantic_hash_sha256
         )
+        return bound_sha == selected_sha
 
     def _provider_evidence(
         self,
@@ -518,6 +756,7 @@ class RoomPredictionPanel(QWidget):
         super().__init__(parent)
         self.controller = controller
         self._interpretation: PredictionInterpretation | None = None
+        self._options: dict[str, RoomPredictionModelOption] = {}
         self.setMinimumWidth(300)
         self.setMaximumWidth(390)
         set_surface_role(self, SurfaceRole.RAISED)
@@ -531,26 +770,46 @@ class RoomPredictionPanel(QWidget):
         layout.addWidget(title)
 
         description = QLabel(
-            "矩形幾何モデルのルームモードと一次反射候補です。実測FRやSPL音場ではありません。"
+            "予測モデル/providerのcapabilityに応じて利用可能なlaneを表示します。"
+            "実測FRやSPL音場ではありません。"
         )
         description.setWordWrap(True)
         set_typography_role(description, TypographyRole.SECONDARY)
         layout.addWidget(description)
 
         form = QFormLayout()
+        self.model = QComboBox()
+        self.model.currentIndexChanged.connect(self._option_changed)
+        form.addRow("モデル", self.model)
         self.receiver = QComboBox()
+        self.receiver.currentIndexChanged.connect(self._option_changed)
         form.addRow("受音点", self.receiver)
         self.max_mode = QDoubleSpinBox()
         self.max_mode.setRange(20.0, 1000.0)
         self.max_mode.setValue(300.0)
         self.max_mode.setSuffix(" Hz")
         form.addRow("モード上限", self.max_mode)
-        self.sound_speed = QDoubleSpinBox()
-        self.sound_speed.setRange(250.0, 400.0)
-        self.sound_speed.setDecimals(2)
-        self.sound_speed.setValue(343.0)
-        self.sound_speed.setSuffix(" m/s")
-        form.addRow("音速", self.sound_speed)
+        self.environment = QComboBox()
+        self.environment.currentIndexChanged.connect(self._environment_changed)
+        form.addRow("環境", self.environment)
+        env_row = QHBoxLayout()
+        self.environment_new = QPushButton("環境プロファイル新規…")
+        self.environment_new.clicked.connect(self._new_environment_profile)
+        env_row.addWidget(self.environment_new)
+        env_row.addStretch(1)
+        form.addRow("", env_row)
+        self.source_receiver = QCheckBox(
+            "診断: 音源(speaker)を受音点として使う"
+        )
+        self.source_receiver.setToolTip(
+            "診断/authoring専用モードです — speakerの音響基準点はリスニング位置ではありません"
+        )
+        self.source_receiver.toggled.connect(lambda _checked: self.refresh())
+        form.addRow("", self.source_receiver)
+        self.option_state = QLabel()
+        self.option_state.setWordWrap(True)
+        set_typography_role(self.option_state, TypographyRole.SECONDARY)
+        form.addRow("状態", self.option_state)
         layout.addLayout(form)
 
         action_row = QHBoxLayout()
@@ -636,8 +895,11 @@ class RoomPredictionPanel(QWidget):
 
     def refresh(self) -> None:
         previous = self.controller.selected_run_id
-        options = self.controller.receiver_options()
+        options = self.controller.receiver_options(
+            include_source_receivers=self.source_receiver.isChecked()
+        )
         previous_receiver = self.receiver.currentData()
+        self.receiver.blockSignals(True)
         self.receiver.clear()
         for entity_id, label in options:
             self.receiver.addItem(label, entity_id)
@@ -646,6 +908,9 @@ class RoomPredictionPanel(QWidget):
             index = self.receiver.findData(preferred)
             if index >= 0:
                 self.receiver.setCurrentIndex(index)
+        self.receiver.blockSignals(False)
+        self._refresh_environments()
+        self._refresh_models()
 
         self.runs.clear()
         selected_item = None
@@ -685,11 +950,110 @@ class RoomPredictionPanel(QWidget):
                 RoomPredictionRunState(False, "受音点を選択してください", error=True)
             )
             return False
+        environment_id = self.environment.currentData()
         return self.controller.start(
             str(receiver),
+            model_key=str(self.model.currentData() or RECTANGULAR_MODEL_KEY),
             max_mode_hz=float(self.max_mode.value()),
-            sound_speed_m_s=float(self.sound_speed.value()),
+            environment_profile_id=(
+                None if environment_id is None else str(environment_id)
+            ),
+            allow_source_receiver=self.source_receiver.isChecked(),
         )
+
+    def _option_changed(self) -> None:
+        receiver = self.receiver.currentData()
+        model_key = str(self.model.currentData() or RECTANGULAR_MODEL_KEY)
+        option = self._options.get(model_key)
+        if option is None:
+            self.option_state.setText("")
+            return
+        parts = [f"{option.label}: {option.state}"]
+        if option.detail:
+            parts.append(option.detail)
+        if option.evidence_label:
+            parts.append(f"evidence: {option.evidence_label}")
+        if option.stale_state is not None:
+            parts.append(f"鮮度: {option.stale_state}")
+        if option.solver_label:
+            parts.append(f"solver: {option.solver_label}")
+        parts.extend(option.reasons)
+        self.option_state.setText("\n".join(parts))
+        if receiver is None or not option.runnable:
+            self.run_button.setEnabled(False)
+        else:
+            self.run_button.setEnabled(option.state == 'READY')
+
+    def _environment_changed(self) -> None:
+        authority_id = self.environment.currentData()
+        if authority_id is None:
+            return
+        profile = self.controller.environment_repository.get_profile(str(authority_id))
+        if profile is None:
+            return
+        self.controller.select_environment_profile(profile)
+
+    def _new_environment_profile(self) -> None:
+        dialog = EnvironmentProfileDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        profile = self.controller.create_environment_profile(**dialog.profile_kwargs())
+        self.controller.select_environment_profile(profile)
+        self.refresh()
+        index = self.environment.findData(profile.authority_id)
+        if index >= 0:
+            self.environment.setCurrentIndex(index)
+
+    def _refresh_models(self) -> None:
+        receiver = self.receiver.currentData()
+        previous = self.model.currentData()
+        self.model.blockSignals(True)
+        self.model.clear()
+        self._options = {}
+        if receiver is not None:
+            for option in self.controller.prediction_options(str(receiver)):
+                self._options[option.model_key] = option
+                label = (
+                    option.label
+                    if option.state == 'READY'
+                    else f"{option.label} ({option.state})"
+                )
+                self.model.addItem(label, option.model_key)
+        if previous is not None:
+            index = self.model.findData(previous)
+            if index >= 0:
+                self.model.setCurrentIndex(index)
+        self.model.blockSignals(False)
+        self._option_changed()
+
+    def _refresh_environments(self) -> None:
+        repository = self.controller.environment_repository
+        if not repository.list_profiles():
+            repository.ensure_default_profile()
+        selected = self.controller.selected_environment_profile()
+        if selected is None:
+            selected = repository.ensure_default_profile()
+            self.controller.select_environment_profile(selected)
+        previous = self.environment.currentData() or (
+            None if selected is None else selected.authority_id
+        )
+        self.environment.blockSignals(True)
+        self.environment.clear()
+        for profile in self.controller.environment_profiles():
+            speed = (
+                "不明"
+                if profile.sound_speed_m_s is None
+                else f"{profile.sound_speed_m_s:g} m/s"
+            )
+            self.environment.addItem(
+                f"{profile.label} · {speed} ({profile.sound_speed_source_kind})",
+                profile.authority_id,
+            )
+        if previous is not None:
+            index = self.environment.findData(previous)
+            if index >= 0:
+                self.environment.setCurrentIndex(index)
+        self.environment.blockSignals(False)
 
     def _selected(self) -> None:
         item = self.runs.currentItem()
@@ -830,7 +1194,118 @@ class RoomPredictionPanel(QWidget):
             self.refresh()
 
 
+class EnvironmentProfileDialog(QDialog):
+    """Author one AcousticEnvironmentProfile with explicit provenance (#479)."""
+
+    _SOURCE_KINDS = (
+        ('nominal_assumption', '標準仮定 (343 m/s, 20 °C等)'),
+        ('derived_from_temperature', '温度から導出 (c = 331.3 + 0.606·T)'),
+        ('manual_measured', '手動測定値'),
+        ('unknown', '不明'),
+    )
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("環境プロファイル作成")
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.label = QLineEdit()
+        self.label.setPlaceholderText("例: 測定日 2026-09 · 室内 22 °C")
+        form.addRow("名称", self.label)
+
+        self.source_kind = QComboBox()
+        for value, label in self._SOURCE_KINDS:
+            self.source_kind.addItem(label, value)
+        self.source_kind.currentIndexChanged.connect(self._kind_changed)
+        form.addRow("音速の出典", self.source_kind)
+
+        self.sound_speed = QDoubleSpinBox()
+        self.sound_speed.setRange(250.0, 400.0)
+        self.sound_speed.setDecimals(2)
+        self.sound_speed.setValue(343.0)
+        self.sound_speed.setSuffix(" m/s")
+        form.addRow("音速", self.sound_speed)
+
+        self.temperature = QDoubleSpinBox()
+        self.temperature.setRange(-40.0, 60.0)
+        self.temperature.setDecimals(1)
+        self.temperature.setValue(20.0)
+        self.temperature.setSuffix(" °C")
+        self.temperature.setSpecialValueText("不明")
+        self.temperature.valueChanged.connect(self._temperature_changed)
+        form.addRow("温度", self.temperature)
+
+        self.notes = QLineEdit()
+        form.addRow("備考", self.notes)
+        layout.addLayout(form)
+
+        hint = QLabel(
+            "音速/温度は必ず出典kindとセットで保存されます。"
+            "「不明」は値を捏造せず、予測をブロックします。"
+        )
+        hint.setWordWrap(True)
+        set_typography_role(hint, TypographyRole.SECONDARY)
+        layout.addWidget(hint)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._kind_changed()
+
+    def _kind_changed(self) -> None:
+        kind = self.source_kind.currentData()
+        self.sound_speed.setEnabled(kind in ('manual_measured',))
+        self.temperature.setEnabled(kind == 'derived_from_temperature')
+        if kind == 'nominal_assumption':
+            self.sound_speed.setValue(343.0)
+        elif kind == 'derived_from_temperature':
+            self._temperature_changed()
+
+    def _temperature_changed(self) -> None:
+        if self.source_kind.currentData() == 'derived_from_temperature':
+            from .cad_acoustic_environment import sound_speed_from_temperature_c
+
+            self.sound_speed.setValue(
+                sound_speed_from_temperature_c(float(self.temperature.value()))
+            )
+
+    def accept(self) -> None:
+        if not self.label.text().strip():
+            self.label.setFocus()
+            return
+        super().accept()
+
+    def profile_kwargs(self) -> dict[str, object]:
+        kind = str(self.source_kind.currentData())
+        kwargs: dict[str, object] = {
+            'label': self.label.text().strip(),
+            'sound_speed_source_kind': kind,
+            'provenance': 'user-authored profile',
+            'notes': self.notes.text().strip(),
+        }
+        if kind == 'unknown':
+            return kwargs
+        kwargs['sound_speed_m_s'] = float(self.sound_speed.value())
+        if kind == 'derived_from_temperature':
+            kwargs['temperature_c'] = float(self.temperature.value())
+            kwargs['temperature_source_kind'] = 'manual_measured'
+        elif self.temperature.isEnabled() or kind == 'nominal_assumption':
+            kwargs['temperature_c'] = 20.0 if kind == 'nominal_assumption' else float(
+                self.temperature.value()
+            )
+            kwargs['temperature_source_kind'] = (
+                'nominal_assumption' if kind == 'nominal_assumption' else 'manual_measured'
+            )
+        return kwargs
+
+
 __all__ = [
+    "EnvironmentProfileDialog",
     "RoomPredictionController",
     "RoomPredictionPanel",
     "RoomPredictionRunSpec",

@@ -13,6 +13,7 @@ from .cad_predictions import (
     rectangular_geometry_model_input,
 )
 from .cad_repository import SceneRevision
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ def rectangular_geometry_request_identity(
     *,
     max_mode_hz: float = 300.0,
     sound_speed_m_s: float = 343.0,
+    environment_profile: ExactExternalAuthorityRef | None = None,
 ) -> RectangularGeometryRequestIdentity:
     """Build the exact canonical model identity used by the rectangular adapter."""
 
@@ -39,6 +41,7 @@ def rectangular_geometry_request_identity(
         receiver_entity_id,
         max_mode_hz=max_mode_hz,
         sound_speed_m_s=sound_speed_m_s,
+        environment_profile=environment_profile,
     )
     return RectangularGeometryRequestIdentity(
         model_id=RECTANGULAR_GEOMETRY_MODEL_ID,
@@ -50,15 +53,44 @@ def rectangular_geometry_request_identity(
     )
 
 
-def _rectangular_geometry_parameters(parameters_json: str) -> tuple[float, float]:
+def _environment_profile_ref(decoded: object) -> ExactExternalAuthorityRef | None:
+    """Optional exact environment-profile ref inside parameters_json (#479).
+
+    The key only exists on requests bound to an ``AcousticEnvironmentProfile``;
+    requests persisted before the authority existed have no key and stay
+    canonical.
+    """
+
+    if not isinstance(decoded, dict):
+        raise ValueError('prediction parameters_json must match the rectangular model contract')
+    raw = decoded.get('environment_profile')
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError('prediction environment_profile must be an exact authority ref')
+    try:
+        return ExactExternalAuthorityRef.model_validate(raw)
+    except Exception as exc:
+        raise ValueError(
+            'prediction environment_profile must be an exact authority ref'
+        ) from exc
+
+
+def _rectangular_geometry_parameters(
+    parameters_json: str,
+) -> tuple[float, float, ExactExternalAuthorityRef | None]:
     """Parse persisted parameters through the pinned rectangular model contract."""
 
     try:
         decoded = json.loads(parameters_json)
     except json.JSONDecodeError as exc:
         raise ValueError('prediction parameters_json must contain JSON') from exc
-    if not isinstance(decoded, dict) or set(decoded) != {'max_mode_hz', 'sound_speed_m_s'}:
+    if not isinstance(decoded, dict) or not {'max_mode_hz', 'sound_speed_m_s'} <= set(decoded):
         raise ValueError('prediction parameters_json must match the rectangular model contract')
+    unknown = set(decoded) - {'max_mode_hz', 'sound_speed_m_s', 'environment_profile'}
+    if unknown:
+        raise ValueError('prediction parameters_json must match the rectangular model contract')
+    environment_profile = _environment_profile_ref(decoded)
     raw_values = (decoded['max_mode_hz'], decoded['sound_speed_m_s'])
     if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in raw_values):
         raise ValueError('prediction parameters_json must match the rectangular model contract')
@@ -67,7 +99,18 @@ def _rectangular_geometry_parameters(parameters_json: str) -> tuple[float, float
         raise ValueError('prediction parameters_json must match the rectangular model contract')
     if max_mode_hz <= 0.0 or sound_speed_m_s <= 0.0:
         raise ValueError('prediction parameters_json must match the rectangular model contract')
-    return max_mode_hz, sound_speed_m_s
+    return max_mode_hz, sound_speed_m_s, environment_profile
+
+
+def rectangular_geometry_environment_profile_ref(
+    parameters_json: str,
+) -> ExactExternalAuthorityRef | None:
+    """Exact ``AcousticEnvironmentProfile`` ref a persisted run was bound to."""
+
+    _max_mode_hz, _sound_speed_m_s, environment_profile = (
+        _rectangular_geometry_parameters(parameters_json)
+    )
+    return environment_profile
 
 
 def _request_receiver_entity_id(input_snapshot_json: str) -> str:
@@ -95,7 +138,9 @@ def _replay_rectangular_geometry_request(
     request-compilation authority used by live prediction requests.
     """
 
-    max_mode_hz, sound_speed_m_s = _rectangular_geometry_parameters(parameters_json)
+    max_mode_hz, sound_speed_m_s, environment_profile = (
+        _rectangular_geometry_parameters(parameters_json)
+    )
     receiver_entity_id = _request_receiver_entity_id(input_snapshot_json)
     try:
         return rectangular_geometry_request_identity(
@@ -103,6 +148,7 @@ def _replay_rectangular_geometry_request(
             receiver_entity_id,
             max_mode_hz=max_mode_hz,
             sound_speed_m_s=sound_speed_m_s,
+            environment_profile=environment_profile,
         )
     except KeyError as exc:
         raise ValueError('prediction input receiver is not part of the source revision') from exc
@@ -178,7 +224,9 @@ def _replay_rectangular_geometry_run(
     canonical output identity can be compared against a stored record.
     """
 
-    max_mode_hz, sound_speed_m_s = _rectangular_geometry_parameters(parameters_json)
+    max_mode_hz, sound_speed_m_s, environment_profile = (
+        _rectangular_geometry_parameters(parameters_json)
+    )
     receiver_entity_id = _request_receiver_entity_id(input_snapshot_json)
     try:
         return analyze_native_rectangular_geometry(
@@ -187,6 +235,7 @@ def _replay_rectangular_geometry_run(
             max_mode_hz=max_mode_hz,
             sound_speed_m_s=sound_speed_m_s,
             constraint_workspace_hash=constraint_workspace_hash,
+            environment_profile=environment_profile,
         )
     except KeyError as exc:
         raise ValueError('prediction input receiver is not part of the source revision') from exc
