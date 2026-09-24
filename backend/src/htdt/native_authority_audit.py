@@ -1421,6 +1421,297 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'OPERATIONAL_METADATA',
         'append-only lifecycle event log — operational bookkeeping',
     ),
+    # ---- operational bookkeeping -------------------------------------
+    'cad_measurement_runner_events': (
+        'OPERATIONAL_METADATA',
+        'measurement runner event log — operational bookkeeping',
+    ),
+    'cad_measurement_runner_plans': (
+        'OPERATIONAL_METADATA',
+        'measurement runner plan bookkeeping — derived operational state',
+    ),
+    'cad_measurement_runner_runs': (
+        'OPERATIONAL_METADATA',
+        'measurement runner run bookkeeping — derived operational state',
+    ),
+    'cad_dependency_resolution_events': (
+        'OPERATIONAL_METADATA',
+        'append-only dependency resolution log — operational bookkeeping',
+    ),
+    'cad_reconciliation_decisions': (
+        'OPERATIONAL_METADATA',
+        'append-only reconciliation decision log — operational bookkeeping',
+    ),
+    'cad_project_notes': (
+        'OPERATIONAL_METADATA',
+        'operator-entered free-text notes — no authority claims',
+    ),
+    'capture_inbox_items': (
+        'OPERATIONAL_METADATA',
+        'capture inbox triage/disposition bookkeeping — operational '
+        'intake state, not canonical authority',
+    ),
+    'capture_inbox_promotions': (
+        'OPERATIONAL_METADATA',
+        'capture inbox promotion log — operational bookkeeping',
+    ),
+    'capture_inbox_registrations': (
+        'OPERATIONAL_METADATA',
+        'capture inbox registration bookkeeping — operational intake '
+        'alignment record',
+    ),
+    'capture_inbox_supersessions': (
+        'OPERATIONAL_METADATA',
+        'capture inbox supersession bookkeeping — operational intake '
+        'replacement record',
+    ),
+    'scene_revision_labels': (
+        'OPERATIONAL_METADATA',
+        'editor-provided revision labels — display metadata, not '
+        'authority',
+    ),
+    # ---- payload authority, replay pending ----------------------------
+    'cad_acoustic_treatment_comparisons': (
+        'STRUCTURAL_ONLY',
+        'acoustic treatment comparison authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_comparisons': (
+        'STRUCTURAL_ONLY',
+        'ambient comparison authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_conditions': (
+        'STRUCTURAL_ONLY',
+        'ambient condition authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_criteria': (
+        'STRUCTURAL_ONLY',
+        'ambient criteria authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_evaluations': (
+        'STRUCTURAL_ONLY',
+        'ambient evaluation authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_profiles': (
+        'STRUCTURAL_ONLY',
+        'ambient profile authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_analysis_studies': (
+        'STRUCTURAL_ONLY',
+        'analysis study authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_applied_settings': (
+        'STRUCTURAL_ONLY',
+        'applied-settings authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_av_latency_measurements': (
+        'STRUCTURAL_ONLY',
+        'AV latency measurement authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_av_sync_conditions': (
+        'STRUCTURAL_ONLY',
+        'AV sync condition authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_cable_runs': (
+        'STRUCTURAL_ONLY',
+        'cable run authority; canonical replay path pending — strongest '
+        'verification is schema + payload parse',
+    ),
+    'cad_commissioning_plans': (
+        'STRUCTURAL_ONLY',
+        'commissioning plan authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_commissioning_runs': (
+        'STRUCTURAL_ONLY',
+        'commissioning run authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_cost_evaluations': (
+        'STRUCTURAL_ONLY',
+        'cost evaluation authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_cost_records': (
+        'STRUCTURAL_ONLY',
+        'cost record authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_design_briefs': (
+        'STRUCTURAL_ONLY',
+        'design brief authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_direct_view_evaluations': (
+        'STRUCTURAL_ONLY',
+        'direct-view evaluation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_direct_view_specifications': (
+        'STRUCTURAL_ONLY',
+        'direct-view specification authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_evidence_observations': (
+        'STRUCTURAL_ONLY',
+        'evidence observation authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_evidence_subjects': (
+        'STRUCTURAL_ONLY',
+        'evidence subject authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_external_dependencies': (
+        'STRUCTURAL_ONLY',
+        'external dependency authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_field_evidence': (
+        'STRUCTURAL_ONLY',
+        'field evidence authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_field_evidence_targets': (
+        'STRUCTURAL_ONLY',
+        'field evidence target authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_gain_structure_evaluations': (
+        'STRUCTURAL_ONLY',
+        'gain-structure evaluation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_gain_structure_scenarios': (
+        'STRUCTURAL_ONLY',
+        'gain-structure scenario authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_installation_datums': (
+        'STRUCTURAL_ONLY',
+        'installation datum authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_installed_definition_bindings': (
+        'STRUCTURAL_ONLY',
+        'installed definition binding authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_installed_device_observations': (
+        'STRUCTURAL_ONLY',
+        'installed device observation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_installed_equipment_instances': (
+        'STRUCTURAL_ONLY',
+        'installed equipment instance authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_installed_equipment_replacements': (
+        'STRUCTURAL_ONLY',
+        'installed equipment replacement authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_ir_analysis_results': (
+        'STRUCTURAL_ONLY',
+        'IR analysis result authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_ir_analysis_specs': (
+        'STRUCTURAL_ONLY',
+        'IR analysis spec authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_layout_profiles': (
+        'STRUCTURAL_ONLY',
+        'layout profile authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_line_level_stages': (
+        'STRUCTURAL_ONLY',
+        'line-level stage authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_materialized_pattern_points': (
+        'STRUCTURAL_ONLY',
+        'materialized pattern point authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_measurement_target_patterns': (
+        'STRUCTURAL_ONLY',
+        'measurement target pattern authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_multi_seat_results': (
+        'STRUCTURAL_ONLY',
+        'multi-seat result authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_multi_seat_sets': (
+        'STRUCTURAL_ONLY',
+        'multi-seat set authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_plan_target_bindings': (
+        'STRUCTURAL_ONLY',
+        'plan target binding authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_r140_gpu_authorities': (
+        'STRUCTURAL_ONLY',
+        'R140 GPU authority; canonical replay path pending — strongest '
+        'verification is schema + payload parse',
+    ),
+    'cad_room_operating_states': (
+        'STRUCTURAL_ONLY',
+        'room operating state authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_seat_priority_profiles': (
+        'STRUCTURAL_ONLY',
+        'seat priority profile authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_source_response_selections': (
+        'STRUCTURAL_ONLY',
+        'source response selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_source_responses': (
+        'STRUCTURAL_ONLY',
+        'source response payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_target_curve_profiles': (
+        'STRUCTURAL_ONLY',
+        'target curve profile authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_tolerance_profiles': (
+        'STRUCTURAL_ONLY',
+        'tolerance profile authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'capture_connected_space_documents': (
+        'STRUCTURAL_ONLY',
+        'connected space document authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'physical_space_models': (
+        'STRUCTURAL_ONLY',
+        'physical space model authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
 }
 
 
