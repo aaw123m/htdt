@@ -245,6 +245,9 @@ def _route_open_project_intent(
 def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     """GUI startup boundary: failures leave a durable record and a visible reason."""
 
+    # #739: set before the try so failure paths can complete the record
+    # only when this attempt got far enough to create one.
+    launch_record = None
     try:
         app = QApplication([sys.argv[0]])
         app.setApplicationVersion(version_string())
@@ -252,6 +255,110 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if icon_path is not None:
             app.setWindowIcon(QIcon(str(icon_path)))
         apply_dark_theme(app)
+        # #739: Recovery Launch — decide from concrete previous-session
+        # evidence and bounded launch history BEFORE repeating risky
+        # initialization. The launch record is written up front so a
+        # crash in this attempt counts as a failed launch next time.
+        from .startup_recovery import (
+            classify_startup_failure,
+            complete_launch,
+            decide_launch,
+            load_recovery_metadata,
+            record_launch,
+        )
+        from .support_diagnostics import previous_session_unexpected_end
+        from datetime import datetime, timezone
+
+        unclean = previous_session_unexpected_end(args.data_dir)
+        recovery_metadata = load_recovery_metadata(args.data_dir)
+        # The runtime.json marker is only produced by an installed
+        # single-instance forwarder; the launch records are the durable
+        # unclean evidence this build itself guarantees — a previous
+        # record never completed clean means that session died.
+        last_record = (
+            recovery_metadata.records[-1]
+            if recovery_metadata.records
+            else None
+        )
+        last_failure = recovery_metadata.last_failure_class(
+            version_string()
+        )
+        launch_decision = decide_launch(
+            unclean_previous_session=(
+                unclean.unexpected_end
+                or (
+                    last_record is not None
+                    and last_record.clean_exit is not True
+                )
+            ),
+            metadata=recovery_metadata,
+            build_id=version_string(),
+            renderer_failure_detected=(
+                last_failure == 'renderer_initialization'
+            ),
+        )
+        safe_mode_policy = None
+        if launch_decision.mode != 'normal':
+            from PySide6.QtWidgets import QMessageBox
+
+            diagnostics.logger.warning(
+                "recovery launch offered: %s",
+                '; '.join(launch_decision.reasons),
+            )
+            normal_button = QMessageBox.ButtonRole.AcceptRole
+            box = QMessageBox(
+                QMessageBox.Icon.Warning,
+                "HTDT recovered from an unexpected session",
+                "HTDT recovered from an unexpected previous session.\n\n"
+                + "\n".join(
+                    f"- {reason}" for reason in launch_decision.reasons
+                )
+                + (
+                    "\n\nThe previous failure looks data-related — "
+                    "consider Verify data or restoring a backup."
+                    if launch_decision.restore_recommended
+                    else "\n\nThis does not look like project-data "
+                    "corruption; restoring a backup is not the first "
+                    "recovery step."
+                ),
+            )
+            open_normal = box.addButton("Open normally", normal_button)
+            safe_mode = box.addButton(
+                "Open in Safe Mode",
+                QMessageBox.ButtonRole.DestructiveRole,
+            )
+            diagnostics_button = box.addButton(
+                "Open diagnostics",
+                QMessageBox.ButtonRole.ActionRole,
+            )
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is safe_mode:
+                safe_mode_policy = launch_decision.safe_mode_policy
+                diagnostics.logger.info(
+                    "safe mode selected: project authority stays read-only"
+                )
+            elif clicked is diagnostics_button:
+                QMessageBox.information(
+                    None,
+                    "HTDT diagnostics",
+                    f"Diagnostics are stored at:\n{diagnostics.log_path}\n\n"
+                    "Use Support > Package Diagnostics for a support "
+                    "bundle.",
+                )
+                safe_mode_policy = launch_decision.safe_mode_policy
+            else:
+                diagnostics.logger.info("recovery launch: opening normally")
+        launch_record = record_launch(
+            args.data_dir,
+            build_id=version_string(),
+            launch_mode=(
+                'safe_mode'
+                if safe_mode_policy is not None
+                else launch_decision.mode
+            ),
+            started_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
         # #606: run the explicit upgrade lifecycle before any repository
         # opens the store — preflight, mandatory recovery copy, migration,
         # verification and an operational journal entry.
@@ -290,10 +397,16 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         diagnostics.logger.info("root composition: %s", composition)
         # #612: launch intents passed on the command line (e.g. a Windows
         # file-association launch) may name the project to open.
-        initial_intents = [
-            build_launch_intent(path, source='file_association')
-            for path in getattr(args, 'open_paths', None) or ()
-        ]
+        # Safe Mode (#739) does not auto-open them: repeating the same
+        # auto-open is exactly the risky initialization being escaped.
+        initial_intents = (
+            []
+            if safe_mode_policy is not None
+            else [
+                build_launch_intent(path, source='file_association')
+                for path in getattr(args, 'open_paths', None) or ()
+            ]
+        )
         for intent in initial_intents:
             if intent.kind == 'open_project' and intent.document_id:
                 args.document_id = intent.document_id
@@ -360,6 +473,11 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
         exit_code = int(app.exec())
+        # #739: the session reached a clean close — the launch record is
+        # completed so it no longer counts as failed-startup evidence.
+        complete_launch(
+            args.data_dir, launch_record.launch_id, clean=True
+        )
         # #617: a clean close with changed managed data earns a validated
         # rotating generation. Failures are logged, never fatal to exit.
         try:
@@ -372,6 +490,13 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
         return exit_code
     except IncompatibleNewerSchemaError as exc:
+        if launch_record is not None:
+            complete_launch(
+                args.data_dir,
+                launch_record.launch_id,
+                clean=False,
+                failure_class='schema_incompatibility',
+            )
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDT data is newer than this build",
@@ -381,6 +506,13 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         )
         return 1
     except NativeUpgradeError as exc:
+        if launch_record is not None:
+            complete_launch(
+                args.data_dir,
+                launch_record.launch_id,
+                clean=False,
+                failure_class='migration_failure',
+            )
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDT could not update your data",
@@ -390,6 +522,16 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         )
         return 1
     except Exception as exc:
+        if launch_record is not None:
+            try:
+                complete_launch(
+                    args.data_dir,
+                    launch_record.launch_id,
+                    clean=False,
+                    failure_class=classify_startup_failure(exc),
+                )
+            except Exception:
+                pass
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDT did not start",

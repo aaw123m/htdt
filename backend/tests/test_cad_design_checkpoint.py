@@ -156,10 +156,12 @@ def test_restore_creates_new_head_never_rewrites(tmp_path: Path) -> None:
         checkpoint,
         scene_repository=scenes,
         constraint_repository=constraints,
+        checkpoint_repository=repository,
         snapshot=snapshot,
         created_at_utc='2026-09-23T02:00:00+00:00',
     )
-    repository.save_restore(record)
+    # record was persisted inside the same commit boundary
+    assert repository.get_restore(record.restore_id) == record
 
     # the pinned scene state became the new head — nothing was rewritten
     head = scenes.current_head(revision.document_id)
@@ -186,11 +188,14 @@ def test_partial_restore_lists_applied_components(tmp_path: Path) -> None:
         checkpoint,
         scene_repository=scenes,
         constraint_repository=constraints,
+        checkpoint_repository=repository,
         snapshot=snapshot,
         components=('scene_revision',),
         created_at_utc=NOW,
     )
+    assert record.requested_components == ('scene_revision',)
     assert record.applied_components == ('scene_revision',)
+    assert record.not_restorable_components == ()
     assert record.new_scene_revision_id is not None
     assert record.new_constraint_sha256 is None
 
@@ -217,3 +222,162 @@ def test_tampered_checkpoint_hash_is_rejected(tmp_path: Path) -> None:
     payload['title'] = 'tampered'
     with pytest.raises(ValidationError, match='hash mismatch'):
         type(checkpoint)(**payload)
+
+
+def test_missing_snapshot_preflight_leaves_head_untouched(
+    tmp_path: Path,
+) -> None:
+    """#746: scene+constraints requested but snapshot missing -> no write."""
+    scenes, constraints, revision, repository = _repositories(tmp_path)
+    checkpoint = _checkpoint(revision, None)
+    repository.save_checkpoint(checkpoint)
+    head_before = scenes.current_head(revision.document_id).revision_id
+
+    with pytest.raises(ValueError, match='no constraint snapshot'):
+        restore_design_checkpoint(
+            checkpoint,
+            scene_repository=scenes,
+            constraint_repository=constraints,
+            checkpoint_repository=repository,
+            components=('scene_revision', 'constraint_workspace'),
+            created_at_utc=NOW,
+        )
+    assert scenes.current_head(revision.document_id).revision_id == head_before
+    assert repository.list_restores(revision.document_id) == ()
+
+
+def test_wrong_snapshot_hash_preflight_blocks_mutation(tmp_path: Path) -> None:
+    """#746: a mismatched snapshot hash stops restore before any write."""
+    scenes, constraints, revision, repository = _repositories(tmp_path)
+    snapshot = snapshot_constraint_workspace(
+        _constraint_set(revision.document_id), created_at_utc=NOW
+    )
+    repository.save_snapshot(snapshot)
+    checkpoint = _checkpoint(revision, snapshot)
+    repository.save_checkpoint(checkpoint)
+    head_before = scenes.current_head(revision.document_id).revision_id
+
+    wrong = snapshot_constraint_workspace(
+        _constraint_set(revision.document_id),
+        created_at_utc=NOW,
+        snapshot_id='other-snapshot',
+    )
+    with pytest.raises(ValueError, match='snapshot id mismatch'):
+        restore_design_checkpoint(
+            checkpoint,
+            scene_repository=scenes,
+            constraint_repository=constraints,
+            checkpoint_repository=repository,
+            snapshot=wrong,
+            created_at_utc=NOW,
+        )
+    assert scenes.current_head(revision.document_id).revision_id == head_before
+
+
+def test_constraint_failure_rolls_back_scene_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#746: an injected constraint-write failure leaves the head unchanged."""
+    scenes, constraints, revision, repository = _repositories(tmp_path)
+    snapshot = snapshot_constraint_workspace(
+        _constraint_set(revision.document_id), created_at_utc=NOW
+    )
+    repository.save_snapshot(snapshot)
+    checkpoint = _checkpoint(revision, snapshot)
+    repository.save_checkpoint(checkpoint)
+    head_before = scenes.current_head(revision.document_id).revision_id
+
+    def boom(connection, constraint_set, *, updated_at_utc):
+        raise RuntimeError('injected constraint write failure')
+
+    monkeypatch.setattr(constraints, 'save_in_transaction', boom)
+    with pytest.raises(RuntimeError, match='injected'):
+        restore_design_checkpoint(
+            checkpoint,
+            scene_repository=scenes,
+            constraint_repository=constraints,
+            checkpoint_repository=repository,
+            snapshot=snapshot,
+            created_at_utc=NOW,
+        )
+    assert scenes.current_head(revision.document_id).revision_id == head_before
+    assert repository.list_restores(revision.document_id) == ()
+
+
+def test_reference_only_component_is_never_marked_applied(
+    tmp_path: Path,
+) -> None:
+    """#746: components without a canonical adapter are not-restorable."""
+    scenes, constraints, revision, repository = _repositories(tmp_path)
+    snapshot = snapshot_constraint_workspace(
+        _constraint_set(revision.document_id), created_at_utc=NOW
+    )
+    repository.save_snapshot(snapshot)
+    checkpoint = _checkpoint(
+        revision,
+        snapshot,
+        component_refs=(
+            CheckpointAuthorityRef(
+                kind='system_variant', ref_id='var-1', ref_sha256='a' * 64
+            ),
+            CheckpointAuthorityRef(
+                kind='target_curve', ref_id='curve-1', ref_sha256='b' * 64
+            ),
+        ),
+    )
+    repository.save_checkpoint(checkpoint)
+
+    record = restore_design_checkpoint(
+        checkpoint,
+        scene_repository=scenes,
+        constraint_repository=constraints,
+        checkpoint_repository=repository,
+        snapshot=snapshot,
+        created_at_utc=NOW,
+    )
+    assert set(record.applied_components) == {
+        'scene_revision',
+        'constraint_workspace',
+    }
+    assert set(record.not_restorable_components) == {
+        'system_variant',
+        'target_curve',
+    }
+    assert 'system_variant' not in record.applied_components
+    result_kinds = {ref.kind for ref in record.result_refs}
+    assert result_kinds == {'scene_revision', 'constraint_workspace'}
+    assert record.new_constraint_sha256 is not None
+
+
+def test_record_failure_rolls_back_all_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#746: a restore-record write failure cannot orphan the mutation."""
+    scenes, constraints, revision, repository = _repositories(tmp_path)
+    constraint_set = _constraint_set(revision.document_id)
+    constraints.save(constraint_set)
+    snapshot = snapshot_constraint_workspace(
+        constraint_set, created_at_utc=NOW
+    )
+    repository.save_snapshot(snapshot)
+    checkpoint = _checkpoint(revision, snapshot)
+    repository.save_checkpoint(checkpoint)
+    head_before = scenes.current_head(revision.document_id).revision_id
+
+    def boom(connection, restore):
+        raise RuntimeError('injected record write failure')
+
+    monkeypatch.setattr(
+        repository, 'save_restore_in_transaction', boom
+    )
+    with pytest.raises(RuntimeError, match='injected'):
+        restore_design_checkpoint(
+            checkpoint,
+            scene_repository=scenes,
+            constraint_repository=constraints,
+            checkpoint_repository=repository,
+            snapshot=snapshot,
+            created_at_utc=NOW,
+        )
+    assert scenes.current_head(revision.document_id).revision_id == head_before
+    assert repository.list_restores(revision.document_id) == ()
