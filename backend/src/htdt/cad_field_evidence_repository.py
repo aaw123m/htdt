@@ -179,15 +179,71 @@ class CadFieldEvidenceRepository:
                     ),
                 )
 
+    def _check_row(self, row: sqlite3.Row, record: FieldEvidenceRecord) -> None:
+        """Reject a row whose indexed columns disagree with its payload (#831).
+
+        The payload seal already proves internal consistency; this check
+        proves the row the SQL query actually filtered on is the same
+        authority the payload describes.
+        """
+        if (
+            row['evidence_id'] != record.evidence_id
+            or row['document_id'] != record.document_id
+            or row['kind'] != record.kind
+            or row['asset_sha256']
+            != (record.asset.asset_sha256 if record.asset else None)
+            or row['evidence_sha256'] != record.evidence_sha256
+            or row['created_at_utc'] != record.created_at_utc
+        ):
+            raise ValueError(
+                'persisted evidence row disagrees with its payload'
+            )
+
+    def _check_target_index(
+        self, connection: sqlite3.Connection, record: FieldEvidenceRecord
+    ) -> None:
+        """Reject a target index that silently disagrees with the payload (#831).
+
+        ``evidence_for_*`` lookups surface records through
+        ``cad_field_evidence_targets``; a stale, missing or forged index row
+        must never make a record appear (or disappear) for a target its
+        payload does not declare — the index must equal the payload's
+        declared targets exactly.
+        """
+        index_rows = {
+            (row['target_kind'], row['revision_id'], row['entity_id'], row['ref_id'])
+            for row in connection.execute(
+                'SELECT target_kind, revision_id, entity_id, ref_id '
+                'FROM cad_field_evidence_targets WHERE evidence_id=?',
+                (record.evidence_id,),
+            )
+        }
+        declared = {
+            (target.kind, target.revision_id, target.entity_id, target.ref_id)
+            for target in record.targets
+        }
+        if index_rows != declared:
+            raise ValueError(
+                'persisted evidence target index disagrees with its payload'
+            )
+
+    def _load_row(self, row: sqlite3.Row, connection: sqlite3.Connection) -> FieldEvidenceRecord:
+        record = FieldEvidenceRecord.model_validate_json(row['payload_json'])
+        self._check_row(row, record)
+        self._check_target_index(connection, record)
+        return record
+
     def get_evidence(self, evidence_id: str) -> FieldEvidenceRecord | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_field_evidence WHERE evidence_id=?',
+                'SELECT evidence_id, document_id, kind, asset_sha256, '
+                'evidence_sha256, created_at_utc, payload_json '
+                'FROM cad_field_evidence WHERE evidence_id=?',
                 (evidence_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return FieldEvidenceRecord.model_validate_json(row['payload_json'])
+            if row is None:
+                return None
+            return self._load_row(row, connection)
 
     def _load_many(
         self, evidence_ids: list[str]
@@ -198,16 +254,15 @@ class CadFieldEvidenceRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 f"""
-                SELECT payload_json FROM cad_field_evidence
+                SELECT evidence_id, document_id, kind, asset_sha256,
+                       evidence_sha256, created_at_utc, payload_json
+                FROM cad_field_evidence
                 WHERE evidence_id IN ({placeholders})
                 ORDER BY created_at_utc, evidence_id
                 """,
                 tuple(evidence_ids),
             ).fetchall()
-        return tuple(
-            FieldEvidenceRecord.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+            return tuple(self._load_row(row, connection) for row in rows)
 
     def list_evidence(
         self,
@@ -216,17 +271,15 @@ class CadFieldEvidenceRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT evidence_id, document_id, kind, asset_sha256,
+                       evidence_sha256, created_at_utc, payload_json
                 FROM cad_field_evidence
                 WHERE document_id=?
                 ORDER BY created_at_utc, evidence_id
                 """,
                 (document_id,),
             ).fetchall()
-        return tuple(
-            FieldEvidenceRecord.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+            return tuple(self._load_row(row, connection) for row in rows)
 
     def _resolve_target(
         self,

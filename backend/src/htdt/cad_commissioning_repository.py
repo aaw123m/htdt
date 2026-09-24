@@ -17,6 +17,7 @@ from typing import Mapping
 from .cad_authority_resolver import (
     ExactAuthorityResolver,
     KindResolver,
+    ResolvedAuthority,
 )
 from .cad_commissioning import (
     CommissioningCheck,
@@ -47,14 +48,29 @@ class CadCommissioningRepository:
         scene_repository: SceneRepository,
         *,
         system_variant_repository: CadSystemVariantRepository | None = None,
+        design_decision_repository=None,
         kind_resolvers: Mapping[str, KindResolver] | None = None,
     ) -> None:
         self.scene_repository = scene_repository
         self.system_variant_repository = system_variant_repository
+        resolvers: dict[str, KindResolver] = dict(kind_resolvers or {})
+        if design_decision_repository is not None:
+            def _resolve_design_decision(ref_id: str):
+                decision = design_decision_repository.get_decision(ref_id)
+                if decision is None:
+                    return None
+                return ResolvedAuthority(
+                    kind='design_decision',
+                    ref_id=ref_id,
+                    document_id=decision.document_id,
+                    semantic_sha256=decision.decision_sha256,
+                )
+
+            resolvers.setdefault('design_decision', _resolve_design_decision)
         self.resolver = ExactAuthorityResolver(
             scene_repository,
             system_variant_repository=system_variant_repository,
-            kind_resolvers=kind_resolvers,
+            kind_resolvers=resolvers,
         )
         self.path = scene_repository.path
         self._initialize()
@@ -355,6 +371,19 @@ class CadCommissioningRepository:
                     observation.evidence_ref,
                     document_id=run.document_id,
                 )
+        for deviation in run.accepted_deviations:
+            if deviation.decision_ref is not None:
+                # The acceptance authority must resolve to the exact pinned
+                # design-decision record — a self-hashed or unrelated
+                # authority can never stand in for it (#872).
+                self.resolver.resolve(
+                    deviation.decision_ref,
+                    document_id=run.document_id,
+                )
+        # Replay also enforces the run-level input contract (#872): unique
+        # observation ids, one observation per check, unique deviation ids,
+        # one deviation per check, and deviation timing that can never
+        # predate the evidence it accepts.
         replayed = build_commissioning_run(
             plan=plan,
             tolerance_profile=profile,

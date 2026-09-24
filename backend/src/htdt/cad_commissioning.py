@@ -25,6 +25,7 @@ Contract properties:
 
 from __future__ import annotations
 
+from datetime import datetime
 from hashlib import sha256
 import json
 from typing import Any, Literal
@@ -42,6 +43,16 @@ COMMISSIONING_SCHEMA_VERSION = 1
 COMMISSIONING_AUTHORITY_VERSION = 'commissioning-verification-1'
 
 CommissioningStatus = Literal['pass', 'fail', 'unknown', 'not_applicable']
+
+
+def _require_iso8601(value: str, label: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f'{label} must be ISO-8601') from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f'{label} must be timezone-aware')
+    return parsed
 
 #: What a check compares tolerance against.
 CheckSubjectKind = Literal[
@@ -424,6 +435,10 @@ class CommissioningObservation(BaseModel):
             raise ValueError(
                 'numeric observations require an explicit unit'
             )
+        if self.observed_at_utc is not None:
+            _require_iso8601(
+                self.observed_at_utc, 'observation observed_at_utc'
+            )
         return self
 
 
@@ -457,7 +472,22 @@ class AcceptedDeviation(BaseModel):
     rationale: str = Field(min_length=1)
     approved_by: str = Field(min_length=1)
     decided_at_utc: str = Field(min_length=1)
+    #: Optional pin to the exact design-decision authority (#654) that
+    #: carries this disposition — always kind ``design_decision``; a bare
+    #: resolvable id of an unrelated kind is not an acceptance authority.
     decision_ref: AuthorityRef | None = None
+
+    @model_validator(mode='after')
+    def valid_deviation(self) -> 'AcceptedDeviation':
+        _require_iso8601(self.decided_at_utc, 'deviation decided_at_utc')
+        if (
+            self.decision_ref is not None
+            and self.decision_ref.kind != 'design_decision'
+        ):
+            raise ValueError(
+                'decision_ref must pin a design_decision authority'
+            )
+        return self
 
 
 def evaluate_commissioning_check(
@@ -610,11 +640,32 @@ class CommissioningRun(BaseModel):
 
     @model_validator(mode='after')
     def valid_run(self) -> 'CommissioningRun':
+        created_at = _require_iso8601(
+            self.created_at_utc, 'run created_at_utc'
+        )
         result_ids = [r.check_id for r in self.results]
         if len(result_ids) != len(set(result_ids)):
             raise ValueError('run results must be unique per check')
         result_check_ids = set(result_ids)
         status_by_check = {r.check_id: r.status for r in self.results}
+        observation_ids = [o.observation_id for o in self.observations]
+        if len(observation_ids) != len(set(observation_ids)):
+            raise ValueError('run observations must have unique ids')
+        # One observation per check (#872): two competing observations of the
+        # same check must never be silently order-dependent — the order in
+        # the persisted tuple can never pick a winner.
+        observation_check_ids = [o.check_id for o in self.observations]
+        if len(observation_check_ids) != len(set(observation_check_ids)):
+            raise ValueError('run observations must be unique per check')
+        observed_at_by_check = {
+            o.check_id: o.observed_at_utc for o in self.observations
+        }
+        deviation_ids = [d.deviation_id for d in self.accepted_deviations]
+        if len(deviation_ids) != len(set(deviation_ids)):
+            raise ValueError('run deviations must have unique ids')
+        deviation_check_ids = [d.check_id for d in self.accepted_deviations]
+        if len(deviation_check_ids) != len(set(deviation_check_ids)):
+            raise ValueError('at most one deviation per check')
         for deviation in self.accepted_deviations:
             status = status_by_check.get(deviation.check_id)
             if status is None:
@@ -624,6 +675,22 @@ class CommissioningRun(BaseModel):
             if status == 'pass':
                 raise ValueError(
                     'a passing check cannot carry an accepted deviation'
+                )
+            # An acceptance decision can never predate the evidence it
+            # claims to accept, nor postdate the run it is sealed into.
+            decided_at = datetime.fromisoformat(deviation.decided_at_utc)
+            observed_at_text = observed_at_by_check.get(deviation.check_id)
+            if (
+                observed_at_text is not None
+                and decided_at < datetime.fromisoformat(observed_at_text)
+            ):
+                raise ValueError(
+                    'accepted deviation decided before the observation it '
+                    'accepts'
+                )
+            if decided_at > created_at:
+                raise ValueError(
+                    'accepted deviation decided after the run was created'
                 )
         for observation in self.observations:
             if observation.check_id not in result_check_ids:
@@ -693,12 +760,20 @@ def build_commissioning_run(
             'tolerance profile hash differs from the plan pin'
         )
     check_ids = {check.check_id for check in plan.checks}
+    seen_check_ids: set[str] = set()
     for observation in observations:
         if observation.check_id not in check_ids:
             raise ValueError(
                 f'observation {observation.observation_id} targets an '
                 'unknown check'
             )
+        if observation.check_id in seen_check_ids:
+            raise ValueError(
+                f'check {observation.check_id} has two observations — '
+                'competing evidence must be resolved before the run, not '
+                'silently ordered'
+            )
+        seen_check_ids.add(observation.check_id)
     observations_by_check: dict[str, CommissioningObservation] = {}
     for observation in observations:
         observations_by_check[observation.check_id] = observation
