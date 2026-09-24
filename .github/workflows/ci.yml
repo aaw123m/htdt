@@ -38,7 +38,7 @@ jobs:
         run: python -m pip install -e ".\backend[dev]"
 
       - name: Test backend
-        run: python -m pytest backend\tests
+        run: python -m pytest backend\tests -n auto --dist loadscope
 
       - name: Preflight R100B acoustic bakeoff authority
         run: python -m htdt.acoustic_bakeoff preflight --manifest benchmarks\acoustics\r100a_manifest.json --candidates benchmarks\acoustics\r100b_candidates.json --adoption-profile benchmarks\acoustics\r100b_wave_adoption_profile.json
