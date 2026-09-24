@@ -52,6 +52,10 @@ from .cad_calibration import (
     CadVerificationMeasurementPlan,
 )
 from .cad_calibration_repository import CadCalibrationRepository
+from .cad_cable_run import CableRun
+from .cad_cable_run_repository import CadCableRunRepository
+from .cad_installation_datum import InstallationDatum
+from .cad_installation_datum_repository import CadInstallationDatumRepository
 from .cad_measurement_quality import dataset_sha256, measurement_sha256
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
@@ -93,6 +97,16 @@ class InstallationTreatmentInstanceRef(BaseModel):
     placement_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
 
 
+class InstallationCableRunRef(BaseModel):
+    """Exact pin of one persisted cable-run version for a report."""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    run_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+
+
 # Installation evidence namespaces and the store each resolves against. The
 # ``authority`` field of an InstallationEvidenceRef is a type discriminator —
 # it names which authoritative store must produce the referenced evidence —
@@ -120,6 +134,8 @@ SUPPORTED_INSTALLATION_EVIDENCE_AUTHORITIES: tuple[str, ...] = (
     'measurement',
     'measurement_dataset',
     'measurement_quality_report',
+    'installation_datum',
+    'cable_run',
 )
 
 # Builder-derived refs: proposal evidence is re-read from the resolved
@@ -147,6 +163,8 @@ class InstallationReportService:
         calibration_repository: CadCalibrationRepository | None = None,
         measurement_repository: CadMeasurementRepository | None = None,
         measurement_quality_repository: CadMeasurementQualityRepository | None = None,
+        datum_repository: CadInstallationDatumRepository | None = None,
+        cable_run_repository: CadCableRunRepository | None = None,
     ) -> None:
         repositories = (
             scene_repository,
@@ -157,6 +175,8 @@ class InstallationReportService:
             calibration_repository,
             measurement_repository,
             measurement_quality_repository,
+            datum_repository,
+            cable_run_repository,
         )
         paths = {str(repository.path) for repository in repositories if repository is not None}
         if len(paths) != 1:
@@ -171,6 +191,8 @@ class InstallationReportService:
         self.calibration_repository = calibration_repository
         self.measurement_repository = measurement_repository
         self.measurement_quality_repository = measurement_quality_repository
+        self.datum_repository = datum_repository
+        self.cable_run_repository = cable_run_repository
 
     # -- repository fallbacks ------------------------------------------------
 
@@ -658,6 +680,132 @@ class InstallationReportService:
         # chain is read through the repository's validated single-head replay.
         events = repository.list_lifecycle_events(plan.plan_id)
         return plan, export, verification, events
+
+    # -- installation datum / cable run resolution ----------------------------
+
+    def _resolve_datum(
+        self,
+        installation_datum_id: str | None,
+        installation_datum_version: str | None,
+        *,
+        revision: SceneRevision,
+    ) -> InstallationDatum | None:
+        """Resolve the datum bound to the exact installation target.
+
+        An explicit (id, version) pin loads that exact record; ``None``
+        discovers the latest datum version recorded for the document. Every
+        resolved datum must pin the resolved SceneRevision — a datum recorded
+        against different room geometry fails closed.
+        """
+
+        if self.datum_repository is None:
+            if installation_datum_id is not None:
+                raise InstallationAuthorityError(
+                    'installation datum pins require a '
+                    'CadInstallationDatumRepository authority'
+                )
+            return None
+        repository = self.datum_repository
+
+        datum: InstallationDatum | None = None
+        if installation_datum_id is not None:
+            if installation_datum_version is None:
+                raise InstallationAuthorityError(
+                    'installation datum pins require the exact version'
+                )
+            datum = repository.get_datum(
+                installation_datum_id, installation_datum_version
+            )
+            if datum is None:
+                raise InstallationAuthorityError(
+                    f'installation datum does not resolve: '
+                    f'{installation_datum_id}/{installation_datum_version}'
+                )
+        else:
+            versions = tuple(
+                item
+                for item in repository.list_datums(revision.document_id)
+            )
+            if not versions:
+                return None
+            latest: dict[str, InstallationDatum] = {}
+            for item in versions:
+                latest[item.datum_id] = item
+            datum = sorted(
+                latest.values(), key=lambda item: (item.datum_id, item.version)
+            )[-1]
+
+        if datum.document_id != revision.document_id:
+            raise InstallationAuthorityError(
+                'installation datum belongs to a different document'
+            )
+        if datum.scene_revision_id != revision.revision_id:
+            raise InstallationAuthorityError(
+                'installation datum is not bound to the exact installation '
+                'SceneRevision'
+            )
+        return datum
+
+    def _resolve_cable_runs(
+        self,
+        cable_run_refs: Sequence[InstallationCableRunRef] | None,
+        *,
+        revision: SceneRevision,
+    ) -> tuple[CableRun, ...]:
+        """Resolve the cable runs bound to the exact installation target.
+
+        ``None`` discovers the latest recorded version of each run on the
+        document (matching treatment discovery); an explicit list pins exact
+        (run_id, version) rows. Every resolved run must pin the resolved
+        SceneRevision.
+        """
+
+        if self.cable_run_repository is None:
+            if cable_run_refs:
+                raise InstallationAuthorityError(
+                    'installation cable-run pins require a '
+                    'CadCableRunRepository authority'
+                )
+            return ()
+        repository = self.cable_run_repository
+
+        runs: list[CableRun] = []
+        if cable_run_refs is None:
+            latest: dict[str, CableRun] = {}
+            for item in repository.list_runs(revision.document_id):
+                latest[item.run_id] = item
+            runs = sorted(
+                latest.values(), key=lambda item: (item.run_id, item.version)
+            )
+        else:
+            for ref in cable_run_refs:
+                run = repository.get_run(ref.run_id, ref.version)
+                if run is None:
+                    raise InstallationAuthorityError(
+                        f'installation cable run does not resolve: '
+                        f'{ref.run_id}/{ref.version}'
+                    )
+                if (
+                    ref.run_sha256 is not None
+                    and ref.run_sha256 != run.semantic_sha256
+                ):
+                    raise InstallationAuthorityError(
+                        'installation cable run semantic hash mismatch: '
+                        f'{ref.run_id}/{ref.version}'
+                    )
+                runs.append(run)
+
+        for run in runs:
+            if run.document_id != revision.document_id:
+                raise InstallationAuthorityError(
+                    'installation cable run belongs to a different document'
+                )
+            if run.scene_revision_id != revision.revision_id:
+                raise InstallationAuthorityError(
+                    'installation cable run is not bound to the exact '
+                    'installation SceneRevision'
+                )
+        return tuple(runs)
 
     # -- typed evidence resolution --------------------------------------------
 
@@ -1150,6 +1298,52 @@ class InstallationReportService:
             )
             return
 
+        if authority == 'installation_datum':
+            repository = self.datum_repository
+            if repository is None:
+                raise InstallationAuthorityError(
+                    'installation evidence installation_datum requires a '
+                    'CadInstallationDatumRepository authority'
+                )
+            if ref.evidence_type is None:
+                raise InstallationAuthorityError(
+                    'installation evidence installation_datum requires the '
+                    'exact version as evidence_type'
+                )
+            resolved = repository.get_datum(ref.evidence_id, ref.evidence_type)
+            if resolved is None or resolved.document_id != revision.document_id:
+                raise InstallationAuthorityError(
+                    f'installation evidence InstallationDatum does not '
+                    f'resolve: {ref.evidence_id}'
+                )
+            self._require_ref_hash(
+                ref, resolved.semantic_sha256, 'InstallationDatum'
+            )
+            return
+
+        if authority == 'cable_run':
+            repository = self.cable_run_repository
+            if repository is None:
+                raise InstallationAuthorityError(
+                    'installation evidence cable_run requires a '
+                    'CadCableRunRepository authority'
+                )
+            if ref.evidence_type is None:
+                raise InstallationAuthorityError(
+                    'installation evidence cable_run requires the exact '
+                    'version as evidence_type'
+                )
+            resolved = repository.get_run(ref.evidence_id, ref.evidence_type)
+            if resolved is None or resolved.document_id != revision.document_id:
+                raise InstallationAuthorityError(
+                    f'installation evidence CableRun does not resolve: '
+                    f'{ref.evidence_id}'
+                )
+            self._require_ref_hash(
+                ref, resolved.semantic_sha256, 'CableRun'
+            )
+            return
+
         raise InstallationAuthorityError(
             'installation evidence authority is not a resolvable stored '
             f'authority: {authority!r}'
@@ -1169,6 +1363,10 @@ class InstallationReportService:
         calibration_plan_id: str | None = None,
         calibration_export_id: str | None = None,
         calibration_verification_plan_id: str | None = None,
+        installation_datum_id: str | None = None,
+        installation_datum_version: str | None = None,
+        cable_run_refs: Sequence[InstallationCableRunRef] | None = None,
+        signal_path_edge_ids: Sequence[str] = (),
     ) -> InstallationOutput:
         """Compile an InstallationOutput purely from replay-validated authority.
 
@@ -1235,6 +1433,15 @@ class InstallationReportService:
             revision=revision,
             variant=variant,
         )
+        datum = self._resolve_datum(
+            installation_datum_id,
+            installation_datum_version,
+            revision=revision,
+        )
+        runs = self._resolve_cable_runs(
+            cable_run_refs,
+            revision=revision,
+        )
 
         evidence_items = tuple(evidence)
         for ref in evidence_items:
@@ -1255,6 +1462,9 @@ class InstallationReportService:
             calibration_export_snapshot=export,
             verification_measurement_plan=verification,
             calibration_lifecycle_events=lifecycle_events,
+            installation_datum=datum,
+            cable_runs=runs,
+            signal_path_edge_ids=signal_path_edge_ids,
         )
 
     def latest_calibration_authority_ids(
@@ -1348,6 +1558,39 @@ class InstallationReportService:
                 for item in output.treatment.instances
             )
 
+        installation_datum_id = None
+        installation_datum_version = None
+        if output.datum is not None and output.datum.status == 'AVAILABLE':
+            installation_datum_id = output.datum.datum_id
+            installation_datum_version = output.datum.datum_version
+            if installation_datum_id is None or installation_datum_version is None:
+                raise InstallationAuthorityError(
+                    'AVAILABLE datum summary does not record its '
+                    'InstallationDatum authority'
+                )
+
+        cable_run_refs: tuple[InstallationCableRunRef, ...] | None = None
+        if output.cable_runs is not None and output.cable_runs.runs:
+            cable_run_refs = tuple(
+                InstallationCableRunRef(
+                    run_id=item.run_id,
+                    version=item.version,
+                    run_sha256=item.run_sha256,
+                )
+                for item in output.cable_runs.runs
+            )
+        # Edge presence has no persisted store to re-verify against; replay
+        # treats the edges recorded as resolvable at build time as present so
+        # the wiring summary reproduces deterministically.
+        signal_path_edge_ids = ()
+        if output.cable_runs is not None:
+            signal_path_edge_ids = tuple(
+                item.signal_path_edge_id
+                for item in output.cable_runs.runs
+                if item.signal_path_edge_id is not None
+                and item.freshness_status == 'current'
+            )
+
         calibration_plan_id = None
         calibration_export_id = None
         calibration_verification_plan_id = None
@@ -1403,6 +1646,10 @@ class InstallationReportService:
             calibration_plan_id=calibration_plan_id,
             calibration_export_id=calibration_export_id,
             calibration_verification_plan_id=calibration_verification_plan_id,
+            installation_datum_id=installation_datum_id,
+            installation_datum_version=installation_datum_version,
+            cable_run_refs=cable_run_refs,
+            signal_path_edge_ids=signal_path_edge_ids,
         )
         if rebuilt != output:
             raise InstallationAuthorityError(

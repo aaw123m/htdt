@@ -981,7 +981,7 @@ def test_full_report_builds_from_replay_validated_authorities(tmp_path: Path) ->
         calibration_verification_plan_id=verification.verification_plan_id,
     )
 
-    assert output.schema_version == 4
+    assert output.schema_version == 5
     assert output.authority.system_variant_id == variant.variant_id
     assert output.standards is not None and output.standards.status == 'AVAILABLE'
     assert output.treatment is not None and output.treatment.status == 'AVAILABLE'

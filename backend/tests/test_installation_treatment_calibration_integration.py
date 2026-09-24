@@ -520,8 +520,8 @@ def test_treatment_proposed_installed_quantity_and_capability_summary(tmp_path: 
         treatment_surface_evaluations=evaluations,
     )
 
-    assert output.schema_version == 4
-    assert output.authority_version == 'installation-output-4'
+    assert output.schema_version == 5
+    assert output.authority_version == 'installation-output-5'
     assert output.treatment is not None
     assert output.treatment.status == 'AVAILABLE'
     by_id = {item.instance_id: item for item in output.treatment.instances}

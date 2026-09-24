@@ -697,7 +697,7 @@ def test_installation_output_reports_geometry_basis(tmp_path: Path) -> None:
     assert rows['seat-main'].body_geometry_kind == 'box'
     assert rows['seat-main'].collision_geometry_authority == 'bounding_envelope'
     assert rows['point-mlp'].body_geometry_kind is None
-    assert output.authority_version == 'installation-output-4'
+    assert output.authority_version == 'installation-output-5'
 
     csv_text = render_installation_csv(output)
     assert 'body_geometry_kind' in csv_text
