@@ -56,7 +56,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Locked dependency install failed with exit code $LASTEXITCODE" }
           & $py -m pip install --disable-pip-version-check -e ".\backend[dev]"
           if ($LASTEXITCODE -ne 0) { throw "Test harness install failed with exit code $LASTEXITCODE" }
-          & $py -m pytest backend\tests
+          & $py -m pytest backend\tests -n auto --dist loadscope
           if ($LASTEXITCODE -ne 0) { throw "Backend tests failed under the shipped closure (exit code $LASTEXITCODE)" }
           # The dev harness overlay must never move a locked package.
           & $py scripts\check_dependency_lock.py --verify-installed
