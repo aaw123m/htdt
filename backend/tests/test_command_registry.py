@@ -185,6 +185,7 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'room.view.fit_all',
         'equipment.export_capture_catalog',
         'installation.export_handoff',
+        'analysis.export_bundle',
         'room.measure',
         'room.view.history',
         # Display-only viewport commands (#545/#629/#618) never touch data.

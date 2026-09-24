@@ -122,13 +122,18 @@ class StudySpecItem(BaseModel):
 
 
 class StudyAuthorityRef(BaseModel):
-    """Exact reference to one bound source authority."""
+    """Exact reference to one bound source authority.
+
+    Every bound ref is hash-bearing: ``ref_sha256`` pins the authority's
+    semantic hash so a study bound to an authority that later changes is
+    explicitly ``stale``, never silently re-pointed.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     kind: StudyAuthorityKind
     ref_id: str = Field(min_length=1)
-    ref_sha256: str | None = Field(default=None, min_length=8)
+    ref_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     label: str | None = Field(default=None, min_length=1)
 
 
@@ -178,7 +183,13 @@ class AnalysisStudy(BaseModel):
     notes: tuple[StudyNote, ...] = ()
     tags: tuple[str, ...] = ()
     scene_revision_id: str | None = Field(default=None, min_length=1)
+    scene_content_hash: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     system_variant_id: str | None = Field(default=None, min_length=1)
+    system_variant_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     supersedes_study_id: str | None = Field(default=None, min_length=1)
     duplicated_from_study_id: str | None = Field(default=None, min_length=1)
     created_at_utc: str = Field(min_length=1)
@@ -197,6 +208,20 @@ class AnalysisStudy(BaseModel):
             raise ValueError('study note ids must be unique')
         if len(self.tags) != len(set(self.tags)):
             raise ValueError('study tags must be unique')
+        if (self.scene_revision_id is None) != (
+            self.scene_content_hash is None
+        ):
+            raise ValueError(
+                'scene_revision_id and scene_content_hash must both be '
+                'set or both absent'
+            )
+        if (self.system_variant_id is None) != (
+            self.system_variant_sha256 is None
+        ):
+            raise ValueError(
+                'system_variant_id and system_variant_sha256 must both '
+                'be set or both absent'
+            )
         if self.study_sha256 != _hash(self.semantic_payload()):
             raise ValueError('AnalysisStudy hash mismatch')
         return self
@@ -219,7 +244,9 @@ class AnalysisStudy(BaseModel):
             'notes': [note.model_dump(mode='json') for note in self.notes],
             'tags': list(self.tags),
             'scene_revision_id': self.scene_revision_id,
+            'scene_content_hash': self.scene_content_hash,
             'system_variant_id': self.system_variant_id,
+            'system_variant_sha256': self.system_variant_sha256,
             'supersedes_study_id': self.supersedes_study_id,
             'duplicated_from_study_id': self.duplicated_from_study_id,
             'created_at_utc': self.created_at_utc,
@@ -265,7 +292,9 @@ def build_analysis_study(
     notes: tuple[StudyNote, ...] = (),
     tags: tuple[str, ...] = (),
     scene_revision_id: str | None = None,
+    scene_content_hash: str | None = None,
     system_variant_id: str | None = None,
+    system_variant_sha256: str | None = None,
     supersedes_study_id: str | None = None,
     duplicated_from_study_id: str | None = None,
     created_at_utc: str,
@@ -282,7 +311,9 @@ def build_analysis_study(
         'notes': tuple(notes),
         'tags': tuple(tags),
         'scene_revision_id': scene_revision_id,
+        'scene_content_hash': scene_content_hash,
         'system_variant_id': system_variant_id,
+        'system_variant_sha256': system_variant_sha256,
         'supersedes_study_id': supersedes_study_id,
         'duplicated_from_study_id': duplicated_from_study_id,
         'created_at_utc': created_at_utc,
@@ -320,7 +351,9 @@ def duplicate_analysis_study(
     notes: tuple[StudyNote, ...] | None = None,
     tags: tuple[str, ...] | None = None,
     scene_revision_id: str | None = None,
+    scene_content_hash: str | None = None,
     system_variant_id: str | None = None,
+    system_variant_sha256: str | None = None,
     study_id: str | None = None,
 ) -> AnalysisStudy:
     """Clone a study onto (optionally newer) evidence as a new artifact.
@@ -352,10 +385,20 @@ def duplicate_analysis_study(
             if scene_revision_id is None
             else scene_revision_id
         ),
+        scene_content_hash=(
+            study.scene_content_hash
+            if scene_content_hash is None
+            else scene_content_hash
+        ),
         system_variant_id=(
             study.system_variant_id
             if system_variant_id is None
             else system_variant_id
+        ),
+        system_variant_sha256=(
+            study.system_variant_sha256
+            if system_variant_sha256 is None
+            else system_variant_sha256
         ),
         duplicated_from_study_id=study.study_id,
         created_at_utc=created_at_utc,

@@ -52,6 +52,16 @@ EvidenceTargetKind = Literal[
     'other',
 ]
 
+#: The canonical InstallationOutput section vocabulary an
+#: ``installation_section`` target may name — section names are a stable
+#: typed contract, never a free-form string.
+INSTALLATION_SECTION_IDS: tuple[str, ...] = (
+    'projector_coordinates',
+    'standards_profile',
+    'calibration_plan',
+    'treatment_plan',
+)
+
 EvidenceMediaKind = Literal[
     'image',
     'document',
@@ -90,7 +100,7 @@ class EvidenceTarget(BaseModel):
     entity_id: str | None = Field(default=None, min_length=1)
     ref_id: str | None = Field(default=None, min_length=1)
     ref_sha256: str | None = Field(
-        default=None, min_length=8, max_length=64
+        default=None, pattern=r'^[0-9a-f]{64}$'
     )
 
     @model_validator(mode='after')
@@ -100,12 +110,45 @@ class EvidenceTarget(BaseModel):
                 raise ValueError(
                     'scene_entity targets require revision_id and entity_id'
                 )
+            # The entity lives inside the pinned revision; the pin must
+            # name the revision's exact content hash so the target cannot
+            # silently follow a later revision.
+            if self.ref_sha256 is None:
+                raise ValueError(
+                    'scene_entity targets require the pinned revision '
+                    'content hash as ref_sha256'
+                )
         elif self.kind == 'scene_revision':
             if not self.revision_id:
                 raise ValueError('scene_revision targets require revision_id')
-        else:
-            if not self.ref_id:
-                raise ValueError(f'{self.kind} targets require ref_id')
+            if self.ref_sha256 is None:
+                raise ValueError(
+                    'scene_revision targets require the revision content '
+                    'hash as ref_sha256'
+                )
+        elif self.kind == 'system_variant':
+            if not self.ref_id or self.ref_sha256 is None:
+                raise ValueError(
+                    'system_variant targets require ref_id and the exact '
+                    'variant_sha256 pin'
+                )
+        elif self.kind == 'installation_section':
+            if self.ref_id not in INSTALLATION_SECTION_IDS:
+                raise ValueError(
+                    'installation_section targets must name a canonical '
+                    'section id'
+                )
+            if self.ref_sha256 is not None:
+                raise ValueError(
+                    'installation_section is a typed vocabulary, not a '
+                    'hash-bearing authority'
+                )
+        else:  # 'other'
+            if not self.ref_id or self.ref_sha256 is None:
+                raise ValueError(
+                    'other targets require ref_id plus an exact sha256 pin '
+                    'of the external authority'
+                )
         return self
 
 
@@ -214,6 +257,7 @@ def build_field_evidence(
 __all__ = [
     'FIELD_EVIDENCE_AUTHORITY_VERSION',
     'FIELD_EVIDENCE_SCHEMA_VERSION',
+    'INSTALLATION_SECTION_IDS',
     'EvidenceMediaKind',
     'EvidenceTarget',
     'EvidenceTargetKind',

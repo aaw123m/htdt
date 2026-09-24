@@ -126,6 +126,11 @@ def test_handoff_builds_review_and_deterministic_exports(
     preview = handoff_preview_text(handoff)
     assert saved.revision.revision_id in preview
     assert 'AVAILABLE' in preview or 'UNKNOWN' in preview
+    # The preview is the operator's last look before writing — it must
+    # expose the actual package contents, not record counts.
+    assert 'x=' in preview and 'y=' in preview
+    assert 'speaker-fl' in preview or 'Front Left' in preview
+    assert '== ' in preview
 
 
 def test_handoff_package_writes_deterministic_files(tmp_path: Path) -> None:
@@ -145,3 +150,21 @@ def test_handoff_package_writes_deterministic_files(tmp_path: Path) -> None:
         assert path.read_text(encoding='utf-8') == regenerated[
             key
         ].read_text(encoding='utf-8')
+
+
+def test_handoff_package_leaves_no_staging_on_disk(tmp_path: Path) -> None:
+    saved, _variant, service = _service(tmp_path)
+    handoff = build_installation_handoff(
+        service,
+        scene_revision_id=saved.revision.revision_id,
+        system_variant_id='',
+        generated_at_utc='2026-09-24T01:00:00+00:00',
+    )
+    target = tmp_path / 'handoff-out'
+    write_handoff_package(handoff, target)
+    leftovers = [
+        path
+        for path in target.iterdir()
+        if path.name.startswith('.htdt-handoff-')
+    ]
+    assert leftovers == []

@@ -1,16 +1,32 @@
-"""Append-only persistence for commissioning verification (#520)."""
+"""Append-only persistence for commissioning verification (#520).
+
+Persistence reproduces every claim: plans resolve their pinned
+SceneRevision/SystemVariant/profile inside the same document and resolve
+each check's subject against the pinned design, and ``save_run`` replays
+``build_commissioning_run`` from the stored plan/profile plus the run's own
+observations — a caller-supplied result that does not match the canonical
+replay is rejected, so a forged PASS can never persist.
+"""
 
 from __future__ import annotations
 
 from contextlib import closing
 import sqlite3
+from typing import Mapping
 
+from .cad_authority_resolver import (
+    ExactAuthorityResolver,
+    KindResolver,
+)
 from .cad_commissioning import (
+    CommissioningCheck,
     CommissioningPlan,
     CommissioningRun,
     ToleranceProfile,
+    build_commissioning_run,
 )
 from .cad_repository import SceneRepository
+from .cad_system_variant_repository import CadSystemVariantRepository
 
 
 class CommissioningConflictError(ValueError):
@@ -21,12 +37,25 @@ class CadCommissioningRepository:
     """Native storage for tolerance profiles, plans and runs.
 
     All three record types are immutable and append-only: a plan pins the
-    tolerance profile's hash, a run pins the plan's hash, and none can be
-    edited in place — later verification work appends new records.
+    tolerance profile's hash plus the exact scene/variant identity, a run
+    pins the plan's hash, and none can be edited in place — later
+    verification work appends new records.
     """
 
-    def __init__(self, scene_repository: SceneRepository) -> None:
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        *,
+        system_variant_repository: CadSystemVariantRepository | None = None,
+        kind_resolvers: Mapping[str, KindResolver] | None = None,
+    ) -> None:
         self.scene_repository = scene_repository
+        self.system_variant_repository = system_variant_repository
+        self.resolver = ExactAuthorityResolver(
+            scene_repository,
+            system_variant_repository=system_variant_repository,
+            kind_resolvers=kind_resolvers,
+        )
         self.path = scene_repository.path
         self._initialize()
 
@@ -142,16 +171,109 @@ class CadCommissioningRepository:
             for row in rows
         )
 
+    def _resolve_plan_authority(self, plan: CommissioningPlan) -> None:
+        """Resolve every authority pin a plan claims.
+
+        The pinned SceneRevision must exist inside ``plan.document_id`` and
+        match the stored content hash; a pinned SystemVariant must exist,
+        belong to the same document, match its pinned semantic hash and be
+        based on exactly the pinned revision; the tolerance profile must
+        belong to the same document; and every check subject must resolve
+        against the pinned design — a check naming a nonexistent entity,
+        channel or foreign authority fails the save.
+        """
+
+        revision = self.scene_repository.get(plan.scene_revision_id)
+        if revision is None:
+            raise ValueError('plan references a missing SceneRevision')
+        if revision.document_id != plan.document_id:
+            raise ValueError(
+                'plan SceneRevision belongs to a different document'
+            )
+        if revision.content_hash != plan.scene_content_hash:
+            raise ValueError('plan SceneRevision content hash mismatch')
+        if plan.system_variant_id is not None:
+            repository = self.system_variant_repository
+            if repository is None:
+                raise ValueError(
+                    'plan pins a SystemVariant but no variant repository '
+                    'is bound'
+                )
+            variant = repository.get_variant(plan.system_variant_id)
+            if variant is None:
+                raise ValueError('plan references a missing SystemVariant')
+            if variant.document_id != plan.document_id:
+                raise ValueError(
+                    'plan SystemVariant belongs to a different document'
+                )
+            if variant.variant_sha256 != plan.system_variant_sha256:
+                raise ValueError('plan SystemVariant hash mismatch')
+            if variant.baseline_revision_id != plan.scene_revision_id:
+                raise ValueError(
+                    'plan SystemVariant is not based on the pinned '
+                    'SceneRevision'
+                )
+        profile = self.get_tolerance_profile(plan.tolerance_profile_id)
+        if profile is None:
+            raise ValueError('plan references unknown tolerance profile')
+        if profile.document_id != plan.document_id:
+            raise ValueError(
+                'tolerance profile belongs to a different document'
+            )
+        if profile.profile_sha256 != plan.tolerance_profile_sha256:
+            raise ValueError('plan tolerance profile hash mismatch')
+        for check in plan.checks:
+            self._resolve_check_subject(plan, check)
+
+    def _resolve_check_subject(
+        self,
+        plan: CommissioningPlan,
+        check: CommissioningCheck,
+    ) -> None:
+        """Resolve a check's subject against the plan's pinned design."""
+
+        subject = check.subject
+        if subject.scene_entity_id is not None:
+            self.resolver.resolve_scene_entity(
+                plan.scene_revision_id,
+                subject.scene_entity_id,
+                document_id=plan.document_id,
+            )
+        elif subject.channel_role_id is not None:
+            variant = (
+                self.system_variant_repository.get_variant(
+                    plan.system_variant_id
+                )
+                if plan.system_variant_id is not None
+                and self.system_variant_repository is not None
+                else None
+            )
+            if variant is None:
+                raise ValueError(
+                    f'check {check.check_id} names a channel role but the '
+                    'plan pins no SystemVariant to resolve it against'
+                )
+            role_ids = {
+                binding.role_id for binding in variant.role_bindings
+            }
+            if subject.channel_role_id not in role_ids:
+                raise ValueError(
+                    f'check {check.check_id} channel role '
+                    f'{subject.channel_role_id} is not bound in the '
+                    'pinned SystemVariant'
+                )
+        else:
+            assert subject.authority_ref is not None
+            self.resolver.resolve(
+                subject.authority_ref, document_id=plan.document_id
+            )
+
     def save_plan(self, plan: CommissioningPlan) -> None:
         if self.get_plan(plan.plan_id) is not None:
             raise CommissioningConflictError(
                 'CommissioningPlan ids are append-only'
             )
-        profile = self.get_tolerance_profile(plan.tolerance_profile_id)
-        if profile is None:
-            raise ValueError('plan references unknown tolerance profile')
-        if profile.profile_sha256 != plan.tolerance_profile_sha256:
-            raise ValueError('plan tolerance profile hash mismatch')
+        self._resolve_plan_authority(plan)
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
@@ -204,6 +326,16 @@ class CadCommissioningRepository:
         )
 
     def save_run(self, run: CommissioningRun) -> None:
+        """Persist a run only when it replays exactly.
+
+        The stored plan's profile is reloaded and the run is rebuilt from
+        canonical plan + profile + the run's own observations and accepted
+        deviations; the caller-supplied ``results`` must reproduce the
+        replayed results field-for-field. Observation evidence refs are
+        resolved against the same document — a manual observation simply
+        carries no ``evidence_ref``.
+        """
+
         if self.get_run(run.run_id) is not None:
             raise CommissioningConflictError(
                 'CommissioningRun ids are append-only'
@@ -213,6 +345,29 @@ class CadCommissioningRepository:
             raise ValueError('run references unknown commissioning plan')
         if plan.plan_sha256 != run.plan_sha256:
             raise ValueError('run plan hash differs from the stored plan')
+        if run.document_id != plan.document_id:
+            raise ValueError('run belongs to a different document')
+        profile = self.get_tolerance_profile(plan.tolerance_profile_id)
+        assert profile is not None  # plan save enforced this
+        for observation in run.observations:
+            if observation.evidence_ref is not None:
+                self.resolver.resolve(
+                    observation.evidence_ref,
+                    document_id=run.document_id,
+                )
+        replayed = build_commissioning_run(
+            plan=plan,
+            tolerance_profile=profile,
+            observations=run.observations,
+            accepted_deviations=run.accepted_deviations,
+            created_at_utc=run.created_at_utc,
+            run_id=run.run_id,
+        )
+        if replayed.semantic_payload() != run.semantic_payload():
+            raise ValueError(
+                'run results do not reproduce the canonical evaluation '
+                'of the stored plan/profile/observations'
+            )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
@@ -263,4 +418,7 @@ class CadCommissioningRepository:
         )
 
 
-__all__ = ['CadCommissioningRepository', 'CommissioningConflictError']
+__all__ = [
+    'CadCommissioningRepository',
+    'CommissioningConflictError',
+]

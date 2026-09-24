@@ -1,15 +1,31 @@
-"""Append-only persistence for field / as-built evidence (#507)."""
+"""Append-only persistence for field / as-built evidence (#507).
+
+Persistence resolves every declared target before commit: scene revision
+and entity targets must exist inside the record's own project document and
+pin the revision's exact content hash, variant targets pin
+``variant_sha256``, and ``other`` targets resolve through a registered kind
+resolver carrying an explicit sha256 pin — a target that does not resolve
+fails before any row is written, so foreign or nonexistent authority can
+never appear in evidence lookups.
+"""
 
 from __future__ import annotations
 
 from contextlib import closing
 import sqlite3
+from typing import Mapping
 
+from .cad_authority_resolver import (
+    AuthorityRef,
+    ExactAuthorityResolver,
+    KindResolver,
+)
 from .cad_field_evidence import (
     EvidenceTarget,
     FieldEvidenceRecord,
 )
 from .cad_repository import SceneRepository
+from .cad_system_variant_repository import CadSystemVariantRepository
 
 
 class FieldEvidenceConflictError(ValueError):
@@ -22,11 +38,24 @@ class CadFieldEvidenceRepository:
     Binary payloads are stored through the scene repository's
     content-addressed blob store (``store_blob``/``read_blob``) and referenced
     by ``FieldEvidenceAsset.asset_sha256``; this table only stores the binding
-    records plus a target index for look-ups by exact revision/entity.
+    records plus a document-scoped target index for look-ups by exact
+    revision/entity.
     """
 
-    def __init__(self, scene_repository: SceneRepository) -> None:
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        *,
+        system_variant_repository: CadSystemVariantRepository | None = None,
+        kind_resolvers: Mapping[str, KindResolver] | None = None,
+    ) -> None:
         self.scene_repository = scene_repository
+        self.resolver = ExactAuthorityResolver(
+            scene_repository,
+            system_variant_repository=system_variant_repository,
+            field_evidence_repository=self,
+            kind_resolvers=kind_resolvers,
+        )
         self.path = scene_repository.path
         self._initialize()
 
@@ -91,14 +120,31 @@ class CadFieldEvidenceRepository:
         return payload
 
     def save_evidence(self, record: FieldEvidenceRecord) -> None:
-        """Append an evidence record. No target is mutated as a side effect."""
+        """Append an evidence record. No target is mutated as a side effect.
+
+        Every declared target is resolved against the pinned authority
+        first: a revision/entity must exist inside ``record.document_id``
+        and match the pinned content hash, a variant must carry its exact
+        ``variant_sha256``, and ``other`` targets must resolve through a
+        registered kind resolver. Unresolvable targets fail the whole save
+        before any row or index entry is committed. Validation always runs
+        against the *pinned* revision — evidence bound to a historical
+        revision stays valid after the document head advances.
+        """
 
         if self.get_evidence(record.evidence_id) is not None:
             raise FieldEvidenceConflictError(
                 'FieldEvidenceRecord ids are append-only'
             )
+        for target in record.targets:
+            self._resolve_target(record.document_id, target)
         if record.asset is not None:
-            self.read_asset(record.asset.asset_sha256)
+            payload = self.read_asset(record.asset.asset_sha256)
+            if len(payload) != record.asset.byte_length:
+                raise ValueError(
+                    'evidence asset byte_length does not match the stored '
+                    'blob'
+                )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
@@ -182,42 +228,105 @@ class CadFieldEvidenceRepository:
             for row in rows
         )
 
+    def _resolve_target(
+        self,
+        document_id: str,
+        target: EvidenceTarget,
+    ) -> None:
+        """Resolve one evidence target against exact stored authority.
+
+        ``scene_revision`` and ``scene_entity`` resolve the pinned revision
+        (existence, same document, exact content hash) plus — for entity
+        targets — membership inside that pinned revision's entity set.
+        ``system_variant`` and ``other`` resolve through the shared
+        resolver, which enforces the semantic hash pin.
+        """
+
+        if target.kind in {'scene_revision', 'scene_entity'}:
+            assert target.revision_id is not None
+            self.resolver.resolve(
+                AuthorityRef(
+                    kind='scene_revision',
+                    ref_id=target.revision_id,
+                    ref_sha256=target.ref_sha256,
+                ),
+                document_id=document_id,
+            )
+            if target.kind == 'scene_entity':
+                assert target.entity_id is not None
+                self.resolver.resolve_scene_entity(
+                    target.revision_id,
+                    target.entity_id,
+                    document_id=document_id,
+                )
+            return
+        if target.kind == 'installation_section':
+            # A stable typed vocabulary — validated structurally on the
+            # EvidenceTarget model; nothing further to resolve.
+            return
+        assert target.ref_id is not None
+        self.resolver.resolve(
+            AuthorityRef(
+                kind=target.kind,
+                ref_id=target.ref_id,
+                ref_sha256=target.ref_sha256,
+            ),
+            document_id=document_id,
+        )
+
     def evidence_for_revision(
-        self, revision_id: str
+        self,
+        revision_id: str,
+        *,
+        document_id: str | None = None,
     ) -> tuple[FieldEvidenceRecord, ...]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT evidence_id FROM cad_field_evidence_targets
-                WHERE revision_id=?
+                SELECT t.evidence_id FROM cad_field_evidence_targets t
+                JOIN cad_field_evidence e ON e.evidence_id = t.evidence_id
+                WHERE t.revision_id=?
+                  AND (? IS NULL OR e.document_id=?)
                 """,
-                (revision_id,),
+                (revision_id, document_id, document_id),
             ).fetchall()
         return self._load_many([row['evidence_id'] for row in rows])
 
     def evidence_for_entity(
-        self, revision_id: str, entity_id: str
+        self,
+        revision_id: str,
+        entity_id: str,
+        *,
+        document_id: str | None = None,
     ) -> tuple[FieldEvidenceRecord, ...]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT evidence_id FROM cad_field_evidence_targets
-                WHERE revision_id=? AND entity_id=?
+                SELECT t.evidence_id FROM cad_field_evidence_targets t
+                JOIN cad_field_evidence e ON e.evidence_id = t.evidence_id
+                WHERE t.revision_id=? AND t.entity_id=?
+                  AND (? IS NULL OR e.document_id=?)
                 """,
-                (revision_id, entity_id),
+                (revision_id, entity_id, document_id, document_id),
             ).fetchall()
         return self._load_many([row['evidence_id'] for row in rows])
 
     def evidence_for_ref(
-        self, target_kind: str, ref_id: str
+        self,
+        target_kind: str,
+        ref_id: str,
+        *,
+        document_id: str | None = None,
     ) -> tuple[FieldEvidenceRecord, ...]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT evidence_id FROM cad_field_evidence_targets
-                WHERE target_kind=? AND ref_id=?
+                SELECT t.evidence_id FROM cad_field_evidence_targets t
+                JOIN cad_field_evidence e ON e.evidence_id = t.evidence_id
+                WHERE t.target_kind=? AND t.ref_id=?
+                  AND (? IS NULL OR e.document_id=?)
                 """,
-                (target_kind, ref_id),
+                (target_kind, ref_id, document_id, document_id),
             ).fetchall()
         return self._load_many([row['evidence_id'] for row in rows])
 

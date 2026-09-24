@@ -1,4 +1,13 @@
-"""Append-only persistence for external authority dependencies (#600)."""
+"""Append-only persistence for external authority dependencies (#600).
+
+Resolution events are never caller-shaped: the only write path is
+:meth:`ExternalDependencyRepository.resolve_and_record`, which reloads the
+stored dependency, runs the canonical resolver over the supplied
+resolution context and persists the event the resolver derived. A forged
+outcome — ``resolved_exact_*`` with a hash that does not satisfy the
+dependency pin — cannot be recorded because no event is ever accepted
+from outside.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +16,10 @@ import sqlite3
 
 from .cad_repository import SceneRepository
 from .external_dependency_resolver import (
+    DependencyResolutionContext,
     DependencyResolutionEvent,
     ExternalAuthorityDependency,
+    resolve_external_dependency,
 )
 
 
@@ -141,9 +152,32 @@ class ExternalDependencyRepository:
             for row in rows
         )
 
-    def record_resolution(self, event: DependencyResolutionEvent) -> None:
-        if self.get_dependency(event.dependency_id) is None:
+    def resolve_and_record(
+        self,
+        dependency_id: str,
+        context: DependencyResolutionContext,
+        *,
+        resolved_at_utc: str,
+        event_id: str | None = None,
+    ) -> DependencyResolutionEvent:
+        """Resolve a stored dependency and persist the derived event.
+
+        The dependency is reloaded from this repository and the event is
+        produced by the canonical resolver — the stored event's
+        ``document_id``, outcome, ``resolved_via`` and ``resolved_sha256``
+        are therefore always the resolver's own output tied to the stored
+        dependency, never caller-forged.
+        """
+
+        dependency = self.get_dependency(dependency_id)
+        if dependency is None:
             raise ValueError('resolution event references unknown dependency')
+        event = resolve_external_dependency(
+            dependency,
+            context,
+            resolved_at_utc=resolved_at_utc,
+            event_id=event_id,
+        )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
@@ -162,6 +196,7 @@ class ExternalDependencyRepository:
                     event.model_dump_json(),
                 ),
             )
+        return event
 
     def list_resolutions(
         self, dependency_id: str
