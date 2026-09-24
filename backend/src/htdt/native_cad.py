@@ -250,15 +250,17 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
         exit_code = int(app.exec())
-        # #617: a clean close with changed managed data earns a validated
-        # rotating generation. Failures are logged, never fatal to exit.
+        # #755: shutdown performs no archive work — the event loop and
+        # window are already gone and a hidden post-UI backup is invisible
+        # and uninterruptible. Record the clean close cheaply; the next
+        # eligible scheduler tick performs any due generation.
         try:
             from .automatic_backup import AutomaticBackupScheduler
 
-            AutomaticBackupScheduler(args.data_dir).run_due('clean_close')
+            AutomaticBackupScheduler(args.data_dir).record_clean_close()
         except Exception:
             diagnostics.logger.exception(
-                "clean-close automatic backup failed"
+                "clean-close automatic backup marker failed"
             )
         return exit_code
     except IncompatibleNewerSchemaError as exc:

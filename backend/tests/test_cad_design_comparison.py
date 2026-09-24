@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from htdt.cad_authority_refs import ResolvedAuthority
 from htdt.cad_design_comparison import (
     ComparisonAlternative,
     ComparisonEvidenceRef,
@@ -197,8 +198,51 @@ def test_evidence_diff_reports_added_removed_changed(tmp_path: Path) -> None:
     assert diff.evidence_changed == ('prediction:p-old',)
 
 
+class _StubResolver:
+    """Canned AuthorityRefResolver for save-time ref validation."""
+
+    def __init__(
+        self,
+        entries: dict[tuple[str, str], ResolvedAuthority | None],
+    ) -> None:
+        self.entries = entries
+
+    def knows(self, kind: str) -> bool:
+        return True
+
+    def resolve(
+        self, kind: str, ref_id: str, document_id: str
+    ) -> ResolvedAuthority | None:
+        return self.entries.get((kind, ref_id))
+
+
+def _resolved_for(
+    revision,
+    semantic_sha256: str,
+    **fields,
+) -> ResolvedAuthority:
+    return ResolvedAuthority(
+        document_id=revision.document_id,
+        semantic_sha256=semantic_sha256,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        **fields,
+    )
+
+
 def test_availability_never_drops_incompatible_evidence(tmp_path: Path) -> None:
-    _scenes, rev_a, _rev_b, repository = _revisions(tmp_path)
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    authorities = {
+        ('prediction', 'p-ok'): _resolved_for(rev_a, 'a' * 64),
+        ('prediction', 'p-stale'): _resolved_for(rev_a, 'b' * 64),
+        ('validation', 'v-gone'): ResolvedAuthority(
+            document_id=rev_a.document_id,
+            semantic_sha256='c' * 64,
+        ),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
     comparison_set = build_comparison_set(
         document_id=rev_a.document_id,
         name='set',
@@ -213,7 +257,11 @@ def test_availability_never_drops_incompatible_evidence(tmp_path: Path) -> None:
                     ComparisonEvidenceRef(
                         kind='prediction', ref_id='p-stale', ref_sha256='b' * 64
                     ),
-                    ComparisonEvidenceRef(kind='validation', ref_id='v-gone'),
+                    ComparisonEvidenceRef(
+                        kind='validation',
+                        ref_id='v-gone',
+                        ref_sha256='c' * 64,
+                    ),
                 ),
             ),
         ),
@@ -222,17 +270,333 @@ def test_availability_never_drops_incompatible_evidence(tmp_path: Path) -> None:
     repository.save_set(comparison_set)
     availability = evaluate_comparison_set(
         comparison_set,
-        evidence_exists={
-            ('prediction', 'p-ok'): 'a' * 64,
-            ('prediction', 'p-stale'): '9' * 64,
+        resolved_evidence={
+            **authorities,
+            # p-stale drifted after save; v-gone no longer resolves.
+            ('prediction', 'p-stale'): _resolved_for(rev_a, '9' * 64),
+            ('validation', 'v-gone'): None,
         },
     )
     states = {item.ref_id: item.state for item in availability.items}
     assert states == {
         'p-ok': 'available',
-        'p-stale': 'incompatible_baseline',
-        'v-gone': 'unresolvable',
+        'p-stale': 'semantic_hash_conflict',
+        'v-gone': 'missing_reference',
     }
+
+
+def test_scene_bound_evidence_on_other_scene_is_baseline_mismatch(
+    tmp_path: Path,
+) -> None:
+    scenes, rev_a, rev_b, _repo = _revisions(tmp_path)
+    # A prediction produced under scene A attached to a scene-B alternative
+    # is a baseline mismatch, not an availability or hash problem.
+    authorities = {
+        ('prediction', 'p-scene-a'): _resolved_for(rev_a, 'a' * 64),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_b,
+                '案B',
+                evidence_refs=(
+                    ComparisonEvidenceRef(
+                        kind='prediction',
+                        ref_id='p-scene-a',
+                        ref_sha256='a' * 64,
+                    ),
+                ),
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_set(comparison_set)
+    availability = evaluate_comparison_set(
+        comparison_set, resolved_evidence=authorities
+    )
+    (item,) = availability.items
+    assert item.state == 'incompatible_baseline'
+
+
+def test_historical_scene_evidence_stays_available_after_head_advances(
+    tmp_path: Path,
+) -> None:
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    # Advance head past the evidence's pinned baseline.
+    scenes.save(
+        _scene(fl_x=2.0), parent_revision_id=_rev_b.revision_id
+    )
+    authorities = {
+        ('prediction', 'p-old'): _resolved_for(rev_a, 'a' * 64),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                evidence_refs=(
+                    ComparisonEvidenceRef(
+                        kind='prediction',
+                        ref_id='p-old',
+                        ref_sha256='a' * 64,
+                    ),
+                ),
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_set(comparison_set)
+    availability = evaluate_comparison_set(
+        comparison_set, resolved_evidence=authorities
+    )
+    (item,) = availability.items
+    assert item.state == 'available'
+
+
+def test_save_rejects_unresolved_system_variant(tmp_path: Path) -> None:
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver({})
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                system_variant_id='variant-ghost',
+                system_variant_sha256='f' * 64,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='does not'):
+        repository.save_set(comparison_set)
+
+
+def test_save_rejects_system_variant_hash_drift(tmp_path: Path) -> None:
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    authorities = {
+        ('system_variant', 'variant-1'): ResolvedAuthority(
+            document_id=rev_a.document_id,
+            semantic_sha256='a' * 64,
+            system_variant_id='variant-1',
+        ),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                system_variant_id='variant-1',
+                system_variant_sha256='b' * 64,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='hash does not match'):
+        repository.save_set(comparison_set)
+
+
+def test_save_rejects_foreign_project_checkpoint(tmp_path: Path) -> None:
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    authorities = {
+        ('design_checkpoint', 'cp-foreign'): ResolvedAuthority(
+            document_id='other-doc',
+            semantic_sha256='a' * 64,
+            scene_revision_id='rev-foreign',
+            scene_content_hash='e' * 64,
+        ),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                design_checkpoint_id='cp-foreign',
+                design_checkpoint_sha256='a' * 64,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='another document'):
+        repository.save_set(comparison_set)
+
+
+def test_save_rejects_hashless_ref_to_hash_bearing_authority(
+    tmp_path: Path,
+) -> None:
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    authorities = {
+        ('prediction', 'p-1'): _resolved_for(rev_a, 'a' * 64),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                evidence_refs=(
+                    ComparisonEvidenceRef(
+                        kind='prediction', ref_id='p-1'
+                    ),
+                ),
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='must pin'):
+        repository.save_set(comparison_set)
+
+
+def test_hash_conflict_is_not_a_baseline_conflict(tmp_path: Path) -> None:
+    scenes, rev_a, rev_b, _repo = _revisions(tmp_path)
+    # Same-baseline evidence with a wrong hash is a semantic conflict;
+    # a different-baseline evidence with its correct hash is not.
+    authorities = {
+        ('prediction', 'p-wrong-hash'): _resolved_for(rev_a, 'a' * 64),
+        ('prediction', 'p-wrong-scene'): _resolved_for(rev_b, 'b' * 64),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                evidence_refs=(
+                    ComparisonEvidenceRef(
+                        kind='prediction',
+                        ref_id='p-wrong-hash',
+                        ref_sha256='a' * 64,
+                    ),
+                    ComparisonEvidenceRef(
+                        kind='prediction',
+                        ref_id='p-wrong-scene',
+                        ref_sha256='b' * 64,
+                    ),
+                ),
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_set(comparison_set)
+    availability = evaluate_comparison_set(
+        comparison_set,
+        resolved_evidence={
+            **authorities,
+            # Same-scene authority whose hash drifted after save.
+            ('prediction', 'p-wrong-hash'): _resolved_for(rev_a, '9' * 64),
+        },
+    )
+    states = {item.ref_id: item.state for item in availability.items}
+    assert states == {
+        'p-wrong-hash': 'semantic_hash_conflict',
+        'p-wrong-scene': 'incompatible_baseline',
+    }
+
+
+def test_other_evidence_kind_reports_unsupported(tmp_path: Path) -> None:
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver({})
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                evidence_refs=(
+                    ComparisonEvidenceRef(kind='other', ref_id='x-1'),
+                ),
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_set(comparison_set)
+    availability = evaluate_comparison_set(
+        comparison_set, resolved_evidence={}
+    )
+    (item,) = availability.items
+    assert item.state == 'unsupported'
+
+
+def test_variant_scoped_evidence_on_other_variant_is_context_mismatch(
+    tmp_path: Path,
+) -> None:
+    scenes, rev_a, _rev_b, _repo = _revisions(tmp_path)
+    authorities = {
+        ('standards', 'std-1'): ResolvedAuthority(
+            document_id=rev_a.document_id,
+            semantic_sha256='a' * 64,
+            system_variant_id='variant-2',
+        ),
+        ('system_variant', 'variant-1'): ResolvedAuthority(
+            document_id=rev_a.document_id,
+            semantic_sha256='d' * 64,
+            system_variant_id='variant-1',
+        ),
+    }
+    repository = CadDesignComparisonRepository(
+        scenes, ref_resolver=_StubResolver(authorities)
+    )
+    comparison_set = build_comparison_set(
+        document_id=rev_a.document_id,
+        name='set',
+        alternatives=(
+            _alternative(
+                rev_a,
+                '案A',
+                system_variant_id='variant-1',
+                system_variant_sha256='d' * 64,
+                evidence_refs=(
+                    ComparisonEvidenceRef(
+                        kind='standards',
+                        ref_id='std-1',
+                        ref_sha256='a' * 64,
+                        scene_bound=False,
+                    ),
+                ),
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_set(comparison_set)
+    availability = evaluate_comparison_set(
+        comparison_set, resolved_evidence=authorities
+    )
+    (item,) = availability.items
+    assert item.state == 'context_mismatch'
 
 
 def test_save_set_rejects_unpersisted_scene_revision(tmp_path: Path) -> None:

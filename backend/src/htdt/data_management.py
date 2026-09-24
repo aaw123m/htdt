@@ -29,6 +29,7 @@ from .native_backup import (
     restore_backup as native_restore_backup,
     validate_backup as native_validate_backup,
 )
+from .native_upgrade import UpgradeEvent, execute_native_upgrade
 
 
 class DataManagementBusyError(RuntimeError):
@@ -99,6 +100,13 @@ class RestoreResult:
     manifest: BackupManifest
     metadata: BackupMetadata
     pre_restore_backup: Path | None
+    # #756: truthful restore outcome — the archive's own schema version,
+    # the live version after any post-restore migration, and the #606
+    # upgrade event that performed it (None when no migration was needed).
+    restored_native_schema_version: int
+    final_native_schema_version: int
+    migration_performed: bool
+    upgrade_event_id: str | None
 
 
 @dataclass(frozen=True)
@@ -216,20 +224,60 @@ class DataManagementBackend:
                 'backup archive changed after the restore preview was created'
             )
 
+        # #756: a backup written by a newer build cannot be restored —
+        # validate the archive's compatibility before the live cutover,
+        # never discover it while reopening restored data. (native_restore
+        # re-checks the staged bytes too; this fails fast on the preview's
+        # own verdict.)
+        if preview.metadata.native_schema_compatibility == 'incompatible_newer':
+            raise ValueError(
+                'backup was written by a newer HTDT data format '
+                f'(v{preview.metadata.native_schema_version}); this build '
+                f'supports up to v{NATIVE_SCHEMA_VERSION}'
+            )
+
         if on_phase is not None:
             on_phase(DataOperationPhase.RESTORING, '現在のデータを退避して復元しています')
         manifest, pre_restore_backup = native_restore_backup(
             self.data_dir,
             backup_path,
         )
+
+        # #756: an older-schema archive lands on the live root as-is. Route
+        # the required data update through the journaled #606 upgrade
+        # lifecycle — recovery snapshot, migration, verification, and a
+        # persisted UpgradeEvent — instead of letting the next repository
+        # open silently migrate the restored bytes.
+        restored_version = self.current_native_schema_version()
+        upgrade_event: UpgradeEvent | None = None
+        if native_schema_compatibility(restored_version) in (
+            'migration_required',
+            'legacy_unversioned',
+        ):
+            if on_phase is not None:
+                on_phase(
+                    DataOperationPhase.VALIDATING,
+                    '復元されたデータを現在の形式へ移行しています',
+                )
+            upgrade_event = execute_native_upgrade(self.data_dir)
+        final_version = self.current_native_schema_version()
+
         return RestoreResult(
             manifest=manifest,
             metadata=_metadata_from_manifest(
                 backup_path,
                 manifest,
-                native_schema_version=self.current_native_schema_version(),
+                # The archive's own stored schema — the same authority the
+                # preview showed — not the post-upgrade live version.
+                native_schema_version=preview.metadata.native_schema_version,
             ),
             pre_restore_backup=pre_restore_backup,
+            restored_native_schema_version=restored_version,
+            final_native_schema_version=final_version,
+            migration_performed=upgrade_event is not None,
+            upgrade_event_id=(
+                upgrade_event.upgrade_id if upgrade_event is not None else None
+            ),
         )
 
     def plan_relocation(
