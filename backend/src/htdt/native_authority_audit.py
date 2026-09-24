@@ -1254,6 +1254,12 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'OPERATIONAL_METADATA',
         'sqlite autoincrement bookkeeping',
     ),
+    'ci_marker': (
+        'OPERATIONAL_METADATA',
+        'scratch table the packaged-build CI pipeline writes into the live '
+        'database to prove backup/restore round-trips carry non-HTDT rows; '
+        'it stores no HTDT authority',
+    ),
     'native_schema_metadata': (
         'OPERATIONAL_METADATA',
         'schema version bookkeeping, not user authority',
