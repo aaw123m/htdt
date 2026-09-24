@@ -77,7 +77,7 @@ N70/N80の完成をCAD previewや安定個人版の条件にしない。カレ�
 | 予測 | 適用可能なREW Room Simulator等 | revision/model/parameterの記録、適用判定 |
 | 保存 | SQLiteと原本保管 | SceneRevisionと測定Context、不変参照、復旧 |
 
-ソースを読んだ箇所と判断は[OSS調査](CAD_EDITOR_OSS_RESEARCH.md)。新規solver、gizmo全体のfork、game engine全体の導入を無条件に選ばない。汎用libraryで足りる部分は依存利用する。
+ソースを読んだ箇所と判断は[OSS調査](CAD_EDITOR_OSS_RESEARCH.md)。新規solver、gizmo全体のfork、game engine全体の導入を無条件に選ばない。汎用libraryで足りる部分は依存利用する。domainごとの所有深度（Tier A core / Tier B bounded adjunct / Tier C delegated）の横断契約とcanonical domain mapは[製品domain境界charter](PRODUCT_DOMAIN_BOUNDARY_CHARTER.md)を正本とする。
 
 ## 6. 保存・意味の保持
 
@@ -105,7 +105,7 @@ Qt shell → editor service → domain/repository/adapterの境界を置く。na
 
 native GUIをWindowsのDPI/mouse/keyboardで確認する。headless CIを操作品質の証拠にしない。仕様上の目標、過去のPoC報告、今回の再検証を分ける。
 
-変更に適した検証だけを行い、可逆・低影響変更へ不要なtestを追加しない。Issue #170ではcriterion evaluator/profile data/persistenceをGUIやO100D objectiveから分離し、公開sourceに明示された境界だけをbuilt-in criteriaへ採用する。compliance FAILは明示hard-constraint opt-inなしにcandidateを削除しない。N05〜N90/O10〜O80 software pathは完了済み。O90はO90A〜O90Dまで実装済みで、O90E owned-room robust validationとUX160 owned-Windows acceptanceが残る。O100はO100A〜O100Fまで実装済み。O100G backendはPR #235/#239のproposal→As-built→exact measured evidenceに加え、PR #244でSystemVariant-specific MeasurementPlan/Campaignまで実装済みで、Room/Optimize UX・badge/ghost・measured comparison・Windows visual acceptanceが残る。Issue #101ではR130A bounded candidate wave execution（PR #243）、R140 actual CPU executor（PR #250）、R150 bounded deterministic GA adapter（PR #245）まで進んだが、production solver採用・full numerical acceptance・hybrid/owned-room validationは別gateとして未完了である。Issue #118のUX100〜UX160 UI/UX overhaulと各domain trackを独立管理し、R-seriesの新しいuser-facing acoustic inputをlegacy dock shellへ増築しない。採用gateはR-series fixture/ADRとUX acceptance、進捗は[実装状況](IMPLEMENTATION_STATUS.md)へ残す。
+変更に適した検証だけを行い、可逆・低影響変更へ不要なtestを追加しない。Issue #170ではcriterion evaluator/profile data/persistenceをGUIやO100D objectiveから分離し、公開sourceに明示された境界だけをbuilt-in criteriaへ採用する。compliance FAILは明示hard-constraint opt-inなしにcandidateを削除しない。N05〜N90/O10〜O80 software pathは完了済み。O90はO90A〜O90Dまで実装済みで、O90E owned-room robust validationとUX160 owned-Windows acceptanceが残る。O100はO100A〜O100Fまで実装済み。O100G backendはPR #235/#239のproposal→As-built→exact measured evidenceに加え、PR #244でSystemVariant-specific MeasurementPlan/Campaign、PR #255でRoom/Optimize workflow-first UX・badge/ghost・measured comparison・apply confirmationまで実装済みで、残るはUX160 owned-Windows visual acceptanceのみ（実装状態の詳細は[実装ステータス](IMPLEMENTATION_STATUS.md)が正本）。Issue #101ではR130A bounded candidate wave execution（PR #243）、R140 actual CPU executor（PR #250）、R150 bounded deterministic GA adapter（PR #245）まで進んだが、production solver採用・full numerical acceptance・hybrid/owned-room validationは別gateとして未完了である。Issue #118のUX100〜UX160 UI/UX overhaulと各domain trackを独立管理し、R-seriesの新しいuser-facing acoustic inputをlegacy dock shellへ増築しない。採用gateはR-series fixture/ADRとUX acceptance、進捗は[実装状況](IMPLEMENTATION_STATUS.md)へ残す。
 
 
 ## Competitive gap closure lifecycle — Issue #166

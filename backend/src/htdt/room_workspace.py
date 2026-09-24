@@ -156,6 +156,7 @@ from .cad_scene import (
     is_unassigned_speaker_role,
     make_empty_scene,
     next_unassigned_speaker_role,
+    scene_content_hash,
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
 )
@@ -204,6 +205,7 @@ from .ui_theme import (
     set_typography_role,
 )
 from .workflow_shell import WorkspaceMount
+from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
@@ -326,6 +328,9 @@ class RoomWorkspaceController:
         self._underlay_calibration: dict | None = None
         self._constraint_state = None  # AuthoringConstraintSet, lazy
         self._last_constraint_notes: tuple[str, ...] = ()
+        # (source_revision_id, committed content hash) acknowledged via the
+        # keep_draft resolution; edits invalidate it so the prompt reappears.
+        self._draft_release: tuple[str | None, str] | None = None
         self._load_latest_or_seed()
 
     @property
@@ -369,6 +374,7 @@ class RoomWorkspaceController:
             source_revision_id=revision.revision_id,
             saved_content_hash=revision.content_hash,
         )
+        self._draft_release = None
         record = self.repository.view_state(self.document_id)
         if record is not None:
             self.view_state = EditorViewState(
@@ -405,11 +411,86 @@ class RoomWorkspaceController:
     def before_deactivate(self) -> tuple[bool, str | None]:
         if self.working.has_preview:
             return False, "操作中のプレビューを確定またはキャンセルしてから画面を切り替えてください"
-        if self.working.is_dirty:
+        if self.working.is_dirty and not self._draft_release_current():
             return False, "未保存の変更を保存または元に戻してから画面を切り替えてください"
         if self.recovery_candidate is not None:
             return False, "復旧データを復元または破棄してから画面を切り替えてください"
         return True, None
+
+    # --- Dirty-state resolution port (#610/#678) ------------------------------
+
+    def dirty_state(self) -> WorkspaceDirtyState:
+        """Classification the shell turns into an explicit operator choice."""
+        if self.working.has_preview:
+            return "preview_active"
+        if self.working.is_dirty:
+            if self._draft_release_current():
+                return "clean"
+            return "dirty_recoverable"
+        if self.recovery_candidate is not None:
+            return "recovery_candidate_pending"
+        return "clean"
+
+    def _draft_release_current(self) -> bool:
+        """Whether keep_draft already acknowledged the exact dirty state."""
+        return self._draft_release == (
+            self.working.source_revision_id,
+            scene_content_hash(self.working.committed_document),
+        )
+
+    def discard_unsaved_changes(self) -> None:
+        """Reset the working document to the saved head and drop the draft."""
+        self.repository.clear_recovery(self.document_id)
+        self._load_latest_or_seed()
+
+    def keep_draft(self) -> None:
+        """Persist the edits as a recovery draft and release deactivation.
+
+        The stored snapshot is what a later Recover-Draft decision restores;
+        the release token keeps this deactivation from re-prompting while the
+        acknowledged content is unchanged — any new edit re-blocks.
+        """
+        self._sync_recovery()
+        self._draft_release = (
+            self.working.source_revision_id,
+            scene_content_hash(self.working.committed_document),
+        )
+
+    def resolve_dirty_state(
+        self, action: DirtyResolutionAction
+    ) -> tuple[bool, str | None]:
+        """Perform one explicit dirty-state resolution.
+
+        Returns (cleared, message). A failure keeps the current context —
+        e.g. a save failure leaves the dirty document untouched.
+        """
+        try:
+            if action == "save":
+                self.save()
+                return True, "変更を保存しました"
+            if action == "discard":
+                self.discard_unsaved_changes()
+                return True, "変更を破棄しました"
+            if action == "keep_draft":
+                self.keep_draft()
+                return True, "未保存の変更を下書きとして残しました"
+            if action == "commit_preview":
+                self.working.commit_preview()
+                self._sync_recovery()
+                return True, "プレビューを確定しました"
+            if action == "cancel_preview":
+                self.working.cancel_preview()
+                self._sync_recovery()
+                return True, "プレビューを破棄しました"
+            if action == "recover_draft":
+                self.recover_draft()
+                return True, "下書きを復旧しました"
+            if action == "discard_recovery":
+                self.discard_recovery()
+                return True, "復旧データを破棄しました"
+        except (EditStateError, ValueError) as error:
+            return False, str(error)
+        return False, "この状態では実行できない操作です"
 
     def set_selection(self, entity_id: str | None, *, additive: bool = False) -> None:
         """N20b ordered selection: additive clicks extend, keep order, first = primary."""

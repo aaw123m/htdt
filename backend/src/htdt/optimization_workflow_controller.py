@@ -56,6 +56,7 @@ from .optimization_search_controller import SearchControllerMixin
 from .optimization_validation_controller import ValidationControllerMixin
 from .rew_api import RewApiClient
 from .room_workspace import RoomWorkspaceController
+from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 
 
 class _StatusProxy:
@@ -269,6 +270,19 @@ class OptimizationWorkflowController(
         if self._rew_tasks:
             return False, "REW読込が完了するまで画面を切り替えられません"
         return self.scene.before_deactivate()
+
+    def dirty_state(self) -> WorkspaceDirtyState:
+        """#610: worker activity blocks outright; scene state resolves."""
+        if self.active_search_worker_count() or self.active_extended_worker_count():
+            return 'busy'
+        if self._rew_tasks:
+            return 'busy'
+        return self.scene.dirty_state()
+
+    def resolve_dirty_state(
+        self, action: DirtyResolutionAction
+    ) -> tuple[bool, str | None]:
+        return self.scene.resolve_dirty_state(action)
 
     def refresh_from_authorities(self) -> None:
         self._refresh_search_entities()

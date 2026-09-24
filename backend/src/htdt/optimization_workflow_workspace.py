@@ -40,6 +40,7 @@ from .ui_theme import (
 )
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import WorkspaceMount
+from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .standards_workspace import StandardsVariantComparisonPanel
 from .system_expansion_widgets import (
@@ -321,6 +322,14 @@ class OptimizationWorkflowWorkspace(QWidget):
 
     def before_deactivate(self) -> tuple[bool, str | None]:
         return self.controller.before_deactivate()
+
+    def dirty_state(self) -> WorkspaceDirtyState:
+        return self.controller.dirty_state()
+
+    def resolve_dirty_state(
+        self, action: DirtyResolutionAction
+    ) -> tuple[bool, str | None]:
+        return self.controller.resolve_dirty_state(action)
 
     def select_section(self, section_id: str) -> None:
         page_id = normalize_optimization_page(section_id)
@@ -1144,6 +1153,8 @@ def build_optimization_workspace_mount(
         workspace,
         on_activate=workspace.activate,
         before_deactivate=workspace.before_deactivate,
+        dirty_state=getattr(workspace, "dirty_state", None),
+        resolve_dirty_state=getattr(workspace, "resolve_dirty_state", None),
         on_context_changed=workspace.select_section,
     )
 
