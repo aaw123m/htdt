@@ -753,6 +753,20 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             ),
             mutates_managed_data=False,
         ),
+        CommandDefinition(
+            command_id='installation.export_handoff',
+            display_name='設置ハンドオフを書き出す',
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=(
+                'installation handoff',
+                'export installation report',
+                '寸法図',
+                'dimension sheets',
+                '設置図面',
+                'project report export',
+            ),
+            mutates_managed_data=False,
+        ),
     )
 
 
