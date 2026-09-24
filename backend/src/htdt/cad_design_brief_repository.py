@@ -1,12 +1,25 @@
-"""Append-only persistence for project design briefs (#555)."""
+"""Append-only persistence for project design briefs (#555).
+
+Every non-free-text goal ref resolves against the shared exact-authority
+resolver before the brief commits — an unresolvable authority id or a
+hash mismatch fails the save, so a brief can never bind a goal to an
+authority that does not exist in this document.
+"""
 
 from __future__ import annotations
 
 from contextlib import closing
 import sqlite3
+from typing import Mapping
 
+from .cad_authority_resolver import (
+    AuthorityRef,
+    ExactAuthorityResolver,
+    KindResolver,
+)
 from .cad_design_brief import ProjectDesignBrief
 from .cad_repository import SceneRepository
+from .cad_system_variant_repository import CadSystemVariantRepository
 
 
 class DesignBriefConflictError(ValueError):
@@ -22,8 +35,20 @@ class CadDesignBriefRepository:
     inferred configuration.
     """
 
-    def __init__(self, scene_repository: SceneRepository) -> None:
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        *,
+        system_variant_repository: CadSystemVariantRepository | None = None,
+        kind_resolvers: Mapping[str, KindResolver] | None = None,
+    ) -> None:
         self.scene_repository = scene_repository
+        self.system_variant_repository = system_variant_repository
+        self.resolver = ExactAuthorityResolver(
+            scene_repository,
+            system_variant_repository=system_variant_repository,
+            kind_resolvers=kind_resolvers,
+        )
         self.path = scene_repository.path
         self._initialize()
 
@@ -65,6 +90,17 @@ class CadDesignBriefRepository:
                 raise ValueError('superseded brief is not persisted')
             if prior.document_id != brief.document_id:
                 raise ValueError('superseded brief belongs to another document')
+        for goal in brief.goal_refs:
+            if goal.ref_id is None:
+                continue  # free_text intent carries no authority ref
+            self.resolver.resolve(
+                AuthorityRef(
+                    kind=goal.kind,
+                    ref_id=goal.ref_id,
+                    ref_sha256=goal.ref_sha256,
+                ),
+                document_id=brief.document_id,
+            )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """

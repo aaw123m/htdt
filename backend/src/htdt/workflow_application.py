@@ -5,10 +5,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QInputDialog,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
+    QVBoxLayout,
 )
 
 from .application_pages import (
@@ -37,6 +41,14 @@ from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_prediction_repository import CadPredictionRepository
+from .analysis_export import (
+    build_analysis_export,
+    render_analysis_csv,
+    render_analysis_html,
+    render_analysis_json,
+    series_from_comparison,
+    series_from_measurement_dataset,
+)
 from .cad_repository import SceneRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_search_repository import CadSearchRepository
@@ -245,6 +257,10 @@ class WorkflowApplicationComposition:
         self.registry.bind(
             "installation.export_handoff",
             execute=self._export_installation_handoff,
+        )
+        self.registry.bind(
+            "analysis.export_bundle",
+            execute=self._export_analysis_bundle,
         )
 
     def _command_context(self) -> CommandContext | None:
@@ -1301,11 +1317,24 @@ class WorkflowApplicationComposition:
             system_variant_id=system_variant_id,
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
-        QMessageBox.information(
-            self.shell,
-            "設置ハンドオフ プレビュー",
-            handoff_preview_text(handoff),
+        preview = QDialog(self.shell)
+        preview.setWindowTitle("設置ハンドオフ プレビュー")
+        preview_layout = QVBoxLayout(preview)
+        preview_text = QPlainTextEdit(preview)
+        preview_text.setReadOnly(True)
+        preview_text.setPlainText(handoff_preview_text(handoff))
+        preview_layout.addWidget(preview_text)
+        preview_buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            parent=preview,
         )
+        preview_buttons.accepted.connect(preview.accept)
+        preview_buttons.rejected.connect(preview.reject)
+        preview_layout.addWidget(preview_buttons)
+        preview.resize(760, 560)
+        if preview.exec() != QDialog.DialogCode.Accepted:
+            return
         directory = QFileDialog.getExistingDirectory(
             self.shell,
             "ハンドオフの保存先フォルダ",
@@ -1318,6 +1347,89 @@ class WorkflowApplicationComposition:
             "設置ハンドオフを書き出しました",
             "次のファイルを書き出しました:\n"
             + "\n".join(str(path) for path in outputs.values()),
+        )
+
+    def _export_analysis_bundle(self) -> None:
+        """Operator action behind ``analysis.export_bundle`` (#512).
+
+        Packages the project's persisted measurement datasets and A/B
+        comparisons into the deterministic analysis export (CSV/JSON/HTML)
+        via the typed series adapters — provenance and historical flags
+        are derived from the real authorities, never typed in.
+        """
+
+        measurements = CadMeasurementRepository(self.repository)
+        records = measurements.list_measurements(self.document_id)
+        comparisons = measurements.list_comparisons(self.document_id)
+        if not records and not comparisons:
+            QMessageBox.warning(
+                self.shell,
+                "解析エクスポート",
+                "書き出せる測定・比較データがありません。",
+            )
+            return
+        head = self.repository.current_head(self.document_id)
+        current_revision_id = (
+            head.revision_id if head is not None else None
+        )
+        series = []
+        for record in records:
+            try:
+                bundle = measurements.get_evidence_bundle(
+                    record.measurement_id
+                )
+            except ValueError:
+                continue  # measurement without an FR dataset
+            series.append(
+                series_from_measurement_dataset(
+                    bundle.dataset,
+                    record,
+                    current_scene_revision_id=current_revision_id,
+                )
+            )
+        for comparison in comparisons:
+            series.append(series_from_comparison(comparison))
+        title, ok = QInputDialog.getText(
+            self.shell,
+            "解析エクスポート",
+            "エクスポート名を入力してください",
+            text="解析エクスポート",
+        )
+        if not ok or not title:
+            return
+        export = build_analysis_export(
+            document_id=self.document_id,
+            title=title,
+            generated_at_utc=datetime.now(timezone.utc).isoformat(),
+            series=tuple(series),
+        )
+        directory = QFileDialog.getExistingDirectory(
+            self.shell,
+            "解析エクスポートの保存先フォルダ",
+        )
+        if not directory:
+            return
+        target = Path(directory)
+        written = (
+            target / 'analysis_export.csv',
+            target / 'analysis_export.json',
+            target / 'analysis_report.html',
+        )
+        written[0].write_text(
+            render_analysis_csv(export), encoding='utf-8'
+        )
+        written[1].write_text(
+            render_analysis_json(export), encoding='utf-8'
+        )
+        written[2].write_text(
+            render_analysis_html(export), encoding='utf-8'
+        )
+        QMessageBox.information(
+            self.shell,
+            "解析エクスポートを書き出しました",
+            "次のファイルを書き出しました:\n"
+            + "\n".join(str(path) for path in written)
+            + f"\nspec SHA-256: {export.spec_sha256}",
         )
 
     def _can_close_application(self) -> tuple[bool, str | None]:

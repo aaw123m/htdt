@@ -91,10 +91,10 @@ def _hash(payload: Any) -> str:
 class BriefGoalRef(BaseModel):
     """One design goal: an exact authority reference plus human intent.
 
-    ``ref_id``/``ref_sha256`` pin the referenced authority when one exists.
-    Goals without a resolvable authority (``kind == 'free_text'`` or an
-    authority that has no semantic hash) are still explicit intent — they
-    evaluate as UNEVALUABLE, never as satisfied.
+    ``ref_id``/``ref_sha256`` pin the referenced authority's exact semantic
+    hash — both are required for every non-``free_text`` goal so an
+    unresolved external intent can never masquerade as a bound authority
+    (it must be recorded as a dependency state or free-text instead).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -103,17 +103,24 @@ class BriefGoalRef(BaseModel):
     kind: BriefGoalKind
     requirement: BriefRequirement = 'preferred'
     ref_id: str | None = Field(default=None, min_length=1)
-    ref_sha256: str | None = Field(default=None, min_length=8)
+    ref_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     label: str = Field(min_length=1)
     rationale: str | None = None
 
     @model_validator(mode='after')
     def valid_goal(self) -> 'BriefGoalRef':
-        if self.kind == 'free_text' and self.ref_id is not None:
-            raise ValueError('free_text goals carry intent text only, not refs')
-        if self.kind != 'free_text' and self.ref_id is None:
+        if self.kind == 'free_text':
+            if self.ref_id is not None or self.ref_sha256 is not None:
+                raise ValueError(
+                    'free_text goals carry intent text only, not refs'
+                )
+            return self
+        if self.ref_id is None or self.ref_sha256 is None:
             raise ValueError(
-                'non-free_text goals must reference an exact authority id'
+                'non-free_text goals must reference an exact authority: '
+                'both ref_id and ref_sha256 are required'
             )
         return self
 
@@ -282,10 +289,9 @@ def evaluate_brief_coverage(
     """Per-goal freshness against current authority state.
 
     ``resolve_sha256`` maps ``(kind, ref_id)`` to the referenced authority's
-    current semantic hash, or ``None`` when the id no longer resolves. A goal
-    whose pin carries no hash is UNEVALUABLE when the id resolves (existence
-    alone does not make the goal assessable); a free-text goal is always
-    UNEVALUABLE intent.
+    current semantic hash, or ``None`` when the id no longer resolves. Every
+    non-free-text goal carries an exact pin, so resolution checks the pin
+    directly; a free-text goal is always UNEVALUABLE intent.
     """
 
     goals: list[BriefGoalStatus] = []

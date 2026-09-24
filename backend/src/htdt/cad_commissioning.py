@@ -32,6 +32,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_authority_resolver import AuthorityRef
+from .cad_repository import SceneRevision
+from .cad_system_variant import SystemVariant
+from .cad_units import UnitKind, convert_unit
+
 
 COMMISSIONING_SCHEMA_VERSION = 1
 COMMISSIONING_AUTHORITY_VERSION = 'commissioning-verification-1'
@@ -59,6 +64,43 @@ CheckSubjectKind = Literal[
 ToleranceOperator = Literal['abs_error', 'min', 'max', 'range', 'equals']
 
 
+class CheckSubject(BaseModel):
+    """The exact design object/property one check verifies.
+
+    A subject must pin at least one canonical authority: ``scene_entity_id``
+    resolves inside the plan's pinned ``SceneRevision``,
+    ``channel_role_id`` resolves against the pinned ``SystemVariant``'s
+    role bindings, and ``authority_ref`` resolves any other exact
+    hash-bearing authority (measurement dataset, calibration plan, …).
+    "untyped" refs are never acceptable — persistence resolves the subject
+    and rejects anything that does not name existing same-project authority.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    scene_entity_id: str | None = Field(default=None, min_length=1)
+    channel_role_id: str | None = Field(default=None, min_length=1)
+    authority_ref: AuthorityRef | None = None
+    #: Canonical property label the check evaluates (e.g. ``'position.x'``,
+    #: ``'gain'``) — presentation/metadata, never a substitute for the
+    #: resolved authority pins above.
+    property: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_subject(self) -> 'CheckSubject':
+        pinned = (
+            self.scene_entity_id is not None,
+            self.channel_role_id is not None,
+            self.authority_ref is not None,
+        )
+        if sum(pinned) != 1:
+            raise ValueError(
+                'a check subject pins exactly one of scene_entity_id, '
+                'channel_role_id or authority_ref'
+            )
+        return self
+
+
 def _canonical_json(payload: Any) -> str:
     return json.dumps(
         payload,
@@ -84,7 +126,7 @@ class ToleranceSpec(BaseModel):
     limit_high: float | None = None
     limit_text: str | None = None
     target: float | None = None
-    unit: str | None = None
+    unit: UnitKind | None = None
     note: str | None = None
 
     @model_validator(mode='after')
@@ -190,7 +232,7 @@ class CommissioningCheck(BaseModel):
 
     check_id: str = Field(min_length=1)
     subject_kind: CheckSubjectKind
-    subject_ref: str = Field(min_length=1)
+    subject: CheckSubject
     tolerance_key: str = Field(min_length=1)
     required: bool = True
     description: str | None = None
@@ -208,13 +250,27 @@ class CommissioningPlan(BaseModel):
     plan_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     scene_revision_id: str = Field(min_length=1)
+    scene_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     system_variant_id: str | None = Field(default=None, min_length=1)
+    system_variant_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     tolerance_profile_id: str = Field(min_length=1)
     tolerance_profile_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     checks: tuple[CommissioningCheck, ...] = ()
     note: str | None = None
     created_at_utc: str = Field(min_length=1)
     plan_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def valid_variant_pin(self) -> 'CommissioningPlan':
+        if (self.system_variant_id is None) != (
+            self.system_variant_sha256 is None
+        ):
+            raise ValueError(
+                'system_variant_id and system_variant_sha256 pin together'
+            )
+        return self
 
     @model_validator(mode='after')
     def valid_plan(self) -> 'CommissioningPlan':
@@ -232,7 +288,9 @@ class CommissioningPlan(BaseModel):
             'plan_id': self.plan_id,
             'document_id': self.document_id,
             'scene_revision_id': self.scene_revision_id,
+            'scene_content_hash': self.scene_content_hash,
             'system_variant_id': self.system_variant_id,
+            'system_variant_sha256': self.system_variant_sha256,
             'tolerance_profile_id': self.tolerance_profile_id,
             'tolerance_profile_sha256': self.tolerance_profile_sha256,
             'checks': [c.model_dump(mode='json') for c in self.checks],
@@ -250,14 +308,36 @@ class CommissioningPlan(BaseModel):
 def build_commissioning_plan(
     *,
     document_id: str,
-    scene_revision_id: str,
+    scene_revision: SceneRevision,
     tolerance_profile: ToleranceProfile,
     created_at_utc: str,
-    system_variant_id: str | None = None,
+    system_variant: SystemVariant | None = None,
     checks: tuple[CommissioningCheck, ...] = (),
     note: str | None = None,
     plan_id: str | None = None,
 ) -> CommissioningPlan:
+    """Pin a plan to exact resolved design authority.
+
+    The builder takes the resolved ``SceneRevision``/``SystemVariant`` — not
+    bare ids — so the plan's pins are derived from canonical authority and
+    can never name a revision that does not exist or a variant based on a
+    different scene. A variant must belong to the same document and be based
+    on exactly the pinned revision.
+    """
+
+    if scene_revision.document_id != document_id:
+        raise ValueError(
+            'scene revision belongs to a different document'
+        )
+    if system_variant is not None:
+        if system_variant.document_id != document_id:
+            raise ValueError(
+                'system variant belongs to a different document'
+            )
+        if system_variant.baseline_revision_id != scene_revision.revision_id:
+            raise ValueError(
+                'system variant is not based on the pinned scene revision'
+            )
     keys = {spec.key for spec in tolerance_profile.specs}
     for check in checks:
         if check.tolerance_key not in keys:
@@ -265,11 +345,27 @@ def build_commissioning_plan(
                 f'check {check.check_id} references unknown tolerance '
                 f'{check.tolerance_key}'
             )
+        if (
+            check.subject_kind in {'dimension', 'position', 'orientation'}
+            and check.subject.scene_entity_id is None
+        ):
+            raise ValueError(
+                f'{check.subject_kind} check {check.check_id} requires a '
+                'scene_entity_id subject'
+            )
     payload: dict[str, Any] = {
         'plan_id': plan_id or str(uuid4()),
         'document_id': document_id,
-        'scene_revision_id': scene_revision_id,
-        'system_variant_id': system_variant_id,
+        'scene_revision_id': scene_revision.revision_id,
+        'scene_content_hash': scene_revision.content_hash,
+        'system_variant_id': (
+            system_variant.variant_id if system_variant is not None else None
+        ),
+        'system_variant_sha256': (
+            system_variant.variant_sha256
+            if system_variant is not None
+            else None
+        ),
         'tolerance_profile_id': tolerance_profile.profile_id,
         'tolerance_profile_sha256': tolerance_profile.profile_sha256,
         'checks': tuple(checks),
@@ -299,8 +395,14 @@ class CommissioningObservation(BaseModel):
     check_id: str = Field(min_length=1)
     value: float | None = None
     value_text: str | None = None
+    #: The unit ``value`` and ``uncertainty`` are expressed in; required for
+    #: numeric observations (a bare number can never pass a unit-bearing
+    #: tolerance). ``None`` is valid only for textual/equality observations.
+    unit: UnitKind | None = None
     uncertainty: float | None = Field(default=None, ge=0)
-    evidence_id: str | None = Field(default=None, min_length=1)
+    #: Exact provenance for measured/recorded evidence; ``None`` means an
+    #: explicitly manual operator observation.
+    evidence_ref: AuthorityRef | None = None
     not_applicable: bool = False
     observed_at_utc: str | None = None
     note: str | None = None
@@ -315,6 +417,12 @@ class CommissioningObservation(BaseModel):
             raise ValueError(
                 'observation requires a value, value_text, or '
                 'not_applicable'
+            )
+        if self.value is None and self.unit is not None:
+            raise ValueError('unit requires a numeric value')
+        if self.value is not None and self.unit is None:
+            raise ValueError(
+                'numeric observations require an explicit unit'
             )
         return self
 
@@ -336,7 +444,10 @@ class AcceptedDeviation(BaseModel):
     """A recorded human decision on a non-passing check.
 
     A deviation is evidence of acceptance *despite* the evaluated status —
-    it never rewrites the status to ``pass``.
+    it never rewrites the status to ``pass`` and never mutates the stored
+    result. ``decision_ref`` optionally pins an external design-decision
+    authority carrying the disposition (#654-style); when absent the
+    embedded rationale/approver/time are the complete auditable record.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -346,6 +457,7 @@ class AcceptedDeviation(BaseModel):
     rationale: str = Field(min_length=1)
     approved_by: str = Field(min_length=1)
     decided_at_utc: str = Field(min_length=1)
+    decision_ref: AuthorityRef | None = None
 
 
 def evaluate_commissioning_check(
@@ -353,7 +465,14 @@ def evaluate_commissioning_check(
     tolerance: ToleranceSpec | None,
     observation: CommissioningObservation | None,
 ) -> CommissioningCheckResult:
-    """Apply the uncertainty-aware decision rule to one check."""
+    """Apply the uncertainty-aware decision rule to one check.
+
+    Numeric comparison runs in the tolerance spec's unit: the observation's
+    value and uncertainty are converted through the canonical unit policy,
+    and a unit the tolerance cannot accept — a different quantity family or
+    a missing unit on either side — evaluates to ``unknown`` rather than
+    silently comparing unlike numbers.
+    """
 
     def result(
         status: CommissioningStatus,
@@ -402,6 +521,25 @@ def evaluate_commissioning_check(
             'unknown',
             'observation uncertainty was never quantified',
             value=value,
+        )
+    if tolerance.unit is None:
+        return result(
+            'unknown',
+            'numeric tolerance has no unit contract',
+            value=value,
+        )
+    assert observation.unit is not None
+    try:
+        value = convert_unit(value, observation.unit, tolerance.unit)
+        uncertainty = convert_unit(
+            uncertainty, observation.unit, tolerance.unit
+        )
+    except ValueError:
+        return result(
+            'unknown',
+            f'observation unit {observation.unit} is not convertible to '
+            f'tolerance unit {tolerance.unit}',
+            value=observation.value,
         )
     if tolerance.operator == 'abs_error':
         assert tolerance.target is not None and tolerance.limit is not None
@@ -596,6 +734,7 @@ __all__ = [
     'COMMISSIONING_SCHEMA_VERSION',
     'AcceptedDeviation',
     'CheckSubjectKind',
+    'CheckSubject',
     'CommissioningCheck',
     'CommissioningCheckResult',
     'CommissioningObservation',
