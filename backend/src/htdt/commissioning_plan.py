@@ -281,6 +281,7 @@ def _requirement_status(
     view,
     revision,
     intent: CommissioningIntent,
+    level: RequirementLevel = 'required',
 ) -> tuple[RequirementStatus, str, WorkspaceDeepLink | None]:
     """Map an Overview readiness view onto a requirement verdict."""
     blockers = {notice.code: notice for notice in view.blockers}
@@ -352,6 +353,10 @@ def _requirement_status(
                 '取得経路を選んでください。',
                 link,
             )
+        if level == 'optional':
+            # An optional measurement with no 'missing' warning is a no-op
+            # state — the reason must not claim data was registered (#899).
+            return 'satisfied', '測定はこのプロジェクトでは任意です', None
         return 'satisfied', '測定データは登録済みです', None
     if requirement_id == 'prediction.hybrid_evidence':
         if 'measurement.missing' in warnings:
@@ -406,7 +411,7 @@ class CommissioningService:
                 )
                 continue
             status, reason, link = _requirement_status(
-                requirement_id, view, revision, plan.intent
+                requirement_id, view, revision, plan.intent, level
             )
             results.append(
                 CommissioningRequirement(
