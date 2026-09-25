@@ -5,7 +5,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -14,7 +14,11 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
 )
-from .cad_system_variant import EntityLifecycleBinding, SystemVariant
+from .cad_system_variant import (
+    EntityLifecycleBinding,
+    SystemVariant,
+    VariantDiffKind,
+)
 from .cad_system_variant_repository import (
     CadSystemVariantRepository,
     SystemVariantApplication,
@@ -46,12 +50,87 @@ class SceneRevisionLineageRef(BaseModel):
     content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 
+ConformanceState = Literal[
+    'exact',
+    'deviated',
+    'not_installed',
+    'unexpected_present',
+]
+
+
+def _entity_sha256(entity) -> str:
+    return _digest(entity.model_dump(mode='json'))
+
+
+class EntityAsBuiltConformance(BaseModel):
+    """Per-diff conformance of the exact applied proposal against the
+    selected as-built SceneRevision (#958).
+
+    ``exact`` — the diff operation is realized literally: add/replace
+    entities are present and content-equal; remove entities are absent.
+    ``deviated`` — the entity is installed but its content differs from
+    the proposal; the deviation is explicit (``deviation_note``).
+    ``not_installed`` and ``unexpected_present`` are derivable evaluation
+    states that may never persist inside a completion record: a missing
+    proposed entity or a reintroduced removed entity cannot be declared
+    as-built, so the record model rejects them outright.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    entity_id: str = Field(min_length=1)
+    diff_kind: VariantDiffKind
+    state: ConformanceState
+    proposed_entity_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    actual_entity_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    deviation_note: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode='after')
+    def valid_conformance(self) -> 'EntityAsBuiltConformance':
+        if self.state in {'not_installed', 'unexpected_present'}:
+            raise ValueError(
+                'as-built completion cannot persist a non-conformant '
+                'entity state'
+            )
+        if self.state == 'deviated':
+            if self.deviation_note is None or self.actual_entity_sha256 is None:
+                raise ValueError(
+                    'deviated conformance requires the actual entity and an '
+                    'explicit deviation note'
+                )
+            if self.actual_entity_sha256 == self.proposed_entity_sha256:
+                raise ValueError(
+                    'deviated conformance requires actual content differing '
+                    'from proposed'
+                )
+        else:
+            if self.deviation_note is not None:
+                raise ValueError(
+                    'only deviated conformance may carry a deviation note'
+                )
+            if self.diff_kind == 'remove':
+                if self.actual_entity_sha256 is not None:
+                    raise ValueError(
+                        'exact remove conformance cannot carry an actual entity'
+                    )
+            elif self.actual_entity_sha256 != self.proposed_entity_sha256:
+                raise ValueError(
+                    'exact conformance requires the actual entity to equal '
+                    'the proposed entity'
+                )
+        return self
+
+
 class SystemVariantAsBuiltRecord(BaseModel):
     """Explicit installation-completion evidence for one applied proposal.
 
-    The original SystemVariant remains immutable/proposed. This record declares
-    that all entities proposed by that variant are physically as-built in one
-    exact applied-or-descendant SceneRevision.
+    The original SystemVariant remains immutable/proposed. This record
+    declares that the variant's full add/replace/remove diff is realized
+    in one exact applied-or-descendant SceneRevision, with any legitimate
+    field deviations recorded explicitly per entity rather than collapsed
+    into a generic as_built label (#958).
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -76,7 +155,9 @@ class SystemVariantAsBuiltRecord(BaseModel):
     as_built_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     revision_lineage: tuple[SceneRevisionLineageRef, ...] = Field(min_length=1)
 
-    entity_lifecycle: tuple[EntityLifecycleBinding, ...] = Field(min_length=1)
+    entity_conformance: tuple[EntityAsBuiltConformance, ...] = Field(
+        min_length=1
+    )
 
     confirmation_kind: Literal[
         'manual_installation_completion'
@@ -105,17 +186,9 @@ class SystemVariantAsBuiltRecord(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError('as-built revision lineage must not repeat revisions')
 
-        entity_ids = [item.entity_id for item in self.entity_lifecycle]
+        entity_ids = [item.entity_id for item in self.entity_conformance]
         if len(entity_ids) != len(set(entity_ids)):
-            raise ValueError('as-built entity lifecycle ids must be unique')
-        if any(item.state != 'as_built' for item in self.entity_lifecycle):
-            raise ValueError(
-                'SystemVariantAsBuiltRecord permits as_built lifecycle only'
-            )
-        if any(item.measurement_ids for item in self.entity_lifecycle):
-            raise ValueError(
-                'as-built lifecycle cannot carry measurement evidence'
-            )
+            raise ValueError('as-built entity conformance ids must be unique')
         if len(self.notes) != len(set(self.notes)):
             raise ValueError('as-built notes must be unique')
 
@@ -125,6 +198,24 @@ class SystemVariantAsBuiltRecord(BaseModel):
         if self.record_id != f'system-variant-as-built:{expected}':
             raise ValueError('SystemVariantAsBuiltRecord id mismatch')
         return self
+
+    @property
+    def entity_lifecycle(self) -> tuple[EntityLifecycleBinding, ...]:
+        """Derived lifecycle view: entities installed as-built.
+
+        Add/replace conformance entries (exact or explicitly deviated)
+        materialize as ``as_built`` bindings; removed entities carry no
+        lifecycle binding. Measurement evidence is never attached here —
+        measured lifecycle is a separate record (#958).
+        """
+        return tuple(
+            EntityLifecycleBinding(
+                entity_id=item.entity_id,
+                state='as_built',
+            )
+            for item in self.entity_conformance
+            if item.diff_kind != 'remove'
+        )
 
     def semantic_payload(self) -> dict[str, Any]:
         return self.model_dump(
@@ -179,43 +270,92 @@ def _revision_lineage(
     )
 
 
-def _validate_proposed_entities_present(
+def _validate_variant_diff_conformance(
     *,
     variant: SystemVariant,
     target_revision: SceneRevision,
-) -> tuple[EntityLifecycleBinding, ...]:
+    accepted_deviations: Mapping[str, str],
+) -> tuple[EntityAsBuiltConformance, ...]:
+    """Evaluate every add/replace/remove diff against the as-built scene.
+
+    Fail-closed semantics: a proposed entity missing from the target or a
+    proposal-removed entity still present is not an honest completion and
+    raises; content deviations are only admitted via an explicit
+    ``accepted_deviations`` note (#958).
+    """
+    if not variant.diff:
+        raise ValueError(
+            'as-built promotion requires at least one variant diff operation'
+        )
     target_by_id = {
         item.entity_id: item
         for item in target_revision.document.entities
     }
-    bindings: list[EntityLifecycleBinding] = []
-    for proposed in variant.proposed_entities:
-        entity_id = proposed.entity.entity_id
+    for binding in variant.equipment_bindings:
+        if binding.entity_id not in target_by_id:
+            raise ValueError(
+                'as-built target is missing equipment-bound entity: '
+                f'{binding.entity_id}'
+            )
+    conformance: list[EntityAsBuiltConformance] = []
+    for change in variant.diff:
+        entity_id = change.entity_id
         target = target_by_id.get(entity_id)
+        actual_sha = (
+            _entity_sha256(target) if target is not None else None
+        )
+        if change.kind == 'remove':
+            assert change.before_entity is not None
+            if target is not None:
+                raise ValueError(
+                    'as-built target reintroduces proposal-removed entity: '
+                    f'{entity_id}'
+                )
+            conformance.append(
+                EntityAsBuiltConformance(
+                    entity_id=entity_id,
+                    diff_kind='remove',
+                    state='exact',
+                    proposed_entity_sha256=_entity_sha256(
+                        change.before_entity
+                    ),
+                )
+            )
+            continue
+        assert change.after_entity is not None
+        proposed_sha = _entity_sha256(change.after_entity)
         if target is None:
             raise ValueError(
                 f'as-built target is missing proposed entity: {entity_id}'
             )
-        if target.kind != proposed.entity.kind:
-            raise ValueError(
-                f'as-built proposed entity kind changed: {entity_id}'
+        if actual_sha == proposed_sha:
+            conformance.append(
+                EntityAsBuiltConformance(
+                    entity_id=entity_id,
+                    diff_kind=change.kind,
+                    state='exact',
+                    proposed_entity_sha256=proposed_sha,
+                    actual_entity_sha256=actual_sha,
+                )
             )
-        if (
-            target.kind == 'speaker'
-            and target.speaker_role != proposed.entity.speaker_role
-        ):
+            continue
+        note = accepted_deviations.get(entity_id)
+        if not note:
             raise ValueError(
-                f'as-built proposed speaker role changed: {entity_id}'
+                f'as-built target deviates from proposed entity without an '
+                f'accepted-deviation note: {entity_id}'
             )
-        bindings.append(
-            EntityLifecycleBinding(
+        conformance.append(
+            EntityAsBuiltConformance(
                 entity_id=entity_id,
-                state='as_built',
+                diff_kind=change.kind,
+                state='deviated',
+                proposed_entity_sha256=proposed_sha,
+                actual_entity_sha256=actual_sha,
+                deviation_note=note,
             )
         )
-    if not bindings:
-        raise ValueError('as-built promotion requires proposed physical entities')
-    return tuple(bindings)
+    return tuple(conformance)
 
 
 def build_system_variant_as_built_record(
@@ -228,6 +368,7 @@ def build_system_variant_as_built_record(
     confirmed_by: str,
     confirmed_at_utc: str,
     notes: Sequence[str] = (),
+    accepted_deviations: Mapping[str, str] | None = None,
 ) -> SystemVariantAsBuiltRecord:
     persisted_application = variant_repository.get_application(
         application.application_id
@@ -265,9 +406,10 @@ def build_system_variant_as_built_record(
         application=application,
         target_revision=as_built_revision,
     )
-    entity_lifecycle = _validate_proposed_entities_present(
+    entity_conformance = _validate_variant_diff_conformance(
         variant=variant,
         target_revision=as_built_revision,
+        accepted_deviations=accepted_deviations or {},
     )
     note_tuple = tuple(notes)
     core = {
@@ -285,8 +427,8 @@ def build_system_variant_as_built_record(
         'revision_lineage': [
             item.model_dump(mode='json') for item in lineage
         ],
-        'entity_lifecycle': [
-            item.model_dump(mode='json') for item in entity_lifecycle
+        'entity_conformance': [
+            item.model_dump(mode='json') for item in entity_conformance
         ],
         'confirmation_kind': 'manual_installation_completion',
         'confirmed_by': confirmed_by,
@@ -307,7 +449,7 @@ def build_system_variant_as_built_record(
         as_built_revision_id=as_built_revision.revision_id,
         as_built_content_hash=as_built_revision.content_hash,
         revision_lineage=lineage,
-        entity_lifecycle=entity_lifecycle,
+        entity_conformance=entity_conformance,
         confirmed_by=confirmed_by,
         confirmed_at_utc=confirmed_at_utc,
         notes=note_tuple,
@@ -381,6 +523,11 @@ class CadSystemVariantLifecycleRepository:
             confirmed_by=record.confirmed_by,
             confirmed_at_utc=record.confirmed_at_utc,
             notes=record.notes,
+            accepted_deviations={
+                item.entity_id: item.deviation_note
+                for item in record.entity_conformance
+                if item.deviation_note is not None
+            },
         )
         if rebuilt != record:
             raise ValueError(
