@@ -99,6 +99,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_data_source_registry ( source_id TEXT PRIMARY KEY, domain TEXT NOT NULL, source_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dataset_reviews ( review_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, review_sha256 TEXT NOT NULL UNIQUE, reviewed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_deterministic_ga_execution_inputs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, execution_input_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, snapshot_id TEXT NOT NULL, prediction_request_id TEXT NOT NULL, dispatch_binding_id TEXT NOT NULL, r120_compiled_geometry_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
     """
     ,
@@ -176,6 +184,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE TABLE IF NOT EXISTS cad_hybrid_stitching_policies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, policy_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, mode TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_importer_declarations ( importer_id TEXT PRIMARY KEY, domain TEXT NOT NULL, importer_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
     """
@@ -307,11 +319,19 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_raw_source_records ( record_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, record_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_robustness_specs ( robustness_spec_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, search_spec_id TEXT NOT NULL, candidate_id TEXT NOT NULL, nominal_objective_evaluation_id TEXT NOT NULL, model_id TEXT NOT NULL, model_version TEXT NOT NULL, payload_json TEXT NOT NULL, robustness_spec_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL )
     """
     ,
     """
     CREATE TABLE IF NOT EXISTS cad_routing_profiles ( routing_profile_id TEXT PRIMARY KEY, routing_profile_sha256 TEXT NOT NULL UNIQUE, profile_name TEXT NOT NULL, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_review_decisions ( decision_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, decision_sha256 TEXT NOT NULL UNIQUE, reviewed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
     """
@@ -371,7 +391,19 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_upstream_version_candidates ( candidate_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, candidate_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_validation_benchmark_specs ( benchmark_spec_id TEXT PRIMARY KEY, benchmark_spec_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_validation_campaign_registrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, registration_id TEXT NOT NULL UNIQUE, registration_sha256 TEXT NOT NULL UNIQUE, campaign_id TEXT NOT NULL UNIQUE, campaign_sha256 TEXT NOT NULL, registered_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_validation_corpus_entries ( corpus_entry_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, corpus_entry_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
     """
@@ -1533,7 +1565,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_coverage_evaluations',
     'cad_coverage_scenarios',
     'cad_current_topologies',
+    'cad_data_source_registry',
     'cad_dataset_level_references',
+    'cad_dataset_reviews',
     'cad_deterministic_ga_execution_inputs',
     'cad_deterministic_path_artifacts',
     'cad_direct_level_evaluations',
@@ -1558,6 +1592,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_hybrid_prediction_provider_objectives',
     'cad_hybrid_prediction_providers',
     'cad_hybrid_stitching_policies',
+    'cad_importer_declarations',
     'cad_impulse_responses',
     'cad_installation_contexts',
     'cad_installed_definition_bindings',
@@ -1627,6 +1662,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_r140_gpu_authorities',
     'cad_r140_resource_estimates',
     'cad_raw_mesh_repair_bundles',
+    'cad_raw_source_records',
     'cad_robustness_evaluations',
     'cad_robustness_specs',
     'cad_robustness_validation_cases',
@@ -1635,6 +1671,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_roomsim_candidate_attempts',
     'cad_routing_profiles',
     'cad_search_specs',
+    'cad_source_review_decisions',
     'cad_speaker_electrical_loads',
     'cad_speaker_impedances',
     'cad_standards_evaluations',
@@ -1664,8 +1701,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_treatment_boundary_overlays',
     'cad_treatment_evidence_authorities',
     'cad_upgrade_adoptions',
+    'cad_upstream_version_candidates',
+    'cad_validation_benchmark_specs',
     'cad_validation_campaign_registrations',
     'cad_validation_campaigns',
+    'cad_validation_corpus_entries',
     'cad_video_geometry_evaluations',
     'cad_video_geometry_workspaces',
     'cad_video_presentation_profiles',
