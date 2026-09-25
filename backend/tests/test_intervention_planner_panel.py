@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from htdt.cad_repository import SceneRepository
+from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene
 from htdt.intervention_planner_panel import InterventionPlannerPanel
 from htdt.workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
@@ -41,6 +42,7 @@ class _FakeContext:
 @dataclass
 class _FakePlanner:
     scene_repository: SceneRepository
+    document_id: str = "doc-1"
     context: _FakeContext = field(default_factory=_FakeContext)
     studies: list = field(default_factory=list)
     alternatives: dict = field(default_factory=dict)
@@ -315,9 +317,12 @@ def test_verify_hands_off_to_measurement_campaign(tmp_path) -> None:
     ]
 
 
-def test_study_marks_stale_when_baseline_revision_moves(tmp_path) -> None:
+def test_study_marks_stale_when_head_revision_moves(tmp_path) -> None:
+    repository = SceneRepository(tmp_path / "s.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
     planner = _FakePlanner(
-        SceneRepository(tmp_path / "s.sqlite3"),
+        repository,
+        document_id=F1_DOCUMENT_ID,
         context=_FakeContext(baseline=_FakeBaseline(revision_id="rev-2")),
     )
     planner.studies.append(
