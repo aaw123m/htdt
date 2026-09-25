@@ -95,7 +95,6 @@ def _controller(
             channel_role='front_left',
             source_speaker_ids=('speaker-fl',),
             radiation_scope='single',
-            routing_evidence='verified',
         )
     )
     return controller, quality_repository, record

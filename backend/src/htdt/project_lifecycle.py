@@ -275,7 +275,7 @@ class ProjectLibrary:
     ) -> ProjectRecord:
         now = _utc_now()
         existing = connection.execute(
-            'SELECT * FROM project_registry WHERE document_id=?',
+            'SELECT * FROM htdt_project_documents WHERE document_id=?',
             (document_id,),
         ).fetchone()
         if existing is not None:
@@ -284,17 +284,17 @@ class ProjectLibrary:
             project_id or uuid4().hex,
             document_id,
             display_name or document_id,
-            'active',
             cloned_from_project_id,
             now,
             now,
+            0,
             None,
         )
         connection.execute(
-            'INSERT INTO project_registry('
-            'project_id, document_id, display_name, status, '
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, '
             'cloned_from_project_id, created_at_utc, updated_at_utc, '
-            'archived_at_utc'
+            'archived, archived_at_utc'
             ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             record,
         )

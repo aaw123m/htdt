@@ -803,7 +803,7 @@ def _rollback_template_creation(
     if project_id is not None:
         with closing(library._connect()) as connection:
             connection.execute(
-                'DELETE FROM project_registry WHERE project_id=?',
+                'DELETE FROM htdt_project_documents WHERE project_id=?',
                 (project_id,),
             )
             connection.commit()
