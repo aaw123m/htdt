@@ -6,6 +6,7 @@ from typing import Any
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QWidget
 
+from .availability_reasons import AvailabilityReason, availability_reason
 from .command_palette import CommandPaletteController
 from .command_registry import (
     CommandAvailability,
@@ -21,65 +22,79 @@ def _action_availability(
     window: Any,
     action_name: str,
     *,
-    disabled_reason: str,
+    disabled_reason: AvailabilityReason,
 ) -> CommandAvailability:
     action = getattr(window, action_name, None)
     if isinstance(action, QAction) and action.isEnabled():
         return CommandAvailability.available()
-    return CommandAvailability.unavailable(disabled_reason)
+    return CommandAvailability.blocked(disabled_reason)
 
 
 def _callable_availability(
     window: Any,
     method_name: str,
     *,
-    disabled_reason: str,
+    disabled_reason: AvailabilityReason,
 ) -> CommandAvailability:
     method = getattr(window, method_name, None)
     if method is None:
-        return CommandAvailability.unavailable(disabled_reason)
+        return CommandAvailability.blocked(disabled_reason)
     try:
         available = bool(method())
     except Exception:
         available = False
     if available:
         return CommandAvailability.available()
-    return CommandAvailability.unavailable(disabled_reason)
+    return CommandAvailability.blocked(disabled_reason)
 
 
 def _measurement_import_availability(window: Any) -> CommandAvailability:
     target = getattr(window, '_saved_measurement_target', None)
     if target is None:
-        return CommandAvailability.unavailable('測定ワークスペースが接続されていません')
+        return CommandAvailability.blocked(
+            availability_reason('measurement.import.workspace_unbound')
+        )
     try:
         target()
     except Exception:
-        return CommandAvailability.unavailable(
-            '保存済みSceneと測定点を用意してからREWを読み込んでください'
+        return CommandAvailability.blocked(
+            availability_reason(
+                'measurement.import.requires_saved_scene_and_point'
+            )
         )
     return CommandAvailability.available()
 
 
 def _prediction_availability(window: Any) -> CommandAvailability:
     if getattr(window, '_current_prediction_token_id', None) is not None:
-        return CommandAvailability.unavailable('予測を実行中です')
+        return CommandAvailability.blocked(
+            availability_reason('prediction.run.running')
+        )
     target = getattr(window, '_saved_prediction_target', None)
     if target is None:
-        return CommandAvailability.unavailable('予測ワークスペースが接続されていません')
+        return CommandAvailability.blocked(
+            availability_reason('prediction.run.workspace_unbound')
+        )
     try:
         target()
     except Exception:
-        return CommandAvailability.unavailable(
-            '保存済みSceneと受音点を用意してから予測を実行してください'
+        return CommandAvailability.blocked(
+            availability_reason(
+                'prediction.run.requires_saved_scene_and_receiver'
+            )
         )
     return CommandAvailability.available()
 
 
 def _candidate_compare_availability(window: Any) -> CommandAvailability:
     if getattr(window, 'search_selected_spec_id', None) is None:
-        return CommandAvailability.unavailable('比較する探索仕様を選択してください')
+        return CommandAvailability.blocked(
+            availability_reason('optimization.compare.requires_spec_selection')
+        )
     if getattr(window, 'objective_repository', None) is None:
-        return CommandAvailability.unavailable('候補比較ワークスペースが接続されていません')
+        return CommandAvailability.blocked(
+            availability_reason('optimization.compare.workspace_unbound')
+        )
     return CommandAvailability.available()
 
 
@@ -101,7 +116,9 @@ def build_native_command_registry(
             lambda: _action_availability(
                 window,
                 'save_action',
-                disabled_reason='保存できる変更がないか、編集中の操作があります',
+                disabled_reason=availability_reason(
+                    'project.save.unavailable_or_editing'
+                ),
             ),
         ),
         'edit.undo': (
@@ -109,7 +126,9 @@ def build_native_command_registry(
             lambda: _action_availability(
                 window,
                 'undo_action',
-                disabled_reason='元に戻せる操作はありません',
+                disabled_reason=availability_reason(
+                    'command.blocked.nothing_to_undo'
+                ),
             ),
         ),
         'edit.redo': (
@@ -117,7 +136,9 @@ def build_native_command_registry(
             lambda: _action_availability(
                 window,
                 'redo_action',
-                disabled_reason='やり直せる操作はありません',
+                disabled_reason=availability_reason(
+                    'command.blocked.nothing_to_redo'
+                ),
             ),
         ),
         'room.draw': (
@@ -125,7 +146,9 @@ def build_native_command_registry(
             lambda: _action_availability(
                 window,
                 'draw_room_action',
-                disabled_reason='部屋の編集中または復旧確認中は新しい作図を開始できません',
+                disabled_reason=availability_reason(
+                    'room.draw.blocked_while_editing'
+                ),
             ),
         ),
         'room.add_speaker': (
@@ -133,7 +156,9 @@ def build_native_command_registry(
             lambda: _callable_availability(
                 window,
                 '_object_edit_available',
-                disabled_reason='部屋を作成し、部屋・壁編集を完了してから追加してください',
+                disabled_reason=availability_reason(
+                    'room.add_speaker.requires_finished_room'
+                ),
             ),
         ),
         'measurements.import_rew': (
@@ -162,7 +187,9 @@ def bind_active_editor_commands(registry: CommandRegistry, window: Any) -> None:
         availability=lambda: _action_availability(
             window,
             'save_action',
-            disabled_reason='保存できる変更がないか、編集中の操作があります',
+            disabled_reason=availability_reason(
+                'project.save.unavailable_or_editing'
+            ),
         ),
     )
     registry.bind(
@@ -171,7 +198,9 @@ def bind_active_editor_commands(registry: CommandRegistry, window: Any) -> None:
         availability=lambda: _action_availability(
             window,
             'undo_action',
-            disabled_reason='元に戻せる操作はありません',
+            disabled_reason=availability_reason(
+                'command.blocked.nothing_to_undo'
+            ),
         ),
     )
     registry.bind(
@@ -180,7 +209,9 @@ def bind_active_editor_commands(registry: CommandRegistry, window: Any) -> None:
         availability=lambda: _action_availability(
             window,
             'redo_action',
-            disabled_reason='やり直せる操作はありません',
+            disabled_reason=availability_reason(
+                'command.blocked.nothing_to_redo'
+            ),
         ),
     )
 
@@ -204,7 +235,9 @@ def bind_native_workspace_commands(
             availability=lambda: _action_availability(
                 window,
                 'draw_room_action',
-                disabled_reason='部屋の編集中または復旧確認中は新しい作図を開始できません',
+                disabled_reason=availability_reason(
+                    'room.draw.blocked_while_editing'
+                ),
             ),
         )
         registry.bind(
@@ -213,7 +246,9 @@ def bind_native_workspace_commands(
             availability=lambda: _callable_availability(
                 window,
                 '_object_edit_available',
-                disabled_reason='部屋を作成し、部屋・壁編集を完了してから追加してください',
+                disabled_reason=availability_reason(
+                    'room.add_speaker.requires_finished_room'
+                ),
             ),
         )
         registry.bind(

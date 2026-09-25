@@ -11,13 +11,18 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_measurement_authorities import CadRoutingProfileBinding
+from .cad_measurement_authorities import (
+    CadAcousticLevelCalibration,
+    CadDatasetLevelReference,
+    CadRoutingProfileBinding,
+    calibration_supports_absolute_spl,
+)
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_scene import Direction3, Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
-QUALITY_ALGORITHM_VERSION = 'measurement-quality-1'
+QUALITY_ALGORITHM_VERSION = 'measurement-quality-2'
 
 QualityDecision = Literal['PASS', 'FAIL', 'UNKNOWN', 'NOT_EVALUATED']
 CapabilityDecision = Literal['ALLOWED', 'BLOCKED', 'UNKNOWN']
@@ -29,6 +34,9 @@ MeasurementCapabilityClaim = Literal[
     'arrival_time',
     'decay',
     'calibrated_response',
+    'frequency_response_corrected',
+    'absolute_spl',
+    'absolute_noise_level',
     'repeatability',
     'polarity',
 ]
@@ -84,6 +92,27 @@ _ALL_CAPABILITY_CLAIMS: tuple[MeasurementCapabilityClaim, ...] = (
     'arrival_time',
     'decay',
     'calibrated_response',
+    'frequency_response_corrected',
+    'absolute_spl',
+    'absolute_noise_level',
+    'repeatability',
+    'polarity',
+)
+
+# Issue #861 claim-family: 'calibrated_response' historically conflated the
+# mic-correction claim and the level-semantics claim. The v2 algorithm keeps
+# it as a *legacy alias* — same derivation as the new explicit
+# 'frequency_response_corrected' claim — and splits absolute level semantics
+# out into 'absolute_spl'/'absolute_noise_level', which independently require
+# a persisted CadDatasetLevelReference bound to the exact dataset plus a
+# resolved CadAcousticLevelCalibration whose validity scope applies.
+_CLAIMS_V1: tuple[MeasurementCapabilityClaim, ...] = (
+    'magnitude_response',
+    'phase_response',
+    'common_timing',
+    'arrival_time',
+    'decay',
+    'calibrated_response',
     'repeatability',
     'polarity',
 )
@@ -117,20 +146,56 @@ def _hash(payload: Any) -> str:
     return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
+_ALGORITHM_CHECKS: tuple[str, ...] = (
+    'clipping',
+    'noise_snr',
+    'usable_frequency_band',
+    'timing_reference',
+    'polarity',
+    'ir_window',
+    'calibration',
+    'repeatability',
+)
+
+_CORRECTED_RESPONSE_REQUIRES = [
+    'authoritative_acquisition_context',
+    'clipping:PASS',
+    'noise_snr:PASS',
+    'usable_frequency_band:PASS',
+    'calibration:PASS',
+]
+
+_QUALITY_ALGORITHM_V1_VERSION = 'measurement-quality-1'
+
+# Pinned v1 algorithm identity (#465): frozen verbatim so reports persisted
+# under it stay replayable with byte-identical semantics.
+_QUALITY_ALGORITHM_V1_IDENTITY = {
+    'algorithm_version': _QUALITY_ALGORITHM_V1_VERSION,
+    'decision_semantics': ['PASS', 'FAIL', 'UNKNOWN', 'NOT_EVALUATED'],
+    'capability_semantics': ['ALLOWED', 'BLOCKED', 'UNKNOWN'],
+    'checks': list(_ALGORITHM_CHECKS),
+    'claims': list(_CLAIMS_V1),
+    'missing_evidence': 'unknown_or_not_evaluated_never_pass',
+    'phase_does_not_imply_common_timing': True,
+    'fr_does_not_imply_acquisition_quality': True,
+    'common_timing_requires': [
+        'authoritative_acquisition_context',
+        'timing_reference',
+    ],
+    'arrival_time_requires': ['impulse_response', 'common_timing', 'ir_window'],
+    'decay_requires': ['impulse_response', 'ir_window'],
+    'calibrated_response_requires': list(_CORRECTED_RESPONSE_REQUIRES),
+    'polarity_requires': ['polarity:PASS'],
+    'repeatability_requires': ['repeatability:PASS'],
+    'unconfigured_thresholds_do_not_pass': True,
+}
+_QUALITY_ALGORITHM_V1_SHA256 = _hash(_QUALITY_ALGORITHM_V1_IDENTITY)
+
 QUALITY_ALGORITHM_IDENTITY = {
     'algorithm_version': QUALITY_ALGORITHM_VERSION,
     'decision_semantics': ['PASS', 'FAIL', 'UNKNOWN', 'NOT_EVALUATED'],
     'capability_semantics': ['ALLOWED', 'BLOCKED', 'UNKNOWN'],
-    'checks': [
-        'clipping',
-        'noise_snr',
-        'usable_frequency_band',
-        'timing_reference',
-        'polarity',
-        'ir_window',
-        'calibration',
-        'repeatability',
-    ],
+    'checks': list(_ALGORITHM_CHECKS),
     'claims': list(_ALL_CAPABILITY_CLAIMS),
     'missing_evidence': 'unknown_or_not_evaluated_never_pass',
     'phase_does_not_imply_common_timing': True,
@@ -141,12 +206,22 @@ QUALITY_ALGORITHM_IDENTITY = {
     ],
     'arrival_time_requires': ['impulse_response', 'common_timing', 'ir_window'],
     'decay_requires': ['impulse_response', 'ir_window'],
-    'calibrated_response_requires': [
-        'authoritative_acquisition_context',
-        'clipping:PASS',
-        'noise_snr:PASS',
-        'usable_frequency_band:PASS',
-        'calibration:PASS',
+    'calibrated_response_requires': list(_CORRECTED_RESPONSE_REQUIRES),
+    # 'calibrated_response' is the legacy alias of
+    # 'frequency_response_corrected' (#861): identical derivation, kept so
+    # consumers written against v1 keep their claim name.
+    'calibrated_response_is_legacy_alias_of': 'frequency_response_corrected',
+    'frequency_response_corrected_requires': list(_CORRECTED_RESPONSE_REQUIRES),
+    'absolute_spl_requires': [
+        'dataset_level_reference:absolute_spl',
+        'resolved_acoustic_level_calibration:supports_absolute_spl',
+        'calibration_validity_scope_applies',
+    ],
+    'absolute_noise_level_requires': [
+        'dataset_level_reference:absolute_spl',
+        'resolved_acoustic_level_calibration:supports_absolute_spl',
+        'calibration_validity_scope_applies',
+        'noise_floor_db_spl',
     ],
     'polarity_requires': ['polarity:PASS'],
     'repeatability_requires': ['repeatability:PASS'],
@@ -239,6 +314,24 @@ class CadAcquisitionContextBinding(BaseModel):
     acquisition_context_id: str = Field(min_length=1)
     acquisition_context_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_kind: AcquisitionContextSourceKind = 'unknown'
+
+
+class CadDatasetLevelReferenceBinding(BaseModel):
+    """Pinned dataset level-reference authority for absolute-level claims (#861).
+
+    Like the acquisition-context binding this is a reference, not a
+    replacement: the id/sha pin must resolve to the persisted
+    ``CadDatasetLevelReference`` for the report's exact dataset, and the
+    mirrored ``level_reference_kind`` must equal the persisted kind so a
+    binding can never upgrade ``dbfs``/``unknown`` semantics into an
+    ``absolute_spl`` claim.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    level_reference_id: str = Field(min_length=1)
+    level_reference_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    level_reference_kind: str = Field(min_length=1)
 
 
 def _require_iso8601(value: str, label: str) -> None:
@@ -377,6 +470,7 @@ class CadAcquisitionContext(BaseModel):
     signal_path_identity: str | None = None
     input_path_identity: str | None = None
     routing_profile: CadRoutingProfileBinding | None = None
+
     created_at_utc: str = Field(min_length=1)
     notes: tuple[str, ...] = ()
     provenance_json: str = '{}'
@@ -434,6 +528,7 @@ class CadAcquisitionContext(BaseModel):
             payload['input_path_identity'] = self.input_path_identity
         if self.routing_profile is not None:
             payload['routing_profile'] = self.routing_profile.model_dump(mode='json')
+
         return payload
 
 
@@ -564,6 +659,7 @@ def build_acquisition_context(
     signal_path_identity: str | None = None,
     input_path_identity: str | None = None,
     routing_profile: CadRoutingProfileBinding | None = None,
+
     acquisition_context_id: str | None = None,
     created_at_utc: str | None = None,
     notes: Sequence[str] = (),
@@ -597,6 +693,7 @@ def build_acquisition_context(
         'signal_path_identity': signal_path_identity,
         'input_path_identity': input_path_identity,
         'routing_profile': routing_profile,
+
         'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
         'notes': tuple(notes),
         'provenance_json': provenance_json,
@@ -797,6 +894,9 @@ class CadMeasurementQualityReport(BaseModel):
     measurement_position: Position3
     acquisition_context: CadAcquisitionContextBinding | None = None
     observation: CadMeasurementObservationBinding | None = None
+    # #861: exact persisted CadDatasetLevelReference the absolute-level claims
+    # were derived from. Reports without absolute-level evidence carry no pin.
+    level_reference: CadDatasetLevelReferenceBinding | None = None
 
     algorithm_version: str = Field(min_length=1)
     algorithm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -871,6 +971,10 @@ class CadMeasurementQualityReport(BaseModel):
         # self-verify on read.
         if self.observation is not None:
             payload['observation'] = self.observation.model_dump(mode='json')
+        # ``level_reference`` joins the identity only when pinned (#861) so
+        # reports persisted before it existed keep their sealed hash.
+        if self.level_reference is not None:
+            payload['level_reference'] = self.level_reference.model_dump(mode='json')
         return payload
 
     def capability(self, claim: MeasurementCapabilityClaim) -> CadMeasurementCapability:
@@ -1161,18 +1265,22 @@ def unestablished_capability_claims(
         _unestablished('arrival_time'),
         _unestablished('decay'),
         _unestablished('calibrated_response'),
+        _unestablished('frequency_response_corrected'),
+        _unestablished('absolute_spl'),
+        _unestablished('absolute_noise_level'),
         _unestablished('repeatability'),
         _unestablished('polarity'),
     )
 
 
-def derive_measurement_capabilities(
+def _derive_measurement_capabilities_v1(
     *,
     dataset: CadFrequencyResponseDataset,
     acquisition_context: CadAcquisitionContextBinding | None,
     evidence: CadMeasurementQualityEvidence,
     checks: dict[str, CadMeasurementQualityCheck],
 ) -> tuple[CadMeasurementCapability, ...]:
+    """Frozen v1 claim matrix (#465): eight claims, no level-semantics split."""
     magnitude = CadMeasurementCapability(
         claim='magnitude_response',
         decision='ALLOWED',
@@ -1269,6 +1377,228 @@ def derive_measurement_capabilities(
         calibrated,
         repeatability,
         polarity,
+    )
+
+
+def _microphone_instrument_identity(context: CadAcquisitionContext) -> str | None:
+    """Composite instrument identity of a context's bound microphone, if any."""
+    microphone = context.microphone
+    if microphone is None:
+        return None
+    parts = tuple(
+        part
+        for part in (
+            microphone.manufacturer,
+            microphone.model,
+            microphone.serial,
+        )
+        if part is not None and part.strip()
+    )
+    return ' '.join(parts) if parts else None
+
+
+def _calibration_scope_applies(
+    *,
+    calibration: CadAcousticLevelCalibration,
+    acquisition_context: CadAcquisitionContext | None,
+) -> tuple[Literal['applies', 'unknown', 'inapplicable'], str]:
+    """Whether a resolved calibration's validity scope covers this report.
+
+    ``measurement`` scope applies through the dataset's level-reference pin;
+    ``session`` scope needs an authoritative acquisition context (the session
+    evidence); ``instrument`` scope needs the acquisition microphone's
+    composite identity to equal the calibration's declared instrument
+    identity; ``unknown`` scope can never authorize. ``inapplicable`` marks a
+    provable conflict (a known instrument identity that does not match);
+    ``unknown`` marks evidence that is merely absent.
+    """
+    if calibration.validity_scope == 'measurement':
+        return 'applies', 'measurement-scoped calibration is pinned to this dataset'
+    if calibration.validity_scope == 'session':
+        if (
+            acquisition_context is not None
+            and acquisition_context.source_kind != 'unknown'
+        ):
+            return (
+                'applies',
+                'session-scoped calibration is bound by the authoritative '
+                'acquisition context',
+            )
+        return (
+            'unknown',
+            'session-scoped calibration requires an authoritative '
+            'acquisition context',
+        )
+    if calibration.validity_scope == 'instrument':
+        if calibration.instrument_identity is None:
+            return 'unknown', 'instrument-scoped calibration has no instrument identity'
+        if acquisition_context is None or acquisition_context.source_kind == 'unknown':
+            return (
+                'unknown',
+                'instrument-scoped calibration requires an authoritative '
+                'acquisition context',
+            )
+        microphone_identity = _microphone_instrument_identity(acquisition_context)
+        if microphone_identity is None:
+            return (
+                'unknown',
+                'instrument-scoped calibration requires microphone instrument '
+                'identity in the acquisition context',
+            )
+        if microphone_identity != calibration.instrument_identity:
+            return (
+                'inapplicable',
+                'instrument-scoped calibration instrument does not match the '
+                'acquisition microphone',
+            )
+        return 'applies', 'instrument-scoped calibration matches the acquisition microphone'
+    return 'unknown', 'calibration validity scope is unestablished'
+
+
+def _absolute_level_capability(
+    claim: Literal['absolute_spl', 'absolute_noise_level'],
+    *,
+    dataset_level_reference: CadDatasetLevelReference | None,
+    level_calibration: CadAcousticLevelCalibration | None,
+    acquisition_context: CadAcquisitionContext | None,
+    noise_floor_db_spl: float | None,
+) -> CadMeasurementCapability:
+    """Absolute level claims (#861): an independent, calibrated gate.
+
+    A report can never invent these claims from ``calibrated_response``:
+    they require a persisted ``CadDatasetLevelReference`` pinned to the exact
+    dataset declaring ``absolute_spl`` semantics, a resolved supporting
+    ``CadAcousticLevelCalibration``, a validity scope that applies, and — for
+    the noise-level claim — explicit noise-floor evidence.
+    """
+    if dataset_level_reference is None:
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='UNKNOWN',
+            reasons=('dataset level-reference authority is unavailable',),
+        )
+    if dataset_level_reference.level_reference_kind != 'absolute_spl':
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='BLOCKED',
+            reasons=(
+                'dataset level reference declares '
+                f'{dataset_level_reference.level_reference_kind} semantics, '
+                'not absolute SPL',
+            ),
+        )
+    if level_calibration is None:
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='UNKNOWN',
+            reasons=('bound acoustic level calibration is unavailable',),
+        )
+    if (
+        level_calibration.calibration_id != dataset_level_reference.calibration_id
+        or level_calibration.calibration_sha256
+        != dataset_level_reference.calibration_sha256
+    ):
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='BLOCKED',
+            reasons=(
+                'bound acoustic level calibration does not match the dataset '
+                'level-reference pin',
+            ),
+        )
+    if not calibration_supports_absolute_spl(level_calibration):
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='BLOCKED',
+            reasons=(
+                f'calibration method {level_calibration.method} does not '
+                'support absolute SPL',
+            ),
+        )
+    scope_outcome, scope_reason = _calibration_scope_applies(
+        calibration=level_calibration,
+        acquisition_context=acquisition_context,
+    )
+    if scope_outcome != 'applies':
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='BLOCKED' if scope_outcome == 'inapplicable' else 'UNKNOWN',
+            reasons=(scope_reason,),
+        )
+    if claim == 'absolute_noise_level' and noise_floor_db_spl is None:
+        return CadMeasurementCapability(
+            claim=claim,
+            decision='UNKNOWN',
+            reasons=('noise-floor evidence is unavailable',),
+        )
+    return CadMeasurementCapability(
+        claim=claim,
+        decision='ALLOWED',
+        reasons=(scope_reason,),
+    )
+
+
+def derive_measurement_capabilities(
+    *,
+    dataset: CadFrequencyResponseDataset,
+    acquisition_context: CadAcquisitionContextBinding | None,
+    evidence: CadMeasurementQualityEvidence,
+    checks: dict[str, CadMeasurementQualityCheck],
+    dataset_level_reference: CadDatasetLevelReference | None = None,
+    level_calibration: CadAcousticLevelCalibration | None = None,
+    acquisition_context_record: CadAcquisitionContext | None = None,
+    observation: CadMeasurementObservation | None = None,
+) -> tuple[CadMeasurementCapability, ...]:
+    """v2 claim matrix (#861): adds the absolute-level claim family.
+
+    ``frequency_response_corrected`` is the explicit name for the corrected-
+    response claim; ``calibrated_response`` is kept as its legacy alias with
+    the identical derivation. ``absolute_spl``/``absolute_noise_level`` are
+    independent gates over the persisted dataset level reference and bound
+    acoustic level calibration — they never inherit from the response-shape
+    claims.
+    """
+    legacy = _derive_measurement_capabilities_v1(
+        dataset=dataset,
+        acquisition_context=acquisition_context,
+        evidence=evidence,
+        checks=checks,
+    )
+    by_claim = {item.claim: item for item in legacy}
+    corrected = CadMeasurementCapability(
+        claim='frequency_response_corrected',
+        decision=by_claim['calibrated_response'].decision,
+        reasons=by_claim['calibrated_response'].reasons,
+    )
+    # The noise-floor provenance must come from a bound measurement
+    # observation record — an ad-hoc evidence value is not authority.
+    noise_floor = None if observation is None else observation.noise_floor_db_spl
+    absolute_spl = _absolute_level_capability(
+        'absolute_spl',
+        dataset_level_reference=dataset_level_reference,
+        level_calibration=level_calibration,
+        acquisition_context=acquisition_context_record,
+        noise_floor_db_spl=noise_floor,
+    )
+    absolute_noise = _absolute_level_capability(
+        'absolute_noise_level',
+        dataset_level_reference=dataset_level_reference,
+        level_calibration=level_calibration,
+        acquisition_context=acquisition_context_record,
+        noise_floor_db_spl=noise_floor,
+    )
+    return (
+        by_claim['magnitude_response'],
+        by_claim['phase_response'],
+        by_claim['common_timing'],
+        by_claim['arrival_time'],
+        by_claim['decay'],
+        by_claim['calibrated_response'],
+        corrected,
+        absolute_spl,
+        absolute_noise,
+        by_claim['repeatability'],
+        by_claim['polarity'],
     )
 
 
@@ -1468,27 +1798,25 @@ def measurement_repeatability_rms_db(
     return sqrt(total / samples)
 
 
-def build_measurement_quality_report(
+def _assemble_measurement_quality_report(
     *,
     measurement: CadMeasurementRecord,
     dataset: CadFrequencyResponseDataset,
     evidence: CadMeasurementQualityEvidence,
     profile: CadMeasurementQualityProfile,
-    acquisition_context: CadAcquisitionContextBinding | None = None,
-    observation: CadMeasurementObservationBinding | None = None,
-    report_id: str | None = None,
-    created_at_utc: str | None = None,
+    acquisition_context: CadAcquisitionContextBinding | None,
+    observation: CadMeasurementObservationBinding | None,
+    level_reference: CadDatasetLevelReferenceBinding | None,
+    algorithm_version: str,
+    algorithm_sha256: str,
+    capabilities: tuple[CadMeasurementCapability, ...],
+    report_id: str | None,
+    created_at_utc: str | None,
 ) -> CadMeasurementQualityReport:
     if dataset.measurement_id != measurement.measurement_id:
         raise ValueError('quality report dataset does not belong to measurement')
 
     checks = _derive_checks(evidence, profile)
-    capabilities = derive_measurement_capabilities(
-        dataset=dataset,
-        acquisition_context=acquisition_context,
-        evidence=evidence,
-        checks=checks,
-    )
     retake_recommendation, retake_reasons = _retake(checks)
 
     payload: dict[str, Any] = {
@@ -1506,8 +1834,9 @@ def build_measurement_quality_report(
         'measurement_position': measurement.measurement_position,
         'acquisition_context': acquisition_context,
         'observation': observation,
-        'algorithm_version': QUALITY_ALGORITHM_VERSION,
-        'algorithm_sha256': QUALITY_ALGORITHM_SHA256,
+        'level_reference': level_reference,
+        'algorithm_version': algorithm_version,
+        'algorithm_sha256': algorithm_sha256,
         'profile': profile,
         'evidence': evidence,
         **checks,
@@ -1525,6 +1854,115 @@ def build_measurement_quality_report(
     )
 
 
+def build_measurement_quality_report_v1(
+    *,
+    measurement: CadMeasurementRecord,
+    dataset: CadFrequencyResponseDataset,
+    evidence: CadMeasurementQualityEvidence,
+    profile: CadMeasurementQualityProfile,
+    acquisition_context: CadAcquisitionContextBinding | None = None,
+    observation: CadMeasurementObservationBinding | None = None,
+    report_id: str | None = None,
+    created_at_utc: str | None = None,
+    dataset_level_reference: CadDatasetLevelReference | None = None,
+    level_calibration: CadAcousticLevelCalibration | None = None,
+    acquisition_context_record: CadAcquisitionContext | None = None,
+    observation_record: CadMeasurementObservation | None = None,
+) -> CadMeasurementQualityReport:
+    """Frozen v1 report builder (#465): the eight-claim matrix, no level pin.
+
+    Kept verbatim so reports persisted under ``measurement-quality-1``
+    replay byte-identically. A persisted v1 report can never carry a
+    ``level_reference`` binding — the replay rebuild therefore ignores the
+    v2-only kwargs; a v1 payload claiming one fails closed on the equality
+    check.
+    """
+    checks = _derive_checks(evidence, profile)
+    capabilities = _derive_measurement_capabilities_v1(
+        dataset=dataset,
+        acquisition_context=acquisition_context,
+        evidence=evidence,
+        checks=checks,
+    )
+    return _assemble_measurement_quality_report(
+        measurement=measurement,
+        dataset=dataset,
+        evidence=evidence,
+        profile=profile,
+        acquisition_context=acquisition_context,
+        observation=observation,
+        level_reference=None,
+        algorithm_version=_QUALITY_ALGORITHM_V1_VERSION,
+        algorithm_sha256=_QUALITY_ALGORITHM_V1_SHA256,
+        capabilities=capabilities,
+        report_id=report_id,
+        created_at_utc=created_at_utc,
+    )
+
+
+def _level_reference_binding(
+    reference: CadDatasetLevelReference | None,
+) -> CadDatasetLevelReferenceBinding | None:
+    if reference is None:
+        return None
+    return CadDatasetLevelReferenceBinding(
+        level_reference_id=reference.level_reference_id,
+        level_reference_sha256=reference.level_reference_sha256,
+        level_reference_kind=reference.level_reference_kind,
+    )
+
+
+def build_measurement_quality_report(
+    *,
+    measurement: CadMeasurementRecord,
+    dataset: CadFrequencyResponseDataset,
+    evidence: CadMeasurementQualityEvidence,
+    profile: CadMeasurementQualityProfile,
+    acquisition_context: CadAcquisitionContextBinding | None = None,
+    observation: CadMeasurementObservationBinding | None = None,
+    report_id: str | None = None,
+    created_at_utc: str | None = None,
+    dataset_level_reference: CadDatasetLevelReference | None = None,
+    level_calibration: CadAcousticLevelCalibration | None = None,
+    acquisition_context_record: CadAcquisitionContext | None = None,
+    observation_record: CadMeasurementObservation | None = None,
+) -> CadMeasurementQualityReport:
+    """v2 report builder (#861): the eleven-claim matrix + level pin.
+
+    ``dataset_level_reference`` must be the persisted
+    ``CadDatasetLevelReference`` for this exact dataset (its pin is stored on
+    the report) and ``level_calibration`` the resolved calibration it binds;
+    ``acquisition_context_record`` is the resolved context the
+    ``acquisition_context`` binding names — the capability gates need the
+    record for instrument/session scope applicability.
+    """
+    checks = _derive_checks(evidence, profile)
+    capabilities = derive_measurement_capabilities(
+        dataset=dataset,
+        acquisition_context=acquisition_context,
+        evidence=evidence,
+        checks=checks,
+        dataset_level_reference=dataset_level_reference,
+        level_calibration=level_calibration,
+        acquisition_context_record=acquisition_context_record,
+        observation=observation_record,
+    )
+    return _assemble_measurement_quality_report(
+        measurement=measurement,
+        dataset=dataset,
+        evidence=evidence,
+        profile=profile,
+        acquisition_context=acquisition_context,
+        observation=observation,
+        level_reference=_level_reference_binding(dataset_level_reference),
+        algorithm_version=QUALITY_ALGORITHM_VERSION,
+        algorithm_sha256=QUALITY_ALGORITHM_SHA256,
+        capabilities=capabilities,
+        report_id=report_id,
+        created_at_utc=created_at_utc,
+    )
+
+
 # Explicit versioned replay support: every algorithm version that can produce
 # persisted reports keeps its pinned identity hash and builder here so
 # historical reports stay replayable. Reports pinned to an identity that is not
@@ -1532,6 +1970,10 @@ def build_measurement_quality_report(
 QualityReportReplay = Callable[..., CadMeasurementQualityReport]
 
 _QUALITY_REPORT_REPLAY: dict[str, tuple[str, QualityReportReplay]] = {
+    _QUALITY_ALGORITHM_V1_VERSION: (
+        _QUALITY_ALGORITHM_V1_SHA256,
+        build_measurement_quality_report_v1,
+    ),
     QUALITY_ALGORITHM_VERSION: (
         QUALITY_ALGORITHM_SHA256,
         build_measurement_quality_report,
@@ -1544,6 +1986,10 @@ def replay_measurement_quality_report(
     *,
     measurement: CadMeasurementRecord,
     dataset: CadFrequencyResponseDataset,
+    dataset_level_reference: CadDatasetLevelReference | None = None,
+    level_calibration: CadAcousticLevelCalibration | None = None,
+    acquisition_context_record: CadAcquisitionContext | None = None,
+    observation_record: CadMeasurementObservation | None = None,
 ) -> CadMeasurementQualityReport:
     """Rerun the report's pinned algorithm/profile against bound evidence.
 
@@ -1567,6 +2013,10 @@ def replay_measurement_quality_report(
         profile=report.profile,
         acquisition_context=report.acquisition_context,
         observation=report.observation,
+        dataset_level_reference=dataset_level_reference,
+        level_calibration=level_calibration,
+        acquisition_context_record=acquisition_context_record,
+        observation_record=observation_record,
         report_id=report.report_id,
         created_at_utc=report.created_at_utc,
     )

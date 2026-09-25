@@ -42,6 +42,10 @@ from htdt.cad_equipment_binding import (
 from htdt.cad_equipment_binding_repository import CadEquipmentBindingRepository
 from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_instance import (
+    InstalledDefinitionRef,
+    InstalledEquipmentInstance,
+    _digest,
+    build_installed_definition_binding,
     build_installed_equipment_instance,
     installed_instance_from_capture_identity,
 )
@@ -762,7 +766,9 @@ def test_installed_equipment_instance(tmp_path: Path) -> None:
     )
     definition = _equipment()
     _save_equipment(equipment_repository, definition)
-    repo = CadInstalledEquipmentRepository(scene_repository)
+    repo = CadInstalledEquipmentRepository(
+        scene_repository, equipment_repository
+    )
 
     instance = build_installed_equipment_instance(
         instance_id='inst-fl-001',
@@ -835,6 +841,236 @@ def test_installed_equipment_instance(tmp_path: Path) -> None:
     )
     assert captured.serial_number == 'SN-0009'
     assert captured.scene_entity_id == 'speaker-fl'
+    assert captured.is_catalog_resolved
+
+
+def test_installed_instance_resolution_integrity(tmp_path: Path) -> None:
+    scene_repository, revision, _, equipment_repository = _repositories(
+        tmp_path
+    )
+    definition = _equipment()
+    _save_equipment(equipment_repository, definition)
+    repo = CadInstalledEquipmentRepository(
+        scene_repository, equipment_repository
+    )
+
+    # A fabricated exact-resolution claim cannot be persisted.
+    fabricated = build_installed_equipment_instance(
+        instance_id='inst-fabricated',
+        document_id=DOCUMENT_ID,
+        equipment_class='speaker',
+        equipment_definition=_equipment(definition_id='ghost', digit='9'),
+        scene_entity_id='speaker-fl',
+        provenance=(_provenance('install', '0'),),
+        created_at_utc=NOW,
+    )
+    with pytest.raises(ValueError, match='unpersisted'):
+        repo.save_instance(fabricated)
+
+    # Neither can a binding to a fabricated definition.
+    real = build_installed_equipment_instance(
+        instance_id='inst-real',
+        document_id=DOCUMENT_ID,
+        equipment_class='speaker',
+        equipment_definition=definition,
+        scene_entity_id='speaker-fl',
+        provenance=(_provenance('install', 'b'),),
+        created_at_utc=NOW,
+    )
+    repo.save_instance(real)
+    with pytest.raises(ValueError, match='unpersisted'):
+        repo.save_binding(
+            build_installed_definition_binding(
+                binding_id='bind-fake',
+                instance_id='inst-real',
+                equipment_definition=_equipment(
+                    definition_id='ghost', digit='9'
+                ),
+                bound_at_utc=NOW,
+                provenance=(_provenance('bind', 'c'),),
+            )
+        )
+
+    # Exact resolution round-trips and reports typed state.
+    resolution = repo.resolve_instance_definition('inst-real')
+    assert resolution.status == 'RESOLVED_EXACT'
+    assert resolution.definition == definition
+
+    binding = build_installed_definition_binding(
+        binding_id='bind-real',
+        instance_id='inst-real',
+        equipment_definition=definition,
+        bound_at_utc=NOW,
+        provenance=(_provenance('bind', 'd'),),
+    )
+    repo.save_binding(binding)
+    resolution = repo.resolve_instance_definition('inst-real')
+    assert resolution.status == 'RESOLVED_EXACT'
+    assert resolution.binding == binding
+
+    # Capture identity without a local definition is preserved as external
+    # evidence — never as a resolution claim.
+    captured = installed_instance_from_capture_identity(
+        instance_id='inst-cap-ext',
+        document_id=DOCUMENT_ID,
+        entity_id='speaker-fl',
+        equipment_id='some-external-model',
+        equipment_version='7',
+        equipment_hash='5' * 64,
+        serial_or_asset_tag='SN-ext',
+        recorded_at_utc=NOW,
+        equipment_class='speaker',
+        provenance=(_provenance('capture', 'e'),),
+        created_at_utc=NOW,
+    )
+    assert not captured.is_catalog_resolved
+    assert captured.has_observed_identity
+    repo.save_instance(captured)
+    resolution = repo.resolve_instance_definition('inst-cap-ext')
+    assert resolution.status == 'EXTERNAL_UNRESOLVED'
+
+    # A later explicit binding resolves it exactly without rewriting the
+    # capture evidence.
+    repo.save_binding(
+        build_installed_definition_binding(
+            binding_id='bind-cap-ext',
+            instance_id='inst-cap-ext',
+            equipment_definition=definition,
+            bound_at_utc=NOW,
+            provenance=(_provenance('bind', 'f'),),
+        )
+    )
+    resolution = repo.resolve_instance_definition('inst-cap-ext')
+    assert resolution.status == 'RESOLVED_EXACT'
+    assert repo.get_instance('inst-cap-ext').has_observed_identity
+
+    # usages_for_definition consumes only the in-effect exact resolution
+    upgrade_repo = CadLibraryUpgradeRepository(
+        scene_repository, equipment_repository
+    )
+    usage_ids = {
+        u.authority_id
+        for u in upgrade_repo.usages_for_definition(
+            definition.semantic_sha256
+        )
+        if u.binding_kind == 'installed_instance'
+    }
+    assert 'inst-real' in usage_ids
+    assert 'inst-cap-ext' in usage_ids
+
+
+def test_installed_resolution_missing_and_conflict(tmp_path: Path) -> None:
+    import sqlite3
+
+    scene_repository, revision, _, equipment_repository = _repositories(
+        tmp_path
+    )
+    definition = _equipment()
+    _save_equipment(equipment_repository, definition)
+    repo = CadInstalledEquipmentRepository(
+        scene_repository, equipment_repository
+    )
+
+    # Simulate legacy/foreign rows persisted before resolution enforcement:
+    # insert fabricated payloads directly, bypassing save validation.
+    def _insert(instance) -> None:
+        with sqlite3.connect(scene_repository.path) as connection:
+            connection.execute(
+                'INSERT INTO cad_installed_equipment_instances('
+                'instance_id, document_id, equipment_class, state, '
+                'payload_json, recorded_at_utc'
+                ') VALUES (?, ?, ?, ?, ?, ?)',
+                (
+                    instance.instance_id,
+                    instance.document_id,
+                    instance.equipment_class,
+                    instance.state,
+                    instance.model_dump_json(),
+                    instance.created_at_utc,
+                ),
+            )
+
+    missing = build_installed_equipment_instance(
+        instance_id='inst-missing',
+        document_id=DOCUMENT_ID,
+        equipment_class='speaker',
+        equipment_definition=_equipment(definition_id='gone', digit='8'),
+        scene_entity_id='speaker-fl',
+        provenance=(_provenance('install', '7'),),
+        created_at_utc=NOW,
+    )
+    _insert(missing)
+    resolution = repo.resolve_instance_definition('inst-missing')
+    assert resolution.status == 'MISSING_LOCAL_DEFINITION'
+
+    # A definition with the claimed hash persists but id/version differ —
+    # a corrupted/rewritten row: construct a hash-consistent instance whose
+    # ref points at the persisted hash under a divergent identity.
+    conflict = build_installed_equipment_instance(
+        instance_id='inst-conflict',
+        document_id=DOCUMENT_ID,
+        equipment_class='speaker',
+        scene_entity_id='speaker-fl',
+        provenance=(_provenance('install', '8'),),
+        created_at_utc=NOW,
+        user_label='conflicting-unit',
+    )
+    divergent_ref = InstalledDefinitionRef(
+        equipment_definition_id='different-id',
+        equipment_definition_version='99',
+        equipment_definition_sha256=definition.semantic_sha256,
+    )
+    payload = conflict.semantic_payload()
+    payload['definition_ref'] = divergent_ref.model_dump(mode='json')
+    data = conflict.model_dump(mode='python')
+    data['definition_ref'] = divergent_ref
+    data['semantic_sha256'] = _digest(payload)
+    _insert(InstalledEquipmentInstance.model_validate(data))
+    resolution = repo.resolve_instance_definition('inst-conflict')
+    assert resolution.status == 'CONFLICT'
+
+    # A plain manual-identity unit is unresolved rather than external.
+    plain = build_installed_equipment_instance(
+        instance_id='inst-plain',
+        document_id=DOCUMENT_ID,
+        equipment_class='amplifier',
+        manufacturer='m',
+        model='amp-x',
+        provenance=(_provenance('install', '9'),),
+        created_at_utc=NOW,
+    )
+    repo.save_instance(plain)
+    resolution = repo.resolve_instance_definition('inst-plain')
+    assert resolution.status == 'UNRESOLVED'
+
+
+def test_installed_row_payload_mismatch_fails_closed(tmp_path: Path) -> None:
+    import sqlite3
+
+    scene_repository, revision, _, equipment_repository = _repositories(
+        tmp_path
+    )
+    repo = CadInstalledEquipmentRepository(
+        scene_repository, equipment_repository
+    )
+    instance = build_installed_equipment_instance(
+        instance_id='inst-integrity',
+        document_id=DOCUMENT_ID,
+        equipment_class='amplifier',
+        manufacturer='m',
+        model='amp-x',
+        provenance=(_provenance('install', '0'),),
+        created_at_utc=NOW,
+    )
+    repo.save_instance(instance)
+    with sqlite3.connect(scene_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_installed_equipment_instances SET document_id=? '
+            'WHERE instance_id=?',
+            ('tampered-doc', instance.instance_id),
+        )
+    with pytest.raises(ValueError, match='row/payload mismatch'):
+        repo.get_instance(instance.instance_id)
 
 
 # ---------------------------------------------------------------------------
