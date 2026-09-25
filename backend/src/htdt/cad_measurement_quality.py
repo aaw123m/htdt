@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_measurement_authorities import CadRoutingProfileBinding
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_scene import Direction3, Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -362,6 +363,20 @@ class CadAcquisitionContext(BaseModel):
     # under; predicted-vs-measured comparisons claim environment
     # compatibility from this authority, never from ambient assumptions.
     environment_ref: ExactExternalAuthorityRef | None = None
+    # #849/#850/#858: scope/acquisition identity used to prove timing
+    # reference membership, SPL-calibration applicability and the exact
+    # routing profile the acquisition ran under. ``acquisition_session_id``
+    # names the immutable acquisition session the capture belonged to;
+    # ``signal_path_identity`` fingerprints the device/path/clock
+    # configuration a persistent timing reference pins;
+    # ``input_path_identity`` fingerprints the input chain (mic,
+    # interface, gain, channel) an instrument-scoped level calibration
+    # requires; ``routing_profile`` binds the verified channel map by
+    # exact id+hash.
+    acquisition_session_id: str | None = None
+    signal_path_identity: str | None = None
+    input_path_identity: str | None = None
+    routing_profile: CadRoutingProfileBinding | None = None
     created_at_utc: str = Field(min_length=1)
     notes: tuple[str, ...] = ()
     provenance_json: str = '{}'
@@ -411,6 +426,14 @@ class CadAcquisitionContext(BaseModel):
             payload['timing_reference_sha256'] = self.timing_reference_sha256
         if self.environment_ref is not None:
             payload['environment_ref'] = self.environment_ref.model_dump(mode='json')
+        if self.acquisition_session_id is not None:
+            payload['acquisition_session_id'] = self.acquisition_session_id
+        if self.signal_path_identity is not None:
+            payload['signal_path_identity'] = self.signal_path_identity
+        if self.input_path_identity is not None:
+            payload['input_path_identity'] = self.input_path_identity
+        if self.routing_profile is not None:
+            payload['routing_profile'] = self.routing_profile.model_dump(mode='json')
         return payload
 
 
@@ -537,6 +560,10 @@ def build_acquisition_context(
     measurement_direction: Direction3 | None = None,
     timing_reference_sha256: str | None = None,
     environment_ref: ExactExternalAuthorityRef | None = None,
+    acquisition_session_id: str | None = None,
+    signal_path_identity: str | None = None,
+    input_path_identity: str | None = None,
+    routing_profile: CadRoutingProfileBinding | None = None,
     acquisition_context_id: str | None = None,
     created_at_utc: str | None = None,
     notes: Sequence[str] = (),
@@ -566,6 +593,10 @@ def build_acquisition_context(
         'measurement_direction': measurement_direction,
         'timing_reference_sha256': timing_reference_sha256,
         'environment_ref': environment_ref,
+        'acquisition_session_id': acquisition_session_id,
+        'signal_path_identity': signal_path_identity,
+        'input_path_identity': input_path_identity,
+        'routing_profile': routing_profile,
         'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
         'notes': tuple(notes),
         'provenance_json': provenance_json,

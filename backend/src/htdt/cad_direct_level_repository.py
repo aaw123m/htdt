@@ -13,7 +13,10 @@ from .cad_direct_level import (
 )
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -65,40 +68,7 @@ class CadDirectLevelRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_direct_level_scenarios (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scenario_id TEXT NOT NULL UNIQUE,
-                    scenario_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_direct_level_scenario_seq
-                    ON cad_direct_level_scenarios(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_direct_level_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    scenario_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    variant_id TEXT NOT NULL,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(scenario_id)
-                        REFERENCES cad_direct_level_scenarios(scenario_id),
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_direct_level_variant_seq
-                    ON cad_direct_level_evaluations(variant_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_direct_level_scenario_evaluation_seq
-                    ON cad_direct_level_evaluations(scenario_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_direct_level_scenarios', 'cad_direct_level_evaluations')
 
     def save_scenario(
         self,

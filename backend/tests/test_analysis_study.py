@@ -3,11 +3,13 @@ from pathlib import Path
 import pytest
 
 from htdt.cad_analysis_study import (
+    STUDY_OPERATION_CONTRACTS,
     StudyAnalysisOperation,
     StudyAuthorityRef,
     StudySpecItem,
     build_analysis_study,
     duplicate_analysis_study,
+    evaluate_operation_support,
     evaluate_study_state,
     make_study_note,
 )
@@ -102,11 +104,16 @@ def _study(saved, variant, dataset, document_id: str = DOC, **kwargs):
             StudySpecItem(key='range', value='20-20000'),
             StudySpecItem(key='overlay', value='target'),
         ),
-        analysis_operations=(
-            StudyAnalysisOperation(
-                operation='smoothing',
-                version='octave-1/6-v1',
-                parameters=(StudySpecItem(key='fraction', value='1/6'),),
+        analysis_operations=kwargs.pop(
+            'analysis_operations',
+            (
+                StudyAnalysisOperation(
+                    operation='smoothing',
+                    version='octave-1/6-v1',
+                    parameters=(
+                        StudySpecItem(key='fraction', value='1/6'),
+                    ),
+                ),
             ),
         ),
         notes=(
@@ -283,3 +290,73 @@ def test_study_state_reproducible_not_current_broken(tmp_path: Path) -> None:
     )
     assert report.state == 'not_current'
     assert any('historical' in reason for reason in report.reasons)
+
+
+def test_study_save_rejects_foreign_document_ref(tmp_path: Path) -> None:
+    repository, saved, variant, dataset = _seed(tmp_path)
+    foreign_repo = CadAnalysisStudyRepository(
+        SceneRepository(tmp_path / 'foreign.sqlite3'),
+        kind_resolvers={
+            'target_curve': lambda ref_id: ResolvedAuthority(
+                kind='target_curve',
+                ref_id=ref_id,
+                document_id='other-document',
+                semantic_sha256='b' * 64,
+            )
+        },
+    )
+    study = _study(
+        saved,
+        variant,
+        dataset,
+        bound_refs=(
+            StudyAuthorityRef(
+                kind='target_curve',
+                ref_id='curve-1',
+                ref_sha256='b' * 64,
+            ),
+        ),
+    )
+    # The ref resolves but belongs to another project document — the
+    # binding cannot satisfy this document's study.
+    with pytest.raises(ValueError):
+        foreign_repo.save_study(study)
+    repository.save_study(study)
+
+
+def test_operation_support_marks_unregistered_versions(
+    tmp_path: Path,
+) -> None:
+    _repository, saved, variant, dataset = _seed(tmp_path)
+    study = _study(saved, variant, dataset)
+
+    report = evaluate_operation_support(
+        study,
+        supported_contracts={'smoothing': {'octave-1/6-v1'}},
+    )
+    assert report.regenerable is True
+    assert report.operations[0].support == 'regenerable'
+
+    report = evaluate_operation_support(
+        study,
+        supported_contracts={'smoothing': {'octave-1/3-v2'}},
+    )
+    assert report.regenerable is False
+    assert report.operations[0].support == 'unsupported'
+    assert 'unavailable' in report.operations[0].reason
+
+    # The shipped registry is empty by default — no recorded operation is
+    # silently regenerated under a newer implementation.
+    assert STUDY_OPERATION_CONTRACTS == {}
+    assert (
+        evaluate_operation_support(study).regenerable is False
+    )
+
+
+def test_study_without_operations_is_regenerable(tmp_path: Path) -> None:
+    _repository, saved, variant, dataset = _seed(tmp_path)
+    study = _study(
+        saved, variant, dataset, analysis_operations=()
+    )
+    assert evaluate_operation_support(study).regenerable is True
+    assert evaluate_operation_support(study).operations == ()

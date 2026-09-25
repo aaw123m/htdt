@@ -8,7 +8,10 @@ import sqlite3
 from typing import NamedTuple
 
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .r120_geometry_compiler import (
     AcousticRegionAuthority,
     BoundaryTerminationAuthority,
@@ -169,62 +172,7 @@ class R120GeometryCompilerRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_r120_compiled_geometry (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    compiled_geometry_id TEXT NOT NULL UNIQUE,
-                    compiled_hash_sha256 TEXT NOT NULL UNIQUE,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_revision_content_hash TEXT NOT NULL,
-                    semantic_geometry_id TEXT NOT NULL,
-                    semantic_geometry_hash_sha256 TEXT NOT NULL,
-                    request_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_r120_compiled_scene_revision
-                    ON cad_r120_compiled_geometry(scene_revision_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_r120_compile_inputs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    compiled_geometry_id TEXT NOT NULL UNIQUE,
-                    compiled_hash_sha256 TEXT NOT NULL,
-                    inputs_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(compiled_geometry_id)
-                        REFERENCES cad_r120_compiled_geometry(compiled_geometry_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_r120_leak_portal_diagnostics (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    diagnostic_result_id TEXT NOT NULL UNIQUE,
-                    diagnostic_hash_sha256 TEXT NOT NULL UNIQUE,
-                    compiled_geometry_id TEXT NOT NULL,
-                    compiled_geometry_hash_sha256 TEXT NOT NULL,
-                    request_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(compiled_geometry_id)
-                        REFERENCES cad_r120_compiled_geometry(compiled_geometry_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_r120_leak_compiled_geometry
-                    ON cad_r120_leak_portal_diagnostics(compiled_geometry_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_r120_leak_diagnostic_inputs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    diagnostic_result_id TEXT NOT NULL UNIQUE,
-                    diagnostic_hash_sha256 TEXT NOT NULL,
-                    inputs_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(diagnostic_result_id)
-                        REFERENCES cad_r120_leak_portal_diagnostics(
-                            diagnostic_result_id
-                        )
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_r120_compiled_geometry', 'cad_r120_compile_inputs', 'cad_r120_leak_portal_diagnostics', 'cad_r120_leak_diagnostic_inputs')
 
     def save_compiled_geometry(
         self,

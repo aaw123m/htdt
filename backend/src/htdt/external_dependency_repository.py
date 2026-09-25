@@ -7,6 +7,11 @@ resolution context and persists the event the resolver derived. A forged
 outcome — ``resolved_exact_*`` with a hash that does not satisfy the
 dependency pin — cannot be recorded because no event is ever accepted
 from outside.
+
+The *current* resolution is the most recently recorded event — insertion
+sequence, not the caller-supplied ``created_at_utc`` inside the event.
+A forged or future-dated timestamp label can never move an older event
+ahead of a later resolution.
 """
 
 from __future__ import annotations
@@ -207,7 +212,7 @@ class ExternalDependencyRepository:
                 SELECT payload_json
                 FROM cad_dependency_resolution_events
                 WHERE dependency_id=?
-                ORDER BY created_at_utc, event_id
+                ORDER BY rowid
                 """,
                 (dependency_id,),
             ).fetchall()
@@ -219,13 +224,21 @@ class ExternalDependencyRepository:
     def latest_resolution(
         self, dependency_id: str
     ) -> DependencyResolutionEvent | None:
+        """The current resolution: the most recently recorded event.
+
+        Ordering is the table's insertion sequence, not the event's
+        caller-declared ``created_at_utc`` — since every row enters through
+        :meth:`resolve_and_record`, append order is the authoritative
+        resolution history and a future-dated label cannot hijack it.
+        """
+
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
                 SELECT payload_json
                 FROM cad_dependency_resolution_events
                 WHERE dependency_id=?
-                ORDER BY created_at_utc DESC, event_id DESC
+                ORDER BY rowid DESC
                 LIMIT 1
                 """,
                 (dependency_id,),

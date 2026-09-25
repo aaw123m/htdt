@@ -28,7 +28,7 @@ from typing import Callable, Iterable, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import ensure_native_schema, require_native_tables
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
@@ -52,6 +52,22 @@ INBOX_REGISTRATION_DOMAIN = 'htdt.capture.cross-revision-registration.v1'
 # guessed. Promotion out of this scope still requires an explicit operator
 # assign to a document.
 CAPTURE_INBOX_UNASSIGNED_SCOPE = 'capture-inbox-unassigned'
+
+
+def capture_inbox_item_project_id(item: 'CaptureInboxItem') -> str | None:
+    """Canonical project-scope resolution for one Capture Inbox item.
+
+    ``scope`` is the assigned project/document id or the shared
+    unassigned scope. This is the single resolver consumers use to
+    decide whether an item belongs to a project: unassigned
+    (application-scoped) deliveries and legacy items without a resolvable
+    scope return ``None`` so they can never leak into a project-scoped
+    view such as the activity timeline or evidence register.
+    """
+    scope = getattr(item, 'scope', None)
+    if not scope or scope == CAPTURE_INBOX_UNASSIGNED_SCOPE:
+        return None
+    return scope
 
 
 class CaptureInboxError(ValueError):
@@ -354,93 +370,124 @@ class CaptureInboxRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
-                    lineage_digest TEXT PRIMARY KEY
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_inbox_items (
-                    lineage_digest TEXT PRIMARY KEY
-                        REFERENCES capture_ingestion_lineages(lineage_digest),
-                    inbox_item_id TEXT NOT NULL UNIQUE,
-                    scope TEXT NOT NULL,
-                    capture_series_id TEXT NOT NULL,
-                    capture_revision_id TEXT NOT NULL,
-                    bundle_digest TEXT NOT NULL,
-                    parent_revision_id TEXT,
-                    capture_session_ids_json TEXT NOT NULL,
-                    coordinate_space_ids_json TEXT NOT NULL,
-                    arrival_source TEXT NOT NULL,
-                    source_detail TEXT NOT NULL,
-                    first_arrived_at_utc TEXT NOT NULL,
-                    arrival_count INTEGER NOT NULL,
-                    primary_classification TEXT NOT NULL,
-                    classification_flags_json TEXT NOT NULL,
-                    conflict_lineage_digest TEXT,
-                    bundle_validation TEXT NOT NULL,
-                    validation_detail TEXT NOT NULL,
-                    dependency_state TEXT NOT NULL,
-                    dependency_detail TEXT NOT NULL,
-                    alignment_state TEXT NOT NULL,
-                    alignment_detail TEXT NOT NULL,
-                    world_alignment_authority_id TEXT,
-                    evidence_conflict_state TEXT NOT NULL,
-                    evidence_conflict_detail TEXT NOT NULL,
-                    disposition TEXT NOT NULL,
-                    disposition_reason TEXT NOT NULL,
-                    disposition_at_utc TEXT,
-                    operator_notes TEXT NOT NULL,
-                    has_connected_space_document INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_capture_inbox_series
-                ON capture_inbox_items(capture_series_id);
-                CREATE INDEX IF NOT EXISTS idx_capture_inbox_revision
-                ON capture_inbox_items(capture_revision_id);
-                CREATE INDEX IF NOT EXISTS idx_capture_inbox_scope
-                ON capture_inbox_items(scope);
-
-                CREATE TABLE IF NOT EXISTS capture_inbox_promotions (
-                    promotion_record_id TEXT PRIMARY KEY,
-                    lineage_digest TEXT NOT NULL
-                        REFERENCES capture_inbox_items(lineage_digest),
-                    authority_kind TEXT NOT NULL,
-                    outcome TEXT NOT NULL,
-                    created_authority_id TEXT,
-                    detail TEXT NOT NULL,
-                    promoted_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_capture_inbox_promotions_item
-                ON capture_inbox_promotions(lineage_digest);
-
-                CREATE TABLE IF NOT EXISTS capture_inbox_supersessions (
-                    supersession_id TEXT PRIMARY KEY,
-                    superseded_lineage_digest TEXT NOT NULL
-                        REFERENCES capture_inbox_items(lineage_digest),
-                    superseding_lineage_digest TEXT NOT NULL
-                        REFERENCES capture_inbox_items(lineage_digest),
-                    authority_kind TEXT NOT NULL,
-                    reason TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_inbox_registrations (
-                    registration_id TEXT PRIMARY KEY,
-                    older_lineage_digest TEXT NOT NULL
-                        REFERENCES capture_inbox_items(lineage_digest),
-                    newer_lineage_digest TEXT NOT NULL
-                        REFERENCES capture_inbox_items(lineage_digest),
-                    transform_json TEXT NOT NULL,
-                    transform_class TEXT NOT NULL,
-                    alignment_method TEXT NOT NULL,
-                    uniform_scale_m_per_capture_m REAL,
-                    note TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(older_lineage_digest, newer_lineage_digest)
-                );
-                '''
+            require_native_tables(
+                connection,
+                'capture_ingestion_lineages',
+                'capture_inbox_items',
+                'capture_inbox_promotions',
+                'capture_inbox_supersessions',
+                'capture_inbox_registrations',
             )
-            self._repoint_items_lineage_parent(connection)
+
+    def _converge_schema(self, connection: sqlite3.Connection) -> None:
+        """Legacy-shape tail of the schema-authority migration (#302).
+
+        Plain ``CREATE TABLE`` lives in ``cad_schema_ddl`` and runs inside
+        the versioned migration; this sequence converges databases whose
+        persisted shapes predate the canonical contract (the lineage
+        foreign-key repoint rebuilds the items table) and installs the
+        inbox tables so every supported open path converges the same way.
+        """
+        connection.executescript(
+            '''
+            CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
+                lineage_digest TEXT PRIMARY KEY
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_inbox_items (
+                lineage_digest TEXT PRIMARY KEY
+                    REFERENCES capture_ingestion_lineages(lineage_digest),
+                inbox_item_id TEXT NOT NULL UNIQUE,
+                scope TEXT NOT NULL,
+                capture_series_id TEXT NOT NULL,
+                capture_revision_id TEXT NOT NULL,
+                bundle_digest TEXT NOT NULL,
+                parent_revision_id TEXT,
+                capture_session_ids_json TEXT NOT NULL,
+                coordinate_space_ids_json TEXT NOT NULL,
+                arrival_source TEXT NOT NULL,
+                source_detail TEXT NOT NULL,
+                first_arrived_at_utc TEXT NOT NULL,
+                arrival_count INTEGER NOT NULL,
+                primary_classification TEXT NOT NULL,
+                classification_flags_json TEXT NOT NULL,
+                conflict_lineage_digest TEXT,
+                bundle_validation TEXT NOT NULL,
+                validation_detail TEXT NOT NULL,
+                dependency_state TEXT NOT NULL,
+                dependency_detail TEXT NOT NULL,
+                alignment_state TEXT NOT NULL,
+                alignment_detail TEXT NOT NULL,
+                world_alignment_authority_id TEXT,
+                evidence_conflict_state TEXT NOT NULL,
+                evidence_conflict_detail TEXT NOT NULL,
+                disposition TEXT NOT NULL,
+                disposition_reason TEXT NOT NULL,
+                disposition_at_utc TEXT,
+                operator_notes TEXT NOT NULL,
+                has_connected_space_document INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_capture_inbox_series
+            ON capture_inbox_items(capture_series_id);
+            CREATE INDEX IF NOT EXISTS idx_capture_inbox_revision
+            ON capture_inbox_items(capture_revision_id);
+            CREATE INDEX IF NOT EXISTS idx_capture_inbox_scope
+            ON capture_inbox_items(scope);
+
+            CREATE TABLE IF NOT EXISTS capture_inbox_promotions (
+                promotion_record_id TEXT PRIMARY KEY,
+                lineage_digest TEXT NOT NULL
+                    REFERENCES capture_inbox_items(lineage_digest),
+                authority_kind TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                created_authority_id TEXT,
+                detail TEXT NOT NULL,
+                promoted_at_utc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_capture_inbox_promotions_item
+            ON capture_inbox_promotions(lineage_digest);
+
+            CREATE TABLE IF NOT EXISTS capture_inbox_supersessions (
+                supersession_id TEXT PRIMARY KEY,
+                superseded_lineage_digest TEXT NOT NULL
+                    REFERENCES capture_inbox_items(lineage_digest),
+                superseding_lineage_digest TEXT NOT NULL
+                    REFERENCES capture_inbox_items(lineage_digest),
+                authority_kind TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_inbox_registrations (
+                registration_id TEXT PRIMARY KEY,
+                older_lineage_digest TEXT NOT NULL
+                    REFERENCES capture_inbox_items(lineage_digest),
+                newer_lineage_digest TEXT NOT NULL
+                    REFERENCES capture_inbox_items(lineage_digest),
+                transform_json TEXT NOT NULL,
+                transform_class TEXT NOT NULL,
+                alignment_method TEXT NOT NULL,
+                uniform_scale_m_per_capture_m REAL,
+                note TEXT NOT NULL,
+                created_at_utc TEXT NOT NULL,
+                UNIQUE(older_lineage_digest, newer_lineage_digest)
+            );
+            '''
+        )
+        self._repoint_items_lineage_parent(connection)
+        # The repoint rebuild drops and recreates the items table;
+        # re-install its indexes after (IF NOT EXISTS keeps the
+        # already-converged path cheap).
+        connection.executescript(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_capture_inbox_series
+            ON capture_inbox_items(capture_series_id);
+            CREATE INDEX IF NOT EXISTS idx_capture_inbox_revision
+            ON capture_inbox_items(capture_revision_id);
+            CREATE INDEX IF NOT EXISTS idx_capture_inbox_scope
+            ON capture_inbox_items(scope);
+            '''
+            )
 
     def _repoint_items_lineage_parent(
         self, connection: sqlite3.Connection
@@ -1724,3 +1771,18 @@ class CaptureInboxRepository:
             spatial_comparison=spatial,
             detail=detail,
         )
+
+
+def run_capture_inbox_schema_convergence(
+    connection: sqlite3.Connection,
+) -> None:
+    """Legacy-shape tail of the schema-authority migration (#302).
+
+    ``ensure_native_schema`` invokes this while converging databases whose
+    inbox items table still points its lineage key at the runs table; it
+    runs the same sequence ``CaptureInboxRepository._initialize`` applies,
+    without constructing a repository instance.
+    """
+
+    repository = CaptureInboxRepository.__new__(CaptureInboxRepository)
+    repository._converge_schema(connection)

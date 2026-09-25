@@ -1,6 +1,10 @@
+from hashlib import sha256
+import json
 from pathlib import Path
 
 import pytest
+
+import htdt.installation_handoff as installation_handoff
 
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
@@ -142,7 +146,13 @@ def test_handoff_package_writes_deterministic_files(tmp_path: Path) -> None:
         generated_at_utc='2026-09-24T01:00:00+00:00',
     )
     outputs = write_handoff_package(handoff, tmp_path / 'handoff')
-    assert set(outputs) == {'report', 'dimensions', 'settings', 'entities'}
+    assert set(outputs) == {
+        'report',
+        'dimensions',
+        'settings',
+        'entities',
+        'manifest',
+    }
     for path in outputs.values():
         assert path.exists()
     regenerated = write_handoff_package(handoff, tmp_path / 'handoff2')
@@ -150,6 +160,92 @@ def test_handoff_package_writes_deterministic_files(tmp_path: Path) -> None:
         assert path.read_text(encoding='utf-8') == regenerated[
             key
         ].read_text(encoding='utf-8')
+
+
+def test_handoff_manifest_ties_members_to_one_generation(
+    tmp_path: Path,
+) -> None:
+    saved, _variant, service = _service(tmp_path)
+    handoff = build_installation_handoff(
+        service,
+        scene_revision_id=saved.revision.revision_id,
+        system_variant_id='',
+        generated_at_utc='2026-09-24T01:00:00+00:00',
+    )
+    target = tmp_path / 'handoff-manifest'
+    outputs = write_handoff_package(handoff, target)
+    manifest = json.loads(
+        outputs['manifest'].read_text(encoding='utf-8')
+    )
+    assert manifest['scene_revision_id'] == saved.revision.revision_id
+    assert manifest['semantic_sha256'] == handoff.output.semantic_sha256
+    assert manifest['generated_at_utc'] == '2026-09-24T01:00:00+00:00'
+    # Machine-readable degraded state — completeness is never inferred
+    # from file presence alone.
+    assert manifest['complete'] is False
+    assert 'calibration_plan' in manifest['degraded']
+    digests = {entry['name']: entry for entry in manifest['files']}
+    assert set(digests) == {
+        'dimension_sheets.csv',
+        'settings.csv',
+        'installation_report.html',
+        'installation_coordinates.csv',
+    }
+    for name, entry in digests.items():
+        member = (target / name).read_bytes()
+        assert entry['sha256'] == sha256(member).hexdigest()
+        assert entry['size_bytes'] == len(member)
+
+
+def test_handoff_package_failure_restores_previous_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved, _variant, service = _service(tmp_path)
+    first = build_installation_handoff(
+        service,
+        scene_revision_id=saved.revision.revision_id,
+        system_variant_id='',
+        generated_at_utc='2026-09-24T01:00:00+00:00',
+    )
+    target = tmp_path / 'handoff-atomic'
+    previous = write_handoff_package(first, target)
+    before = {
+        name: path.read_bytes() for name, path in previous.items()
+    }
+    second = build_installation_handoff(
+        service,
+        scene_revision_id=saved.revision.revision_id,
+        system_variant_id='',
+        generated_at_utc='2026-09-24T02:00:00+00:00',
+    )
+    real_replace = installation_handoff.os.replace
+    calls = {'count': 0}
+
+    def failing_replace(src, dst):
+        # Fail while promoting the third member file — after two member
+        # files of the new generation were already moved into place.
+        calls['count'] += 1
+        if calls['count'] == 6:
+            raise OSError('injected publish failure')
+        real_replace(src, dst)
+
+    monkeypatch.setattr(
+        installation_handoff.os, 'replace', failing_replace
+    )
+    with pytest.raises(OSError, match='injected publish failure'):
+        write_handoff_package(second, target)
+    monkeypatch.undo()
+    # The previous complete package is intact: every file — members and
+    # the manifest — is back to the earlier generation's bytes.
+    for name, path in previous.items():
+        assert path.read_bytes() == before[name]
+    leftovers = [
+        path
+        for path in target.iterdir()
+        if path.name.startswith('.htdt-handoff-')
+    ]
+    assert leftovers == []
 
 
 def test_handoff_package_leaves_no_staging_on_disk(tmp_path: Path) -> None:

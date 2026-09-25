@@ -52,7 +52,16 @@ AuditFailureClass = Literal[
     'stale_authority',
     'noncanonical_derivation',
     'unclassified',
+    'coverage_gap',
 ]
+
+AuditCoverageMode = Literal[
+    'replay_canonical',
+    'evidence_bytes',
+    'structural_only',
+    'non_authority',
+]
+
 
 @dataclass(frozen=True)
 class AuthorityAuditDiagnostic:
@@ -77,6 +86,7 @@ class AuthorityAuditReport:
     #: report — an unclassified table means the audit never saw its rows
     #: and cannot claim coverage for them.
     unclassified_tables: tuple[str, ...] = ()
+    coverage: tuple[tuple[str, AuditCoverageMode, int], ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -101,7 +111,25 @@ class AuthorityAuditReport:
                 counts['replayed_records'] += count
         return counts
 
+    def coverage_summary(self) -> dict[AuditCoverageMode, int]:
+        """Row counts per audit coverage mode (0 when a mode never ran)."""
+        totals: dict[AuditCoverageMode, int] = {
+            'replay_canonical': 0,
+            'evidence_bytes': 0,
+            'structural_only': 0,
+            'non_authority': 0,
+        }
+        for _label, mode, count in self.coverage:
+            totals[mode] += count
+        return totals
+
     def summary(self) -> str:
+        coverage = self.coverage_summary()
+        coverage_note = (
+            ' [replay={replay_canonical} evidence_bytes={evidence_bytes} '
+            'structural_only={structural_only} '
+            'non_authority={non_authority}]'
+        ).format(**coverage)
         if self.ok:
             total = sum(count for _, count in self.checked)
             counts = self.coverage_counts
@@ -111,6 +139,7 @@ class AuthorityAuditReport:
                 f"{counts['structural_only_tables']} structural-only tables, "
                 f"{counts['operational_metadata_tables']} operational "
                 'metadata tables, 0 unclassified)'
+                f'{coverage_note}'
             )
         lines = [
             f'authority graph audit failed ({len(self.diagnostics)} diagnostics):'
@@ -470,6 +499,72 @@ class _RepositoryChain:
             from .project_lifecycle import ProjectLibrary
 
             return ProjectLibrary(self.db_path)
+        if name == 'design_comparisons':
+            from .cad_design_comparison_repository import (
+                CadDesignComparisonRepository,
+            )
+
+            return CadDesignComparisonRepository(scene)
+        if name == 'decisions':
+            from .cad_design_decision_repository import (
+                CadDesignDecisionRepository,
+            )
+
+            return CadDesignDecisionRepository(scene)
+        if name == 'briefs':
+            from .cad_design_brief_repository import (
+                CadDesignBriefRepository,
+            )
+
+            return CadDesignBriefRepository(scene)
+        if name == 'studies':
+            from .cad_analysis_study_repository import (
+                CadAnalysisStudyRepository,
+            )
+
+            return CadAnalysisStudyRepository(scene)
+        if name == 'assumptions':
+            from .cad_assumption_decision_repository import (
+                CadAssumptionDecisionRepository,
+            )
+
+            return CadAssumptionDecisionRepository(scene)
+        if name == 'installed':
+            from .cad_equipment_instance_repository import (
+                CadInstalledEquipmentRepository,
+            )
+
+            return CadInstalledEquipmentRepository(scene)
+        if name == 'upgrades':
+            from .cad_library_upgrade_repository import (
+                CadLibraryUpgradeRepository,
+            )
+
+            return CadLibraryUpgradeRepository(scene, self.repo('equipment'))
+        if name == 'equipment_bindings':
+            from .cad_equipment_binding_repository import (
+                CadEquipmentBindingRepository,
+            )
+
+            return CadEquipmentBindingRepository(
+                scene, self.repo('equipment')
+            )
+        if name == 'runner':
+            from .cad_measurement_runner_repository import (
+                CadMeasurementRunnerRepository,
+            )
+
+            return CadMeasurementRunnerRepository(scene)
+        if name == 'dependencies':
+            from .external_dependency_repository import (
+                ExternalDependencyRepository,
+            )
+
+            return ExternalDependencyRepository(scene)
+        if name == 'projects':
+            from .project_lifecycle import ProjectLibrary
+
+            return ProjectLibrary(self.db_path)
         raise KeyError(name)
 
 
@@ -553,6 +648,361 @@ def _verify_robustness_evaluation(
             f'RobustnessSpec {robustness_spec_id}'
         )
     return evaluations
+
+
+def _require(record: Any, description: str) -> Any:
+    """Fail closed when a canonical getter returns ``None``."""
+
+    if record is None:
+        raise ValueError(f'{description} no longer resolves')
+    return record
+
+
+def _verify_scene_head(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    """Every explicit document head must resolve to its SceneRevision."""
+
+    (document_id,) = key
+    return _require(
+        chain.repo('scene').current_head(document_id),
+        f'current head for document {document_id}',
+    )
+
+
+def _verify_constraint_head(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    """The constraint-set singleton must resolve to a sealed head revision."""
+
+    (document_id,) = key
+    scene = chain.repo('scene')
+    _require(
+        scene.authoring_constraint_head(document_id),
+        f'authoring constraint head for document {document_id}',
+    )
+    return scene.authoring_constraints(document_id)
+
+
+def _verify_constraint_revision(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    """Constraint revisions form a single-successor chain per document."""
+
+    constraint_revision_id, document_id = key
+    lineage = chain.repo('scene').list_authoring_constraint_revisions(
+        document_id
+    )
+    record = next(
+        (
+            r
+            for r in lineage
+            if r.constraint_revision_id == constraint_revision_id
+        ),
+        None,
+    )
+    _require(
+        record,
+        f'authoring constraint revision {constraint_revision_id} in '
+        f'document {document_id}',
+    )
+    lineage_ids = {r.constraint_revision_id for r in lineage}
+    if record.supersedes_id is not None and (
+        record.supersedes_id not in lineage_ids
+    ):
+        raise ValueError(
+            f'constraint revision {constraint_revision_id} supersedes '
+            f'{record.supersedes_id}, which is absent from the lineage'
+        )
+    if sum(1 for r in lineage if r.supersedes_id == constraint_revision_id) > 1:
+        raise ValueError(
+            f'branched constraint lineage: multiple revisions supersede '
+            f'{constraint_revision_id}'
+        )
+    return record
+
+
+def _verify_measurement_disposition(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    disposition_id, measurement_id = key
+    quality = chain.repo('quality')
+    disposition = _require(
+        quality.get_disposition(disposition_id),
+        f'measurement disposition {disposition_id}',
+    )
+    if disposition.measurement_id != measurement_id:
+        raise ValueError(
+            f'disposition {disposition_id} binds measurement '
+            f'{disposition.measurement_id}, not recorded {measurement_id}'
+        )
+    _require(
+        chain.repo('measurement').get_measurement(measurement_id),
+        f'measurement {measurement_id} referenced by disposition '
+        f'{disposition_id}',
+    )
+    if disposition.correction_id is not None:
+        _require(
+            quality.get_correction(disposition.correction_id),
+            f'correction {disposition.correction_id} referenced by '
+            f'disposition {disposition_id}',
+        )
+    return disposition
+
+
+def _verify_measurement_correction(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    correction_id, measurement_id = key
+    correction = _require(
+        chain.repo('quality').get_correction(correction_id),
+        f'measurement correction {correction_id}',
+    )
+    if correction.measurement_id != measurement_id:
+        raise ValueError(
+            f'correction {correction_id} binds measurement '
+            f'{correction.measurement_id}, not recorded {measurement_id}'
+        )
+    _require(
+        chain.repo('measurement').get_measurement(measurement_id),
+        f'measurement {measurement_id} referenced by correction '
+        f'{correction_id}',
+    )
+    return correction
+
+
+def _verify_design_decision(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    decision_id, document_id = key
+    decisions = chain.repo('decisions').list_decisions(document_id)
+    record = _require(
+        next((d for d in decisions if d.decision_id == decision_id), None),
+        f'design decision {decision_id} in document {document_id}',
+    )
+    return _verify_supersedes_chain(
+        record,
+        decisions,
+        'decision_id',
+        'supersedes_decision_id',
+        'design decision',
+    )
+
+
+def _verify_design_brief(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    brief_id, document_id = key
+    briefs = chain.repo('briefs').list_briefs(document_id)
+    record = _require(
+        next((b for b in briefs if b.brief_id == brief_id), None),
+        f'design brief {brief_id} in document {document_id}',
+    )
+    return _verify_supersedes_chain(
+        record, briefs, 'brief_id', 'supersedes_brief_id', 'design brief'
+    )
+
+
+def _verify_analysis_study(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    study_id, document_id = key
+    studies = chain.repo('studies').list_studies(document_id)
+    record = _require(
+        next((s for s in studies if s.study_id == study_id), None),
+        f'analysis study {study_id} in document {document_id}',
+    )
+    return _verify_supersedes_chain(
+        record, studies, 'study_id', 'supersedes_study_id', 'analysis study'
+    )
+
+
+def _verify_assumption_decision(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    decision_id, document_id = key
+    decisions = chain.repo('assumptions').list_decisions(document_id)
+    record = _require(
+        next((d for d in decisions if d.decision_id == decision_id), None),
+        f'assumption decision {decision_id} in document {document_id}',
+    )
+    return _verify_supersedes_chain(
+        record,
+        decisions,
+        'decision_id',
+        'supersedes_decision_id',
+        'assumption decision',
+    )
+
+
+def _verify_external_dependency(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    dependency_id, document_id = key
+    dependency = _require(
+        chain.repo('dependencies').get_dependency(dependency_id),
+        f'external dependency {dependency_id}',
+    )
+    if dependency.document_id != document_id:
+        raise ValueError(
+            f'external dependency {dependency_id} binds document '
+            f'{dependency.document_id}, not recorded {document_id}'
+        )
+    return dependency
+
+
+def _verify_dependency_event(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    event_id, dependency_id = key
+    dependencies = chain.repo('dependencies')
+    _require(
+        dependencies.get_dependency(dependency_id),
+        f'external dependency {dependency_id}',
+    )
+    events = dependencies.list_resolutions(dependency_id)
+    if event_id not in {event.event_id for event in events}:
+        raise ValueError(
+            f'resolution event {event_id} no longer resolves for '
+            f'dependency {dependency_id}'
+        )
+    return events
+
+
+def _verify_upgrade_adoption(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    adoption_id, document_id = key
+    upgrades = chain.repo('upgrades')
+    adoptions = upgrades.adoptions_for_document(document_id)
+    record = _require(
+        next((a for a in adoptions if a.adoption_id == adoption_id), None),
+        f'upgrade adoption {adoption_id} in document {document_id}',
+    )
+    _require(
+        upgrades.get_upgrade_by_hash(record.upgrade_sha256),
+        f'equipment upgrade {record.upgrade_sha256} adopted by '
+        f'{adoption_id}',
+    )
+    return record
+
+
+def _verify_installed_binding(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    binding_id, instance_id = key
+    installed = chain.repo('installed')
+    _require(
+        installed.get_instance(instance_id),
+        f'installed equipment instance {instance_id}',
+    )
+    bindings = installed.list_bindings(instance_id)
+    if binding_id not in {binding.binding_id for binding in bindings}:
+        raise ValueError(
+            f'definition binding {binding_id} no longer resolves for '
+            f'instance {instance_id}'
+        )
+    return bindings
+
+
+def _verify_installed_observation(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    observation_id, instance_id = key
+    installed = chain.repo('installed')
+    _require(
+        installed.get_instance(instance_id),
+        f'installed equipment instance {instance_id}',
+    )
+    observations = installed.list_observations(instance_id)
+    if observation_id not in {
+        observation.observation_id for observation in observations
+    }:
+        raise ValueError(
+            f'device observation {observation_id} no longer resolves for '
+            f'instance {instance_id}'
+        )
+    return observations
+
+
+def _verify_installed_replacement(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    replacement_id, document_id = key
+    installed = chain.repo('installed')
+    replacements = installed.list_replacements(document_id)
+    record = _require(
+        next(
+            (r for r in replacements if r.replacement_id == replacement_id),
+            None,
+        ),
+        f'installed equipment replacement {replacement_id} in document '
+        f'{document_id}',
+    )
+    _require(
+        installed.get_instance(record.removed_instance_id),
+        f'removed instance {record.removed_instance_id}',
+    )
+    _require(
+        installed.get_instance(record.installed_instance_id),
+        f'installed instance {record.installed_instance_id}',
+    )
+    if (
+        sum(
+            1
+            for r in replacements
+            if r.removed_instance_id == record.removed_instance_id
+        )
+        > 1
+    ):
+        raise ValueError(
+            f'branched installed-equipment lineage: instance '
+            f'{record.removed_instance_id} has multiple replacements'
+        )
+    if (
+        sum(
+            1
+            for r in replacements
+            if r.installed_instance_id == record.installed_instance_id
+        )
+        > 1
+    ):
+        raise ValueError(
+            f'installed instance {record.installed_instance_id} is the '
+            f'successor of multiple removals'
+        )
+    return record
+
+
+def _verify_runner_run(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    run_id, plan_id = key
+    runner = chain.repo('runner')
+    run = _require(runner.get_run(run_id), f'measurement runner run {run_id}')
+    if run.plan_id != plan_id:
+        raise ValueError(
+            f'measurement runner run {run_id} binds plan {run.plan_id}, '
+            f'not recorded {plan_id}'
+        )
+    _require(
+        runner.get_plan(plan_id), f'measurement runner plan {plan_id}'
+    )
+    return run
+
+
+def _verify_runner_event(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    event_id, run_id = key
+    runner = chain.repo('runner')
+    _require(runner.get_run(run_id), f'measurement runner run {run_id}')
+    events = runner.list_events(run_id)
+    if event_id not in {event.event_id for event in events}:
+        raise ValueError(
+            f'runner event {event_id} no longer resolves for run {run_id}'
+        )
+    return events
 
 
 # Persisted authorities enumerated in dependency order. Each verify call is
@@ -1104,6 +1554,36 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('attestation_id',),
         _get('applicability', 'get'),
     ),
+    _ReplayProbe(
+        'scene_document_head',
+        'scene_document_heads',
+        ('document_id',),
+        _verify_scene_head,
+    ),
+    _ReplayProbe(
+        'authoring_constraint_set',
+        'authoring_constraint_sets',
+        ('document_id',),
+        _verify_constraint_head,
+    ),
+    _ReplayProbe(
+        'authoring_constraint_revision',
+        'authoring_constraint_revisions',
+        ('constraint_revision_id', 'document_id'),
+        _verify_constraint_revision,
+    ),
+    _ReplayProbe(
+        'measurement_disposition',
+        'cad_measurement_dispositions',
+        ('disposition_id', 'measurement_id'),
+        _verify_measurement_disposition,
+    ),
+    _ReplayProbe(
+        'measurement_correction',
+        'cad_measurement_corrections',
+        ('correction_id', 'measurement_id'),
+        _verify_measurement_correction,
+    ),
     # ---- #718 hardening families ---------------------------------------
     _ReplayProbe(
         'design_comparison_set',
@@ -1167,13 +1647,109 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     ),
     _ReplayProbe(
         'project_registry',
-        'project_registry',
+        'htdt_project_documents',
         ('project_id',),
         _get('project_library', 'verify_project_registration'),
     ),
     _ReplayProbe(
+        'design_decision',
+        'design_decisions',
+        ('decision_id', 'document_id'),
+        _verify_design_decision,
+    ),
+    _ReplayProbe(
+        'design_brief',
+        'cad_design_briefs',
+        ('brief_id', 'document_id'),
+        _verify_design_brief,
+    ),
+    _ReplayProbe(
+        'analysis_study',
+        'cad_analysis_studies',
+        ('study_id', 'document_id'),
+        _verify_analysis_study,
+    ),
+    _ReplayProbe(
+        'assumption_decision',
+        'assumption_decisions',
+        ('decision_id', 'document_id'),
+        _verify_assumption_decision,
+    ),
+    _ReplayProbe(
+        'external_dependency',
+        'cad_external_dependencies',
+        ('dependency_id', 'document_id'),
+        _verify_external_dependency,
+    ),
+    _ReplayProbe(
+        'dependency_resolution_event',
+        'cad_dependency_resolution_events',
+        ('event_id', 'dependency_id'),
+        _verify_dependency_event,
+    ),
+    _ReplayProbe(
+        'equipment_upgrade',
+        'cad_equipment_upgrades',
+        ('upgrade_id',),
+        _get('upgrades', 'get_upgrade'),
+    ),
+    _ReplayProbe(
+        'upgrade_adoption',
+        'cad_upgrade_adoptions',
+        ('adoption_id', 'document_id'),
+        _verify_upgrade_adoption,
+    ),
+    _ReplayProbe(
+        'equipment_binding_semantics',
+        'cad_equipment_binding_semantics',
+        ('binding_id',),
+        _get('equipment_bindings', 'get_binding'),
+    ),
+    _ReplayProbe(
+        'installed_equipment_instance',
+        'cad_installed_equipment_instances',
+        ('instance_id',),
+        _get('installed', 'get_instance'),
+    ),
+    _ReplayProbe(
+        'installed_definition_binding',
+        'cad_installed_definition_bindings',
+        ('binding_id', 'instance_id'),
+        _verify_installed_binding,
+    ),
+    _ReplayProbe(
+        'installed_device_observation',
+        'cad_installed_device_observations',
+        ('observation_id', 'instance_id'),
+        _verify_installed_observation,
+    ),
+    _ReplayProbe(
+        'installed_equipment_replacement',
+        'cad_installed_equipment_replacements',
+        ('replacement_id', 'document_id'),
+        _verify_installed_replacement,
+    ),
+    _ReplayProbe(
+        'measurement_runner_plan',
+        'cad_measurement_runner_plans',
+        ('plan_id',),
+        _get('runner', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'measurement_runner_run',
+        'cad_measurement_runner_runs',
+        ('run_id', 'plan_id'),
+        _verify_runner_run,
+    ),
+    _ReplayProbe(
+        'measurement_runner_event',
+        'cad_measurement_runner_events',
+        ('event_id', 'run_id'),
+        _verify_runner_event,
+    ),
+    _ReplayProbe(
         'project_tombstone',
-        'project_tombstones',
+        'htdt_project_tombstones',
         ('tombstone_id',),
         _get('project_library', 'verify_persisted_tombstone'),
     ),
@@ -1228,9 +1804,6 @@ _ASSET_TABLES: tuple[
     ),
 )
 
-# Tables whose rows carry a JSON payload but have no repository replay path
-# (external-resolver domains and link/metadata tables). They are still
-# enumerated so raw payload corruption cannot slip through the audit.
 _REPLAY_TABLES = frozenset(probe.table for probe in _REPLAY_PROBES)
 
 #: Explicit coverage policy for every persistent table that carries no
@@ -1268,10 +1841,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'OPERATIONAL_METADATA',
         'migration history bookkeeping',
     ),
-    'scene_document_heads': (
-        'OPERATIONAL_METADATA',
-        'mutable head pointer derived from scene_revisions',
-    ),
     'scene_recovery_snapshots': (
         'OPERATIONAL_METADATA',
         'crash-recovery payload replaced by the next save; not an '
@@ -1299,11 +1868,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
     'seating_layout_specs': (
         'OPERATIONAL_METADATA',
         'editor seating-layout payloads — UI convenience, not design '
-        'authority',
-    ),
-    'authoring_constraint_sets': (
-        'OPERATIONAL_METADATA',
-        'UI-authored constraint hint payloads — convenience, not design '
         'authority',
     ),
     'capture_bundles': (
@@ -1366,11 +1930,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'electrical-limit payload authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
-    'cad_equipment_binding_semantics': (
-        'STRUCTURAL_ONLY',
-        'binding-semantics payload authority; canonical replay path '
-        'pending — strongest verification is schema + payload parse',
-    ),
     'cad_frequency_resolved_evaluations': (
         'STRUCTURAL_ONLY',
         'frequency-resolved evaluation payload authority; canonical '
@@ -1385,16 +1944,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
     'cad_measurement_attachments': (
         'STRUCTURAL_ONLY',
         'measurement attachment payload authority; canonical replay '
-        'path pending — strongest verification is schema + payload parse',
-    ),
-    'cad_measurement_corrections': (
-        'STRUCTURAL_ONLY',
-        'measurement correction payload authority; canonical replay '
-        'path pending — strongest verification is schema + payload parse',
-    ),
-    'cad_measurement_dispositions': (
-        'STRUCTURAL_ONLY',
-        'measurement disposition payload authority; canonical replay '
         'path pending — strongest verification is schema + payload parse',
     ),
     'cad_r120_compile_inputs': (
@@ -1422,22 +1971,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'append-only lifecycle event log — operational bookkeeping',
     ),
     # ---- operational bookkeeping -------------------------------------
-    'cad_measurement_runner_events': (
-        'OPERATIONAL_METADATA',
-        'measurement runner event log — operational bookkeeping',
-    ),
-    'cad_measurement_runner_plans': (
-        'OPERATIONAL_METADATA',
-        'measurement runner plan bookkeeping — derived operational state',
-    ),
-    'cad_measurement_runner_runs': (
-        'OPERATIONAL_METADATA',
-        'measurement runner run bookkeeping — derived operational state',
-    ),
-    'cad_dependency_resolution_events': (
-        'OPERATIONAL_METADATA',
-        'append-only dependency resolution log — operational bookkeeping',
-    ),
     'cad_reconciliation_decisions': (
         'OPERATIONAL_METADATA',
         'append-only reconciliation decision log — operational bookkeeping',
@@ -1501,11 +2034,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'ambient profile authority; canonical replay path pending — '
         'strongest verification is schema + payload parse',
     ),
-    'cad_analysis_studies': (
-        'STRUCTURAL_ONLY',
-        'analysis study authority; canonical replay path pending — '
-        'strongest verification is schema + payload parse',
-    ),
     'cad_applied_settings': (
         'STRUCTURAL_ONLY',
         'applied-settings authority; canonical replay path pending — '
@@ -1546,11 +2074,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'cost record authority; canonical replay path pending — '
         'strongest verification is schema + payload parse',
     ),
-    'cad_design_briefs': (
-        'STRUCTURAL_ONLY',
-        'design brief authority; canonical replay path pending — '
-        'strongest verification is schema + payload parse',
-    ),
     'cad_direct_view_evaluations': (
         'STRUCTURAL_ONLY',
         'direct-view evaluation authority; canonical replay path '
@@ -1570,11 +2093,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'evidence subject authority; canonical replay path pending — '
         'strongest verification is schema + payload parse',
-    ),
-    'cad_external_dependencies': (
-        'STRUCTURAL_ONLY',
-        'external dependency authority; canonical replay path pending '
-        '— strongest verification is schema + payload parse',
     ),
     'cad_field_evidence': (
         'STRUCTURAL_ONLY',
@@ -1600,27 +2118,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'installation datum authority; canonical replay path pending '
         '— strongest verification is schema + payload parse',
-    ),
-    'cad_installed_definition_bindings': (
-        'STRUCTURAL_ONLY',
-        'installed definition binding authority; canonical replay path '
-        'pending — strongest verification is schema + payload parse',
-    ),
-    'cad_installed_device_observations': (
-        'STRUCTURAL_ONLY',
-        'installed device observation authority; canonical replay path '
-        'pending — strongest verification is schema + payload parse',
-    ),
-    'cad_installed_equipment_instances': (
-        'STRUCTURAL_ONLY',
-        'installed equipment instance authority; canonical replay path '
-        'pending — strongest verification is schema + payload parse',
-    ),
-    'cad_installed_equipment_replacements': (
-        'STRUCTURAL_ONLY',
-        'installed equipment replacement authority; canonical replay '
-        'path pending — strongest verification is schema + payload '
-        'parse',
     ),
     'cad_ir_analysis_results': (
         'STRUCTURAL_ONLY',
@@ -1741,16 +2238,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'payload parse',
     ),
     # ---- further payload authorities, replay pending ------------------
-    'assumption_decisions': (
-        'STRUCTURAL_ONLY',
-        'assumption decision authority; canonical replay path pending '
-        '— strongest verification is schema + payload parse',
-    ),
-    'design_decisions': (
-        'STRUCTURAL_ONLY',
-        'design decision authority; canonical replay path pending — '
-        'strongest verification is schema + payload parse',
-    ),
     'field_return_contributions': (
         'STRUCTURAL_ONLY',
         'field return contribution authority; canonical replay path '
@@ -1828,11 +2315,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'environment selection authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
-    ),
-    'cad_equipment_upgrades': (
-        'STRUCTURAL_ONLY',
-        'equipment upgrade authority; canonical replay path pending — '
-        'strongest verification is schema + payload parse',
     ),
     'cad_hybrid_acoustic_results': (
         'STRUCTURAL_ONLY',
@@ -1996,11 +2478,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'surface material assignment authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
-    'cad_upgrade_adoptions': (
-        'STRUCTURAL_ONLY',
-        'upgrade adoption authority; canonical replay path pending — '
-        'strongest verification is schema + payload parse',
-    ),
     'cad_video_geometry_workspaces': (
         'STRUCTURAL_ONLY',
         'video geometry workspace authority; canonical replay path '
@@ -2036,7 +2513,119 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'capture semantic promotion authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
+    'htdt_project_imports': (
+        'OPERATIONAL_METADATA',
+        'project import bookkeeping — the registry and tombstones are the '
+        'persisted authority, import rows only record the operation',
+    ),
+    'htdt_legacy_imports': (
+        'OPERATIONAL_METADATA',
+        'legacy-data migration bookkeeping — records which legacy '
+        'projects already migrated into the native registry',
+    ),
+    'htdt_storage_gc_pending': (
+        'OPERATIONAL_METADATA',
+        'storage-GC work queue — pending deletions are re-derived from '
+        'scan state and carry no semantic authority',
+    ),
+    'projects': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'contexts': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'sessions': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'constraint_sets': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'search_specs': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'assets': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'measurements': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'datasets': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'comparisons': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'asset_links': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'metadata': (
+        'STRUCTURAL_ONLY',
+        'legacy schema-marker table — superseded by cad_* domain '
+        'authorities; strongest verification is schema + payload parse',
+    ),
 }
+
+#: Bookkeeping/editor/derived tables (the ``OPERATIONAL_METADATA`` and
+#: ``EPHEMERAL`` policy classes): row counts are reported but the rows
+#: carry no independent semantic claim for the audit to replay.
+_NON_AUTHORITY_TABLES: dict[str, str] = {
+    table: reason
+    for table, (kind, reason) in _TABLE_POLICY.items()
+    if kind in {'OPERATIONAL_METADATA', 'EPHEMERAL'}
+}
+
+#: Tables whose rows carry semantic payload claims but have no registered
+#: canonical replay adapter; the strongest verification is schema plus
+#: payload parse. Each reason documents why no replay path exists.
+_STRUCTURAL_ONLY_TABLES: dict[str, str] = {
+    table: reason
+    for table, (kind, reason) in _TABLE_POLICY.items()
+    if kind == 'STRUCTURAL_ONLY'
+}
+
+
+def audit_table_modes() -> dict[str, AuditCoverageMode]:
+    """Every registered table mapped to its audit coverage mode.
+
+    Completeness invariant: a persistent table absent from the returned
+    mapping fails the audit with a ``coverage_gap`` diagnostic, so a new
+    authority table can never silently fall back to payload parsing.
+    """
+
+    modes: dict[str, AuditCoverageMode] = {}
+    for table, (kind, _reason) in _TABLE_POLICY.items():
+        modes[table] = (
+            'structural_only'
+            if kind == 'STRUCTURAL_ONLY'
+            else 'non_authority'
+        )
+    for table in _REPLAY_TABLES:
+        modes[table] = 'replay_canonical'
+    modes['capture_ingestion_runs'] = 'replay_canonical'
+    for table, *_rest in _ASSET_TABLES:
+        modes[table] = 'evidence_bytes'
+    modes['htdt_content_blobs'] = 'evidence_bytes'
+    return modes
 
 
 def _classify_error(exc: BaseException) -> AuditFailureClass:
@@ -2120,6 +2709,7 @@ def audit_native_authority_graph(
     chain = _RepositoryChain(db_path)
     diagnostics: list[AuthorityAuditDiagnostic] = []
     checked: list[tuple[str, int]] = []
+    coverage: list[tuple[str, AuditCoverageMode, int]] = []
 
     def record(
         authority: str,
@@ -2183,6 +2773,9 @@ def audit_native_authority_graph(
                     )
                 count += 1
             checked.append((probe.authority, count))
+            coverage.append(
+                (probe.authority, 'replay_canonical', count)
+            )
 
         # ---- capture ingestion runs --------------------------------------
         if _table_exists(connection, 'capture_ingestion_runs'):
@@ -2208,6 +2801,9 @@ def audit_native_authority_graph(
                     )
                 count += 1
             checked.append(('capture_ingestion_run', count))
+            coverage.append(
+                ('capture_ingestion_run', 'replay_canonical', count)
+            )
 
         # ---- managed-asset byte evidence ---------------------------------
         store = ManagedAssetStore(data_dir / MANAGED_ASSETS_DIRNAME)
@@ -2282,6 +2878,9 @@ def audit_native_authority_graph(
                     )
                 count += 1
             checked.append((f'managed_asset:{table}', count))
+            coverage.append(
+                (f'managed_asset:{table}', 'evidence_bytes', count)
+            )
 
         # ---- retained content blobs --------------------------------------
         if _table_exists(connection, 'htdt_content_blobs'):
@@ -2310,17 +2909,13 @@ def audit_native_authority_graph(
                     )
                 count += 1
             checked.append(('content_blob', count))
+            coverage.append(('content_blob', 'evidence_bytes', count))
 
         # ---- coverage classification tier ------------------------------
         # Every persistent table is covered exactly once: a replay probe,
         # an evidence-bytes check, or an explicit _TABLE_POLICY entry.
         # Anything else is UNCLASSIFIED and fails closed.
-        asset_tables = {table for table, *_ in _ASSET_TABLES}
-        covered = (
-            _REPLAY_TABLES
-            | asset_tables
-            | {'capture_ingestion_runs', 'htdt_content_blobs'}
-        )
+        modes = audit_table_modes()
         tables = [
             row['name']
             for row in connection.execute(
@@ -2330,33 +2925,35 @@ def audit_native_authority_graph(
         ]
         unclassified: list[str] = []
         for table in tables:
-            if table in covered:
-                continue
-            policy = _TABLE_POLICY.get(table)
-            if policy is None:
+            mode = modes.get(table)
+            if mode is None:
                 unclassified.append(table)
                 diagnostics.append(
                     AuthorityAuditDiagnostic(
-                        authority='coverage',
-                        record_ref=table,
-                        failure_class='unclassified',
+                        authority=table,
+                        record_ref='*',
+                        failure_class='coverage_gap',
                         dependency=table,
                         message=(
-                            f'table {table} has no coverage policy entry — '
-                            'classify it (replay probe, evidence bytes, '
-                            'STRUCTURAL_ONLY, EPHEMERAL, or '
-                            'OPERATIONAL_METADATA) before the audit can '
-                            'claim coverage'
+                            f'persistent table {table} has no audit '
+                            'coverage registration — assign it an explicit '
+                            'mode in the audit coverage registry'
                         ),
                     )
                 )
+            elif mode == 'non_authority':
+                count = connection.execute(
+                    f'SELECT COUNT(*) AS n FROM "{table}"'
+                ).fetchone()['n']
+                checked.append((f'metadata:{table}', count))
+                coverage.append(
+                    (f'non_authority:{table}', 'non_authority', count)
+                )
+
+        # ---- structural payload tier -------------------------------------
+        for table in sorted(_STRUCTURAL_ONLY_TABLES):
+            if not _table_exists(connection, table):
                 continue
-            policy_kind, _reason = policy
-            label = (
-                'metadata'
-                if policy_kind in {'OPERATIONAL_METADATA', 'EPHEMERAL'}
-                else 'structural'
-            )
             payload_columns = [
                 column
                 for column in _table_columns(connection, table)
@@ -2383,7 +2980,10 @@ def audit_native_authority_graph(
                                 dependency=f'{table}.{column}',
                             )
                     count += 1
-            checked.append((f'{label}:{table}', count))
+            checked.append((f'structural:{table}', count))
+            coverage.append(
+                (f'structural:{table}', 'structural_only', count)
+            )
     finally:
         connection.close()
 
@@ -2392,6 +2992,7 @@ def audit_native_authority_graph(
         checked=tuple(checked),
         diagnostics=tuple(diagnostics),
         unclassified_tables=tuple(unclassified),
+        coverage=tuple(coverage),
     )
 
 

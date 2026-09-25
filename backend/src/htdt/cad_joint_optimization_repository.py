@@ -35,7 +35,10 @@ from .cad_joint_optimization import (
 from .cad_measurement_quality import CadMeasurementQualityReport
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_robustness_repository import CadRobustnessRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_search_models import CadSearchSpec
 from .cad_search_repository import CadSearchRepository
 from .cad_system_variant import SystemVariant
@@ -132,68 +135,7 @@ class CadJointOptimizationRepository:
     def _initialize(self) -> None:
         ensure_native_schema(self.path)
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_joint_optimization_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    spec_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    base_system_variant_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_joint_opt_spec_document_seq
-                    ON cad_joint_optimization_specs(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_joint_candidates (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    candidate_id TEXT NOT NULL UNIQUE,
-                    candidate_sha256 TEXT NOT NULL UNIQUE,
-                    spec_id TEXT NOT NULL,
-                    physical_system_variant_id TEXT NOT NULL,
-                    calibration_plan_id TEXT,
-                    candidate_class TEXT NOT NULL,
-                    eligibility_state TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(spec_id)
-                        REFERENCES cad_joint_optimization_specs(spec_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_joint_candidate_spec_seq
-                    ON cad_joint_candidates(spec_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_joint_candidate_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_binding_id TEXT NOT NULL UNIQUE,
-                    evaluation_binding_sha256 TEXT NOT NULL UNIQUE,
-                    spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(spec_id)
-                        REFERENCES cad_joint_optimization_specs(spec_id),
-                    FOREIGN KEY(candidate_id)
-                        REFERENCES cad_joint_candidates(candidate_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_joint_evaluation_spec_seq
-                    ON cad_joint_candidate_evaluations(spec_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_joint_candidate_selections (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    selection_id TEXT NOT NULL UNIQUE,
-                    selection_sha256 TEXT NOT NULL UNIQUE,
-                    spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    evaluation_binding_id TEXT,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(spec_id)
-                        REFERENCES cad_joint_optimization_specs(spec_id),
-                    FOREIGN KEY(candidate_id)
-                        REFERENCES cad_joint_candidates(candidate_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_joint_selection_spec_seq
-                    ON cad_joint_candidate_selections(spec_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_joint_optimization_specs', 'cad_joint_candidates', 'cad_joint_candidate_evaluations', 'cad_joint_candidate_selections')
 
     def _require_spec_authority(
         self,

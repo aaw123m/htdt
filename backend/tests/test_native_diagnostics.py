@@ -7,11 +7,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import htdt.native_cad as native_cad
 from htdt import __version__
+from htdt.cad_scene import F1_DOCUMENT_ID
 from htdt.cad_schema import NativeSchemaError
 from htdt.native_diagnostics import (
     LOG_FILENAME,
@@ -208,8 +210,21 @@ class _FakeRepository:
         self.path = path
 
 
+class _FakeProjectLibraryRepository:
+    """Schema-bypassing stand-in: the real library verifies the migrated
+    schema, which `_FakeRepository` deliberately never creates."""
+
+    def __init__(self, _repository) -> None:
+        pass
+
+    def resolve_startup_document(self, document_id: str | None):
+        return SimpleNamespace(document_id=document_id or F1_DOCUMENT_ID)
+
+
 class _FakeWindow:
-    def __init__(self, repository, document_id: str) -> None:
+    def __init__(
+        self, repository, document_id: str, project_library=None
+    ) -> None:
         self.repository = repository
         self.document_id = document_id
         self.shown = False
@@ -267,6 +282,11 @@ def test_successful_gui_startup_unchanged(
     monkeypatch.setattr(native_cad, "apply_dark_theme", lambda _app: None)
     monkeypatch.setattr(native_cad, "OptimizationWorkspaceWindow", _FakeWindow)
     monkeypatch.setattr(native_cad, "build_workflow_shell", _FakeWindow)
+    monkeypatch.setattr(
+        native_cad,
+        "ProjectLibraryRepository",
+        _FakeProjectLibraryRepository,
+    )
 
     assert native_cad.main(["--data-dir", str(data_dir)]) == 0
 

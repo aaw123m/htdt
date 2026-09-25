@@ -22,7 +22,10 @@ from .cad_measurement_quality import (
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant import EntityLifecycleBinding
 from .cad_system_variant_lifecycle import (
     CadSystemVariantLifecycleRepository,
@@ -482,25 +485,7 @@ class CadSystemVariantMeasuredLifecycleRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measured (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    record_id TEXT NOT NULL UNIQUE,
-                    record_sha256 TEXT NOT NULL UNIQUE,
-                    as_built_record_id TEXT NOT NULL,
-                    variant_id TEXT NOT NULL,
-                    as_built_revision_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_system_variant_measured_as_built_seq
-                    ON cad_system_variant_measured(
-                        as_built_record_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_system_variant_measured')
 
     def _validate(
         self,

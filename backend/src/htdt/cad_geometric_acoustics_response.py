@@ -21,6 +21,7 @@ from .cad_geometric_acoustics_adapter import (
 )
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
+from .cad_schema import require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -1716,15 +1717,7 @@ class CadPathFrequencyResponseRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS r150_path_frequency_response_artifacts (
-                    artifact_id TEXT PRIMARY KEY,
-                    semantic_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'r150_path_frequency_response_artifacts')
 
     def _resolve_dependency(
         self,

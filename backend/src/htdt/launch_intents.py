@@ -7,8 +7,10 @@ and all of them are dispatched through the same intent router.
 
 File types (registered per-user by the installer, ``installer/HTDT.iss``):
 
-- ``.htdtproject`` — a small JSON project reference; opens/switches to that
-  project inside the running application.
+- ``.htdtproject`` — overloaded (#736): either a small JSON
+  ``htdt-project-ref`` descriptor that switches to an existing project, or
+  a #488 ZIP project bundle that is imported through the bundle authority
+  and then opened. The router decides by file content, not extension.
 - ``.htdtcapture`` — a Capture bundle reference or descriptor; staged for
   review (never silently imported as evidence).
 - ``.htdt-backup`` — a validated backup archive; opened as a *preview* with
