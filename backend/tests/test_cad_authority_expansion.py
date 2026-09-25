@@ -1285,3 +1285,126 @@ def test_gain_structure_chain(tmp_path: Path) -> None:
     assert hot_eval.state == 'unsupported'
     assert hot_eval.stage_results[1].state == 'clipped'
     assert hot_eval.limiting_stage_id == 'dsp-in'
+
+
+def test_r110_matches_response_and_directivity_conditions_to_installation(
+    tmp_path: Path,
+) -> None:
+    from htdt.cad_source_response import (
+        SourceResponseCondition,
+        SourceResponseSample,
+        build_source_response,
+    )
+
+    scene_repository, revision, variant_repository, equipment_repository = (
+        _repositories(tmp_path)
+    )
+    definition = _equipment(
+        mounting=MountingMetadata(
+            mounting_modes=('free_standing', 'in_wall')
+        ),
+    )
+    _save_equipment(equipment_repository, definition)
+    variant = _persist_variant(variant_repository, revision, definition)
+
+    response = build_source_response(
+        equipment_definition=definition,
+        label='anechoic on-axis response',
+        capability_tier='RELATIVE_ON_AXIS_MAGNITUDE',
+        provenance='authority-expansion-fixture',
+        condition=SourceResponseCondition(
+            input_quantity='voltage_v_rms',
+            input_value=2.83,
+            reference_distance_m=1.0,
+            field_condition='free_field',
+            installation_condition='free_standing',
+            calibration='authority-expansion-fixture',
+        ),
+        valid_frequency_domain=DOMAIN,
+        response_samples=(
+            SourceResponseSample(
+                frequency_hz=1000.0,
+                magnitude_db_spl=85.0,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+
+    entity = revision.document.entity('speaker-fl')
+    free_context = build_installation_context(
+        context_id='ctx-967-free',
+        document_id=DOCUMENT_ID,
+        entity_id='speaker-fl',
+        equipment_definition=definition,
+        selected_mounting_mode='free_standing',
+        directivity_applicability='anechoic',
+        provenance=(_provenance('install', 'a'),),
+        created_at_utc=NOW,
+    )
+    evaluation = evaluate_installation_context(
+        document=revision.document,
+        entity=entity,
+        equipment_definition=definition,
+        context=free_context,
+    )
+    assert evaluation.installed_condition == 'free_standing'
+    assert evaluation.condition_compatibility == 'exact_match'
+    assert evaluation.acoustic_mounting_capability == 'modeled_supported'
+
+    compiled = compile_r110_source_model(
+        scene_revision=revision,
+        system_variant=variant,
+        source_entity_id='speaker-fl',
+        equipment_definition=definition,
+        installation_context=free_context,
+        source_response=response,
+    )
+    assert compiled.source_response_condition_compatibility == 'exact_match'
+    assert compiled.directivity_condition_compatibility == 'exact_match'
+    assert compiled.capability('source_response').decision == 'SUPPORTED'
+
+    # Free-field evidence on a flush in-wall install is incompatible: the
+    # response capability is downgraded and the decision is on the model.
+    wall_context = build_installation_context(
+        context_id='ctx-967-wall',
+        document_id=DOCUMENT_ID,
+        entity_id='speaker-fl',
+        equipment_definition=definition,
+        selected_mounting_mode='in_wall',
+        directivity_applicability='anechoic',
+        provenance=(_provenance('install', 'b'),),
+        created_at_utc=NOW,
+    )
+    wall_eval = evaluate_installation_context(
+        document=revision.document,
+        entity=entity,
+        equipment_definition=definition,
+        context=wall_context,
+    )
+    assert wall_eval.installed_condition == 'flush_in_wall'
+    assert wall_eval.condition_compatibility == 'incompatible'
+    # A non-unknown applicability label alone no longer claims a modeled
+    # mounting transfer.
+    assert wall_eval.acoustic_mounting_capability != 'modeled_supported'
+
+    downgraded = compile_r110_source_model(
+        scene_revision=revision,
+        system_variant=variant,
+        source_entity_id='speaker-fl',
+        equipment_definition=definition,
+        installation_context=wall_context,
+        source_response=response,
+    )
+    assert (
+        downgraded.source_response_condition_compatibility == 'incompatible'
+    )
+    assert downgraded.directivity_condition_compatibility == 'incompatible'
+    assert downgraded.capability('source_response').decision == 'UNSUPPORTED'
+    assert downgraded.capability('magnitude_directivity').decision == (
+        'UNSUPPORTED'
+    )
+    assert any(
+        'incompatible' in reason
+        for reason in downgraded.unsupported_reasons
+    )
+    assert downgraded.semantic_sha256 != compiled.semantic_sha256

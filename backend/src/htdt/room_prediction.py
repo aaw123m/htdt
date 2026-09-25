@@ -41,6 +41,10 @@ from .cad_prediction_provider import (
     LowBandPredictionProvider,
     PredictionProviderResolution,
 )
+from .cad_listener_pose import (
+    CadListenerPoseRepository,
+    ListenerPoseAuthority,
+)
 from .cad_prediction_repository import CadPredictionRepository
 from .cad_prediction_request import (
     RectangularGeometryRequestIdentity,
@@ -49,6 +53,14 @@ from .cad_prediction_request import (
 )
 from .cad_predictions import analyze_native_rectangular_geometry
 from .cad_repository import SceneRepository, SceneRevision
+from .cad_room_operating_state import (
+    RoomOperatingState,
+    compile_operating_state_consumption,
+    evaluate_operating_state_freshness,
+)
+from .cad_room_operating_state_repository import (
+    CadRoomOperatingStateRepository,
+)
 from .cad_scene import (
     acoustic_reference_position,
     is_listener_receiver_eligible,
@@ -90,6 +102,8 @@ class RoomPredictionRunSpec:
     identity: RectangularGeometryRequestIdentity
     token: PredictionJobToken
     environment_profile: ExactExternalAuthorityRef | None = None
+    listener_pose: ListenerPoseAuthority | None = None
+    operating_state: RoomOperatingState | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +136,8 @@ class RoomPredictionController(QObject):
         ] | None = None,
         environment_repository: CadAcousticEnvironmentRepository | None = None,
         provider_repository: CadPredictionProviderRepository | None = None,
+        listener_pose_repository: CadListenerPoseRepository | None = None,
+        operating_state_repository: CadRoomOperatingStateRepository | None = None,
     ) -> None:
         super().__init__(parent)
         self.scene_repository = scene_repository
@@ -135,6 +151,24 @@ class RoomPredictionController(QObject):
             else CadAcousticEnvironmentRepository(scene_repository.path)
         )
         self.provider_repository = provider_repository
+        # #939: seat receivers resolve through the selected exact
+        # ListenerPoseAuthority when one exists; legacy seat offset remains
+        # only as the explicitly labelled fallback.
+        self.listener_pose_repository = (
+            listener_pose_repository
+            if listener_pose_repository is not None
+            else CadListenerPoseRepository(
+                scene_repository.path, scene_repository
+            )
+        )
+        # #941: prediction requests can bind the exact RoomOperatingState in
+        # effect — state identity joins the request and only consumed domains
+        # (openings→portal topology) change the effective solver input.
+        self.operating_state_repository = (
+            operating_state_repository
+            if operating_state_repository is not None
+            else CadRoomOperatingStateRepository(scene_repository)
+        )
         self.job_guard = PredictionJobGuard()
         self._operation = operation or self._analyze
         self._tokens: dict[str, PredictionJobToken] = {}
@@ -178,9 +212,20 @@ class RoomPredictionController(QObject):
         document = self.room_controller.committed_document
         options: list[tuple[str, str]] = []
         for entity in document.entities:
-            if is_listener_receiver_eligible(entity):
+            pose = (
+                self._selected_pose(entity.entity_id)
+                if entity.kind == 'seat'
+                else None
+            )
+            if is_listener_receiver_eligible(entity) or pose is not None:
                 label = receiver_option_label(entity)
-                assert label is not None
+                if label is None:
+                    label = entity.name
+                if entity.kind == 'seat':
+                    if pose is not None:
+                        label += f" · 姿勢:{pose.label}"
+                    else:
+                        label += ' · 座席基準点(pose未選択)'
                 options.append((entity.entity_id, label))
             elif (
                 include_source_receivers
@@ -219,7 +264,10 @@ class RoomPredictionController(QObject):
         if revision.content_hash != scene_content_hash(working.committed_document):
             raise ValueError("現在のSceneRevisionと編集状態が一致しません")
         entity = revision.document.entity(receiver_entity_id)
-        if acoustic_reference_position(entity) is None:
+        if acoustic_reference_position(entity) is None and not (
+            entity.kind == 'seat'
+            and self._selected_pose(entity.entity_id) is not None
+        ):
             raise ValueError("選択した受音点に音響基準点がありません")
         if entity.kind == 'speaker' and not allow_source_receiver:
             raise ValueError(
@@ -272,6 +320,8 @@ class RoomPredictionController(QObject):
         *,
         max_mode_hz: float = 300.0,
         environment_profile_id: str | None = None,
+        operating_state_id: str | None = None,
+        operating_state_version: str | None = None,
     ) -> tuple[RoomPredictionModelOption, ...]:
         """Solver-neutral model/provider option set for the Room flow (#457).
 
@@ -296,13 +346,98 @@ class RoomPredictionController(QObject):
             environment = self._resolve_environment(environment_profile_id)
         except ValueError:
             environment = None
+        entity = revision.document.entity(receiver_entity_id)
+        try:
+            operating_state = self._resolve_operating_state(
+                operating_state_id, operating_state_version
+            )
+        except ValueError:
+            operating_state = None
         return resolve_room_prediction_options(
             revision,
             receiver_entity_id,
             providers=self.available_providers(),
             environment_profile=environment,
             max_mode_hz=max_mode_hz,
+            listener_pose=self._selected_pose(entity.entity_id),
+            operating_state=operating_state,
         )
+
+    def _selected_pose(
+        self,
+        seat_entity_id: str,
+    ) -> ListenerPoseAuthority | None:
+        return self.listener_pose_repository.selected_pose(
+            self.document_id,
+            seat_entity_id,
+        )
+
+    def operating_state_options(
+        self,
+    ) -> tuple[tuple[str, str], ...]:
+        """Persisted operating states for this document (#941).
+
+        Keys are ``state_id`` (the latest version is used); labels surface
+        read-only freshness against the working SceneRevision so the UI can
+        show when a recorded state no longer maps onto the current room.
+        """
+
+        working = self.room_controller.working
+        revision = (
+            self.scene_repository.get(working.source_revision_id)
+            if working.source_revision_id is not None
+            else None
+        )
+        opening_ids = [
+            opening.opening_id
+            for opening in (
+                revision.document.wall_topology.openings
+                if revision is not None
+                and revision.document.wall_topology is not None
+                else ()
+            )
+        ]
+        options: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for state in self.operating_state_repository.list_states(
+            self.document_id
+        ):
+            if state.state_id in seen:
+                continue
+            seen.add(state.state_id)
+            label = f'{state.name} (v{state.version})'
+            if revision is not None:
+                freshness = evaluate_operating_state_freshness(
+                    state,
+                    scene_content_hash=revision.content_hash,
+                    present_opening_ids=opening_ids,
+                )
+                if freshness.status == 'stale':
+                    label += ' · 状態は古いシーンに固定されています'
+                elif freshness.status == 'missing':
+                    label += ' · 参照する開口部がありません'
+            options.append((state.state_id, label))
+        return tuple(options)
+
+    def _resolve_operating_state(
+        self,
+        operating_state_id: str | None,
+        operating_state_version: str | None,
+    ) -> RoomOperatingState | None:
+        if operating_state_id is None:
+            return None
+        if operating_state_version is None:
+            versions = self.operating_state_repository.list_state_versions(
+                operating_state_id
+            )
+            state = versions[-1] if versions else None
+        else:
+            state = self.operating_state_repository.get_state(
+                operating_state_id, operating_state_version
+            )
+        if state is None or state.document_id != self.document_id:
+            raise ValueError('選択した部屋状態が存在しません')
+        return state
 
     def provider_view(
         self,
@@ -341,6 +476,8 @@ class RoomPredictionController(QObject):
         max_mode_hz: float = 300.0,
         sound_speed_m_s: float | None = None,
         environment_profile_id: str | None = None,
+        operating_state_id: str | None = None,
+        operating_state_version: str | None = None,
         allow_source_receiver: bool = False,
     ) -> RoomPredictionRunSpec:
         revision = self._saved_target(
@@ -361,12 +498,31 @@ class RoomPredictionController(QObject):
         resolved_sound_speed = (
             float(sound_speed_m_s) if sound_speed_m_s is not None else 343.0
         )
+        receiver_entity = revision.document.entity(receiver_entity_id)
+        listener_pose = (
+            self._selected_pose(receiver_entity.entity_id)
+            if receiver_entity.kind == 'seat'
+            else None
+        )
+        operating_state = self._resolve_operating_state(
+            operating_state_id, operating_state_version
+        )
+        if (
+            operating_state is not None
+            and operating_state.scene_revision_id != revision.revision_id
+        ):
+            raise ValueError(
+                '選択した部屋状態は現在のSceneRevisionに固定されていません '
+                '(現在のシーン用の状態を選択してください)'
+            )
         identity = rectangular_geometry_request_identity(
             revision,
             receiver_entity_id,
             max_mode_hz=max_mode_hz,
             sound_speed_m_s=resolved_sound_speed,
             environment_profile=environment_profile,
+            listener_pose=listener_pose,
+            operating_state=operating_state,
         )
         sound_speed_m_s = resolved_sound_speed
         constraint_hash = self._constraint_hash()
@@ -387,6 +543,8 @@ class RoomPredictionController(QObject):
             identity=identity,
             token=token,
             environment_profile=environment_profile,
+            listener_pose=listener_pose,
+            operating_state=operating_state,
         )
 
     @staticmethod
@@ -403,6 +561,8 @@ class RoomPredictionController(QObject):
             sound_speed_m_s=spec.sound_speed_m_s,
             constraint_workspace_hash=spec.constraint_workspace_hash,
             environment_profile=spec.environment_profile,
+            listener_pose=spec.listener_pose,
+            operating_state=spec.operating_state,
         )
 
     def start(
@@ -412,6 +572,8 @@ class RoomPredictionController(QObject):
         model_key: str = RECTANGULAR_MODEL_KEY,
         max_mode_hz: float = 300.0,
         environment_profile_id: str | None = None,
+        operating_state_id: str | None = None,
+        operating_state_version: str | None = None,
         allow_source_receiver: bool = False,
     ) -> bool:
         if self._disposed:
@@ -448,6 +610,8 @@ class RoomPredictionController(QObject):
                 receiver_entity_id,
                 max_mode_hz=max_mode_hz,
                 environment_profile_id=environment_profile_id,
+                operating_state_id=operating_state_id,
+                operating_state_version=operating_state_version,
                 allow_source_receiver=allow_source_receiver,
             )
         except Exception as exc:

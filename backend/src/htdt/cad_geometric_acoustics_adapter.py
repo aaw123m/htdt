@@ -3227,30 +3227,29 @@ def _directivity_angles(
     tolerance: float,
 ) -> tuple[float, float]:
     forward = _unit((source_axis.x, source_axis.y, source_axis.z))
-    if abs(forward[2]) > tolerance:
+    forward_horizontal = sqrt(forward[0] ** 2 + forward[1] ** 2)
+    if forward_horizontal <= tolerance:
         raise ValueError(
-            'R150 foundation directivity evaluator currently requires a horizontal '
-            'explicit source axis; cabinet roll/elevated axis is not inferred'
+            'R150 foundation directivity evaluator requires a source axis with '
+            'a defined horizontal heading; a vertical-only axis has no heading'
         )
     horizontal_forward = _unit((forward[0], forward[1], 0.0))
     left = _unit((-horizontal_forward[1], horizontal_forward[0], 0.0))
+    # 'up' completes the source's equatorial frame (forward x left) so a
+    # pitched axis evaluates directivity angles in its own tilted plane
+    # instead of being silently dropped. For a horizontal axis this reduces
+    # to world +Z and to the previous horizontal-axis convention exactly.
+    up = _unit(_cross(forward, left))
     direction = _unit(departure_direction)
-    horizontal_projection = sqrt(direction[0] ** 2 + direction[1] ** 2)
-    elevation = degrees(atan2(direction[2], horizontal_projection))
-    if horizontal_projection <= tolerance:
+    forward_component = _dot(direction, forward)
+    left_component = _dot(direction, left)
+    up_component = _dot(direction, up)
+    equatorial_projection = sqrt(forward_component ** 2 + left_component ** 2)
+    elevation = degrees(atan2(up_component, equatorial_projection))
+    if equatorial_projection <= tolerance:
         horizontal = 0.0
     else:
-        horizontal_direction = (
-            direction[0] / horizontal_projection,
-            direction[1] / horizontal_projection,
-            0.0,
-        )
-        horizontal = degrees(
-            atan2(
-                _dot(horizontal_direction, left),
-                _dot(horizontal_direction, horizontal_forward),
-            )
-        )
+        horizontal = degrees(atan2(left_component, forward_component))
     return horizontal, elevation
 
 

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import sqlite3
+from math import cos, radians, sin
 from types import SimpleNamespace
 
 import pytest
@@ -14,7 +15,10 @@ from htdt.cad_document import WorkingDocument
 from htdt.cad_extended_search import (
     CadExtendedSearchAxis,
     aim_horizontal_yaw_deg,
+    aim_pitch_deg,
     body_horizontal_yaw_deg,
+    direction_with_aim_pitch,
+    direction_with_horizontal_yaw,
     apply_extended_candidate,
     build_extended_model_capability,
     build_extended_parameter_evidence,
@@ -867,3 +871,106 @@ def test_capability_and_spec_reads_replay_authority(tmp_path):
         extended_repository.get_capability(capability.capability_id)
     with pytest.raises(ValueError):
         extended_repository.get_spec(spec.extended_search_id)
+
+
+def test_aim_pitch_is_a_first_class_extended_parameter(tmp_path):
+    (
+        scene_repository,
+        revision,
+        _constraints,
+        base_spec,
+        base_page,
+        _capability,
+        extended_repository,
+        _spec,
+    ) = _fixture(tmp_path)
+
+    evidence = _synthetic_evidence(
+        'aim_pitch_deg',
+        tested_min_deg=-89.0,
+        tested_max_deg=89.0,
+    )
+    extended_repository.save_parameter_evidence(evidence)
+    capability = _synthetic_capability(
+        supported_parameters=('aim_pitch_deg',),
+        parameter_evidence=(evidence,),
+    )
+    extended_repository.save_capability(capability)
+    spec = build_extended_search_spec(
+        source_revision=revision,
+        base_spec=base_spec,
+        base_candidate_set_sha256=base_page.candidate_set_sha256,
+        base_candidate_count=base_page.feasible_candidate_count,
+        capability=capability,
+        axes=(
+            CadExtendedSearchAxis(
+                entity_id='fl',
+                parameter='aim_pitch_deg',
+                min_value=-10.0,
+                max_value=10.0,
+                step=10.0,
+            ),
+        ),
+        candidate_limit=50,
+        created_at_utc=_now(),
+    )
+    page = generate_extended_candidates(
+        scene_repository, base_spec, spec, limit=50
+    )
+    # 2 base positions x 3 pitch values
+    assert page.feasible_candidate_count == 6
+    ids = {candidate.candidate_id for candidate in page.candidates}
+    assert len(ids) == 6
+    pitches = sorted(
+        candidate.aim_pitch_deg['fl'] for candidate in page.candidates
+    )
+    assert pitches == [-10.0, -10.0, 0.0, 0.0, 10.0, 10.0]
+
+    down = next(
+        c for c in page.candidates if c.aim_pitch_deg.get('fl') == -10.0
+    )
+    up = next(
+        c for c in page.candidates if c.aim_pitch_deg.get('fl') == 10.0
+    )
+    assert down.candidate_id != up.candidate_id
+    assert down.aim_yaw_deg == up.aim_yaw_deg == {}
+
+    preview = extended_candidate_preview_document(revision.document, up)
+    aim = preview.entity('fl').aim_xyz
+    assert aim.z == pytest.approx(sin(radians(10.0)))
+    assert aim.y == pytest.approx(cos(radians(10.0)))
+    assert aim_pitch_deg(aim) == pytest.approx(10.0)
+    assert aim_horizontal_yaw_deg(aim) == pytest.approx(0.0)
+
+
+def test_aim_pitch_repitches_a_vertical_only_source_with_canonical_yaw():
+    vertical = Direction3(x=0.0, y=0.0, z=-1.0)
+    repitched = direction_with_aim_pitch(vertical, -30.0)
+    assert repitched.x == pytest.approx(0.0)
+    assert repitched.y == pytest.approx(cos(radians(-30.0)))
+    assert repitched.z == pytest.approx(sin(radians(-30.0)))
+    assert aim_pitch_deg(repitched) == pytest.approx(-30.0)
+    # once repitched off the pole, a searched horizontal yaw applies normally
+    yawed = direction_with_horizontal_yaw(repitched, 90.0)
+    assert yawed.x == pytest.approx(cos(radians(-30.0)))
+    assert yawed.y == pytest.approx(0.0, abs=1e-12)
+    assert aim_pitch_deg(vertical) == pytest.approx(-90.0)
+
+
+def test_aim_pitch_axis_and_candidate_bounds():
+    with pytest.raises(ValueError, match='aim pitch'):
+        CadExtendedSearchAxis(
+            entity_id='fl',
+            parameter='aim_pitch_deg',
+            min_value=-90.0,
+            max_value=0.0,
+            step=1.0,
+        )
+    with pytest.raises(ValueError, match='aim pitch'):
+        CadExtendedSearchAxis(
+            entity_id='fl',
+            parameter='aim_pitch_deg',
+            min_value=0.0,
+            max_value=90.0,
+            step=1.0,
+        )

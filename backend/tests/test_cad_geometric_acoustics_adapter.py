@@ -3035,3 +3035,33 @@ def test_snapshot_read_reresolves_exact_r150_topology_preflight(
                 geometric_topology_preflight=None
             ),
         ).get_snapshot(snapshot.snapshot_id)
+
+
+def test_directivity_angles_accept_pitched_source_axes() -> None:
+    from htdt.cad_geometric_acoustics_adapter import _directivity_angles
+    from htdt.cad_extended_search import direction_with_aim_pitch
+
+    forward = Direction3(x=0.0, y=1.0, z=0.0)
+    horizontal, elevation = _directivity_angles(
+        forward, (0.0, 1.0, 0.0), tolerance=1e-9
+    )
+    assert (horizontal, elevation) == (0.0, 0.0)
+
+    # A 45-degree pitched axis evaluates in its own tilted equatorial plane:
+    # the world-horizontal departure lies 45 degrees below that equator.
+    pitched = direction_with_aim_pitch(forward, 45.0)
+    h_pitched, e_pitched = _directivity_angles(
+        pitched, (0.0, 1.0, 0.0), tolerance=1e-9
+    )
+    assert isclose(e_pitched, -45.0, abs_tol=1e-9)
+    # A departure exactly along the pitched axis reads as dead-ahead.
+    h_axis, e_axis = _directivity_angles(
+        pitched, (pitched.x, pitched.y, pitched.z), tolerance=1e-9
+    )
+    assert isclose(e_axis, 0.0, abs_tol=1e-9)
+    assert isclose(h_axis, 0.0, abs_tol=1e-9)
+    # A truly vertical axis still has no defined heading and fails closed.
+    with pytest.raises(ValueError, match='no heading'):
+        _directivity_angles(
+            Direction3(x=0.0, y=0.0, z=1.0), (0.0, 0.0, 1.0), tolerance=1e-9
+        )

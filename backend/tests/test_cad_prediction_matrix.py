@@ -10,12 +10,15 @@ from htdt.cad_prediction_matrix import (
     MatrixObservableContract,
     MatrixReceiverRef,
     MatrixSourceRef,
+    assess_matrix_coherent_compatibility,
     assess_matrix_currency,
     build_matrix_cell,
     build_prediction_matrix_spec,
     collect_matrix_results,
+    matrix_scenario_source_transfers,
     plan_matrix_execution,
 )
+from htdt.cad_prediction_provider import PredictionProviderRef
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -83,6 +86,10 @@ def _provider(
     receiver_ids: tuple[str, ...] = ('seat-a', 'seat-b'),
     capability_state: str = 'READY',
     phase_ready: bool = True,
+    normalization: str | None = 'normalization/uniform',
+    timing: str | None = 'absolute_propagation_time',
+    phasor: str | None = 'e^{+i\u03c9t}',
+    label: str = 'provider',
 ) -> SimpleNamespace:
     responses = tuple(
         SimpleNamespace(
@@ -91,11 +98,14 @@ def _provider(
             magnitude_pa=(1.0, 0.5, 0.25),
             phase_deg=(0.0, -10.0, -20.0) if phase_ready else None,
             pressure_reference_pa=20.0e-6,
+            phase_convention=phasor,
         )
         for receiver_id in receiver_ids
     )
+    provider_id = 'r170a-provider:' + _hash(label)
+    provider_sha = _hash(label + '-sha')
     return SimpleNamespace(
-        provider_id='r170a-provider:' + _hash('provider'),
+        provider_id=provider_id,
         current_authority=SimpleNamespace(
             scene_content_hash=spec.scene_content_hash,
             acoustic_scene_snapshot_sha256=spec.acoustic_scene_snapshot_sha256,
@@ -107,6 +117,13 @@ def _provider(
         ),
         phase_capability='READY' if phase_ready else 'UNSUPPORTED',
         receiver_responses=responses,
+        ref=lambda: PredictionProviderRef(
+            provider_id=provider_id,
+            semantic_sha256=provider_sha,
+        ),
+        result_artifact_ref=_solver_ref(),
+        source_normalization_id=normalization,
+        timing_authority=timing,
     )
 
 
@@ -166,6 +183,11 @@ def test_collect_ready_cells_and_transfers() -> None:
     transfer = result.transfer('source-fl', 'seat-a')
     assert transfer.magnitude_pa == (1.0, 0.5, 0.25)
     assert transfer.phase_deg is not None
+    assert transfer.provider_ref is not None
+    assert transfer.source_normalization_id == 'normalization/uniform'
+    assert transfer.timing_authority == 'absolute_propagation_time'
+    assert transfer.phasor_convention is not None
+    assert transfer.result_authority_ref is not None
 
 
 def test_missing_provider_blocks_cells_not_fakes() -> None:
@@ -247,6 +269,81 @@ def test_currency_marks_stale_scene() -> None:
     )
     assert stale.state == 'STALE'
     assert stale.stale_cell_ids == tuple(c.cell_id for c in result.cells)
+
+
+def test_coherent_sum_requires_matching_semantics() -> None:
+    # #942: two phase-bearing results that differ in normalization or
+    # timing authority can never be summed into a coherent response.
+    spec = _spec(
+        observable_contract=MatrixObservableContract(
+            frequency_axis_hz=(20.0, 100.0, 200.0),
+            require_coherent_sum_eligible=True,
+        )
+    )
+    differing_norm = {
+        'source-fl': _provider(spec, normalization='norm/a', label='fl'),
+        'source-fr': _provider(spec, normalization='norm/b', label='fr'),
+    }
+    reasons = assess_matrix_coherent_compatibility(spec, differing_norm)
+    assert any('normalization' in item for item in reasons)
+    result = collect_matrix_results(spec, differing_norm)
+    assert result.coherent_sum_eligible is False
+    assert 'normalization' in ' '.join(
+        result.coherent_compatibility_reasons
+    )
+
+    undeclared_timing = {
+        'source-fl': _provider(
+            spec, timing='unavailable', label='fl'
+        ),
+        'source-fr': _provider(spec, timing=None, label='fr'),
+    }
+    reasons = assess_matrix_coherent_compatibility(spec, undeclared_timing)
+    assert any('timing authority' in item for item in reasons)
+    result = collect_matrix_results(spec, undeclared_timing)
+    assert result.coherent_sum_eligible is False
+
+    missing_norm = {
+        'source-fl': _provider(spec, normalization=None, label='fl'),
+        'source-fr': _provider(spec, normalization=None, label='fr'),
+    }
+    result = collect_matrix_results(spec, missing_norm)
+    assert result.coherent_sum_eligible is False
+
+
+def test_matrix_scenario_transfer_adapter() -> None:
+    # #942: the adapter materializes #492 ScenarioSourceTransfer from the
+    # exact per-cell authorities — no caller-invented metadata.
+    spec = _spec()
+    providers = {
+        'source-fl': _provider(spec, label='fl'),
+        'source-fr': _provider(spec, label='fr'),
+    }
+    result = collect_matrix_results(spec, providers)
+    transfers = matrix_scenario_source_transfers(result, spec, 'seat-a')
+    assert len(transfers) == 2
+    by_entity = {item.source_entity_id: item for item in transfers}
+    assert set(by_entity) == {'entity-fl', 'entity-fr'}
+    fl = by_entity['entity-fl']
+    assert fl.frequency_hz == (20.0, 100.0, 200.0)
+    assert len(fl.pressure_real) == 3 and len(fl.pressure_imag) == 3
+    assert fl.source_normalization_id == 'normalization/uniform'
+    assert fl.timing_authority == 'absolute_propagation_time'
+    assert fl.phasor_convention is not None
+    assert fl.result_authority_ref is not None
+    # magnitude 1.0 at phase 0 deg -> real 1.0, imag 0.0
+    assert fl.pressure_real[0] == pytest.approx(1.0)
+    assert fl.pressure_imag[0] == pytest.approx(0.0)
+
+    with pytest.raises(ValueError, match='seat'):
+        matrix_scenario_source_transfers(result, spec, 'seat-z')
+    missing = {
+        'source-fl': _provider(spec, normalization=None, label='fl'),
+        'source-fr': _provider(spec, label='fr'),
+    }
+    result2 = collect_matrix_results(spec, missing)
+    with pytest.raises(ValueError, match='normalization'):
+        matrix_scenario_source_transfers(result2, spec, 'seat-a')
 
 
 def test_cell_identity_and_state_invariants() -> None:

@@ -36,6 +36,7 @@ from .cad_extended_search import (
     CadExtendedCandidateSetPage,
     CadExtendedSearchAxis,
     aim_horizontal_yaw_deg,
+    aim_pitch_deg,
     body_horizontal_yaw_deg,
     apply_extended_candidate,
     build_extended_model_capability,
@@ -91,9 +92,15 @@ class ExtendedSearchControllerMixin:
                     try:
                         yaw = aim_horizontal_yaw_deg(entity.aim_xyz)
                     except ValueError:
-                        continue
+                        yaw = None
+                    pitch = aim_pitch_deg(entity.aim_xyz)
+                    heading = (
+                        f'yaw {yaw:.1f}°'
+                        if yaw is not None
+                        else 'yaw undefined (vertical aim)'
+                    )
                     combo.addItem(
-                        f'{entity.name} · yaw {yaw:.1f}°',
+                        f'{entity.name} · {heading} · pitch {pitch:.1f}°',
                         entity.entity_id,
                     )
             if previous is not None:
@@ -117,17 +124,22 @@ class ExtendedSearchControllerMixin:
             return
         try:
             entity = self.working.committed_document.entity(entity_id)
-            if entity.aim_xyz is None:
+            if parameter == 'body_yaw_deg':
+                center, bound = body_horizontal_yaw_deg(entity), 180.0
+            elif entity.aim_xyz is not None:
+                if parameter == 'aim_pitch_deg':
+                    center, bound = aim_pitch_deg(entity.aim_xyz), 89.0
+                else:
+                    center, bound = (
+                        aim_horizontal_yaw_deg(entity.aim_xyz),
+                        180.0,
+                    )
+            else:
                 return
-            yaw = (
-                body_horizontal_yaw_deg(entity)
-                if parameter == 'body_yaw_deg'
-                else aim_horizontal_yaw_deg(entity.aim_xyz)
-            )
         except (KeyError, ValueError):
             return
-        self.extended_min_field.setValue(max(-180.0, yaw - 15.0))
-        self.extended_max_field.setValue(min(180.0, yaw + 15.0))
+        self.extended_min_field.setValue(max(-bound, center - 15.0))
+        self.extended_max_field.setValue(min(bound, center + 15.0))
 
     def _refresh_extended_capabilities(
         self,
@@ -163,8 +175,8 @@ class ExtendedSearchControllerMixin:
                     model_id='synthetic-directional-fixture',
                     model_version='1',
                     evidence_scope='synthetic_fixture',
-                    tested_min_deg=-180.0,
-                    tested_max_deg=180.0,
+                    tested_min_deg=-89.0 if parameter == 'aim_pitch_deg' else -180.0,
+                    tested_max_deg=89.0 if parameter == 'aim_pitch_deg' else 180.0,
                     source_kind='synthetic_fixture',
                     source_id=(
                         'synthetic-directional-evidence:' + parameter
@@ -178,7 +190,7 @@ class ExtendedSearchControllerMixin:
                     detail='declared synthetic fixture evidence; not owned-room validation',
                     created_at_utc=datetime.now(timezone.utc).isoformat(),
                 )
-                for parameter in ('aim_yaw_deg', 'body_yaw_deg')
+                for parameter in ('aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg')
             )
             for item in evidence:
                 existing_evidence = next(
@@ -195,9 +207,9 @@ class ExtendedSearchControllerMixin:
                 model_id='synthetic-directional-fixture',
                 model_version='1',
                 evidence_scope='synthetic_fixture',
-                supported_parameters=('aim_yaw_deg', 'body_yaw_deg'),
+                supported_parameters=('aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg'),
                 parameter_evidence=evidence,
-                detail='software acceptance for acoustic aim and physical body yaw; not owned-room evidence',
+                detail='software acceptance for acoustic aim (yaw/pitch) and physical body yaw; not owned-room evidence',
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
             existing = next(
@@ -235,9 +247,20 @@ class ExtendedSearchControllerMixin:
         # directional parameter. Gather the persisted owned-room evidence
         # records for this exact model/version first; a missing binding
         # fails closed with a status message.
-        parameters = ('aim_yaw_deg', 'body_yaw_deg')
+        parameters = ['aim_yaw_deg', 'body_yaw_deg']
         try:
             stored = self.extended_repository.list_parameter_evidence()
+            # Pitch is additive: an owned-room capability claims it only when
+            # exact owned-room evidence for this model/version already exists.
+            if any(
+                item.parameter == 'aim_pitch_deg'
+                and item.model_id == record.model_id
+                and item.model_version == record.model_version
+                and item.evidence_scope == 'owned_room'
+                for item in stored
+            ):
+                parameters.insert(1, 'aim_pitch_deg')
+            parameters = tuple(parameters)
         except Exception as exc:
             self.statusBar().showMessage(
                 f'extended parameter evidenceを読み込めません · {exc}'
@@ -245,7 +268,7 @@ class ExtendedSearchControllerMixin:
             return
         evidence = []
         missing = []
-        for parameter in parameters:
+        for parameter in parameters:  # noqa: B007 - ordered parameters tuple
             match = next(
                 (
                     item
@@ -275,7 +298,7 @@ class ExtendedSearchControllerMixin:
                 evidence_scope='owned_room',
                 supported_parameters=parameters,
                 parameter_evidence=tuple(evidence),
-                detail='owned-room validated directional aim/body-yaw capability',
+                detail='owned-room validated directional aim (yaw/pitch)/body-yaw capability',
                 validation=record,
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )

@@ -23,6 +23,7 @@ from htdt.cad_extended_search import (
     build_extended_model_capability,
     build_extended_parameter_evidence,
     build_extended_search_spec,
+    direction_with_aim_pitch,
     direction_with_horizontal_yaw,
 )
 from htdt.cad_extended_search_repository import CadExtendedSearchRepository
@@ -44,6 +45,7 @@ from htdt.cad_joint_optimization import (
     build_joint_optimization_spec,
     canonical_joint_sha256,
     joint_pareto_front,
+    require_joint_decision_materialization,
 )
 from htdt.cad_joint_optimization_repository import CadJointOptimizationRepository
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
@@ -3079,3 +3081,131 @@ def test_pareto_front_consumes_only_canonically_bound_evaluations(
     )
     with pytest.raises(ValueError, match='belongs to another candidate'):
         repository.pareto_front(fixture.spec.spec_id)
+
+
+def _save_extended_pitch_spec(fixture, *, base_spec, base_page):
+    evidence = build_extended_parameter_evidence(
+        parameter='aim_pitch_deg',
+        model_id='issue946-fixture-aim-model',
+        model_version='1',
+        evidence_scope='synthetic_fixture',
+        tested_min_deg=-45.0,
+        tested_max_deg=45.0,
+        source_kind='synthetic_fixture',
+        source_id=(
+            f'issue946-fixture-pitch-evidence:{base_spec.search_spec_id}'
+        ),
+        source_sha256=sha256(
+            f'issue946-pitch-evidence:{base_spec.search_spec_id}'.encode(
+                'utf-8'
+            )
+        ).hexdigest(),
+        detail='issue946 fixture pitch evidence',
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_parameter_evidence(evidence)
+    capability = build_extended_model_capability(
+        model_id='issue946-fixture-aim-model',
+        model_version='1',
+        evidence_scope='synthetic_fixture',
+        supported_parameters=('aim_pitch_deg',),
+        parameter_evidence=(evidence,),
+        detail=f'issue946 fixture pitch capability for {base_spec.search_spec_id}',
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_capability(capability)
+    extended = build_extended_search_spec(
+        source_revision=fixture.revision,
+        base_spec=base_spec,
+        base_candidate_set_sha256=base_page.candidate_set_sha256,
+        base_candidate_count=len(base_page.candidates),
+        capability=capability,
+        axes=(
+            CadExtendedSearchAxis(
+                entity_id='speaker-fl',
+                parameter='aim_pitch_deg',
+                min_value=-15.0,
+                max_value=15.0,
+                step=15.0,
+            ),
+        ),
+        candidate_limit=64,
+        created_at_utc=NOW,
+    )
+    fixture.extended_search_repository.save_spec(extended)
+    return extended
+
+
+def test_joint_spec_derives_aim_pitch_variable_and_verifies_materialization(
+    tmp_path: Path,
+) -> None:
+    fixture = _fixture(tmp_path)
+    extended = _save_extended_pitch_spec(
+        fixture, base_spec=fixture.search_spec, base_page=fixture.base_page
+    )
+    spec = _build_spec(fixture, extended_search_spec=extended)
+
+    variable = next(
+        item
+        for item in spec.physical_variables
+        if item.parameter == 'aim_pitch_deg'
+    )
+    assert variable.variable_id == 'physical:speaker-fl:aim_pitch_deg'
+    assert variable.unit == 'deg'
+    assert variable.authority_kind == 'extended_search'
+    assert (variable.minimum, variable.maximum) == (-15.0, 15.0)
+
+    speaker = fixture.revision.document.entity('speaker-fl')
+    pitched = speaker.model_copy(
+        update={'aim_xyz': direction_with_aim_pitch(speaker.aim_xyz, 15.0)}
+    )
+    pitched_variant = build_system_variant(
+        baseline=fixture.revision,
+        name='Issue 946 pitched speaker',
+        role_bindings=(
+            ChannelRoleBinding(role_id='FL', display_name='Front Left'),
+        ),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='pitch-speaker-fl',
+                entity=pitched,
+                role_binding_id='FL',
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+    decisions = (
+        JointDecisionValue(
+            domain='physical',
+            variable_id='physical:speaker-fl:x_m',
+            value=1.0,
+        ),
+        JointDecisionValue(
+            domain='physical',
+            variable_id='physical:speaker-fl:aim_pitch_deg',
+            value=15.0,
+        ),
+    )
+    require_joint_decision_materialization(
+        spec=spec,
+        baseline=fixture.revision,
+        physical_system_variant=pitched_variant,
+        calibration_plan=None,
+        decisions=decisions,
+    )
+    wrong_pitch = (
+        decisions[0],
+        JointDecisionValue(
+            domain='physical',
+            variable_id='physical:speaker-fl:aim_pitch_deg',
+            value=16.0,
+        ),
+    )
+    with pytest.raises(ValueError, match='does not match the materialized'):
+        require_joint_decision_materialization(
+            spec=spec,
+            baseline=fixture.revision,
+            physical_system_variant=pitched_variant,
+            calibration_plan=None,
+            decisions=wrong_pitch,
+        )

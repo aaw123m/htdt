@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from itertools import product
 import json
-from math import atan2, cos, degrees, isfinite, radians, sin, sqrt
+from math import asin, atan2, cos, degrees, isfinite, radians, sin, sqrt
 from typing import Any, Callable, Literal, Sequence
 from uuid import uuid4
 
@@ -34,7 +34,7 @@ from .cad_search_models import CadCandidate, CadSearchSpec
 EXTENDED_SEARCH_SCHEMA_VERSION = 1
 EXTENDED_SEARCH_ALGORITHM_VERSION = 'extended-grid-1'
 EXTENDED_SEARCH_SYSTEM_MAX_CANDIDATES = 50_000
-ExtendedParameter = Literal['aim_yaw_deg', 'body_yaw_deg']
+ExtendedParameter = Literal['aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg']
 ExtendedEvidenceScope = Literal['synthetic_fixture', 'owned_room']
 ExtendedParameterEvidenceSource = Literal['o90e_decision', 'synthetic_fixture']
 
@@ -265,7 +265,9 @@ class CadExtendedModelCapability(BaseModel):
         if self.evidence_scope == 'synthetic_fixture' and self.validation_id is not None:
             raise ValueError('synthetic extended capability must not claim owned-room validation')
         if (
-            {'aim_yaw_deg', 'body_yaw_deg'}.intersection(self.supported_parameters)
+            {'aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg'}.intersection(
+                self.supported_parameters
+            )
             and self.model_id in {'rew-room-simulator', 'rew-roomsim'}
         ):
             raise ValueError(
@@ -315,7 +317,12 @@ class CadExtendedSearchAxis(BaseModel):
             raise ValueError('extended-search axis values must be finite')
         if self.max_value < self.min_value:
             raise ValueError('extended-search axis max must be >= min')
-        if self.min_value < -180.0 or self.max_value > 180.0:
+        if self.parameter == 'aim_pitch_deg':
+            if self.min_value <= -90.0 or self.max_value >= 90.0:
+                raise ValueError(
+                    'aim pitch must remain strictly within -90..90 degrees'
+                )
+        elif self.min_value < -180.0 or self.max_value > 180.0:
             raise ValueError('extended yaw parameters must remain within -180..180 degrees')
         return self
 
@@ -370,6 +377,7 @@ class CadExtendedCandidate(BaseModel):
     feasible_index: int = Field(ge=0)
     positions: dict[str, dict[str, float]]
     aim_yaw_deg: dict[str, float] = Field(default_factory=dict)
+    aim_pitch_deg: dict[str, float] = Field(default_factory=dict)
     body_yaw_deg: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode='after')
@@ -379,8 +387,14 @@ class CadExtendedCandidate(BaseModel):
                 raise ValueError('extended candidate position payload is invalid')
             if not all(isfinite(float(value)) for value in position.values()):
                 raise ValueError('extended candidate positions must be finite')
-        if not self.aim_yaw_deg and not self.body_yaw_deg:
-            raise ValueError('extended candidate requires at least one yaw override')
+        if (
+            not self.aim_yaw_deg
+            and not self.aim_pitch_deg
+            and not self.body_yaw_deg
+        ):
+            raise ValueError(
+                'extended candidate requires at least one orientation override'
+            )
         for mapping, label in (
             (self.aim_yaw_deg, 'aim yaw'),
             (self.body_yaw_deg, 'body yaw'),
@@ -392,6 +406,13 @@ class CadExtendedCandidate(BaseModel):
                     or not -180 <= float(value) <= 180
                 ):
                     raise ValueError(f'extended candidate {label} is invalid')
+        for entity_id, value in self.aim_pitch_deg.items():
+            if (
+                not entity_id
+                or not isfinite(float(value))
+                or not -90.0 < float(value) < 90.0
+            ):
+                raise ValueError('extended candidate aim pitch is invalid')
         return self
 
 
@@ -603,6 +624,7 @@ def _candidate_id(
     positions: dict[str, dict[str, float]],
     aim_yaw_deg: dict[str, float],
     body_yaw_deg: dict[str, float],
+    aim_pitch_deg: dict[str, float] | None = None,
 ) -> str:
     payload = {
         'extended_search_sha256': spec.extended_search_sha256,
@@ -613,6 +635,9 @@ def _candidate_id(
     # Preserve candidate IDs for pre-O80P aim-only Extended Search specs.
     if body_yaw_deg:
         payload['body_yaw_deg'] = body_yaw_deg
+    # Likewise, pitch overrides only enter identity when present.
+    if aim_pitch_deg:
+        payload['aim_pitch_deg'] = aim_pitch_deg
     return 'ec-' + _digest(payload)[:20]
 
 
@@ -669,12 +694,17 @@ def generate_extended_candidates(
             if cancelled is not None and cancelled():
                 raise RuntimeError('extended search generation cancelled')
             aim_map: dict[str, float] = {}
+            pitch_map: dict[str, float] = {}
             body_map: dict[str, float] = {}
+            targets = {
+                'aim_yaw_deg': aim_map,
+                'aim_pitch_deg': pitch_map,
+                'body_yaw_deg': body_map,
+            }
             for axis, value in zip(spec.axes, combination, strict=True):
-                target = (
-                    aim_map if axis.parameter == 'aim_yaw_deg' else body_map
+                targets[axis.parameter][axis.entity_id] = round(
+                    float(value), 12
                 )
-                target[axis.entity_id] = round(float(value), 12)
 
             candidate_id = _candidate_id(
                 spec,
@@ -682,6 +712,7 @@ def generate_extended_candidates(
                 base_candidate.positions,
                 aim_map,
                 body_map,
+                pitch_map,
             )
             candidate = CadExtendedCandidate(
                 candidate_id=candidate_id,
@@ -690,6 +721,7 @@ def generate_extended_candidates(
                 feasible_index=feasible_index,
                 positions=base_candidate.positions,
                 aim_yaw_deg=aim_map,
+                aim_pitch_deg=pitch_map,
                 body_yaw_deg=body_map,
             )
             if body_map:
@@ -735,6 +767,37 @@ def aim_horizontal_yaw_deg(direction: Direction3) -> float:
     if horizontal <= 1e-9:
         raise ValueError('vertical-only aim has no horizontal yaw')
     return degrees(atan2(direction.x, direction.y))
+
+
+# Elevation convention shared with cad_objects.direction_from_yaw_pitch_deg:
+# pitch = asin(z) in degrees; at the +-90 poles the horizontal yaw is
+# undefined and repitching falls back to the canonical +Y heading (yaw 0).
+def aim_pitch_deg(direction: Direction3) -> float:
+    return degrees(asin(max(-1.0, min(1.0, float(direction.z)))))
+
+
+def direction_with_aim_pitch(
+    direction: Direction3,
+    pitch_deg: float,
+) -> Direction3:
+    """Set acoustic elevation while preserving the current horizontal yaw.
+
+    A vertical-only source has no defined yaw; the repitched aim uses the
+    canonical yaw-0 (+Y) heading for its new horizontal component so a
+    vertical source can still be searched and repitched.
+    """
+
+    pitch = radians(float(pitch_deg))
+    if not isfinite(pitch):
+        raise ValueError('aim pitch must be finite')
+    horizontal = sqrt(direction.x * direction.x + direction.y * direction.y)
+    yaw = 0.0 if horizontal <= 1e-9 else atan2(direction.x, direction.y)
+    cos_pitch = cos(pitch)
+    return Direction3(
+        x=cos_pitch * sin(yaw),
+        y=cos_pitch * cos(yaw),
+        z=sin(pitch),
+    )
 
 
 def direction_with_horizontal_yaw(
@@ -795,6 +858,18 @@ def extended_candidate_preview_document(
         entity = replacements.get(entity_id, preview.entity(entity_id))
         replacements[entity_id] = _apply_body_yaw(entity, yaw_deg)
 
+    # Pitch applies before yaw so a vertical-only source first resolves the
+    # pole (canonical yaw-0 fallback) and can then receive a searched yaw.
+    for entity_id, pitch_deg in candidate.aim_pitch_deg.items():
+        entity = replacements.get(entity_id, preview.entity(entity_id))
+        if entity.kind != 'speaker' or entity.aim_xyz is None:
+            raise ValueError(
+                f'extended candidate aim target lacks explicit speaker aim: {entity_id}'
+            )
+        replacements[entity_id] = entity.model_copy(update={
+            'aim_xyz': direction_with_aim_pitch(entity.aim_xyz, pitch_deg),
+        })
+
     for entity_id, yaw_deg in candidate.aim_yaw_deg.items():
         entity = replacements.get(entity_id, preview.entity(entity_id))
         if entity.kind != 'speaker' or entity.aim_xyz is None:
@@ -840,6 +915,7 @@ def apply_extended_candidate(
         candidate.positions,
         candidate.aim_yaw_deg,
         candidate.body_yaw_deg,
+        candidate.aim_pitch_deg,
     )
     if expected_id != candidate.candidate_id:
         raise ValueError('extended candidate identity mismatch')
@@ -863,6 +939,7 @@ def apply_extended_candidate(
     touched = sorted(
         set(candidate.positions)
         | set(candidate.aim_yaw_deg)
+        | set(candidate.aim_pitch_deg)
         | set(candidate.body_yaw_deg)
     )
     before = tuple(

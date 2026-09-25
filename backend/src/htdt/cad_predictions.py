@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import isclose
+from typing import Any
 from uuid import uuid4
 
 from .acoustics import ACOUSTICS_ALGORITHM_VERSION, first_order_reflections, rectangular_room_modes
@@ -14,6 +15,14 @@ from .cad_prediction_models import (
     canonical_prediction_json,
     prediction_input_hash,
     prediction_result_sha256,
+)
+from .cad_listener_pose import (
+    ListenerPoseAuthority,
+    resolve_listener_receiver,
+)
+from .cad_room_operating_state import (
+    RoomOperatingState,
+    compile_operating_state_consumption,
 )
 from .cad_repository import SceneRevision
 from .cad_scene import (
@@ -77,6 +86,54 @@ def exact_rectangular_room_frame(room: RoomPrism, *, tolerance: float = 1e-9) ->
 
 def _position_payload(position: Position3 | None) -> dict[str, float] | None:
     return None if position is None else position.model_dump(mode='json')
+
+
+def _bind_listener_pose(
+    snapshot: dict[str, object],
+    listener_pose: ListenerPoseAuthority | None,
+) -> None:
+    """Pin the exact selected listener pose into the canonical request.
+
+    The full sealed authority payload (id, version, semantic hash, offsets,
+    facing) joins the snapshot, so input identity changes with the pose and
+    replay can re-validate it. The orientation semantics marker states
+    explicitly that this point-pressure receiver does not consume head
+    facing; binaural/directional consumers bind ear geometry separately.
+    """
+
+    if listener_pose is None:
+        return
+    from .cad_listener_pose import LISTENER_RECEIVER_ORIENTATION_SEMANTICS
+
+    snapshot['listener_pose'] = {
+        'authority': listener_pose.model_dump(mode='json'),
+        'receiver_resolution': 'listener_pose',
+        'orientation_semantics': LISTENER_RECEIVER_ORIENTATION_SEMANTICS,
+    }
+
+
+def _bind_operating_state(
+    snapshot: dict[str, object],
+    operating_state: RoomOperatingState | None,
+    consumption: Any | None,
+) -> None:
+    """Pin the exact selected room operating state into the request (#941).
+
+    The full sealed authority joins the snapshot so replay revalidates the
+    state record itself, and the typed consumption block states which state
+    domains the solver actually consumed — doors/openings bind to portal
+    topology where the scene supports it, curtains stay UNKNOWN without a
+    material authority, HVAC never alters deterministic transfer.
+    """
+
+    if operating_state is None:
+        return
+    snapshot['room_operating_state'] = {
+        'authority': operating_state.model_dump(mode='json'),
+        'consumption': (
+            None if consumption is None else consumption.model_dump(mode='json')
+        ),
+    }
 
 
 def _local_position(position: Position3, frame: RectangularRoomFrame) -> tuple[float, float, float]:
@@ -157,6 +214,8 @@ def rectangular_geometry_model_input(
     max_mode_hz: float = 300.0,
     sound_speed_m_s: float = 343.0,
     environment_profile: ExactExternalAuthorityRef | None = None,
+    listener_pose: ListenerPoseAuthority | None = None,
+    operating_state: RoomOperatingState | None = None,
 ) -> RectangularGeometryModelInput:
     """Compile the canonical rectangular-geometry request for one exact SceneRevision.
 
@@ -167,20 +226,71 @@ def rectangular_geometry_model_input(
     ``sound_speed_m_s`` value was sourced from (#479); it is only written into
     the canonical request when bound, so requests persisted before environment
     authorities existed keep their canonical shape.
+
+    ``listener_pose`` (#939) is the exact selected ``ListenerPoseAuthority``
+    for a seat receiver: the receiver position resolves through the pose's
+    acoustic reference and the full sealed pose joins the input snapshot so
+    its id/version/hash pin the request identity. Unbound receivers keep the
+    legacy seat offset and produce byte-identical snapshots.
+
+    ``operating_state`` (#941) is the exact ``RoomOperatingState`` selected
+    for the run; it must pin this exact SceneRevision, so two states on one
+    unchanged revision produce distinct request identities. Its typed
+    consumption (which domains the solver actually uses) joins the snapshot
+    alongside the full sealed authority for replay revalidation. Unbound
+    requests keep their canonical shape.
     """
 
     room = revision.document.room
     if room is None:
         raise ValueError('prediction requires a room')
     receiver_entity = revision.document.entity(receiver_entity_id)
-    receiver = acoustic_reference_position(receiver_entity)
-    if receiver is None:
+    if listener_pose is not None:
+        if listener_pose.document_id not in (None, revision.document_id):
+            raise ValueError(
+                'listener pose is scoped to a different document'
+            )
+        if receiver_entity.kind != 'seat':
+            raise ValueError(
+                'a listener pose can only bind a seat receiver'
+            )
+    resolved_receiver = resolve_listener_receiver(
+        receiver_entity,
+        listener_pose,
+    )
+    if resolved_receiver is None:
         raise ValueError('receiver entity has no acoustic reference position')
+    receiver = resolved_receiver.position
+
+    operating_consumption = None
+    if operating_state is not None:
+        if operating_state.scene_revision_id != revision.revision_id:
+            raise ValueError(
+                'operating state pins a different SceneRevision'
+            )
+        if operating_state.document_id != revision.document_id:
+            raise ValueError(
+                'operating state belongs to a different document'
+            )
+        operating_consumption = compile_operating_state_consumption(
+            operating_state, revision.document
+        )
+    operating_ref_dump = (
+        None
+        if operating_state is None
+        else {
+            'state_id': operating_state.state_id,
+            'version': operating_state.version,
+            'semantic_sha256': operating_state.semantic_sha256,
+        }
+    )
 
     parameters: dict[str, object] = {
         'max_mode_hz': float(max_mode_hz),
         'sound_speed_m_s': float(sound_speed_m_s),
     }
+    if operating_ref_dump is not None:
+        parameters['operating_state'] = operating_ref_dump
     environment_dump = (
         None
         if environment_profile is None
@@ -214,6 +324,10 @@ def rectangular_geometry_model_input(
             'speakers': speaker_inputs,
             'approximation_rule': None,
         }
+        _bind_listener_pose(unsupported_snapshot, listener_pose)
+        _bind_operating_state(
+            unsupported_snapshot, operating_state, operating_consumption
+        )
         if environment_dump is not None:
             unsupported_snapshot['environment_profile'] = environment_dump
         input_snapshot_json = canonical_prediction_json(unsupported_snapshot)
@@ -245,6 +359,10 @@ def rectangular_geometry_model_input(
         'surface_identities': surface_identities,
         'approximation_rule': None,
     }
+    _bind_listener_pose(snapshot, listener_pose)
+    _bind_operating_state(
+        snapshot, operating_state, operating_consumption
+    )
     if environment_dump is not None:
         snapshot['environment_profile'] = environment_dump
     input_snapshot_json = canonical_prediction_json(snapshot)
@@ -315,6 +433,8 @@ def analyze_native_rectangular_geometry(
     sound_speed_m_s: float = 343.0,
     constraint_workspace_hash: str | None = None,
     environment_profile: ExactExternalAuthorityRef | None = None,
+    listener_pose: ListenerPoseAuthority | None = None,
+    operating_state: RoomOperatingState | None = None,
 ) -> tuple[CadPredictionResult, CadPredictionResult]:
     """Run the existing rectangular geometry model against one exact native revision."""
 
@@ -324,6 +444,8 @@ def analyze_native_rectangular_geometry(
         max_mode_hz=max_mode_hz,
         sound_speed_m_s=sound_speed_m_s,
         environment_profile=environment_profile,
+        listener_pose=listener_pose,
+        operating_state=operating_state,
     )
     parameters_json = model_input.parameters_json
     input_snapshot_json = model_input.input_snapshot_json

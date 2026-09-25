@@ -17,14 +17,28 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+from math import cos, pi, sin
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_serializer,
+    model_validator,
+)
 
 from .cad_equipment import FrequencyDomain
+from .cad_multi_channel_excitation import (
+    CoherentSystemResponse,
+    MultiChannelExcitationScenario,
+    ScenarioSourceTransfer,
+    compose_coherent_system_response,
+)
 from .cad_prediction_provider import (
     LowBandPredictionProvider,
     PredictionProviderReceiverIdentity,
+    PredictionProviderRef,
     PredictionProviderSourceIdentity,
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -258,7 +272,14 @@ def build_matrix_cell(
 
 
 class MatrixCellTransfer(BaseModel):
-    """Exact per-cell transfer function bound to its matrix coordinates."""
+    """Exact per-cell transfer function bound to its matrix coordinates.
+
+    #942: the cell also carries the exact provider/result authority plus the
+    coherent-composition semantics (normalization, phasor convention,
+    timing) #492 requires — copied arrays alone cannot prove a coherent sum.
+    All are serialized only when declared so pre-composition cells keep
+    their canonical shape.
+    """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -267,6 +288,29 @@ class MatrixCellTransfer(BaseModel):
     magnitude_pa: tuple[float, ...] = Field(min_length=2)
     phase_deg: tuple[float, ...] | None = None
     pressure_reference_pa: float = Field(default=20.0e-6, gt=0.0)
+    provider_ref: PredictionProviderRef | None = None
+    result_authority_ref: ExactExternalAuthorityRef | None = None
+    source_normalization_id: str | None = Field(
+        default=None, min_length=1
+    )
+    phasor_convention: str | None = Field(default=None, min_length=1)
+    timing_authority: Literal[
+        'absolute_propagation_time', 'relative_delay', 'unavailable'
+    ] | None = None
+
+    @model_serializer(mode='wrap')
+    def _serialize(self, handler):
+        data = handler(self)
+        for key in (
+            'provider_ref',
+            'result_authority_ref',
+            'source_normalization_id',
+            'phasor_convention',
+            'timing_authority',
+        ):
+            if getattr(self, key) is None:
+                data.pop(key, None)
+        return data
 
     @model_validator(mode='after')
     def validate_transfer(self) -> 'MatrixCellTransfer':
@@ -295,6 +339,9 @@ class TransferMatrixResultSet(BaseModel):
     cells: tuple[MatrixCell, ...] = Field(min_length=1)
     transfers: tuple[MatrixCellTransfer, ...] = ()
     coherent_sum_eligible: bool
+    # #942: typed reasons coherent composition is unavailable; present only
+    # when non-empty so legacy result digests are preserved.
+    coherent_compatibility_reasons: tuple[str, ...] = ()
 
     @model_validator(mode='after')
     def validate_result(self) -> 'TransferMatrixResultSet':
@@ -321,10 +368,13 @@ class TransferMatrixResultSet(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'result_id', 'semantic_sha256'},
         )
+        if not self.coherent_compatibility_reasons:
+            payload.pop('coherent_compatibility_reasons', None)
+        return payload
 
     def cell(self, matrix_source_id: str, matrix_receiver_id: str) -> MatrixCell:
         for item in self.cells:
@@ -493,6 +543,13 @@ def collect_matrix_results(
                         magnitude_pa=response.magnitude_pa,
                         phase_deg=response.phase_deg,
                         pressure_reference_pa=response.pressure_reference_pa,
+                        provider_ref=provider.ref(),
+                        result_authority_ref=provider.result_artifact_ref,
+                        source_normalization_id=(
+                            provider.source_normalization_id
+                        ),
+                        phasor_convention=response.phase_convention,
+                        timing_authority=provider.timing_authority,
                     )
                 )
                 continue
@@ -526,8 +583,17 @@ def collect_matrix_results(
                     magnitude_pa=response.magnitude_pa,
                     phase_deg=response.phase_deg,
                     pressure_reference_pa=response.pressure_reference_pa,
+                    provider_ref=provider.ref(),
+                    result_authority_ref=provider.result_artifact_ref,
+                    source_normalization_id=provider.source_normalization_id,
+                    phasor_convention=response.phase_convention,
+                    timing_authority=provider.timing_authority,
                 )
             )
+    # #942: phase availability alone cannot prove coherent-sum eligibility —
+    # timing, normalization and phasor compatibility are machine-checked.
+    coherence_reasons = assess_matrix_coherent_compatibility(spec, providers)
+    coherent_ok = coherent_ok and not coherence_reasons
     eligible = coherent_ok and spec.observable_contract.require_coherent_sum_eligible
     payload = {
         'schema_version': PREDICTION_MATRIX_SCHEMA_VERSION,
@@ -538,6 +604,8 @@ def collect_matrix_results(
         'transfers': [item.model_dump(mode='json') for item in transfers],
         'coherent_sum_eligible': eligible,
     }
+    if coherence_reasons:
+        payload['coherent_compatibility_reasons'] = list(coherence_reasons)
     digest = _digest(payload)
     return TransferMatrixResultSet(
         spec_id=spec.spec_id,
@@ -545,9 +613,216 @@ def collect_matrix_results(
         cells=tuple(cells),
         transfers=tuple(transfers),
         coherent_sum_eligible=eligible,
+        coherent_compatibility_reasons=tuple(coherence_reasons),
         result_id=f'prediction-matrix-result:{digest}',
         semantic_sha256=digest,
     )
+
+
+def assess_matrix_coherent_compatibility(
+    spec: PredictionMatrixSpec,
+    providers: dict[str, LowBandPredictionProvider],
+) -> tuple[str, ...]:
+    """Machine-checked coherent-composition compatibility (#942).
+
+    Returns typed reasons coherent composition is unavailable; an empty
+    tuple means every participating source carries the declared semantics
+    #492 requires — common frequency grid, complex pressure with a common
+    phasor convention, a common explicit source normalization, and declared
+    timing authority — on top of the per-cell authority checks
+    ``collect_matrix_results`` already performs.
+    """
+
+    reasons: list[str] = []
+    ready_providers: list[tuple[str, LowBandPredictionProvider]] = []
+    for source in spec.sources:
+        provider = providers.get(source.matrix_source_id)
+        if provider is None:
+            reasons.append(
+                f'source {source.source_entity_id} has no bound provider run'
+            )
+            continue
+        if (
+            provider.current_authority.scene_content_hash
+            != spec.scene_content_hash
+            or provider.current_authority.acoustic_scene_snapshot_sha256
+            != spec.acoustic_scene_snapshot_sha256
+            or provider.current_authority.solver_implementation_ref
+            != spec.solver_implementation_ref
+        ):
+            reasons.append(
+                f'source {source.source_entity_id} provider authority does '
+                'not match the matrix spec'
+            )
+            continue
+        ready_providers.append((source.source_entity_id, provider))
+
+    requested_receivers = tuple(
+        receiver.receiver_id for receiver in spec.receivers
+    )
+    for entity_id, provider in ready_providers:
+        if provider.phase_capability != 'READY':
+            reasons.append(
+                f'source {entity_id} has no complex-pressure capability'
+            )
+            continue
+        responses = {
+            item.receiver_id: item for item in provider.receiver_responses
+        }
+        for receiver_id in requested_receivers:
+            response = responses.get(receiver_id)
+            if response is None:
+                reasons.append(
+                    f'source {entity_id} does not cover receiver '
+                    f'{receiver_id}'
+                )
+                continue
+            if response.phase_deg is None:
+                reasons.append(
+                    f'source {entity_id} receiver {receiver_id} carries '
+                    'magnitude-only data; it cannot enter a coherent sum'
+                )
+
+    if not ready_providers:
+        return tuple(sorted(set(reasons))) or (
+            'no coherent-compatible sources were collected',
+        )
+
+    grid_variants = {
+        tuple(item.frequency_hz)
+        for _entity, provider in ready_providers
+        for item in provider.receiver_responses
+        if item.receiver_id in requested_receivers
+    }
+    if len(grid_variants) > 1:
+        reasons.append(
+            'sources do not share a common frequency grid'
+        )
+
+    conventions = {
+        provider.receiver_responses[0].phase_convention
+        for _entity, provider in ready_providers
+        if provider.receiver_responses
+    }
+    if len(conventions) > 1:
+        reasons.append(
+            'sources declare different phasor conventions: '
+            + ','.join(sorted(conventions))
+        )
+
+    normalizations = {
+        provider.source_normalization_id
+        for _entity, provider in ready_providers
+    }
+    if None in normalizations:
+        reasons.append(
+            'at least one source has no declared source normalization'
+        )
+    elif len(normalizations) > 1:
+        reasons.append(
+            'sources declare different source normalizations: '
+            + ','.join(sorted(item for item in normalizations if item))
+        )
+
+    for entity_id, provider in ready_providers:
+        if provider.timing_authority in (None, 'unavailable'):
+            reasons.append(
+                f'source {entity_id} lacks declared timing authority'
+            )
+
+    return tuple(sorted(set(reasons)))
+
+
+def matrix_scenario_source_transfers(
+    result_set: TransferMatrixResultSet,
+    spec: PredictionMatrixSpec,
+    matrix_receiver_id: str,
+) -> tuple[ScenarioSourceTransfer, ...]:
+    """Canonical Matrix → #492 adapter (#942).
+
+    Materializes ``ScenarioSourceTransfer`` entries for one receiver row
+    from the exact per-cell authorities the matrix preserved — no caller-
+    invented metadata. Fails closed on cells that lack complex data or the
+    declared normalization/phasor semantics #492 requires.
+    """
+
+    if result_set.spec_semantic_sha256 != spec.semantic_sha256:
+        raise ValueError('result set does not belong to the supplied spec')
+    receiver_ids = {
+        item.matrix_receiver_id for item in spec.receivers
+    }
+    if matrix_receiver_id not in receiver_ids:
+        raise ValueError(f'unknown matrix receiver: {matrix_receiver_id}')
+
+    source_by_id = {item.matrix_source_id: item for item in spec.sources}
+    transfers: list[ScenarioSourceTransfer] = []
+    for cell in result_set.cells:
+        if cell.matrix_receiver_id != matrix_receiver_id:
+            continue
+        if cell.state not in ('READY', 'CACHED'):
+            raise ValueError(
+                f'cell {cell.cell_id} is {cell.state}; only READY/CACHED '
+                'cells can materialize a scenario transfer'
+            )
+        transfer = result_set.transfer_for_cell(cell.cell_id)
+        source = source_by_id[cell.matrix_source_id]
+        if transfer.phase_deg is None:
+            raise ValueError(
+                f'cell {cell.cell_id} carries magnitude-only data'
+            )
+        if transfer.source_normalization_id is None:
+            raise ValueError(
+                f'cell {cell.cell_id} declares no source normalization'
+            )
+        if transfer.phasor_convention is None:
+            raise ValueError(
+                f'cell {cell.cell_id} declares no phasor convention'
+            )
+        real: list[float] = []
+        imag: list[float] = []
+        for magnitude, phase in zip(
+            transfer.magnitude_pa, transfer.phase_deg, strict=True
+        ):
+            radians = phase * pi / 180.0
+            real.append(magnitude * cos(radians))
+            imag.append(magnitude * sin(radians))
+        transfers.append(
+            ScenarioSourceTransfer(
+                source_entity_id=source.source_entity_id,
+                frequency_hz=transfer.frequency_hz,
+                pressure_real=tuple(real),
+                pressure_imag=tuple(imag),
+                phasor_convention=transfer.phasor_convention,
+                source_normalization_id=transfer.source_normalization_id,
+                timing_authority=(
+                    'unavailable'
+                    if transfer.timing_authority is None
+                    else transfer.timing_authority
+                ),
+                result_authority_ref=transfer.result_authority_ref,
+            )
+        )
+    return tuple(transfers)
+
+
+def compose_matrix_system_response(
+    result_set: TransferMatrixResultSet,
+    spec: PredictionMatrixSpec,
+    scenario: MultiChannelExcitationScenario,
+    matrix_receiver_id: str,
+) -> CoherentSystemResponse:
+    """Compose the coherent system response for one matrix receiver row.
+
+    Materializes scenario transfers through the canonical adapter, then
+    delegates to the #492 composer — incompatible timing, normalization or
+    phasor semantics produce a typed UNSUPPORTED response rather than a
+    fabricated sum.
+    """
+
+    transfers = matrix_scenario_source_transfers(
+        result_set, spec, matrix_receiver_id
+    )
+    return compose_coherent_system_response(scenario, transfers)
 
 
 class MatrixCurrency(BaseModel):

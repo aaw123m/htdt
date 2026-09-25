@@ -16,6 +16,7 @@ from .cad_calibration import (
 from .cad_extended_search import (
     CadExtendedSearchSpec,
     aim_horizontal_yaw_deg,
+    aim_pitch_deg,
     body_horizontal_yaw_deg,
 )
 from .cad_measurement_quality import (
@@ -45,6 +46,7 @@ PhysicalParameter = Literal[
     'y_m',
     'z_m',
     'aim_yaw_deg',
+    'aim_pitch_deg',
     'body_yaw_deg',
 ]
 DspParameter = Literal[
@@ -1159,6 +1161,13 @@ def _materialized_physical_value(
                 'explicit speaker aim in the materialized SystemVariant scene'
             )
         return float(aim_horizontal_yaw_deg(entity.aim_xyz))
+    if variable.parameter == 'aim_pitch_deg':
+        if entity.aim_xyz is None:
+            raise ValueError(
+                f'physical decision variable {variable.variable_id} requires an '
+                'explicit speaker aim in the materialized SystemVariant scene'
+            )
+        return float(aim_pitch_deg(entity.aim_xyz))
     if variable.parameter == 'body_yaw_deg':
         return float(body_horizontal_yaw_deg(entity))
     raise ValueError(

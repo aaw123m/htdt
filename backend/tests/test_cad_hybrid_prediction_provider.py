@@ -46,11 +46,14 @@ from htdt.cad_hybrid_numerical_composition import (
 from htdt.cad_hybrid_prediction_provider import (
     CadHybridPredictionProviderRepository,
     HybridPredictionProvider,
+    HybridValidatedObservable,
     build_hybrid_prediction_provider,
     build_hybrid_provider_binding,
     evaluate_excitation_volume_velocity,
     hybrid_provider_frequency_response,
+    promote_hybrid_provider_evidence,
     require_hybrid_binding_current,
+    require_hybrid_provider_evidence,
 )
 from htdt.cad_hybrid_prediction_provider_integration import (
     CadHybridPredictionProviderObjectiveRepository,
@@ -1092,3 +1095,148 @@ def test_o50_plan_o60_residual_and_o70_bind_exact_hybrid_authority(
         )
     with pytest.raises(ValueError, match='O50 hybrid-provider binding'):
         bind_measurement_plan_hybrid_prediction(plan, o60_binding)
+
+
+def test_evidence_lifecycle_promotion_is_new_immutable_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle(tmp_path / 'lifecycle', monkeypatch)
+    candidate = bundle['provider']
+    repository = bundle['hybrid_repository']
+    assert repository.save(candidate) == candidate
+
+    domain = candidate.valid_frequency_domain
+    promoted = promote_hybrid_provider_evidence(
+        candidate,
+        evidence_state='validated',
+        evidence_scope='synthetic_fixture',
+        validation_authority_ref=_ref('hybrid-validation'),
+        validated_observables=(
+            HybridValidatedObservable(
+                observable='frequency_response_magnitude',
+                evidence_scope='synthetic_fixture',
+                frequency_domain=FrequencyDomain(
+                    minimum_hz=float(domain.minimum_hz),
+                    maximum_hz=float(domain.maximum_hz),
+                ),
+            ),
+            HybridValidatedObservable(
+                observable='frequency_response_phase',
+                evidence_scope='synthetic_fixture',
+            ),
+        ),
+    )
+    assert promoted.evidence_state == 'validated'
+    assert promoted.provider_id != candidate.provider_id
+    assert promoted.promoted_from_provider_ref == candidate.ref()
+    # The persisted candidate is untouched.
+    assert repository.get(candidate.provider_id).evidence_state == 'candidate'
+
+    # Reopen/replay preserves the promoted evidence identity byte-for-byte.
+    assert repository.save(promoted) == promoted
+    assert repository.get(promoted.provider_id) == promoted
+
+    require_hybrid_provider_evidence(promoted, minimum_state='validated')
+    with pytest.raises(ValueError, match='evidence state'):
+        require_hybrid_provider_evidence(
+            candidate, minimum_state='validated'
+        )
+    with pytest.raises(ValueError, match='evidence scope'):
+        require_hybrid_provider_evidence(
+            promoted,
+            minimum_state='validated',
+            minimum_scope='owned_room',
+        )
+
+
+def test_evidence_lifecycle_rejects_illegal_promotions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _build_bundle(tmp_path / 'lifecycle-reject', monkeypatch)
+    candidate = bundle['provider']
+    domain = candidate.valid_frequency_domain
+
+    claim = HybridValidatedObservable(
+        observable='frequency_response_magnitude',
+        evidence_scope='owned_room',
+    )
+    with pytest.raises(ValueError, match='observable-scoped'):
+        promote_hybrid_provider_evidence(
+            candidate,
+            evidence_state='validated',
+            evidence_scope='synthetic_fixture',
+            validation_authority_ref=_ref('v'),
+            validated_observables=(),
+        )
+    with pytest.raises(ValueError, match='READY'):
+        promote_hybrid_provider_evidence(
+            candidate,
+            evidence_state='validated',
+            evidence_scope='synthetic_fixture',
+            validation_authority_ref=_ref('v'),
+            validated_observables=(
+                HybridValidatedObservable(
+                    observable='rt60',
+                    evidence_scope='synthetic_fixture',
+                ),
+            ),
+        )
+    with pytest.raises(ValueError, match='adoption authority'):
+        promote_hybrid_provider_evidence(
+            candidate,
+            evidence_state='production',
+            evidence_scope='owned_room',
+            validation_authority_ref=_ref('v'),
+            validated_observables=(claim,),
+        )
+    with pytest.raises(ValueError, match='exceeds provider evidence scope'):
+        promote_hybrid_provider_evidence(
+            candidate,
+            evidence_state='validated',
+            evidence_scope='synthetic_fixture',
+            validation_authority_ref=_ref('v'),
+            validated_observables=(claim,),
+        )
+    with pytest.raises(ValueError, match='inside output grid'):
+        promote_hybrid_provider_evidence(
+            candidate,
+            evidence_state='validated',
+            evidence_scope='synthetic_fixture',
+            validation_authority_ref=_ref('v'),
+            validated_observables=(
+                HybridValidatedObservable(
+                    observable='frequency_response_magnitude',
+                    evidence_scope='synthetic_fixture',
+                    frequency_domain=FrequencyDomain(
+                        minimum_hz=float(domain.minimum_hz),
+                        maximum_hz=float(domain.maximum_hz) * 10.0,
+                    ),
+                ),
+            ),
+        )
+
+    production = promote_hybrid_provider_evidence(
+        candidate,
+        evidence_state='production',
+        evidence_scope='owned_room',
+        validation_authority_ref=_ref('v'),
+        production_adoption_authority_ref=_ref('adoption-adr'),
+        validated_observables=(claim,),
+    )
+    assert production.evidence_state == 'production'
+    assert production.production_adoption is True
+    with pytest.raises(ValueError, match='candidate'):
+        promote_hybrid_provider_evidence(
+            production,
+            evidence_state='validated',
+            evidence_scope='synthetic_fixture',
+            validation_authority_ref=_ref('v2'),
+            validated_observables=(
+                HybridValidatedObservable(
+                    observable='frequency_response_magnitude',
+                    evidence_scope='synthetic_fixture',
+                ),
+            ),
+        )
