@@ -5,6 +5,11 @@ declares intent, then a resumable plan drives room → system → measurement �
 readiness stages. The wizard never creates measurement evidence; it persists
 a CommissioningPlan (orchestration metadata) and deep-links to the real
 workspaces.
+
+#898: completing the wizard materializes the collected intent into the
+canonical ProjectDesignBrief (via the setup-intent boundary), and the
+start-method picker can seed the project from a built-in or user
+ProjectTemplate instead of an empty scene.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_project_template import ProjectTemplate
 from .cad_scene import make_empty_scene
 from .commissioning_plan import (
     CommissioningIntent,
@@ -68,6 +74,9 @@ class CommissioningWizard(QDialog):
         *,
         data_dir: Path | None = None,
         overview_service: OverviewReadinessService | None = None,
+        brief_repository=None,
+        template_options: tuple[tuple[str, ProjectTemplate], ...] = (),
+        template_starter=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -76,6 +85,16 @@ class CommissioningWizard(QDialog):
         self.created_document_id = document_id
         self._data_dir = Path(data_dir) if data_dir is not None else None
         self._overview_service = overview_service
+        # Setup-intent convergence (#898): when supplied, saving the wizard
+        # materializes the declared intent into the canonical
+        # ProjectDesignBrief via CadDesignBriefRepository.
+        self._brief_repository = brief_repository
+        self._template_options = template_options
+        # Callable (ProjectTemplate, display_name, document_id) ->
+        # (document_id, instantiation); supplied by the composition root so
+        # the wizard stays free of repository wiring.
+        self._template_starter = template_starter
+        self._used_instantiation = None
 
         self.setWindowTitle('プロジェクト初期設定')
         self.setModal(True)
@@ -146,6 +165,12 @@ class CommissioningWizard(QDialog):
         self.audio_only = QCheckBox('オーディオのみ（映像システムなし）')
         self.rew_available = QCheckBox('REW などの測定データを利用する')
         self.hybrid = QCheckBox('ハイブリッド予測を有効にする')
+        self.start_combo = QComboBox()
+        self.start_combo.addItem('空のプロジェクト', None)
+        for label, template in self._template_options:
+            self.start_combo.addItem(label, template)
+        if self._template_options and self._template_starter is not None:
+            form.addRow('開始方法', self.start_combo)
         self.goals_label = QLabel('目標')
         self.goals = QListWidget()
         for goal in ('迫力', '定位', '広帯域再生', '低音の均一性'):
@@ -160,19 +185,27 @@ class CommissioningWizard(QDialog):
         form.addRow('スピーカー台数（目安）', self.speaker_count)
         self._add_page(intent, 'intent')
 
-        # 2-4. Guidance pages linking to the real workspaces.
+        # 2-4. Guidance pages linking to the real workspaces. The room
+        # step names the actual acquisition routes (#899-F) instead of a
+        # single generic instruction.
         for stage, body in (
             (
                 CommissioningStage.ROOM,
-                '部屋ワークスペースで部屋形状を決定します。',
+                '部屋ワークスペースで部屋権威を確定します。'
+                '取得経路: 手動で描く / 基準図面のインポート / '
+                'HTDT-Capture の取り込み / 既存プロジェクト・バンドルの利用。'
+                '既存の部屋データを選んだ場合は既存権威の確認だけで済みます。',
             ),
             (
                 CommissioningStage.SYSTEM,
-                '部屋ワークスペースでスピーカーとリスニングポイントを配置します。',
+                '部屋ワークスペースでスピーカーとリスニングポイントを配置します。'
+                '計画した台数との差分は準備状況に表示されます。',
             ),
             (
                 CommissioningStage.MEASUREMENT,
-                '測定ワークスペースで実測データを登録します（後でも可）。',
+                '測定ワークスペースで実測データを登録します。'
+                'REW インポート / HTDT-Capture / 既存ファイルから取得できます'
+                '（ドキュメント目的だけの場合は任意です）。',
             ),
         ):
             page = QWidget(self)
@@ -247,6 +280,22 @@ class CommissioningWizard(QDialog):
             QMessageBox.warning(self, 'プロジェクト名', 'プロジェクト名を入力してください。')
             self._show_page(0)
             return None
+        template = self.start_combo.currentData()
+        if (
+            create_document
+            and template is not None
+            and self._template_starter is not None
+        ):
+            # Template path (#898): the canonical creation pipeline seeds
+            # the scene, library identity, instantiation provenance —
+            # including the pending measurement pattern — and returns the
+            # document identity. The design brief is materialized from the
+            # merged intent when the plan is saved.
+            document_id, instantiation = self._template_starter(
+                template, name, name
+            )
+            self._used_instantiation = instantiation
+            return document_id
         if create_document and self.repository.latest(name) is None:
             self.repository.save(make_empty_scene(name), parent_revision_id=None)
         return name
@@ -285,6 +334,22 @@ class CommissioningWizard(QDialog):
             return
         if self._data_dir is not None:
             CommissioningPlanRepository(self._data_dir).save(plan)
+        if self._brief_repository is not None:
+            # Converge first-run intent into the canonical ProjectDesignBrief
+            # (#898): never overwrites an existing brief, and merges the
+            # template defaults when this save just instantiated one.
+            from .project_setup_intent import materialize_commissioning_brief
+
+            materialize_commissioning_brief(
+                self._brief_repository,
+                plan,
+                template=(
+                    self.start_combo.currentData()
+                    if self._used_instantiation is not None
+                    else None
+                ),
+                instantiation=self._used_instantiation,
+            )
         if self._page_index == len(self._pages) - 1:
             plan = dataclasses.replace(plan, finished=True)
             if self._data_dir is not None:
@@ -311,10 +376,14 @@ class CommissioningWizard(QDialog):
         if plan is None:
             return
         service = CommissioningService(self.repository, self._overview_service)
+        levels = {'required': '必須', 'recommended': '推奨', 'optional': '任意'}
         for requirement in service.requirements(plan):
             row = QHBoxLayout()
             state = {'satisfied': 'OK', 'pending': '未完了', 'skipped': 'スキップ'}
-            label = QLabel(f"{state[requirement.status]}  {requirement.title} — {requirement.reason}")
+            label = QLabel(
+                f"[{levels[requirement.level]}] {state[requirement.status]}  "
+                f"{requirement.title} — {requirement.reason}"
+            )
             label.setWordWrap(True)
             row.addWidget(label, 1)
             if requirement.link is not None:

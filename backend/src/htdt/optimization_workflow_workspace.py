@@ -25,6 +25,7 @@ from .cad_display_labels import revision_display_label
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
 from .comparison_context_strip import ComparisonContextStrip
+from .developer_mode import developer_mode_enabled
 from .joint_optimization_context import JointOptimizationContext
 from .joint_optimization_panel import JointOptimizationPanel
 from .optimization_search_domain import SearchDomainPreview
@@ -566,9 +567,13 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         capability_row = QHBoxLayout()
         capability_row.addWidget(_required(self.extended_capability_combo, "extended_capability_combo"), 1)
-        capability_row.addWidget(
-            _button("開発用の向き探索を有効化", self.create_synthetic_extended_capability)
-        )
+        # #901: synthetic-fixture capability creation is a developer-only
+        # affordance — production sessions create capabilities exclusively
+        # from owned-room validation results.
+        if developer_mode_enabled():
+            capability_row.addWidget(
+                _button("開発用の向き探索を有効化", self.create_synthetic_extended_capability)
+            )
         capability_row.addWidget(
             _button("選択した検証結果から本番向け能力を作成", self.create_owned_room_extended_capability)
         )

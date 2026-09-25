@@ -504,6 +504,21 @@ def settings_destinations() -> tuple[_StaticDestination, ...]:
             ("設定", "データ", "バックアップ", "backup", "preferences", "管理"),
             "settings",
         ),
+        _StaticDestination(
+            "settings.capture",
+            "キャプチャ受信の設定",
+            "設定 · キャプチャ",
+            (
+                "設定",
+                "キャプチャ",
+                "capture",
+                "受信",
+                "receiver",
+                "ペアリング",
+                "pairing",
+            ),
+            "settings",
+        ),
     )
 
 
