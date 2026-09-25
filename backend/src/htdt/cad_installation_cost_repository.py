@@ -9,7 +9,7 @@ import sqlite3
 
 from .cad_installation_cost import CostRecord, VariantCostEvaluation
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import ensure_native_schema, require_native_tables
 
 
 def _utc_now() -> str:
@@ -33,33 +33,13 @@ class CadInstallationCostRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_cost_records (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    record_id TEXT NOT NULL UNIQUE,
-                    record_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_cost_records_document
-                    ON cad_cost_records(document_id, seq ASC);
-                CREATE TABLE IF NOT EXISTS cad_cost_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    variant_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_cost_evaluations_document
-                    ON cad_cost_evaluations(document_id, seq ASC);
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_cost_records',
+                'cad_cost_evaluations',
             )
+
 
     def save_record(
         self,

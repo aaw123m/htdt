@@ -21,6 +21,11 @@ from .cad_measurement_disposition import (
     build_measurement_correction,
     build_measurement_disposition,
 )
+from .cad_comparison_semantics import (
+    ComparisonSemantics,
+    derive_comparison_semantics,
+    resolve_comparison_side,
+)
 from .cad_measurement_models import (
     CadFrequencyResponseDataset,
     CadMeasurementAttachment,
@@ -60,6 +65,7 @@ from .cad_measurement_quality import (
     unestablished_capability_claims,
     unestablished_common_timing_capability,
 )
+from .cad_measurement_authorities import routing_profile_binding
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurement_runner import (
@@ -158,6 +164,14 @@ class AcquisitionCapture:
     # persisted context seals it so predicted-vs-measured environment
     # comparison resolves from authority, not assumptions.
     environment_ref: 'ExactExternalAuthorityRef | None' = None
+    # #849/#850: explicit scope identity the persisted context proves —
+    # the immutable acquisition session the capture belongs to, the full
+    # device/path/clock configuration fingerprint (persistent timing
+    # scope) and the input-chain fingerprint (instrument calibration
+    # scope).
+    acquisition_session_id: str | None = None
+    signal_path_identity: str | None = None
+    input_path_identity: str | None = None
     notes: tuple[str, ...] = ()
 
     @classmethod
@@ -173,6 +187,9 @@ class AcquisitionCapture:
             sample_rate_hz=context.sample_rate_hz,
             delay_correction_s=context.delay_correction_s,
             environment_ref=context.environment_ref,
+            acquisition_session_id=context.acquisition_session_id,
+            signal_path_identity=context.signal_path_identity,
+            input_path_identity=context.input_path_identity,
             notes=context.notes,
         )
 
@@ -745,8 +762,17 @@ class MeasurementWorkflowController:
         profile's entry for the assignment role carries — used only when the
         assignment left ``source_speaker_ids`` empty, so an explicit manual
         selection always wins over a derived one.
+
+        ``routing_evidence='verified'`` is the strong claim: it requires a
+        bound profile scoped to this exact document whose entry for the
+        role was itself verified — a bare evidence label can never stand
+        in for a resolvable routing authority (#858).
         """
         if assignment.routing_profile_id is None:
+            if assignment.routing_evidence == 'verified':
+                raise MeasurementWorkflowError(
+                    "検証済みルーティングを主張するには保存済みルーティングプロファイルが必要です"
+                )
             return None, ()
         profile = self.quality_repository.get_routing_profile(
             assignment.routing_profile_id
@@ -756,7 +782,36 @@ class MeasurementWorkflowController:
                 f"保存済みルーティングプロファイルを確認できません: "
                 f"{assignment.routing_profile_id}"
             )
+        if (
+            profile.document_id is not None
+            and profile.document_id != self.document_id
+        ):
+            raise MeasurementWorkflowError(
+                "ルーティングプロファイルはこのプロジェクトのものではありません"
+            )
         entry = profile.entry_for_role(assignment.channel_role)
+        if assignment.routing_evidence == 'verified' and (
+            profile.document_id is None
+            or entry is None
+            or entry.verification != 'verified'
+        ):
+            raise MeasurementWorkflowError(
+                "検証済みルーティングの主張には、このプロジェクトにスコープされた"
+                "プロファイル内の検証済みチャネルマップエントリが必要です"
+            )
+        if (
+            entry is not None
+            and entry.observed_speaker_ids
+            and assignment.source_speaker_ids
+            and frozenset(assignment.source_speaker_ids)
+            != frozenset(entry.observed_speaker_ids)
+        ):
+            # The summary cannot silently contradict the bound verified
+            # authority — diverging speakers require a different profile.
+            raise MeasurementWorkflowError(
+                "割り当てのソーススピーカーがルーティングプロファイルの"
+                "検証済みエントリと一致しません"
+            )
         provenance: dict[str, Any] = {
             'routing_profile_id': profile.routing_profile_id,
             'routing_profile_sha256': profile.routing_profile_sha256,
@@ -1231,36 +1286,74 @@ class MeasurementWorkflowController:
             if row.dataset_id is not None
         }
 
-    def comparison_mismatches(
+    def _resolve_comparison_sides(
         self,
         dataset_a_id: str,
         dataset_b_id: str,
-    ) -> tuple[str, ...]:
-        """Semantic mismatch codes between two comparison picks (#483).
+    ) -> tuple[MeasurementView, MeasurementView, Any, Any] | None:
+        """Resolve both picks to views + semantic side contexts (#852).
 
-        Returned codes are advisory warnings, never blocks: 'evidence_type',
-        'channel_role', 'target', 'source_speakers', 'scene_revision',
-        'smoothing'.
+        Returns None when either dataset is not a normally-eligible pick;
+        side resolution goes through the effective-measurement resolver so
+        corrections/dispositions are always reflected.
         """
         views = self._view_by_dataset()
         a = views.get(dataset_a_id)
         b = views.get(dataset_b_id)
         if a is None or b is None:
+            return None
+        side_a = resolve_comparison_side(
+            measurement_repository=self.measurement_repository,
+            quality_repository=self.quality_repository,
+            measurement_id=a.measurement_id,
+            target_name=a.effective_target_name,
+        )[1]
+        side_b = resolve_comparison_side(
+            measurement_repository=self.measurement_repository,
+            quality_repository=self.quality_repository,
+            measurement_id=b.measurement_id,
+            target_name=b.effective_target_name,
+        )[1]
+        return a, b, side_a, side_b
+
+    def comparison_semantics(
+        self,
+        dataset_a_id: str,
+        dataset_b_id: str,
+        *,
+        reference_band_hz: tuple[float, float] | None = None,
+    ) -> ComparisonSemantics | None:
+        """Typed compatibility + advisory context for a pick pair (#852).
+
+        None when either pick is unavailable. The result snapshots each
+        side's effective binding, acquisition context, routing, level
+        reference and quality state, then decides absolute-level,
+        normalized-shape and common-time eligibility.
+        """
+        resolved = self._resolve_comparison_sides(dataset_a_id, dataset_b_id)
+        if resolved is None:
+            return None
+        _, _, side_a, side_b = resolved
+        return derive_comparison_semantics(
+            side_a=side_a, side_b=side_b, reference_band_hz=reference_band_hz
+        )
+
+    def comparison_mismatches(
+        self,
+        dataset_a_id: str,
+        dataset_b_id: str,
+    ) -> tuple[str, ...]:
+        """Semantic mismatch codes between two comparison picks (#483/#852).
+
+        Advisory warnings, never blocks: 'evidence_type', 'channel_role',
+        'target', 'source_speakers', 'scene_revision', 'smoothing',
+        'acquisition_context', 'routing_profile', 'level_reference',
+        'timing_reference', 'radiation_scope'.
+        """
+        semantics = self.comparison_semantics(dataset_a_id, dataset_b_id)
+        if semantics is None:
             return ()
-        codes: list[str] = []
-        if a.evidence_type != b.evidence_type:
-            codes.append('evidence_type')
-        if a.effective_channel_role != b.effective_channel_role:
-            codes.append('channel_role')
-        if a.effective_target_entity_id != b.effective_target_entity_id:
-            codes.append('target')
-        if a.effective_source_speaker_ids != b.effective_source_speaker_ids:
-            codes.append('source_speakers')
-        if a.scene_revision_id != b.scene_revision_id:
-            codes.append('scene_revision')
-        if a.smoothing != b.smoothing:
-            codes.append('smoothing')
-        return tuple(codes)
+        return semantics.mismatches
 
     def compare_datasets(
         self,
@@ -1291,10 +1384,23 @@ class MeasurementWorkflowController:
             reference_band_hz=reference_band_hz,
             excluded_bands=excluded_bands,
         )
+        semantics = self.comparison_semantics(
+            dataset_a_id, dataset_b_id, reference_band_hz=reference_band_hz
+        )
         return self.measurement_repository.save_comparison(
             dataset_a_id,
             dataset_b_id,
             result,
+            semantics_json=(
+                None
+                if semantics is None
+                else semantics.model_dump_json()
+            ),
+            label_a=None if semantics is None else semantics.label_a,
+            label_b=None if semantics is None else semantics.label_b,
+            level_compatibility=(
+                None if semantics is None else semantics.level_compatibility
+            ),
         )
 
     def saved_comparisons(self) -> tuple[CadMeasurementComparison, ...]:
@@ -1306,7 +1412,7 @@ class MeasurementWorkflowController:
     # engine; the runner only tracks exact per-cell planned evidence.
 
     def runner_plans(self) -> tuple[MeasurementRunnerPlan, ...]:
-        return self.runner_repository.list_plans()
+        return self.runner_repository.list_plans(self.document_id)
 
     def create_runner_plan(
         self,
@@ -1332,6 +1438,7 @@ class MeasurementWorkflowController:
             'SUB': 'subwoofer',
         }
         plan = build_runner_plan(
+            document_id=self.document_id,
             scene_revision_id=revision.revision_id,
             scene_content_hash=revision.content_hash,
             sources=tuple(
@@ -1392,9 +1499,11 @@ class MeasurementWorkflowController:
     ) -> None:
         """Commit one saved measurement to the exact planned cell.
 
-        The quality decision is read from the measurement's replay-validated
-        report state — RETAKE keeps the cell retake_required, a current
-        not-needed report completes it, everything else stays quality_pending.
+        The runner repository canonically derives the cell outcome itself
+        (#853): effective binding + eligibility, dataset hash, and the
+        latest replay-validated quality report — RETAKE marks the cell
+        retake_required, a clean report completes it, otherwise it stays
+        quality_pending. The caller never asserts a verdict.
         """
         record = self.measurement_repository.get_measurement(measurement_id)
         if record is None:
@@ -1402,27 +1511,12 @@ class MeasurementWorkflowController:
         dataset = self.measurement_repository.dataset_for_measurement(measurement_id)
         if dataset is None:
             raise MeasurementWorkflowError("測定に周波数応答データがありません")
-        view = next(
-            (
-                row
-                for row in self.measurement_views()
-                if row.measurement_id == measurement_id
-            ),
-            None,
-        )
-        decision: Literal['passed', 'blocked', 'pending'] = 'pending'
-        if view is not None and view.quality_report_state == 'current':
-            if view.retake_recommendation == 'RETAKE':
-                decision = 'blocked'
-            elif view.retake_recommendation == 'NOT_NEEDED':
-                decision = 'passed'
         self.runner_repository.commit_cell(
             run_id,
             cell_index,
             measurement_id=measurement_id,
             dataset_id=dataset.dataset_id,
             dataset_sha256=dataset.dataset_sha256,
-            quality_decision=decision,
         )
 
     def runner_skip_cell(self, run_id: str, cell_index: int) -> None:
@@ -1910,9 +2004,29 @@ class MeasurementWorkflowController:
             measurement_direction=assignment.measurement_direction,
             timing_reference_sha256=assignment.acquisition.timing_reference_sha256,
             environment_ref=assignment.acquisition.environment_ref,
+            acquisition_session_id=assignment.acquisition.acquisition_session_id,
+            signal_path_identity=assignment.acquisition.signal_path_identity,
+            input_path_identity=assignment.acquisition.input_path_identity,
+            routing_profile=self._routing_context_binding(assignment),
             notes=assignment.acquisition.notes,
         )
         self.quality_repository.save_acquisition_context(context)
+
+    def _routing_context_binding(
+        self, assignment: MeasurementAssignment
+    ):
+        """Exact routing-profile binding persisted on the context (#858)."""
+        if assignment.routing_profile_id is None:
+            return None
+        profile = self.quality_repository.get_routing_profile(
+            assignment.routing_profile_id
+        )
+        if profile is None:
+            raise MeasurementWorkflowError(
+                f"保存済みルーティングプロファイルを確認できません: "
+                f"{assignment.routing_profile_id}"
+            )
+        return routing_profile_binding(profile)
 
     def discard_batch_committed(self) -> None:
         """Drop committed entries from the queue (keeps unfinished items)."""

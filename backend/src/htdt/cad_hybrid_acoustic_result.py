@@ -19,7 +19,10 @@ from .cad_acoustic_solver_result import (
 from .cad_equipment import FrequencyDomain
 from .cad_geometric_acoustics_adapter import DeterministicPathArtifact
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -2119,33 +2122,7 @@ class CadHybridAcousticResultRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_hybrid_stitching_policies (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    policy_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    mode TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_hybrid_acoustic_results (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    hybrid_result_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    acoustic_scene_snapshot_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    stitching_policy_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_hybrid_result_snapshot_seq
-                    ON cad_hybrid_acoustic_results(
-                        acoustic_scene_snapshot_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_hybrid_stitching_policies', 'cad_hybrid_acoustic_results')
 
     def get_policy(
         self,

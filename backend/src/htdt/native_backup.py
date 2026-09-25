@@ -27,11 +27,17 @@ from .cad_schema import (
     ensure_native_schema,
     read_native_schema_version,
 )
+from .native_row_integrity import verify_native_row_integrity
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     canonical_data_path as _canonical_data_path,
     sha256_file as _sha256_file,
     verify_managed_asset,
+)
+from .persisted_data import (
+    auxiliary_archive_path,
+    auxiliary_component_for_archive_path,
+    backup_included_components,
 )
 from .limits import (
     MAX_NATIVE_BACKUP_ARCHIVE_BYTES,
@@ -86,7 +92,7 @@ class BackupFileEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     path: str = Field(min_length=1)
-    kind: Literal['database', 'measurement_asset']
+    kind: Literal['database', 'measurement_asset', 'auxiliary', 'legacy_archive']
     size_bytes: int = Field(ge=0)
     sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -234,6 +240,9 @@ def _sqlite_health(path: Path) -> None:
             foreign_keys = connection.execute('PRAGMA foreign_key_check').fetchall()
             if foreign_keys:
                 raise ValueError(f'SQLite foreign-key check failed: {foreign_keys!r}')
+            # Semantic health (#313): physical/FK checks cannot see a row
+            # whose duplicated columns drifted from its canonical payload.
+            verify_native_row_integrity(connection)
         try:
             check_native_schema_compatibility(path)
         except NativeSchemaError as exc:
@@ -336,6 +345,50 @@ def _asset_rows(database_path: Path) -> tuple[tuple[str, str, int], ...]:
     return tuple(by_path[relative_path] for relative_path in sorted(by_path))
 
 
+#: Archived legacy-store paths a backup must carry when present — the
+#: immutable record of the retired browser authority (#598).
+_LEGACY_ARCHIVE_DB = 'htdt.migrated.sqlite3'
+_LEGACY_ARCHIVE_ASSETS_DIR = 'htdt.migrated.assets'
+
+
+def _is_archive_generation(name: str, base: str) -> bool:
+    """Match ``base`` itself or the numbered generations ``base.1``,
+    ``base.2``, … that the migration's ``_next_available`` fallback
+    creates (#759) — every generation is part of the immutable record."""
+
+    if name == base:
+        return True
+    if not name.startswith(f'{base}.'):
+        return False
+    return name[len(base) + 1:].isdigit()
+
+
+def _legacy_archive_members(data_dir: Path) -> tuple[str, ...]:
+    """Posix relative paths of every archived legacy store generation.
+
+    A re-migrated store lands as ``htdt.migrated.sqlite3.1`` (and assets
+    as ``htdt.migrated.assets.1``) — numbered generations carry the same
+    retired-authority record and ride the backup identically (#759).
+    """
+
+    members: list[str] = []
+    if not data_dir.is_dir():
+        return ()
+    for candidate in sorted(data_dir.iterdir()):
+        name = candidate.name
+        if _is_archive_generation(name, _LEGACY_ARCHIVE_DB):
+            if candidate.is_file() and not candidate.is_symlink():
+                members.append(name)
+        elif _is_archive_generation(name, _LEGACY_ARCHIVE_ASSETS_DIR):
+            if candidate.is_dir():
+                for child in sorted(candidate.rglob('*')):
+                    if child.is_file() and not child.is_symlink():
+                        members.append(
+                            f'{name}/{child.relative_to(candidate).as_posix()}'
+                        )
+    return tuple(members)
+
+
 def _validate_asset_contract(
     *,
     data_dir: Path,
@@ -413,6 +466,30 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
             size_bytes=size_bytes,
             sha256=digest,
         ))
+    # Auxiliary registry components (backup_policy=INCLUDE) staged into the
+    # snapshot are declared on the manifest so whole-data restore owns them
+    # exactly — e.g. commissioning-plans.json survives PC migration (#769).
+    for component in backup_included_components():
+        aux_path = snapshot_root / auxiliary_archive_path(component)
+        if not aux_path.is_file():
+            continue
+        entries.append(BackupFileEntry(
+            path=auxiliary_archive_path(component),
+            kind='auxiliary',
+            size_bytes=aux_path.stat().st_size,
+            sha256=_sha256_file(aux_path),
+        ))
+    # Retired-authority archives (#598/#759): a migrated legacy store is
+    # immutable user evidence — losing it in a backup/restore would silently
+    # erase the pre-migration record.
+    for member in _legacy_archive_members(snapshot_root):
+        member_path = _safe_data_path(snapshot_root, member)
+        entries.append(BackupFileEntry(
+            path=member,
+            kind='legacy_archive',
+            size_bytes=member_path.stat().st_size,
+            sha256=_sha256_file(member_path),
+        ))
     info = get_build_info()
     build = BackupBuildInfo(
         display_version=info.display_version,
@@ -463,6 +540,24 @@ def _create_backup(data_dir: Path, destination: Path) -> BackupManifest:
                 raise ValueError(f'measurement asset is missing or not a regular file: {relative_path}')
             target_asset.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_asset, target_asset)
+
+        # Registry-declared auxiliary data (project-scoped metadata such as
+        # commissioning plans) joins the backup: copy each included
+        # component into the snapshot so the manifest hashes it too (#769).
+        for component in backup_included_components():
+            source_aux = data_dir / component.path
+            if not source_aux.is_file():
+                continue
+            target_aux = snapshot_root / auxiliary_archive_path(component)
+            target_aux.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_aux, target_aux)
+        for member in _legacy_archive_members(data_dir):
+            source_member = _safe_data_path(data_dir, member)
+            target_member = _safe_data_path(snapshot_root, member)
+            if source_member.is_symlink() or not source_member.is_file():
+                raise ValueError(f'legacy archive member is missing or not a regular file: {member}')
+            target_member.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_member, target_member)
 
         _validate_asset_contract(
             data_dir=snapshot_root,
@@ -674,6 +769,13 @@ def _remove_managed_data(data_dir: Path) -> None:
     assets = data_dir / MEASUREMENT_ASSETS_NAME
     if assets.exists():
         shutil.rmtree(assets)
+    for component in backup_included_components():
+        auxiliary = data_dir / component.path
+        if auxiliary.exists():
+            if auxiliary.is_dir():
+                shutil.rmtree(auxiliary)
+            else:
+                auxiliary.unlink()
 
 
 class RestoreRecoveryError(RuntimeError):
@@ -881,6 +983,49 @@ def _live_assets_match(
     return not extras
 
 
+def _swap_legacy_archive_members(
+    data_dir: Path,
+    stage_root: Path,
+    rollback_root: Path,
+    manifest: BackupManifest,
+) -> None:
+    """Land every ``legacy_archive`` manifest member on the live root.
+
+    A live file that differs from the manifest is evacuated (its
+    pre-restore bytes are preserved in the rollback tree), then the
+    staged member lands. Used by both the normal swap and the
+    interrupted-swap completion — a restore that skipped these would
+    silently erase the retired-authority record (#759).
+    """
+
+    for entry in manifest.files:
+        if entry.kind != 'legacy_archive':
+            continue
+        live_member = _safe_data_path(data_dir, entry.path)
+        staged_member = _safe_data_path(stage_root, entry.path)
+        if live_member.exists():
+            if (
+                not live_member.is_file()
+                or _sha256_file(live_member) != entry.sha256
+            ):
+                evacuate_root = (
+                    rollback_root / 'legacy-archive' / PurePosixPath(entry.path).parent
+                )
+                evacuate_root.mkdir(parents=True, exist_ok=True)
+                _evacuate_into(live_member, evacuate_root)
+        if not live_member.exists():
+            if not staged_member.is_file():
+                raise RestoreRecoveryError(
+                    f'staged legacy archive member is missing: {entry.path}'
+                )
+            live_member.parent.mkdir(parents=True, exist_ok=True)
+            _replace_durable(staged_member, live_member)
+        if _sha256_file(live_member) != entry.sha256:
+            raise RestoreRecoveryError(
+                f'live legacy archive member failed verification: {entry.path}'
+            )
+
+
 def _complete_restore_swap(
     data_dir: Path,
     rollback_root: Path,
@@ -928,6 +1073,44 @@ def _complete_restore_swap(
         else:
             live_assets.mkdir(parents=True, exist_ok=True)
 
+    # Auxiliary components: install every manifest-declared file exactly,
+    # and evacuate live auxiliary files the archive does not carry — the
+    # restored root must match the backup, not retain stale aux state.
+    aux_entries = tuple(
+        entry for entry in manifest.files if entry.kind == 'auxiliary'
+    )
+    aux_paths = {entry.path for entry in aux_entries}
+    for entry in aux_entries:
+        component = auxiliary_component_for_archive_path(entry.path)
+        if component is None:
+            raise RestoreRecoveryError(
+                f'backup manifest auxiliary path is not a registered '
+                f'component: {entry.path}'
+            )
+        live_aux = data_dir / component.path
+        staged_aux = stage_root / entry.path
+        if live_aux.exists() and (
+            not live_aux.is_file()
+            or _sha256_file(live_aux) != entry.sha256
+        ):
+            _evacuate_into(live_aux, rollback_root)
+        if not live_aux.exists():
+            if not staged_aux.is_file():
+                raise RestoreRecoveryError(
+                    f'staged auxiliary data is missing: {entry.path}'
+                )
+            _replace_durable(staged_aux, live_aux)
+    for component in backup_included_components():
+        live_aux = data_dir / component.path
+        if (
+            live_aux.exists()
+            and auxiliary_archive_path(component) not in aux_paths
+        ):
+            _evacuate_into(live_aux, rollback_root)
+    _swap_legacy_archive_members(
+        data_dir, stage_root, rollback_root, manifest
+    )
+
     _sqlite_health(live_database)
     _validate_asset_contract(
         data_dir=data_dir,
@@ -952,10 +1135,40 @@ def _rollback_restore_swap(data_dir: Path, rollback_root: Path) -> None:
         _evacuate_into(live_database, rollback_root)
     if live_assets.exists():
         _evacuate_into(live_assets, rollback_root)
+    # Live auxiliary data is the partially-restored generation — park it in
+    # a side directory so it can never claim the canonical pre-restore slot.
+    evacuated_live = rollback_root / 'evacuated-live'
+    for component in backup_included_components():
+        live_aux = data_dir / component.path
+        if live_aux.exists():
+            evacuated_live.mkdir(exist_ok=True)
+            _evacuate_into(live_aux, evacuated_live)
+    # Legacy-archive members: park the current live files, then bring back
+    # the pre-restore generation preserved under the rollback mirror.
+    legacy_rollback = rollback_root / 'legacy-archive'
+    for member in _legacy_archive_members(data_dir):
+        evacuate_root = (
+            legacy_rollback / PurePosixPath(member).parent / '.superseded'
+        )
+        evacuate_root.mkdir(parents=True, exist_ok=True)
+        _evacuate_into(_safe_data_path(data_dir, member), evacuate_root)
+    if legacy_rollback.is_dir():
+        for parked in sorted(legacy_rollback.rglob('*')):
+            if parked.is_dir() or '.superseded' in parked.parts:
+                continue
+            relative = parked.relative_to(legacy_rollback)
+            live_member = data_dir.joinpath(*relative.parts)
+            live_member.parent.mkdir(parents=True, exist_ok=True)
+            _replace_durable(parked, live_member)
     if rollback_database.exists():
         _replace_durable(rollback_database, live_database)
     if rollback_assets.exists():
         _replace_durable(rollback_assets, live_assets)
+    for component in backup_included_components():
+        live_aux = data_dir / component.path
+        rollback_aux = rollback_root / component.path
+        if rollback_aux.exists() and not live_aux.exists():
+            _replace_durable(rollback_aux, live_aux)
     if not live_database.is_file():
         raise RestoreRecoveryError(
             'no restorable database remains live or in the rollback directory'
@@ -1227,6 +1440,26 @@ def _restore_backup(
             if live_assets.exists():
                 _replace_durable(live_assets, rollback_assets)
                 moved_assets = True
+            # Auxiliary components: every live auxiliary file is parked at
+            # its canonical rollback slot — whether the archive carries it
+            # or not — so the restored root matches the backup exactly and
+            # never retains stale aux state (#769). Entries not carried by
+            # the archive are simply absent from the restored state.
+            manifest_aux_paths = {
+                entry.path
+                for entry in manifest.files
+                if entry.kind == 'auxiliary'
+            }
+            for aux_path in sorted(manifest_aux_paths):
+                if auxiliary_component_for_archive_path(aux_path) is None:
+                    raise RestoreRecoveryError(
+                        'backup manifest auxiliary path is not a registered '
+                        f'component: {aux_path}'
+                    )
+            for component in backup_included_components():
+                live_aux = data_dir / component.path
+                if live_aux.exists():
+                    _replace_durable(live_aux, rollback_root / live_aux.name)
             _journal_phase(rollback_root, journal, 'live_evacuated')
 
             _replace_durable(stage_root / DATABASE_NAME, live_database)
@@ -1235,6 +1468,22 @@ def _restore_backup(
                 _replace_durable(staged_assets, live_assets)
             else:
                 live_assets.mkdir(parents=True, exist_ok=True)
+            for aux_entry in (
+                entry for entry in manifest.files if entry.kind == 'auxiliary'
+            ):
+                component = auxiliary_component_for_archive_path(aux_entry.path)
+                assert component is not None
+                staged_aux = stage_root / aux_entry.path
+                if not staged_aux.is_file():
+                    raise RestoreRecoveryError(
+                        f'staged auxiliary data is missing: {aux_entry.path}'
+                    )
+                _replace_durable(staged_aux, data_dir / component.path)
+            # Retired-authority archives ride the same swap: a restore
+            # that skipped them would silently erase the record (#759).
+            _swap_legacy_archive_members(
+                data_dir, stage_root, rollback_root, manifest
+            )
             _journal_phase(rollback_root, journal, 'restored')
 
             _sqlite_health(live_database)
@@ -1253,6 +1502,10 @@ def _restore_backup(
                     _replace_durable(rollback_root / DATABASE_NAME, data_dir / DATABASE_NAME)
                 if moved_assets and (rollback_root / MEASUREMENT_ASSETS_NAME).exists():
                     _replace_durable(rollback_root / MEASUREMENT_ASSETS_NAME, data_dir / MEASUREMENT_ASSETS_NAME)
+                for component in backup_included_components():
+                    parked = rollback_root / component.path
+                    if parked.exists():
+                        _replace_durable(parked, data_dir / component.path)
             except Exception as exc:
                 rollback_error = exc
 

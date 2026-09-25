@@ -18,6 +18,7 @@ from typing import Any, Literal, Mapping
 from uuid import uuid4
 
 import numpy as np
+from .cad_schema import require_native_tables
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -559,28 +560,7 @@ class CadIRAnalysisRepository:
 
     def _initialize(self) -> None:
         with self._connect() as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_ir_analysis_specs (
-                    spec_id TEXT PRIMARY KEY,
-                    measurement_id TEXT NOT NULL,
-                    spec_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_ir_analysis_results (
-                    result_id TEXT PRIMARY KEY,
-                    spec_id TEXT NOT NULL,
-                    analysis_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_ir_analysis_specs', 'cad_ir_analysis_results')
 
     def save_spec(self, spec: IRAnalysisSpec) -> None:
         if self.get_spec(spec.spec_id) is not None:

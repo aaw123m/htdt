@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+from pathlib import Path
+import sqlite3
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -217,7 +219,17 @@ class ProjectDesignCheckpoint(BaseModel):
 
 
 class CheckpointRestoreRecord(BaseModel):
-    """Append-only fact: one checkpoint was applied to produce new current state."""
+    """Append-only fact: one checkpoint was applied to produce new current state.
+
+    ``requested_components`` records exactly which components the caller
+    asked to restore; ``applied_components`` contains ONLY the components
+    whose canonical current-state authority actually changed (#746). A
+    selected component without a canonical restore adapter lands in
+    ``not_restorable_components`` — it is never silently counted as applied.
+    ``result_refs`` pins the exact authority each applied component
+    produced (new revision id + content hash, new workspace generation
+    hash), so the record stores results, not intentions.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -225,7 +237,10 @@ class CheckpointRestoreRecord(BaseModel):
     document_id: str = Field(min_length=1)
     checkpoint_id: str = Field(min_length=1)
     checkpoint_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    requested_components: tuple[CheckpointComponentKind, ...] = ()
     applied_components: tuple[CheckpointComponentKind, ...]
+    not_restorable_components: tuple[CheckpointComponentKind, ...] = ()
+    result_refs: tuple[CheckpointAuthorityRef, ...] = ()
     new_scene_revision_id: str | None = Field(default=None, min_length=1)
     new_constraint_sha256: str | None = Field(
         default=None, pattern=r'^[0-9a-f]{64}$'
@@ -237,10 +252,47 @@ class CheckpointRestoreRecord(BaseModel):
     def valid_restore(self) -> 'CheckpointRestoreRecord':
         if len(self.applied_components) != len(set(self.applied_components)):
             raise ValueError('restore applied components must be unique')
+        if len(self.requested_components) != len(set(self.requested_components)):
+            raise ValueError('restore requested components must be unique')
+        if len(self.not_restorable_components) != len(
+            set(self.not_restorable_components)
+        ):
+            raise ValueError('restore not-restorable components must be unique')
+        if self.requested_components:
+            requested = set(self.requested_components)
+            applied = set(self.applied_components)
+            skipped = set(self.not_restorable_components)
+            if not applied <= requested:
+                raise ValueError(
+                    'restore applied a component that was not requested'
+                )
+            if applied & skipped:
+                raise ValueError(
+                    'a component cannot be both applied and not restorable'
+                )
+            if skipped and skipped - requested:
+                raise ValueError(
+                    'not-restorable components must be a subset of requested'
+                )
         if 'scene_revision' in self.applied_components and not self.new_scene_revision_id:
             raise ValueError('scene restore requires the produced revision id')
         if 'constraint_workspace' in self.applied_components and not self.new_constraint_sha256:
             raise ValueError('constraint restore requires the produced workspace hash')
+        if self.result_refs:
+            result_kinds = {item.kind for item in self.result_refs}
+            if len(self.result_refs) != len(result_kinds):
+                raise ValueError(
+                    'restore result refs must be unique per component kind'
+                )
+            for kind in ('scene_revision', 'constraint_workspace'):
+                if kind in self.applied_components and kind not in result_kinds:
+                    raise ValueError(
+                        'applied components require an exact result ref'
+                    )
+            if not result_kinds <= set(self.applied_components):
+                raise ValueError(
+                    'result refs may only name applied components'
+                )
         if self.restore_sha256 != _hash(self.semantic_payload()):
             raise ValueError('CheckpointRestoreRecord hash mismatch')
         return self
@@ -251,7 +303,12 @@ class CheckpointRestoreRecord(BaseModel):
             'document_id': self.document_id,
             'checkpoint_id': self.checkpoint_id,
             'checkpoint_sha256': self.checkpoint_sha256,
+            'requested_components': list(self.requested_components),
             'applied_components': list(self.applied_components),
+            'not_restorable_components': list(self.not_restorable_components),
+            'result_refs': [
+                item.model_dump(mode='json') for item in self.result_refs
+            ],
             'new_scene_revision_id': self.new_scene_revision_id,
             'new_constraint_sha256': self.new_constraint_sha256,
             'created_at_utc': self.created_at_utc,
@@ -427,11 +484,22 @@ def _snapshot_state(
     )
 
 
+#: Component kinds with a canonical current-state restore adapter.
+#: Everything else pinned by a checkpoint is a reference to a domain
+#: authority this operation cannot yet mutate — it is reported as
+#: ``not_restorable`` instead of pretending a manifest reference was
+#: applied (#746).
+RESTORABLE_COMPONENT_KINDS: frozenset[str] = frozenset(
+    {'scene_revision', 'constraint_workspace'}
+)
+
+
 def restore_design_checkpoint(
     checkpoint: ProjectDesignCheckpoint,
     *,
     scene_repository: SceneRepository,
     constraint_repository: CadConstraintRepository,
+    checkpoint_repository: Any | None = None,
     snapshot: ConstraintWorkspaceSnapshot | None = None,
     components: tuple[CheckpointComponentKind, ...] | None = None,
     created_at_utc: str,
@@ -443,77 +511,177 @@ def restore_design_checkpoint(
       new head ``SceneRevision`` descending from the document's live head;
     - ``constraint_workspace``: writes the pinned snapshot payload back through
       the mutable ``CadConstraintRepository`` as a new workspace generation;
-    - every other component kind is reference-only: a partial restore states
-      exactly which components are applied via ``applied_components``.
+    - every other component kind has no canonical restore adapter on main:
+      it is reported in ``not_restorable_components`` and never counted as
+      applied.
+
+    Atomicity (#746): every selected component is resolved and validated
+    BEFORE the first write, and the scene mutation, the constraint
+    workspace generation and the append-only ``CheckpointRestoreRecord``
+    commit inside ONE ``BEGIN IMMEDIATE`` transaction on the shared native
+    database — a failure anywhere leaves the document's current state and
+    its audit trail untouched. ``checkpoint_repository`` is required for
+    any mutating restore so the record cannot be separated from it.
 
     The pinned ``SceneRevision`` row, the snapshot and all referenced
     evidence remain untouched; as-built/measured records are never rewritten
     by a design-state restore.
     """
 
-    wanted = (
-        set(CHECKPOINT_COMPONENT_KINDS) if components is None else set(components)
-    )
+    if components is None:
+        wanted: set[CheckpointComponentKind] = {'scene_revision'}
+        if checkpoint.constraint_snapshot_id is not None:
+            wanted.add('constraint_workspace')
+        wanted |= {item.kind for item in checkpoint.component_refs}
+    else:
+        wanted = set(components)
+    unsupported = wanted - CHECKPOINT_COMPONENT_KINDS
+    if unsupported:
+        raise ValueError(
+            f'unsupported restore components: {sorted(unsupported)}'
+        )
+    requested_components = tuple(sorted(wanted))
+    applied_kinds = wanted & RESTORABLE_COMPONENT_KINDS
+    not_restorable = tuple(sorted(wanted - RESTORABLE_COMPONENT_KINDS))
+
+    # ---- Preflight: resolve and validate every selected component before
+    # any mutation touches current state.
     source_revision = scene_repository.get(checkpoint.scene_revision_id)
     if source_revision is None:
         raise ValueError('checkpoint SceneRevision is not persisted')
+    if source_revision.document_id != checkpoint.document_id:
+        raise ValueError('checkpoint SceneRevision belongs to another document')
     if source_revision.content_hash != checkpoint.scene_content_hash:
         raise ValueError('checkpoint SceneRevision content hash mismatch')
 
-    applied: list[CheckpointComponentKind] = []
-    new_scene_revision_id: str | None = None
-    new_constraint_sha256: str | None = None
+    shared_path = Path(scene_repository.path)
+    if Path(constraint_repository.path) != shared_path:
+        raise ValueError(
+            'restore requires scene and constraint repositories on one'
+            ' shared database'
+        )
+    if (
+        checkpoint_repository is not None
+        and Path(checkpoint_repository.path) != shared_path
+    ):
+        raise ValueError(
+            'restore requires the checkpoint repository on the shared'
+            ' database'
+        )
+    if applied_kinds and checkpoint_repository is None:
+        raise ValueError(
+            'a mutating checkpoint restore requires the checkpoint'
+            ' repository so the restore record commits in the same boundary'
+        )
 
-    if 'scene_revision' in wanted:
+    restored_document: SceneDocument | None = None
+    head_revision_id: str | None = None
+    if 'scene_revision' in applied_kinds:
         head = scene_repository.current_head(checkpoint.document_id)
         if head is None:
             raise ValueError('document has no current head to restore onto')
+        head_revision_id = head.revision_id
         restored_document = SceneDocument.model_validate(
             source_revision.document.model_dump(mode='json')
         )
-        result = scene_repository.save(
-            restored_document,
-            parent_revision_id=head.revision_id,
-        )
-        new_scene_revision_id = result.revision.revision_id
-        applied.append('scene_revision')
 
-    if 'constraint_workspace' in wanted:
+    resolved_snapshot: ConstraintWorkspaceSnapshot | None = None
+    if 'constraint_workspace' in applied_kinds:
         if checkpoint.constraint_snapshot_id is None:
             raise ValueError('checkpoint carries no constraint snapshot')
-        if snapshot is None:
+        resolved_snapshot = snapshot
+        if resolved_snapshot is None and checkpoint_repository is not None:
+            resolved_snapshot = checkpoint_repository.get_snapshot(
+                checkpoint.constraint_snapshot_id
+            )
+        if resolved_snapshot is None:
             raise ValueError('constraint snapshot must be supplied for restore')
-        if snapshot.snapshot_id != checkpoint.constraint_snapshot_id:
+        if resolved_snapshot.snapshot_id != checkpoint.constraint_snapshot_id:
             raise ValueError('constraint snapshot id mismatch')
-        if snapshot.snapshot_sha256 != checkpoint.constraint_snapshot_sha256:
+        if resolved_snapshot.snapshot_sha256 != checkpoint.constraint_snapshot_sha256:
             raise ValueError('constraint snapshot hash mismatch')
-        constraint_repository.save(snapshot.constraint_set)
-        new_constraint_sha256 = constraint_workspace_sha256(snapshot.constraint_set)
-        applied.append('constraint_workspace')
+        if resolved_snapshot.document_id != checkpoint.document_id:
+            raise ValueError(
+                'constraint snapshot belongs to another document'
+            )
+        if resolved_snapshot.constraint_set.document_id != checkpoint.document_id:
+            raise ValueError(
+                'constraint snapshot payload belongs to another document'
+            )
 
-    reference_only = [
-        item.kind
-        for item in checkpoint.component_refs
-        if item.kind in wanted
-        and item.kind not in applied
-        and item.kind not in {'scene_revision', 'constraint_workspace'}
-    ]
-    applied.extend(sorted(set(reference_only)))
+    # ---- One commit boundary: scene head advance + workspace generation +
+    # the restore record all share it.
+    connection = sqlite3.connect(shared_path)
+    connection.row_factory = sqlite3.Row
+    connection.execute('PRAGMA foreign_keys=ON')
+    applied: list[CheckpointComponentKind] = []
+    result_refs: list[CheckpointAuthorityRef] = []
+    new_scene_revision_id: str | None = None
+    new_constraint_sha256: str | None = None
+    try:
+        connection.execute('BEGIN IMMEDIATE')
+        if restored_document is not None and head_revision_id is not None:
+            result = scene_repository._save_in_transaction(
+                connection,
+                restored_document,
+                parent_revision_id=head_revision_id,
+            )
+            new_scene_revision_id = result.revision.revision_id
+            result_refs.append(
+                CheckpointAuthorityRef(
+                    kind='scene_revision',
+                    ref_id=result.revision.revision_id,
+                    ref_sha256=result.revision.content_hash,
+                )
+            )
+            applied.append('scene_revision')
 
-    payload: dict[str, Any] = {
-        'restore_id': restore_id or str(uuid4()),
-        'document_id': checkpoint.document_id,
-        'checkpoint_id': checkpoint.checkpoint_id,
-        'checkpoint_sha256': checkpoint.checkpoint_sha256,
-        'applied_components': tuple(applied),
-        'new_scene_revision_id': new_scene_revision_id,
-        'new_constraint_sha256': new_constraint_sha256,
-        'created_at_utc': created_at_utc,
-    }
-    provisional = CheckpointRestoreRecord.model_construct(
-        **payload, restore_sha256='0' * 64
-    )
-    return CheckpointRestoreRecord(
-        **payload,
-        restore_sha256=_hash(provisional.semantic_payload()),
-    )
+        if resolved_snapshot is not None:
+            constraint_repository.save_in_transaction(
+                connection,
+                resolved_snapshot.constraint_set,
+                updated_at_utc=created_at_utc,
+            )
+            new_constraint_sha256 = constraint_workspace_sha256(
+                resolved_snapshot.constraint_set
+            )
+            result_refs.append(
+                CheckpointAuthorityRef(
+                    kind='constraint_workspace',
+                    ref_id=resolved_snapshot.constraint_set.document_id,
+                    ref_sha256=new_constraint_sha256,
+                )
+            )
+            applied.append('constraint_workspace')
+
+        payload: dict[str, Any] = {
+            'restore_id': restore_id or str(uuid4()),
+            'document_id': checkpoint.document_id,
+            'checkpoint_id': checkpoint.checkpoint_id,
+            'checkpoint_sha256': checkpoint.checkpoint_sha256,
+            'requested_components': requested_components,
+            'applied_components': tuple(applied),
+            'not_restorable_components': not_restorable,
+            'result_refs': tuple(result_refs),
+            'new_scene_revision_id': new_scene_revision_id,
+            'new_constraint_sha256': new_constraint_sha256,
+            'created_at_utc': created_at_utc,
+        }
+        provisional = CheckpointRestoreRecord.model_construct(
+            **payload, restore_sha256='0' * 64
+        )
+        record = CheckpointRestoreRecord(
+            **payload,
+            restore_sha256=_hash(provisional.semantic_payload()),
+        )
+        if checkpoint_repository is not None:
+            checkpoint_repository.save_restore_in_transaction(
+                connection, record
+            )
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return record

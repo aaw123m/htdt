@@ -9,13 +9,22 @@ import sqlite3
 
 from typing import get_args
 
+from .cad_listener_pose import (
+    CadListenerPoseRepository,
+    pose_acoustic_reference_position,
+)
 from .cad_measurement_authorities import (
     CadAcousticLevelCalibration,
     CadDatasetLevelReference,
     CadMeasurementTimingReference,
     CadRoutingProfile,
     CadWiringVerificationCheck,
+    _validate_calibration_scope_identity,
+    _validate_timing_scope_identity,
+    calibration_applies_to,
     calibration_supports_absolute_spl,
+    derive_load_result,
+    timing_reference_scope_is_applicable,
 )
 from .cad_measurement_disposition import (
     CadMeasurementCorrection,
@@ -50,8 +59,11 @@ from .cad_measurement_repository import (
     CadMeasurementRepository,
     VerifiedMeasurementAsset,
 )
-from .cad_scene import Position3, acoustic_reference_position
-from .cad_schema import check_native_schema_compatibility
+from .cad_scene import Position3, SceneDocument, acoustic_reference_position
+from .cad_schema import (
+    check_native_schema_compatibility,
+    require_native_tables,
+)
 from .managed_assets import (
     ManagedAssetError,
     ManagedAssetStore,
@@ -100,6 +112,9 @@ class CadMeasurementQualityRepository:
             if listener_pose_repository is not None
             else CadListenerPoseRepository(self.path)
         )
+        # Listener poses persist into the same authority database (#632);
+        # target-lineage derivation re-validates exact pose pins (#840).
+        self._pose_repository = self.listener_pose_repository
         # #863: resolves a correction's pose_evidence_ref into the observed
         # world position the authority records. None fails closed — a
         # spatially-different reassignment without a resolver can never
@@ -117,154 +132,7 @@ class CadMeasurementQualityRepository:
     def _initialize(self) -> None:
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_measurement_quality_reports (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    report_id TEXT NOT NULL UNIQUE,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
-                    raw_asset_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
-                    report_sha256 TEXT NOT NULL,
-                    profile_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_quality_measurement_seq
-                    ON cad_measurement_quality_reports(measurement_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_quality_dataset_seq
-                    ON cad_measurement_quality_reports(dataset_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_lineage (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    lineage_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    supersedes_measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    selected_measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    lineage_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_document_seq
-                    ON cad_measurement_lineage(document_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_measurement
-                    ON cad_measurement_lineage(measurement_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_supersedes
-                    ON cad_measurement_lineage(supersedes_measurement_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_acquisition_contexts (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    acquisition_context_id TEXT NOT NULL UNIQUE,
-                    acquisition_context_sha256 TEXT NOT NULL,
-                    source_kind TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_observations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    observation_id TEXT NOT NULL UNIQUE,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    observation_sha256 TEXT NOT NULL,
-                    source_kind TEXT NOT NULL,
-                    observed_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_observations_measurement_seq
-                    ON cad_measurement_observations(measurement_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_quality_calibration_files (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_timing_references (
-                    timing_reference_id TEXT PRIMARY KEY,
-                    timing_reference_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_acoustic_level_calibrations (
-                    calibration_id TEXT PRIMARY KEY,
-                    calibration_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_dataset_level_references (
-                    level_reference_id TEXT PRIMARY KEY,
-                    dataset_id TEXT NOT NULL UNIQUE REFERENCES cad_frequency_responses(dataset_id),
-                    level_reference_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_routing_profiles (
-                    routing_profile_id TEXT PRIMARY KEY,
-                    routing_profile_sha256 TEXT NOT NULL UNIQUE,
-                    profile_name TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_wiring_checks (
-                    check_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    check_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_wiring_checks_document
-                    ON cad_wiring_checks(document_id, created_at_utc);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_target_lineages (
-                    target_lineage_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    measurement_point_id TEXT NOT NULL,
-                    target_lineage_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_target_lineages_document
-                    ON cad_measurement_target_lineages(document_id);
-                CREATE INDEX IF NOT EXISTS idx_target_lineages_point
-                    ON cad_measurement_target_lineages(measurement_point_id);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_dispositions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    disposition_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    disposition TEXT NOT NULL,
-                    correction_id TEXT,
-                    disposition_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_measurement_seq
-                    ON cad_measurement_dispositions(measurement_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_document_seq
-                    ON cad_measurement_dispositions(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_corrections (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    correction_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
-                    dataset_sha256 TEXT NOT NULL,
-                    correction_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_measurement_corrections_measurement_seq
-                    ON cad_measurement_corrections(measurement_id, seq ASC);
-                '''
-            )
+            require_native_tables(connection, 'cad_measurement_quality_reports', 'cad_measurement_lineage', 'cad_acquisition_contexts', 'cad_measurement_observations', 'cad_quality_calibration_files', 'cad_timing_references', 'cad_acoustic_level_calibrations', 'cad_dataset_level_references', 'cad_routing_profiles', 'cad_wiring_checks', 'cad_measurement_target_lineages', 'cad_measurement_dispositions', 'cad_measurement_corrections')
 
     def _validate_acquisition_context(self, context: CadAcquisitionContext) -> None:
         """Every subject must be an existing measurement in one document.
@@ -288,6 +156,7 @@ class CadMeasurementQualityRepository:
             raise ValueError(
                 'acquisition context subjects must belong to one document'
             )
+        document_id = next(iter(documents))
         if context.timing_reference_sha256 is not None:
             reference = self._find_timing_reference_by_sha256(
                 context.timing_reference_sha256
@@ -303,6 +172,48 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'acquisition context timing_reference_id does not match '
                     'the bound timing authority'
+                )
+            # #849/#860: a matching hash alone is not scope proof — every
+            # declared scope must actually cover the context's subjects.
+            # An 'unknown'-scope reference binds as honest legacy evidence
+            # but is never applicable, so it cannot authorize common timing.
+            if reference.validity_scope != 'unknown' and not (
+                timing_reference_scope_is_applicable(
+                    reference,
+                    subject_measurement_ids=context.subject_measurement_ids,
+                    acquisition_session_id=context.acquisition_session_id,
+                    signal_path_identity=context.signal_path_identity,
+                    sample_rate_hz=context.sample_rate_hz,
+                )
+            ):
+                raise ValueError(
+                    'acquisition context subjects fall outside the bound '
+                    'timing reference validity scope'
+                )
+        if context.routing_profile is not None:
+            # #858: the bound routing profile must resolve exactly and —
+            # when it declares a document scope — belong to the subjects'
+            # document. An unscoped legacy profile resolves but can never
+            # prove same-project applicability.
+            profile = self.get_routing_profile(
+                context.routing_profile.routing_profile_id
+            )
+            if (
+                profile is None
+                or profile.routing_profile_sha256
+                != context.routing_profile.routing_profile_sha256
+            ):
+                raise ValueError(
+                    'acquisition context binds an unknown routing profile'
+                )
+            if (
+                profile.document_id is not None
+                and profile.document_id != document_id
+            ):
+                raise ValueError(
+                    'acquisition context routing profile belongs to a '
+                    'different document'
+
                 )
 
     def save_acquisition_context(self, context: CadAcquisitionContext) -> None:
@@ -1184,10 +1095,30 @@ class CadMeasurementQualityRepository:
             return None
         return self.get_timing_reference(row['timing_reference_id'])
 
+    def _validate_timing_reference(
+        self, reference: CadMeasurementTimingReference
+    ) -> None:
+        """A scoped reference's declared subjects must resolve (#849/#860).
+
+        ``unknown`` scope carries no enforceable identity — it stays
+        readable as legacy evidence but can never authorize common timing.
+        """
+        _validate_timing_scope_identity(reference)
+        for subject_id in reference.subject_measurement_ids:
+            if (
+                self.measurement_repository.get_measurement(subject_id)
+                is None
+            ):
+                raise ValueError(
+                    'timing reference scope subject measurement is '
+                    f'unknown: {subject_id}'
+                )
+
     def save_timing_reference(
         self, reference: CadMeasurementTimingReference
     ) -> None:
         """Persist an immutable measurement timing-reference authority."""
+        self._validate_timing_reference(reference)
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1244,10 +1175,69 @@ class CadMeasurementQualityRepository:
     # ------------------------------------------------------------------
     # Acoustic level calibrations + dataset level references (#643)
 
+    def _validate_level_calibration(
+        self, calibration: CadAcousticLevelCalibration
+    ) -> None:
+        """Scope + method evidence, and resolvable subjects (#850/#859).
+
+        ``unknown`` scope is honest legacy evidence — it never authorizes
+        ``absolute_spl`` because applicability cannot be proven.
+        """
+        _validate_calibration_scope_identity(calibration)
+        if (
+            calibration.validity_scope == 'measurement'
+            and calibration.subject_measurement_id is not None
+            and self.measurement_repository.get_measurement(
+                calibration.subject_measurement_id
+            )
+            is None
+        ):
+            raise ValueError(
+                'measurement-scope calibration subject measurement is '
+                f'unknown: {calibration.subject_measurement_id}'
+            )
+
+    def _acquisition_contexts_covering(
+        self, measurement_id: str
+    ) -> tuple[CadAcquisitionContext, ...]:
+        """Persisted contexts whose subject list includes the measurement."""
+        return tuple(
+            context
+            for context in self.list_acquisition_contexts()
+            if measurement_id in context.subject_measurement_ids
+        )
+
+    def _calibration_applies_to_measurement(
+        self,
+        calibration: CadAcousticLevelCalibration,
+        measurement_id: str,
+    ) -> bool:
+        """Replay calibration applicability against the subject's contexts.
+
+        ``measurement`` scope is a direct identity check; ``session`` and
+        ``instrument`` scopes need a persisted acquisition context that
+        proves the measurement ran inside the calibration's declared
+        session/input chain; ``unknown`` never applies (#850/#859).
+        """
+        if calibration.validity_scope == 'measurement':
+            return calibration_applies_to(
+                calibration, measurement_id=measurement_id
+            )
+        for context in self._acquisition_contexts_covering(measurement_id):
+            if calibration_applies_to(
+                calibration,
+                measurement_id=measurement_id,
+                acquisition_session_id=context.acquisition_session_id,
+                input_path_identity=context.input_path_identity,
+            ):
+                return True
+        return False
+
     def save_level_calibration(
         self, calibration: CadAcousticLevelCalibration
     ) -> None:
         """Persist an immutable acoustic level-calibration authority."""
+        self._validate_level_calibration(calibration)
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1341,6 +1331,21 @@ class CadMeasurementQualityRepository:
                     'bound calibration method does not authorize '
                     'absolute SPL'
                 )
+            if (
+                reference.level_reference_kind == 'absolute_spl'
+                and not self._calibration_applies_to_measurement(
+                    calibration, reference.measurement_id
+                )
+            ):
+                # #850/#859: method capability is necessary but not
+                # sufficient — the calibration's declared scope must cover
+                # this exact measurement's acquisition chain. A dataset
+                # whose applicability cannot be proven stays uncalibrated.
+                raise ValueError(
+                    'bound calibration scope does not cover this '
+                    'measurement acquisition — absolute SPL requires '
+                    'proven applicability'
+                )
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1412,8 +1417,76 @@ class CadMeasurementQualityRepository:
     # ------------------------------------------------------------------
     # Verified routing profiles (#473)
 
+    def _validate_routing_profile(
+        self,
+        profile: CadRoutingProfile,
+    ) -> None:
+        """Project/topology scope + speaker identity validation (#848/#858).
+
+        A profile must declare a document or revision scope at save — an
+        unscoped record can never prove applicability later. A profile
+        pinned to ``scene_revision_id`` resolves that exact immutable
+        revision (whose document must equal ``document_id`` when both are
+        declared); a document-only profile validates against the document's
+        current head. Runs at save; on read it re-runs only for pinned
+        revisions — a document-scoped profile remains inspectable history
+        after the head topology moves.
+        """
+
+        if profile.document_id is None and profile.scene_revision_id is None:
+            raise ValueError(
+                'routing profile requires a document_id or '
+                'scene_revision_id scope'
+            )
+        scene_repository = self.measurement_repository.scene_repository
+        revision = None
+        if profile.scene_revision_id is not None:
+            revision = scene_repository.get(profile.scene_revision_id)
+            if revision is None:
+                raise ValueError(
+                    'routing profile scope revision is unresolvable: '
+                    f'{profile.scene_revision_id}'
+                )
+            if (
+                profile.document_id is not None
+                and revision.document_id != profile.document_id
+            ):
+                raise ValueError(
+                    'routing profile scope revision is unresolvable for '
+                    f'document {profile.document_id}: document does not '
+                    'match the pinned scene revision'
+                )
+        elif profile.document_id is not None:
+            revision = scene_repository.current_head(profile.document_id)
+            if revision is None:
+                raise ValueError(
+                    'routing profile belongs to an unknown document: '
+                    f'{profile.document_id}'
+                )
+        if revision is None:
+            return
+        for entry in profile.entries:
+            for speaker_id in (
+                *entry.expected_speaker_ids,
+                *entry.observed_speaker_ids,
+            ):
+                try:
+                    entity = revision.document.entity(speaker_id)
+                except KeyError as exc:
+                    raise ValueError(
+                        'routing profile speaker id is missing from the '
+                        f'bound scene: {speaker_id}'
+                    ) from exc
+                if entity.kind != 'speaker':
+                    raise ValueError(
+                        'routing profile source is not a speaker entity: '
+                        f'{speaker_id}'
+                    )
+
+
     def save_routing_profile(self, profile: CadRoutingProfile) -> None:
         """Persist an immutable verified channel-map authority."""
+        self._validate_routing_profile(profile)
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1459,10 +1532,23 @@ class CadMeasurementQualityRepository:
             raise ValueError(
                 'persisted routing profile row disagrees with its payload'
             )
+        # Re-verify only the immutable pinned-revision binding: its scene is
+        # deterministic forever. A document-scoped profile stays inspectable
+        # history even after the head topology moves or the document goes
+        # away — save-time validation already ran once.
+        if profile.scene_revision_id is not None:
+            self._validate_routing_profile(profile)
         return profile
 
-    def list_routing_profiles(self) -> tuple[CadRoutingProfile, ...]:
-        """Every persisted routing profile, oldest first."""
+    def list_routing_profiles(
+        self, document_id: str | None = None
+    ) -> tuple[CadRoutingProfile, ...]:
+        """Persisted routing profiles, oldest first.
+
+        With ``document_id`` only profiles bound to that exact project
+        document are returned — an unscoped or foreign-document profile is
+        never presented as selectable authority for this document (#858).
+        """
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
@@ -1477,14 +1563,183 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'persisted routing profile row disagrees with its payload'
                 )
+            if (
+                document_id is not None
+                and profile.document_id != document_id
+            ):
+                continue
             profiles.append(profile)
         return tuple(profiles)
 
     # ------------------------------------------------------------------
     # Speaker wiring commissioning checks (#645)
 
+    def _wiring_check_document(
+        self, check: CadWiringVerificationCheck
+    ) -> SceneDocument:
+        """Resolve the document the check's scene refs are verified in.
+
+        When the check pins a ``scene_revision_id`` the check is judged
+        inside that exact as-built baseline; otherwise the document's
+        current head is the scope.
+        """
+        scene_repository = self.measurement_repository.scene_repository
+        if check.scene_revision_id is not None:
+            revision = scene_repository.get(check.scene_revision_id)
+            if revision is None or revision.document_id != check.document_id:
+                raise ValueError(
+                    'wiring check scene revision is unresolvable for '
+                    f'document {check.document_id}'
+                )
+            return revision.document
+        head = scene_repository.current_head(check.document_id)
+        if head is None:
+            raise ValueError(
+                f'wiring check references an unknown document: '
+                f'{check.document_id}'
+            )
+        return head.document
+
+    def _wiring_evidence_document_id(self, reference: str) -> str | None:
+        """The document a wiring evidence ref resolves inside, or None.
+
+        Evidence refs name a persisted measurement id, a raw-asset digest
+        owned by a measurement in this document, or a measurement
+        attachment id/digest — never a free-form string.
+        """
+        measurement = self.measurement_repository.get_measurement(reference)
+        if measurement is not None:
+            return measurement.document_id
+        if len(reference) == 64:
+            with closing(self._connect()) as connection:
+                row = connection.execute(
+                    '''
+                    SELECT m.document_id AS document_id
+                    FROM cad_frequency_responses f
+                    JOIN cad_measurements m
+                        ON m.measurement_id = f.measurement_id
+                    WHERE f.source_sha256=?
+                    UNION
+                    SELECT m.document_id
+                    FROM cad_impulse_responses i
+                    JOIN cad_measurements m
+                        ON m.measurement_id = i.measurement_id
+                    WHERE i.source_sha256=?
+                    UNION
+                    SELECT document_id FROM cad_measurement_attachments
+                    WHERE sha256=? OR attachment_id=?
+                    ''',
+                    (reference, reference, reference, reference),
+                ).fetchone()
+            if row is not None:
+                return str(row['document_id'])
+        return None
+
+    def _validate_wiring_check(self, check: CadWiringVerificationCheck) -> None:
+        """#848/#857: resolve every claimed speaker/output/evidence ref.
+
+        A wiring check only becomes authority when the document scope
+        resolves, every speaker reference names a ``speaker`` entity in the
+        check's revision scope, and every evidence ref either resolves to a
+        persisted authority in the same document or is an explicit
+        ``manual:`` attestation. A PASS claim additionally requires the
+        kind-appropriate evidence: routing PASS binds an exact
+        RoutingProfile, load PASS binds a typed load observation whose
+        derived result is PASS, and other kinds need at least one
+        resolvable/attested evidence ref.
+        """
+        document = self._wiring_check_document(check)
+        speaker_ids = {
+            speaker_id
+            for speaker_id in (
+                *check.expected_speaker_ids,
+                *check.source_speaker_ids,
+                *check.observed_speaker_ids,
+            )
+        }
+        for speaker_id in sorted(speaker_ids):
+            try:
+                entity = document.entity(speaker_id)
+            except KeyError as exc:
+                raise ValueError(
+                    'wiring check references an unknown speaker entity: '
+                    f'{speaker_id}'
+                ) from exc
+            if entity.kind != 'speaker':
+                raise ValueError(
+                    'wiring check references a non-speaker entity: '
+                    f'{speaker_id}'
+                )
+        for reference in check.evidence_refs:
+            if reference.startswith('manual:'):
+                if len(reference) <= len('manual:'):
+                    raise ValueError(
+                        'manual wiring evidence attestation must name what '
+                        'was observed'
+                    )
+                continue
+            if (
+                self._wiring_evidence_document_id(reference)
+                != check.document_id
+            ):
+                raise ValueError(
+                    'wiring check evidence ref is unresolvable in this '
+                    f'document: {reference}'
+                )
+        if check.routing_profile_ref is not None:
+            if check.check_kind != 'routing':
+                raise ValueError(
+                    'a routing profile binding is only valid on a routing '
+                    'wiring check'
+                )
+            profile = self.get_routing_profile(
+                check.routing_profile_ref.routing_profile_id
+            )
+            if (
+                profile is None
+                or profile.routing_profile_sha256
+                != check.routing_profile_ref.routing_profile_sha256
+            ):
+                raise ValueError(
+                    'wiring check binds an unresolvable routing profile'
+                )
+            if (
+                profile.document_id is not None
+                and profile.document_id != check.document_id
+            ):
+                raise ValueError(
+                    'wiring check routing profile belongs to another '
+                    'document'
+                )
+        if check.load_observation is not None:
+            derived = derive_load_result(check.load_observation)
+            if check.result != derived:
+                raise ValueError(
+                    'a load wiring check result must equal the derived '
+                    f'result of its bound observation ({derived})'
+                )
+        if check.result == 'PASS':
+            if check.check_kind == 'routing':
+                if check.routing_profile_ref is None:
+                    raise ValueError(
+                        'a PASS routing check requires an exact routing '
+                        'profile binding'
+                    )
+            elif check.check_kind == 'load':
+                if check.load_observation is None:
+                    raise ValueError(
+                        'a PASS load check requires a typed electrical load '
+                        'observation'
+                    )
+            elif not check.evidence_refs:
+                raise ValueError(
+                    'a PASS wiring check requires resolvable evidence or '
+                    'manual attestation refs'
+                )
+
     def save_wiring_check(self, check: CadWiringVerificationCheck) -> None:
         """Persist one independent wiring-verification check result."""
+        self._validate_wiring_check(check)
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1688,6 +1943,22 @@ class CadMeasurementQualityRepository:
                 'match the declared initial position'
             )
 
+    @staticmethod
+    def _validate_target_lineage_row(
+        row: sqlite3.Row, lineage: CadMeasurementTargetLineage
+    ) -> None:
+        """SQL columns must agree with the sealed payload (#313/#847)."""
+        if (
+            row['target_lineage_id'] != lineage.target_lineage_id
+            or row['document_id'] != lineage.document_id
+            or row['measurement_point_id'] != lineage.measurement_point_id
+            or row['target_lineage_sha256'] != lineage.target_lineage_sha256
+            or row['created_at_utc'] != lineage.created_at_utc
+        ):
+            raise ValueError(
+                'persisted target lineage row disagrees with its payload'
+            )
+
     def save_target_lineage(
         self, lineage: CadMeasurementTargetLineage
     ) -> None:
@@ -1730,11 +2001,19 @@ class CadMeasurementQualityRepository:
     def get_target_lineage(
         self, measurement_point_id: str
     ) -> CadMeasurementTargetLineage | None:
-        """Resolve the persisted derivation lineage of a measurement point."""
+        """Resolve the persisted derivation lineage of a measurement point.
+
+        The read re-verifies row columns against the payload and replays
+        the derivation in the pinned revision — a corrupt or unverifiable
+        historical row fails closed rather than surfacing as provenance.
+        """
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_measurement_target_lineages '
+                'SELECT target_lineage_id, document_id, measurement_point_id, '
+                'target_lineage_sha256, created_at_utc, payload_json '
+
+                'FROM cad_measurement_target_lineages '
                 'WHERE measurement_point_id=?',
                 (measurement_point_id,),
             ).fetchone()
@@ -1746,6 +2025,7 @@ class CadMeasurementQualityRepository:
         # Authoritative reads re-prove the historical derivation (#862) — a
         # persisted row whose seat/revision/point claims no longer resolve
         # fails closed rather than surfacing as exact lineage.
+        self._validate_target_lineage_row(row, lineage)
         self._validate_target_lineage(lineage)
         return lineage
 
@@ -1755,18 +2035,23 @@ class CadMeasurementQualityRepository:
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_measurement_target_lineages '
+                'SELECT target_lineage_id, document_id, measurement_point_id, '
+                'target_lineage_sha256, created_at_utc, payload_json '
+
+                'FROM cad_measurement_target_lineages '
                 'WHERE document_id=? ORDER BY created_at_utc ASC, '
                 'target_lineage_id',
                 (document_id,),
             ).fetchall()
-        lineages = tuple(
-            CadMeasurementTargetLineage.model_validate_json(row['payload_json'])
-            for row in rows
-        )
-        for lineage in lineages:
+        lineages: list[CadMeasurementTargetLineage] = []
+        for row in rows:
+            lineage = CadMeasurementTargetLineage.model_validate_json(
+                row['payload_json']
+            )
+            self._validate_target_lineage_row(row, lineage)
             self._validate_target_lineage(lineage)
-        return lineages
+            lineages.append(lineage)
+        return tuple(lineages)
 
     # ------------------------------------------------------------------
     # Disposition / assignment-correction authority (#509)

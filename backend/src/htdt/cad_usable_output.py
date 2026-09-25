@@ -94,10 +94,23 @@ HeadroomBasis = Literal[
     'amplifier_margin',
     'scalar_declared',
     'distortion_qualified',
+    'distortion_unqualified',
     'unknown',
 ]
 """What an evaluated headroom number actually rests on — always reported
-alongside the number."""
+alongside the number. ``distortion_unqualified`` means the supplied policy
+was applied and no measured sample met it: no qualified available level
+exists, whatever level evidence remains is diagnostic only."""
+
+ReferenceBasis = Literal[
+    'same_reference',
+    'measured_room_transfer',
+    'propagation_model',
+    'predicted_transfer',
+]
+"""The authority kind under which a source-reference level is compared to a
+listener/seat target. Nothing is ever compared across bases implicitly —
+there is no implicit free-field 20log10(r) correction in-room."""
 
 
 class ExcursionEvidence(BaseModel):
@@ -300,6 +313,57 @@ def usable_output_tier(
     return 'scalar'
 
 
+class ListenerTransferAuthority(BaseModel):
+    """Explicit authority that maps a source-reference SPL onto a listener
+    position (#821).
+
+    ``same_reference`` asserts the target is defined at the profile's own
+    reference condition (same distance/axis/environment) — the evaluator
+    verifies the recorded conditions actually coincide. Every other kind
+    carries the authority's own ``transfer_db`` (the level shift from the
+    profile reference point to the listener it establishes; negative =
+    attenuation) plus its model/version and applicability limits. The
+    evaluator consumes the mapped level; it never derives a free-field
+    correction itself.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: ReferenceBasis
+    reference_distance_m: float | None = Field(default=None, gt=0.0)
+    listener_distance_m: float | None = Field(default=None, gt=0.0)
+    listener_axis: str | None = None
+    directivity_authority: str | None = None
+    propagation_model: str | None = None
+    model_version: str | None = None
+    environment: str | None = None
+    applicability_limits: str | None = None
+    transfer_db: float | None = None
+    uncertainty_db: float | None = Field(default=None, ge=0.0)
+    provenance: tuple[EquipmentDataProvenance, ...] = ()
+
+    @model_validator(mode='after')
+    def _check(self) -> 'ListenerTransferAuthority':
+        if self.kind == 'same_reference':
+            if self.transfer_db is not None:
+                raise ValueError(
+                    'same_reference authority carries no level shift'
+                )
+        else:
+            if self.transfer_db is None:
+                raise ValueError(
+                    'a listener transfer authority requires the level shift '
+                    'it establishes (transfer_db)'
+                )
+            if self.kind == 'propagation_model' and (
+                self.propagation_model is None
+            ):
+                raise ValueError(
+                    'propagation_model authority must name the model used'
+                )
+        return self
+
+
 class HeadroomEvaluation(BaseModel):
     """Usable-output headroom for a target level — the number plus the
     basis and tier it rests on."""
@@ -313,7 +377,16 @@ class HeadroomEvaluation(BaseModel):
     basis: HeadroomBasis
     tier_used: UsableOutputTier
     target_level_db_spl: float | None = None
+    # The level the evidence establishes at the profile/declared reference
+    # condition — never silently a listener level.
     available_level_db_spl: float | None = None
+    # The level at the listener under an explicit transfer authority; only
+    # this is compared against ``target_level_db_spl``.
+    listener_level_db_spl: float | None = None
+    reference_basis: ReferenceBasis | None = None
+    # Electrical margin stays a separate result dimension from acoustic
+    # listener headroom; it never produces a PASS by itself.
+    electrical_headroom_db: float | None = None
     headroom_db: float | None = None
     limiting_element: str | None = None
     reference_axis: str | None = None
@@ -370,6 +443,122 @@ def _level_at(
     return None
 
 
+def _policy_candidates(
+    profile: SourceUsableOutputProfile,
+    frequency_hz: float | None,
+    duration_class: OutputDurationClass,
+) -> list[OutputSample]:
+    return [
+        s for s in profile.samples
+        if s.duration_class == duration_class
+        and (frequency_hz is None
+             or (s.frequency_hz is not None
+                 and abs(s.frequency_hz - frequency_hz) < 1e-6)
+             or (s.band is not None
+                 and s.band.minimum_hz <= frequency_hz
+                 <= s.band.maximum_hz))
+    ]
+
+
+def _sample_meets_policy(
+    sample: OutputSample,
+    *,
+    max_distortion_percent: float | None,
+    max_compression_db: float | None,
+) -> bool:
+    """Whether one measured sample satisfies every named policy criterion.
+
+    Only metrics the policy actually names are evaluated. A THD criterion
+    needs at least one measured ``thd``/``aggregate`` metric (a single
+    ``harmonic`` order cannot establish THD; ``unavailable`` is recorded
+    evidence that cannot satisfy anything); every such measured metric must
+    meet the bound. A compression criterion needs a measured
+    ``compression_db`` within the bound. Tier labels never substitute for
+    criterion evaluation.
+    """
+    if max_distortion_percent is not None:
+        measured = [
+            d for d in sample.distortion
+            if d.kind in {'thd', 'aggregate'} and d.percent is not None
+        ]
+        if not measured:
+            return False
+        if any(d.percent > max_distortion_percent for d in measured):
+            return False
+    if max_compression_db is not None:
+        if sample.compression_db is None or (
+            sample.compression_db > max_compression_db
+        ):
+            return False
+    return True
+
+
+def _reference_compatible(
+    profile: SourceUsableOutputProfile | None,
+    transfer: ListenerTransferAuthority,
+) -> tuple[bool, str | None]:
+    """Whether the authority lets a source-reference level be compared to a
+    listener target. Returns (allowed, blocking_reason)."""
+    axis = profile.reference_axis if profile else None
+    if transfer.kind == 'same_reference':
+        if (
+            profile is not None
+            and profile.measurement_distance_m is not None
+            and transfer.listener_distance_m is not None
+            and abs(
+                transfer.listener_distance_m
+                - profile.measurement_distance_m
+            ) > 1e-9
+        ):
+            return False, (
+                'same-reference claim but listener distance '
+                f'{transfer.listener_distance_m} m differs from profile '
+                f'reference {profile.measurement_distance_m} m'
+            )
+        if (
+            profile is not None
+            and profile.measurement_distance_m is None
+        ):
+            return False, (
+                'same-reference claim but the profile records no '
+                'measurement distance'
+            )
+        if (
+            transfer.listener_axis is not None
+            and axis is not None
+            and transfer.listener_axis != axis
+        ):
+            return False, (
+                'same-reference claim but listener axis '
+                f'{transfer.listener_axis!r} differs from profile '
+                f'reference axis {axis!r}'
+            )
+        if (
+            transfer.environment is not None
+            and profile is not None
+            and profile.environment is not None
+            and transfer.environment != profile.environment
+        ):
+            return False, (
+                'same-reference claim but environments differ '
+                f'({transfer.environment!r} vs {profile.environment!r})'
+            )
+        return True, None
+    # mapped transfer kinds carry the level shift the authority established
+    if (
+        transfer.listener_axis is not None
+        and axis is not None
+        and transfer.listener_axis != axis
+        and transfer.directivity_authority is None
+    ):
+        return False, (
+            f'profile is measured on {axis!r} but the listener sits on '
+            f'{transfer.listener_axis!r} and the transfer carries no '
+            'directivity authority'
+        )
+    return True, None
+
+
 def evaluate_headroom(
     *,
     profile: SourceUsableOutputProfile | None,
@@ -379,14 +568,18 @@ def evaluate_headroom(
     declared_spl_db: float | None = None,
     amplifier_headroom_db: float | None = None,
     max_distortion_percent: float | None = None,
+    max_compression_db: float | None = None,
+    reference_transfer: ListenerTransferAuthority | None = None,
 ) -> HeadroomEvaluation:
     """Evaluate usable-output headroom for a target listening level.
 
-    Basis precedence: distortion-qualified (when a THD/compression ceiling
-    exists and a distortion policy is supplied) → scalar declared →
-    amplifier margin → UNKNOWN. The result always carries ``basis``,
-    ``tier_used``, ``reference_axis`` and ``duration_class`` so consumers
-    see exactly what the number rests on.
+    Basis precedence: distortion/compression-qualified (only measured
+    samples that meet every named policy criterion) → scalar declared →
+    UNKNOWN. The number a source-reference basis establishes is never
+    subtracted from a listener target directly: it is only compared under
+    an explicit ``reference_transfer`` authority (#821), and an electrical
+    amplifier margin is reported as its own dimension, never as acoustic
+    listener headroom.
     """
 
     tier = usable_output_tier(profile)
@@ -396,64 +589,108 @@ def evaluate_headroom(
     axis = profile.reference_axis if profile else None
     status: EvaluationStatus = 'UNKNOWN'
     reason: str
+    policy_active = (
+        max_distortion_percent is not None or max_compression_db is not None
+    )
+    policy_fail_at_or_below_target = False
 
     if profile is not None and tier in {'compression', 'thd', 'combined',
                                         'excursion_model'}:
-        level = _level_at(profile, frequency_hz, duration_class)
-        if level is not None and max_distortion_percent is not None:
-            # Find the highest sample level that still meets the
-            # distortion policy at/around the query point.
+        candidates = _policy_candidates(profile, frequency_hz, duration_class)
+        if policy_active and candidates:
             qualifying = [
-                s.level_db_spl
-                for s in profile.samples
-                if s.duration_class == duration_class
-                and (frequency_hz is None
-                     or (s.frequency_hz is not None
-                         and abs(s.frequency_hz - frequency_hz) < 1e-6)
-                     or (s.band is not None
-                         and s.band.minimum_hz <= frequency_hz
-                         <= s.band.maximum_hz))
-                and s.distortion
-                and all(
-                    d.kind == 'unavailable'
-                    or (d.percent is not None
-                        and d.percent <= max_distortion_percent)
-                    for d in s.distortion
+                s for s in candidates
+                if _sample_meets_policy(
+                    s,
+                    max_distortion_percent=max_distortion_percent,
+                    max_compression_db=max_compression_db,
                 )
             ]
             if qualifying:
-                available = max(qualifying)
+                available = max(s.level_db_spl for s in qualifying)
                 basis = 'distortion_qualified'
-                limiting = 'distortion policy'
+                limiting = 'distortion/compression policy'
             else:
-                available = level
-                basis = 'distortion_qualified'
-                limiting = 'distortion policy (no qualifying sample)'
+                basis = 'distortion_unqualified'
+                highest = max(s.level_db_spl for s in candidates)
+                limiting = (
+                    'distortion/compression policy (no qualifying sample; '
+                    f'highest measured {highest:.1f} dB SPL is retained as '
+                    'diagnostic evidence only)'
+                )
+                if (
+                    target_level_db_spl is not None
+                    and any(
+                        s.level_db_spl <= target_level_db_spl
+                        for s in candidates
+                    )
+                ):
+                    policy_fail_at_or_below_target = True
 
     if basis == 'unknown' and declared_spl_db is not None:
         available = declared_spl_db
         basis = 'scalar_declared'
-        limiting = 'declared SPL capability'
+        limiting = 'declared SPL capability at its declared reference'
 
-    if basis == 'unknown' and amplifier_headroom_db is not None:
-        available = (
-            None if target_level_db_spl is None
-            else target_level_db_spl + amplifier_headroom_db
-        )
+    electrical = amplifier_headroom_db
+    if basis == 'unknown' and electrical is not None:
         basis = 'amplifier_margin'
-        limiting = 'amplifier margin'
+        limiting = 'amplifier margin (electrical, at operating point)'
+
+    # Reference-basis gate: a source-reference level is only compared to a
+    # listener target under an explicit transfer authority.
+    listener_level: float | None = None
+    reference_basis: ReferenceBasis | None = None
+    transfer_block: str | None = None
+    if available is not None:
+        if reference_transfer is None:
+            transfer_block = (
+                'no listener transfer authority — a source-reference level '
+                'is never directly compared to a listener/seat target'
+            )
+        else:
+            ok, why = _reference_compatible(profile, reference_transfer)
+            if ok:
+                reference_basis = reference_transfer.kind
+                listener_level = available + (
+                    reference_transfer.transfer_db or 0.0
+                )
+            else:
+                transfer_block = why
 
     headroom: float | None = None
-    if available is not None and target_level_db_spl is not None:
-        headroom = available - target_level_db_spl
+    if basis == 'distortion_unqualified':
+        if policy_fail_at_or_below_target:
+            status = 'FAIL'
+            reason = (
+                'distortion/compression policy: measured samples at or '
+                'below the target already exceed the criterion'
+            )
+        else:
+            status = 'UNKNOWN'
+            reason = (
+                'distortion/compression policy: no qualifying measured '
+                'sample — the policy-qualified ceiling is unestablished'
+            )
+    elif listener_level is not None and target_level_db_spl is not None:
+        headroom = listener_level - target_level_db_spl
         status = 'PASS' if headroom >= 0.0 else 'FAIL'
         reason = (
-            f'{basis}: {available:.1f} dB SPL available vs '
-            f'{target_level_db_spl:.1f} dB SPL target'
+            f'{basis} on {reference_basis}: {listener_level:.1f} dB SPL '
+            f'at listener vs {target_level_db_spl:.1f} dB SPL target'
         )
-    elif available is not None:
+    elif basis == 'amplifier_margin':
+        status = 'UNKNOWN'
+        reason = (
+            f'amplifier margin {electrical:.1f} dB is electrical headroom, '
+            'not acoustic listener headroom'
+        )
+    elif available is not None and target_level_db_spl is None:
         status = 'UNKNOWN'
         reason = f'{basis}: level available but no target supplied'
+    elif available is not None:
+        status = 'UNKNOWN'
+        reason = f'{basis}: {transfer_block}'
     else:
         reason = 'no usable-output basis available'
 
@@ -465,6 +702,9 @@ def evaluate_headroom(
         tier_used=tier,
         target_level_db_spl=target_level_db_spl,
         available_level_db_spl=available,
+        listener_level_db_spl=listener_level,
+        reference_basis=reference_basis,
+        electrical_headroom_db=electrical,
         headroom_db=headroom,
         limiting_element=limiting,
         reference_axis=axis,

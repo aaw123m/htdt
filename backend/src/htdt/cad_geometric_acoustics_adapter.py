@@ -45,7 +45,10 @@ from .cad_geometric_acoustics_portal import (
 )
 from .cad_repository import SceneRepository
 from .cad_scene import Direction3, Position3
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .r120_geometry_compiler import (
     AcousticRegionAuthority,
     AcousticRegionDeclaration,
@@ -5129,44 +5132,7 @@ class CadDeterministicPathArtifactRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_deterministic_ga_execution_inputs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    execution_input_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    snapshot_id TEXT NOT NULL,
-                    prediction_request_id TEXT NOT NULL,
-                    dispatch_binding_id TEXT NOT NULL,
-                    r120_compiled_geometry_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_deterministic_ga_input_request_seq
-                    ON cad_deterministic_ga_execution_inputs(
-                        prediction_request_id, seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_deterministic_path_artifacts (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    artifact_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    execution_id TEXT NOT NULL,
-                    execution_provenance_authority_id TEXT NOT NULL,
-                    execution_input_id TEXT NOT NULL,
-                    snapshot_id TEXT NOT NULL,
-                    prediction_request_id TEXT NOT NULL,
-                    dispatch_binding_id TEXT NOT NULL,
-                    r120_compiled_geometry_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_deterministic_path_request_seq
-                    ON cad_deterministic_path_artifacts(
-                        prediction_request_id, seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_deterministic_ga_execution_inputs', 'cad_deterministic_path_artifacts')
 
     def _resolve_geometry_authority(
         self,

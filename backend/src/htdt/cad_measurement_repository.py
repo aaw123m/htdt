@@ -35,7 +35,10 @@ from .managed_assets import (
     ManagedAssetError,
     ManagedAssetStore,
     verify_managed_asset,
+
 )
+
+from .cad_schema import require_native_tables
 
 
 class MeasurementPlanConflictError(ValueError):
@@ -124,137 +127,7 @@ class CadMeasurementRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_measurement_assets (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_measurements (
-                    measurement_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL REFERENCES scene_revisions(revision_id),
-                    scene_content_hash TEXT NOT NULL,
-                    measurement_entity_id TEXT NOT NULL,
-                    measurement_position_json TEXT NOT NULL,
-                    measurement_direction_json TEXT,
-                    evidence_type TEXT NOT NULL,
-                    channel_role TEXT NOT NULL,
-                    source_speaker_ids_json TEXT NOT NULL,
-                    radiation_scope TEXT NOT NULL,
-                    routing_evidence TEXT NOT NULL,
-                    captured_at TEXT,
-                    imported_at TEXT NOT NULL,
-                    source_kind TEXT NOT NULL,
-                    external_source_id TEXT,
-                    quality_status TEXT NOT NULL,
-                    quality_reasons_json TEXT NOT NULL,
-                    quality_source TEXT NOT NULL,
-                    provenance_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_cad_measurements_document_imported
-                    ON cad_measurements(document_id, imported_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_cad_measurements_revision
-                    ON cad_measurements(scene_revision_id);
-                CREATE TABLE IF NOT EXISTS cad_frequency_responses (
-                    dataset_id TEXT PRIMARY KEY,
-                    measurement_id TEXT NOT NULL UNIQUE REFERENCES cad_measurements(measurement_id),
-                    frequency_blob BLOB NOT NULL,
-                    level_blob BLOB NOT NULL,
-                    phase_blob BLOB,
-                    phase_status TEXT NOT NULL,
-                    level_reference TEXT NOT NULL,
-                    smoothing TEXT,
-                    processing_json TEXT NOT NULL,
-                    source_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
-                    importer_version TEXT NOT NULL,
-                    dataset_sha256 TEXT,
-                    transformation_sha256 TEXT
-                );
-                CREATE TABLE IF NOT EXISTS cad_measurement_comparisons (
-                    comparison_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    dataset_a_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
-                    dataset_b_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
-                    scene_revision_a_id TEXT NOT NULL REFERENCES scene_revisions(revision_id),
-                    scene_revision_b_id TEXT NOT NULL REFERENCES scene_revisions(revision_id),
-                    created_at TEXT NOT NULL,
-                    result_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_cad_measurement_comparisons_document_created
-                    ON cad_measurement_comparisons(document_id, created_at DESC);
-                CREATE TABLE IF NOT EXISTS cad_measurement_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    applied_scene_revision_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    plan_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(applied_scene_revision_id) REFERENCES scene_revisions(revision_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_cad_measurement_plans_search_seq
-                    ON cad_measurement_plans(search_spec_id, seq ASC);
-                CREATE TABLE IF NOT EXISTS cad_impulse_responses (
-                    dataset_id TEXT PRIMARY KEY,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    samples_blob BLOB NOT NULL,
-                    sample_rate_hz REAL NOT NULL,
-                    start_time_s REAL NOT NULL,
-                    t0_semantics TEXT NOT NULL,
-                    amplitude_reference TEXT NOT NULL,
-                    normalized INTEGER NOT NULL,
-                    window_kind TEXT,
-                    ir_semantics TEXT NOT NULL,
-                    calibration_state TEXT NOT NULL,
-                    processing_json TEXT NOT NULL,
-                    source_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
-                    importer_version TEXT NOT NULL,
-                    dataset_sha256 TEXT NOT NULL,
-                    transformation_sha256 TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_cad_impulse_responses_measurement
-                    ON cad_impulse_responses(measurement_id);
-                CREATE TABLE IF NOT EXISTS cad_measurement_attachments (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    attachment_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
-                    kind TEXT NOT NULL,
-                    filename TEXT NOT NULL,
-                    sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
-                    size_bytes INTEGER NOT NULL,
-                    note TEXT,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_cad_measurement_attachments_measurement_seq
-                    ON cad_measurement_attachments(measurement_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_cad_measurement_attachments_document_seq
-                    ON cad_measurement_attachments(document_id, seq ASC);
-                '''
-            )
-            # Import-transformation binding migration: rows written before the
-            # persisted dataset semantic hash / transformation seal existed
-            # keep NULL and are non-authoritative — reads fail closed
-            # (``_row_to_dataset``) rather than fabricating an identity this
-            # version never attested. Both are lazy optional columns in the
-            # pre-versioning table signature.
-            columns = {
-                row['name']
-                for row in connection.execute('PRAGMA table_info(cad_frequency_responses)')
-            }
-            if 'dataset_sha256' not in columns:
-                connection.execute(
-                    'ALTER TABLE cad_frequency_responses ADD COLUMN dataset_sha256 TEXT'
-                )
-            if 'transformation_sha256' not in columns:
-                connection.execute(
-                    'ALTER TABLE cad_frequency_responses ADD COLUMN transformation_sha256 TEXT'
-                )
+            require_native_tables(connection, 'cad_measurement_assets', 'cad_measurements', 'cad_frequency_responses', 'cad_measurement_comparisons', 'cad_measurement_plans', 'cad_impulse_responses', 'cad_measurement_attachments')
 
     def _validated_revision(self, record: CadMeasurementRecord) -> SceneRevision:
         revision = self.scene_repository.get(record.scene_revision_id)
@@ -595,6 +468,11 @@ class CadMeasurementRepository:
         dataset_a_id: str,
         dataset_b_id: str,
         result: ComparisonResult,
+        *,
+        semantics_json: str | None = None,
+        label_a: str | None = None,
+        label_b: str | None = None,
+        level_compatibility: str | None = None,
     ) -> CadMeasurementComparison:
         """Persist a comparison only if it replays exactly from bound datasets.
 
@@ -641,6 +519,10 @@ class CadMeasurementRepository:
                 scene_revision_b_id=rows[1]['scene_revision_id'],
                 created_at=_utc_now(),
                 result=result,
+                semantics_json=semantics_json,
+                label_a=label_a,
+                label_b=label_b,
+                level_compatibility=level_compatibility,
             )
             result_payload = {
                 **asdict(result),
@@ -649,6 +531,10 @@ class CadMeasurementRepository:
                 'algorithm_sha256': comparison.algorithm_sha256,
                 'spec_sha256': comparison.spec_sha256,
                 'comparison_sha256': comparison.comparison_sha256,
+                'semantics_json': comparison.semantics_json,
+                'label_a': comparison.label_a,
+                'label_b': comparison.label_b,
+                'level_compatibility': comparison.level_compatibility,
             }
             connection.execute(
                 '''INSERT INTO cad_measurement_comparisons(
