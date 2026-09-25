@@ -225,3 +225,114 @@ def test_setpoint_stages_stay_separate():
     assert record.measured.level_percent == 18.0
     # no field fuses or derives another
     assert record.commanded is not record.read_back
+
+
+def _policy(**overrides):
+    from htdt.cad_lighting import LightingTolerancePolicy
+    kwargs = dict(
+        policy_id='dimmer-tolerance', policy_version='1',
+        level_percent_tolerance=2.0,
+    )
+    kwargs.update(overrides)
+    return LightingTolerancePolicy(**kwargs)
+
+
+def _record(scene, **overrides):
+    kwargs = dict(
+        record_id='rec-1',
+        scene_id=scene.scene_id,
+        scene_version=scene.version,
+        scene_sha256=scene.scene_sha256,
+        ref_kind='zone',
+        ref_id='zone-general',
+    )
+    kwargs.update(overrides)
+    return LightingCommissioningRecord(**kwargs)
+
+
+def test_stage_slot_mismatch_rejected():
+    scene = _scene()
+    with pytest.raises(ValidationError, match='stage must match'):
+        _record(
+            scene,
+            read_back=StageLevel(stage='commanded', level_percent=50.0),
+        )
+
+
+def test_read_back_mismatch_fails_conformance():
+    """Issue contract: desired 10%, commanded 10%, read-back 100% => FAIL."""
+    scene = _scene()
+    record = _record(
+        scene,
+        desired=StageLevel(stage='desired', level_percent=10.0),
+        commanded=StageLevel(stage='commanded', level_percent=10.0),
+        read_back=StageLevel(stage='read_back', level_percent=100.0),
+    )
+    evaluation = evaluate_lighting_scene(
+        scene=scene, fixtures=_fixtures(), zones=_zones(),
+        commissioning_records=(record,), tolerance_policy=_policy(),
+    )
+    assert lighting_scene_status(
+        evaluation, dimension='device_state_conformance'
+    ) == 'FAIL'
+
+
+def test_commanded_alone_never_proves_applied():
+    scene = _scene()
+    record = _record(
+        scene,
+        desired=StageLevel(stage='desired', level_percent=10.0),
+        commanded=StageLevel(stage='commanded', level_percent=10.0),
+    )
+    evaluation = evaluate_lighting_scene(
+        scene=scene, fixtures=_fixtures(), zones=_zones(),
+        commissioning_records=(record,), tolerance_policy=_policy(),
+    )
+    assert lighting_scene_status(
+        evaluation, dimension='device_state_conformance'
+    ) == 'UNKNOWN'
+
+
+def test_read_back_within_tolerance_passes_and_stays_independent():
+    scene = _scene()
+    record = _record(
+        scene,
+        desired=StageLevel(stage='desired', level_percent=10.0),
+        commanded=StageLevel(stage='commanded', level_percent=10.0),
+        read_back=StageLevel(stage='read_back', level_percent=10.5),
+    )
+    evaluation = evaluate_lighting_scene(
+        scene=scene, fixtures=_fixtures(), zones=_zones(),
+        commissioning_records=(record,), tolerance_policy=_policy(),
+    )
+    dims = {d.dimension: d.status for d in evaluation.dimensions}
+    assert dims['device_state_conformance'] == 'PASS'
+    # photometric stays its own axis and does not contaminate the verdict
+    assert dims['photometric_model_capability'] == 'UNKNOWN'
+    assert lighting_scene_status(
+        evaluation, dimension='device_state_conformance'
+    ) == 'PASS'
+
+
+def test_record_bound_to_other_scene_fails():
+    scene = _scene()
+    record = _record(scene, scene_sha256='0' * 64)
+    evaluation = evaluate_lighting_scene(
+        scene=scene, fixtures=_fixtures(), zones=_zones(),
+        commissioning_records=(record,), tolerance_policy=_policy(),
+    )
+    assert lighting_scene_status(
+        evaluation, dimension='device_state_conformance'
+    ) == 'FAIL'
+
+
+def test_records_require_explicit_policy():
+    scene = _scene()
+    record = _record(
+        scene, desired=StageLevel(stage='desired', level_percent=10.0)
+    )
+    with pytest.raises(ValueError, match='tolerance_policy'):
+        evaluate_lighting_scene(
+            scene=scene, fixtures=_fixtures(), zones=_zones(),
+            commissioning_records=(record,),
+        )

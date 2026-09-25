@@ -35,6 +35,15 @@ AVSyncLifecycleStatus = Literal[
     'setting_applied',
     'residual_verified',
 ]
+AVSyncAppliedEvidence = Literal[
+    'user_confirmed',
+    'device_read_back',
+    'imported',
+    'unknown',
+]
+"""How a ``setting_applied`` claim was established. ``unknown`` is the only
+honest default — a recorded ``applied_setting_ms`` number alone never
+implies device read-back."""
 # Canonical sign convention (module docstring): positive means audio arrives
 # after the corresponding displayed event.
 AV_SYNC_SIGN_CONVENTION = 'positive_means_audio_after_video'
@@ -79,7 +88,13 @@ class AVSyncCondition(BaseModel):
     condition_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     scene_revision_id: str | None = Field(default=None, min_length=1)
+    scene_revision_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     system_variant_id: str | None = Field(default=None, min_length=1)
+    system_variant_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     # Playback chain as declared by the operator — free-form identifiers are
     # kept as recorded; unknown links stay explicit empty/unknown values.
     source_device_id: str = 'unknown'
@@ -95,6 +110,9 @@ class AVSyncCondition(BaseModel):
     # Reserved binding for the room operating-state authority (#556). Optional
     # so conditions recorded before that authority exists stay valid.
     operating_state_id: str | None = Field(default=None, min_length=1)
+    operating_state_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     created_at: str = Field(min_length=1)
     provenance_json: str = '{}'
     condition_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -108,6 +126,18 @@ class AVSyncCondition(BaseModel):
             raise ValueError('refresh_rate_hz must be positive')
         if self.frame_rate_hz is not None and self.frame_rate_hz <= 0:
             raise ValueError('frame_rate_hz must be positive')
+        for id_field, hash_field in (
+            ('scene_revision_id', 'scene_revision_sha256'),
+            ('system_variant_id', 'system_variant_sha256'),
+            ('operating_state_id', 'operating_state_sha256'),
+        ):
+            if (getattr(self, id_field) is None) != (
+                getattr(self, hash_field) is None
+            ):
+                raise ValueError(
+                    f'{id_field}/{hash_field} must be supplied together; '
+                    'a bare id is not an exact reference'
+                )
         if self.condition_sha256 != _hash(self.identity_payload()):
             raise ValueError('A/V sync condition hash mismatch')
         return self
@@ -117,7 +147,9 @@ class AVSyncCondition(BaseModel):
             'schema_version': AV_SYNC_CONDITION_SCHEMA_VERSION,
             'document_id': self.document_id,
             'scene_revision_id': self.scene_revision_id,
+            'scene_revision_sha256': self.scene_revision_sha256,
             'system_variant_id': self.system_variant_id,
+            'system_variant_sha256': self.system_variant_sha256,
             'source_device_id': self.source_device_id,
             'source_input_path': self.source_input_path,
             'display_device_id': self.display_device_id,
@@ -129,6 +161,7 @@ class AVSyncCondition(BaseModel):
             'audio_path': self.audio_path,
             'lip_sync_offset_ms': self.lip_sync_offset_ms,
             'operating_state_id': self.operating_state_id,
+            'operating_state_sha256': self.operating_state_sha256,
         }
 
 
@@ -158,6 +191,17 @@ class AVLatencyMeasurement(BaseModel):
     document_id: str = Field(min_length=1)
     condition_id: str = Field(min_length=1)
     condition_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    #: Stable identity of the whole lifecycle chain; every stage appended by
+    #: :func:`advance_av_latency_measurement` shares it while receiving a new
+    #: immutable ``measurement_id``. ``None`` only for records persisted
+    #: before chain lineage existed — their chain identity is the
+    #: ``measurement_id`` itself.
+    chain_id: str | None = Field(default=None, min_length=1)
+    predecessor_measurement_id: str | None = Field(default=None, min_length=1)
+    predecessor_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    applied_evidence: AVSyncAppliedEvidence = 'unknown'
     method: AVSyncMeasurementMethod = 'unknown'
     sign_convention: str = AV_SYNC_SIGN_CONVENTION
     status: AVSyncLifecycleStatus = 'measured'
@@ -197,6 +241,25 @@ class AVLatencyMeasurement(BaseModel):
             raise ValueError('applied_setting_ms requires setting_applied status')
         if self.residual_offset_ms is not None and stage < 3:
             raise ValueError('residual_offset_ms requires residual_verified status')
+        if (self.predecessor_measurement_id is None) != (
+            self.predecessor_sha256 is None
+        ):
+            raise ValueError(
+                'predecessor measurement id/hash must be supplied together'
+            )
+        if self.predecessor_measurement_id is not None:
+            if self.predecessor_measurement_id == self.measurement_id:
+                raise ValueError('a stage cannot be its own predecessor')
+            if self.chain_id is None:
+                raise ValueError('a successor stage requires a chain_id')
+            if stage == 0:
+                raise ValueError(
+                    'the chain head is always the measured stage'
+                )
+        if self.applied_evidence != 'unknown' and self.applied_setting_ms is None:
+            raise ValueError(
+                'applied_evidence requires an applied_setting_ms value'
+            )
         if self.measurement_sha256 != _hash(self.identity_payload()):
             raise ValueError('A/V latency measurement hash mismatch')
         return self
@@ -207,6 +270,9 @@ class AVLatencyMeasurement(BaseModel):
             'document_id': self.document_id,
             'condition_id': self.condition_id,
             'condition_sha256': self.condition_sha256,
+            'chain_id': self.chain_id,
+            'predecessor_measurement_id': self.predecessor_measurement_id,
+            'predecessor_sha256': self.predecessor_sha256,
             'method': self.method,
             'sign_convention': self.sign_convention,
             'status': self.status,
@@ -214,6 +280,7 @@ class AVLatencyMeasurement(BaseModel):
             'uncertainty_ms': self.uncertainty_ms,
             'requested_correction_ms': self.requested_correction_ms,
             'applied_setting_ms': self.applied_setting_ms,
+            'applied_evidence': self.applied_evidence,
             'residual_offset_ms': self.residual_offset_ms,
             'captured_at': self.captured_at,
             'source_kind': self.source_kind,
@@ -226,7 +293,9 @@ def build_av_sync_condition(
     *,
     document_id: str,
     scene_revision_id: str | None = None,
+    scene_revision_sha256: str | None = None,
     system_variant_id: str | None = None,
+    system_variant_sha256: str | None = None,
     source_device_id: str = 'unknown',
     source_input_path: str = 'unknown',
     display_device_id: str = 'unknown',
@@ -238,6 +307,7 @@ def build_av_sync_condition(
     audio_path: str = 'unknown',
     lip_sync_offset_ms: float = 0.0,
     operating_state_id: str | None = None,
+    operating_state_sha256: str | None = None,
     created_at: str,
     provenance_json: str = '{}',
 ) -> AVSyncCondition:
@@ -245,7 +315,9 @@ def build_av_sync_condition(
         'condition_id': str(uuid4()),
         'document_id': document_id,
         'scene_revision_id': scene_revision_id,
+        'scene_revision_sha256': scene_revision_sha256,
         'system_variant_id': system_variant_id,
+        'system_variant_sha256': system_variant_sha256,
         'source_device_id': source_device_id,
         'source_input_path': source_input_path,
         'display_device_id': display_device_id,
@@ -257,6 +329,7 @@ def build_av_sync_condition(
         'audio_path': audio_path,
         'lip_sync_offset_ms': lip_sync_offset_ms,
         'operating_state_id': operating_state_id,
+        'operating_state_sha256': operating_state_sha256,
         'created_at': created_at,
         'provenance_json': provenance_json,
     }
@@ -283,14 +356,21 @@ def build_av_latency_measurement(
     captured_at: str,
     source_kind: Literal['user_measured', 'imported', 'device_reported', 'unknown'] = 'unknown',
     external_source_id: str | None = None,
+    chain_id: str | None = None,
+    applied_evidence: AVSyncAppliedEvidence = 'unknown',
     notes: tuple[str, ...] = (),
     provenance_json: str = '{}',
 ) -> AVLatencyMeasurement:
+    chain = chain_id or str(uuid4())
     payload: dict[str, Any] = {
         'measurement_id': str(uuid4()),
         'document_id': condition.document_id,
         'condition_id': condition.condition_id,
         'condition_sha256': condition.condition_sha256,
+        'chain_id': chain,
+        'predecessor_measurement_id': None,
+        'predecessor_sha256': None,
+        'applied_evidence': applied_evidence,
         'method': method,
         'status': status,
         'measured_offset_ms': measured_offset_ms,
@@ -320,6 +400,7 @@ def advance_av_latency_measurement(
     status: AVSyncLifecycleStatus,
     requested_correction_ms: float | None = None,
     applied_setting_ms: float | None = None,
+    applied_evidence: AVSyncAppliedEvidence | None = None,
     residual_offset_ms: float | None = None,
     captured_at: str,
     notes: tuple[str, ...] = (),
@@ -341,7 +422,15 @@ def advance_av_latency_measurement(
     if order[status] <= order[measurement.status]:
         raise ValueError('A/V sync lifecycle transitions are monotonic')
     payload = measurement.model_dump(mode='python', exclude={'measurement_sha256'})
+    # A successor is a new immutable stage in the same chain, never a rewrite
+    # of the existing record: fresh stage id + explicit predecessor lineage.
+    payload['measurement_id'] = str(uuid4())
+    payload['chain_id'] = measurement.chain_id or measurement.measurement_id
+    payload['predecessor_measurement_id'] = measurement.measurement_id
+    payload['predecessor_sha256'] = measurement.measurement_sha256
     payload['status'] = status
+    if applied_evidence is not None:
+        payload['applied_evidence'] = applied_evidence
     if requested_correction_ms is not None:
         payload['requested_correction_ms'] = requested_correction_ms
     if applied_setting_ms is not None:

@@ -14,6 +14,19 @@ from htdt.cad_av_sync import (
 )
 from htdt.cad_av_sync_repository import CadAVSyncRepository
 from htdt.cad_repository import SceneRepository
+from htdt.cad_scene import RoomPrism, SceneDocument
+from htdt.cad_walls import make_wall_topology
+
+
+def _scene(document_id: str = 'doc-1') -> SceneDocument:
+    room = RoomPrism(width_m=6.0, depth_m=4.5, height_m=2.4)
+    return SceneDocument(
+        document_id=document_id,
+        schema_version=3,
+        room=room,
+        wall_topology=make_wall_topology(room),
+        entities=(),
+    )
 
 
 def _repository(tmp_path: Path) -> CadAVSyncRepository:
@@ -23,7 +36,6 @@ def _repository(tmp_path: Path) -> CadAVSyncRepository:
 def _condition(**overrides):
     kwargs: dict = {
         'document_id': 'doc-1',
-        'scene_revision_id': 'rev-1',
         'display_device_id': 'projector-x',
         'video_mode': 'game',
         'refresh_rate_hz': 120.0,
@@ -155,10 +167,34 @@ def test_verified_residual_may_stay_unknown():
     assert verified.residual_offset_ms is None
 
 
+def test_condition_references_require_exact_hash():
+    with pytest.raises(ValidationError, match='supplied together'):
+        _condition(scene_revision_id='rev-1')
+
+
 def test_repository_round_trip_and_condition_binding(tmp_path: Path):
-    repository = _repository(tmp_path)
-    condition = _condition()
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = scene_repository.save(_scene(), parent_revision_id=None).revision
+    repository = CadAVSyncRepository(scene_repository)
+    condition = _condition(
+        scene_revision_id=revision.revision_id,
+        scene_revision_sha256=revision.content_hash,
+    )
     repository.save_condition(condition)
+    # A stale hash is rejected — the id must resolve to the exact pinned row.
+    stale = _condition(
+        scene_revision_id=revision.revision_id,
+        scene_revision_sha256='0' * 64,
+    )
+    with pytest.raises(ValueError, match='hash mismatch'):
+        repository.save_condition(stale)
+    # A foreign revision id cannot be claimed at all.
+    ghost = _condition(
+        scene_revision_id='rev-does-not-exist',
+        scene_revision_sha256='f' * 64,
+    )
+    with pytest.raises(ValueError, match='unpersisted or foreign'):
+        repository.save_condition(ghost)
     measured = build_av_latency_measurement(
         condition,
         method='manual_external_sync_test',
@@ -178,3 +214,134 @@ def test_repository_round_trip_and_condition_binding(tmp_path: Path):
     )
     with pytest.raises(ValueError, match='persisted condition'):
         repository.save_measurement(orphan)
+
+
+def test_lifecycle_persists_all_stages_through_repository(tmp_path: Path):
+    repository = _repository(tmp_path)
+    condition = _condition()
+    repository.save_condition(condition)
+    measured = build_av_latency_measurement(
+        condition,
+        measured_offset_ms=40.0,
+        captured_at='2026-09-23T01:00:00+00:00',
+    )
+    repository.save_measurement(measured)
+    requested = advance_av_latency_measurement(
+        measured,
+        status='correction_requested',
+        requested_correction_ms=-40.0,
+        captured_at='2026-09-23T01:05:00+00:00',
+    )
+    repository.save_measurement(requested)
+    applied = advance_av_latency_measurement(
+        requested,
+        status='setting_applied',
+        applied_setting_ms=-40.0,
+        applied_evidence='device_read_back',
+        captured_at='2026-09-23T01:10:00+00:00',
+    )
+    repository.save_measurement(applied)
+    verified = advance_av_latency_measurement(
+        applied,
+        status='residual_verified',
+        residual_offset_ms=3.0,
+        captured_at='2026-09-23T01:20:00+00:00',
+    )
+    repository.save_measurement(verified)
+    # Each stage has its own immutable identity in one shared chain.
+    stages = repository.list_chain_stages(verified)
+    assert [s.status for s in stages] == [
+        'measured', 'correction_requested', 'setting_applied',
+        'residual_verified',
+    ]
+    assert len({s.measurement_id for s in stages}) == 4
+    assert len({s.chain_id for s in stages}) == 1
+    assert requested.predecessor_measurement_id == measured.measurement_id
+    assert applied.predecessor_sha256 == requested.measurement_sha256
+    assert applied.applied_evidence == 'device_read_back'
+    # Earlier stages remain inspectable.
+    assert repository.get_measurement(measured.measurement_id).status == 'measured'
+
+
+def test_repository_rejects_branching_and_orphan_stages(tmp_path: Path):
+    repository = _repository(tmp_path)
+    condition = _condition()
+    repository.save_condition(condition)
+    measured = build_av_latency_measurement(
+        condition,
+        measured_offset_ms=40.0,
+        captured_at='2026-09-23T01:00:00+00:00',
+    )
+    repository.save_measurement(measured)
+    requested = advance_av_latency_measurement(
+        measured,
+        status='correction_requested',
+        requested_correction_ms=-40.0,
+        captured_at='2026-09-23T01:05:00+00:00',
+    )
+    repository.save_measurement(requested)
+    # A second successor off the same head branches the chain.
+    branch = advance_av_latency_measurement(
+        measured,
+        status='correction_requested',
+        requested_correction_ms=-30.0,
+        captured_at='2026-09-23T01:06:00+00:00',
+    )
+    with pytest.raises(ValueError, match='one active head'):
+        repository.save_measurement(branch)
+    # A stage with no persisted predecessor fails closed.
+    ghost = build_av_latency_measurement(
+        _condition(display_device_id='ghost'),
+        measured_offset_ms=1.0,
+        captured_at='2026-09-23T02:00:00+00:00',
+    )
+    orphan = advance_av_latency_measurement(
+        ghost,
+        status='correction_requested',
+        requested_correction_ms=-1.0,
+        captured_at='2026-09-23T02:05:00+00:00',
+    )
+    # Rebind to the persisted condition so only the predecessor is missing.
+    payload = orphan.model_dump(mode='python', exclude={'measurement_sha256'})
+    payload['condition_id'] = condition.condition_id
+    payload['condition_sha256'] = condition.condition_sha256
+    from htdt.cad_av_sync import AVLatencyMeasurement, _hash
+
+    provisional = AVLatencyMeasurement.model_construct(
+        **payload, measurement_sha256='0' * 64
+    )
+    orphan = AVLatencyMeasurement(
+        **payload,
+        measurement_sha256=_hash(provisional.identity_payload()),
+    )
+    with pytest.raises(ValueError, match='unpersisted predecessor'):
+        repository.save_measurement(orphan)
+
+
+def test_applied_evidence_stays_distinct_from_applied_value():
+    with pytest.raises(ValidationError, match='applied_evidence requires'):
+        build_av_latency_measurement(
+            _condition(),
+            measured_offset_ms=10.0,
+            status='measured',
+            applied_evidence='device_read_back',
+            captured_at='2026-09-23T01:00:00+00:00',
+        )
+    measured = build_av_latency_measurement(
+        _condition(),
+        measured_offset_ms=10.0,
+        captured_at='2026-09-23T01:00:00+00:00',
+    )
+    applied = advance_av_latency_measurement(
+        advance_av_latency_measurement(
+            measured,
+            status='correction_requested',
+            requested_correction_ms=-10.0,
+            captured_at='2026-09-23T01:05:00+00:00',
+        ),
+        status='setting_applied',
+        applied_setting_ms=-10.0,
+        captured_at='2026-09-23T01:10:00+00:00',
+    )
+    # A bare number never implies device read-back.
+    assert applied.applied_evidence == 'unknown'
