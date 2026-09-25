@@ -1,12 +1,17 @@
 """Measured impulse-response diagnostics authority (#511).
 
 Derived analysis over exact imported IR evidence: Energy-Time Curve,
-deterministic early-reflection markers, Schroeder decay curves, and
-capability-gated decay metrics (EDT / T20 / T30). Every numerical result
-binds an immutable ``IRAnalysisSpec`` so saved diagnostics replay
-byte-exact; insufficient dynamic range or truncation keeps metrics
-BLOCKED/UNKNOWN instead of extrapolating beyond evidence, and no local
-band decay estimate is ever presented as a generic room-wide RT60 claim.
+deterministic early-reflection markers, Schroeder decay curves,
+capability-gated decay metrics (EDT / T20 / T30), and early/late energy
+ratios (C50/C80/C(t)/D50/early-energy) anchored to the spec's declared
+time-zero and spec-pinned clarity splits. Every numerical result binds an
+immutable ``IRAnalysisSpec`` so saved diagnostics replay byte-exact;
+insufficient dynamic range or truncation keeps metrics BLOCKED/UNKNOWN
+instead of extrapolating beyond evidence, and no local band decay
+estimate is ever presented as a generic room-wide RT60 claim. Estimated
+energy metrics adapt to acoustic-target observations through
+:func:`energy_metric_observation` under canonical capability tokens
+(``measured_clarity_c50``/``c80``/``measured_d50``/``measured_early_energy``).
 """
 
 from __future__ import annotations
@@ -29,8 +34,8 @@ IRAlignmentMode = Literal[
     'absolute_common_time',
 ]
 MetricStatus = Literal['estimated', 'blocked', 'unknown']
-IR_ANALYSIS_ALGORITHM_VERSION = 'ir-analysis-1'
-IR_ANALYSIS_SCHEMA_VERSION = 'ir-analysis-1'
+IR_ANALYSIS_ALGORITHM_VERSION = 'ir-analysis-2'
+IR_ANALYSIS_SCHEMA_VERSION = 'ir-analysis-2'
 
 
 def _canonical_json(payload: Any) -> str:
@@ -55,6 +60,12 @@ IR_ANALYSIS_ALGORITHM_IDENTITY: dict[str, Any] = {
     'noise_floor': ['declared', 'tail_median'],
     'metrics': ['edt', 't20', 't30'],
     'fit_intervals_db': {'edt': [0, -10], 't20': [-5, -25], 't30': [-5, -35]},
+    'energy_metrics': {
+        'definition': 'energy_ratio_anchored_to_time_zero',
+        'kinds': ['c50', 'c80', 'ct', 'd50', 'early_energy'],
+        'clarity_db': '10log10(early/late)',
+        'capability_claim': 'clarity',
+    },
     'insufficient_dynamic_range': 'metric_blocked_never_extrapolated',
     'alignment_modes': list(IRAlignmentMode.__args__),
     'generic_rt60_claim': 'forbidden',
@@ -104,6 +115,41 @@ class IRDecayMetric(BaseModel):
         return self
 
 
+class IREnergyMetric(BaseModel):
+    """One energy-ratio metric anchored to the spec's declared time-zero.
+
+    ``c50``/``c80`` are clarity at the canonical 50/80 ms splits, ``ct`` is
+    clarity at any other spec-declared split, ``d50`` is the early/total
+    energy fraction at 50 ms, and ``early_energy`` is the early/total
+    fraction at each declared split. ``split_time_ms`` pins the exact
+    integration boundary; a truncated or noise-dominated record stays
+    blocked/unknown rather than extrapolating beyond evidence.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    metric: Literal['c50', 'c80', 'ct', 'd50', 'early_energy']
+    status: MetricStatus
+    split_time_ms: float = Field(gt=0)
+    value: float | None = None
+    unit: Literal['dB', 'ratio']
+    early_energy: float | None = None
+    late_energy: float | None = None
+    reason: str = ''
+
+    @model_validator(mode='after')
+    def valid_energy_metric(self) -> 'IREnergyMetric':
+        if self.status == 'estimated' and self.value is None:
+            raise ValueError('estimated energy metrics require a value')
+        if self.metric == 'c50' and self.split_time_ms != 50.0:
+            raise ValueError('c50 requires the canonical 50 ms split')
+        if self.metric == 'c80' and self.split_time_ms != 80.0:
+            raise ValueError('c80 requires the canonical 80 ms split')
+        if self.metric == 'd50' and self.split_time_ms != 50.0:
+            raise ValueError('d50 requires the canonical 50 ms split')
+        return self
+
+
 class IRAnalysisSpec(BaseModel):
     """Immutable, versioned analysis specification for one IR measurement.
 
@@ -128,6 +174,11 @@ class IRAnalysisSpec(BaseModel):
     decay_integration: Literal['schroeder'] = 'schroeder'
     noise_floor_method: Literal['declared', 'tail_median', 'none'] = 'tail_median'
     declared_noise_floor_db: float | None = None
+    #: Declared clarity split times (ms after the spec's ``time_zero_sample``)
+    #: under which C(t)/D50/early-energy metrics integrate. The canonical
+    #: 50/80 ms splits produce named ``c50``/``c80``/``d50`` metrics; every
+    #: other declared split produces a ``ct`` metric at that exact boundary.
+    clarity_split_times_ms: tuple[float, ...] = (50.0, 80.0)
     tf_window_s: float = Field(gt=0)
     tf_overlap: float = Field(ge=0.0, lt=1.0)
     alignment: IRAlignmentMode = 'none'
@@ -144,6 +195,14 @@ class IRAnalysisSpec(BaseModel):
                 raise ValueError('band center must be finite and positive')
         if self.noise_floor_method == 'declared' and self.declared_noise_floor_db is None:
             raise ValueError('declared noise-floor method requires declared_noise_floor_db')
+        if not self.clarity_split_times_ms:
+            raise ValueError('at least one clarity split time is required')
+        if any(
+            not isfinite(float(t)) or t <= 0 for t in self.clarity_split_times_ms
+        ):
+            raise ValueError('clarity split times must be finite and positive')
+        if len(set(self.clarity_split_times_ms)) != len(self.clarity_split_times_ms):
+            raise ValueError('clarity split times must be unique')
         if self.spec_sha256 != _hash(self.identity_payload()):
             raise ValueError('IR analysis spec hash mismatch')
         return self
@@ -164,6 +223,7 @@ class IRAnalysisSpec(BaseModel):
             'decay_integration': self.decay_integration,
             'noise_floor_method': self.noise_floor_method,
             'declared_noise_floor_db': self.declared_noise_floor_db,
+            'clarity_split_times_ms': list(self.clarity_split_times_ms),
             'tf_window_s': self.tf_window_s,
             'tf_overlap': self.tf_overlap,
             'alignment': self.alignment,
@@ -188,6 +248,7 @@ class IRAnalysisResult(BaseModel):
     decay_time_s: tuple[float, ...] = ()
     decay_db: tuple[float, ...] = ()
     metrics: tuple[IRDecayMetric, ...] = ()
+    energy_metrics: tuple[IREnergyMetric, ...] = ()
     usable_dynamic_range_db: float | None = None
     noise_floor_db: float | None = None
     noise_floor_method: str = 'none'
@@ -234,6 +295,7 @@ class IRAnalysisResult(BaseModel):
             'decay_time_s': list(self.decay_time_s),
             'decay_db': list(self.decay_db),
             'metrics': [m.model_dump(mode='json') for m in self.metrics],
+            'energy_metrics': [m.model_dump(mode='json') for m in self.energy_metrics],
             'usable_dynamic_range_db': self.usable_dynamic_range_db,
             'noise_floor_db': self.noise_floor_db,
             'noise_floor_method': self.noise_floor_method,
@@ -416,6 +478,95 @@ def run_ir_analysis(
             noise_floor_method=spec.noise_floor_method,
         ))
 
+    # Clarity / early-energy metrics: energy integrals anchored to the
+    # spec's declared time-zero over the (optionally band-filtered)
+    # windowed evidence. A record that truncates, lacks dynamic range, or
+    # whose time-zero lies outside the window fails closed.
+    energy_metrics: list[IREnergyMetric] = []
+    t0_index = t0 - start
+    clarity_block: str | None = None
+    if caps.get('clarity') == 'BLOCKED':
+        clarity_block = 'clarity capability is blocked by the quality report'
+    elif not (0 <= t0_index < windowed.size):
+        clarity_block = 'declared time-zero lies outside the analysis window'
+    elif truncated:
+        clarity_block = 'IR window truncates before -40 dB of decay'
+    elif noise_floor is not None and noise_floor > -20.0:
+        clarity_block = (
+            'insufficient usable dynamic range for the late-energy integral'
+        )
+    energy = windowed.astype(np.float64) ** 2
+    for split_ms in spec.clarity_split_times_ms:
+        split_samples = int(round(split_ms * 0.001 * fs))
+        kinds: list[tuple[str, Literal['dB', 'ratio']]] = []
+        if split_ms == 50.0:
+            kinds.append(('c50', 'dB'))
+            kinds.append(('d50', 'ratio'))
+        elif split_ms == 80.0:
+            kinds.append(('c80', 'dB'))
+        else:
+            kinds.append(('ct', 'dB'))
+        kinds.append(('early_energy', 'ratio'))
+
+        if clarity_block is not None:
+            for kind, unit in kinds:
+                energy_metrics.append(IREnergyMetric(
+                    metric=kind,
+                    status='blocked',
+                    split_time_ms=float(split_ms),
+                    unit=unit,
+                    reason=clarity_block,
+                ))
+            continue
+        if split_samples <= 0 or t0_index + split_samples >= windowed.size:
+            for kind, unit in kinds:
+                energy_metrics.append(IREnergyMetric(
+                    metric=kind,
+                    status='unknown',
+                    split_time_ms=float(split_ms),
+                    unit=unit,
+                    reason='split time lies outside the windowed evidence',
+                ))
+            continue
+        early = float(energy[t0_index : t0_index + split_samples].sum())
+        late = float(energy[t0_index + split_samples :].sum())
+        for kind, unit in kinds:
+            if early <= 0.0 or late <= 0.0:
+                energy_metrics.append(IREnergyMetric(
+                    metric=kind,
+                    status='unknown',
+                    split_time_ms=float(split_ms),
+                    unit=unit,
+                    early_energy=early,
+                    late_energy=late,
+                    reason='early or late energy integral is zero',
+                ))
+                continue
+            if unit == 'dB':
+                value = 10.0 * np.log10(early / late)
+            else:
+                value = early / (early + late)
+            if not isfinite(float(value)):
+                energy_metrics.append(IREnergyMetric(
+                    metric=kind,
+                    status='unknown',
+                    split_time_ms=float(split_ms),
+                    unit=unit,
+                    early_energy=early,
+                    late_energy=late,
+                    reason='energy ratio is not finite',
+                ))
+                continue
+            energy_metrics.append(IREnergyMetric(
+                metric=kind,
+                status='estimated',
+                split_time_ms=float(split_ms),
+                value=float(value),
+                unit=unit,
+                early_energy=early,
+                late_energy=late,
+            ))
+
     # Time-frequency diagnostic: STFT magnitude over Hann windows.
     window_n = max(8, int(round(spec.tf_window_s * fs)))
     hop = max(1, int(round(window_n * (1.0 - spec.tf_overlap))))
@@ -453,6 +604,7 @@ def run_ir_analysis(
         'decay_time_s': tuple(float(t) for t in times),
         'decay_db': tuple(float(v) for v in decay_db),
         'metrics': metrics,
+        'energy_metrics': energy_metrics,
         'usable_dynamic_range_db': usable_range,
         'noise_floor_db': noise_floor,
         'noise_floor_method': spec.noise_floor_method,
@@ -494,6 +646,7 @@ def build_ir_analysis_spec(
     smoothing_fraction_octave: float | None = None,
     noise_floor_method: Literal['declared', 'tail_median', 'none'] = 'tail_median',
     declared_noise_floor_db: float | None = None,
+    clarity_split_times_ms: tuple[float, ...] = (50.0, 80.0),
     tf_window_s: float = 0.05,
     tf_overlap: float = 0.5,
     alignment: IRAlignmentMode = 'none',
@@ -512,12 +665,88 @@ def build_ir_analysis_spec(
         'smoothing_fraction_octave': smoothing_fraction_octave,
         'noise_floor_method': noise_floor_method,
         'declared_noise_floor_db': declared_noise_floor_db,
+        'clarity_split_times_ms': tuple(clarity_split_times_ms),
         'tf_window_s': tf_window_s,
         'tf_overlap': tf_overlap,
         'alignment': alignment,
     }
     provisional = IRAnalysisSpec.model_construct(**payload, spec_sha256='0' * 64)
     return IRAnalysisSpec(**payload, spec_sha256=_hash(provisional.identity_payload()))
+
+
+#: Capability tokens an estimated energy metric exposes to the acoustic
+#: target evaluator (#558) — the metric kind maps to the exact provider
+#: capability token a criterion's ``required_capability`` must name.
+IR_ENERGY_CAPABILITY_TOKENS: dict[str, str] = {
+    'c50': 'measured_clarity_c50',
+    'c80': 'measured_clarity_c80',
+    'ct': 'measured_clarity_ct',
+    'd50': 'measured_d50',
+    'early_energy': 'measured_early_energy',
+}
+
+
+def energy_metric_observation(
+    result: IRAnalysisResult,
+    metric_kind: str,
+    *,
+    criterion_id: str,
+    band_id: str,
+    split_time_ms: float | None = None,
+    entity_ids: tuple[str, ...] = (),
+    evidence_refs: tuple[Any, ...] = (),
+) -> Any:
+    """Adapt one estimated energy metric to an AcousticTargetObservation.
+
+    Fails closed: only an ``estimated`` metric with a finite value adapts;
+    a blocked/unknown or absent metric raises ``ValueError`` — the target
+    evaluator sees UNKNOWN rather than a fabricated observation. The
+    observation's ``provided_capability`` is the metric's canonical
+    capability token, and the bound analysis result is appended as an
+    evidence ref pinning ``analysis_sha256``.
+    """
+    from .cad_acoustic_target import AcousticTargetObservation
+    from .cad_standards import CriterionEvidenceRef
+
+    metric = next(
+        (
+            item
+            for item in result.energy_metrics
+            if item.metric == metric_kind
+            and (split_time_ms is None or item.split_time_ms == split_time_ms)
+        ),
+        None,
+    )
+    token = IR_ENERGY_CAPABILITY_TOKENS.get(metric_kind)
+    if token is None:
+        raise ValueError(f'unknown IR energy metric kind {metric_kind!r}')
+    if metric is None:
+        raise ValueError(f'no {metric_kind!r} energy metric in this result')
+    if metric.status != 'estimated' or metric.value is None:
+        raise ValueError(
+            f'{metric_kind!r} metric is {metric.status}, not estimated: '
+            f'{metric.reason}'
+        )
+    refs = list(evidence_refs)
+    refs.append(CriterionEvidenceRef(
+        kind='ir_analysis_result',
+        evidence_id=result.result_id,
+        evidence_sha256=result.analysis_sha256,
+        detail=(
+            f'IR energy metric {metric.metric} at '
+            f'{metric.split_time_ms} ms split'
+        ),
+    ))
+    return AcousticTargetObservation(
+        criterion_id=criterion_id,
+        band_id=band_id,
+        observed_value=metric.value,
+        unit=metric.unit,
+        evidence_basis='measured',
+        provided_capability=token,
+        entity_ids=entity_ids,
+        evidence_refs=tuple(refs),
+    )
 
 
 def replay_ir_analysis(

@@ -25,8 +25,20 @@ versioned, project-scoped authority. Contract properties:
 - evaluation reports per criterion an explicit evaluability state
   (``AVAILABLE``/``UNKNOWN``/``UNSUPPORTED``/``BLOCKED``) with reasons and a
   separate ``MET``/``UNMET``/``NOT_EVALUATED`` verdict; predicted and
-  measured evidence stay distinct, and there is deliberately no overall
-  room-quality score.
+  measured evidence stay distinct — evaluated as separate basis records,
+  never collapsed by observation ordering — and there is deliberately no
+  overall room-quality score;
+- the criterion's declared ``aggregation`` and ``population_entity_ids``
+  govern how band evidence folds into a verdict: ``spatial_mean``,
+  ``spatial_worst``, ``per_position`` and ``single_listener`` aggregate
+  per-population-member evidence, while ``population_envelope`` is
+  explicitly ``UNSUPPORTED`` until its semantics are defined;
+- observation eligibility is enforced: ``provided_capability`` must equal
+  the criterion's ``required_capability``, and the observation unit must
+  match the criterion unit or convert through the shared units authority
+  (conversion provenance is retained); missing population coverage, a
+  capability mismatch, or incompatible units leave the criterion
+  ``UNKNOWN`` — never a substitute for "compliant".
 """
 
 from __future__ import annotations
@@ -45,13 +57,14 @@ from .cad_standards import (
     CriterionSource,
     EvidenceBasis,
 )
+from .cad_units import convert_unit, units_convertible
 
 
 ACOUSTIC_TARGET_SCHEMA_VERSION = 1
 ACOUSTIC_TARGET_AUTHORITY_VERSION = 'acoustic-performance-target-1'
 ACOUSTIC_TARGET_EVALUATION_SCHEMA_VERSION = 1
 ACOUSTIC_TARGET_EVALUATION_AUTHORITY_VERSION = 'acoustic-target-evaluation-1'
-ACOUSTIC_TARGET_EVALUATOR_VERSION = 'acoustic-target-evaluator-1'
+ACOUSTIC_TARGET_EVALUATOR_VERSION = 'acoustic-target-evaluator-2'
 
 
 #: Metric kinds are intentionally fine-grained. ``decay_edt``/``decay_t20``/
@@ -317,13 +330,54 @@ class AcousticTargetObservation(BaseModel):
         return self
 
 
+class AcousticTargetMemberResult(BaseModel):
+    """Per-population-member evidence inside one band/basis evaluation.
+
+    ``observed_value`` is always expressed in the criterion unit; the raw
+    ``source_value``/``source_unit`` plus ``converted`` keep conversion
+    provenance intact. A member is ``missing`` when no observation binds
+    to it and ``ambiguous`` when conflicting observations do — both
+    prevent the band from being decided.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    entity_id: str = Field(min_length=1)
+    status: Literal['evaluated', 'missing', 'ambiguous']
+    observed_value: float | None = None
+    source_value: float | None = None
+    source_unit: str | None = Field(default=None, min_length=1)
+    converted: bool = False
+    verdict: TargetVerdict = 'NOT_EVALUATED'
+    provided_capability: str | None = Field(default=None, min_length=1)
+    observation_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    evidence_refs: tuple[CriterionEvidenceRef, ...] = ()
+
+
 class AcousticTargetBandResult(BaseModel):
+    """Per-band outcome inside a criterion verdict.
+
+    ``observed_value`` is the aggregate value in the criterion unit used
+    for the comparison, ``basis`` records whether it came from predicted
+    or measured evidence, and ``member_results`` keeps per-population-
+    member evidence instead of dropping it. Predicted and measured
+    evidence are evaluated as separate basis records — a basis whose
+    record is ``NOT_EVALUATED`` (incomplete or ambiguous population
+    coverage) prevents the criterion verdict from being MET.
+    """
+
     model_config = ConfigDict(frozen=True)
 
     band_id: str = Field(min_length=1)
     observed_value: float | None = None
     verdict: TargetVerdict
     basis: EvidenceBasis | None = None
+    aggregation: PopulationAggregation | None = None
+    limiting_entity_id: str | None = Field(default=None, min_length=1)
+    member_results: tuple[AcousticTargetMemberResult, ...] = ()
+    reason: str | None = Field(default=None, min_length=1)
 
 
 class AcousticTargetCriterionResult(BaseModel):
@@ -349,7 +403,7 @@ class AcousticTargetEvaluation(BaseModel):
     authority_version: Literal['acoustic-target-evaluation-1'] = (
         ACOUSTIC_TARGET_EVALUATION_AUTHORITY_VERSION
     )
-    evaluator_version: Literal['acoustic-target-evaluator-1'] = (
+    evaluator_version: Literal['acoustic-target-evaluator-2'] = (
         ACOUSTIC_TARGET_EVALUATOR_VERSION
     )
     evaluation_id: str = Field(min_length=1)
@@ -392,6 +446,238 @@ def _rule_met(value: float, rule: CriterionRule) -> bool:
     return _compare(value, rule)
 
 
+def _observation_digest(observation: AcousticTargetObservation) -> str:
+    return _digest(observation.model_dump(mode='json'))
+
+
+def _convert_observation_value(
+    observation: AcousticTargetObservation,
+    criterion: AcousticTargetCriterion,
+) -> tuple[float, bool] | None:
+    """Return ``(value_in_criterion_unit, converted)`` or ``None``.
+
+    An exact unit match needs no conversion; a known conversion is applied
+    and flagged; incompatible units make the observation ineligible rather
+    than silently comparing raw numbers.
+    """
+    if observation.unit == criterion.unit:
+        return observation.observed_value, False
+    if not units_convertible(observation.unit, criterion.unit):
+        return None
+    return (
+        convert_unit(
+            observation.observed_value,
+            observation.unit,
+            criterion.unit,
+        ),
+        True,
+    )
+
+
+def _rule_worst_score(value: float, rule: CriterionRule) -> float:
+    """Adversity score for spatial-worst selection — larger is worse."""
+    if rule.operator == 'min':
+        return float(rule.minimum) - value
+    if rule.operator == 'max':
+        return value - float(rule.maximum)
+    if rule.operator == 'range':
+        return max(
+            float(rule.minimum) - value,
+            value - float(rule.maximum),
+        )
+    # equals: binary — any mismatch is equally adverse, a match is not
+    return 0.0 if _rule_met(value, rule) else 1.0
+
+
+def _member_statuses(
+    criterion: AcousticTargetCriterion,
+    obs_items: Sequence[
+        tuple[AcousticTargetObservation, tuple[float, bool]]
+    ],
+) -> list[tuple[str, list[tuple[AcousticTargetObservation, tuple[float, bool]]]]]:
+    """Map population members to their candidate observations.
+
+    Returns ``(member_id, obs_list)`` pairs. A declared
+    ``population_entity_ids`` fixes the member order and makes an
+    observation with no usable entity binding ineligible for coverage; an
+    undeclared population is the union of observed entity ids plus one
+    anonymous member per distinct unattributed observation. An
+    observation covering multiple entities counts for each of them.
+    """
+    declared = list(criterion.population_entity_ids)
+    unattributed: list[
+        tuple[AcousticTargetObservation, tuple[float, bool]]
+    ] = []
+    member_map: dict[
+        str, list[tuple[AcousticTargetObservation, tuple[float, bool]]]
+    ] = {}
+    for observation, converted in obs_items:
+        if not observation.entity_ids:
+            unattributed.append((observation, converted))
+            continue
+        for entity_id in observation.entity_ids:
+            member_map.setdefault(entity_id, []).append(
+                (observation, converted)
+            )
+    if declared:
+        return [
+            (entity_id, member_map.get(entity_id, []))
+            for entity_id in declared
+        ]
+    members = [
+        (entity_id, member_map[entity_id])
+        for entity_id in sorted(member_map)
+    ]
+    # No declared population to bind to: each distinct unattributed
+    # observation is one anonymous member — never silently reassigned.
+    anonymous: dict[str, int] = {}
+    for observation, converted in unattributed:
+        digest = _observation_digest(observation)
+        index = anonymous.setdefault(digest, len(anonymous))
+        members.append((f'(unattributed:{index})', [(observation, converted)]))
+    return members
+
+
+def _evaluate_band_basis(
+    criterion: AcousticTargetCriterion,
+    band: AcousticTargetBand,
+    basis: EvidenceBasis,
+    obs_items: Sequence[
+        tuple[AcousticTargetObservation, tuple[float, bool]]
+    ],
+) -> AcousticTargetBandResult:
+    """Aggregate one band under one evidence basis.
+
+    Any member that is missing or ambiguous makes the band
+    ``NOT_EVALUATED`` — its member records still carry their evidence.
+    """
+    member_results: list[AcousticTargetMemberResult] = []
+    evaluated: list[tuple[str, float, AcousticTargetMemberResult]] = []
+    for member_id, candidates in _member_statuses(criterion, obs_items):
+        distinct = {
+            _observation_digest(observation)
+            for observation, _converted in candidates
+        }
+        if not candidates:
+            member_results.append(AcousticTargetMemberResult(
+                entity_id=member_id,
+                status='missing',
+            ))
+            continue
+        if len(distinct) > 1:
+            member_results.append(AcousticTargetMemberResult(
+                entity_id=member_id,
+                status='ambiguous',
+            ))
+            continue
+        observation, (value, converted) = sorted(
+            candidates,
+            key=lambda item: _observation_digest(item[0]),
+        )[0]
+        member = AcousticTargetMemberResult(
+            entity_id=member_id,
+            status='evaluated',
+            observed_value=value,
+            source_value=observation.observed_value,
+            source_unit=observation.unit,
+            converted=converted,
+            verdict=(
+                'MET'
+                if _rule_met(value, criterion.rule)
+                else 'UNMET'
+            ),
+            provided_capability=observation.provided_capability,
+            observation_sha256=_observation_digest(observation),
+            evidence_refs=observation.evidence_refs,
+        )
+        member_results.append(member)
+        evaluated.append((member_id, value, member))
+
+    if criterion.aggregation == 'single_listener':
+        if len(member_results) != 1 or not evaluated:
+            return AcousticTargetBandResult(
+                band_id=band.band_id,
+                verdict='NOT_EVALUATED',
+                basis=basis,
+                aggregation=criterion.aggregation,
+                member_results=tuple(member_results),
+                reason='single_listener requires exactly one evaluated member',
+            )
+        member_id, value, member = evaluated[0]
+        return AcousticTargetBandResult(
+            band_id=band.band_id,
+            observed_value=value,
+            verdict=member.verdict,
+            basis=basis,
+            aggregation=criterion.aggregation,
+            limiting_entity_id=member_id,
+            member_results=tuple(member_results),
+        )
+
+    if len(evaluated) != len(member_results):
+        return AcousticTargetBandResult(
+            band_id=band.band_id,
+            verdict='NOT_EVALUATED',
+            basis=basis,
+            aggregation=criterion.aggregation,
+            member_results=tuple(member_results),
+            reason='declared population coverage is incomplete or ambiguous',
+        )
+    if not evaluated:
+        return AcousticTargetBandResult(
+            band_id=band.band_id,
+            verdict='NOT_EVALUATED',
+            basis=basis,
+            aggregation=criterion.aggregation,
+            reason='no members in the evaluated population',
+        )
+
+    worst = max(
+        evaluated,
+        key=lambda item: (
+            _rule_worst_score(item[1], criterion.rule),
+            item[0],
+        ),
+    )
+    if criterion.aggregation == 'spatial_mean':
+        value = sum(item[1] for item in evaluated) / len(evaluated)
+        return AcousticTargetBandResult(
+            band_id=band.band_id,
+            observed_value=value,
+            verdict=(
+                'MET' if _rule_met(value, criterion.rule) else 'UNMET'
+            ),
+            basis=basis,
+            aggregation=criterion.aggregation,
+            limiting_entity_id=worst[0],
+            member_results=tuple(member_results),
+        )
+    if criterion.aggregation == 'spatial_worst':
+        return AcousticTargetBandResult(
+            band_id=band.band_id,
+            observed_value=worst[1],
+            verdict=worst[2].verdict,
+            basis=basis,
+            aggregation=criterion.aggregation,
+            limiting_entity_id=worst[0],
+            member_results=tuple(member_results),
+        )
+    # per_position: every evaluated member must satisfy the rule
+    verdict: TargetVerdict = (
+        'MET'
+        if all(item[2].verdict == 'MET' for item in evaluated)
+        else 'UNMET'
+    )
+    return AcousticTargetBandResult(
+        band_id=band.band_id,
+        verdict=verdict,
+        basis=basis,
+        aggregation=criterion.aggregation,
+        limiting_entity_id=worst[0],
+        member_results=tuple(member_results),
+    )
+
+
 def evaluate_acoustic_targets(
     *,
     profile: AcousticPerformanceTargetProfile,
@@ -402,11 +688,17 @@ def evaluate_acoustic_targets(
     """Fail-closed per-criterion evaluation.
 
     A criterion is ``UNSUPPORTED`` when no provider declares its required
-    capability, ``BLOCKED`` when a provider capability exists but the only
-    observations carry a basis the criterion does not allow, ``UNKNOWN``
-    when evaluable in principle but band observations are missing, and
-    ``AVAILABLE`` with a ``MET``/``UNMET`` verdict once every declared band
-    has an allowed observation. No overall score is produced.
+    capability (or when its aggregation semantics are not defined by the
+    target schema), ``BLOCKED`` when a provider capability exists but every
+    band's observations carry a basis the criterion does not allow,
+    ``UNKNOWN`` when evaluable in principle but band observations are
+    missing, carry the wrong provided capability/units, or do not cover the
+    declared population, and ``AVAILABLE`` with a ``MET``/``UNMET`` verdict
+    once every declared band aggregates to a verdict for every allowed
+    evidence basis that carries eligible observations. Predicted and
+    measured evidence never collapse into one record; per-member evidence
+    (with observation identity and unit-conversion provenance) is retained
+    and bound into the evaluation hash. No overall score is produced.
     """
 
     capabilities = set(available_capabilities)
@@ -432,64 +724,137 @@ def evaluate_acoustic_targets(
                 role=criterion.role,
             ))
             continue
+        if criterion.aggregation == 'population_envelope':
+            results.append(AcousticTargetCriterionResult(
+                criterion_id=criterion.criterion_id,
+                criterion_sha256=criterion_hash,
+                evaluability='UNSUPPORTED',
+                verdict='NOT_EVALUATED',
+                reason=(
+                    'population_envelope aggregation semantics are not '
+                    'defined by the target schema'
+                ),
+                role=criterion.role,
+            ))
+            continue
 
         band_results: list[AcousticTargetBandResult] = []
         blocked = False
-        missing = False
+        all_disallowed = True
+        unknown_reason: str | None = None
         for band in criterion.bands:
-            candidates = by_key.get((criterion.criterion_id, band.band_id), [])
+            candidates = by_key.get(
+                (criterion.criterion_id, band.band_id), []
+            )
             allowed = [
                 item
                 for item in candidates
                 if criterion.allowed_basis != 'measured_only'
                 or item.evidence_basis == 'measured'
             ]
-            if candidates and not allowed:
+            if allowed:
+                all_disallowed = False
+            elif candidates:
                 blocked = True
                 band_results.append(AcousticTargetBandResult(
                     band_id=band.band_id,
                     verdict='NOT_EVALUATED',
+                    reason=(
+                        'band observations carry an evidence basis the '
+                        'criterion does not allow'
+                    ),
                 ))
                 continue
-            if not allowed:
-                missing = True
+            else:
+                if unknown_reason is None:
+                    unknown_reason = (
+                        'no observations exist for the declared band'
+                    )
                 band_results.append(AcousticTargetBandResult(
                     band_id=band.band_id,
                     verdict='NOT_EVALUATED',
+                    reason='no observations exist for the declared band',
                 ))
                 continue
-            # Deterministic aggregation: the first sorted-by-evidence-id
-            # observation is the canonical candidate; callers keep per-
-            # position values as separate observation entity_ids.
-            observation = sorted(
-                allowed,
-                key=lambda item: (
-                    item.evidence_basis,
-                    tuple(sorted(item.entity_ids)),
-                    tuple((ref.kind, ref.evidence_id) for ref in item.evidence_refs),
-                ),
-            )[0]
-            band_results.append(AcousticTargetBandResult(
-                band_id=band.band_id,
-                observed_value=observation.observed_value,
-                verdict=(
-                    'MET'
-                    if _rule_met(observation.observed_value, criterion.rule)
-                    else 'UNMET'
-                ),
-                basis=observation.evidence_basis,
-            ))
 
-        if blocked:
+            # Eligibility: the observation's declared provider capability
+            # must match the required capability, and its unit must match
+            # or convert into the criterion unit.
+            eligible: list[
+                tuple[AcousticTargetObservation, tuple[float, bool]]
+            ] = []
+            saw_capability_mismatch = False
+            saw_unit_mismatch = False
+            for item in allowed:
+                if item.provided_capability != criterion.required_capability:
+                    saw_capability_mismatch = True
+                    continue
+                converted = _convert_observation_value(item, criterion)
+                if converted is None:
+                    saw_unit_mismatch = True
+                    continue
+                eligible.append((item, converted))
+            if not eligible:
+                if unknown_reason is None:
+                    if saw_capability_mismatch:
+                        unknown_reason = (
+                            'no observation declares the required '
+                            f'capability {criterion.required_capability!r}'
+                        )
+                    elif saw_unit_mismatch:
+                        unknown_reason = (
+                            'observation units do not match or convert to '
+                            'the criterion unit'
+                        )
+                band_results.append(AcousticTargetBandResult(
+                    band_id=band.band_id,
+                    verdict='NOT_EVALUATED',
+                    reason=(
+                        'observation declares a different provider '
+                        'capability'
+                        if saw_capability_mismatch
+                        else 'observation unit does not match or convert to '
+                        'the criterion unit'
+                    ),
+                ))
+                continue
+
+            # Per-basis evaluation: predicted and measured evidence never
+            # collapse into one record via ordering.
+            by_basis: dict[
+                EvidenceBasis,
+                list[tuple[AcousticTargetObservation, tuple[float, bool]]],
+            ] = {}
+            for item in eligible:
+                by_basis.setdefault(item[0].evidence_basis, []).append(item)
+            for basis in sorted(by_basis):
+                result = _evaluate_band_basis(
+                    criterion, band, basis, by_basis[basis]
+                )
+                if (
+                    result.verdict == 'NOT_EVALUATED'
+                    and unknown_reason is None
+                    and result.reason is not None
+                ):
+                    unknown_reason = result.reason
+                band_results.append(result)
+
+        if blocked and all_disallowed:
             evaluability: TargetEvaluability = 'BLOCKED'
             reason = (
-                'only observations carry an evidence basis the criterion '
-                'does not allow'
+                'observations exist only under an evidence basis the '
+                'criterion does not allow'
             )
             verdict: TargetVerdict = 'NOT_EVALUATED'
-        elif missing:
+        elif any(
+            item.verdict == 'NOT_EVALUATED' for item in band_results
+        ):
             evaluability = 'UNKNOWN'
-            reason = 'band observations are missing for the declared band set'
+            reason = (
+                unknown_reason
+                if unknown_reason is not None
+                else 'band observations cannot decide the declared band set'
+            )
             verdict = 'NOT_EVALUATED'
         else:
             evaluability = 'AVAILABLE'
@@ -545,6 +910,7 @@ __all__ = [
     'AcousticTargetCriterion',
     'AcousticTargetCriterionResult',
     'AcousticTargetEvaluation',
+    'AcousticTargetMemberResult',
     'AcousticTargetMetricKind',
     'AcousticTargetObservation',
     'CriterionRole',

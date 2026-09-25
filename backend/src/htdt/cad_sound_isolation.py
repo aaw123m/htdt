@@ -22,8 +22,13 @@ Contract properties:
   flanking, structure-borne and junction-loss mechanisms stay listed as
   explicitly unmodeled, and missing data stays ``UNKNOWN`` — never a
   generic default wall;
+- a band whose declared paths include unresolved ones emits an explicitly
+  ``PARTIAL_UNKNOWN_PATHS`` estimate: the known-subset TL stays diagnostic
+  only, and a ``minimum_isolation`` goal can never PASS from it;
 - parallel paths through one partition combine *transmission coefficients*
-  energetically (``τ`` = 10^-TL/10^), never by averaging dB ratings;
+  energetically (``τ`` = 10^-TL/10^), never by averaging dB ratings; a
+  requested band covered by multiple conflicting TL bands is ambiguous
+  and stays ``UNKNOWN`` rather than inheriting tuple-order semantics;
 - :class:`IsolationMeasurement` stores measured source-room/receiving-room
   evidence under an exact method profile (ASTM E336, ISO 16283-1,
   ISO 717-1 rating, or informal); informal data is never relabeled as a
@@ -183,6 +188,15 @@ class IsolationAssembly(BaseModel):
         rating_methods = [item.method for item in self.ratings]
         if len(rating_methods) != len(set(rating_methods)):
             raise ValueError('assembly rating methods must be unique')
+        ranges = [
+            (band.frequency.minimum_hz, band.frequency.maximum_hz)
+            for band in self.tl_bands
+        ]
+        if len(ranges) != len(set(ranges)):
+            raise ValueError(
+                'assembly TL band frequency ranges must be unique; '
+                'duplicate ranges cannot define precedence'
+            )
         if self.semantic_sha256 != _digest(self.semantic_payload()):
             raise ValueError('IsolationAssembly semantic hash mismatch')
         return self
@@ -204,8 +218,16 @@ class IsolationAssembly(BaseModel):
             'note': self.note,
         }
 
-    def tl_at(self, band: FrequencyDomain) -> float | None:
-        """Exact TL where one recorded band covers ``band``; else ``None``."""
+    def covering_tl(
+        self, band: FrequencyDomain
+    ) -> tuple[float | None, str | None]:
+        """Resolve the unique covering TL band.
+
+        Returns ``(tl_db, None)`` when exactly one distinct TL value covers
+        ``band`` inside ``valid_frequency``; ``(None, reason)`` when the
+        band is outside coverage or multiple recorded bands cover it with
+        conflicting values — tuple order is never acoustic semantics.
+        """
         if (
             self.valid_frequency is not None
             and not (
@@ -213,14 +235,29 @@ class IsolationAssembly(BaseModel):
                 and band.maximum_hz <= self.valid_frequency.maximum_hz
             )
         ):
-            return None
-        for item in self.tl_bands:
+            return None, 'band outside assembly TL validity domain'
+        covering = [
+            item
+            for item in self.tl_bands
             if (
                 item.frequency.minimum_hz <= band.minimum_hz
                 and band.maximum_hz <= item.frequency.maximum_hz
-            ):
-                return item.tl_db
-        return None
+            )
+        ]
+        if not covering:
+            return None, 'band outside assembly TL coverage'
+        distinct = {item.tl_db for item in covering}
+        if len(distinct) > 1:
+            return None, (
+                'multiple TL bands cover the evaluation band with '
+                'conflicting values'
+            )
+        return covering[0].tl_db, None
+
+    def tl_at(self, band: FrequencyDomain) -> float | None:
+        """Exact TL where one recorded band covers ``band``; else ``None``."""
+        tl, _error = self.covering_tl(band)
+        return tl
 
 
 def build_isolation_assembly(
@@ -322,11 +359,29 @@ class PathBandResult(BaseModel):
     reason: str | None = Field(default=None, min_length=1)
 
 
+#: Completeness of a band's direct-path estimate. ``COMPLETE`` means every
+#: declared path resolved; ``PARTIAL_UNKNOWN_PATHS`` means at least one
+#: declared path could not be modeled, so ``combined_tl_db`` is a
+#: known-subset diagnostic only; ``NO_MODELED_PATHS`` means nothing
+#: resolved at all.
+IsolationEstimateCompleteness = Literal[
+    'COMPLETE',
+    'PARTIAL_UNKNOWN_PATHS',
+    'NO_MODELED_PATHS',
+]
+
+
 class IsolationBandEstimate(BaseModel):
     """Energetically combined direct-path estimate for one band.
 
     ``combined_tl_db`` exists only where at least one declared path carries
     data; ``unknown_path_ids`` keeps unmodelled declared paths visible.
+    ``completeness`` states whether the value covers every declared path —
+    a ``PARTIAL_UNKNOWN_PATHS`` number is never the combined isolation of
+    the full declared direct-path set. ``open_bound_tl_db`` is an explicit
+    worst-case bound computed under the recorded assumption that every
+    unknown path transmits at τ = 1 (fully open); it is labelled
+    diagnostic, never substituted for the UNKNOWN state.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -334,8 +389,13 @@ class IsolationBandEstimate(BaseModel):
     band_index: int = Field(ge=0)
     frequency: FrequencyDomain
     combined_tl_db: float | None = None
+    completeness: IsolationEstimateCompleteness = 'NO_MODELED_PATHS'
     modeled_path_ids: tuple[str, ...] = ()
     unknown_path_ids: tuple[str, ...] = ()
+    modeled_area_m2: float = Field(default=0.0, ge=0.0)
+    unknown_area_m2: float = Field(default=0.0, ge=0.0)
+    open_bound_tl_db: float | None = None
+    bound_assumption: str | None = Field(default=None, min_length=1)
 
 
 class IsolationEstimate(BaseModel):
@@ -411,6 +471,7 @@ def estimate_isolation(
     for band_index, band in enumerate(scenario.evaluation_bands):
         tau_area_sum = 0.0
         area_sum = 0.0
+        unknown_area_sum = 0.0
         modeled: list[str] = []
         unknown: list[str] = []
         for path in scenario.paths:
@@ -437,6 +498,7 @@ def estimate_isolation(
                     reason='opening state is not declared',
                 ))
                 unknown.append(path.path_id)
+                unknown_area_sum += path.area_m2
                 continue
             if path.assembly_id is None:
                 path_results.append(PathBandResult(
@@ -447,6 +509,7 @@ def estimate_isolation(
                     reason='no transmission assembly bound to path',
                 ))
                 unknown.append(path.path_id)
+                unknown_area_sum += path.area_m2
                 continue
             assembly = by_id.get(path.assembly_id)
             if assembly is None:
@@ -458,17 +521,19 @@ def estimate_isolation(
                     reason=f'assembly {path.assembly_id!r} does not resolve',
                 ))
                 unknown.append(path.path_id)
+                unknown_area_sum += path.area_m2
                 continue
-            tl = assembly.tl_at(band)
+            tl, coverage_error = assembly.covering_tl(band)
             if tl is None:
                 path_results.append(PathBandResult(
                     path_id=path.path_id,
                     kind=path.kind,
                     band_index=band_index,
                     status='UNKNOWN',
-                    reason='band outside assembly TL validity/coverage',
+                    reason=coverage_error,
                 ))
                 unknown.append(path.path_id)
+                unknown_area_sum += path.area_m2
                 continue
             tau = _tau(tl)
             path_results.append(PathBandResult(
@@ -487,13 +552,38 @@ def estimate_isolation(
             if not modeled or area_sum <= 0.0 or tau_area_sum <= 0.0
             else -10.0 * log10(tau_area_sum / area_sum)
         )
+        if unknown:
+            completeness: IsolationEstimateCompleteness = (
+                'PARTIAL_UNKNOWN_PATHS' if modeled else 'NO_MODELED_PATHS'
+            )
+        else:
+            completeness = 'COMPLETE'
+        # Explicit worst-case bound: every unknown path is assumed fully
+        # open (τ = 1). Labelled with its assumption, never substituted
+        # for the UNKNOWN state.
+        open_bound: float | None = None
+        bound_assumption: str | None = None
+        if unknown and unknown_area_sum > 0.0:
+            bound_area = area_sum + unknown_area_sum
+            bound_tau_area = tau_area_sum + unknown_area_sum
+            open_bound = -10.0 * log10(bound_tau_area / bound_area)
+            bound_assumption = 'unknown paths treated as fully open (tau=1)'
         band_estimates.append(IsolationBandEstimate(
             band_index=band_index,
             frequency=band,
             combined_tl_db=combined,
+            completeness=completeness,
             modeled_path_ids=tuple(sorted(modeled)),
             unknown_path_ids=tuple(sorted(unknown)),
+            modeled_area_m2=area_sum,
+            unknown_area_m2=unknown_area_sum,
+            open_bound_tl_db=open_bound,
+            bound_assumption=bound_assumption,
         ))
+
+    # Canonical result ordering keeps the estimate independent of the
+    # declared path order — status and hash never change under reordering.
+    path_results.sort(key=lambda item: (item.band_index, item.path_id))
 
     payload: dict[str, Any] = {
         'authority_version': ISOLATION_ESTIMATE_AUTHORITY_VERSION,
@@ -604,7 +694,21 @@ def evaluate_isolation_goal(
     rather than fabricating a level.
     """
 
-    for band in estimate.band_estimates:
+    covering = [
+        band
+        for band in estimate.band_estimates
+        if (
+            band.frequency.minimum_hz <= goal.frequency.minimum_hz
+            and goal.frequency.maximum_hz <= band.frequency.maximum_hz
+        )
+    ]
+    if len(covering) > 1:
+        return IsolationGoalResult(
+            goal_id=goal.goal_id,
+            status='UNKNOWN',
+            reason='multiple evaluated bands cover the goal band',
+        )
+    for band in covering:
         if (
             band.frequency.minimum_hz <= goal.frequency.minimum_hz
             and goal.frequency.maximum_hz <= band.frequency.maximum_hz
@@ -614,6 +718,17 @@ def evaluate_isolation_goal(
                     goal_id=goal.goal_id,
                     status='UNKNOWN',
                     reason='no modeled path covers the goal band',
+                )
+            if goal.kind == 'minimum_isolation' and band.unknown_path_ids:
+                return IsolationGoalResult(
+                    goal_id=goal.goal_id,
+                    status='UNKNOWN',
+                    reason=(
+                        'declared direct path(s) '
+                        f'{list(band.unknown_path_ids)} remain UNKNOWN; '
+                        'the goal cannot be decided from the modeled '
+                        'subset alone'
+                    ),
                 )
             if goal.kind == 'maximum_received_level':
                 return IsolationGoalResult(
@@ -648,6 +763,7 @@ __all__ = [
     'IsolationAssembly',
     'IsolationBandEstimate',
     'IsolationEstimate',
+    'IsolationEstimateCompleteness',
     'IsolationEvidenceTier',
     'IsolationGoal',
     'IsolationGoalResult',
