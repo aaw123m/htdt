@@ -599,6 +599,7 @@ class CadAcousticSnapshotRepository:
             treatment_bindings=snapshot.treatment_boundary_bindings,
             wave_excitation_bindings=snapshot.wave_source_excitation_bindings,
             requested_frequency_domain=snapshot.requested_frequency_domain,
+            valid_frequency_domain=snapshot.valid_frequency_domain,
             schema_version=snapshot.schema_version,
             geometric_acoustics_topology_preflight_ref=(
                 snapshot.geometric_acoustics_topology_preflight_ref
