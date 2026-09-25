@@ -104,6 +104,11 @@ def assign(
     # deselect the nodes that landed elsewhere. Tests not present in the
     # weights file (new ones) still run on the home shard.
     for f in sorted(heavy, key=lambda p: -file_weight[p]):
+        if f.name not in by_file:
+            # No recorded nodes for this file — keep it whole at its
+            # estimated weight; there is nothing to split at granularity.
+            _put((file_weight[f], f.as_posix()))
+            continue
         entries = by_file[f.name]
         node_home: dict[str, int] = {}
         for node, secs in sorted(entries, key=lambda e: (-e[1], e[0])):
