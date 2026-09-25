@@ -696,7 +696,13 @@ def import_project_bundle(
     source = Path(source)
     db_path = Path(repository.path)
 
-    with zipfile.ZipFile(source) as archive:
+    try:
+        archive = zipfile.ZipFile(source)
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise ProjectBundleError(
+            f'not a readable project bundle: {source.name}'
+        ) from exc
+    with archive:
         members = _validate_bundle_members(archive)
         manifest = ProjectBundleManifest.model_validate(
             json.loads(archive.read('manifest.json'))
@@ -896,6 +902,21 @@ def import_project_bundle(
         project_id: str | None = None
         if project_row is not None:
             project_id = str(project_row['project_id'])
+            if import_as_copy:
+                # The bundled project row arrives verbatim — on a copy the
+                # manifest's display_name is the operator-chosen clone
+                # identity, and copied timestamps belong to the source.
+                now = _utc_now()
+                connection.execute(
+                    'UPDATE htdt_project_documents SET display_name=?, '
+                    'created_at_utc=?, updated_at_utc=? WHERE document_id=?',
+                    (
+                        manifest.root.display_name or document_id,
+                        now,
+                        now,
+                        document_id,
+                    ),
+                )
         else:
             project_id = str(uuid4())
             now = _utc_now()

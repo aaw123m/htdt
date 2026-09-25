@@ -121,6 +121,9 @@ class SourceResponseSample(BaseModel):
     magnitude_db_spl: float | None = None
     phase_deg: float | None = None
     volume_velocity_m3_s: float | None = Field(default=None, gt=0.0)
+    # Phase of the volume-velocity phasor under the declared response
+    # phasor convention; magnitude alone is never complex excitation evidence.
+    volume_velocity_phase_deg: float | None = None
 
     @field_validator('frequency_hz')
     @classmethod
@@ -136,8 +139,16 @@ class SourceResponseSample(BaseModel):
             self.magnitude_db_spl is None
             and self.phase_deg is None
             and self.volume_velocity_m3_s is None
+            and self.volume_velocity_phase_deg is None
         ):
             raise ValueError('response sample carries no quantity')
+        if (
+            self.volume_velocity_phase_deg is not None
+            and self.volume_velocity_m3_s is None
+        ):
+            raise ValueError(
+                'volume-velocity phase requires the paired magnitude'
+            )
         return self
 
 
@@ -159,6 +170,13 @@ class SourceFrequencyResponseAuthority(BaseModel):
     response_samples: tuple[SourceResponseSample, ...] = ()
     provenance: str = Field(min_length=1)
     notes: str = ''
+    # Exact phasor + acoustic-reference semantics the response quantities are
+    # declared under. Absent on pre-#931 records; an EXACT_VOLUME_VELOCITY
+    # response can only feed exact wave excitation when both are declared.
+    phasor_convention: Literal['exp(-i*omega*t)'] | None = None
+    acoustic_reference_semantics: (
+        Literal['equipment_acoustic_reference_point'] | None
+    ) = None
     created_at_utc: str = Field(min_length=1)
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -283,6 +301,12 @@ class SourceFrequencyResponseAuthority(BaseModel):
                 sample.model_dump(mode='json')
                 for sample in self.response_samples
             ]
+        if self.phasor_convention is not None:
+            payload['phasor_convention'] = self.phasor_convention
+        if self.acoustic_reference_semantics is not None:
+            payload['acoustic_reference_semantics'] = (
+                self.acoustic_reference_semantics
+            )
         return payload
 
     def authority_ref(self) -> ExactExternalAuthorityRef:
@@ -306,6 +330,8 @@ def build_source_response(
     authority_version: str = '1',
     response_id: str | None = None,
     created_at_utc: str | None = None,
+    phasor_convention: str | None = None,
+    acoustic_reference_semantics: str | None = None,
 ) -> SourceFrequencyResponseAuthority:
     """Assemble a sealed source-response authority bound to the exact
     equipment definition."""
@@ -324,6 +350,8 @@ def build_source_response(
         'provenance': provenance,
         'notes': notes,
         'created_at_utc': created_at_utc or _utc_now(),
+        'phasor_convention': phasor_convention,
+        'acoustic_reference_semantics': acoustic_reference_semantics,
     }
     provisional = SourceFrequencyResponseAuthority.model_construct(
         **payload,
@@ -335,6 +363,55 @@ def build_source_response(
             'semantic_sha256': _hash(provisional.identity_payload()),
         }
     )
+
+
+def source_response_wave_excitation_eligible(
+    response: SourceFrequencyResponseAuthority,
+) -> str | None:
+    """Ineligibility reason for exact wave-excitation derivation, else ``None``.
+
+    Only an ``EXACT_VOLUME_VELOCITY`` response whose phase/phasor/reference
+    semantics, reference condition and valid frequency domain are complete may
+    seed an exact complex volume-velocity excitation. Relative magnitude,
+    absolute SPL and generic complex pressure responses are never eligible —
+    they cannot establish the acoustic source strength authority.
+    """
+    if response.capability_tier != 'EXACT_VOLUME_VELOCITY':
+        return (
+            f'source response capability tier {response.capability_tier} '
+            'cannot establish exact wave excitation'
+        )
+    if response.condition is None:
+        return 'source response lacks an explicit reference condition'
+    if response.valid_frequency_domain is None:
+        return 'source response lacks an explicit valid frequency domain'
+    if response.phasor_convention != 'exp(-i*omega*t)':
+        return (
+            'source response does not declare the exp(-i*omega*t) phasor '
+            'convention for its phase evidence'
+        )
+    if (
+        response.acoustic_reference_semantics
+        != 'equipment_acoustic_reference_point'
+    ):
+        return (
+            'source response does not declare equipment acoustic reference '
+            'point semantics'
+        )
+    if not response.response_samples:
+        return 'source response carries no samples'
+    incomplete = [
+        float(sample.frequency_hz)
+        for sample in response.response_samples
+        if sample.volume_velocity_m3_s is None
+        or sample.volume_velocity_phase_deg is None
+    ]
+    if incomplete:
+        return (
+            'source response samples lack complete complex volume velocity '
+            f'(magnitude and phase) at {incomplete}'
+        )
+    return None
 
 
 def response_capability_label(tier: SourceResponseCapabilityTier) -> str:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
+from hashlib import sha256
+import json
 from pathlib import Path
 from typing import Protocol, cast
 from uuid import uuid4
@@ -111,6 +113,10 @@ from .cad_screen_transfer import (
     transfer_capability_label,
 )
 from .cad_equipment import FrequencyDomain
+from .cad_acoustic_environment import (
+    AcousticEnvironmentProfile,
+    CadAcousticEnvironmentRepository,
+)
 from .cad_acoustic_material import CadAcousticMaterialRepository
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
 from .cad_acoustic_treatment_comparison import (
@@ -226,6 +232,11 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .user_facing_error import (
+    log_operation_error,
+    operation_error_message,
+    to_user_facing_error,
+)
 from .workflow_shell import WorkspaceMount
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
@@ -336,6 +347,28 @@ class RoomViewportPort(Protocol):
 ViewportFactory = Callable[[QWidget | None], QWidget]
 
 
+@dataclass
+class _RoomSidecarSnapshot:
+    """Persisted state of every transactional Room design sidecar (#915).
+
+    Participating sidecars — surface material assignments, the environment
+    profile selection, per-seat listener pose selections, per-screen
+    transfer selections, the video geometry workspace, and proposed
+    treatment placements — all carry design intent and roll with the Room
+    design transaction. Library records (new materials, profiles, poses,
+    transfers, treatment definitions) are immediate library facts and
+    installed placements are physical lifecycle facts: neither is captured
+    here.
+    """
+
+    materials: dict = field(default_factory=dict)
+    environment: AcousticEnvironmentProfile | None = None
+    poses: dict = field(default_factory=dict)
+    transfers: dict = field(default_factory=dict)
+    video_workspace: VideoGeometryWorkspace | None = None
+    proposed_placements: frozenset = frozenset()
+
+
 class RoomWorkspaceController:
     """UX120 application boundary over existing Scene/WorkingDocument authorities."""
 
@@ -353,8 +386,14 @@ class RoomWorkspaceController:
         self.screen_transfer_repository = CadScreenTransferRepository(
             repository.path, repository
         )
+        self.listener_pose_repository = CadListenerPoseRepository(
+            repository.path, repository
+        )
         self.variant_repository = CadSystemVariantRepository(repository)
         self.material_repository = CadAcousticMaterialRepository(repository.path)
+        self.environment_repository = CadAcousticEnvironmentRepository(
+            repository.path
+        )
         self.treatment_repository = CadAcousticTreatmentRepository(
             repository, self.variant_repository
         )
@@ -366,9 +405,10 @@ class RoomWorkspaceController:
         self._underlay_calibration: dict | None = None
         self._constraint_state = None  # AuthoringConstraintSet, lazy
         self._last_constraint_notes: tuple[str, ...] = ()
-        # (source_revision_id, committed content hash) acknowledged via the
-        # keep_draft resolution; edits invalidate it so the prompt reappears.
-        self._draft_release: tuple[str | None, str] | None = None
+        # (source_revision_id, committed content hash, sidecar digest)
+        # acknowledged via the keep_draft resolution; edits invalidate it so
+        # the prompt reappears (#915 — sidecars joined the token).
+        self._draft_release: tuple[str | None, str, str] | None = None
         self._load_latest_or_seed()
 
     @property
@@ -386,7 +426,156 @@ class RoomWorkspaceController:
 
     @property
     def is_dirty(self) -> bool:
-        return self.working.is_dirty
+        """Scene or participating sidecar edits pending (#915).
+
+        Scene edits live in the working document's undo stack; sidecar
+        edits persist to their stores immediately but join the same design
+        transaction through the baseline captured at bind time — Discard
+        restores them, Keep Draft acknowledges them, Save commits them.
+        """
+        return self.working.is_dirty or self._sidecars_dirty()
+
+    # --- Design-transaction sidecars (#915) ---------------------------------
+
+    def _capture_sidecars(self) -> '_RoomSidecarSnapshot':
+        """Current persisted state of every transactional sidecar store."""
+        document_id = self.document_id
+        return _RoomSidecarSnapshot(
+            materials=self.material_repository.assignments_for_document(
+                document_id
+            ),
+            environment=self.environment_repository.selected_profile(
+                document_id
+            ),
+            poses=self.listener_pose_repository.selections_for_document(
+                document_id
+            ),
+            transfers=self.screen_transfer_repository.selections_for_document(
+                document_id
+            ),
+            video_workspace=self.video_workspace_repository.load(document_id),
+            proposed_placements=frozenset(
+                self.treatment_repository.proposed_placement_ids(document_id)
+            ),
+        )
+
+    @staticmethod
+    def _sidecar_digest(snapshot: '_RoomSidecarSnapshot') -> str:
+        payload = {
+            'materials': sorted(
+                (sid, material.semantic_sha256)
+                for sid, material in snapshot.materials.items()
+            ),
+            'environment': (
+                None
+                if snapshot.environment is None
+                else snapshot.environment.semantic_hash_sha256
+            ),
+            'poses': sorted(
+                (seat_id, pose.semantic_sha256)
+                for seat_id, pose in snapshot.poses.items()
+            ),
+            'transfers': sorted(
+                (screen_id, transfer.semantic_sha256)
+                for screen_id, transfer in snapshot.transfers.items()
+            ),
+            'video_workspace': snapshot.video_workspace.model_dump(
+                mode='json'
+            ),
+            'proposed_placements': sorted(snapshot.proposed_placements),
+        }
+        return sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(',', ':'),
+                allow_nan=False,
+            ).encode('utf-8')
+        ).hexdigest()
+
+    def _sidecars_dirty(self) -> bool:
+        baseline = getattr(self, '_sidecar_baseline', None)
+        if baseline is None:
+            return False
+        return self._sidecar_digest(
+            self._capture_sidecars()
+        ) != self._sidecar_digest(baseline)
+
+    def _restore_sidecars(self, snapshot: '_RoomSidecarSnapshot') -> None:
+        """Roll every transactional sidecar store back to the baseline.
+
+        Library records created during the session stay — creating an
+        authority is an immediate library fact, never a design edit. Dead
+        selections (seat/screen removed by the restored scene) are dropped
+        rather than resurrecting entities the discard removed.
+        """
+        document_id = self.document_id
+        current_materials = self.material_repository.assignments_for_document(
+            document_id
+        )
+        for surface_id in set(current_materials) | set(snapshot.materials):
+            target = snapshot.materials.get(surface_id)
+            if target is None:
+                self.material_repository.clear_assignment(
+                    document_id, surface_id
+                )
+            elif current_materials.get(surface_id) != target:
+                self.material_repository.assign_material(
+                    document_id, surface_id, target
+                )
+
+        if snapshot.environment is None:
+            self.environment_repository.clear_selection(document_id)
+        else:
+            self.environment_repository.select_profile(
+                document_id, snapshot.environment
+            )
+
+        current_poses = self.listener_pose_repository.selections_for_document(
+            document_id
+        )
+        for seat_id in set(current_poses) | set(snapshot.poses):
+            target = snapshot.poses.get(seat_id)
+            if target is None:
+                self.listener_pose_repository.clear_selection(
+                    document_id, seat_id
+                )
+            elif current_poses.get(seat_id) != target:
+                self.listener_pose_repository.select_pose(document_id, target)
+
+        current_transfers = (
+            self.screen_transfer_repository.selections_for_document(
+                document_id
+            )
+        )
+        for screen_id in set(current_transfers) | set(snapshot.transfers):
+            target = snapshot.transfers.get(screen_id)
+            if target is None:
+                self.screen_transfer_repository.clear_selection(
+                    document_id, screen_id
+                )
+            elif current_transfers.get(screen_id) != target:
+                self.screen_transfer_repository.select_transfer(
+                    document_id, target
+                )
+
+        self.video_workspace_repository.save(snapshot.video_workspace)
+        self.video_workspace = snapshot.video_workspace
+
+        # Proposed placements authored inside the discarded session are
+        # design intent, not lifecycle facts — roll them out. Installed
+        # facts always survive a discard.
+        for instance_id in (
+            frozenset(self.treatment_repository.proposed_placement_ids(
+                document_id))
+            - snapshot.proposed_placements
+        ):
+            self.treatment_repository.delete_placement(instance_id)
+
+        # A selection may reference an entity the restored head does not
+        # have; drops are inherent — verified readers already skip stale
+        # rows, so no explicit reconciliation is needed here.
 
     @property
     def can_edit(self) -> bool:
@@ -430,9 +619,17 @@ class RoomWorkspaceController:
         self.constraint_set = self.constraint_repository.load(self.document_id)
         self.video_workspace = self.video_workspace_repository.load(self.document_id)
         self.recovery_candidate = self.repository.recovery(self.document_id)
+        # #915: the design-transaction baseline — every transactional
+        # sidecar persisted for this document, captured whenever the working
+        # document re-binds to a persisted head. Sidecar edits made after
+        # this point count as design edits until Save or Discard resolves
+        # them; library-level records (new materials, profiles, poses,
+        # transfers, treatment definitions) and physical lifecycle facts
+        # (installed placements) are never part of this baseline.
+        self._sidecar_baseline = self._capture_sidecars()
 
     def reload_if_clean(self) -> bool:
-        if self.working.is_dirty or self.working.has_preview or self.recovery_candidate is not None:
+        if self.is_dirty or self.working.has_preview or self.recovery_candidate is not None:
             return False
         revision = self.repository.current_head(self.document_id)
         if revision is None or revision.revision_id == self.working.source_revision_id:
@@ -449,7 +646,7 @@ class RoomWorkspaceController:
     def before_deactivate(self) -> tuple[bool, str | None]:
         if self.working.has_preview:
             return False, "操作中のプレビューを確定またはキャンセルしてから画面を切り替えてください"
-        if self.working.is_dirty and not self._draft_release_current():
+        if self.is_dirty and not self._draft_release_current():
             return False, "未保存の変更を保存または元に戻してから画面を切り替えてください"
         if self.recovery_candidate is not None:
             return False, "復旧データを復元または破棄してから画面を切り替えてください"
@@ -461,7 +658,7 @@ class RoomWorkspaceController:
         """Classification the shell turns into an explicit operator choice."""
         if self.working.has_preview:
             return "preview_active"
-        if self.working.is_dirty:
+        if self.is_dirty:
             if self._draft_release_current():
                 return "clean"
             return "dirty_recoverable"
@@ -474,10 +671,22 @@ class RoomWorkspaceController:
         return self._draft_release == (
             self.working.source_revision_id,
             scene_content_hash(self.working.committed_document),
+            self._sidecar_digest(self._capture_sidecars()),
         )
 
     def discard_unsaved_changes(self) -> None:
-        """Reset the working document to the saved head and drop the draft."""
+        """Reset the working document to the saved head and drop the draft.
+
+        Scene edits restore through the working document; every
+        transactional sidecar (#915) restores through its own store —
+        material assignments, environment/listener-pose/screen-transfer
+        selections, the video workspace, and proposed placements authored
+        inside the dirty session all return to the baseline captured when
+        the document last bound to its persisted head.
+        """
+        # Restore BEFORE re-binding: _load_latest_or_seed re-captures the
+        # baseline, so the bind-time baseline must be consumed first.
+        self._restore_sidecars(self._sidecar_baseline)
         self.repository.clear_recovery(self.document_id)
         self._load_latest_or_seed()
 
@@ -486,12 +695,14 @@ class RoomWorkspaceController:
 
         The stored snapshot is what a later Recover-Draft decision restores;
         the release token keeps this deactivation from re-prompting while the
-        acknowledged content is unchanged — any new edit re-blocks.
+        acknowledged content — scene AND sidecars — is unchanged: any new
+        edit re-blocks.
         """
         self._sync_recovery()
         self._draft_release = (
             self.working.source_revision_id,
             scene_content_hash(self.working.committed_document),
+            self._sidecar_digest(self._capture_sidecars()),
         )
 
     def resolve_dirty_state(
@@ -785,6 +996,11 @@ class RoomWorkspaceController:
             raise EditStateError("復旧可能な下書きを処理してから保存してください")
         if self.working.has_preview:
             raise EditStateError("操作中のプレビューを確定またはキャンセルしてから保存してください")
+        # Sidecar edits persist to their stores at edit time but remain
+        # part of this design transaction until Save commits them (#915):
+        # a scene-identical save still reports a change when the sidecars
+        # moved, and the commit point advances the baseline either way.
+        sidecars_were_dirty = self._sidecars_dirty()
         result = self.repository.save(
             self.committed_document,
             parent_revision_id=self.working.source_revision_id,
@@ -794,7 +1010,8 @@ class RoomWorkspaceController:
             result.revision.content_hash,
         )
         self.repository.clear_recovery(self.document_id)
-        return bool(result.created)
+        self._sidecar_baseline = self._capture_sidecars()
+        return bool(result.created) or sidecars_were_dirty
 
     def undo(self) -> bool:
         if self.recovery_candidate is not None:
@@ -3346,6 +3563,9 @@ class RoomWorkspace(QWidget):
         self.listener_pose_repository = CadListenerPoseRepository(
             repository.path, repository
         )
+        self.screen_transfer_repository = CadScreenTransferRepository(
+            repository.path, repository
+        )
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
         self.geometry_input = None
@@ -3524,6 +3744,7 @@ class RoomWorkspace(QWidget):
         content.addWidget(self.right_stack)
         root.addLayout(content, 1)
 
+        self._last_operation_error_detail: str | None = None
         self.status = QLabel()
         self.status.setContentsMargins(12, 6, 12, 6)
         set_surface_role(self.status, SurfaceRole.RAISED)
@@ -3634,7 +3855,7 @@ class RoomWorkspace(QWidget):
         try:
             changed = self.controller.delete_entities(ids)
         except EditStateError as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("項目を削除できませんでした", exc, effect='変更は保存されていません')
             return False
         if changed:
             self._refresh()
@@ -3829,7 +4050,7 @@ class RoomWorkspace(QWidget):
         try:
             self.controller.save_named_view(spec)
         except (TypeError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("ビューを保存できませんでした", exc, effect='変更は保存されていません')
             return False
         self._set_status(f"ビュー「{name}」を保存しました")
         return True
@@ -3958,7 +4179,7 @@ class RoomWorkspace(QWidget):
         try:
             underlay = self.controller.import_underlay(path_text)
         except (OSError, UnderlayImportError, ValueError) as exc:
-            self._set_status(f"下図の読み込みに失敗しました: {exc}", error=True)
+            self._set_operation_error("下図の読み込みに失敗しました", exc)
             return False
         self._refresh_underlay_ui()
         self._set_status(
@@ -3993,7 +4214,7 @@ class RoomWorkspace(QWidget):
         try:
             self.controller.update_underlay(underlay_id, **fields)
         except (KeyError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("下図を更新できませんでした", exc)
             return False
         self._refresh_underlay_ui()
         return True
@@ -4020,7 +4241,7 @@ class RoomWorkspace(QWidget):
         try:
             underlay = self.controller.finish_underlay_calibration(distance)
         except (EditStateError, KeyError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("校正を完了できませんでした", exc)
             self._refresh_underlay_ui()
             return
         self._refresh_underlay_ui()
@@ -4119,7 +4340,7 @@ class RoomWorkspace(QWidget):
                 self.controller.document, selection
             )
         except (LayoutError, KeyError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("コピーできませんでした", exc)
             return False
         self._set_status(f"{len(self._clipboard.entities)}件をコピーしました")
         return True
@@ -4134,7 +4355,7 @@ class RoomWorkspace(QWidget):
         try:
             new_ids = paste_clipboard(self.controller.working, self._clipboard)
         except (LayoutError, EditStateError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("貼り付けに失敗しました", exc)
             return False
         self.controller.view_state.set_selection(new_ids, primary_id=new_ids[0])
         self.controller._sync_recovery()
@@ -4152,7 +4373,7 @@ class RoomWorkspace(QWidget):
                 offset=(0.10, 0.10, 0.0),
             )
         except (LayoutError, EditStateError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("複製に失敗しました", exc)
             return False
         self.controller.view_state.set_selection(new_ids, primary_id=new_ids[0])
         self.controller._sync_recovery()
@@ -4172,7 +4393,7 @@ class RoomWorkspace(QWidget):
                     self.controller.working, self.controller.document, selection
                 )
         except (LayoutError, EditStateError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("ミラーに失敗しました", exc)
             return False
         self.controller._sync_recovery()
         self._refresh()
@@ -4208,7 +4429,7 @@ class RoomWorkspace(QWidget):
                 apply_role_proposal=apply_role,
             )
         except (LayoutError, EditStateError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("ミラーペアを作成できませんでした", exc)
             return False
         self.controller.view_state.set_selection((new_id,), primary_id=new_id)
         self.controller._sync_recovery()
@@ -4227,7 +4448,7 @@ class RoomWorkspace(QWidget):
                 mode=mode,  # type: ignore[arg-type]
             )
         except (LayoutError, EditStateError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("整列に失敗しました", exc)
             return False
         self._propagate_and_report(set(ids))
         self._set_status(f"{len(ids)}件を揃えました")
@@ -4243,7 +4464,7 @@ class RoomWorkspace(QWidget):
                 axis=axis,  # type: ignore[arg-type]
             )
         except (LayoutError, EditStateError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("分布に失敗しました", exc)
             return False
         self._propagate_and_report(set(ids))
         self._set_status(f"{len(ids)}件を等間隔に配置しました")
@@ -4503,7 +4724,7 @@ class RoomWorkspace(QWidget):
                 remove_orphaned=remove_orphaned,
             )
         except (SeatingLayoutError, EditStateError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("座席レイアウトを適用できませんでした", exc)
             return False
         self.controller.repository.save_seating_spec(
             self.controller.document_id,
@@ -4749,7 +4970,7 @@ class RoomWorkspace(QWidget):
         try:
             changed = self.controller.delete_entities(ids)
         except EditStateError as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("項目を削除できませんでした", exc, effect='変更は保存されていません')
             return
         if changed:
             self._refresh()
@@ -4839,7 +5060,7 @@ class RoomWorkspace(QWidget):
                 )
             self.controller.save_constraints()
         except (EditStateError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("拘束を保存できませんでした", exc, effect='変更は保存されていません')
             return
         self._sync_constraints_panel()
         self._render()
@@ -5054,7 +5275,8 @@ class RoomWorkspace(QWidget):
                 )
             except ValueError as exc:
                 self._set_status(
-                    f"サンプル{line_number}行目が不正です: {exc}", error=True
+                    f"サンプル{line_number}行目が不正です: {operation_error_message(exc)}",
+                    error=True,
                 )
                 return
         try:
@@ -5077,7 +5299,7 @@ class RoomWorkspace(QWidget):
                 notes=str(values['notes']),
             )
         except ValueError as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("転送仕様を登録できませんでした", exc, effect='変更は保存されていません')
             return
         self.screen_transfer_repository.save_transfer(transfer)
         self.screen_transfer_repository.select_transfer(
@@ -5229,8 +5451,8 @@ class RoomWorkspace(QWidget):
                 None if variant_id is None else str(variant_id)
             )
         except (EditStateError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
-            self.video_panel.show_message(str(exc))
+            self._set_operation_error("映像を評価できませんでした", exc)
+            self.video_panel.show_message(operation_error_message(exc))
             return
         self._video_evaluation = evaluation
         self.video_panel.show_evaluation(evaluation)
@@ -5310,7 +5532,7 @@ class RoomWorkspace(QWidget):
                 specification, evidence=evidence
             )
         except (ValueError, KeyError) as exc:
-            self._set_status(f"仕様を登録できません: {exc}", error=True)
+            self._set_operation_error('仕様を登録できませんでした', exc, effect='変更は保存されていません')
             return
         self._sync_video_panel()
         index = self.video_panel.spec_combo.findData(
@@ -5343,7 +5565,7 @@ class RoomWorkspace(QWidget):
             seat = self.controller.document.entity(str(seat_id))
             eye = seat_eye_world(seat, binding)
         except (KeyError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("座席の視点を取得できませんでした", exc)
             return
         target = None
         screens = [
@@ -5414,7 +5636,7 @@ class RoomWorkspace(QWidget):
                 str(revision_id), str(label), str(note)
             )
         except (EditStateError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("ラベルを保存できませんでした", exc, effect='変更は保存されていません')
             return
         self._sync_history_panel()
         self._set_status("ラベルを保存しました（履歴は不変です）")
@@ -5442,7 +5664,7 @@ class RoomWorkspace(QWidget):
         try:
             revision = self.controller.restore_revision(str(revision_id))
         except EditStateError as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("履歴を復元できませんでした", exc)
             return
         self._history_preview(None)
         self._refresh(reset_camera=True)
@@ -5573,7 +5795,7 @@ class RoomWorkspace(QWidget):
         try:
             entity = self.controller.add_object(kind)
         except (EditStateError, ValueError) as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("オブジェクトを追加できませんでした", exc)
             return
         self._refresh()
         hint = " · 役割を選択してください" if entity.kind == "speaker" else ""
@@ -5613,8 +5835,8 @@ class RoomWorkspace(QWidget):
             # (#583). update_entities is atomic, so authority is unchanged.
             self._pending_editor_rejected = True
             section = exc.section if isinstance(exc, InspectorValidationError) else None
-            self.inspector.show_error(section, str(exc))
-            self._set_status(str(exc), error=True)
+            self.inspector.show_error(section, operation_error_message(exc))
+            self._set_operation_error("フィールドを保存できませんでした", exc, effect='変更は保存されていません')
             return
         if changed:
             notes = self.controller.pop_constraint_notes()
@@ -5698,7 +5920,7 @@ class RoomWorkspace(QWidget):
             changed = self.controller.aim_selected_speaker_at(str(target_id))
         except (EditStateError, ValueError) as exc:
             self._refresh_inspector()
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("音響方向を設定できませんでした", exc)
             return
         if changed:
             self._refresh()
@@ -5711,7 +5933,7 @@ class RoomWorkspace(QWidget):
             changed = self.controller.clear_selected_speaker_aim()
         except (EditStateError, ValueError) as exc:
             self._refresh_inspector()
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("音響方向をクリアできませんでした", exc)
             return
         if changed:
             self._refresh()
@@ -5724,7 +5946,7 @@ class RoomWorkspace(QWidget):
             changed = self.controller.align_selected_cabinet_to_aim()
         except (EditStateError, ValueError) as exc:
             self._refresh_inspector()
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("キャビネットを音響方向に合わせられませんでした", exc)
             return
         if changed:
             self._refresh()
@@ -5743,7 +5965,7 @@ class RoomWorkspace(QWidget):
             entity = self.controller.attach_mesh_asset(entity_id, file_path)
         except (EditStateError, RawMeshImportError, ValueError, OSError) as exc:
             self._pending_editor_rejected = True
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("メッシュを設定できませんでした", exc)
             return False
         self._refresh()
         self._set_status(f"{entity.name}にメッシュボディを設定しました")
@@ -5764,7 +5986,7 @@ class RoomWorkspace(QWidget):
         try:
             changed = self.controller.recover_draft()
         except EditStateError as exc:
-            self._set_status(str(exc), error=True)
+            self._set_operation_error("ドラフトを復元できませんでした", exc)
             return
         if changed:
             self._refresh(reset_camera=True)
@@ -5891,6 +6113,24 @@ class RoomWorkspace(QWidget):
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status.setText(text)
         set_semantic_state(self.status, SemanticState.ERROR if error else None)
+
+    def _set_operation_error(
+        self,
+        title: str,
+        exc: BaseException,
+        *,
+        effect: str | None = None,
+    ) -> None:
+        """#903: mapped actionable message; raw detail stays in diagnostics."""
+        error = to_user_facing_error(exc, title=title, effect=effect)
+        self._last_operation_error_detail = error.technical_detail
+        log_operation_error(error, exc)
+        self._set_status(error.notice_text(), error=True)
+
+    @property
+    def last_operation_error_detail(self) -> str | None:
+        """Technical detail of the last operation failure (diagnostics path)."""
+        return self._last_operation_error_detail
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._persist_view_extras()
