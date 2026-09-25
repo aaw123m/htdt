@@ -1998,6 +1998,10 @@ _NON_AUTHORITY_TABLES: dict[str, str] = {
     'project_action_items': (
         'project-management annotation, non-normative'
     ),
+    'htdt_storage_gc_pending': (
+        'pending blob-GC queue — transient operational state re-derivable '
+        'from the blob store'
+    ),
     'ci_marker': (
         'CI-injected backup/restore round-trip marker — never a product '
         'authority row'
@@ -2018,6 +2022,10 @@ _NO_ADAPTER_RATIONALE = (
     'structural payload integrity — no dedicated canonical replay adapter '
     'registered for this family'
 )
+_PROJECT_LIFECYCLE_RATIONALE = (
+    'project-library/lifecycle record — indexed structurally; lifecycle '
+    'semantics enforced by the project-library consumers'
+)
 
 # Tables whose rows carry a JSON payload but no registered canonical replay
 # adapter (external-resolver domains, link/legacy tables, derived solver and
@@ -2026,6 +2034,15 @@ _NO_ADAPTER_RATIONALE = (
 _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
     table: rationale
     for tables, rationale in (
+        (
+            (
+                'htdt_legacy_imports',
+                'htdt_project_documents',
+                'htdt_project_imports',
+                'htdt_project_tombstones',
+            ),
+            _PROJECT_LIFECYCLE_RATIONALE,
+        ),
         (
             (
                 'asset_links',
