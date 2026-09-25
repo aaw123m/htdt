@@ -15,6 +15,7 @@ from .cad_predictions import (
     rectangular_geometry_model_input,
 )
 from .cad_repository import SceneRevision
+from .cad_system_variant import SystemVariant
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -37,6 +38,7 @@ def rectangular_geometry_request_identity(
     environment_profile: ExactExternalAuthorityRef | None = None,
     listener_pose: ListenerPoseAuthority | None = None,
     operating_state: RoomOperatingState | None = None,
+    system_variant: SystemVariant | None = None,
 ) -> RectangularGeometryRequestIdentity:
     """Build the exact canonical model identity used by the rectangular adapter."""
 
@@ -48,6 +50,7 @@ def rectangular_geometry_request_identity(
         environment_profile=environment_profile,
         listener_pose=listener_pose,
         operating_state=operating_state,
+        system_variant=system_variant,
     )
     return RectangularGeometryRequestIdentity(
         model_id=RECTANGULAR_GEOMETRY_MODEL_ID,

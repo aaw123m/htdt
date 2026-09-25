@@ -14,15 +14,22 @@ from PySide6.QtCore import QEvent, QSignalBlocker, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDockWidget,
     QDoubleSpinBox,
     QFormLayout,
     QLabel,
+    QLineEdit,
+    QPushButton,
     QToolBar,
     QTreeWidgetItem,
     QWidget,
 )
 
+from .acoustic_treatment_service import (
+    TREATMENT_TYPES,
+    AcousticTreatmentService,
+)
 from .cad_document import EditorViewState
 from .cad_repository import SceneRepository
 from .cad_room import RoomWorkingDocument
@@ -83,6 +90,11 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_drag_preview: tuple[RoomVertex, ...] = ()
         self.selected_room_vertex_id: str | None = None
         self.selected_room_edge_index: int | None = None
+        self.treatment_service = AcousticTreatmentService(
+            repository, document_id
+        )
+        self.treatment_surface_combo: QComboBox | None = None
+        self.treatment_list_label: QLabel | None = None
         super().__init__(repository, document_id)
         self.setWindowTitle('Home Theater Digital Twin — N30a Room Editor')
 
@@ -155,11 +167,156 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_height.editingFinished.connect(self._numeric_room_height_edited)
         room_form.addRow('Ceiling height', self.room_height)
 
+        room_form.addRow(QLabel('— AcousticTreatment —'))
+        self.treatment_name_field = QLineEdit()
+        self.treatment_name_field.setPlaceholderText('60x120 absorber')
+        room_form.addRow('Treatment name', self.treatment_name_field)
+        self.treatment_type_combo = QComboBox()
+        self.treatment_type_combo.addItems(TREATMENT_TYPES)
+        room_form.addRow('Type', self.treatment_type_combo)
+        self.treatment_width = QDoubleSpinBox()
+        self.treatment_width.setRange(0.05, 10.0)
+        self.treatment_width.setValue(0.60)
+        self.treatment_width.setSuffix(' m')
+        room_form.addRow('Width', self.treatment_width)
+        self.treatment_height = QDoubleSpinBox()
+        self.treatment_height.setRange(0.05, 10.0)
+        self.treatment_height.setValue(1.20)
+        self.treatment_height.setSuffix(' m')
+        room_form.addRow('Height', self.treatment_height)
+        self.treatment_thickness = QDoubleSpinBox()
+        self.treatment_thickness.setRange(0.005, 1.0)
+        self.treatment_thickness.setValue(0.10)
+        self.treatment_thickness.setDecimals(3)
+        self.treatment_thickness.setSuffix(' m')
+        room_form.addRow('Thickness', self.treatment_thickness)
+        self.treatment_air_gap = QDoubleSpinBox()
+        self.treatment_air_gap.setRange(0.0, 1.0)
+        self.treatment_air_gap.setValue(0.0)
+        self.treatment_air_gap.setDecimals(3)
+        self.treatment_air_gap.setSuffix(' m')
+        room_form.addRow('Air gap', self.treatment_air_gap)
+        self.treatment_surface_combo = QComboBox()
+        room_form.addRow('Host surface', self.treatment_surface_combo)
+        self.treatment_pos_x = QDoubleSpinBox()
+        self.treatment_pos_x.setRange(-1000.0, 1000.0)
+        self.treatment_pos_x.setValue(0.0)
+        self.treatment_pos_x.setSuffix(' m')
+        room_form.addRow('Position X', self.treatment_pos_x)
+        self.treatment_pos_y = QDoubleSpinBox()
+        self.treatment_pos_y.setRange(-1000.0, 1000.0)
+        self.treatment_pos_y.setValue(0.0)
+        self.treatment_pos_y.setSuffix(' m')
+        room_form.addRow('Position Y', self.treatment_pos_y)
+        self.treatment_pos_z = QDoubleSpinBox()
+        self.treatment_pos_z.setRange(-100.0, 100.0)
+        self.treatment_pos_z.setValue(1.2)
+        self.treatment_pos_z.setSuffix(' m')
+        room_form.addRow('Position Z', self.treatment_pos_z)
+        treatment_button = QPushButton('定義して配置')
+        treatment_button.clicked.connect(self._create_and_place_treatment)
+        room_form.addRow(treatment_button)
+        self.treatment_list_label = QLabel('treatmentなし')
+        self.treatment_list_label.setWordWrap(True)
+        room_form.addRow(self.treatment_list_label)
+        self.treatment_compare_name = QLineEdit()
+        self.treatment_compare_name.setPlaceholderText('baseline vs A')
+        room_form.addRow('Comparison', self.treatment_compare_name)
+        compare_button = QPushButton('A/B比較を作成')
+        compare_button.clicked.connect(self._create_treatment_comparison)
+        room_form.addRow(compare_button)
+
         room_dock = QDockWidget('Room', self)
         room_dock.setWidget(room_inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, room_dock)
         self._refresh_room_inspector()
+        self._refresh_treatments()
         self._update_actions()
+
+    def _refresh_treatments(self) -> None:
+        """Refresh host-surface options and the placements list (#985)."""
+        if self.treatment_surface_combo is not None:
+            self.treatment_surface_combo.clear()
+            self.treatment_surface_combo.addItem('(surfaceなし)', None)
+            for surface_id in self.treatment_service.host_surface_options():
+                self.treatment_surface_combo.addItem(
+                    surface_id, surface_id
+                )
+        if self.treatment_list_label is None:
+            return
+        placements = self.treatment_service.list_placements()
+        if not placements:
+            self.treatment_list_label.setText('treatmentなし')
+            return
+        self.treatment_list_label.setText(
+            '\n'.join(
+                f"{item.instance_id[-8:]} {item.definition_id} "
+                f"{item.lifecycle} wave={item.wave_capability}"
+                for item in placements
+            )
+        )
+
+    def _create_and_place_treatment(self) -> None:
+        """Author an exact definition and place it (#985 §1/§2)."""
+        try:
+            definition = self.treatment_service.create_definition(
+                name=(
+                    self.treatment_name_field.text().strip()
+                    or 'treatment'
+                ),
+                treatment_type=self.treatment_type_combo.currentText(),
+                width_m=self.treatment_width.value(),
+                height_m=self.treatment_height.value(),
+                thickness_m=self.treatment_thickness.value(),
+                air_gap_m=self.treatment_air_gap.value(),
+            )
+            placement = self.treatment_service.place_treatment(
+                definition=definition,
+                host_surface_id=(
+                    self.treatment_surface_combo.currentData()
+                ),
+                position=Position3(
+                    x_m=self.treatment_pos_x.value(),
+                    y_m=self.treatment_pos_y.value(),
+                    z_m=self.treatment_pos_z.value(),
+                ),
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f'treatmentを配置できません · {exc}')
+            return
+        self.statusBar().showMessage(
+            f'treatment配置 · {placement.instance_id[-8:]}'
+        )
+        self._refresh_treatments()
+
+    def _create_treatment_comparison(self) -> None:
+        """Named baseline + treatment design comparison (#985 §3)."""
+        placements = self.treatment_service.list_placements()
+        if not placements:
+            self.statusBar().showMessage('比較するtreatmentがありません')
+            return
+        try:
+            spec = self.treatment_service.create_comparison(
+                name=(
+                    self.treatment_compare_name.text().strip()
+                    or 'baseline vs treatment'
+                ),
+                candidate_designs=(
+                    (
+                        'treatment A',
+                        tuple(
+                            item.instance_id for item in placements
+                        ),
+                    ),
+                ),
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f'比較を作成できません · {exc}')
+            return
+        self.statusBar().showMessage(
+            f'比較を作成しました · {spec.name} '
+            f'({len(spec.candidates)} candidates)'
+        )
 
     def _load_or_seed(self) -> None:
         revision = self.repository.current_head(self.document_id)

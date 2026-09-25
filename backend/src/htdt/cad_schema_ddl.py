@@ -1322,6 +1322,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_treatment_comparison_outcomes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, outcome_id TEXT NOT NULL UNIQUE, outcome_sha256 TEXT NOT NULL UNIQUE, comparison_id TEXT NOT NULL, document_id TEXT NOT NULL, compatibility TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, FOREIGN KEY(comparison_id) REFERENCES cad_acoustic_treatment_comparisons(comparison_id) )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_treatment_outcome_comparison ON cad_treatment_comparison_outcomes( comparison_id, seq ASC )
+    """
+    ,
+    """
     CREATE INDEX IF NOT EXISTS idx_treatment_composition_scene ON cad_treatment_boundary_compositions(scene_revision_id, seq ASC)
     """
     ,
@@ -1411,6 +1419,30 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_cost_evaluations_document ON cad_cost_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_prediction_matrix_specs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spec_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id) )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prediction_matrix_specs_document ON cad_prediction_matrix_specs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_prediction_matrix_result_sets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, result_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, spec_id TEXT NOT NULL, spec_semantic_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(spec_id) REFERENCES cad_prediction_matrix_specs(spec_id) )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prediction_matrix_result_sets_spec ON cad_prediction_matrix_result_sets(spec_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_prediction_matrix_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, spec_id TEXT NOT NULL, attempt INTEGER NOT NULL, state TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(spec_id) REFERENCES cad_prediction_matrix_specs(spec_id) )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_prediction_matrix_runs_spec ON cad_prediction_matrix_runs(spec_id, seq ASC)
     """
     ,
     """
@@ -1519,6 +1551,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_acoustic_solver_results',
     'cad_acoustic_treatment_comparisons',
     'cad_acoustic_treatment_definitions',
+    'cad_treatment_comparison_outcomes',
     'cad_acoustic_treatment_placements',
     'cad_acoustic_wave_excitations',
     'cad_acquisition_contexts',
@@ -1550,6 +1583,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_design_comparison_sets',
     'cad_cost_records',
     'cad_cost_evaluations',
+    'cad_prediction_matrix_specs',
+    'cad_prediction_matrix_result_sets',
+    'cad_prediction_matrix_runs',
     'cad_intervention_study_specs',
     'cad_intervention_alternatives',
     'cad_operating_presets',

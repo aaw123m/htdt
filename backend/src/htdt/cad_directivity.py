@@ -4,7 +4,7 @@ from bisect import bisect_left
 from hashlib import sha256
 from itertools import product
 import json
-from math import atan2, cos, isfinite, log, log10, pi, radians, sin
+from math import atan2, cos, degrees, isfinite, log, log10, pi, radians, sin
 from typing import Any, Literal, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -892,6 +892,121 @@ def _nearest(axis: tuple[float, ...], value: float) -> float:
     return min(axis, key=lambda candidate: (abs(candidate - value), candidate))
 
 
+def _periodic_bracket(
+    dataset: DirectivityDataset,
+    value: float,
+) -> tuple[tuple[float, float], ...] | None:
+    """Azimuth seam: -180/+180 are the same direction (#981).
+
+    For a wrapped convention, requests past the grid extremes resolve
+    against the seam neighbours (last/first samples) when the seam gap is
+    grid-like — never a fabricated physical discontinuity.
+    """
+    if dataset.coordinate_convention.horizontal_wrap == 'none':
+        return None
+    axis = dataset.horizontal_angles_deg
+    if len(axis) < 2:
+        return None
+    if axis[0] <= value <= axis[-1]:
+        return None
+    interior_steps = [
+        axis[index + 1] - axis[index] for index in range(len(axis) - 1)
+    ]
+    seam_gap = (axis[0] + 360.0) - axis[-1]
+    if seam_gap <= 0.0 or seam_gap > 2.0 * max(interior_steps):
+        return None
+    position = (value - axis[-1]) % 360.0
+    if position > seam_gap:
+        return None
+    weight_high = position / seam_gap
+    return (
+        (axis[-1], 1.0 - weight_high),
+        (axis[0], weight_high),
+    )
+
+
+def classify_directivity_grid(
+    dataset: DirectivityDataset,
+) -> Literal['full_sphere_grid', 'hv_cuts_suspect', 'partial_grid']:
+    """Derived data-organization diagnostic (#981 §13).
+
+    The persisted dataset model cannot grow a declared representation
+    kind without invalidating stored semantic hashes; this classification
+    instead derives the organization from the grid itself so callers can
+    refuse to promote H/V-cut data into arbitrary 3D claims.
+    """
+    horizontal_steps = len(dataset.horizontal_angles_deg)
+    vertical_steps = len(dataset.vertical_angles_deg)
+    wrap = dataset.coordinate_convention.horizontal_wrap
+    if horizontal_steps >= 12 and vertical_steps >= 4:
+        return 'full_sphere_grid'
+    if wrap != 'none' and horizontal_steps >= 12 and vertical_steps <= 3:
+        return 'hv_cuts_suspect'
+    if horizontal_steps <= 3 or vertical_steps <= 3:
+        return 'hv_cuts_suspect'
+    return 'partial_grid'
+
+
+def direction_to_directivity_angles(
+    direction: Sequence[float],
+    *,
+    semantics: str,
+) -> tuple[float, float]:
+    """Unit direction → (horizontal_deg, vertical_deg) (#981 §8).
+
+    ``direction`` is a unit vector expressed in the dataset's source-local
+    (forward, left, up) frame. Because the evaluation consumes only that
+    unit vector, rotating the source frame and direction together
+    preserves the evaluated local directivity.
+    """
+    if len(direction) != 3:
+        raise ValueError('direction must have three components')
+    forward_component = _finite(direction[0], field_name='direction[0]')
+    left_component = _finite(direction[1], field_name='direction[1]')
+    up_component = _finite(direction[2], field_name='direction[2]')
+    norm = (
+        forward_component**2 + left_component**2 + up_component**2
+    ) ** 0.5
+    if norm <= 0.0 or not isfinite(norm):
+        raise ValueError('direction must be a non-zero finite vector')
+    forward_component /= norm
+    left_component /= norm
+    up_component /= norm
+    horizontal = degrees(atan2(left_component, forward_component))
+    if semantics == 'horizontal_vertical':
+        vertical = degrees(atan2(up_component, forward_component))
+    else:
+        vertical = degrees(
+            atan2(
+                up_component,
+                (forward_component**2 + left_component**2) ** 0.5,
+            )
+        )
+    return horizontal, vertical
+
+
+def evaluate_directivity_direction(
+    dataset: DirectivityDataset,
+    *,
+    direction: Sequence[float],
+    frequency_hz: float,
+    request: DirectivityEvaluationRequest = 'magnitude',
+) -> DirectivityEvaluationResult:
+    """Evaluate by 3D unit direction, not an angle chart (#981 §4/§8)."""
+    semantics = dataset.coordinate_convention.angle_semantics
+    horizontal, vertical = direction_to_directivity_angles(
+        direction,
+        semantics=semantics,
+    )
+    return evaluate_directivity(
+        dataset,
+        frequency_hz=frequency_hz,
+        horizontal_angle_deg=horizontal,
+        vertical_angle_deg=vertical,
+        request=request,
+    )
+
+
 def _make_evaluation_result(
     *,
     dataset: DirectivityDataset,
@@ -983,10 +1098,20 @@ def evaluate_directivity(
 
     if not dataset.valid_domain.frequency.contains(frequency):
         return unsupported('requested frequency is outside dataset domain')
-    if not dataset.valid_domain.horizontal.contains(horizontal):
+    if not dataset.valid_domain.horizontal.contains(horizontal) and (
+        _periodic_bracket(dataset, horizontal) is None
+    ):
         return unsupported('requested horizontal/azimuth angle is outside dataset domain')
     if not dataset.valid_domain.vertical.contains(vertical):
         return unsupported('requested vertical/elevation angle is outside dataset domain')
+
+    # Pole: at elevation +/-90 azimuth is physically undefined; all azimuth
+    # coordinates name the same direction, so evaluation must not depend on
+    # the arbitrary azimuth parameterization (#981 §4).
+    pole_canonicalized = False
+    if abs(vertical) == 90.0 and vertical in dataset.vertical_angles_deg:
+        horizontal = dataset.horizontal_angles_deg[0]
+        pole_canonicalized = True
 
     samples = _sample_map(dataset)
     exact_key = (frequency, horizontal, vertical)
@@ -1017,7 +1142,14 @@ def evaluate_directivity(
             complex_real=complex_real,
             complex_imag=complex_imag,
             supporting_sample_sha256=(_sample_hash(exact),),
-            reasons=('exact on-grid directivity sample',),
+            reasons=(
+                ('exact on-grid directivity sample',)
+                + (
+                    ('azimuth canonicalized at the elevation pole',)
+                    if pole_canonicalized
+                    else ()
+                )
+            ),
         )
 
     method = dataset.interpolation.method
@@ -1052,10 +1184,18 @@ def evaluate_directivity(
             frequency,
             log_axis=(method == 'log_frequency_linear_angle'),
         )
-        horizontal_support = _bracket(
-            dataset.horizontal_angles_deg,
-            horizontal,
-        )
+        try:
+            horizontal_support = _bracket(
+                dataset.horizontal_angles_deg,
+                horizontal,
+            )
+        except ValueError:
+            horizontal_support = _periodic_bracket(dataset, horizontal)
+            if horizontal_support is None:
+                return unsupported(
+                    'requested azimuth is outside the grid and cannot be '
+                    'resolved across the wrap seam'
+                )
         vertical_support = _bracket(
             dataset.vertical_angles_deg,
             vertical,
@@ -1118,7 +1258,13 @@ def evaluate_directivity(
             complex_imag=None,
             supporting_sample_sha256=supporting_hashes,
             reasons=(
-                'interpolated inside declared dataset domain without extrapolation',
+                ('interpolated inside declared dataset domain without '
+                 'extrapolation',)
+                + (
+                    ('azimuth canonicalized at the elevation pole',)
+                    if pole_canonicalized
+                    else ()
+                )
             ),
         )
 
@@ -1159,6 +1305,12 @@ def evaluate_directivity(
         complex_imag=complex_value.imag if request == 'complex' else None,
         supporting_sample_sha256=supporting_hashes,
         reasons=(
-            'interpolated inside declared dataset domain without extrapolation',
+            ('interpolated inside declared dataset domain without '
+             'extrapolation',)
+            + (
+                ('azimuth canonicalized at the elevation pole',)
+                if pole_canonicalized
+                else ()
+            )
         ),
     )

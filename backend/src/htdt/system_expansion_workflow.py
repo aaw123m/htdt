@@ -11,10 +11,23 @@ import sqlite3
 from typing import Literal, Sequence
 
 from .cad_amplifier_headroom import PlaybackChainEvaluation
+from .cad_amplifier_headroom_repository import CadAmplifierHeadroomRepository
 from .cad_constraint_models import CadConstraintPoint2D, CadConstraintSet
 from .cad_coverage import CoverageEvaluation
-from .cad_direct_level import DirectLevelEvaluation
+from .cad_coverage_repository import CadCoverageRepository
+from .cad_direct_level import (
+    DirectLevelEvaluation,
+    DirectLevelFrequencyBand,
+    ReferenceInputCondition,
+)
+from .cad_direct_level_repository import CadDirectLevelRepository
+from .cad_directivity_repository import CadDirectivityRepository
+from .cad_equipment_binding_repository import (
+    CadEquipmentBindingRepository,
+)
 from .cad_equipment_repository import CadEquipmentRepository
+from .cad_installation_cost import CostRecord, CostScenario
+from .cad_installation_cost_repository import CadInstallationCostRepository
 from .cad_layout_profile import LayoutProfile
 from .cad_proposal_robustness import (
     ProposalMultidimensionalRobustnessSpec,
@@ -26,6 +39,7 @@ from .cad_scene import (
     Direction3,
     Position3,
     SceneEntity,
+    is_listener_receiver_eligible,
     is_unassigned_speaker_role,
 )
 from .cad_search_models import CadSearchAxis
@@ -64,7 +78,9 @@ from .cad_system_variant_measurement_campaign import (
     build_system_variant_measurement_campaign,
     build_system_variant_measurement_plan,
 )
-from .cad_standards import StandardsEvaluation
+from .cad_standards import StandardsEvaluation, StandardsProfile
+from .cad_standards import build_user_standards_profile
+from .cad_standards_repository import CadStandardsRepository
 from .cad_system_variant_repository import (
     CadSystemVariantRepository,
     SystemVariantApplication,
@@ -74,6 +90,16 @@ from .cad_topology_comparison import (
     TopologyComparisonEvaluation,
     VariantEvaluationBundle,
 )
+from .cad_topology_comparison_execution import (
+    ComparisonEvaluationPolicy,
+    CoverageLanePolicy,
+    DirectLevelLanePolicy,
+    PlaybackChainLanePolicy,
+    TopologyComparisonExecution,
+    execute_topology_comparison,
+    installation_cost_resolver,
+)
+from .cad_topology_comparison_repository import CadTopologyComparisonRepository
 from .cad_topology_search import (
     LinkRelation,
     LinkedPlacementRule,
@@ -2068,6 +2094,225 @@ class SystemExpansionWorkflowService:
                 if stale
                 else None
             ),
+        )
+
+    # ------------------------------------------------------------------
+    # O100D comparison execution (#982) + O100C cost/budget (#988)
+    # ------------------------------------------------------------------
+
+    def _comparison_execution_dependencies(self):
+        """Repositories for the canonical O100D execution path."""
+        standards = CadStandardsRepository(
+            self.scene_repository, self.variant_repository
+        )
+        directivity = CadDirectivityRepository(
+            self.scene_repository, self.equipment_repository
+        )
+        coverage = CadCoverageRepository(
+            self.scene_repository,
+            self.variant_repository,
+            self.equipment_repository,
+            directivity,
+        )
+        direct_level = CadDirectLevelRepository(
+            self.scene_repository,
+            self.variant_repository,
+            self.equipment_repository,
+        )
+        amplifier = CadAmplifierHeadroomRepository(
+            self.scene_repository,
+            self.variant_repository,
+            self.equipment_repository,
+        )
+        cost = CadInstallationCostRepository(self.scene_repository)
+        bindings = CadEquipmentBindingRepository(
+            self.scene_repository, self.equipment_repository
+        )
+        comparison = CadTopologyComparisonRepository(
+            scene_repository=self.scene_repository,
+            system_variant_repository=self.variant_repository,
+            standards_repository=standards,
+            coverage_repository=coverage,
+            direct_level_repository=direct_level,
+            amplifier_headroom_repository=amplifier,
+            external_resolvers={
+                'installation_cost_evaluation': installation_cost_resolver(
+                    cost
+                ),
+            },
+        )
+        return {
+            'standards': standards,
+            'directivity': directivity,
+            'coverage': coverage,
+            'direct_level': direct_level,
+            'amplifier': amplifier,
+            'cost': cost,
+            'bindings': bindings,
+            'comparison': comparison,
+        }
+
+    def save_cost_record(self, record: CostRecord) -> CostRecord:
+        """Persist one exact project cost record (#988)."""
+        return CadInstallationCostRepository(
+            self.scene_repository
+        ).save_record(record, document_id=self.document_id)
+
+    def cost_records(self) -> tuple[CostRecord, ...]:
+        return CadInstallationCostRepository(
+            self.scene_repository
+        ).list_records(self.document_id)
+
+    def cost_scenarios(self) -> tuple[CostScenario, ...]:
+        """Persisted cost scenarios are not a product surface; scenarios are
+        caller-built in-memory authorities (``build_cost_scenario``)."""
+        return ()
+
+    def comparison_standards_profiles(self) -> tuple[StandardsProfile, ...]:
+        """Persisted StandardsProfiles available to comparison runs."""
+        return CadStandardsRepository(
+            self.scene_repository, self.variant_repository
+        ).list_profiles()
+
+    def evaluate_proposals(
+        self,
+        variant_ids: Sequence[str],
+        *,
+        name: str | None = None,
+        include_current: bool = True,
+        source_entity_id: str | None = None,
+        channel_role_id: str | None = None,
+        seat_entity_ids: Sequence[str] | None = None,
+        standards_profile_id: str | None = None,
+        cost_scenario: CostScenario | None = None,
+        playback_chain: PlaybackChainLanePolicy | None = None,
+        required_objective_ids: frozenset[str] = frozenset(),
+    ) -> TopologyComparisonExecution:
+        """Evaluate selected proposed SystemVariants and persist a comparison.
+
+        One normal O100D run: builds the canonical spec, runs every typed
+        evaluator the candidate's equipment bindings/capability support,
+        persists exact VariantEvaluationBundles and the reproducible
+        TopologyComparisonEvaluation. Nothing is synthesized: unsupported
+        lanes surface as explicit eligibility issues, not zeros.
+        """
+        baseline = self.scene_repository.current_head(self.document_id)
+        if baseline is None:
+            raise ValueError("比較対象となる現在のSceneRevisionがありません。")
+
+        candidates: list[SystemVariant] = []
+        for variant_id in variant_ids:
+            variant = self.variant_repository.get_variant(variant_id)
+            if variant is None:
+                raise ValueError(
+                    f"選択したSystemVariantが存在しません: {variant_id}"
+                )
+            candidates.append(variant)
+        if not candidates and not include_current:
+            raise ValueError("比較には少なくとも1つの候補が必要です。")
+
+        document = baseline.document
+        if source_entity_id is None or channel_role_id is None:
+            speaker = next(
+                (
+                    entity
+                    for entity in document.entities
+                    if entity.kind == 'speaker' and entity.speaker_role
+                ),
+                None,
+            )
+            if speaker is not None:
+                source_entity_id = (
+                    source_entity_id or speaker.entity_id
+                )
+                channel_role_id = (
+                    channel_role_id or speaker.speaker_role
+                )
+
+        if seat_entity_ids is None:
+            seat_entity_ids = tuple(
+                entity.entity_id
+                for entity in document.entities
+                if is_listener_receiver_eligible(entity)
+            )
+        seats = tuple(seat_entity_ids)
+
+        dependencies = self._comparison_execution_dependencies()
+        standards = dependencies['standards']
+        if standards_profile_id is not None:
+            profile = standards.get_profile(standards_profile_id)
+            if profile is None:
+                raise ValueError(
+                    f"選択したStandardsProfileが存在しません: "
+                    f"{standards_profile_id}"
+                )
+        else:
+            profiles = standards.list_profiles()
+            if profiles:
+                profile = profiles[-1]
+            else:
+                profile = build_user_standards_profile(
+                    profile_id='o100d-comparison-default',
+                    version='1',
+                    name='O100D comparison default',
+                    criteria=(),
+                )
+
+        coverage_policy = None
+        if source_entity_id is not None and channel_role_id and seats:
+            coverage_policy = CoverageLanePolicy(
+                source_entity_id=source_entity_id,
+                channel_role_id=channel_role_id,
+                seat_entity_ids=seats,
+                evaluation_frequencies_hz=(
+                    125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0
+                ),
+                coverage_threshold_db=-6.0,
+            )
+        direct_level_policy = None
+        if source_entity_id is not None and channel_role_id and seats:
+            direct_level_policy = DirectLevelLanePolicy(
+                source_entity_id=source_entity_id,
+                channel_role_id=channel_role_id,
+                seat_entity_ids=seats,
+                reference_input=ReferenceInputCondition(
+                    input_quantity='voltage_v_rms',
+                    input_value=2.83,
+                ),
+                target_spl_db_spl=75.0,
+                frequency_band=DirectLevelFrequencyBand(
+                    low_hz=100.0, high_hz=10000.0
+                ),
+                target_reference_condition=(
+                    'single-channel direct target at each seat'
+                ),
+            )
+
+        return execute_topology_comparison(
+            scene_repository=self.scene_repository,
+            variant_repository=self.variant_repository,
+            comparison_repository=dependencies['comparison'],
+            standards_repository=standards,
+            equipment_repository=self.equipment_repository,
+            baseline=baseline,
+            name=name or 'SystemVariant 比較',
+            standards_profile=profile,
+            candidates=candidates,
+            policy=ComparisonEvaluationPolicy(
+                coverage=coverage_policy,
+                direct_level=direct_level_policy,
+                playback_chain=playback_chain,
+                cost_scenario=cost_scenario,
+                required_objective_ids=required_objective_ids,
+            ),
+            include_current=include_current,
+            coverage_repository=dependencies['coverage'],
+            direct_level_repository=dependencies['direct_level'],
+            amplifier_headroom_repository=dependencies['amplifier'],
+            directivity_repository=dependencies['directivity'],
+            cost_repository=dependencies['cost'],
+            equipment_binding_repository=dependencies['bindings'],
+            created_at_utc=datetime.now(timezone.utc).isoformat(),
         )
 
     def robustness_target(self, variant_id: str) -> RobustnessNavigationTarget:

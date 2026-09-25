@@ -47,6 +47,7 @@ from .r120_geometry_compiler import ExactExternalAuthorityRef
 PREDICTION_MATRIX_SCHEMA_VERSION = 1
 PREDICTION_MATRIX_SPEC_AUTHORITY_VERSION = 'prediction-matrix-spec-1'
 PREDICTION_MATRIX_RESULT_AUTHORITY_VERSION = 'prediction-matrix-result-1'
+PREDICTION_MATRIX_RUN_AUTHORITY_VERSION = 'prediction-matrix-run-1'
 
 MatrixCellState = Literal[
     'QUEUED',
@@ -525,15 +526,54 @@ def collect_matrix_results(
                     )
                 )
                 continue
+            if tuple(response.frequency_hz) != tuple(
+                spec.observable_contract.frequency_axis_hz
+            ):
+                cells.append(
+                    build_matrix_cell(
+                        spec,
+                        matrix_source_id=source.matrix_source_id,
+                        matrix_receiver_id=receiver.matrix_receiver_id,
+                        state='BLOCKED',
+                        blocked_reason=(
+                            'provider response frequency grid does not match '
+                            'the matrix observable contract'
+                        ),
+                    )
+                )
+                continue
+            result_sha = _digest(
+                {
+                    'kind': 'matrix-cell-transfer',
+                    'spec_semantic_sha256': spec.semantic_sha256,
+                    'provider_id': provider.provider_id,
+                    'receiver_id': receiver.receiver_id,
+                    'frequency_hz': list(response.frequency_hz),
+                    'magnitude_pa': list(response.magnitude_pa),
+                    'phase_deg': (
+                        list(response.phase_deg)
+                        if response.phase_deg is not None
+                        else None
+                    ),
+                    'pressure_reference_pa': float(response.pressure_reference_pa),
+                }
+            )
             cell_key = (source.matrix_source_id, receiver.matrix_receiver_id)
             if cell_key in cached_result_sha256:
+                cached_sha = cached_result_sha256[cell_key]
+                if cached_sha != result_sha:
+                    raise ValueError(
+                        'cached result hash does not match the result '
+                        'authority of cell '
+                        f'{source.matrix_source_id}x{receiver.matrix_receiver_id}'
+                    )
                 cells.append(
                     build_matrix_cell(
                         spec,
                         matrix_source_id=source.matrix_source_id,
                         matrix_receiver_id=receiver.matrix_receiver_id,
                         state='CACHED',
-                        result_sha256=cached_result_sha256[cell_key],
+                        result_sha256=result_sha,
                     )
                 )
                 transfers.append(
@@ -553,20 +593,6 @@ def collect_matrix_results(
                     )
                 )
                 continue
-            result_sha = _digest(
-                {
-                    'kind': 'matrix-cell-transfer',
-                    'spec_semantic_sha256': spec.semantic_sha256,
-                    'provider_id': provider.provider_id,
-                    'receiver_id': receiver.receiver_id,
-                    'magnitude_pa': list(response.magnitude_pa),
-                    'phase_deg': (
-                        list(response.phase_deg)
-                        if response.phase_deg is not None
-                        else None
-                    ),
-                }
-            )
             cells.append(
                 build_matrix_cell(
                     spec,
@@ -823,6 +849,208 @@ def compose_matrix_system_response(
         result_set, spec, matrix_receiver_id
     )
     return compose_coherent_system_response(scenario, transfers)
+MatrixRunState = Literal[
+    'QUEUED',
+    'RUNNING',
+    'READY',
+    'BLOCKED',
+    'FAILED',
+    'CANCELLED',
+]
+
+
+class MatrixExecutionRun(BaseModel):
+    """One persisted execution attempt for a PredictionMatrixSpec (#986).
+
+    The run record is the replayable evidence that a matrix was actually
+    executed: every attempt carries its own semantic identity, terminal
+    state, per-cell state snapshot, and the result set it produced.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema_version: Literal[1] = PREDICTION_MATRIX_SCHEMA_VERSION
+    authority_version: Literal[
+        'prediction-matrix-run-1'
+    ] = PREDICTION_MATRIX_RUN_AUTHORITY_VERSION
+    run_id: str = Field(pattern=r'^prediction-matrix-run:[0-9a-f]{64}$')
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    spec_id: str = Field(pattern=r'^prediction-matrix-spec:[0-9a-f]{64}$')
+    spec_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    attempt: int = Field(ge=1)
+    state: MatrixRunState
+    result_set_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    cell_state_counts: dict[str, int] = Field(default_factory=dict)
+    started_at_utc: str = Field(min_length=1)
+    finished_at_utc: str | None = Field(default=None, min_length=1)
+    failure_reason: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode='after')
+    def validate_run(self) -> 'MatrixExecutionRun':
+        if self.state in ('READY', 'BLOCKED') and (
+            self.result_set_sha256 is None
+        ):
+            raise ValueError(
+                'terminal matrix run requires the result set it produced'
+            )
+        if self.state in ('QUEUED', 'RUNNING') and (
+            self.result_set_sha256 is not None
+        ):
+            raise ValueError(
+                'pending matrix run cannot carry a result set hash'
+            )
+        if self.state == 'FAILED' and not self.failure_reason:
+            raise ValueError('FAILED matrix run requires a reason')
+        if self.state != 'FAILED' and self.failure_reason:
+            raise ValueError('only FAILED matrix runs carry a reason')
+        if self.state in ('READY', 'BLOCKED', 'FAILED', 'CANCELLED') and (
+            self.finished_at_utc is None
+        ):
+            raise ValueError('terminal matrix run requires finished_at_utc')
+        digest = _digest(self.semantic_payload())
+        if self.semantic_sha256 != digest:
+            raise ValueError('matrix run semantic hash mismatch')
+        if self.run_id != f'prediction-matrix-run:{digest}':
+            raise ValueError('matrix run id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode='json',
+            exclude={'run_id', 'semantic_sha256'},
+        )
+
+
+def build_matrix_execution_run(
+    *,
+    spec: PredictionMatrixSpec,
+    attempt: int,
+    state: MatrixRunState,
+    started_at_utc: str,
+    finished_at_utc: str | None = None,
+    result_set: TransferMatrixResultSet | None = None,
+    cell_state_counts: dict[str, int] | None = None,
+    failure_reason: str | None = None,
+) -> MatrixExecutionRun:
+    counts = dict(cell_state_counts or {})
+    if result_set is not None:
+        for cell in result_set.cells:
+            counts[cell.state] = counts.get(cell.state, 0) + 1
+    payload: dict[str, Any] = {
+        'schema_version': PREDICTION_MATRIX_SCHEMA_VERSION,
+        'authority_version': PREDICTION_MATRIX_RUN_AUTHORITY_VERSION,
+        'spec_id': spec.spec_id,
+        'spec_semantic_sha256': spec.semantic_sha256,
+        'attempt': int(attempt),
+        'state': state,
+        'result_set_sha256': (
+            None if result_set is None else result_set.semantic_sha256
+        ),
+        'cell_state_counts': counts,
+        'started_at_utc': started_at_utc,
+        'finished_at_utc': finished_at_utc,
+        'failure_reason': failure_reason,
+    }
+    digest = _digest(payload)
+    return MatrixExecutionRun(
+        spec_id=spec.spec_id,
+        spec_semantic_sha256=spec.semantic_sha256,
+        attempt=int(attempt),
+        state=state,
+        result_set_sha256=(
+            None if result_set is None else result_set.semantic_sha256
+        ),
+        cell_state_counts=counts,
+        started_at_utc=started_at_utc,
+        finished_at_utc=finished_at_utc,
+        failure_reason=failure_reason,
+        run_id=f'prediction-matrix-run:{digest}',
+        semantic_sha256=digest,
+    )
+
+
+def cached_result_sha256_map(
+    result_set: TransferMatrixResultSet,
+) -> dict[tuple[str, str], str]:
+    """Exact per-cell reuse map for re-runs of the same spec."""
+    return {
+        (cell.matrix_source_id, cell.matrix_receiver_id): cell.result_sha256
+        for cell in result_set.cells
+        if cell.state in ('READY', 'CACHED')
+        and cell.result_sha256 is not None
+    }
+
+
+def execute_prediction_matrix(
+    spec: PredictionMatrixSpec,
+    providers: dict[str, LowBandPredictionProvider],
+    *,
+    repository=None,
+    attempt: int | None = None,
+    started_at_utc: str,
+    finished_at_utc: str | None = None,
+) -> MatrixExecutionRun:
+    """Drive one matrix execution and persist spec/run/result set (#986).
+
+    Cells whose prior persisted result already carries the exact result
+    authority (same spec, same provider output identity) are marked CACHED
+    and reused verbatim — nothing is recomputed or fabricated.
+    """
+    if repository is not None:
+        repository.save_spec(spec)
+    plan = plan_matrix_execution(spec)
+    _ = plan  # batching semantics are carried by provider composition
+
+    if attempt is None:
+        attempt = 1
+        if repository is not None:
+            attempt = len(repository.run_history(spec.spec_id)) + 1
+
+    cached: dict[tuple[str, str], str] = {}
+    if repository is not None:
+        latest = repository.latest_result_set(spec.spec_id)
+        if latest is not None:
+            cached = cached_result_sha256_map(latest)
+
+    try:
+        result_set = collect_matrix_results(
+            spec,
+            providers,
+            cached_result_sha256=cached,
+        )
+    except Exception as exc:
+        run = build_matrix_execution_run(
+            spec=spec,
+            attempt=attempt,
+            state='FAILED',
+            started_at_utc=started_at_utc,
+            finished_at_utc=finished_at_utc,
+            failure_reason=str(exc),
+        )
+        if repository is not None:
+            repository.save_run(run)
+        raise
+    if repository is not None:
+        repository.save_result_set(result_set)
+    terminal = (
+        'READY'
+        if all(cell.state != 'FAILED' for cell in result_set.cells)
+        else 'BLOCKED'
+    )
+    run = build_matrix_execution_run(
+        spec=spec,
+        attempt=attempt,
+        state=terminal,
+        started_at_utc=started_at_utc,
+        finished_at_utc=finished_at_utc,
+        result_set=result_set,
+    )
+    if repository is not None:
+        repository.save_run(run)
+    return run
 
 
 class MatrixCurrency(BaseModel):
@@ -848,23 +1076,77 @@ def assess_matrix_currency(
     *,
     current_scene_content_hash: str,
     current_snapshot_sha256: str,
+    current_source_bindings: dict[str, str] | None = None,
+    current_receiver_bindings: dict[str, str] | None = None,
 ) -> MatrixCurrency:
-    """A matrix goes stale when the pinned scene or snapshot moves."""
+    """Dependency-aware currency assessment (#986).
+
+    Shared dependencies (scene content, acoustic snapshot, solver) stale the
+    whole matrix; a changed source binding stales only that source's column,
+    a changed receiver binding only that receiver's row. Exact cells keep
+    running until their own pinned dependency moves.
+    """
     if result_set.spec_semantic_sha256 != spec.semantic_sha256:
         raise ValueError('result set does not belong to the supplied spec')
-    reasons: list[str] = []
+    shared_reasons: list[str] = []
     if spec.scene_content_hash != current_scene_content_hash:
-        reasons.append('scene content changed since the matrix ran')
+        shared_reasons.append('scene content changed since the matrix ran')
     if spec.acoustic_scene_snapshot_sha256 != current_snapshot_sha256:
-        reasons.append('acoustic scene snapshot changed since the matrix ran')
-    stale_cells = (
-        tuple(item.cell_id for item in result_set.cells)
-        if reasons
-        else ()
-    )
+        shared_reasons.append(
+            'acoustic scene snapshot changed since the matrix ran'
+        )
+
+    stale_cells: list[str] = []
+    reasons = list(shared_reasons)
+    if shared_reasons:
+        stale_cells = [item.cell_id for item in result_set.cells]
+    else:
+        source_bindings = dict(current_source_bindings or {})
+        receiver_bindings = dict(current_receiver_bindings or {})
+        stale_sources: set[str] = set()
+        stale_receivers: set[str] = set()
+        if source_bindings:
+            for source in spec.sources:
+                current = source_bindings.get(
+                    source.source_entity_id,
+                    source_bindings.get(source.matrix_source_id),
+                )
+                if (
+                    current is not None
+                    and current != source.source_binding_sha256
+                ):
+                    stale_sources.add(source.matrix_source_id)
+            if stale_sources:
+                reasons.append(
+                    'matrix source binding changed for: '
+                    + ', '.join(sorted(stale_sources))
+                )
+        if receiver_bindings:
+            for receiver in spec.receivers:
+                current = receiver_bindings.get(
+                    receiver.receiver_entity_id,
+                    receiver_bindings.get(receiver.matrix_receiver_id),
+                )
+                if (
+                    current is not None
+                    and current != receiver.receiver_binding_sha256
+                ):
+                    stale_receivers.add(receiver.matrix_receiver_id)
+            if stale_receivers:
+                reasons.append(
+                    'matrix receiver binding changed for: '
+                    + ', '.join(sorted(stale_receivers))
+                )
+        for cell in result_set.cells:
+            if (
+                cell.matrix_source_id in stale_sources
+                or cell.matrix_receiver_id in stale_receivers
+            ):
+                stale_cells.append(cell.cell_id)
+
     return MatrixCurrency(
         spec_id=spec.spec_id,
         state='STALE' if reasons else 'CURRENT',
         stale_reasons=tuple(reasons),
-        stale_cell_ids=stale_cells,
+        stale_cell_ids=tuple(stale_cells),
     )

@@ -61,6 +61,8 @@ from .cad_room_operating_state import (
 from .cad_room_operating_state_repository import (
     CadRoomOperatingStateRepository,
 )
+from .cad_system_variant import SystemVariant, materialize_system_variant
+from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_scene import (
     acoustic_reference_position,
     is_listener_receiver_eligible,
@@ -75,6 +77,7 @@ from .room_prediction_options import (
     RoomPredictionModelOption,
     resolve_room_prediction_options,
 )
+from .room_prediction_target import RoomPredictionTarget
 from .prediction_interpretation import (
     PredictionFinding,
     PredictionInterpretation,
@@ -104,6 +107,11 @@ class RoomPredictionRunSpec:
     environment_profile: ExactExternalAuthorityRef | None = None
     listener_pose: ListenerPoseAuthority | None = None
     operating_state: RoomOperatingState | None = None
+    #: Exact proposed prediction target (#983). ``revision`` is always the
+    #: baseline SceneRevision; when set, the materialized variant document
+    #: supplies the source/receiver set and the request identity carries
+    #: the exact variant id/hash — the variant is never applied to run.
+    system_variant: SystemVariant | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +146,7 @@ class RoomPredictionController(QObject):
         provider_repository: CadPredictionProviderRepository | None = None,
         listener_pose_repository: CadListenerPoseRepository | None = None,
         operating_state_repository: CadRoomOperatingStateRepository | None = None,
+        variant_repository: CadSystemVariantRepository | None = None,
     ) -> None:
         super().__init__(parent)
         self.scene_repository = scene_repository
@@ -168,6 +177,14 @@ class RoomPredictionController(QObject):
             operating_state_repository
             if operating_state_repository is not None
             else CadRoomOperatingStateRepository(scene_repository)
+        )
+        # #983: a proposed SystemVariant is an exact prediction target — the
+        # persisted proposal materializes over the baseline revision so room
+        # prediction can evaluate it before apply.
+        self._variant_repository = (
+            variant_repository
+            if variant_repository is not None
+            else CadSystemVariantRepository(scene_repository)
         )
         self.job_guard = PredictionJobGuard()
         self._operation = operation or self._analyze
@@ -250,6 +267,7 @@ class RoomPredictionController(QObject):
         receiver_entity_id: str,
         *,
         allow_source_receiver: bool = False,
+        system_variant: SystemVariant | None = None,
     ) -> SceneRevision:
         working = self.room_controller.working
         if working.source_revision_id is None:
@@ -263,7 +281,22 @@ class RoomPredictionController(QObject):
             raise ValueError("現在のSceneRevisionを読み込めません")
         if revision.content_hash != scene_content_hash(working.committed_document):
             raise ValueError("現在のSceneRevisionと編集状態が一致しません")
-        entity = revision.document.entity(receiver_entity_id)
+        document = revision.document
+        if system_variant is not None:
+            if system_variant.baseline_revision_id != revision.revision_id:
+                raise ValueError(
+                    "選択したSystemVariantは現在のSceneRevisionを基にしていません"
+                )
+            if system_variant.document_id != revision.document_id:
+                raise ValueError(
+                    "選択したSystemVariantは別のドキュメントに属します"
+                )
+            if system_variant.baseline_content_hash != revision.content_hash:
+                raise ValueError(
+                    "選択したSystemVariantのベース内容が一致しません"
+                )
+            document = materialize_system_variant(revision, system_variant)
+        entity = document.entity(receiver_entity_id)
         if acoustic_reference_position(entity) is None and not (
             entity.kind == 'seat'
             and self._selected_pose(entity.entity_id) is not None
@@ -275,6 +308,24 @@ class RoomPredictionController(QObject):
                 "(診断モードのみ明示的に許可)"
             )
         return revision
+
+    def _resolve_prediction_variant(
+        self,
+        system_variant_id: str | None,
+    ) -> SystemVariant | None:
+        """Exact persisted proposed prediction target (#983).
+
+        The variant must exist in the repository — never synthesized or
+        silently ignored — and its exact baseline binding is validated
+        against the saved revision in ``_saved_target``.
+        """
+
+        if system_variant_id is None:
+            return None
+        variant = self._variant_repository.get_variant(system_variant_id)
+        if variant is None:
+            raise ValueError("選択したSystemVariantが存在しません")
+        return variant
 
     def environment_profiles(self) -> tuple[AcousticEnvironmentProfile, ...]:
         return self.environment_repository.list_profiles()
@@ -322,16 +373,26 @@ class RoomPredictionController(QObject):
         environment_profile_id: str | None = None,
         operating_state_id: str | None = None,
         operating_state_version: str | None = None,
+        system_variant_id: str | None = None,
     ) -> tuple[RoomPredictionModelOption, ...]:
         """Solver-neutral model/provider option set for the Room flow (#457).
 
         Resolves READY/BLOCKED/UNSUPPORTED lanes with reasons — the product
         never assumes the rectangular model and never presents unvalidated
         providers as production capability.
+
+        ``system_variant_id`` selects an exact proposed prediction target
+        (#983): option lanes resolve against the materialized proposal — a
+        provider whose authority binds the current revision shows explicit
+        stale/unsupported reasons instead of silently predicting the
+        baseline.
         """
         try:
+            variant = self._resolve_prediction_variant(system_variant_id)
             revision = self._saved_target(
-                receiver_entity_id, allow_source_receiver=True
+                receiver_entity_id,
+                allow_source_receiver=True,
+                system_variant=variant,
             )
         except (ValueError, KeyError) as exc:
             return (
@@ -353,8 +414,15 @@ class RoomPredictionController(QObject):
             )
         except ValueError:
             operating_state = None
+        option_revision = revision
+        if variant is not None:
+            option_revision = RoomPredictionTarget(
+                baseline_revision=revision,
+                document=materialize_system_variant(revision, variant),
+                system_variant=variant,
+            ).input_revision
         return resolve_room_prediction_options(
-            revision,
+            option_revision,
             receiver_entity_id,
             providers=self.available_providers(),
             environment_profile=environment,
@@ -479,10 +547,13 @@ class RoomPredictionController(QObject):
         operating_state_id: str | None = None,
         operating_state_version: str | None = None,
         allow_source_receiver: bool = False,
+        system_variant_id: str | None = None,
     ) -> RoomPredictionRunSpec:
+        variant = self._resolve_prediction_variant(system_variant_id)
         revision = self._saved_target(
             receiver_entity_id,
             allow_source_receiver=allow_source_receiver,
+            system_variant=variant,
         )
         environment = self._resolve_environment(environment_profile_id)
         environment_profile = (
@@ -523,6 +594,7 @@ class RoomPredictionController(QObject):
             environment_profile=environment_profile,
             listener_pose=listener_pose,
             operating_state=operating_state,
+            system_variant=variant,
         )
         sound_speed_m_s = resolved_sound_speed
         constraint_hash = self._constraint_hash()
@@ -545,6 +617,7 @@ class RoomPredictionController(QObject):
             environment_profile=environment_profile,
             listener_pose=listener_pose,
             operating_state=operating_state,
+            system_variant=variant,
         )
 
     @staticmethod
@@ -563,6 +636,7 @@ class RoomPredictionController(QObject):
             environment_profile=spec.environment_profile,
             listener_pose=spec.listener_pose,
             operating_state=spec.operating_state,
+            system_variant=spec.system_variant,
         )
 
     def start(
@@ -575,6 +649,7 @@ class RoomPredictionController(QObject):
         operating_state_id: str | None = None,
         operating_state_version: str | None = None,
         allow_source_receiver: bool = False,
+        system_variant_id: str | None = None,
     ) -> bool:
         if self._disposed:
             return False
@@ -582,7 +657,9 @@ class RoomPredictionController(QObject):
             options = {
                 option.model_key: option
                 for option in self.prediction_options(
-                    receiver_entity_id, max_mode_hz=max_mode_hz
+                    receiver_entity_id,
+                    max_mode_hz=max_mode_hz,
+                    system_variant_id=system_variant_id,
                 )
             }
             option = options.get(model_key)
@@ -613,6 +690,7 @@ class RoomPredictionController(QObject):
                 operating_state_id=operating_state_id,
                 operating_state_version=operating_state_version,
                 allow_source_receiver=allow_source_receiver,
+                system_variant_id=system_variant_id,
             )
         except Exception as exc:
             self.stateChanged.emit(

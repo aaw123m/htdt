@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
 from .cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard, PredictionJobToken
 from .cad_prediction_models import CadPredictionResult, canonical_prediction_json
 from .cad_prediction_repository import CadPredictionRepository
+from .prediction_matrix_service import PredictionMatrixService
 from .cad_prediction_request import rectangular_geometry_request_identity
 from .cad_predictions import analyze_native_rectangular_geometry
 from .cad_repository import SceneRepository, SceneRevision
@@ -40,6 +43,9 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
 
     def __init__(self, repository: SceneRepository, document_id: str = F1_DOCUMENT_ID) -> None:
         self.prediction_repository = CadPredictionRepository(repository)
+        self.matrix_service = PredictionMatrixService(repository, document_id)
+        self.matrix_table: QTableWidget | None = None
+        self.matrix_status_label: QLabel | None = None
         self.prediction_job_guard = PredictionJobGuard()
         self.prediction_selected_run_id: str | None = None
         self.prediction_tree: QTreeWidget | None = None
@@ -135,6 +141,21 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         )
         self.prediction_detail_label.setWordWrap(True)
         layout.addWidget(self.prediction_detail_label)
+
+        self.matrix_status_label = QLabel('matrixなし')
+        self.matrix_status_label.setWordWrap(True)
+        layout.addWidget(self.matrix_status_label)
+        self.matrix_table = QTableWidget()
+        self.matrix_table.setMinimumHeight(140)
+        self.matrix_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        layout.addWidget(self.matrix_table)
+        matrix_refresh_button = QPushButton('行列を再読込')
+        matrix_refresh_button.clicked.connect(self.refresh_matrix_dock)
+        layout.addWidget(matrix_refresh_button)
+        self.refresh_matrix_dock()
+
         layout.addStretch(1)
 
         dock = QDockWidget('予測', self)
@@ -142,6 +163,54 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
         self._unify_right_context_docks(dock)
         dock.raise_()
+
+    def refresh_matrix_dock(self) -> None:
+        """O531: render the persisted source x receiver grid (#986)."""
+        if self.matrix_table is None:
+            return
+        presentation = self.matrix_service.matrix_presentation()
+        self.matrix_table.clear()
+        if presentation.spec_id is None:
+            self.matrix_table.setRowCount(0)
+            self.matrix_table.setColumnCount(0)
+            if self.matrix_status_label is not None:
+                self.matrix_status_label.setText(
+                    f"matrixなし · {presentation.reason or ''}"
+                )
+            return
+        sources = presentation.source_labels
+        receivers = presentation.receiver_labels
+        self.matrix_table.setColumnCount(len(sources))
+        self.matrix_table.setRowCount(len(receivers))
+        self.matrix_table.setHorizontalHeaderLabels(list(sources))
+        self.matrix_table.setVerticalHeaderLabels(list(receivers))
+        cells = {
+            (cell.matrix_source_id, cell.matrix_receiver_id): cell
+            for cell in presentation.cells
+        }
+        spec = self.matrix_service.repository.get_spec(presentation.spec_id)
+        for row, receiver in enumerate(spec.receivers):
+            for column, source in enumerate(spec.sources):
+                cell = cells.get(
+                    (source.matrix_source_id, receiver.matrix_receiver_id)
+                )
+                text = '' if cell is None else (
+                    cell.state
+                    + (f'·{cell.blocked_reason}' if cell.blocked_reason else '')
+                )
+                self.matrix_table.setItem(
+                    row, column, QTableWidgetItem(text)
+                )
+        if self.matrix_status_label is not None:
+            parts = [presentation.spec_name]
+            if presentation.run_state is not None:
+                parts.append(
+                    f"run {presentation.run_attempt}: "
+                    f"{presentation.run_state}"
+                )
+            if presentation.currency_state is not None:
+                parts.append(f'currency {presentation.currency_state}')
+            self.matrix_status_label.setText(' · '.join(parts))
 
     def _constraint_workspace_hash(self) -> str:
         constraint_set = getattr(self, 'constraint_set', None)

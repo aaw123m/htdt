@@ -204,6 +204,27 @@ class CadEquipmentBindingRepository:
             ).fetchone()
         return None if row is None else self._decode_binding_row(row)
 
+    def latest_binding_for_entity_as_of(
+        self,
+        document_id: str,
+        entity_id: str,
+        max_created_utc: str,
+    ) -> EquipmentBindingSemantics | None:
+        """Revision-aware view: newest binding semantics recorded at or
+        before ``max_created_utc`` — the record visible at that revision."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT binding_id, semantic_sha256, document_id, entity_id,
+                    equipment_definition_sha256, payload_json
+                FROM cad_equipment_binding_semantics
+                WHERE document_id=? AND entity_id=? AND recorded_at_utc<=?
+                ORDER BY recorded_at_utc DESC, seq DESC LIMIT 1
+                """,
+                (document_id, entity_id, max_created_utc),
+            ).fetchone()
+        return None if row is None else self._decode_binding_row(row)
+
     def binding_by_exact_hash(
         self,
         semantic_sha256: str,

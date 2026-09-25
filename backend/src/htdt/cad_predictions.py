@@ -28,10 +28,12 @@ from .cad_repository import SceneRevision
 from .cad_scene import (
     Position3,
     RoomPrism,
+    SceneDocument,
     SceneEntity,
     acoustic_reference_position,
     room_vertices,
 )
+from .cad_system_variant import SystemVariant, materialize_system_variant
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -144,6 +146,39 @@ def _local_position(position: Position3, frame: RectangularRoomFrame) -> tuple[f
     )
 
 
+def _target_document(
+    revision: SceneRevision,
+    system_variant: SystemVariant | None,
+) -> SceneDocument:
+    """Effective prediction document (#983).
+
+    A variant-bound request never applies the variant: the exact baseline
+    SceneRevision is validated against the persisted proposal and the
+    materialized proposal document is used for source/receiver resolution.
+    """
+
+    if system_variant is None:
+        return revision.document
+    if system_variant.baseline_revision_id != revision.revision_id:
+        raise ValueError('SystemVariant baseline SceneRevision mismatch')
+    if system_variant.document_id != revision.document_id:
+        raise ValueError('SystemVariant baseline document mismatch')
+    if system_variant.baseline_content_hash != revision.content_hash:
+        raise ValueError('SystemVariant baseline SceneRevision content hash mismatch')
+    return materialize_system_variant(revision, system_variant)
+
+
+def _system_variant_ref(system_variant: SystemVariant) -> dict[str, str]:
+    """Exact variant authority ref embedded in variant-bound request snapshots."""
+
+    return {
+        'variant_id': system_variant.variant_id,
+        'variant_sha256': system_variant.variant_sha256,
+        'baseline_revision_id': system_variant.baseline_revision_id,
+        'baseline_content_hash': system_variant.baseline_content_hash,
+    }
+
+
 def _inside_frame(position: Position3, frame: RectangularRoomFrame, *, tolerance: float = 1e-9) -> bool:
     return (
         frame.origin_x_m - tolerance <= position.x_m <= frame.origin_x_m + frame.width_m + tolerance
@@ -152,8 +187,8 @@ def _inside_frame(position: Position3, frame: RectangularRoomFrame, *, tolerance
     )
 
 
-def _surface_identities(revision: SceneRevision, frame: RectangularRoomFrame) -> dict[str, str]:
-    room = revision.document.room
+def _surface_identities(document: SceneDocument, frame: RectangularRoomFrame) -> dict[str, str]:
+    room = document.room
     if room is None:
         return {}
     identities = {
@@ -164,7 +199,7 @@ def _surface_identities(revision: SceneRevision, frame: RectangularRoomFrame) ->
         'floor_z0': f'room:{room.room_id}:floor',
         'ceiling_zH': f'room:{room.room_id}:ceiling',
     }
-    topology = revision.document.wall_topology
+    topology = document.wall_topology
     if topology is None:
         return identities
 
@@ -216,6 +251,7 @@ def rectangular_geometry_model_input(
     environment_profile: ExactExternalAuthorityRef | None = None,
     listener_pose: ListenerPoseAuthority | None = None,
     operating_state: RoomOperatingState | None = None,
+    system_variant: SystemVariant | None = None,
 ) -> RectangularGeometryModelInput:
     """Compile the canonical rectangular-geometry request for one exact SceneRevision.
 
@@ -239,12 +275,24 @@ def rectangular_geometry_model_input(
     consumption (which domains the solver actually uses) joins the snapshot
     alongside the full sealed authority for replay revalidation. Unbound
     requests keep their canonical shape.
+
+    ``system_variant`` is an exact proposed ``SystemVariant`` bound to
+    ``revision`` (#983): the request evaluates the materialized proposal —
+    added/removed/replaced speakers change the source set — and the snapshot
+    carries the exact variant identity so current and proposed predictions
+    never share a cache entry merely because room geometry is identical.
     """
 
-    room = revision.document.room
+    document = _target_document(revision, system_variant)
+    variant_dump = (
+        None
+        if system_variant is None
+        else _system_variant_ref(system_variant)
+    )
+    room = document.room
     if room is None:
         raise ValueError('prediction requires a room')
-    receiver_entity = revision.document.entity(receiver_entity_id)
+    receiver_entity = document.entity(receiver_entity_id)
     if listener_pose is not None:
         if listener_pose.document_id not in (None, revision.document_id):
             raise ValueError(
@@ -301,7 +349,7 @@ def rectangular_geometry_model_input(
     parameters_json = canonical_prediction_json(parameters)
     speaker_inputs: list[dict[str, object]] = []
     speaker_references: list[tuple[SceneEntity, Position3]] = []
-    for entity in revision.document.entities:
+    for entity in document.entities:
         if entity.kind != 'speaker':
             continue
         reference = acoustic_reference_position(entity)
@@ -330,6 +378,8 @@ def rectangular_geometry_model_input(
         )
         if environment_dump is not None:
             unsupported_snapshot['environment_profile'] = environment_dump
+        if variant_dump is not None:
+            unsupported_snapshot['system_variant'] = variant_dump
         input_snapshot_json = canonical_prediction_json(unsupported_snapshot)
         return RectangularGeometryModelInput(
             parameters_json=parameters_json,
@@ -344,7 +394,7 @@ def rectangular_geometry_model_input(
 
     if not _inside_frame(receiver, frame):
         raise ValueError('receiver acoustic reference is outside the rectangular room')
-    surface_identities = _surface_identities(revision, frame)
+    surface_identities = _surface_identities(document, frame)
     snapshot: dict[str, object] = {
         'room_frame': {
             'origin_x_m': frame.origin_x_m,
@@ -365,6 +415,8 @@ def rectangular_geometry_model_input(
     )
     if environment_dump is not None:
         snapshot['environment_profile'] = environment_dump
+    if variant_dump is not None:
+        snapshot['system_variant'] = variant_dump
     input_snapshot_json = canonical_prediction_json(snapshot)
     return RectangularGeometryModelInput(
         parameters_json=parameters_json,
@@ -435,6 +487,7 @@ def analyze_native_rectangular_geometry(
     environment_profile: ExactExternalAuthorityRef | None = None,
     listener_pose: ListenerPoseAuthority | None = None,
     operating_state: RoomOperatingState | None = None,
+    system_variant: SystemVariant | None = None,
 ) -> tuple[CadPredictionResult, CadPredictionResult]:
     """Run the existing rectangular geometry model against one exact native revision."""
 
@@ -446,7 +499,9 @@ def analyze_native_rectangular_geometry(
         environment_profile=environment_profile,
         listener_pose=listener_pose,
         operating_state=operating_state,
+        system_variant=system_variant,
     )
+    document = _target_document(revision, system_variant)
     parameters_json = model_input.parameters_json
     input_snapshot_json = model_input.input_snapshot_json
     run_id = str(uuid4())
@@ -545,7 +600,7 @@ def analyze_native_rectangular_geometry(
     referenced = {entity.entity_id for entity, _source in model_input.speaker_references}
     missing = [
         entity.entity_id
-        for entity in revision.document.entities
+        for entity in document.entities
         if entity.kind == 'speaker' and entity.entity_id not in referenced
     ]
     warnings.extend(f'speaker_acoustic_reference_unknown:{entity_id}' for entity_id in missing)
