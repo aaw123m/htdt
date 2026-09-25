@@ -441,21 +441,23 @@ def test_branched_installed_equipment_lineage_fails(tmp_path: Path) -> None:
         replaced_at_utc=NOW,
         provenance=(_provenance(),),
     )
-    _insert(
-        data_dir,
-        'cad_installed_equipment_replacements',
-        replacement_id=forged.replacement_id,
-        document_id=forged.document_id,
-        removed_instance_id=forged.removed_instance_id,
-        installed_instance_id=forged.installed_instance_id,
-        payload_json=forged.model_dump_json(),
-        recorded_at_utc=NOW,
-    )
+    # The unique predecessor index (#842) rejects the forged second branch at
+    # the schema level — the audit's read-side check stays as a backstop.
+    with pytest.raises(sqlite3.IntegrityError):
+        _insert(
+            data_dir,
+            'cad_installed_equipment_replacements',
+            replacement_id=forged.replacement_id,
+            document_id=forged.document_id,
+            removed_instance_id=forged.removed_instance_id,
+            installed_instance_id=forged.installed_instance_id,
+            payload_json=forged.model_dump_json(),
+            recorded_at_utc=NOW,
+        )
 
     report = audit_native_authority_graph(data_dir / 'cad-scenes.sqlite3')
 
-    assert not report.ok
-    assert _failures(report, 'installed_equipment_replacement')
+    assert report.ok
 
 
 def test_branched_design_comparison_lineage_fails(tmp_path: Path) -> None:
