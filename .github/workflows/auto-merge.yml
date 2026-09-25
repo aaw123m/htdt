@@ -46,8 +46,7 @@ jobs:
             gh pr view "$pr_number" --repo "$REPO" \
               --json labels,author,isDraft,state,headRefOid \
               --jq '(.isDraft == false) and (.state == "OPEN") and
-                    ((.author.login == "'"$BOT_LOGIN"'") or
-                     ([.labels[].name] | any(. == "automerge")))'
+                    ([.labels[].name] | any(. == "automerge"))'
           }
 
           merge_if_green() {
@@ -80,9 +79,11 @@ jobs:
           }
 
           sweep() {
-            # One API call covers the whole sweep: eligibility (bot author or
-            # automerge label) and every check rollup are folded into the PR
-            # list response instead of two calls per open PR.
+            # One API call covers the whole sweep: eligibility and every
+            # check rollup are folded into the PR list response instead of
+            # two calls per open PR. The automerge label is the queue: an
+            # orchestrator labels only the head PR so merges land one at a
+            # time in a chosen order.
             local prs
             prs=$(gh pr list --repo "$REPO" --state open --limit 100 \
               --json number,author,labels,isDraft,state,statusCheckRollup) || {
@@ -99,7 +100,7 @@ jobs:
                 or ((.state // "") == "SUCCESS");
               .[]
               | select(.isDraft == false and .state == "OPEN")
-              | select(.author.login == $bot or ([.labels[].name] | index("automerge")))
+              | select([.labels[].name] | index("automerge"))
               | ([.statusCheckRollup[]? | select(ctxname != "merge") | select(passing | not) | ctxname]) as $blockers
               | if ($blockers | length) == 0
                 then "MERGE \(.number)"
