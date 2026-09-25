@@ -53,6 +53,7 @@ from .cad_constraint_authoring import (
 from .cad_constraints import evaluate_cad_constraints
 from .cad_constraint_policy import blocking_candidate_violations
 from .cad_constraint_repository import CadConstraintRepository
+from .cad_display_labels import revision_display_label
 from .cad_repository import SceneRevision
 from .cad_scene_history import diff_scene_documents, diff_summary_lines
 from .cad_measure import format_measure_result
@@ -349,7 +350,9 @@ class RoomWorkspaceController:
         self.video_workspace_repository = CadVideoWorkspaceRepository(repository.path)
         self.video_workspace: VideoGeometryWorkspace | None = None
         self.video_geometry_repository = CadVideoGeometryRepository(repository)
-        self.screen_transfer_repository = CadScreenTransferRepository(repository.path)
+        self.screen_transfer_repository = CadScreenTransferRepository(
+            repository.path, repository
+        )
         self.variant_repository = CadSystemVariantRepository(repository)
         self.material_repository = CadAcousticMaterialRepository(repository.path)
         self.treatment_repository = CadAcousticTreatmentRepository(
@@ -3340,7 +3343,9 @@ class RoomWorkspace(QWidget):
         self.setObjectName("roomWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
         self.controller = RoomWorkspaceController(repository, document_id)
-        self.listener_pose_repository = CadListenerPoseRepository(repository.path)
+        self.listener_pose_repository = CadListenerPoseRepository(
+            repository.path, repository
+        )
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
         self.geometry_input = None
@@ -5055,6 +5060,7 @@ class RoomWorkspace(QWidget):
         try:
             transfer = build_screen_transfer(
                 screen_entity_id=screen_id,
+                document_id=self.controller.document_id,
                 label=str(values['label']),
                 capability_tier=values['capability_tier'],
                 provenance=str(values['provenance']),
@@ -5113,6 +5119,7 @@ class RoomWorkspace(QWidget):
             return
         pose = listener_pose_for_seat(
             seat,
+            document_id=self.controller.document_id,
             label=label.strip(),
             eye_reference_offset_local_m=Offset3(
                 x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value())
@@ -5378,7 +5385,11 @@ class RoomWorkspace(QWidget):
         )
         self.history_panel.show_detail(
             f"リビジョン数: {len(revisions)} · HEAD: "
-            f"{head.revision_id[:12] if head else '—'}"
+            + (
+                revision_display_label(head, labels)
+                if head is not None
+                else '—'
+            )
         )
 
     def _history_preview(self, revision_id: object) -> None:
@@ -5392,13 +5403,9 @@ class RoomWorkspace(QWidget):
         if revision is None or not callable(render):
             return
         label_map = self.controller.revision_labels()
-        label = label_map.get(revision.revision_id)
-        label_text = None
-        if label is not None:
-            label_text = label.label or revision.revision_id[:12]
         render(
             revision.document,
-            label=label_text or revision.revision_id[:12],
+            label=revision_display_label(revision, label_map),
         )
 
     def _history_label(self, revision_id: object, label: object, note: object) -> None:
@@ -5421,7 +5428,11 @@ class RoomWorkspace(QWidget):
             return
         diff = diff_scene_documents(revision.document, head.document)
         lines = diff_summary_lines(diff, head.document)
-        prefix = f"過去版 → 現在の差分 ({revision.revision_id[:12]} → HEAD):\n"
+        labels = self.controller.revision_labels()
+        prefix = (
+            "過去版 → 現在の差分 ("
+            f"{revision_display_label(revision, labels)} → HEAD):\n"
+        )
         self.history_panel.show_detail(prefix + "\n".join(lines))
 
     def _history_restore(self, revision_id: object) -> None:
@@ -5436,8 +5447,10 @@ class RoomWorkspace(QWidget):
         self._history_preview(None)
         self._refresh(reset_camera=True)
         self._sync_history_panel()
+        labels = self.controller.revision_labels()
         self._set_status(
-            f"履歴版を新しい先頭版として復元しました: {revision.revision_id[:12]}"
+            "履歴版を新しい先頭版として復元しました: "
+            f"{revision_display_label(revision, labels)}"
         )
 
     def _measure_state_changed(self) -> None:
