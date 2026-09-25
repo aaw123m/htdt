@@ -36,13 +36,24 @@ AURALIZATION_RENDERER_VERSION = '1'
 AURALIZATION_OUTPUT_FORMAT = 'wav_pcm_s16le'
 
 ImpulseAuthorityKind = Literal['predicted', 'measured']
-ResamplePolicy = Literal['exact_rate_match_required', 'linear_resample']
+ResamplePolicy = Literal[
+    'exact_rate_match_required', 'band_limited_resample'
+]
 GainPolicy = Literal[
     'preserve_physical_level',
     'level_matched_rms',
     'unity',
 ]
-HeadroomPolicy = Literal['report_only', 'hard_limit']
+HeadroomPolicy = Literal['report_only', 'attenuate_to_fit']
+LevelSemantics = Literal[
+    'physical_level_preserved',
+    'physical_level_attenuated_for_playback',
+    'level_matched',
+    'unity_relative',
+]
+# Versioned band-limited sample-rate conversion (#956): ideal periodic
+# reconstruction via FFT spectrum repacking — never linear interpolation.
+RESAMPLE_METHOD_BAND_LIMITED = 'htdt.fft_bandlimited_resample_v1'
 
 
 def _canonical(value: Any) -> str:
@@ -72,6 +83,9 @@ class DryProgramAssetRef(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     asset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    # Identity of the decoded float PCM the renderer must receive — distinct
+    # from the source asset's byte hash (#1031).
+    decoded_pcm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     sample_rate_hz: int = Field(gt=0)
     channel_count: Literal[1] = 1
     sample_count: int = Field(gt=0)
@@ -88,6 +102,8 @@ class ImpulseAuthorityRef(BaseModel):
     kind: ImpulseAuthorityKind
     artifact_id: str = Field(min_length=1)
     artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    # Identity of the decoded float IR the renderer must receive (#1031).
+    decoded_pcm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     sample_rate_hz: int = Field(gt=0)
     sample_count: int = Field(gt=0)
     channel_count: Literal[1] = 1
@@ -178,6 +194,13 @@ class AuralizationRenderSpec(BaseModel):
                     'preserve_physical_level requires a calibrated program level; '
                     'an unknown mastering level cannot establish room SPL'
                 )
+            if self.headroom_policy not in (
+                'report_only', 'attenuate_to_fit'
+            ):
+                raise ValueError(
+                    'preserve_physical_level renders may only report headroom '
+                    'or explicitly attenuate to fit'
+                )
         expected = _digest(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('auralization render spec semantic hash mismatch')
@@ -217,9 +240,17 @@ class RenderedPcm(BaseModel):
     samples: tuple[float, ...] = Field(min_length=1)
     pcm_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     applied_gain_db: float
+    # Headroom attenuation is persisted separately from the gain policy's
+    # own gain so a physical-level claim is never silently broken (#1028).
+    headroom_gain_db: float = 0.0
     peak_linear: float = Field(ge=0.0)
     clipped_sample_count: int = Field(ge=0)
+    pre_headroom_peak_linear: float = Field(ge=0.0)
+    pre_headroom_clipped_sample_count: int = Field(ge=0)
     headroom_dbfs: float | None = None
+    level_semantics: LevelSemantics
+    # SRC actually applied to any input; None means no conversion occurred.
+    resample_method: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode='after')
     def validate_pcm(self) -> 'RenderedPcm':
@@ -232,20 +263,61 @@ class RenderedPcm(BaseModel):
             raise ValueError('rendered PCM semantic hash mismatch')
         if self.peak_linear != max(abs(float(v)) for v in self.samples):
             raise ValueError('rendered PCM peak does not match samples')
+        if (
+            self.headroom_gain_db < 0.0
+            and self.level_semantics == 'physical_level_preserved'
+        ):
+            raise ValueError(
+                'headroom attenuation can never report preserved physical '
+                'level'
+            )
         return self
 
 
-def _resample_linear(
+def _resample_band_limited(
     samples: np.ndarray,
     source_rate: int,
     target_rate: int,
 ) -> np.ndarray:
+    """Ideal band-limited sample-rate conversion (htdt.fft_bandlimited_resample_v1).
+
+    Convention: the output preserves the input duration
+    (``n_out = round(n_in * target_rate / source_rate)``), keeps the time
+    origin aligned (input sample 0 maps to output time 0 — the direct
+    arrival of an IR is never shifted), applies brick-wall anti-aliasing
+    on downsample and sinc reconstruction on upsample, and treats the
+    record as periodic at the edges (no tapering).
+    """
     if source_rate == target_rate:
-        return samples
-    duration = len(samples) / float(source_rate)
-    count = max(1, int(round(duration * target_rate)))
-    positions = np.linspace(0.0, len(samples) - 1, count)
-    return np.interp(positions, np.arange(len(samples)), samples)
+        return np.asarray(samples, dtype=np.float64).copy()
+    samples = np.asarray(samples, dtype=np.float64)
+    n_in = len(samples)
+    n_out = max(1, int(round(n_in * target_rate / source_rate)))
+    if n_out == n_in:
+        return samples.copy()
+    spectrum = np.fft.rfft(samples)
+    bins_out = n_out // 2 + 1
+    out = np.zeros(bins_out, dtype=np.complex128)
+    if n_out > n_in:
+        bins_in = n_in // 2 + 1
+        out[:bins_in] = spectrum
+        if n_in % 2 == 0:
+            # Input Nyquist bin is single-sided real; as an interior output
+            # bin its negative-frequency half is implied by the Hermitian
+            # convention, so only half the coefficient is kept.
+            out[bins_in - 1] = spectrum[bins_in - 1] / 2.0
+    else:
+        keep = n_out // 2
+        out[:keep] = spectrum[:keep]
+        if n_out % 2 == 0:
+            # The output Nyquist bin is single-sided real; fold the
+            # positive- and negative-frequency contributions at that
+            # frequency into it.
+            out[keep] = spectrum[keep] + np.conj(spectrum[keep])
+        else:
+            out[keep] = spectrum[keep]
+    resampled = np.fft.irfft(out, n=n_out)
+    return resampled * (n_out / n_in)
 
 
 def render_auralization(
@@ -267,14 +339,32 @@ def render_auralization(
         raise ValueError('AUR10 render requires non-empty mono dry and IR samples')
     if not np.all(np.isfinite(dry)) or not np.all(np.isfinite(ir)):
         raise ValueError('dry/IR samples must be finite')
-    if sha256(np.asarray(dry_samples, dtype='<f8').tobytes()).hexdigest() != dry_asset_sha256:
-        raise ValueError('dry samples do not match the pinned asset hash')
+    # The caller-declared asset/artifact hashes must be the ones the spec
+    # pinned — supplying samples for a different asset fails closed (#1031).
+    if dry_asset_sha256 != spec.dry_source.asset_sha256:
+        raise ValueError(
+            'supplied dry asset hash is not the asset pinned by the spec'
+        )
+    if impulse_artifact_sha256 != spec.impulse_authority.artifact_sha256:
+        raise ValueError(
+            'supplied impulse artifact hash is not the artifact pinned by the spec'
+        )
+    if len(dry) != spec.dry_source.sample_count:
+        raise ValueError('dry sample count does not match the pinned asset')
+    if len(ir) != spec.impulse_authority.sample_count:
+        raise ValueError('IR sample count does not match the pinned artifact')
+    if (
+        sha256(np.asarray(dry_samples, dtype='<f8').tobytes()).hexdigest()
+        != spec.dry_source.decoded_pcm_sha256
+    ):
+        raise ValueError('dry samples do not match the pinned decoded PCM hash')
     if (
         sha256(np.asarray(impulse_samples, dtype='<f8').tobytes()).hexdigest()
-        != impulse_artifact_sha256
+        != spec.impulse_authority.decoded_pcm_sha256
     ):
-        raise ValueError('IR samples do not match the pinned artifact hash')
+        raise ValueError('IR samples do not match the pinned decoded PCM hash')
 
+    resample_method: str | None = None
     if spec.resample_policy == 'exact_rate_match_required':
         if (
             spec.dry_source.sample_rate_hz != spec.output_sample_rate_hz
@@ -286,10 +376,15 @@ def render_auralization(
         dry_resampled = dry
         ir_resampled = ir
     else:
-        dry_resampled = _resample_linear(
+        if (
+            spec.dry_source.sample_rate_hz != spec.output_sample_rate_hz
+            or spec.impulse_authority.sample_rate_hz != spec.output_sample_rate_hz
+        ):
+            resample_method = RESAMPLE_METHOD_BAND_LIMITED
+        dry_resampled = _resample_band_limited(
             dry, spec.dry_source.sample_rate_hz, spec.output_sample_rate_hz
         )
-        ir_resampled = _resample_linear(
+        ir_resampled = _resample_band_limited(
             ir, spec.impulse_authority.sample_rate_hz, spec.output_sample_rate_hz
         )
 
@@ -312,13 +407,28 @@ def render_auralization(
     elif spec.gain_policy == 'unity':
         applied_gain_db = 0.0
 
-    clipped = int(np.count_nonzero(np.abs(rendered) > 1.0))
-    if spec.headroom_policy == 'hard_limit' and clipped:
-        peak = float(np.max(np.abs(rendered)))
-        scale = 0.999 / peak
+    pre_headroom_peak = float(np.max(np.abs(rendered)))
+    pre_headroom_clipped = int(np.count_nonzero(np.abs(rendered) > 1.0))
+    clipped = pre_headroom_clipped
+    headroom_gain_db = 0.0
+    attenuated = False
+    if spec.headroom_policy == 'attenuate_to_fit' and clipped:
+        scale = 0.999 / pre_headroom_peak
         rendered = rendered * scale
-        applied_gain_db += 20.0 * log10(scale)
+        headroom_gain_db = 20.0 * log10(scale)
+        applied_gain_db += headroom_gain_db
         clipped = int(np.count_nonzero(np.abs(rendered) > 1.0))
+        attenuated = True
+    if spec.gain_policy == 'preserve_physical_level':
+        level_semantics: LevelSemantics = (
+            'physical_level_attenuated_for_playback'
+            if attenuated
+            else 'physical_level_preserved'
+        )
+    elif spec.gain_policy == 'level_matched_rms':
+        level_semantics = 'level_matched'
+    else:
+        level_semantics = 'unity_relative'
 
     peak = float(np.max(np.abs(rendered)))
     headroom_dbfs = -20.0 * log10(peak) if peak > 0.0 else None
@@ -330,9 +440,14 @@ def render_auralization(
         samples=samples,
         pcm_semantic_sha256=pcm_hash,
         applied_gain_db=applied_gain_db,
+        headroom_gain_db=headroom_gain_db,
         peak_linear=peak,
         clipped_sample_count=clipped,
+        pre_headroom_peak_linear=pre_headroom_peak,
+        pre_headroom_clipped_sample_count=pre_headroom_clipped,
         headroom_dbfs=headroom_dbfs,
+        level_semantics=level_semantics,
+        resample_method=resample_method,
     )
 
 
@@ -373,8 +488,17 @@ class AuralizationArtifact(BaseModel):
     channel_count: Literal[1] = 1
     peak_linear: float = Field(ge=0.0)
     clipped_sample_count: int = Field(ge=0)
+    pre_headroom_peak_linear: float = Field(ge=0.0)
+    pre_headroom_clipped_sample_count: int = Field(ge=0)
     headroom_dbfs: float | None = None
     applied_gain_db: float
+    headroom_gain_db: float = 0.0
+    level_semantics: LevelSemantics
+    resample_method: str | None = Field(default=None, min_length=1)
+    dry_asset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    dry_decoded_pcm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    impulse_artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    impulse_decoded_pcm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     renderer_id: Literal[
         'htdt.aur10_offline_convolution'
     ] = AURALIZATION_RENDERER_ID
@@ -384,6 +508,7 @@ class AuralizationArtifact(BaseModel):
     def validate_artifact(self) -> 'AuralizationArtifact':
         _finite(self.duration_s, field_name='duration')
         _finite(self.applied_gain_db, field_name='applied gain')
+        _finite(self.headroom_gain_db, field_name='headroom gain')
         if self.headroom_dbfs is not None:
             _finite(self.headroom_dbfs, field_name='headroom')
         expected = _digest(self.semantic_payload())
@@ -420,8 +545,21 @@ def build_auralization_artifact(
         'channel_count': 1,
         'peak_linear': pcm.peak_linear,
         'clipped_sample_count': pcm.clipped_sample_count,
+        'pre_headroom_peak_linear': pcm.pre_headroom_peak_linear,
+        'pre_headroom_clipped_sample_count': (
+            pcm.pre_headroom_clipped_sample_count
+        ),
         'headroom_dbfs': pcm.headroom_dbfs,
         'applied_gain_db': pcm.applied_gain_db,
+        'headroom_gain_db': pcm.headroom_gain_db,
+        'level_semantics': pcm.level_semantics,
+        'resample_method': pcm.resample_method,
+        'dry_asset_sha256': spec.dry_source.asset_sha256,
+        'dry_decoded_pcm_sha256': spec.dry_source.decoded_pcm_sha256,
+        'impulse_artifact_sha256': spec.impulse_authority.artifact_sha256,
+        'impulse_decoded_pcm_sha256': (
+            spec.impulse_authority.decoded_pcm_sha256
+        ),
         'renderer_id': AURALIZATION_RENDERER_ID,
         'renderer_version': AURALIZATION_RENDERER_VERSION,
     }
@@ -436,8 +574,21 @@ def build_auralization_artifact(
         sample_rate_hz=pcm.sample_rate_hz,
         peak_linear=pcm.peak_linear,
         clipped_sample_count=pcm.clipped_sample_count,
+        pre_headroom_peak_linear=pcm.pre_headroom_peak_linear,
+        pre_headroom_clipped_sample_count=(
+            pcm.pre_headroom_clipped_sample_count
+        ),
         headroom_dbfs=pcm.headroom_dbfs,
         applied_gain_db=pcm.applied_gain_db,
+        headroom_gain_db=pcm.headroom_gain_db,
+        level_semantics=pcm.level_semantics,
+        resample_method=pcm.resample_method,
+        dry_asset_sha256=spec.dry_source.asset_sha256,
+        dry_decoded_pcm_sha256=spec.dry_source.decoded_pcm_sha256,
+        impulse_artifact_sha256=spec.impulse_authority.artifact_sha256,
+        impulse_decoded_pcm_sha256=(
+            spec.impulse_authority.decoded_pcm_sha256
+        ),
         artifact_id=f'auralization-artifact:{digest}',
         semantic_sha256=digest,
     )

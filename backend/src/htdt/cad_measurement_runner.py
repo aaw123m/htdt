@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from hashlib import sha256
 import json
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 from uuid import uuid4
 
 from pydantic import (
@@ -244,12 +244,57 @@ def build_runner_plan(
                             allow_skip=allow_skip,
                         )
                     )
+    return _finish_plan(
+        document_id=document_id,
+        scene_revision_id=scene_revision_id,
+        scene_content_hash=scene_content_hash,
+        cells=cells,
+        plan_id=plan_id,
+    )
+
+
+def build_runner_plan_from_cells(
+    *,
+    document_id: str,
+    scene_revision_id: str,
+    scene_content_hash: str,
+    cells: Sequence[RunnerCellSpec],
+    plan_id: str | None = None,
+) -> MeasurementRunnerPlan:
+    """Immutable plan from explicit per-cell specs authored upstream.
+
+    Another authority (a SystemVariant/validation measurement campaign)
+    has already decided which acquisitions are required; this only
+    re-indexes the cells into runner order and seals the plan — the
+    matrix builder above is not re-run, so no extra cells appear.
+    """
+    ordered = [
+        cell.model_copy(update={'cell_index': index})
+        for index, cell in enumerate(cells)
+    ]
+    return _finish_plan(
+        document_id=document_id,
+        scene_revision_id=scene_revision_id,
+        scene_content_hash=scene_content_hash,
+        cells=ordered,
+        plan_id=plan_id,
+    )
+
+
+def _finish_plan(
+    *,
+    document_id: str,
+    scene_revision_id: str,
+    scene_content_hash: str,
+    cells: Sequence[RunnerCellSpec],
+    plan_id: str | None,
+) -> MeasurementRunnerPlan:
     payload: dict[str, Any] = {
         'plan_id': plan_id or str(uuid4()),
         'document_id': document_id,
         'scene_revision_id': scene_revision_id,
         'scene_content_hash': scene_content_hash,
-        'cells': cells,
+        'cells': list(cells),
     }
     provisional = MeasurementRunnerPlan.model_construct(
         **payload, plan_sha256='0' * 64

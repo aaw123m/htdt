@@ -1129,6 +1129,26 @@ class CadSystemVariantMeasurementCampaignRepository:
             SystemVariantMeasurementPlan.model_validate_json(row['payload_json'])
         )
 
+    def list_plans(
+        self,
+        document_id: str,
+    ) -> tuple[SystemVariantMeasurementPlan, ...]:
+        """Validated measurement plans of one project, oldest first."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_system_variant_measurement_plans '
+                'ORDER BY recorded_at_utc, plan_id'
+            ).fetchall()
+        plans = tuple(
+            SystemVariantMeasurementPlan.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+        return tuple(
+            self._validate_plan(plan)
+            for plan in plans
+            if plan.document_id == document_id
+        )
+
     def _campaign_plans(
         self,
         campaign: SystemVariantMeasurementCampaign,
