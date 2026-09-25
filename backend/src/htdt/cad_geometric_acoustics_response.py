@@ -4,20 +4,22 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from hashlib import sha256
 import json
-from math import atan2, cos, isfinite, pi, sin, sqrt
+from math import acos, atan2, cos, degrees, isfinite, pi, sin, sqrt
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .acoustic_benchmark import AcousticMaterial
+from .acoustic_benchmark import AcousticMaterial, GeometricIncidenceCondition
 from .cad_directivity import DirectivityDataset, evaluate_directivity
 from .cad_equipment import EquipmentDefinition, FrequencyDomain
 from .cad_geometric_acoustics_adapter import (
+    BoundaryIncidenceEvaluation,
     DeterministicAcousticPath,
     DeterministicGaExecutionInput,
     DeterministicPathArtifact,
+    GeometricSurfacePlane,
 )
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
@@ -43,6 +45,15 @@ SourceCapability = Literal[
 ]
 ReflectionCapability = Literal['COMPLEX', 'MAGNITUDE_ONLY']
 PortalProvenanceState = Literal['measured', 'manufacturer', 'analytic', 'assumed']
+ReflectionIncidenceCondition = Literal[
+    'normal_incidence',
+    'random_or_diffuse_incidence',
+    'angle_specific',
+    'model_derived_angle_response',
+    'unknown_incidence',
+    'angle_independent',
+]
+_INCIDENCE_COSINE_MATCH_TOLERANCE = 1e-9
 
 
 def _canonical_json(payload: object) -> str:
@@ -320,6 +331,11 @@ class PathResponseConfiguration(BaseModel):
     reference_distance_m: None = None
     minimum_path_length_m: float = Field(default=1e-6, gt=0.0)
     path_sum_policy: Literal['per_path_only_no_sum'] = 'per_path_only_no_sum'
+    # Atmospheric absorption is not implemented by this response engine; the
+    # omission is declared rather than silently neglected.
+    atmospheric_attenuation_policy: Literal['omitted_unsupported'] = (
+        'omitted_unsupported'
+    )
 
     @field_validator('minimum_path_length_m')
     @classmethod
@@ -363,6 +379,7 @@ def build_path_response_configuration(
         'reference_distance_m': None,
         'minimum_path_length_m': float(minimum_path_length_m),
         'path_sum_policy': 'per_path_only_no_sum',
+        'atmospheric_attenuation_policy': 'omitted_unsupported',
     }
     digest = _semantic_hash(core)
     return PathResponseConfiguration(
@@ -656,6 +673,11 @@ class SurfaceReflectionTransferAuthority(BaseModel):
         'geometric_absorption_scattering_magnitude_only',
     ]
     incidence_cosine: float | None = Field(default=None, gt=0.0, le=1.0)
+    # Declared incidence semantics of this transfer evidence. An angle-specific
+    # authority must name the incidence angle; other conditions forbid one.
+    # Optional — absent fields keep legacy authority identities valid.
+    incidence_condition: ReflectionIncidenceCondition | None = None
+    incidence_angle_deg: float | None = Field(default=None, ge=0.0, le=90.0)
     valid_frequency_domain: FrequencyDomain
     samples: tuple[ComplexTransferSample, ...] = Field(min_length=1)
     provenance: str = Field(min_length=1)
@@ -672,6 +694,17 @@ class SurfaceReflectionTransferAuthority(BaseModel):
             raise ValueError('magnitude-only reflection authority cannot carry phase')
         if self.derivation == 'specific_impedance_local_reaction' and self.incidence_cosine is None:
             raise ValueError('specific-impedance reflection requires explicit incidence cosine')
+        if self.incidence_condition == 'angle_specific':
+            if self.incidence_angle_deg is None:
+                raise ValueError(
+                    'angle_specific reflection authority requires an explicit '
+                    'incidence angle'
+                )
+        elif self.incidence_angle_deg is not None:
+            raise ValueError(
+                'incidence angle is only meaningful for angle_specific '
+                'reflection evidence'
+            )
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_hash_sha256 != expected:
             raise ValueError('surface reflection semantic hash mismatch')
@@ -680,7 +713,15 @@ class SurfaceReflectionTransferAuthority(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(mode='json', exclude={'authority_id', 'semantic_hash_sha256'})
+        payload = self.model_dump(
+            mode='json',
+            exclude={'authority_id', 'semantic_hash_sha256'},
+        )
+        if self.incidence_condition is None:
+            payload.pop('incidence_condition', None)
+        if self.incidence_angle_deg is None:
+            payload.pop('incidence_angle_deg', None)
+        return payload
 
     def as_external_ref(self) -> ExactExternalAuthorityRef:
         return _identity_ref(
@@ -713,6 +754,8 @@ def _build_surface_reflection(
     samples: Sequence[ComplexTransferSample],
     provenance: str,
     incidence_cosine: float | None = None,
+    incidence_condition: ReflectionIncidenceCondition | None = None,
+    incidence_angle_deg: float | None = None,
 ) -> SurfaceReflectionTransferAuthority:
     sample_items = tuple(samples)
     core = {
@@ -732,6 +775,10 @@ def _build_surface_reflection(
         'samples': [item.model_dump(mode='json') for item in sample_items],
         'provenance': provenance,
     }
+    if incidence_condition is not None:
+        core['incidence_condition'] = incidence_condition
+    if incidence_angle_deg is not None:
+        core['incidence_angle_deg'] = float(incidence_angle_deg)
     digest = _semantic_hash(core)
     return SurfaceReflectionTransferAuthority(
         authority_id=f'r150-surface-reflection:{digest}',
@@ -763,6 +810,7 @@ def build_rigid_surface_reflection_authority(
             for frequency in frequency_grid.frequencies_hz
         ),
         provenance=f'{material.material_id}@{material.version}: exact rigid pressure reflection +1',
+        incidence_condition='angle_independent',
     )
 
 
@@ -808,6 +856,8 @@ def build_specific_impedance_surface_reflection_authority(
         derivation='specific_impedance_local_reaction',
         samples=samples,
         incidence_cosine=mu,
+        incidence_condition='angle_specific',
+        incidence_angle_deg=degrees(acos(mu)),
         provenance=(
             f'{material.material_id}@{material.version}: local-reaction pressure reflection '
             'R=(Z*cos(theta)-rho*c)/(Z*cos(theta)+rho*c)'
@@ -823,6 +873,8 @@ def build_explicit_complex_surface_reflection_authority(
     frequency_coefficients: Mapping[float, complex],
     provenance: str,
     boundary_physics_authority_ref: ExactExternalAuthorityRef | None = None,
+    incidence_condition: ReflectionIncidenceCondition | None = None,
+    incidence_angle_deg: float | None = None,
 ) -> SurfaceReflectionTransferAuthority:
     samples = tuple(
         ComplexTransferSample.from_complex(float(frequency), complex(value))
@@ -837,6 +889,8 @@ def build_explicit_complex_surface_reflection_authority(
         derivation='explicit_complex_reflection_transfer',
         samples=samples,
         provenance=provenance,
+        incidence_condition=incidence_condition,
+        incidence_angle_deg=incidence_angle_deg,
     )
 
 
@@ -859,6 +913,21 @@ def build_magnitude_only_surface_reflection_authority(
             raise ValueError('geometric reflection requires an exact material band center')
         magnitude = sqrt(max(0.0, (1.0 - band.absorption) * (1.0 - band.scattering)))
         samples.append(ComplexTransferSample.magnitude_only(frequency, magnitude))
+    incidence_conditions = {item.incidence_condition for item in material.geometric_bands}
+    incidence_angles = {item.incidence_angle_deg for item in material.geometric_bands}
+    incidence_condition: ReflectionIncidenceCondition | None = None
+    incidence_angle_deg: float | None = None
+    if len(incidence_conditions) == 1:
+        uniform = next(iter(incidence_conditions))
+        incidence_condition = uniform
+        if uniform == 'angle_specific' and len(incidence_angles) == 1:
+            incidence_angle_deg = next(iter(incidence_angles))
+        elif uniform == 'angle_specific':
+            # Bands carry different declared incidence angles; the composite
+            # authority cannot claim one angle, so it stays explicitly unknown.
+            incidence_condition = 'unknown_incidence'
+    else:
+        incidence_condition = 'unknown_incidence'
     return _build_surface_reflection(
         source_surface_id=source_surface_id,
         r120_geometry_ref=r120_geometry_ref,
@@ -871,6 +940,8 @@ def build_magnitude_only_surface_reflection_authority(
             f'{material.material_id}@{material.version}: amplitude magnitude from '
             'sqrt((1-absorption)*(1-scattering)); phase explicitly unavailable'
         ),
+        incidence_condition=incidence_condition,
+        incidence_angle_deg=incidence_angle_deg,
     )
 
 
@@ -1065,6 +1136,11 @@ class DeterministicPathFrequencyResponseArtifact(BaseModel):
     receiver_entity_id: str
     ordered_surface_interactions: tuple[str, ...]
     ordered_portal_interactions: tuple[str, ...]
+    # Per-interaction evaluated incidence (angle from the surface normal and
+    # its cosine), aligned to ordered_surface_interactions. Absent when the
+    # path artifact predates incidence evaluation.
+    ordered_reflection_incidence_angles_deg: tuple[float, ...] | None = None
+    ordered_reflection_incidence_cosines: tuple[float, ...] | None = None
     path_length_m: float = Field(gt=0.0)
     quantity: Literal['complex_acoustic_pressure_per_volume_velocity'] = TRANSFER_QUANTITY
     unit: Literal['Pa/(m3/s)'] = TRANSFER_UNIT
@@ -1102,6 +1178,38 @@ class DeterministicPathFrequencyResponseArtifact(BaseModel):
             raise ValueError('response dependencies must be exact, unique, and canonically sorted')
         if _ref_payload(self.execution_input_ref) not in keys:
             raise ValueError('response dependency set must include exact execution input')
+        incidence_parts = (
+            self.ordered_reflection_incidence_angles_deg,
+            self.ordered_reflection_incidence_cosines,
+        )
+        if any(item is None for item in incidence_parts) and any(
+            item is not None for item in incidence_parts
+        ):
+            raise ValueError(
+                'ordered reflection incidence angles/cosines must be supplied together'
+            )
+        if self.ordered_reflection_incidence_cosines is not None:
+            if len(self.ordered_reflection_incidence_cosines) != len(
+                self.ordered_surface_interactions
+            ):
+                raise ValueError(
+                    'ordered reflection incidence entries must align to '
+                    'ordered surface interactions'
+                )
+            for index, (angle, cosine) in enumerate(
+                zip(
+                    self.ordered_reflection_incidence_angles_deg or (),
+                    self.ordered_reflection_incidence_cosines,
+                    strict=True,
+                )
+            ):
+                if not (0.0 <= float(angle) <= 90.0) or not (
+                    0.0 <= float(cosine) <= 1.0
+                ):
+                    raise ValueError(
+                        f'ordered reflection incidence {index} is outside the '
+                        'valid angle/cosine domain'
+                    )
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('path frequency response semantic hash mismatch')
@@ -1110,7 +1218,12 @@ class DeterministicPathFrequencyResponseArtifact(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(mode='json', exclude={'artifact_id', 'semantic_sha256'})
+        payload = self.model_dump(mode='json', exclude={'artifact_id', 'semantic_sha256'})
+        if self.ordered_reflection_incidence_angles_deg is None:
+            payload.pop('ordered_reflection_incidence_angles_deg', None)
+        if self.ordered_reflection_incidence_cosines is None:
+            payload.pop('ordered_reflection_incidence_cosines', None)
+        return payload
 
     def as_external_ref(self) -> ExactExternalAuthorityRef:
         return _identity_ref(
@@ -1144,6 +1257,7 @@ def _response_artifact(
     frequency_grid: FrequencyGridAuthority,
     dependency_refs: Sequence[ExactExternalAuthorityRef],
     ordered_portal_ids: Sequence[str],
+    ordered_reflection_incidences: Sequence[tuple[float, float]] | None = None,
     capability: ResponseCapability,
     unsupported_reasons: Sequence[str] = (),
     samples: Sequence[PathFrequencyResponseSample] = (),
@@ -1182,12 +1296,134 @@ def _response_artifact(
             item.model_dump(mode='json') for item in _sorted_unique_refs(dependency_refs)
         ],
     }
+    if ordered_reflection_incidences is not None:
+        core['ordered_reflection_incidence_angles_deg'] = [
+            item[0] for item in ordered_reflection_incidences
+        ]
+        core['ordered_reflection_incidence_cosines'] = [
+            item[1] for item in ordered_reflection_incidences
+        ]
     digest = _semantic_hash(core)
     return DeterministicPathFrequencyResponseArtifact(
         artifact_id=f'r150-path-frequency-response:{digest}',
         semantic_sha256=digest,
         **core,
     )
+
+
+def _plane_unit_normal(plane: GeometricSurfacePlane) -> tuple[float, float, float] | None:
+    if plane.point_m is not None and plane.normal is not None:
+        normal = (
+            float(plane.normal.x),
+            float(plane.normal.y),
+            float(plane.normal.z),
+        )
+        length = sqrt(sum(item * item for item in normal))
+        if length <= 0.0:
+            return None
+        return (
+            normal[0] / length,
+            normal[1] / length,
+            normal[2] / length,
+        )
+    if plane.axis is None:
+        return None
+    normal = [0.0, 0.0, 0.0]
+    normal[{'x': 0, 'y': 1, 'z': 2}[plane.axis]] = 1.0
+    return (normal[0], normal[1], normal[2])
+
+
+def _incidence_from_direction(
+    incoming: tuple[float, float, float],
+    normal: tuple[float, float, float],
+) -> tuple[float, float] | None:
+    length = sqrt(sum(item * item for item in incoming))
+    if length <= 0.0:
+        return None
+    cosine = abs(
+        sum(incoming[index] * normal[index] for index in range(3))
+    ) / length
+    cosine = min(1.0, max(0.0, cosine))
+    return (degrees(acos(cosine)), cosine)
+
+
+def _path_reflection_incidences(
+    path: DeterministicAcousticPath,
+    execution_input: DeterministicGaExecutionInput,
+) -> tuple[tuple[float, float], ...] | None:
+    """Evaluated (angle_deg, cosine) per ordered surface interaction.
+
+    Incidence is derived from the exact incoming propagation segment of each
+    reflection (the departure direction for the first interaction, or the prior
+    interaction's point for later reflections and Portal crossings) against the
+    declared surface-plane normal. Returns None when the path artifact does not
+    carry enough geometry to derive incidence for every reflection.
+    """
+    surface_ids = path.ordered_interaction_surface_ids
+    if not surface_ids:
+        return ()
+    if 'boundary_planes' not in execution_input.model_fields_set:
+        return None
+    normals: dict[str, tuple[float, float, float]] = {}
+    for plane in execution_input.boundary_planes:
+        normal = _plane_unit_normal(plane)
+        if normal is not None:
+            normals[plane.source_surface_id] = normal
+    if any(item not in normals for item in surface_ids):
+        return None
+    departure = (
+        float(path.departure_direction.x),
+        float(path.departure_direction.y),
+        float(path.departure_direction.z),
+    )
+    incidences: list[tuple[float, float]] = []
+    if path.ordered_interactions:
+        previous_point: tuple[float, float, float] | None = None
+        for interaction in path.ordered_interactions:
+            point = (
+                float(interaction.point.x_m),
+                float(interaction.point.y_m),
+                float(interaction.point.z_m),
+            )
+            if interaction.kind == 'portal_crossing':
+                previous_point = point
+                continue
+            if previous_point is None:
+                incoming = departure
+            else:
+                incoming = (
+                    point[0] - previous_point[0],
+                    point[1] - previous_point[1],
+                    point[2] - previous_point[2],
+                )
+            assert interaction.surface_id is not None
+            incidence = _incidence_from_direction(
+                incoming,
+                normals[interaction.surface_id],
+            )
+            if incidence is None:
+                return None
+            incidences.append(incidence)
+            previous_point = point
+    else:
+        for index, surface_id in enumerate(surface_ids):
+            if index == 0:
+                incoming = departure
+            else:
+                current = path.ordered_interaction_points[index]
+                prior = path.ordered_interaction_points[index - 1]
+                incoming = (
+                    float(current.x_m) - float(prior.x_m),
+                    float(current.y_m) - float(prior.y_m),
+                    float(current.z_m) - float(prior.z_m),
+                )
+            incidence = _incidence_from_direction(incoming, normals[surface_id])
+            if incidence is None:
+                return None
+            incidences.append(incidence)
+    if len(incidences) != len(surface_ids):
+        return None
+    return tuple(incidences)
 
 
 def build_deterministic_path_frequency_response(
@@ -1375,10 +1611,20 @@ def build_deterministic_path_frequency_response(
     elif source_authority.capability == 'UNSUPPORTED_UNKNOWN_DIRECTIVITY':
         source_mode = 'unsupported'
 
+    reflection_incidences = _path_reflection_incidences(path, execution_input)
+
     reflection_authorities: list[SurfaceReflectionTransferAuthority] = []
     magnitude_only = source_mode == 'magnitude'
-    for surface_id in path.ordered_interaction_surface_ids:
+    for interaction_index, surface_id in enumerate(
+        path.ordered_interaction_surface_ids
+    ):
         authority = surface_reflections.get(surface_id)
+        evaluated_incidence = (
+            reflection_incidences[interaction_index]
+            if reflection_incidences is not None
+            and interaction_index < len(reflection_incidences)
+            else None
+        )
         if authority is None:
             reasons.append(f'MISSING_REFLECTION_AUTHORITY:{surface_id}')
             continue
@@ -1398,6 +1644,43 @@ def build_deterministic_path_frequency_response(
             refs.append(authority.boundary_physics_authority_ref)
         if authority.r120_geometry_ref != r120_geometry_ref:
             reasons.append(f'STALE_REFLECTION_SURFACE_AUTHORITY:{surface_id}')
+        if authority.derivation == 'specific_impedance_local_reaction':
+            # A local-reaction impedance authority is evaluated for exactly one
+            # incidence cosine; it may never serve a different reflection angle
+            # silently.
+            if evaluated_incidence is None:
+                reasons.append(
+                    f'REFLECTION_INCIDENCE_UNDERIVABLE:{surface_id}'
+                )
+            elif authority.incidence_cosine is None or abs(
+                evaluated_incidence[1] - float(authority.incidence_cosine)
+            ) > _INCIDENCE_COSINE_MATCH_TOLERANCE:
+                reasons.append(
+                    f'REFLECTION_INCIDENCE_COSINE_MISMATCH:{surface_id}'
+                )
+        # The path-persisted contribution incidence (when present) must agree
+        # with the incidence re-evaluated from exact path geometry.
+        contribution_cosines = {
+            float(item.boundary_material.incidence_cosine)
+            for item in path.bands
+            if item.boundary_material is not None
+            and item.boundary_material.incidence_cosine is not None
+        } | {
+            float(entry.incidence_cosine)
+            for item in path.bands
+            for entry in (item.boundary_materials or ())
+            if entry.incidence_cosine is not None
+            and entry.source_surface_id == surface_id
+        }
+        if contribution_cosines and evaluated_incidence is not None:
+            if any(
+                abs(value - evaluated_incidence[1])
+                > _INCIDENCE_COSINE_MATCH_TOLERANCE
+                for value in contribution_cosines
+            ):
+                reasons.append(
+                    f'REFLECTION_INCIDENCE_PATH_MISMATCH:{surface_id}'
+                )
         if authority.capability == 'MAGNITUDE_ONLY':
             magnitude_only = True
 
@@ -1451,6 +1734,7 @@ def build_deterministic_path_frequency_response(
             ordered_portal_ids=[
                 item.portal_id for item in portal_interactions if item.portal_id is not None
             ],
+            ordered_reflection_incidences=reflection_incidences,
             capability='UNSUPPORTED',
             unsupported_reasons=reasons,
         )
@@ -1657,6 +1941,7 @@ def build_deterministic_path_frequency_response(
         ordered_portal_ids=[
             item.portal_id for item in portal_interactions if item.portal_id is not None
         ],
+        ordered_reflection_incidences=reflection_incidences,
         capability='MAGNITUDE_ONLY' if magnitude_only else 'COMPLEX_SUPPORTED',
         samples=response_samples,
     )

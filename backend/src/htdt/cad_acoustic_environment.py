@@ -19,7 +19,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
-from math import isclose, isfinite
+from math import exp, isclose, isfinite
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal
@@ -37,6 +37,7 @@ ACOUSTIC_ENVIRONMENT_AUTHORITY_VERSION = '1'
 EnvironmentSourceKind = Literal[
     'nominal_assumption',
     'derived_from_temperature',
+    'derived_from_air_state',
     'manual_measured',
     'unknown',
 ]
@@ -46,6 +47,8 @@ EnvironmentCompatibility = Literal['same', 'different', 'unknown']
 # nominal value is labelled an assumption, never measured truth.
 NOMINAL_SOUND_SPEED_M_S = 343.0
 NOMINAL_TEMPERATURE_C = 20.0
+NOMINAL_AIR_PRESSURE_PA = 101325.0
+NOMINAL_RELATIVE_HUMIDITY_PERCENT = 50.0
 
 
 def _canonical(payload: object) -> str:
@@ -71,6 +74,15 @@ class AcousticEnvironmentProfile(BaseModel):
     temperature_c: float | None = None
     sound_speed_source_kind: EnvironmentSourceKind
     temperature_source_kind: EnvironmentSourceKind | None = None
+    # The rest of the air state: density, pressure, relative humidity — each
+    # paired with its own source kind. Optional for hash compatibility with
+    # profiles sealed before the air-state unification.
+    air_density_kg_m3: float | None = Field(default=None, gt=0.0)
+    air_density_source_kind: EnvironmentSourceKind | None = None
+    air_pressure_pa: float | None = Field(default=None, gt=0.0)
+    air_pressure_source_kind: EnvironmentSourceKind | None = None
+    relative_humidity_percent: float | None = Field(default=None, ge=0.0, le=100.0)
+    relative_humidity_source_kind: EnvironmentSourceKind | None = None
     provenance: str = ''
     created_at_utc: str = Field(min_length=1)
     notes: str = ''
@@ -112,6 +124,50 @@ class AcousticEnvironmentProfile(BaseModel):
             raise ValueError('a temperature value requires a source kind')
         if self.temperature_source_kind == 'unknown' and self.temperature_c is not None:
             raise ValueError('unknown temperature source cannot carry a value')
+        for name, value, kind in (
+            ('air density', self.air_density_kg_m3, self.air_density_source_kind),
+            ('air pressure', self.air_pressure_pa, self.air_pressure_source_kind),
+            (
+                'relative humidity',
+                self.relative_humidity_percent,
+                self.relative_humidity_source_kind,
+            ),
+        ):
+            if (value is None) != (kind is None):
+                raise ValueError(
+                    f'{name} value and source kind must be supplied together'
+                )
+            if value is not None and not isfinite(float(value)):
+                raise ValueError(f'{name} must be finite')
+            if kind == 'unknown' and value is not None:
+                raise ValueError(f'unknown {name} source cannot carry a value')
+        if self.air_density_source_kind == 'derived_from_air_state':
+            if (
+                self.temperature_c is None
+                or self.air_pressure_pa is None
+                or self.relative_humidity_percent is None
+            ):
+                raise ValueError(
+                    'air-state-derived density requires temperature, pressure '
+                    'and relative humidity'
+                )
+            assert self.air_density_kg_m3 is not None
+            # rho is a derived physical quantity: a claimed value that does
+            # not recompute from (T, p, RH) is a forged claim, not evidence.
+            if not isclose(
+                float(self.air_density_kg_m3),
+                air_density_moist_ideal_gas_v1(
+                    self.temperature_c,
+                    self.air_pressure_pa,
+                    self.relative_humidity_percent,
+                ),
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            ):
+                raise ValueError(
+                    'air-state-derived density must equal the documented '
+                    'moist ideal-gas derivation rho = p_d/(R_d T) + p_v/(R_v T)'
+                )
         try:
             parsed = datetime.fromisoformat(self.created_at_utc)
         except ValueError as exc:
@@ -125,7 +181,7 @@ class AcousticEnvironmentProfile(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'label': self.label,
@@ -137,6 +193,20 @@ class AcousticEnvironmentProfile(BaseModel):
             'created_at_utc': self.created_at_utc,
             'notes': self.notes,
         }
+        # Post-split air-state fields are emitted only when present so a
+        # profile sealed before the unification keeps its content hash.
+        for key in (
+            'air_density_kg_m3',
+            'air_density_source_kind',
+            'air_pressure_pa',
+            'air_pressure_source_kind',
+            'relative_humidity_percent',
+            'relative_humidity_source_kind',
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                payload[key] = value
+        return payload
 
     def authority_ref(self) -> ExactExternalAuthorityRef:
         return ExactExternalAuthorityRef(
@@ -174,6 +244,12 @@ def build_acoustic_environment_profile(
     sound_speed_m_s: float | None = None,
     temperature_c: float | None = None,
     temperature_source_kind: EnvironmentSourceKind | None = None,
+    air_density_kg_m3: float | None = None,
+    air_density_source_kind: EnvironmentSourceKind | None = None,
+    air_pressure_pa: float | None = None,
+    air_pressure_source_kind: EnvironmentSourceKind | None = None,
+    relative_humidity_percent: float | None = None,
+    relative_humidity_source_kind: EnvironmentSourceKind | None = None,
     provenance: str = '',
     notes: str = '',
     created_at_utc: str | None = None,
@@ -189,12 +265,34 @@ def build_acoustic_environment_profile(
         'provenance': provenance,
         'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
         'notes': notes,
+        'air_density_kg_m3': air_density_kg_m3,
+        'air_density_source_kind': air_density_source_kind,
+        'air_pressure_pa': air_pressure_pa,
+        'air_pressure_source_kind': air_pressure_source_kind,
+        'relative_humidity_percent': relative_humidity_percent,
+        'relative_humidity_source_kind': relative_humidity_source_kind,
+    }
+    hashed = {
+        key: value
+        for key, value in payload.items()
+        if not (
+            value is None
+            and key
+            in {
+                'air_density_kg_m3',
+                'air_density_source_kind',
+                'air_pressure_pa',
+                'air_pressure_source_kind',
+                'relative_humidity_percent',
+                'relative_humidity_source_kind',
+            }
+        )
     }
     digest = _hash(
         {
             'schema_version': ACOUSTIC_ENVIRONMENT_SCHEMA_VERSION,
             'authority_version': ACOUSTIC_ENVIRONMENT_AUTHORITY_VERSION,
-            **payload,
+            **hashed,
         }
     )
     return AcousticEnvironmentProfile(
@@ -224,6 +322,46 @@ def sound_speed_from_temperature_c(temperature_c: float) -> float:
     return 331.3 + 0.606 * temperature_c
 
 
+_DRY_AIR_GAS_CONSTANT = 287.05  # R_d, J/(kg·K)
+_WATER_VAPOUR_GAS_CONSTANT = 461.495  # R_v, J/(kg·K)
+
+
+def air_density_moist_ideal_gas_v1(
+    temperature_c: float,
+    pressure_pa: float,
+    relative_humidity_percent: float,
+) -> float:
+    """Documented moist-air ideal-gas derivation (kg/m^3); explicit, replayable.
+
+    rho = p_d/(R_d·T) + p_v/(R_v·T) with the saturation vapour pressure
+    approximated by the Buck (1981) expression over water, T in kelvin and
+    pressures in pascals. Used only via 'derived_from_air_state'; never
+    applied silently.
+    """
+
+    temperature_k = float(temperature_c) + 273.15
+    if temperature_k <= 0.0:
+        raise ValueError('temperature must be above absolute zero')
+    pressure = float(pressure_pa)
+    if pressure <= 0.0:
+        raise ValueError('pressure must be positive')
+    humidity = float(relative_humidity_percent)
+    if not 0.0 <= humidity <= 100.0:
+        raise ValueError('relative humidity must be within 0..100 percent')
+    saturation_pa = 611.21 * exp(
+        (18.678 - float(temperature_c) / 234.5)
+        * (float(temperature_c) / (257.14 + float(temperature_c)))
+    )
+    vapour_pa = (humidity / 100.0) * saturation_pa
+    dry_pa = pressure - vapour_pa
+    if dry_pa <= 0.0:
+        raise ValueError('partial pressure of dry air must be positive')
+    return (
+        dry_pa / (_DRY_AIR_GAS_CONSTANT * temperature_k)
+        + vapour_pa / (_WATER_VAPOUR_GAS_CONSTANT * temperature_k)
+    )
+
+
 def snapshot_environment_ref(
     profile: AcousticEnvironmentProfile,
 ) -> SnapshotEnvironmentAuthorityRef:
@@ -239,12 +377,37 @@ def snapshot_environment_ref(
         if profile.temperature_c is None
         else _field_source_ref(profile, 'temperature_c', profile.temperature_c)
     )
+    air_density_source = (
+        None
+        if profile.air_density_kg_m3 is None
+        else _field_source_ref(profile, 'air_density_kg_m3', profile.air_density_kg_m3)
+    )
+    air_pressure_source = (
+        None
+        if profile.air_pressure_pa is None
+        else _field_source_ref(profile, 'air_pressure_pa', profile.air_pressure_pa)
+    )
+    relative_humidity_source = (
+        None
+        if profile.relative_humidity_percent is None
+        else _field_source_ref(
+            profile,
+            'relative_humidity_percent',
+            profile.relative_humidity_percent,
+        )
+    )
     return SnapshotEnvironmentAuthorityRef(
         authority=profile.authority_ref(),
         sound_speed_m_s=profile.sound_speed_m_s,
         sound_speed_source_authority=sound_speed_source,
         temperature_c=profile.temperature_c,
         temperature_source_authority=temperature_source,
+        air_density_kg_m3=profile.air_density_kg_m3,
+        air_density_source_authority=air_density_source,
+        air_pressure_pa=profile.air_pressure_pa,
+        air_pressure_source_authority=air_pressure_source,
+        relative_humidity_percent=profile.relative_humidity_percent,
+        relative_humidity_source_authority=relative_humidity_source,
     )
 
 
