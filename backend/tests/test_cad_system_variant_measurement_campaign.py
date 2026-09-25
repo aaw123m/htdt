@@ -156,6 +156,11 @@ def _fixture(tmp_path: Path, *, as_built_deviation: bool = False):
         as_built_revision=as_built_revision,
         confirmed_by='installer',
         confirmed_at_utc='2026-09-20T00:02:00+00:00',
+        accepted_deviations=(
+            {'sl': 'installed 0.15 m off proposal'}
+            if as_built_deviation
+            else None
+        ),
     )
     lifecycle.save(as_built)
     measurements = CadMeasurementRepository(scene)
