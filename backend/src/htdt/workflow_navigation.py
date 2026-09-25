@@ -192,6 +192,7 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("setup", "探索設定"),
         WorkspaceContext("candidates", "候補"),
         WorkspaceContext("comparison", "比較"),
+        WorkspaceContext("interventions", "介入計画"),
         WorkspaceContext("robustness", "ばらつき耐性"),
         WorkspaceContext("validation", "測定・検証"),
     ),
@@ -207,6 +208,7 @@ WORKSPACE_CONTEXT_ALIASES: dict[WorkspaceId, dict[str, str]] = {
         "topology-comparison": "comparison",
         "variant-robustness": "robustness",
         "variant-measurement": "validation",
+        "intervention-planner": "interventions",
     },
 }
 

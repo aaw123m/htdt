@@ -67,15 +67,23 @@ class FakeOptimizationViewport(QWidget):
         self.render_calls.append((selected_id, reset_camera))
 
 
-def test_o90d_uses_five_canonical_optimization_pages() -> None:
+def test_o90d_uses_six_canonical_optimization_pages() -> None:
     contexts = CANONICAL_WORKSPACE_CONTEXTS[WorkspaceId.OPTIMIZATION]
 
-    assert OPTIMIZATION_PAGE_IDS == ("setup", "candidates", "comparison", "robustness", "validation")
+    assert OPTIMIZATION_PAGE_IDS == (
+        "setup",
+        "candidates",
+        "comparison",
+        "interventions",
+        "robustness",
+        "validation",
+    )
     assert tuple(context.context_id for context in contexts) == OPTIMIZATION_PAGE_IDS
     assert tuple(context.label for context in contexts) == (
         "探索設定",
         "候補",
         "比較",
+        "介入計画",
         "ばらつき耐性",
         "測定・検証",
     )
@@ -85,6 +93,7 @@ def test_ux140_accepts_legacy_optimization_deep_link_sections() -> None:
     assert normalize_optimization_page("objectives") == "comparison"
     assert normalize_optimization_page("measurement-plan") == "validation"
     assert normalize_optimization_page("comparison") == "comparison"
+    assert normalize_optimization_page("intervention-planner") == "interventions"
 
 
 def test_candidate_compare_command_targets_comparison_page() -> None:
@@ -113,7 +122,15 @@ def test_ux140_real_workspace_has_no_legacy_mainwindow_or_docks(tmp_path) -> Non
 
     assert not isinstance(workspace, QMainWindow)
     assert workspace.findChildren(QDockWidget) == []
-    assert workspace.page_ids == ("setup", "candidates", "comparison", "robustness", "validation")
+    assert workspace.page_ids == (
+        "setup",
+        "candidates",
+        "comparison",
+        "interventions",
+        "robustness",
+        "validation",
+    )
+    assert workspace.intervention_planner_panel is not None
     assert workspace.controller.__class__.__name__ == "OptimizationWorkflowController"
     assert workspace.controller.rew_combo is not None
     assert workspace.controller.campaign_measurement_point_combo is not None
