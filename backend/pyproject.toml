@@ -60,5 +60,7 @@ htdt = ["capture_contract/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
-pythonpath = ["src"]
+# ".." puts the repository root on sys.path so the repo-level scripts/
+# package (e.g. run_r130a_candidate_wave_execution fixtures) resolves.
+pythonpath = ["src", ".."]
 testpaths = ["tests"]
