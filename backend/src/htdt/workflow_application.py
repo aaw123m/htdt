@@ -556,6 +556,9 @@ class WorkflowApplicationComposition:
             )
             return
         self._apply_project_title()
+        # The context-bar chip binds once per project switch — re-bind the
+        # renamed identity or title and chip split-brain (#919 family).
+        self.shell.set_project_identity(self.project_entry.display_name)
 
     def _project_snapshot_decision(
         self, action_label: str

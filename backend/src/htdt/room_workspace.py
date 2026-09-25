@@ -3563,6 +3563,9 @@ class RoomWorkspace(QWidget):
         self.listener_pose_repository = CadListenerPoseRepository(
             repository.path, repository
         )
+        self.screen_transfer_repository = CadScreenTransferRepository(
+            repository.path, repository
+        )
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
         self.geometry_input = None
