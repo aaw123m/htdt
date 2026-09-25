@@ -27,6 +27,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .cad_authority_resolver import AuthorityRef
+
 
 def _canonical_json(payload: Any) -> str:
     return json.dumps(
@@ -247,8 +249,10 @@ def _correction_identity_payload(
     return payload
 
 
-_TIMING_METHODS_WITH_COMMON_TIMING = frozenset(
-    {'acoustic_reference', 'loopback', 'shared_clock', 'external_sync'}
+#: t=0 conventions only a machine capture can carry: a manual/imported/unknown
+#: convention is a label, not a timing edge the recording itself contains.
+_MACHINE_T0_CONVENTIONS = frozenset(
+    {'acoustic_reference_signal', 'loopback_edge', 'sweep_start'}
 )
 
 
@@ -257,12 +261,44 @@ def timing_reference_supports_common_timing(
 ) -> bool:
     """Whether this authority can carry a common-timing claim at all.
 
-    Only genuinely synchronized methods qualify. ``imported``, ``manual``
-    and ``unknown`` references are honest records of what was captured but
-    never pass the timing check by themselves.
+    Only genuinely synchronized methods qualify, and each must carry the
+    method evidence that makes the synchronization real (#826):
+
+    - ``acoustic_reference``/``loopback``: a declared ``reference_channel``
+      (the capture carrying the timing edge) plus a machine t=0 convention —
+      the label alone says nothing about *where* the edge lives.
+    - ``shared_clock``: both clock identities present and *equal* — a shared
+      clock that does not name the same clock on both ends is not shared.
+    - ``external_sync``: a declared sync identity or reference channel plus a
+      machine t=0 convention.
+
+    ``imported``, ``manual`` and ``unknown`` references are honest records of
+    what was captured but can never authorize common timing, no matter how
+    completely populated their fields are — a manual entry is not a verified
+    timing source.
     """
 
-    return reference.method in _TIMING_METHODS_WITH_COMMON_TIMING
+    method = reference.method
+    if method == 'shared_clock':
+        return timing_clocks_shared(reference)
+    if method in {'acoustic_reference', 'loopback'}:
+        return (
+            reference.reference_channel is not None
+            and reference.t0_convention in _MACHINE_T0_CONVENTIONS
+        )
+    if method == 'external_sync':
+        return (
+            any(
+                identity is not None
+                for identity in (
+                    reference.input_clock_identity,
+                    reference.output_clock_identity,
+                    reference.reference_channel,
+                )
+            )
+            and reference.t0_convention in _MACHINE_T0_CONVENTIONS
+        )
+    return False
 
 
 def timing_clocks_shared(reference: CadMeasurementTimingReference) -> bool:
@@ -1344,6 +1380,8 @@ def build_electrical_load_observation(
 POLARITY_INVERSION_TOKEN = 'polarity_invert'
 
 
+
+
 class CadWiringVerificationCheck(BaseModel):
     """One independent wiring-commissioning check result.
 
@@ -1361,6 +1399,17 @@ class CadWiringVerificationCheck(BaseModel):
     check_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     check_kind: WiringCheckKind
+    # Exact as-built pins (#825): the check is bound to one sealed scene
+    # revision — id + content hash — so speaker refs resolve against the
+    # same speakers the claim described, and optionally to the installed
+    # SystemVariant the wiring was verified under.
+    scene_revision_id: str = Field(min_length=1)
+    scene_revision_sha256: str = Field(pattern=_SHA256_PATTERN)
+    system_variant_id: str | None = None
+    system_variant_sha256: str | None = Field(default=None, pattern=_SHA256_PATTERN)
+    # The exact routing profile a routing check is conditioned on; required
+    # for a routing PASS, resolved id+hash at save.
+    routing_profile: CadRoutingProfileBinding | None = None
     expected_output_reference: str | None = None
     expected_speaker_ids: tuple[str, ...] = ()
     source_speaker_ids: tuple[str, ...] = ()
@@ -1368,16 +1417,14 @@ class CadWiringVerificationCheck(BaseModel):
     observed_output_reference: str | None = None
     observed_speaker_ids: tuple[str, ...] = ()
     applied_compensation: tuple[str, ...] = ()
-    evidence_refs: tuple[str, ...] = ()
+    evidence_refs: tuple[AuthorityRef | str, ...] = ()
     # #848/#857: exact typed bindings. ``routing_profile_ref`` pins the
     # #473 RoutingProfile a routing check resolved against;
     # ``load_observation`` is the quantitative evidence a ``load`` check
-    # derives its result from; ``scene_revision_id`` pins the exact
-    # as-built baseline the speaker refs were verified in. All are optional
-    # so checks persisted before this authority existed keep their hash.
+    # derives its result from. Both are optional so checks persisted before
+    # this authority existed keep their hash.
     routing_profile_ref: CadRoutingProfileBinding | None = None
     load_observation: CadElectricalLoadObservation | None = None
-    scene_revision_id: str | None = Field(default=None, min_length=1)
     measured_at_utc: str = Field(min_length=1)
     operator: str | None = None
     result: WiringCheckResult
@@ -1406,10 +1453,36 @@ class CadWiringVerificationCheck(BaseModel):
             self.reason and self.reason.strip()
         ):
             raise ValueError('wiring check FAIL/UNKNOWN requires a reason')
+        if (self.system_variant_id is None) != (
+            self.system_variant_sha256 is None
+        ):
+            raise ValueError(
+                'system variant pin requires both id and sha256'
+            )
         if self.load_observation is not None and self.check_kind != 'load':
             raise ValueError(
                 'a load observation is only valid on a load wiring check'
             )
+        if self.result == 'PASS':
+            # A PASS is a claim: it needs typed evidence, or an explicitly
+            # named operator whose observation the record attests (#825).
+            if not self.evidence_refs and self.operator is None:
+                raise ValueError(
+                    'wiring check PASS requires typed evidence or a named '
+                    'operator — an unattributed confirmation is not evidence'
+                )
+            if self.check_kind == 'acoustic_polarity' and not self.evidence_refs:
+                raise ValueError(
+                    'acoustic polarity PASS requires typed measurement/test '
+                    'evidence — an operator label cannot establish it'
+                )
+            if self.check_kind == 'routing' and (
+                self.routing_profile is None
+                and self.routing_profile_ref is None
+            ):
+                raise ValueError(
+                    'routing check PASS requires a bound routing profile'
+                )
         if self.check_sha256 != _hash(self.identity_payload()):
             raise ValueError('wiring verification check hash mismatch')
         return self
@@ -1419,6 +1492,15 @@ class CadWiringVerificationCheck(BaseModel):
             'check_id': self.check_id,
             'document_id': self.document_id,
             'check_kind': self.check_kind,
+            'scene_revision_id': self.scene_revision_id,
+            'scene_revision_sha256': self.scene_revision_sha256,
+            'system_variant_id': self.system_variant_id,
+            'system_variant_sha256': self.system_variant_sha256,
+            'routing_profile': (
+                self.routing_profile.model_dump(mode='json')
+                if self.routing_profile is not None
+                else None
+            ),
             'expected_output_reference': self.expected_output_reference,
             'expected_speaker_ids': list(self.expected_speaker_ids),
             'source_speaker_ids': list(self.source_speaker_ids),
@@ -1426,7 +1508,12 @@ class CadWiringVerificationCheck(BaseModel):
             'observed_output_reference': self.observed_output_reference,
             'observed_speaker_ids': list(self.observed_speaker_ids),
             'applied_compensation': list(self.applied_compensation),
-            'evidence_refs': list(self.evidence_refs),
+            'evidence_refs': [
+                ref.model_dump(mode='json')
+                if isinstance(ref, AuthorityRef)
+                else ref
+                for ref in self.evidence_refs
+            ],
             'measured_at_utc': self.measured_at_utc,
             'operator': self.operator,
             'result': self.result,
@@ -1456,27 +1543,42 @@ def build_wiring_check(
     method: str,
     result: WiringCheckResult,
     measured_at_utc: str,
+    scene_revision_id: str,
+    scene_revision_sha256: str,
     check_id: str | None = None,
+    system_variant_id: str | None = None,
+    system_variant_sha256: str | None = None,
+    routing_profile: CadRoutingProfileBinding | CadRoutingProfile | None = None,
     expected_output_reference: str | None = None,
     expected_speaker_ids: Sequence[str] = (),
     source_speaker_ids: Sequence[str] = (),
     observed_output_reference: str | None = None,
     observed_speaker_ids: Sequence[str] = (),
     applied_compensation: Sequence[str] = (),
-    evidence_refs: Sequence[str] = (),
+    evidence_refs: Sequence[AuthorityRef | str] = (),
     routing_profile_ref: CadRoutingProfileBinding | None = None,
     load_observation: CadElectricalLoadObservation | None = None,
-    scene_revision_id: str | None = None,
     operator: str | None = None,
     reason: str | None = None,
     notes: Sequence[str] = (),
     provenance_json: str = '{}',
 ) -> CadWiringVerificationCheck:
     """Assemble a sealed wiring-verification check record."""
+    if isinstance(routing_profile, CadRoutingProfile):
+        profile_binding: CadRoutingProfileBinding | None = (
+            routing_profile_binding(routing_profile)
+        )
+    else:
+        profile_binding = routing_profile
     payload: dict[str, Any] = {
         'check_id': check_id or str(uuid4()),
         'document_id': document_id,
         'check_kind': check_kind,
+        'scene_revision_id': scene_revision_id,
+        'scene_revision_sha256': scene_revision_sha256,
+        'system_variant_id': system_variant_id,
+        'system_variant_sha256': system_variant_sha256,
+        'routing_profile': profile_binding,
         'expected_output_reference': expected_output_reference,
         'expected_speaker_ids': tuple(expected_speaker_ids),
         'source_speaker_ids': tuple(source_speaker_ids),
@@ -1487,7 +1589,6 @@ def build_wiring_check(
         'evidence_refs': tuple(evidence_refs),
         'routing_profile_ref': routing_profile_ref,
         'load_observation': load_observation,
-        'scene_revision_id': scene_revision_id,
         'measured_at_utc': measured_at_utc,
         'operator': operator,
         'result': result,

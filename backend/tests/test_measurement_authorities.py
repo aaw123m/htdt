@@ -653,26 +653,41 @@ def test_assignment_resolves_routing_profile(tmp_path):
 # #645 wiring commissioning checks
 
 
-def _wiring_check(**kwargs):
+def _wiring_check(revision=None, **kwargs):
     kwargs.setdefault('check_kind', 'continuity')
     kwargs.setdefault('method', 'DCR probe')
     kwargs.setdefault('result', 'PASS')
+    kwargs.setdefault('operator', 'tester')
     kwargs.setdefault('measured_at_utc', '2026-09-20T00:00:00+00:00')
+    # #825: a check pins the exact scene revision it was verified against;
+    # model-only tests use synthetic pins, repository tests pass the real
+    # fixture revision.
+    kwargs.setdefault(
+        'scene_revision_id',
+        revision.revision_id if revision is not None else 'rev-synthetic',
+    )
+    kwargs.setdefault(
+        'scene_revision_sha256',
+        revision.content_hash if revision is not None else '0' * 64,
+    )
     # #848: a PASS claim needs resolvable evidence or an explicit manual
     # attestation naming what was verified.
     if kwargs['result'] == 'PASS':
         kwargs.setdefault('evidence_refs', ('manual:dcr-probe-verified',))
-    return build_wiring_check(document_id='fixture-f1', **kwargs)
+    document_id = (
+        revision.document_id if revision is not None else 'fixture-f1'
+    )
+    return build_wiring_check(document_id=document_id, **kwargs)
 
 
 def test_wiring_check_roundtrip(tmp_path):
-    _, _, quality_repository = _repositories(tmp_path)
+    revision, _, quality_repository = _repositories(tmp_path)
     check = _wiring_check(
+        revision,
         expected_output_reference='AVR preout FL',
         expected_speaker_ids=('speaker-fl',),
         observed_output_reference='AVR preout FL',
         observed_speaker_ids=('speaker-fl',),
-        operator='tester',
     )
     quality_repository.save_wiring_check(check)
     assert quality_repository.get_wiring_check(check.check_id) == check
@@ -689,15 +704,19 @@ def test_wiring_fail_requires_reason():
 
 
 def test_latest_wiring_checks_per_kind(tmp_path):
-    _, _, quality_repository = _repositories(tmp_path)
+    revision, _, quality_repository = _repositories(tmp_path)
     continuity_old = _wiring_check(
+        revision,
         check_kind='continuity', measured_at_utc='2026-09-19T00:00:00+00:00'
     )
     continuity_new = _wiring_check(
+        revision,
         check_kind='continuity', measured_at_utc='2026-09-20T00:00:00+00:00'
     )
-    polarity = _wiring_check(check_kind='terminal_polarity', result='FAIL',
-                             reason='wired reversed at binding posts')
+    polarity = _wiring_check(
+        revision,
+        check_kind='terminal_polarity', result='FAIL',
+        reason='wired reversed at binding posts')
     quality_repository.save_wiring_check(continuity_old)
     quality_repository.save_wiring_check(continuity_new)
     quality_repository.save_wiring_check(polarity)
@@ -1298,6 +1317,8 @@ def test_timing_scope_measurement_is_exact(tmp_path):
     m2, _ = _save_measurement(measurement_repository, revision, 'm-2')
     reference = build_timing_reference(
         method='loopback',
+        reference_channel='ch-1',
+        t0_convention='loopback_edge',
         validity_scope='measurement',
         subject_measurement_ids=(m1.measurement_id,),
     )
