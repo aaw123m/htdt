@@ -134,7 +134,7 @@ class InterventionPlannerPanel(QFrame):
         )
         self._on_status = on_status or (lambda _text: None)
         self._on_navigate = on_navigate
-        self._baseline_revision_id: str | None = None
+        self._head_revision_id: str | None = None
         self._family_checks: dict[InterventionFamily, QCheckBox] = {}
 
         set_surface_role(self, SurfaceRole.BASE)
@@ -220,6 +220,10 @@ class InterventionPlannerPanel(QFrame):
         set_typography_role(study_title, TypographyRole.SECTION_TITLE)
         study_layout.addWidget(study_title)
         self.study_tree = QTreeWidget()
+        # Height caps keep this page's size hint inside the workspace stack's
+        # minimum so the action buttons stay reachable on small displays.
+        self.study_tree.setMinimumHeight(140)
+        self.study_tree.setMaximumHeight(260)
         self.study_tree.setColumnCount(4)
         self.study_tree.setHeaderLabels(
             ["課題 / 観測量", "族", "基準リビジョン", "状態"]
@@ -245,6 +249,8 @@ class InterventionPlannerPanel(QFrame):
             )
         )
         self.alternative_tree = QTreeWidget()
+        self.alternative_tree.setMinimumHeight(160)
+        self.alternative_tree.setMaximumHeight(320)
         self.alternative_tree.setColumnCount(5)
         self.alternative_tree.setHeaderLabels(
             ["族", "差分", "証拠状態", "評価網羅", "ガードレール回帰"]
@@ -279,8 +285,11 @@ class InterventionPlannerPanel(QFrame):
     def refresh(self) -> None:
         """Reload studies/alternatives and re-evaluate capability gating."""
         baseline = self.planner.context.resolve_baseline()
-        self._baseline_revision_id = (
-            baseline.scene_revision.revision_id if baseline is not None else None
+        head = self.planner.scene_repository.current_head(
+            self.planner.document_id
+        )
+        self._head_revision_id = (
+            head.revision_id if head is not None else None
         )
         self._refresh_family_gates(baseline)
         self._reload_studies()
@@ -329,8 +338,8 @@ class InterventionPlannerPanel(QFrame):
             reverse=True,
         ):
             stale = (
-                self._baseline_revision_id is not None
-                and spec.scene_revision_id != self._baseline_revision_id
+                self._head_revision_id is not None
+                and spec.scene_revision_id != self._head_revision_id
             )
             item = QTreeWidgetItem(
                 [
