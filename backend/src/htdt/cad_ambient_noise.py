@@ -32,6 +32,41 @@ EquipmentState = Literal['on', 'off', 'unknown']
 AmbientLevelSemantics = Literal['absolute_spl', 'relative', 'unknown']
 AmbientBandSpec = Literal['octave', 'third_octave', 'other']
 AmbientMethod = Literal['measured', 'imported', 'unknown']
+
+#: What an A/B comparison is *for*. The intent decides which differences
+#: between the two acquisitions are controlled (the object of the
+#: comparison) and which are uncontrolled contaminants.
+AmbientComparisonIntent = Literal[
+    'operating_state_ab',
+    'spatial_noise_map',
+    'repeatability',
+    'instrument_crosscheck',
+    'diagnostic_uncontrolled',
+]
+
+#: How far the two profiles' level bases allow the band deltas to be read.
+AmbientLevelCompatibility = Literal[
+    'quantitative_delta_db',
+    'relative_difference',
+    'qualitative_only',
+    'blocked',
+]
+
+#: Comparison-check outcome — ``BLOCKED`` (hard incompatibility) sits next
+#: to the shared evaluation statuses.
+AmbientCheckStatus = Literal[
+    'PASS', 'FAIL', 'UNKNOWN', 'BLOCKED', 'NOT_APPLICABLE'
+]
+
+#: Operating-condition axes compared between two acquisitions. ``notes``
+#: is free text and never a semantic axis.
+_CONDITION_AXES: tuple[str, ...] = (
+    'hvac_state',
+    'projector_state',
+    'pc_state',
+    'avr_state',
+    'doors_windows_state',
+)
 AmbientVerdict = Literal['PASS', 'FAIL', 'UNKNOWN']
 AMBIENT_SCHEMA_VERSION = 'ambient-noise-1'
 
@@ -270,12 +305,31 @@ class AmbientCriteriaEvaluation(BaseModel):
         }
 
 
+class AmbientComparisonCheck(BaseModel):
+    """One compatibility check on an A/B comparison attempt."""
+
+    model_config = ConfigDict(frozen=True)
+
+    check: str = Field(min_length=1)
+    status: AmbientCheckStatus
+    reason: str
+
+
 class AmbientNoiseComparison(BaseModel):
     """Measured comparison of two ambient profiles under their conditions.
 
     A band-wise level difference between two measured conditions (e.g. HVAC
     off vs on). This is evidence about measured states only — it is never a
     simulation of fan or HVAC acoustics.
+
+    ``difference_db`` is always the recorded band-wise subtraction — the raw
+    evidence. ``level_compatibility`` records how far that subtraction may
+    be *read*: quantitative dB deltas require matching absolute-SPL
+    semantics, matching weighting and a verified shared calibration chain;
+    mismatched level bases or weightings mark the subtraction ``blocked``.
+    ``intent`` plus ``compatibility_checks`` decide which acquisition
+    differences were controlled; :meth:`quantitative_delta_db` is the only
+    accessor allowed to return bare numbers.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -286,9 +340,15 @@ class AmbientNoiseComparison(BaseModel):
     profile_a_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     profile_b_id: str = Field(min_length=1)
     profile_b_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    intent: AmbientComparisonIntent = 'diagnostic_uncontrolled'
+    level_compatibility: AmbientLevelCompatibility = 'blocked'
     band_center_hz: tuple[float, ...] = ()
     difference_db: tuple[float, ...] = ()
     overall_difference_db: float | None = None
+    compatibility_checks: tuple[AmbientComparisonCheck, ...] = ()
+    differing_condition_axes: tuple[str, ...] = ()
+    condition_a: AmbientOperatingCondition | None = None
+    condition_b: AmbientOperatingCondition | None = None
     created_at: str = Field(min_length=1)
     comparison_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -302,6 +362,13 @@ class AmbientNoiseComparison(BaseModel):
             raise ValueError('ambient comparison hash mismatch')
         return self
 
+    def quantitative_delta_db(self) -> tuple[float | None, ...] | None:
+        """Band deltas only when the compatibility grade allows a
+        quantitative dB statement; otherwise ``None``."""
+        if self.level_compatibility != 'quantitative_delta_db':
+            return None
+        return self.difference_db
+
     def identity_payload(self) -> dict[str, Any]:
         return {
             'schema_version': AMBIENT_SCHEMA_VERSION,
@@ -310,11 +377,41 @@ class AmbientNoiseComparison(BaseModel):
             'profile_a_sha256': self.profile_a_sha256,
             'profile_b_id': self.profile_b_id,
             'profile_b_sha256': self.profile_b_sha256,
+            'intent': self.intent,
+            'level_compatibility': self.level_compatibility,
             'band_center_hz': list(self.band_center_hz),
             'difference_db': list(self.difference_db),
             'overall_difference_db': self.overall_difference_db,
+            'compatibility_checks': [
+                check.model_dump(mode='json')
+                for check in self.compatibility_checks
+            ],
+            'differing_condition_axes': list(self.differing_condition_axes),
+            'condition_a': (
+                self.condition_a.model_dump(mode='json')
+                if self.condition_a is not None
+                else None
+            ),
+            'condition_b': (
+                self.condition_b.model_dump(mode='json')
+                if self.condition_b is not None
+                else None
+            ),
             'created_at': self.created_at,
         }
+
+
+def differing_condition_axes(
+    condition_a: AmbientOperatingCondition,
+    condition_b: AmbientOperatingCondition,
+) -> tuple[str, ...]:
+    """The semantic operating-condition axes that differ between two
+    acquisition conditions (free-text ``notes`` never counts)."""
+    return tuple(
+        axis
+        for axis in _CONDITION_AXES
+        if getattr(condition_a, axis) != getattr(condition_b, axis)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -498,11 +595,22 @@ def compare_ambient_profiles(
     profile_b: AmbientNoiseProfile,
     *,
     created_at: str,
+    intent: AmbientComparisonIntent = 'diagnostic_uncontrolled',
+    condition_a: AmbientOperatingCondition | None = None,
+    condition_b: AmbientOperatingCondition | None = None,
 ) -> AmbientNoiseComparison:
-    """Measured A−B band comparison of two ambient profiles.
+    """Measured A−B band comparison of two ambient profiles, under a
+    declared intent.
 
-    Both profiles must share the same band basis and document; the result is
-    a measured difference (e.g. HVAC off vs on), never simulated acoustics.
+    Both profiles must share the same document and band basis (hard
+    preconditions). The raw ``difference_db`` is always recorded as
+    evidence, but ``level_compatibility`` grades how far it may be read:
+    a quantitative dB delta needs matching ``absolute_spl`` semantics,
+    matching weighting and a verified shared calibration authority; equal
+    non-absolute or unverified bases degrade to ``relative_difference`` /
+    ``qualitative_only``; mismatched bases are ``blocked``. ``condition_a``
+    /``condition_b`` pin the recorded operating conditions so the axes that
+    differ — and any uncontrolled differences — are explicit on the record.
     """
     if profile_a.document_id != profile_b.document_id:
         raise ValueError('ambient comparison requires the same document')
@@ -510,6 +618,249 @@ def compare_ambient_profiles(
         tuple(profile_a.band_center_hz) != tuple(profile_b.band_center_hz)
     ):
         raise ValueError('ambient comparison requires the same band basis')
+
+    checks: list[AmbientComparisonCheck] = []
+
+    if 'unknown' in (profile_a.level_semantics, profile_b.level_semantics):
+        semantics_status: AmbientCheckStatus = 'UNKNOWN'
+        semantics_reason = (
+            'level semantics not recorded for one or both profiles'
+        )
+    elif profile_a.level_semantics != profile_b.level_semantics:
+        semantics_status = 'BLOCKED'
+        semantics_reason = (
+            f'level semantics differ ({profile_a.level_semantics} vs '
+            f'{profile_b.level_semantics}) — direct subtraction is not '
+            'meaningful'
+        )
+    else:
+        semantics_status = 'PASS'
+        semantics_reason = (
+            f'shared level semantics: {profile_a.level_semantics}'
+        )
+    checks.append(
+        AmbientComparisonCheck(
+            check='level_semantics_compatible',
+            status=semantics_status,
+            reason=semantics_reason,
+        )
+    )
+
+    if 'unknown' in (profile_a.weighting, profile_b.weighting):
+        weighting_status: AmbientCheckStatus = 'UNKNOWN'
+        weighting_reason = 'weighting not recorded for one or both profiles'
+    elif profile_a.weighting != profile_b.weighting:
+        weighting_status = 'BLOCKED'
+        weighting_reason = (
+            f'weightings differ ({profile_a.weighting} vs '
+            f'{profile_b.weighting}) — band levels are not comparable'
+        )
+    else:
+        weighting_status = 'PASS'
+        weighting_reason = f'shared weighting: {profile_a.weighting}'
+    checks.append(
+        AmbientComparisonCheck(
+            check='weighting_compatible',
+            status=weighting_status,
+            reason=weighting_reason,
+        )
+    )
+
+    if (
+        profile_a.level_semantics != 'absolute_spl'
+        or profile_b.level_semantics != 'absolute_spl'
+    ):
+        calibration_status: AmbientCheckStatus = 'BLOCKED'
+        calibration_reason = (
+            'profiles are not absolute SPL — no quantitative dB delta'
+        )
+    elif not (
+        profile_a.calibration_authority_id
+        and profile_b.calibration_authority_id
+    ):
+        calibration_status = 'UNKNOWN'
+        calibration_reason = (
+            'calibration authority not recorded for one or both profiles'
+        )
+    elif (
+        profile_a.calibration_authority_id
+        == profile_b.calibration_authority_id
+    ):
+        calibration_status = 'PASS'
+        calibration_reason = 'shared calibration authority'
+    else:
+        calibration_status = 'UNKNOWN'
+        calibration_reason = (
+            'different calibration authorities — absolute accuracy of the '
+            'delta is unverified'
+        )
+    checks.append(
+        AmbientComparisonCheck(
+            check='calibration_chain',
+            status=calibration_status,
+            reason=calibration_reason,
+        )
+    )
+
+    axes: tuple[str, ...] = ()
+    if condition_a is None or condition_b is None:
+        checks.append(
+            AmbientComparisonCheck(
+                check='condition_axes_recorded',
+                status='UNKNOWN',
+                reason='operating conditions not supplied for one or both '
+                'profiles — uncontrolled differences are unknowable',
+            )
+        )
+    else:
+        axes = differing_condition_axes(condition_a, condition_b)
+        checks.append(
+            AmbientComparisonCheck(
+                check='condition_axes_recorded',
+                status='PASS',
+                reason=(
+                    'differing axes: ' + ', '.join(axes)
+                    if axes
+                    else 'identical operating conditions'
+                ),
+            )
+        )
+
+    same_position = (
+        profile_a.microphone_position == profile_b.microphone_position
+    )
+    if same_position:
+        position_status: AmbientCheckStatus = 'PASS'
+        position_reason = 'same measurement position'
+    elif intent == 'spatial_noise_map':
+        position_status = 'PASS'
+        position_reason = (
+            'position difference is the object of this comparison'
+        )
+    else:
+        position_status = 'UNKNOWN'
+        position_reason = (
+            'measurement positions differ — the level difference conflates '
+            'position and operating state'
+        )
+    checks.append(
+        AmbientComparisonCheck(
+            check='position_semantics',
+            status=position_status,
+            reason=position_reason,
+        )
+    )
+
+    if intent == 'operating_state_ab':
+        if condition_a is None or condition_b is None:
+            intent_status: AmbientCheckStatus = 'UNKNOWN'
+            intent_reason = 'A/B intent requires both recorded conditions'
+        elif not axes:
+            intent_status = 'UNKNOWN'
+            intent_reason = (
+                'no operating-state axis differs — nothing was toggled'
+            )
+        else:
+            intent_status = 'PASS'
+            intent_reason = 'controlled toggle on: ' + ', '.join(axes)
+    elif intent == 'spatial_noise_map':
+        if same_position:
+            intent_status = 'UNKNOWN'
+            intent_reason = 'positions identical — not a spatial map'
+        else:
+            intent_status = 'PASS'
+            intent_reason = 'position difference recorded as the map axis'
+    elif intent == 'repeatability':
+        if not same_position:
+            intent_status = 'UNKNOWN'
+            intent_reason = (
+                'position changed between repeats — not a repeatability '
+                'probe'
+            )
+        elif axes:
+            intent_status = 'UNKNOWN'
+            intent_reason = (
+                'operating axes changed between repeats: ' + ', '.join(axes)
+            )
+        else:
+            intent_status = 'PASS'
+            intent_reason = 'same position, same recorded conditions'
+    elif intent == 'instrument_crosscheck':
+        if (
+            profile_a.acquisition_context_id is not None
+            and profile_a.acquisition_context_id
+            == profile_b.acquisition_context_id
+        ):
+            intent_status = 'UNKNOWN'
+            intent_reason = (
+                'same acquisition context — not an instrument crosscheck'
+            )
+        else:
+            intent_status = 'PASS'
+            intent_reason = 'distinct acquisition contexts'
+    else:
+        intent_status = 'PASS'
+        intent_reason = 'diagnostic comparison — no intent requirements'
+    checks.append(
+        AmbientComparisonCheck(
+            check='intent_requirements',
+            status=intent_status,
+            reason=intent_reason,
+        )
+    )
+
+    if condition_a is None or condition_b is None:
+        attribution_status: AmbientCheckStatus = 'UNKNOWN'
+        attribution_reason = (
+            'cannot attribute the difference — operating conditions '
+            'unrecorded'
+        )
+    elif not same_position and intent != 'spatial_noise_map':
+        attribution_status = 'UNKNOWN'
+        attribution_reason = 'uncontrolled difference: microphone_position'
+    elif intent == 'operating_state_ab':
+        if not axes:
+            attribution_status = 'UNKNOWN'
+            attribution_reason = 'no differing axis recorded to attribute to'
+        else:
+            attribution_status = 'PASS'
+            attribution_reason = 'difference attributable to recorded axes'
+    elif axes:
+        attribution_status = 'UNKNOWN'
+        attribution_reason = (
+            'uncontrolled operating differences: ' + ', '.join(axes)
+        )
+    else:
+        attribution_status = 'PASS'
+        attribution_reason = 'no uncontrolled differences detected'
+    checks.append(
+        AmbientComparisonCheck(
+            check='difference_attributable',
+            status=attribution_status,
+            reason=attribution_reason,
+        )
+    )
+
+    check_status = {check.check: check.status for check in checks}
+    if (
+        check_status['level_semantics_compatible'] == 'BLOCKED'
+        or check_status['weighting_compatible'] == 'BLOCKED'
+    ):
+        level_compatibility: AmbientLevelCompatibility = 'blocked'
+    elif (
+        check_status['level_semantics_compatible'] == 'PASS'
+        and check_status['weighting_compatible'] == 'PASS'
+        and check_status['calibration_chain'] == 'PASS'
+    ):
+        level_compatibility = 'quantitative_delta_db'
+    elif (
+        check_status['level_semantics_compatible'] == 'PASS'
+        and check_status['weighting_compatible'] == 'PASS'
+    ):
+        level_compatibility = 'relative_difference'
+    else:
+        level_compatibility = 'qualitative_only'
+
     difference = tuple(
         a - b
         for a, b in zip(profile_a.band_level_db, profile_b.band_level_db, strict=True)
@@ -521,24 +872,32 @@ def compare_ambient_profiles(
     ):
         overall = profile_a.overall_level_db - profile_b.overall_level_db
     payload: dict[str, Any] = {
-        'comparison_id': str(uuid4()),
         'document_id': profile_a.document_id,
         'profile_a_id': profile_a.profile_id,
         'profile_a_sha256': profile_a.profile_sha256,
         'profile_b_id': profile_b.profile_id,
         'profile_b_sha256': profile_b.profile_sha256,
+        'intent': intent,
+        'level_compatibility': level_compatibility,
         'band_center_hz': profile_a.band_center_hz,
         'difference_db': difference,
         'overall_difference_db': overall,
+        'compatibility_checks': tuple(checks),
+        'differing_condition_axes': axes,
+        'condition_a': condition_a,
+        'condition_b': condition_b,
         'created_at': created_at,
     }
     provisional = AmbientNoiseComparison.model_construct(
         **payload,
+        comparison_id='',
         comparison_sha256='0' * 64,
     )
+    digest = _hash(provisional.identity_payload())
     return AmbientNoiseComparison(
         **payload,
-        comparison_sha256=_hash(provisional.identity_payload()),
+        comparison_id='anc-' + digest[:24],
+        comparison_sha256=digest,
     )
 
 
@@ -758,8 +1117,21 @@ class CadAmbientNoiseRepository:
             or profile_b.profile_sha256 != comparison.profile_b_sha256
         ):
             raise ValueError('ambient comparison requires both exact persisted profiles')
-        replay = compare_ambient_profiles(profile_a, profile_b, created_at=comparison.created_at)
-        if replay.difference_db != comparison.difference_db:
+        replay = compare_ambient_profiles(
+            profile_a,
+            profile_b,
+            created_at=comparison.created_at,
+            intent=comparison.intent,
+            condition_a=comparison.condition_a,
+            condition_b=comparison.condition_b,
+        )
+        if (
+            replay.difference_db != comparison.difference_db
+            or replay.level_compatibility != comparison.level_compatibility
+            or replay.differing_condition_axes
+            != comparison.differing_condition_axes
+            or replay.comparison_sha256 != comparison.comparison_sha256
+        ):
             raise ValueError('ambient comparison does not replay to persisted values')
         self._save_model(
             'cad_ambient_comparisons',

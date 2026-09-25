@@ -216,3 +216,129 @@ def test_comparison_requires_same_band_basis(tmp_path: Path):
     )
     with pytest.raises(ValueError, match='same band basis'):
         compare_ambient_profiles(octave, third, created_at='2026-09-23T03:00:00+00:00')
+
+
+def test_absolute_vs_relative_is_blocked_not_subtracted(tmp_path: Path):
+    _, revision, _ = _repositories(tmp_path)
+    absolute = _profile(_condition(revision))
+    relative = _profile(_condition(revision), level_semantics='relative')
+    comparison = compare_ambient_profiles(
+        absolute, relative, created_at='2026-09-23T03:00:00+00:00'
+    )
+    assert comparison.level_compatibility == 'blocked'
+    assert comparison.quantitative_delta_db() is None
+    statuses = {c.check: c.status for c in comparison.compatibility_checks}
+    assert statuses['level_semantics_compatible'] == 'BLOCKED'
+
+
+def test_weighting_mismatch_is_blocked(tmp_path: Path):
+    _, revision, _ = _repositories(tmp_path)
+    weighted_a = _profile(_condition(revision), weighting='A')
+    weighted_z = _profile(_condition(revision), weighting='Z')
+    comparison = compare_ambient_profiles(
+        weighted_a, weighted_z, created_at='2026-09-23T03:00:00+00:00'
+    )
+    assert comparison.level_compatibility == 'blocked'
+    statuses = {c.check: c.status for c in comparison.compatibility_checks}
+    assert statuses['weighting_compatible'] == 'BLOCKED'
+
+
+def test_same_position_hvac_ab_is_quantitative(tmp_path: Path):
+    _, revision, _ = _repositories(tmp_path)
+    off_condition = _condition(revision, hvac_state='off')
+    on_condition = _condition(
+        revision,
+        hvac_state='on',
+        created_at='2026-09-23T00:10:00+00:00',
+    )
+    off = _profile(off_condition, calibration_authority_id='cal-1')
+    on = _profile(
+        on_condition,
+        calibration_authority_id='cal-1',
+        band_level_db=(40.0, 38.0, 35.0, 32.0, 30.0, 28.0, 26.0, 24.0),
+        overall_level_db=42.0,
+    )
+    comparison = compare_ambient_profiles(
+        on,
+        off,
+        created_at='2026-09-23T03:00:00+00:00',
+        intent='operating_state_ab',
+        condition_a=on_condition,
+        condition_b=off_condition,
+    )
+    assert comparison.level_compatibility == 'quantitative_delta_db'
+    assert comparison.differing_condition_axes == ('hvac_state',)
+    statuses = {c.check: c.status for c in comparison.compatibility_checks}
+    assert statuses['difference_attributable'] == 'PASS'
+    assert statuses['intent_requirements'] == 'PASS'
+
+
+def test_moved_microphone_downgrades_attribution(tmp_path: Path):
+    _, revision, _ = _repositories(tmp_path)
+    condition = _condition(revision)
+    at_a = _profile(condition, calibration_authority_id='cal-1')
+    at_b = _profile(
+        condition,
+        microphone_position=Position3(x_m=4.5, y_m=3.0, z_m=1.1),
+        calibration_authority_id='cal-1',
+    )
+    comparison = compare_ambient_profiles(
+        at_a,
+        at_b,
+        created_at='2026-09-23T03:00:00+00:00',
+        condition_a=condition,
+        condition_b=condition,
+    )
+    statuses = {c.check: c.status for c in comparison.compatibility_checks}
+    assert statuses['position_semantics'] == 'UNKNOWN'
+    assert statuses['difference_attributable'] == 'UNKNOWN'
+
+
+def test_spatial_noise_map_intent_allows_position_difference(tmp_path: Path):
+    _, revision, _ = _repositories(tmp_path)
+    condition = _condition(revision)
+    at_a = _profile(condition)
+    at_b = _profile(
+        condition,
+        microphone_position=Position3(x_m=1.0, y_m=1.0, z_m=1.1),
+    )
+    comparison = compare_ambient_profiles(
+        at_a,
+        at_b,
+        created_at='2026-09-23T03:00:00+00:00',
+        intent='spatial_noise_map',
+        condition_a=condition,
+        condition_b=condition,
+    )
+    statuses = {c.check: c.status for c in comparison.compatibility_checks}
+    assert statuses['position_semantics'] == 'PASS'
+    assert statuses['intent_requirements'] == 'PASS'
+
+
+def test_comparison_repository_replays_typed_decision(tmp_path: Path):
+    scene_repository, revision, repository = _repositories(tmp_path)
+    off_condition = _condition(revision, hvac_state='off')
+    on_condition = _condition(
+        revision,
+        hvac_state='on',
+        created_at='2026-09-23T00:10:00+00:00',
+    )
+    repository.save_condition(off_condition)
+    repository.save_condition(on_condition)
+    off = _profile(off_condition)
+    on = _profile(
+        on_condition,
+        band_level_db=(40.0, 38.0, 35.0, 32.0, 30.0, 28.0, 26.0, 24.0),
+    )
+    repository.save_profile(off)
+    repository.save_profile(on)
+    comparison = compare_ambient_profiles(
+        on,
+        off,
+        created_at='2026-09-23T03:00:00+00:00',
+        intent='operating_state_ab',
+        condition_a=on_condition,
+        condition_b=off_condition,
+    )
+    repository.save_comparison(comparison)
+    assert repository.get_comparison(comparison.comparison_id) == comparison
