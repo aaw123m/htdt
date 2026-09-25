@@ -65,6 +65,8 @@ from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .availability_reasons import availability_reason
 from .command_palette import CommandPaletteController
+from .capture_receiver_controller import CaptureReceiverController
+from .capture_receiver_settings import CaptureReceiverPanel
 from .command_registry import (
     CommandAvailability,
     CommandContext,
@@ -246,11 +248,13 @@ class WorkflowApplicationComposition:
         *,
         project_library: ProjectLibraryRepository | None = None,
         open_project: Callable[[str], None] | None = None,
+        capture_receiver: CaptureReceiverController | None = None,
     ) -> None:
         self.repository = repository
         self.repository_path = Path(repository.path)
         self.data_dir = self.repository_path.parent
         self.document_id = document_id
+        self.capture_receiver = capture_receiver
         self.project_library = project_library or ProjectLibraryRepository(
             repository
         )
@@ -306,10 +310,24 @@ class WorkflowApplicationComposition:
         self.data_management_component = build_data_management_component(
             self.data_management_controller
         )
+        capture_panel = (
+            CaptureReceiverPanel(
+                capture_receiver,
+                self.navigation_project_identity,
+                parent=self.shell,
+            )
+            if capture_receiver is not None
+            else None
+        )
         self.settings_dialog = DataManagementDialog(
             self.data_management_component,
             self.shell,
+            capture_panel=capture_panel,
         )
+        if capture_receiver is not None:
+            capture_receiver.delivery_staged.connect(
+                self._announce_capture_delivery
+            )
         self.shell.settingsRequested.connect(self.settings_dialog.open_settings)
         self.shell.register_close_guard(self._can_close_application)
         self.shell.workflow_application = self  # type: ignore[attr-defined]
@@ -723,10 +741,24 @@ class WorkflowApplicationComposition:
         )
 
     def _open_settings_destination(self, destination_id: str) -> bool:
+        if destination_id == 'settings.capture':
+            if self.capture_receiver is None:
+                return False
+            self.settings_dialog.open_capture_settings()
+            return True
         if destination_id != 'settings.data':
             return False
         self.settings_dialog.open_settings()
         return True
+
+    def _announce_capture_delivery(self, record: object) -> None:
+        """A paired Capture device staged a delivery into the Inbox (#926)."""
+        staging_ref = getattr(record, 'staging_ref', None) or '受信ボックス'
+        self.shell.statusBar().showMessage(
+            f'Capture デバイスから受信しました → {staging_ref}'
+            '（受信ボックスで確認）',
+            15000,
+        )
 
     def _open_help_topic(self, topic_id: str) -> bool:
         if topic_id == 'help.shortcuts':
@@ -901,9 +933,17 @@ class WorkflowApplicationComposition:
         )
 
     def _make_support(self) -> WorkspaceMount:
-        page = SupportPage(self.data_dir)
+        page = SupportPage(
+            self.data_dir,
+            status_provider=(
+                self.capture_receiver.status_lines
+                if self.capture_receiver is not None
+                else None
+            ),
+        )
         return WorkspaceMount.from_widget(
             page,
+            on_activate=page.refresh,
             focus_target=lambda target: TargetFocusResult(focused=True),
         )
 
@@ -1977,12 +2017,14 @@ def build_workflow_application(
     *,
     project_library: ProjectLibraryRepository | None = None,
     open_project: Callable[[str], None] | None = None,
+    capture_receiver: CaptureReceiverController | None = None,
 ) -> WorkflowShellWindow:
     composition = WorkflowApplicationComposition(
         repository,
         document_id,
         project_library=project_library,
         open_project=open_project,
+        capture_receiver=capture_receiver,
     )
     return composition.shell
 

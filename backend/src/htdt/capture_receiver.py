@@ -32,6 +32,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
+import logging
 from pathlib import Path
 import secrets
 import sqlite3
@@ -65,6 +66,9 @@ from .content_blobs import (
     store_content_blob,
 )
 from .limits import MAX_CAPTURE_INGEST_SOURCE_BYTES
+
+
+_LOGGER = logging.getLogger('htdt.capture_receiver')
 
 
 RECEIVER_DOMAIN = 'htdt.capture.receiver.v1'
@@ -303,6 +307,9 @@ class CaptureReceiverService:
         base_url: str | None = None,
         data_dir: Path | None = None,
         max_archive_bytes: int = RECEIVER_MAX_ARCHIVE_BYTES,
+        delivery_listener: Callable[[ReceiverDeliveryRecord], None] | None = (
+            None
+        ),
     ) -> None:
         self.scene_repository = scene_repository
         self.ingestion_repository = ingestion_repository or (
@@ -312,6 +319,7 @@ class CaptureReceiverService:
             scene_repository, self.ingestion_repository
         )
         self.bundle_reader = bundle_reader or _default_bundle_reader
+        self._delivery_listener = delivery_listener
         self._base_url_override = base_url
         self._data_dir = (
             Path(data_dir)
@@ -734,6 +742,11 @@ class CaptureReceiverService:
             detail='',
             delivery_key=delivery_key,
         )
+        if record.outcome == 'accepted' and self._delivery_listener is not None:
+            try:
+                self._delivery_listener(record)
+            except Exception:
+                _LOGGER.exception('capture delivery listener failed')
         return 200, self._receipt_for(record)
 
     def _receipt_for(self, record: ReceiverDeliveryRecord) -> dict:
