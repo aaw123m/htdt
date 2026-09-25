@@ -7,6 +7,12 @@ import unicodedata
 
 
 
+from .availability_reasons import (
+    AvailabilityReason,
+    availability_reason,
+    localized_reason_message,
+)
+from .localization import PresentationLocale
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
 class CommandContext(StrEnum):
@@ -50,14 +56,25 @@ class CommandDefinition:
 
 @dataclass(frozen=True, slots=True)
 class CommandAvailability:
+    """Availability of a command at evaluation time (#776).
+
+    ``reason`` is the stable, language-independent semantic identity of a
+    disabled state — contextual help, localization and diagnostics key off
+    it. ``disabled_reason`` is rendered presentation kept for consumers that
+    still display prose; new emitters should use :meth:`blocked` with a
+    catalog code so identity and text stay separate.
+    """
+
     enabled: bool
     disabled_reason: str | None = None
+    reason: AvailabilityReason | None = None
 
     def __post_init__(self) -> None:
-        if self.enabled and self.disabled_reason:
-            raise ValueError('enabled command cannot have disabled_reason')
-        if not self.enabled and not self.disabled_reason:
-            raise ValueError('disabled command requires disabled_reason')
+        if self.enabled:
+            if self.disabled_reason or self.reason is not None:
+                raise ValueError('enabled command cannot have disabled_reason')
+        elif self.reason is None and not self.disabled_reason:
+            raise ValueError('disabled command requires a reason')
 
     @classmethod
     def available(cls) -> 'CommandAvailability':
@@ -66,6 +83,30 @@ class CommandAvailability:
     @classmethod
     def unavailable(cls, reason: str) -> 'CommandAvailability':
         return cls(enabled=False, disabled_reason=reason)
+
+    @classmethod
+    def blocked(cls, reason: AvailabilityReason) -> 'CommandAvailability':
+        """Disabled with a stable catalog reason code.
+
+        ``disabled_reason`` is filled with the Japanese catalog text so
+        prose-only consumers keep working, while identity lives on ``reason``.
+        """
+        return cls(
+            enabled=False,
+            disabled_reason=localized_reason_message(
+                reason, PresentationLocale.JAPANESE
+            ),
+            reason=reason,
+        )
+
+    def localized_message(
+        self,
+        locale: PresentationLocale,
+    ) -> str | None:
+        """Rendered short message for the given locale (None when enabled)."""
+        if self.reason is not None:
+            return localized_reason_message(self.reason, locale)
+        return self.disabled_reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +212,9 @@ class CommandRegistry:
     def availability(self, command_id: str) -> CommandAvailability:
         command = self._commands[command_id]
         if self._data_mutations_frozen and command.definition.mutates_managed_data:
-            return CommandAvailability.unavailable(DATA_MUTATIONS_FROZEN_REASON)
+            return CommandAvailability.blocked(
+                availability_reason('command.blocked.data_mutation_frozen')
+            )
         if command.availability is not None:
             result = command.availability()
             if not result.enabled:
@@ -180,11 +223,13 @@ class CommandRegistry:
             if command.definition.deep_link is not None:
                 if self._deep_link_handler is not None:
                     return CommandAvailability.available()
-                return CommandAvailability.unavailable(
-                    '画面切替の準備が完了すると利用できます'
+                return CommandAvailability.blocked(
+                    availability_reason(
+                        'command.blocked.navigation_handler_unavailable'
+                    )
                 )
-            return CommandAvailability.unavailable(
-                'この操作は現在の画面では利用できません'
+            return CommandAvailability.blocked(
+                availability_reason('command.blocked.unavailable_in_context')
             )
         return CommandAvailability.available()
 

@@ -25,8 +25,10 @@ Contract (per the issue):
 
 from __future__ import annotations
 
+from contextlib import closing
 from hashlib import sha256
 import json
+from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -38,6 +40,8 @@ from .cad_scene import (
     SceneDocument,
     SceneEntity,
     Size3,
+    acoustic_reference_position,
+    scene_content_hash,
 )
 from .cad_standards_profiles import dolby_atmos_home_5_1_2_profile
 from .project_lifecycle import ProjectLibrary
@@ -99,15 +103,128 @@ class TemplateAuthorityRef(BaseModel):
 
 class TemplateSpeakerSpec(BaseModel):
     """One declared speaker position *intent* — a nominal angle/distance
-    guide, not claimed geometry."""
+    guide, not claimed geometry.
+
+    #864: the three ``nominal_*`` geometry fields are all-or-none. A spec
+    with ``nominal_azimuth_deg=None`` is *topology-only intent* — the role
+    and name survive save-as-template without a listening reference, and
+    the geometry is deliberately absent rather than inferred from entity
+    ordering.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     speaker_role: str = Field(min_length=1)
     name: str = Field(min_length=1)
-    nominal_azimuth_deg: float
-    nominal_elevation_deg: float = 0.0
-    nominal_distance_m: float = Field(default=2.5, gt=0.0)
+    nominal_azimuth_deg: float | None = None
+    nominal_elevation_deg: float | None = None
+    nominal_distance_m: float | None = Field(default=None, gt=0.0)
+
+    @model_validator(mode='after')
+    def valid_geometry(self) -> 'TemplateSpeakerSpec':
+        fields = (
+            self.nominal_azimuth_deg,
+            self.nominal_elevation_deg,
+            self.nominal_distance_m,
+        )
+        if self.nominal_azimuth_deg is None:
+            if any(value is not None for value in fields):
+                raise ValueError(
+                    'topology-only speaker spec cannot carry partial geometry'
+                )
+        elif any(value is None for value in fields):
+            raise ValueError(
+                'normalized speaker spec requires azimuth, elevation and distance'
+            )
+        return self
+
+
+class TemplateLayoutReference(BaseModel):
+    """Explicit listening/layout reference a template's normalized speaker
+    geometry is authored against (#864).
+
+    ``source_kind`` declares where the origin came from:
+
+    - ``seat_listener`` — a seat entity's acoustic reference position;
+    - ``measurement_point`` — an explicitly selected measurement point
+      (the designated MLP), never "the first point in entity order";
+    - ``explicit_position`` — an operator-declared position.
+
+    ``scene_revision_id``/``scene_content_hash`` pin the exact
+    SceneRevision the reference was resolved against so the template's
+    nominal geometry stays honest provenance, and ``reference_position``
+    is the resolved world-space origin used for normalization.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_kind: Literal[
+        'seat_listener', 'measurement_point', 'explicit_position'
+    ]
+    source_entity_id: str | None = Field(default=None, min_length=1)
+    scene_revision_id: str = Field(min_length=1)
+    scene_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    reference_position: Position3
+
+    @model_validator(mode='after')
+    def valid_reference(self) -> 'TemplateLayoutReference':
+        if self.source_kind == 'explicit_position':
+            return self
+        if self.source_entity_id is None:
+            raise ValueError(
+                f'{self.source_kind} layout reference requires '
+                'source_entity_id'
+            )
+        return self
+
+
+def build_template_layout_reference(
+    document: SceneDocument,
+    *,
+    scene_revision_id: str,
+    source_kind: Literal[
+        'seat_listener', 'measurement_point', 'explicit_position'
+    ],
+    source_entity_id: str | None = None,
+    explicit_position: Position3 | None = None,
+) -> TemplateLayoutReference:
+    """Resolve and pin a layout reference against this exact document.
+
+    #864: the reference origin must be explicit — seat listener, a
+    designated measurement point, or an operator-declared position — never
+    inferred from measurement-point ordering.
+    """
+
+    if source_kind == 'explicit_position':
+        if explicit_position is None:
+            raise ValueError(
+                'explicit_position layout reference requires a position'
+            )
+        position = explicit_position
+    else:
+        if source_entity_id is None:
+            raise ValueError(
+                f'{source_kind} layout reference requires source_entity_id'
+            )
+        entity = document.entity(source_entity_id)
+        expected = 'seat' if source_kind == 'seat_listener' else 'measurement_point'
+        if entity.kind != expected:
+            raise ValueError(
+                f'{source_kind} layout reference entity {source_entity_id} '
+                f'has kind {entity.kind}, expected {expected}'
+            )
+        position = acoustic_reference_position(entity)
+        if position is None:
+            raise ValueError(
+                f'entity {source_entity_id} has no acoustic reference position'
+            )
+    return TemplateLayoutReference(
+        source_kind=source_kind,
+        source_entity_id=source_entity_id,
+        scene_revision_id=scene_revision_id,
+        scene_content_hash=scene_content_hash(document),
+        reference_position=position,
+    )
 
 
 class TemplateDesignBrief(BaseModel):
@@ -155,6 +272,9 @@ class ProjectTemplate(BaseModel):
     measurement_spec: TemplateMeasurementSpec | None = None
     #: Exact standards/profile refs the template aims at (#600 vocabulary).
     target_refs: tuple[TemplateAuthorityRef, ...] = ()
+    #: Explicit listening/reference origin the normalized speaker geometry
+    #: was authored against (#864); absent on topology-only templates.
+    layout_reference: TemplateLayoutReference | None = None
     template_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
@@ -167,7 +287,7 @@ class ProjectTemplate(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'template_id': self.template_id,
@@ -188,6 +308,11 @@ class ProjectTemplate(BaseModel):
                 ref.model_dump(mode='json') for ref in self.target_refs
             ],
         }
+        if self.layout_reference is not None:
+            payload['layout_reference'] = self.layout_reference.model_dump(
+                mode='json'
+            )
+        return payload
 
 
 def build_project_template(
@@ -201,6 +326,7 @@ def build_project_template(
     measurement_spec: TemplateMeasurementSpec | None = None,
     target_refs: tuple[TemplateAuthorityRef, ...] = (),
     description: str | None = None,
+    layout_reference: TemplateLayoutReference | None = None,
 ) -> ProjectTemplate:
     payload: dict[str, Any] = {
         'template_id': template_id,
@@ -214,6 +340,7 @@ def build_project_template(
         ),
         'measurement_spec': measurement_spec,
         'target_refs': tuple(target_refs),
+        'layout_reference': layout_reference,
     }
     provisional = ProjectTemplate.model_construct(
         **payload, template_sha256='0' * 64
@@ -275,28 +402,6 @@ def preview_document_as_template(
     )
 
 
-def _listening_center(document: SceneDocument) -> tuple[float, float, float]:
-    """Center the layout intent on the MLP if present, else the speaker mean."""
-
-    points = [
-        entity
-        for entity in document.entities
-        if entity.kind == 'measurement_point'
-    ]
-    if points:
-        origin = points[0].position
-        return (origin.x_m, origin.y_m, origin.z_m)
-    speakers = [entity for entity in document.entities if entity.kind == 'speaker']
-    if not speakers:
-        return (0.0, 0.0, 0.0)
-    count = len(speakers)
-    return (
-        sum(e.position.x_m for e in speakers) / count,
-        sum(e.position.y_m for e in speakers) / count,
-        sum(e.position.z_m for e in speakers) / count,
-    )
-
-
 def _intent_spec(entity: SceneEntity, center: tuple[float, float, float]) -> TemplateSpeakerSpec:
     """Re-express an actual entity as nominal azimuth/elevation/distance intent."""
 
@@ -331,20 +436,44 @@ def save_document_as_template(
     design_brief: TemplateDesignBrief | None = None,
     measurement_spec: TemplateMeasurementSpec | None = None,
     target_refs: tuple[TemplateAuthorityRef, ...] = (),
+    layout_reference: TemplateLayoutReference | None = None,
 ) -> ProjectTemplate:
     """Capture a document's speaker layout as a user template.
 
     Copies *positions as nominal intent* — the role/name/relative geometry —
     and nothing else: no measurements, bindings, capture items, serials or
     predictions can ever travel into a template.
+
+    #864: normalized speaker geometry requires an explicit
+    :class:`TemplateLayoutReference` — a designated seat/point or declared
+    position pinned to the exact source revision. With no reference the
+    template carries topology-only speaker intent (roles and names) and
+    never fabricates geometry from entity ordering.
     """
 
-    center = _listening_center(document)
-    speaker_specs = tuple(
-        _intent_spec(entity, center)
+    speakers = tuple(
+        entity
         for entity in document.entities
         if entity.kind in _TEMPLATE_SPEAKER_KINDS
     )
+    if layout_reference is None:
+        speaker_specs = tuple(
+            TemplateSpeakerSpec(
+                speaker_role=entity.speaker_role or entity.entity_id,
+                name=entity.name or entity.entity_id,
+            )
+            for entity in speakers
+        )
+    else:
+        if layout_reference.scene_content_hash != scene_content_hash(document):
+            raise ValueError(
+                'layout reference is pinned to a different document revision'
+            )
+        origin = layout_reference.reference_position
+        center = (origin.x_m, origin.y_m, origin.z_m)
+        speaker_specs = tuple(
+            _intent_spec(entity, center) for entity in speakers
+        )
     return build_project_template(
         template_id=template_id,
         version=version,
@@ -355,14 +484,20 @@ def save_document_as_template(
         measurement_spec=measurement_spec,
         target_refs=target_refs,
         description=description,
+        layout_reference=layout_reference,
     )
 
 
 def _nominal_position(spec: TemplateSpeakerSpec) -> Position3:
-    """Intent-frame position: MLP at origin, x right / y front / z up."""
+    """Intent-frame position: reference at origin, x right / y front / z up."""
 
     import math
 
+    if spec.nominal_azimuth_deg is None or spec.nominal_distance_m is None:
+        raise ValueError(
+            'topology-only speaker spec has no normalized geometry to '
+            'materialize'
+        )
     azimuth = math.radians(spec.nominal_azimuth_deg)
     elevation = math.radians(spec.nominal_elevation_deg)
     distance = spec.nominal_distance_m
@@ -408,7 +543,20 @@ def materialize_template_layout(
     at that listener — never a fabricated measurement point, never a
     constant aim vector. The caller assigns the entities into the scene
     only when the document's room is concrete.
+
+    A topology-only template (#864: saved without an explicit layout
+    reference) carries no normalized geometry and cannot materialize
+    positions.
     """
+
+    if any(
+        spec.nominal_azimuth_deg is None for spec in template.speaker_specs
+    ):
+        raise ValueError(
+            'template carries topology-only speaker intent without '
+            'normalized geometry — re-save it with an explicit '
+            'TemplateLayoutReference'
+        )
 
     def _aim(position: Position3) -> Direction3:
         dx = listener_position.x_m - position.x_m
@@ -534,33 +682,131 @@ def create_project_from_template(
     document_id = document_id or str(uuid4())
     if scene_repository.latest(document_id) is not None:
         raise ValueError(f'document_id {document_id} already exists')
-    record = library.register_project(document_id, display_name=display_name)
     scene = materialize_template_scene(template, document_id=document_id)
-    scene_repository.save(scene, parent_revision_id=None)
     resolutions = resolve_template_target_refs(template, standards_repository)
     unresolved = tuple(
         item.ref for item in resolutions if item.status != 'resolved'
     )
-    payload: dict[str, Any] = {
-        'instantiation_id': str(uuid4()),
-        'document_id': document_id,
-        'project_id': record.project_id,
-        'template_id': template.template_id,
-        'template_version': template.version,
-        'template_sha256': template.template_sha256,
-        'unresolved_refs': unresolved,
-        'created_at_utc': created_at_utc,
-    }
-    provisional = ProjectTemplateInstantiation.model_construct(
-        **payload, instantiation_sha256='0' * 64
+
+    def _instantiation(project_id: str | None) -> ProjectTemplateInstantiation:
+        payload: dict[str, Any] = {
+            'instantiation_id': str(uuid4()),
+            'document_id': document_id,
+            'project_id': project_id,
+            'template_id': template.template_id,
+            'template_version': template.version,
+            'template_sha256': template.template_sha256,
+            'unresolved_refs': unresolved,
+            'created_at_utc': created_at_utc,
+        }
+        provisional = ProjectTemplateInstantiation.model_construct(
+            **payload, instantiation_sha256='0' * 64
+        )
+        return ProjectTemplateInstantiation(
+            **payload,
+            instantiation_sha256=_hash(provisional.semantic_payload()),
+        )
+
+    if instantiation_repository is None:
+        # #864: provenance is not optional on the persisted path — a missing
+        # repository means an explicit non-persisting preview/test call and
+        # nothing is written (no half-created project may appear in the
+        # Project Library).
+        return document_id, _instantiation(None)
+
+    shared_store = (
+        Path(getattr(library, 'path', '')) == Path(scene_repository.path)
+        and Path(getattr(instantiation_repository, 'path', ''))
+        == Path(scene_repository.path)
     )
-    instantiation = ProjectTemplateInstantiation(
-        **payload,
-        instantiation_sha256=_hash(provisional.semantic_payload()),
-    )
-    if instantiation_repository is not None:
+    if shared_store:
+        # All three stores share one SQLite file: commit the Project
+        # Library row, the initial SceneRevision and the instantiation
+        # provenance inside a single BEGIN IMMEDIATE transaction — a
+        # creation either lands whole or not at all (#864).
+        connection = scene_repository._connect()
+        try:
+            connection.execute('BEGIN IMMEDIATE')
+            record = library.register_project(
+                document_id,
+                display_name=display_name,
+                connection=connection,
+            )
+            scene_repository._save_in_transaction(
+                connection, scene, parent_revision_id=None
+            )
+            instantiation = _instantiation(record.project_id)
+            instantiation_repository.save_instantiation(
+                instantiation, connection=connection
+            )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+        return document_id, instantiation
+
+    # Separate stores: staged writes with a rollback journal — on failure,
+    # remove only the rows this creation produced (#864).
+    registry_created = library.find_by_document(document_id) is None
+    record = library.register_project(document_id, display_name=display_name)
+    try:
+        scene_repository.save(scene, parent_revision_id=None)
+        instantiation = _instantiation(record.project_id)
         instantiation_repository.save_instantiation(instantiation)
+    except BaseException:
+        _rollback_template_creation(
+            scene_repository,
+            library,
+            document_id=document_id,
+            project_id=record.project_id if registry_created else None,
+        )
+        raise
     return document_id, instantiation
+
+
+def _rollback_template_creation(
+    scene_repository,
+    library: ProjectLibrary,
+    *,
+    document_id: str,
+    project_id: str | None,
+) -> None:
+    """Undo a failed template-instantiated creation (#864).
+
+    Removes only the rows this creation produced — the initial
+    SceneRevision/head for ``document_id`` and the Project Library
+    registration when this creation registered it. Existing unrelated
+    authority is never touched.
+    """
+
+    with closing(scene_repository._connect()) as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        try:
+            connection.execute(
+                'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
+                (document_id,),
+            )
+            connection.execute(
+                'DELETE FROM scene_document_heads WHERE document_id=?',
+                (document_id,),
+            )
+            connection.execute(
+                'DELETE FROM scene_revisions WHERE document_id=?',
+                (document_id,),
+            )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+    if project_id is not None:
+        with closing(library._connect()) as connection:
+            connection.execute(
+                'DELETE FROM htdt_project_documents WHERE project_id=?',
+                (project_id,),
+            )
+            connection.commit()
 
 
 # -- built-in starters ------------------------------------------------------
@@ -590,6 +836,7 @@ def _speaker(role: str, name: str, azimuth: float, elevation: float = 0.0) -> Te
         name=name,
         nominal_azimuth_deg=azimuth,
         nominal_elevation_deg=elevation,
+        nominal_distance_m=2.5,
     )
 
 
@@ -717,10 +964,12 @@ __all__ = [
     'TemplateAuthorityRef',
     'TemplateDesignBrief',
     'TemplateDisplayIntent',
+    'TemplateLayoutReference',
     'TemplateMeasurementSpec',
     'TemplateProjectKind',
     'TemplateSavePreview',
     'TemplateSpeakerSpec',
+    'build_template_layout_reference',
     'builtin_project_templates',
     'create_project_from_template',
     'materialize_template_layout',
