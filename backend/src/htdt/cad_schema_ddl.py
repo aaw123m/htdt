@@ -1018,6 +1018,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    -- #842: one physical instance can be replaced only once and one
+    -- successor can absorb only one replacement, enforced at the storage
+    -- layer so concurrent writers cannot branch the lineage even if both
+    -- observed a current predecessor.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_replacement_predecessor ON cad_installed_equipment_replacements(removed_instance_id)
+    """
+    ,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_replacement_successor ON cad_installed_equipment_replacements(installed_instance_id)
+    """
+    ,
+    """
     CREATE INDEX IF NOT EXISTS idx_joint_candidate_spec_seq ON cad_joint_candidates(spec_id, seq ASC)
     """
     ,
