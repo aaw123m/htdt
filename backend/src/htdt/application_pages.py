@@ -345,8 +345,14 @@ class ReferenceLibraryPage(QWidget):
 class SupportPage(QWidget):
     """Support: diagnostics locations and version — the support owner page."""
 
-    def __init__(self, data_dir: Path, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        data_dir: Path,
+        status_provider: Callable[[], tuple[str, ...]] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._status_provider = status_provider
         layout = _page_layout(
             self,
             "サポート",
@@ -363,12 +369,34 @@ class SupportPage(QWidget):
             )
             label.setWordWrap(True)
             layout.addWidget(label)
+        self._status_layout = layout
+        self._status_labels: list[QLabel] = []
         note = QLabel(
             "起動に失敗した場合は診断ログをサポートに共有してください。"
         )
         note.setWordWrap(True)
         layout.addWidget(note)
         layout.addStretch(1)
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Re-render live status lines (e.g. effective receiver state)."""
+        for label in self._status_labels:
+            self._status_layout.removeWidget(label)
+            label.deleteLater()
+        self._status_labels.clear()
+        if self._status_provider is None:
+            return
+        for text in self._status_provider():
+            label = QLabel(text)
+            label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            label.setWordWrap(True)
+            self._status_layout.insertWidget(
+                self._status_layout.count() - 2, label
+            )
+            self._status_labels.append(label)
 
 
 def inbox_focus(page: CaptureInboxPage, target: NavigationTarget) -> TargetFocusResult:

@@ -8,6 +8,11 @@ import zipfile
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .capture_receiver_controller import CaptureReceiverController
+
 from .build_info import version_string
 from .cad_composition import CadEditorWindow
 from .cad_repository import SceneRepository
@@ -76,11 +81,15 @@ def build_workflow_shell(
     repository: SceneRepository,
     document_id: str,
     project_library: ProjectLibraryRepository | None = None,
+    capture_receiver: 'CaptureReceiverController | None' = None,
 ) -> WorkflowShellWindow:
     """Build the integrated workflow application while preserving the public API."""
 
     return build_workflow_application(
-        repository, document_id, project_library=project_library
+        repository,
+        document_id,
+        project_library=project_library,
+        capture_receiver=capture_receiver,
     )
 
 
@@ -481,14 +490,45 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         project_entry = project_library.resolve_startup_document(
             args.document_id
         )
+        # #926: the Capture receiver is one application-scoped service owned
+        # by the data root — the workflow shell composes it and the app exit
+        # stops it. The legacy fallback window deliberately runs without it.
+        capture_receiver = None
+        if not args.legacy_ui:
+            try:
+                from .application_preferences import ApplicationPreferenceStore
+                from .capture_receiver_controller import (
+                    CaptureReceiverController,
+                )
+
+                preferences = ApplicationPreferenceStore.for_data_dir(
+                    args.data_dir
+                )
+                capture_receiver = CaptureReceiverController(
+                    repository, preferences
+                )
+            except Exception:
+                diagnostics.logger.exception(
+                    'capture receiver controller init failed; '
+                    'receiver stays disabled'
+                )
         window = (
             OptimizationWorkspaceWindow(repository, project_entry.document_id)
             if args.legacy_ui
             else build_workflow_shell(
-                repository, project_entry.document_id, project_library
+                repository,
+                project_entry.document_id,
+                project_library,
+                capture_receiver=capture_receiver,
             )
         )
         window.show()
+        if capture_receiver is not None:
+            start_error = capture_receiver.start_if_requested()
+            if start_error:
+                diagnostics.logger.warning(
+                    'capture receiver failed to start: %s', start_error
+                )
 
         def _dispatch(intent: HTDTLaunchIntent) -> LaunchIntentResult:
             return _route_launch_intent(
@@ -526,6 +566,10 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
         exit_code = int(app.exec())
+        # #926: stop the LAN listener on exit; the requested policy in
+        # preferences is untouched so next launch restores the same choice.
+        if capture_receiver is not None:
+            capture_receiver.shutdown()
         # #739: the session reached a clean close — the launch record is
         # completed so it no longer counts as failed-startup evidence.
         complete_launch(
