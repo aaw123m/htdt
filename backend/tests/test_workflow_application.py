@@ -9,8 +9,9 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
+from htdt import dirty_state_dialog
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_empty_scene
 from htdt.command_palette import CommandPalette, CommandShortcutBinder
@@ -21,6 +22,7 @@ from htdt.command_registry import (
 )
 from htdt.workflow_application import WorkflowApplicationComposition
 from htdt.workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from htdt.workflow_shell import WorkspaceMount
 
 
 def _app() -> QApplication:
@@ -291,6 +293,176 @@ def test_project_menu_present_and_title_shows_project(tmp_path: Path) -> None:
     assert composition.shell.isVisible() or True  # no crash, no close
     assert composition.document_id == 'document-1'
 
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_project_switch_rebinds_canonical_entry_and_title(tmp_path: Path) -> None:
+    """#919: an application-page switch rebinds document + entry + title +
+    chip atomically — no split-brain identity."""
+    app = _app()
+    composition = _composition(tmp_path)
+    composition.repository.save(
+        make_empty_scene('document-2'), parent_revision_id=None
+    )
+    entry = composition.project_library.create_project(
+        'Second Project', document_id='document-2'
+    )
+
+    reason = composition._switch_project('document-2')
+
+    assert reason is None
+    assert composition.document_id == 'document-2'
+    assert composition.project_entry.project_id == entry.project_id
+    assert composition.project_entry.display_name == 'Second Project'
+    assert composition.shell.windowTitle() == (
+        'Home Theater Digital Twin — Second Project'
+    )
+    assert (
+        composition.shell.context_bar._project_label.text()
+        == 'プロジェクト: Second Project'
+    )
+    reopened = composition.project_library.get_by_document_id('document-2')
+    assert reopened is not None
+    assert reopened.last_opened_at_utc is not None
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_projects_page_open_routes_through_project_id(tmp_path: Path) -> None:
+    """#919: the Projects listing opens by canonical project_id."""
+    app = _app()
+    composition = _composition(tmp_path)
+    composition.repository.save(
+        make_empty_scene('document-2'), parent_revision_id=None
+    )
+    entry = composition.project_library.create_project(
+        'Second Project', document_id='document-2'
+    )
+
+    composition._open_project_by_id(entry.project_id)
+
+    assert composition.document_id == 'document-2'
+    assert composition.project_entry.display_name == 'Second Project'
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def _dirty_mount(state: dict) -> WorkspaceMount:
+    def guard():
+        return (False, '未保存の変更があります') if state['dirty'] else (True, None)
+
+    def dirty_state():
+        return 'dirty_recoverable' if state['dirty'] else 'clean'
+
+    def resolve(action):
+        state['actions'].append(action)
+        if action == 'save':
+            state['dirty'] = False
+            return True, '保存しました'
+        return False, '残りました'
+
+    return WorkspaceMount.from_widget(
+        QLabel('fake'),
+        before_deactivate=guard,
+        dirty_state=dirty_state,
+        resolve_dirty_state=resolve,
+    )
+
+
+def test_snapshot_decision_clean_and_frozen(tmp_path: Path) -> None:
+    """#918/#927: a clean project snapshots immediately; a frozen one refuses."""
+    app = _app()
+    composition = _composition(tmp_path)
+
+    # Only clean (or guard-less) mounts are mounted: the decision is 'saved'.
+    assert composition._project_snapshot_decision('複製') == 'saved'
+
+    composition._freeze_data_mutations()
+    assert composition._project_snapshot_decision('複製') is None
+    composition._thaw_data_mutations()
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_snapshot_decision_last_saved_keeps_working_copy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#918/#927: 'last_saved' serializes persisted state without touching
+    the dirty working copy."""
+    app = _app()
+    composition = _composition(tmp_path)
+    state = {'dirty': True, 'actions': []}
+    composition.shell.router._mounts[WorkspaceId.ROOM] = _dirty_mount(state)
+
+    monkeypatch.setattr(
+        dirty_state_dialog,
+        'choose_snapshot_action',
+        lambda label, parent: 'last_saved',
+    )
+    assert composition._project_snapshot_decision('エクスポート') == 'last_saved'
+    assert state['dirty'] is True
+    assert state['actions'] == []
+
+    monkeypatch.setattr(
+        dirty_state_dialog,
+        'choose_snapshot_action',
+        lambda label, parent: None,
+    )
+    assert composition._project_snapshot_decision('エクスポート') is None
+    assert state['dirty'] is True
+
+    # The mount stays dirty on purpose — clean it before the shell's
+    # closeEvent would open a real resolve dialog.
+    state['dirty'] = False
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_snapshot_decision_save_resolves_dirty_mounts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#918/#927: 'save' resolves every dirty mount before the artifact."""
+    app = _app()
+    composition = _composition(tmp_path)
+    state = {'dirty': True, 'actions': []}
+    composition.shell.router._mounts[WorkspaceId.ROOM] = _dirty_mount(state)
+
+    monkeypatch.setattr(
+        dirty_state_dialog,
+        'choose_snapshot_action',
+        lambda label, parent: 'save',
+    )
+    assert composition._project_snapshot_decision('複製') == 'saved'
+    assert state['actions'] == ['save']
+    assert state['dirty'] is False
+
+    # An unresolvable mount still refuses the artifact; the interactive
+    # fallback is patched to report "keep open".
+    state['dirty'] = True
+    mount = composition.shell.router._mounts[WorkspaceId.ROOM]
+    monkeypatch.setattr(
+        mount,
+        'resolve_dirty_state',
+        lambda action: (False, '残りました'),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        dirty_state_dialog,
+        'resolve_mount_dirty_state',
+        lambda mount, context, parent: (False, '残りました'),
+    )
+    assert composition._project_snapshot_decision('複製') is None
+
+    state['dirty'] = False
     composition.shell.close()
     composition.shell.deleteLater()
     app.processEvents()

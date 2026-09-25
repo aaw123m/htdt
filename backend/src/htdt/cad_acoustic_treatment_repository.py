@@ -682,6 +682,54 @@ class CadAcousticTreatmentRepository:
             ).fetchall()
         return tuple(self._read_placement_row(row) for row in rows)
 
+    def proposed_placement_ids(self, document_id: str) -> tuple[str, ...]:
+        """Instance ids whose *latest* placement version is still proposed.
+
+        An installed lifecycle supersedes the proposal — those placements
+        are physical/as-built facts and never come back through this view.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT instance_id FROM cad_acoustic_treatment_placements p
+                WHERE document_id=?
+                  AND p.placement_version = (
+                      SELECT MAX(placement_version)
+                      FROM cad_acoustic_treatment_placements
+                      WHERE instance_id=p.instance_id
+                  )
+                  AND p.lifecycle='proposed'
+                ORDER BY p.seq ASC
+                """,
+                (document_id,),
+            ).fetchall()
+        return tuple(str(row['instance_id']) for row in rows)
+
+    def delete_placement(self, instance_id: str) -> None:
+        """Remove a still-proposed placement and every version beneath it.
+
+        Install facts are never deletable through this path: an instance
+        whose latest version is ``installed`` (or anything other than
+        ``proposed``) raises instead of silently erasing a lifecycle
+        record. This exists for the Room design-transaction Discard — a
+        proposed placement created inside a dirty session is rolled back
+        with the rest of the uncommitted design state.
+        """
+        latest = self.latest_placement(instance_id)
+        if latest is None:
+            return
+        if latest.lifecycle != 'proposed':
+            raise ValueError(
+                f'placement {instance_id} is {latest.lifecycle}, not proposed — '
+                'physical lifecycle facts are not deletable'
+            )
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                'DELETE FROM cad_acoustic_treatment_placements '
+                'WHERE instance_id=?',
+                (instance_id,),
+            )
+
     def list_placements_for_variant(
         self,
         system_variant_id: str,
