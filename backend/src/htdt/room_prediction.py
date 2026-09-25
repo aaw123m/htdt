@@ -569,7 +569,10 @@ class RoomPredictionController(QObject):
         resolved_sound_speed = (
             float(sound_speed_m_s) if sound_speed_m_s is not None else 343.0
         )
-        receiver_entity = revision.document.entity(receiver_entity_id)
+        target_document = revision.document
+        if variant is not None:
+            target_document = materialize_system_variant(revision, variant)
+        receiver_entity = target_document.entity(receiver_entity_id)
         listener_pose = (
             self._selected_pose(receiver_entity.entity_id)
             if receiver_entity.kind == 'seat'

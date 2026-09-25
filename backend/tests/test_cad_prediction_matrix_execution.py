@@ -126,6 +126,10 @@ def _provider(
             state='READY', reason=None
         ),
         phase_capability='READY',
+        ref=lambda: None,
+        result_artifact_ref=_solver_ref(),
+        source_normalization_id='norm-shared',
+        timing_authority='absolute_propagation_time',
         receiver_responses=tuple(
             SimpleNamespace(
                 receiver_id=receiver_id,
@@ -133,6 +137,7 @@ def _provider(
                 magnitude_pa=(1.0, 0.5, 0.25),
                 phase_deg=(0.0, -10.0, -20.0),
                 pressure_reference_pa=20.0e-6,
+                phase_convention='exp(-iwt)',
             )
             for receiver_id in receiver_ids
         ),
