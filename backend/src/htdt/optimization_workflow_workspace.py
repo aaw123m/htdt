@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import revision_display_label
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
 from .comparison_context_strip import ComparisonContextStrip
@@ -444,7 +445,19 @@ class OptimizationWorkflowWorkspace(QWidget):
                         break
         scene_label = None
         if working is not None and working.source_revision_id is not None:
-            scene_label = f'リビジョン {working.source_revision_id[:8]}'
+            revision = self.controller.repository.get(
+                working.source_revision_id
+            )
+            if revision is not None:
+                revision_labels = self.controller.repository.revision_labels(
+                    self.controller.document_id
+                )
+                scene_label = (
+                    'リビジョン '
+                    + revision_display_label(revision, revision_labels)
+                )
+            else:
+                scene_label = 'リビジョン（解除済み）'
         if working is not None and working.has_preview:
             status_label = 'プレビュー'
         elif selected_label is not None:

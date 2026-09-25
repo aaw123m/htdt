@@ -1360,6 +1360,11 @@ class MeasurementWorkflowController:
     def runner_plans(self) -> tuple[MeasurementRunnerPlan, ...]:
         return self.runner_repository.list_plans(self.document_id)
 
+    def runner_plan_created_at_utc(self) -> dict[str, str]:
+        return self.runner_repository.list_plan_created_at_utc(
+            self.document_id
+        )
+
     def create_runner_plan(
         self,
         *,
