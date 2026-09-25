@@ -106,12 +106,16 @@ def _context(
     *,
     context_id: str = 'acq-1',
     microphone: CadMicrophoneCapture | None = None,
+    acquisition_session_id: str | None = None,
+    input_path_identity: str | None = None,
 ):
     context = build_acquisition_context(
         acquisition_context_id=context_id,
         source_kind='native',
         subject_measurement_ids=(measurement_id,),
         microphone=microphone,
+        acquisition_session_id=acquisition_session_id,
+        input_path_identity=input_path_identity,
         created_at_utc='2026-09-19T00:00:00+00:00',
     )
     quality_repository.save_acquisition_context(context)
@@ -123,7 +127,10 @@ def _persist_calibration(
     *,
     method: str = 'acoustic_calibrator',
     validity_scope: str = 'measurement',
+    subject_measurement_id: str | None = None,
+    acquisition_session_id: str | None = None,
     instrument_identity: str | None = None,
+    input_path_identity: str | None = None,
 ):
     calibration = build_acoustic_level_calibration(
         method=method,
@@ -132,6 +139,9 @@ def _persist_calibration(
         reference_frequency_hz=1000.0,
         calibrated_at_utc='2026-09-18T00:00:00+00:00',
         validity_scope=validity_scope,
+        subject_measurement_id=subject_measurement_id,
+        acquisition_session_id=acquisition_session_id,
+        input_path_identity=input_path_identity,
     )
     quality_repository.save_level_calibration(calibration)
     return calibration
@@ -248,7 +258,9 @@ def test_exact_spl_calibration_and_reference_allow_absolute_spl(tmp_path: Path) 
     revision, measurement_repository, quality_repository = _repositories(tmp_path)
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
     context = _context(quality_repository, record.measurement_id)
-    calibration = _persist_calibration(quality_repository)
+    calibration = _persist_calibration(
+        quality_repository, subject_measurement_id=record.measurement_id
+    )
     reference = _persist_reference(
         quality_repository, record, dataset, calibration
     )
@@ -298,11 +310,18 @@ def test_unscoped_or_inapplicable_calibration_never_allows(tmp_path: Path) -> No
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
 
     # A calibration whose validity scope is unestablished cannot authorize.
+    # An absolute-SPL reference to it is unpersistable — applicability cannot
+    # be proven — so the binding is evaluated unsaved.
     calibration = _persist_calibration(
         quality_repository, validity_scope='unknown'
     )
-    reference = _persist_reference(
-        quality_repository, record, dataset, calibration
+    reference = build_dataset_level_reference(
+        measurement_id=record.measurement_id,
+        dataset_id=dataset.dataset_id,
+        dataset_sha256=dataset.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
     )
     report = _report(
         record=record,
@@ -318,6 +337,7 @@ def test_unscoped_or_inapplicable_calibration_never_allows(tmp_path: Path) -> No
         quality_repository,
         validity_scope='instrument',
         instrument_identity='minidsp umik-2 s/n9999',
+        input_path_identity='input-umik-2',
     )
     # The incompatible-instrument gate is exercised through a second
     # measurement's dataset (each dataset binds one level reference).
@@ -332,8 +352,13 @@ def test_unscoped_or_inapplicable_calibration_never_allows(tmp_path: Path) -> No
             manufacturer='minidsp', model='umik-1', serial='sn-0001'
         ),
     )
-    reference2 = _persist_reference(
-        quality_repository, record2, dataset2, foreign_calibration
+    reference2 = build_dataset_level_reference(
+        measurement_id=record2.measurement_id,
+        dataset_id=dataset2.dataset_id,
+        dataset_sha256=dataset2.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=foreign_calibration.calibration_id,
+        calibration_sha256=foreign_calibration.calibration_sha256,
     )
     report2 = _report(
         record=record2,
@@ -355,11 +380,13 @@ def test_instrument_scoped_calibration_matching_microphone_allows(tmp_path: Path
         microphone=CadMicrophoneCapture(
             manufacturer='minidsp', model='umik-1', serial='sn-0001'
         ),
+        input_path_identity='input-umik-1',
     )
     calibration = _persist_calibration(
         quality_repository,
         validity_scope='instrument',
         instrument_identity='minidsp umik-1 sn-0001',
+        input_path_identity='input-umik-1',
     )
     reference = _persist_reference(
         quality_repository, record, dataset, calibration
@@ -387,7 +414,16 @@ def test_session_scoped_calibration_requires_authoritative_context(
     revision, measurement_repository, quality_repository = _repositories(tmp_path)
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
     calibration = _persist_calibration(
-        quality_repository, validity_scope='session'
+        quality_repository,
+        validity_scope='session',
+        acquisition_session_id='session-1',
+    )
+    # The authoritative context must exist before the absolute-SPL
+    # reference can persist: scope applicability is proven at save time.
+    native = _context(
+        quality_repository,
+        record.measurement_id,
+        acquisition_session_id='session-1',
     )
     reference = _persist_reference(
         quality_repository, record, dataset, calibration
@@ -419,8 +455,7 @@ def test_session_scoped_calibration_requires_authoritative_context(
     )
     assert report.capability('absolute_spl').decision == 'UNKNOWN'
 
-    # An authoritative context makes the session-scoped calibration apply.
-    native = _context(quality_repository, record.measurement_id)
+    # The authoritative context makes the session-scoped calibration apply.
     report = _report(
         record=record,
         dataset=dataset,
@@ -468,7 +503,9 @@ def test_absolute_noise_requires_observation_noise_floor(
 ) -> None:
     revision, measurement_repository, quality_repository = _repositories(tmp_path)
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
-    calibration = _persist_calibration(quality_repository)
+    calibration = _persist_calibration(
+        quality_repository, subject_measurement_id=record.measurement_id
+    )
     reference = _persist_reference(
         quality_repository, record, dataset, calibration
     )
@@ -485,7 +522,9 @@ def test_absolute_noise_requires_observation_noise_floor(
     record2, dataset2 = _save_measurement(
         measurement_repository, revision, 'm-2'
     )
-    calibration2 = _persist_calibration(quality_repository)
+    calibration2 = _persist_calibration(
+        quality_repository, subject_measurement_id=record2.measurement_id
+    )
     reference2 = _persist_reference(
         quality_repository, record2, dataset2, calibration2
     )
@@ -537,7 +576,9 @@ def test_historical_v1_report_replays_and_absolute_spl_stays_unknown(
 def test_report_with_forged_level_reference_pin_fails_closed(tmp_path: Path) -> None:
     revision, measurement_repository, quality_repository = _repositories(tmp_path)
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
-    calibration = _persist_calibration(quality_repository)
+    calibration = _persist_calibration(
+        quality_repository, subject_measurement_id=record.measurement_id
+    )
     reference = _persist_reference(
         quality_repository, record, dataset, calibration
     )
@@ -591,7 +632,9 @@ def test_legacy_dataset_field_disagreement_fails_closed(tmp_path: Path) -> None:
     record, dataset = _save_measurement(
         measurement_repository, revision, 'm-1', level_reference='dbfs'
     )
-    calibration = _persist_calibration(quality_repository)
+    calibration = _persist_calibration(
+        quality_repository, subject_measurement_id=record.measurement_id
+    )
     reference = _persist_reference(
         quality_repository, record, dataset, calibration
     )

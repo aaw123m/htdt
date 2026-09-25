@@ -244,7 +244,7 @@ class CadProjectTemplateRepository:
                 'instantiation lacks the Project Library project binding'
             )
         binding = connection.execute(
-            'SELECT document_id FROM project_registry WHERE project_id=?',
+            'SELECT document_id FROM htdt_project_documents WHERE project_id=?',
             (instantiation.project_id,),
         ).fetchone()
         if binding is None:

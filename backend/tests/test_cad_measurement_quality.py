@@ -376,6 +376,7 @@ def test_explicit_quality_metadata_opens_only_supported_claims(tmp_path: Path) -
         reference_frequency_hz=1000.0,
         calibrated_at_utc='2026-09-18T00:00:00+00:00',
         validity_scope='measurement',
+        subject_measurement_id=record.measurement_id,
     )
     quality_repository.save_level_calibration(level_calibration)
     level_reference = build_dataset_level_reference(

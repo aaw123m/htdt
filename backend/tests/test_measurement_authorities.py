@@ -1510,7 +1510,7 @@ def test_save_target_lineage_rejects_foreign_revision(tmp_path):
         creation_revision_id=foreign.revision_id,
         initial_position=position,
     )
-    with pytest.raises(ValueError, match='does not match the creation'):
+    with pytest.raises(ValueError, match='different document'):
         quality_repository.save_target_lineage(lineage)
     lineage = build_measurement_target_lineage(
         document_id='fixture-f1',
@@ -1519,7 +1519,7 @@ def test_save_target_lineage_rejects_foreign_revision(tmp_path):
         creation_revision_id='rev-missing',
         initial_position=position,
     )
-    with pytest.raises(ValueError, match='creation revision is unavailable'):
+    with pytest.raises(ValueError, match='unknown creation revision'):
         quality_repository.save_target_lineage(lineage)
 
 
@@ -1534,25 +1534,25 @@ def test_save_target_lineage_rejects_bad_entities(tmp_path):
         creation_revision_id=revision.revision_id,
         initial_position=position,
     )
-    with pytest.raises(ValueError, match='source seat is missing'):
+    with pytest.raises(ValueError, match='unknown source seat'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{**base, 'source_seat_id': 'seat-9'}
             )
         )
-    with pytest.raises(ValueError, match='not a seat entity'):
+    with pytest.raises(ValueError, match='is not a seat'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{**base, 'source_seat_id': 'speaker-fl'}
             )
         )
-    with pytest.raises(ValueError, match='measurement point is missing'):
+    with pytest.raises(ValueError, match='unknown measurement point'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{**base, 'measurement_point_id': 'point-x'}
             )
         )
-    with pytest.raises(ValueError, match='does not reproduce'):
+    with pytest.raises(ValueError, match='does not match'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{
