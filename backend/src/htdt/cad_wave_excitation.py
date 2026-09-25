@@ -21,6 +21,11 @@ from .cad_equipment_repository import CadEquipmentRepository
 from .cad_r110_source import R110CompiledSourceModel
 from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_repository import SceneRepository
+from .cad_source_response import (
+    CadSourceResponseRepository,
+    SourceFrequencyResponseAuthority,
+    source_response_wave_excitation_eligible,
+)
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
@@ -39,6 +44,11 @@ WAVE_EXCITATION_TABLE_CONVERTER_ID = 'htdt.wave-excitation-volume-velocity-table
 WAVE_EXCITATION_TABLE_CONVERTER_VERSION = '1'
 WAVE_EXCITATION_CONSTANT_MODEL_ID = 'htdt.wave-excitation-constant-volume-velocity'
 WAVE_EXCITATION_CONSTANT_MODEL_VERSION = '1'
+WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_ID = (
+    'htdt.wave-excitation-source-response-volume-velocity'
+)
+WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_VERSION = '1'
+_SOURCE_RESPONSE_PARAMETER_KEYS = frozenset({'imaginary_sign'})
 
 WaveExcitationModel = Literal[
     'equivalent_monopole_volume_velocity_at_equipment_acoustic_reference'
@@ -172,6 +182,34 @@ class WaveExcitationManualDerivation(BaseModel):
     authored_at_utc: str = Field(min_length=1)
 
 
+class WaveExcitationSourceResponseDerivation(BaseModel):
+    """Derivation from an exact persisted ``SourceFrequencyResponseAuthority``.
+
+    Pins the response authority's exact id + version + content hash and the
+    converter/parameters that derive complex volume-velocity samples from it.
+    An edited or replaced response authority never matches the recorded
+    triple, so downstream excitation identities go stale exactly.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    kind: Literal['source_response'] = 'source_response'
+    source_response_id: str = Field(min_length=1)
+    source_response_version: str = Field(min_length=1)
+    source_response_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    converter_id: str = Field(min_length=1)
+    converter_version: str = Field(min_length=1)
+    conversion_parameters: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode='after')
+    def canonical_parameters(self) -> 'WaveExcitationSourceResponseDerivation':
+        _require_canonical_json(
+            self.conversion_parameters,
+            field_name='wave-excitation source-response conversion parameters',
+        )
+        return self
+
+
 class WaveExcitationAnalyticDerivation(BaseModel):
     """Analytic/generated derivation: exact model identity plus parameters.
 
@@ -198,7 +236,8 @@ class WaveExcitationAnalyticDerivation(BaseModel):
 WaveExcitationDerivation = Annotated[
     WaveExcitationSourceAssetDerivation
     | WaveExcitationManualDerivation
-    | WaveExcitationAnalyticDerivation,
+    | WaveExcitationAnalyticDerivation
+    | WaveExcitationSourceResponseDerivation,
     Field(discriminator='kind'),
 ]
 
@@ -207,6 +246,17 @@ _DERIVATION_EVIDENCE_KINDS: dict[str, frozenset[str]] = {
     'source_asset': EXTERNAL_WAVE_EXCITATION_EVIDENCE_KINDS,
     'manual': frozenset({'user_defined'}),
     'analytic_model': frozenset({'analytic'}),
+    # The response authority is itself a sealed evidence record; any evidence
+    # kind the response stands behind may feed the derivation chain.
+    'source_response': frozenset(
+        {
+            'measured',
+            'manufacturer',
+            'inferred',
+            'analytic',
+            'user_defined',
+        }
+    ),
 }
 
 
@@ -224,6 +274,18 @@ def _evidence_source_sha256(
     """
     if isinstance(derivation, WaveExcitationSourceAssetDerivation):
         return derivation.source_asset_sha256
+    if isinstance(derivation, WaveExcitationSourceResponseDerivation):
+        return _digest(
+            {
+                'derivation': 'source_response',
+                'source_response_id': derivation.source_response_id,
+                'source_response_version': derivation.source_response_version,
+                'source_response_sha256': derivation.source_response_sha256,
+                'converter_id': derivation.converter_id,
+                'converter_version': derivation.converter_version,
+                'conversion_parameters': derivation.conversion_parameters,
+            }
+        )
     if isinstance(derivation, WaveExcitationAnalyticDerivation):
         return _digest(
             {
@@ -488,6 +550,68 @@ class VolumeVelocityTableConverter:
         return _sorted_unique_samples(samples)
 
 
+class SourceResponseVolumeVelocityConverter:
+    """Replayable ``SourceFrequencyResponseAuthority`` → complex Q converter.
+
+    The retained source is the response authority's canonical JSON payload;
+    conversion emits one ``ComplexVolumeVelocitySample`` per response sample
+    from the paired magnitude/phase of the declared ``exp(-i*omega*t)``
+    phasor. An ineligible response (wrong tier, missing phase/phasor or
+    reference semantics) fails closed instead of being silently promoted.
+    """
+
+    converter_id = WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_ID
+    converter_version = WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_VERSION
+
+    def convert(
+        self,
+        source_bytes: bytes,
+        parameters: Mapping[str, Any],
+    ) -> tuple[ComplexVolumeVelocitySample, ...]:
+        unknown = sorted(set(parameters) - _SOURCE_RESPONSE_PARAMETER_KEYS)
+        if unknown:
+            raise ValueError(
+                f'unknown source-response conversion parameters: {unknown}'
+            )
+        imaginary_sign = parameters.get('imaginary_sign', 'as_recorded')
+        if imaginary_sign not in _TABLE_IMAGINARY_SIGNS:
+            raise ValueError(
+                'source-response imaginary_sign must be as_recorded or '
+                'conjugate'
+            )
+        try:
+            text = source_bytes.decode('utf-8', errors='strict')
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                'source-response wave-excitation payload must be strict UTF-8'
+            ) from exc
+        response = SourceFrequencyResponseAuthority.model_validate_json(text)
+        ineligible = source_response_wave_excitation_eligible(response)
+        if ineligible is not None:
+            raise ValueError(
+                f'source response is not eligible for wave excitation: '
+                f'{ineligible}'
+            )
+        samples: list[ComplexVolumeVelocitySample] = []
+        for item in response.response_samples:
+            assert item.volume_velocity_m3_s is not None
+            assert item.volume_velocity_phase_deg is not None
+            magnitude = float(item.volume_velocity_m3_s)
+            phase_rad = radians(float(item.volume_velocity_phase_deg))
+            real = magnitude * cos(phase_rad)
+            imag = magnitude * sin(phase_rad)
+            if imaginary_sign == 'conjugate':
+                imag = -imag
+            samples.append(
+                ComplexVolumeVelocitySample(
+                    frequency_hz=float(item.frequency_hz),
+                    real_m3_s=real,
+                    imag_m3_s=imag,
+                )
+            )
+        return _sorted_unique_samples(samples)
+
+
 class WaveExcitationAnalyticModel(Protocol):
     """Versioned analytic excitation generator contract."""
 
@@ -539,6 +663,10 @@ _SOURCE_CONVERTERS: dict[tuple[str, str], WaveExcitationSourceConverter] = {
         WAVE_EXCITATION_TABLE_CONVERTER_ID,
         WAVE_EXCITATION_TABLE_CONVERTER_VERSION,
     ): VolumeVelocityTableConverter(),
+    (
+        WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_ID,
+        WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_VERSION,
+    ): SourceResponseVolumeVelocityConverter(),
 }
 _ANALYTIC_MODELS: dict[tuple[str, str], WaveExcitationAnalyticModel] = {
     (
@@ -826,6 +954,60 @@ def build_acoustic_wave_excitation_authority(
     )
 
 
+def derive_wave_excitation_evidence_from_source_response(
+    *,
+    response: SourceFrequencyResponseAuthority,
+    evidence_kind: EquipmentEvidenceKind,
+    source_name: str,
+    source_version: str,
+    source_reference: str,
+    conversion_parameters: Mapping[str, Any] | None = None,
+) -> WaveExcitationEvidenceAuthority:
+    """Derive excitation evidence from an exact source-response authority.
+
+    The source response must satisfy the wave-excitation eligibility contract
+    (EXACT_VOLUME_VELOCITY tier, complete complex volume-velocity samples,
+    declared phasor/reference semantics, explicit condition and frequency
+    domain); the derived subject samples are produced by replaying the pinned
+    converter so the evidence authority's derivation replays exactly.
+    """
+    parameters = dict(conversion_parameters or {})
+    ineligible = source_response_wave_excitation_eligible(response)
+    if ineligible is not None:
+        raise ValueError(
+            'source response is not eligible for wave excitation: '
+            f'{ineligible}'
+        )
+    samples = replay_wave_excitation_source_derivation(
+        source_bytes=response.model_dump_json().encode('utf-8'),
+        converter_id=WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_ID,
+        converter_version=WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_VERSION,
+        conversion_parameters=parameters,
+    )
+    derivation = WaveExcitationSourceResponseDerivation(
+        source_response_id=response.response_id,
+        source_response_version=response.authority_version,
+        source_response_sha256=response.semantic_sha256,
+        converter_id=WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_ID,
+        converter_version=WAVE_EXCITATION_SOURCE_RESPONSE_CONVERTER_VERSION,
+        conversion_parameters=parameters,
+    )
+    subject = WaveExcitationEvidenceSubject(
+        definition_id=response.equipment_definition_id,
+        definition_version=response.equipment_definition_version,
+        definition_sha256=response.equipment_definition_sha256,
+        samples=samples,
+    )
+    return build_wave_excitation_evidence_authority(
+        evidence_kind=evidence_kind,
+        source_name=source_name,
+        source_version=source_version,
+        source_reference=source_reference,
+        derivation=derivation,
+        subject=subject,
+    )
+
+
 def bind_wave_excitation_to_r110_source(
     *,
     source: R110CompiledSourceModel,
@@ -915,6 +1097,7 @@ class CadWaveExcitationRepository:
         *,
         equipment_repository: CadEquipmentRepository | None = None,
         r110_repository: CadR110SourceRepository | None = None,
+        source_response_repository: CadSourceResponseRepository | None = None,
         assets_dir: Path | None = None,
     ) -> None:
         self.scene_repository = scene_repository
@@ -928,6 +1111,14 @@ class CadWaveExcitationRepository:
             if r110_repository is not None
             else CadR110SourceRepository(
                 scene_repository,
+                equipment_repository=self.equipment_repository,
+            )
+        )
+        self.source_response_repository = (
+            source_response_repository
+            if source_response_repository is not None
+            else CadSourceResponseRepository(
+                scene_repository.path,
                 equipment_repository=self.equipment_repository,
             )
         )
@@ -1093,6 +1284,30 @@ class CadWaveExcitationRepository:
         manual evidence is the retained statement itself.
         """
         derivation = evidence.derivation
+        if isinstance(derivation, WaveExcitationSourceResponseDerivation):
+            response = self.source_response_repository.get_response_by_sha256(
+                derivation.source_response_sha256
+            )
+            if response is None:
+                raise ValueError(
+                    'wave-excitation source-response authority is not '
+                    'persisted: cannot replay derivation'
+                )
+            if (
+                response.response_id != derivation.source_response_id
+                or response.authority_version
+                != derivation.source_response_version
+            ):
+                raise ValueError(
+                    'wave-excitation source-response identity does not match '
+                    'the persisted authority'
+                )
+            return replay_wave_excitation_source_derivation(
+                source_bytes=response.model_dump_json().encode('utf-8'),
+                converter_id=derivation.converter_id,
+                converter_version=derivation.converter_version,
+                conversion_parameters=derivation.conversion_parameters,
+            )
         if isinstance(derivation, WaveExcitationSourceAssetDerivation):
             bound_source = (
                 source_bytes

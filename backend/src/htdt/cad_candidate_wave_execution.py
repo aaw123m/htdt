@@ -47,6 +47,12 @@ from .acoustic_pffdtd_impedance_adapter import (
 from .cad_acoustic_snapshot import (
     AcousticPredictionRequest,
     AcousticSceneSnapshot,
+    TreatmentBoundarySnapshotBinding,
+)
+from .cad_acoustic_treatment import TreatmentAcousticModel
+from .treatment_boundary_overlay import (
+    TreatmentBoundaryCompositionRequest,
+    TreatmentBoundaryOverlay,
 )
 from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
 from .cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
@@ -321,6 +327,11 @@ class PffdtdCandidateConfiguration(BaseModel):
     density_authority_ref: ExactExternalAuthorityRef
     relative_humidity_percent: float = Field(ge=0.0, le=100.0)
     humidity_authority_ref: ExactExternalAuthorityRef
+    # Atmospheric absorption (e.g. ISO 9613-1) has no validated implementation
+    # in this engine; the omission is declared rather than silently neglected.
+    atmospheric_attenuation_policy: Literal['omitted_unsupported'] = (
+        'omitted_unsupported'
+    )
     resource: CandidateResourceConfiguration
 
     @model_validator(mode='after')
@@ -388,6 +399,7 @@ def build_pffdtd_candidate_configuration(
         'density_authority_ref': density_authority_ref.model_dump(mode='json'),
         'relative_humidity_percent': float(relative_humidity_percent),
         'humidity_authority_ref': humidity_authority_ref.model_dump(mode='json'),
+        'atmospheric_attenuation_policy': 'omitted_unsupported',
         'resource': resource.model_dump(mode='json'),
     }
     digest = _digest(core)
@@ -527,6 +539,33 @@ class CandidateImpedanceBoundaryMapping(BaseModel):
         return self
 
 
+class CandidateTreatmentCompositionBinding(BaseModel):
+    """Provenance of a treatment-composed boundary; base authority stays bound."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    composition_authority: ExactExternalAuthorityRef
+    base_material_authority: ExactExternalAuthorityRef
+    base_boundary_physics_authority: ExactExternalAuthorityRef
+    selected_treatment_lifecycle: Literal['proposed', 'installed']
+    attached_treatment_overlays: tuple[ExactExternalAuthorityRef, ...] = Field(
+        min_length=1
+    )
+    selected_treatment_material_authorities: tuple[
+        ExactExternalAuthorityRef, ...
+    ] = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def one_material_per_overlay(self) -> 'CandidateTreatmentCompositionBinding':
+        if len(self.attached_treatment_overlays) != len(
+            self.selected_treatment_material_authorities
+        ):
+            raise ValueError(
+                'treatment composition requires one selected material per overlay'
+            )
+        return self
+
+
 class CandidateBoundaryBinding(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -535,6 +574,7 @@ class CandidateBoundaryBinding(BaseModel):
     boundary_physics_authority: ExactExternalAuthorityRef
     impedance_mapping: CandidateImpedanceBoundaryMapping | None = None
     causal_mapping: PffdtdCausalBoundaryCompilation | None = None
+    treatment_composition: CandidateTreatmentCompositionBinding | None = None
 
     @model_validator(mode='after')
     def one_nonrigid_mapping(self) -> 'CandidateBoundaryBinding':
@@ -1067,6 +1107,416 @@ class PffdtdCandidateWaveExecutor:
         except ValueError as exc:
             raise CandidateWaveExecutionError(str(exc)) from exc
 
+    def _compose_treatment_boundary(
+        self,
+        *,
+        item: Any,
+        binding: TreatmentBoundarySnapshotBinding,
+        snapshot: AcousticSceneSnapshot,
+        geometry: R120CompiledGeometry,
+        configuration: 'PffdtdCandidateConfiguration',
+        descriptor: Any,
+        frequencies: tuple[float, ...],
+    ) -> CandidateBoundaryBinding:
+        """Compile one AVAILABLE wave-target treatment composition.
+
+        The surface keeps its exact base material/boundary authorities in the
+        snapshot; the composition request adds the solver-facing overlay
+        physics on top, recorded as exact provenance on the candidate binding.
+        Anything that does not replay to one solver-ready, locally reacting,
+        whole-surface treatment fails closed with a typed reason.
+        """
+        if binding.status != 'AVAILABLE':
+            raise CandidateWaveExecutionError(
+                f'UNSUPPORTED wave treatment boundary: snapshot binding is '
+                f'{binding.status}'
+            )
+        if (
+            binding.composition_id is None
+            or binding.composition_authority_version is None
+            or binding.composition_hash_sha256 is None
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment composition authority identity is incomplete'
+            )
+        composition_ref = ExactExternalAuthorityRef(
+            authority_id=binding.composition_id,
+            authority_version=binding.composition_authority_version,
+            semantic_hash_sha256=binding.composition_hash_sha256,
+        )
+        composition_payload = self._require_external(
+            composition_ref,
+            label=f'treatment composition {item.source_surface_id}',
+        )
+        try:
+            composition = TreatmentBoundaryCompositionRequest.model_validate(
+                {
+                    **composition_payload,
+                    'composition_id': composition_ref.authority_id,
+                    'composition_hash_sha256': (
+                        composition_ref.semantic_hash_sha256
+                    ),
+                }
+            )
+        except Exception as exc:
+            raise CandidateWaveExecutionError(
+                'treatment composition exact authority payload is malformed'
+            ) from exc
+        if composition.as_external_authority_ref() != composition_ref:
+            raise CandidateWaveExecutionError(
+                'treatment composition semantic authority identity mismatch'
+            )
+        if (
+            composition.target_domain != 'wave'
+            or composition.host_surface_id != item.source_surface_id
+            or composition.exact_scene_revision_id != snapshot.scene_revision_id
+            or composition.exact_scene_revision_content_hash
+            != snapshot.scene_content_hash
+            or composition.exact_semantic_geometry_id
+            != geometry.exact_semantic_geometry_id
+            or composition.exact_semantic_geometry_hash_sha256
+            != geometry.exact_semantic_geometry_hash_sha256
+            or composition.exact_r120_compiled_geometry_id
+            != geometry.compiled_geometry_id
+            or composition.exact_r120_compiled_geometry_hash_sha256
+            != geometry.compiled_hash_sha256
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment composition is stale for the exact snapshot/geometry'
+            )
+        if (
+            composition.base_material_authority != item.material_authority
+            or composition.base_boundary_physics_authority
+            != item.boundary_physics_authority
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment composition does not preserve the exact base '
+                'material/boundary authority'
+            )
+        if (
+            composition.base_material_authority
+            != binding.base_material_authority
+            or composition.base_boundary_physics_authority
+            != binding.base_boundary_physics_authority
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment composition does not reproduce the snapshot base '
+                'authority lineage'
+            )
+        if (
+            tuple(
+                overlay.overlay_ref
+                for overlay in binding.attached_treatment_overlays
+            )
+            != composition.attached_treatment_overlays
+            or binding.selected_treatment_material_authorities
+            != composition.selected_treatment_material_authorities
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment composition overlay/material lineage does not '
+                'match the snapshot binding'
+            )
+        if len(composition.attached_treatment_overlays) != 1:
+            raise CandidateWaveExecutionError(
+                'UNSUPPORTED multi-overlay wave treatment composition: the '
+                'bounded candidate compiles exactly one whole-surface overlay'
+            )
+
+        overlay_ref = composition.attached_treatment_overlays[0]
+        overlay_payload = self._require_external(
+            overlay_ref,
+            label=f'treatment overlay {item.source_surface_id}',
+        )
+        try:
+            overlay = TreatmentBoundaryOverlay.model_validate(
+                {
+                    **overlay_payload,
+                    'overlay_id': overlay_ref.authority_id,
+                    'overlay_hash_sha256': overlay_ref.semantic_hash_sha256,
+                }
+            )
+        except Exception as exc:
+            raise CandidateWaveExecutionError(
+                'treatment overlay exact authority payload is malformed'
+            ) from exc
+        if overlay.as_external_authority_ref() != overlay_ref:
+            raise CandidateWaveExecutionError(
+                'treatment overlay semantic authority identity mismatch'
+            )
+        if (
+            overlay.host_surface_id != item.source_surface_id
+            or overlay.exact_scene_revision_id != snapshot.scene_revision_id
+            or overlay.exact_scene_revision_content_hash
+            != snapshot.scene_content_hash
+            or overlay.exact_r120_compiled_geometry_id
+            != geometry.compiled_geometry_id
+            or overlay.exact_r120_compiled_geometry_hash_sha256
+            != geometry.compiled_hash_sha256
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment overlay is stale for the exact snapshot/geometry'
+            )
+        if overlay.wave_capability_state != 'AVAILABLE':
+            raise CandidateWaveExecutionError(
+                'UNSUPPORTED wave treatment: overlay has no solver-ready '
+                'wave capability'
+            )
+        if overlay.wave_material_candidate_ref is None:
+            raise CandidateWaveExecutionError(
+                'UNSUPPORTED wave treatment: no exact material candidate'
+            )
+        if (
+            overlay.wave_material_candidate_ref
+            != composition.selected_treatment_material_authorities[0]
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment composition selected material is not the overlay '
+                'wave candidate authority'
+            )
+        if overlay.lifecycle != composition.selected_treatment_lifecycle:
+            raise CandidateWaveExecutionError(
+                'treatment overlay lifecycle does not match composition'
+            )
+        coverage = overlay.treatment_coverage.host_surface_fraction
+        if coverage is None or not math.isclose(
+            float(coverage), 1.0, rel_tol=0.0, abs_tol=1.0e-12
+        ):
+            raise CandidateWaveExecutionError(
+                'UNSUPPORTED partial-surface treatment: a partial overlay '
+                'never silently replaces the entire host surface'
+            )
+
+        material_ref = composition.selected_treatment_material_authorities[0]
+        treatment_model_payload = self._require_external(
+            material_ref,
+            label=f'treatment material {item.source_surface_id}',
+        )
+        try:
+            treatment_model = TreatmentAcousticModel.model_validate(
+                treatment_model_payload
+            )
+        except Exception as exc:
+            raise CandidateWaveExecutionError(
+                'treatment material exact authority payload is malformed'
+            ) from exc
+        if (
+            treatment_model.model_id != overlay.treatment_acoustic_model_id
+            or treatment_model.model_version
+            != overlay.treatment_acoustic_model_version
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment material authority does not reproduce the overlay '
+                'acoustic model identity'
+            )
+        treatment_material = treatment_model.material
+
+        treatment_composition = CandidateTreatmentCompositionBinding(
+            composition_authority=composition_ref,
+            base_material_authority=item.material_authority,
+            base_boundary_physics_authority=(
+                composition.base_boundary_physics_authority
+            ),
+            selected_treatment_lifecycle=(
+                composition.selected_treatment_lifecycle
+            ),
+            attached_treatment_overlays=composition.attached_treatment_overlays,
+            selected_treatment_material_authorities=(
+                composition.selected_treatment_material_authorities
+            ),
+        )
+
+        if treatment_material.wave_model == 'rigid':
+            return CandidateBoundaryBinding(
+                source_surface_id=item.source_surface_id,
+                material_authority=item.material_authority,
+                boundary_physics_authority=composition_ref,
+                treatment_composition=treatment_composition,
+            )
+
+        if treatment_material.wave_model != 'specific_impedance_table':
+            raise CandidateWaveExecutionError(
+                f'UNSUPPORTED treatment wave material model '
+                f'{treatment_material.wave_model!r}: bounded candidate '
+                f'supports rigid/specific_impedance_table only'
+            )
+        if (
+            descriptor.adapter_version
+            != PFFDTD_CANDIDATE_IMPEDANCE_ADAPTER_VERSION
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment impedance composition requires the R130B '
+                'adapter version'
+            )
+        band = overlay.valid_frequency_band
+        if band is None:
+            raise CandidateWaveExecutionError(
+                'UNSUPPORTED treatment impedance: no exact valid frequency band'
+            )
+        valid_domain = FrequencyDomain(
+            minimum_hz=float(band.min_hz),
+            maximum_hz=float(band.max_hz),
+        )
+        if (
+            not valid_domain.contains(frequencies[0])
+            or not valid_domain.contains(frequencies[-1])
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment impedance requested frequencies exceed the exact '
+                'valid frequency band'
+            )
+        if (
+            snapshot.environment is None
+            or snapshot.environment.sound_speed_m_s is None
+            or snapshot.environment.sound_speed_source_authority is None
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment impedance requires exact sound-speed environment '
+                'authority'
+            )
+        density_payload = self._require_external(
+            configuration.density_authority_ref,
+            label='treatment impedance density',
+        )
+        sound_speed_payload = self._require_external(
+            snapshot.environment.sound_speed_source_authority,
+            label='treatment impedance sound speed',
+        )
+        if (
+            not isinstance(density_payload, dict)
+            or density_payload.get('quantity')
+            not in {'air_density_kg_m3', 'density_kg_m3'}
+            or not math.isclose(
+                float(density_payload.get('value', math.nan)),
+                float(configuration.density_kg_m3),
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            )
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment impedance density does not match exact authority'
+            )
+        if (
+            not isinstance(sound_speed_payload, dict)
+            or sound_speed_payload.get('quantity') != 'sound_speed_m_s'
+            or not math.isclose(
+                float(sound_speed_payload.get('value', math.nan)),
+                float(snapshot.environment.sound_speed_m_s),
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            )
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment impedance sound speed does not match exact '
+                'environment authority'
+            )
+        mapping_ref = ExactExternalAuthorityRef(
+            authority_id=(
+                f'{PFFDTD_IMPEDANCE_MAPPING_ID}:'
+                f'{_digest(pffdtd_impedance_mapping_authority_payload())}'
+            ),
+            authority_version=PFFDTD_IMPEDANCE_MAPPING_VERSION,
+            semantic_hash_sha256=_digest(
+                pffdtd_impedance_mapping_authority_payload()
+            ),
+        )
+        mapping_payload = self._require_external(
+            mapping_ref,
+            label=f'PFFDTD impedance mapping {item.source_surface_id}',
+        )
+        if mapping_payload != pffdtd_impedance_mapping_authority_payload():
+            raise CandidateWaveExecutionError(
+                'treatment impedance boundary PFFDTD mapping authority mismatch'
+            )
+        try:
+            mapped = compile_frequency_independent_resistive_impedance_boundary(
+                material=treatment_material,
+                frequencies_hz=frequencies,
+                density_kg_m3=float(configuration.density_kg_m3),
+                sound_speed_m_s=float(snapshot.environment.sound_speed_m_s),
+            )
+        except ValueError as exc:
+            raise CandidateWaveExecutionError(
+                f'UNSUPPORTED treatment impedance boundary: {exc}'
+            ) from exc
+        table_min = float(treatment_material.specific_impedance[0].frequency_hz)
+        table_max = float(treatment_material.specific_impedance[-1].frequency_hz)
+        if (
+            not math.isclose(
+                float(valid_domain.minimum_hz),
+                table_min,
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            )
+            or not math.isclose(
+                float(valid_domain.maximum_hz),
+                table_max,
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            )
+        ):
+            raise CandidateWaveExecutionError(
+                'treatment impedance valid frequency band does not match '
+                'the exact material impedance table'
+            )
+        provenance = {
+            'kind': 'treatment_boundary_composition',
+            'composition_authority': composition_ref.model_dump(mode='json'),
+            'base_material_authority': (
+                item.material_authority.model_dump(mode='json')
+            ),
+            'base_boundary_physics_authority': (
+                None
+                if composition.base_boundary_physics_authority is None
+                else composition.base_boundary_physics_authority.model_dump(
+                    mode='json'
+                )
+            ),
+            'attached_treatment_overlays': [
+                ref.model_dump(mode='json')
+                for ref in composition.attached_treatment_overlays
+            ],
+            'selected_treatment_material_authorities': [
+                ref.model_dump(mode='json')
+                for ref in composition.selected_treatment_material_authorities
+            ],
+        }
+        return CandidateBoundaryBinding(
+            source_surface_id=item.source_surface_id,
+            material_authority=item.material_authority,
+            boundary_physics_authority=composition_ref,
+            treatment_composition=treatment_composition,
+            impedance_mapping=CandidateImpedanceBoundaryMapping(
+                material_id=str(mapped['material_id']),
+                material_version=str(mapped['material_version']),
+                material_provenance=str(mapped['material_provenance']),
+                boundary_provenance=provenance,
+                valid_frequency_domain=valid_domain,
+                frequency_samples_hz=tuple(mapped['frequencies_hz']),
+                physical_resistance_pa_s_m=float(
+                    mapped['physical_resistance_pa_s_m']
+                ),
+                physical_reactance_pa_s_m=0.0,
+                density_kg_m3=float(mapped['density_kg_m3']),
+                density_authority_ref=configuration.density_authority_ref,
+                sound_speed_m_s=float(mapped['sound_speed_m_s']),
+                sound_speed_authority_ref=(
+                    snapshot.environment.sound_speed_source_authority
+                ),
+                characteristic_impedance_pa_s_m=float(
+                    mapped['characteristic_impedance_pa_s_m']
+                ),
+                normalized_impedance=float(mapped['normalized_impedance']),
+                normalized_admittance=float(mapped['normalized_admittance']),
+                def_coefficients=tuple(
+                    tuple(float(value) for value in row)
+                    for row in mapped['def_coefficients']
+                ),
+                mapping_authority_ref=mapping_ref,
+                mapping_id=str(mapped['mapping_id']),
+                mapping_version=str(mapped['mapping_version']),
+            ),
+        )
+
     def compile_input(
         self,
         *,
@@ -1218,11 +1668,11 @@ class PffdtdCandidateWaveExecutor:
                 'candidate execution R120 geometry identity mismatch'
             )
 
-        if snapshot.treatment_boundary_bindings:
-            raise CandidateWaveExecutionError(
-                'bounded PFFDTD candidate does not map treatment composition; '
-                'it refuses non-empty treatment bindings'
-            )
+        wave_treatments = {
+            item.host_surface_id: item
+            for item in snapshot.treatment_boundary_bindings
+            if item.target_domain == 'wave'
+        }
         treatment_hash = _digest(
             [
                 item.model_dump(mode='json')
@@ -1247,6 +1697,20 @@ class PffdtdCandidateWaveExecutor:
                 item.boundary_physics_authority,
                 label=f'boundary {item.source_surface_id}',
             )
+            treatment = wave_treatments.get(item.source_surface_id)
+            if treatment is not None:
+                boundary_bindings.append(
+                    self._compose_treatment_boundary(
+                        item=item,
+                        binding=treatment,
+                                    snapshot=snapshot,
+                        geometry=geometry,
+                        configuration=configuration,
+                        descriptor=descriptor,
+                        frequencies=frequencies,
+                    )
+                )
+                continue
             if not isinstance(boundary_payload, dict) or (
                 boundary_payload.get('authority_kind')
                 != 'wave_boundary_physics'
@@ -1745,6 +2209,58 @@ class PffdtdCandidateWaveExecutor:
             self._require_external(
                 snapshot.environment.temperature_source_authority,
                 label='temperature source',
+            )
+        # Air-state unification: when the snapshot's environment authority
+        # declares density/humidity, the candidate configuration must consume
+        # exactly those authority-bound quantities — never a silent mix of
+        # unrelated authorities.
+        if (
+            snapshot.environment.air_density_source_authority is not None
+            and (
+                configuration.density_authority_ref
+                != snapshot.environment.air_density_source_authority
+                or not math.isclose(
+                    float(configuration.density_kg_m3),
+                    float(snapshot.environment.air_density_kg_m3),
+                    rel_tol=0.0,
+                    abs_tol=1.0e-12,
+                )
+            )
+        ):
+            raise CandidateWaveExecutionError(
+                'candidate density must match the exact environment air-state authority'
+            )
+        if (
+            snapshot.environment.relative_humidity_source_authority is not None
+            and (
+                configuration.humidity_authority_ref
+                != snapshot.environment.relative_humidity_source_authority
+                or not math.isclose(
+                    float(configuration.relative_humidity_percent),
+                    float(snapshot.environment.relative_humidity_percent),
+                    rel_tol=0.0,
+                    abs_tol=1.0e-12,
+                )
+            )
+        ):
+            raise CandidateWaveExecutionError(
+                'candidate relative humidity must match the exact environment '
+                'air-state authority'
+            )
+        if snapshot.environment.air_density_source_authority is not None:
+            self._require_external(
+                snapshot.environment.air_density_source_authority,
+                label='air density source',
+            )
+        if snapshot.environment.air_pressure_source_authority is not None:
+            self._require_external(
+                snapshot.environment.air_pressure_source_authority,
+                label='air pressure source',
+            )
+        if snapshot.environment.relative_humidity_source_authority is not None:
+            self._require_external(
+                snapshot.environment.relative_humidity_source_authority,
+                label='relative humidity source',
             )
 
         runtime = capture_candidate_runtime()

@@ -18,7 +18,15 @@ from htdt.cad_candidate_wave_execution import (
     CandidateReceiverBinding,
     CandidateResourceConfiguration,
     CandidateRuntimeIdentity,
+    CandidateWaveExecutionError,
     CandidateWaveExecutionInput,
+)
+from htdt.cad_acoustic_snapshot import (
+    build_acoustic_prediction_request,
+    build_acoustic_scene_snapshot,
+)
+from htdt.cad_acoustic_solver_adapter import (
+    bind_prediction_request_to_solver_adapter,
 )
 from htdt.cad_equipment import (
     AngleDomain,
@@ -1350,3 +1358,101 @@ def test_repository_native_actual_r130_artifact_path_and_actual_r150_response_au
     assert output.samples[-1].ga_complex_imag_pa_per_m3_s == pytest.approx(
         r150_response.samples[-1].complex_imag_pa_per_m3_s
     )
+
+
+# ---------------------------------------------------------------------------
+# #932 — Air-state authority unification across snapshot and R130
+# ---------------------------------------------------------------------------
+
+
+def test_r130_candidate_rejects_air_state_from_unrelated_authority(
+    tmp_path: Path,
+) -> None:
+    fixture = r130_fixture(
+        tmp_path / 'r130-air-state',
+        tmp_path / 'unused-pffdtd-upstream',
+    )
+    store = fixture['store']
+    snapshot_repository = fixture['snapshot_repository']
+    configuration = fixture['configuration']
+
+    # The snapshot environment authority now declares an air-state density of
+    # 9.9 while the candidate configuration still binds density 1.2 from its
+    # own (unrelated) density authority — the mix must fail closed.
+    air_density_ref = store.put_json(
+        'r130-air-state-density',
+        '1',
+        {'quantity': 'air_density_kg_m3', 'value': 9.9},
+    )
+    environment = fixture['environment'].model_copy(
+        update={
+            'air_density_kg_m3': 9.9,
+            'air_density_source_authority': air_density_ref,
+        }
+    )
+    def _scalar(ref, quantity):
+        if store.resolve(ref) is None:
+            return None
+        payload = store.read_payload(ref)
+        if not isinstance(payload, dict) or payload.get('quantity') != quantity:
+            return None
+        return float(payload['value'])
+
+    resolvers = fixture['snapshot_authority_resolvers']._replace(
+        environment=lambda ref: (
+            environment
+            if ref == environment.authority
+            and store.resolve(ref) is not None
+            else None
+        ),
+        air_density_source=lambda ref: _scalar(ref, 'air_density_kg_m3'),
+    )
+    snapshot_repository.authority_resolvers = resolvers
+    snapshot = build_acoustic_scene_snapshot(
+        scene_revision=fixture['revision'],
+        compiled_geometry=fixture['compiled'],
+        source_models=(fixture['source'],),
+        receivers=fixture['snapshot'].receivers,
+        requested_frequency_domain=fixture['snapshot'].requested_frequency_domain,
+        requested_observables=('complex_pressure',),
+        system_variant=fixture['variant'],
+        environment=environment,
+        valid_frequency_domain=fixture['snapshot'].requested_frequency_domain,
+        valid_frequency_domain_authority_ref=(
+            fixture['snapshot'].valid_frequency_domain_authority_ref
+        ),
+        wave_source_excitation_bindings=(
+            fixture['snapshot'].wave_source_excitation_bindings
+        ),
+    )
+    snapshot_repository.save_snapshot(snapshot)
+    request = fixture['request']
+    band = snapshot.requested_frequency_domain
+    air_request = build_acoustic_prediction_request(
+        snapshot=snapshot,
+        model_solver_role_id=request.model_solver_role_id,
+        requested_frequency_domain=band,
+        requested_observables=('complex_pressure',),
+        numerical_fidelity_policy_ref=(
+            request.numerical_fidelity_policy_ref
+        ),
+    )
+    snapshot_repository.save_prediction_request(air_request)
+    dispatch = bind_prediction_request_to_solver_adapter(
+        snapshot=snapshot,
+        request=air_request,
+        adapter=fixture['descriptor'],
+        solver_configuration_ref=configuration.as_external_ref(),
+        numerical_fidelity_policy=fixture['fidelity_policy'],
+    )
+    assert dispatch.state == 'READY'
+    fixture['dispatch_repository'].save_dispatch(dispatch)
+
+    with pytest.raises(
+        CandidateWaveExecutionError,
+        match='density must match the exact environment air-state authority',
+    ):
+        fixture['executor'].compile_input(
+            dispatch_binding_id=dispatch.binding_id,
+            configuration=configuration,
+        )

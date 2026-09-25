@@ -84,6 +84,9 @@ class AcousticSnapshotAuthorityResolvers(NamedTuple):
     environment: SnapshotEnvironmentResolver | None = None
     sound_speed_source: SnapshotScalarAuthorityResolver | None = None
     temperature_source: SnapshotScalarAuthorityResolver | None = None
+    air_density_source: SnapshotScalarAuthorityResolver | None = None
+    air_pressure_source: SnapshotScalarAuthorityResolver | None = None
+    relative_humidity_source: SnapshotScalarAuthorityResolver | None = None
     receiver_measurement: SnapshotReceiverMeasurementResolver | None = None
     valid_frequency_domain: SnapshotFrequencyDomainResolver | None = None
     geometric_topology_preflight: SnapshotTopologyPreflightResolver | None = None
@@ -738,6 +741,45 @@ class CadAcousticSnapshotRepository:
                 if float(temperature) != environment.temperature_c:
                     raise ValueError(
                         'temperature value does not reproduce from exact '
+                        'source authority'
+                    )
+            for label, resolver_name, source_ref, value in (
+                (
+                    'air density',
+                    'air_density_source',
+                    environment.air_density_source_authority,
+                    environment.air_density_kg_m3,
+                ),
+                (
+                    'air pressure',
+                    'air_pressure_source',
+                    environment.air_pressure_source_authority,
+                    environment.air_pressure_pa,
+                ),
+                (
+                    'relative humidity',
+                    'relative_humidity_source',
+                    environment.relative_humidity_source_authority,
+                    environment.relative_humidity_percent,
+                ),
+            ):
+                if source_ref is None:
+                    continue
+                resolver = getattr(resolvers, resolver_name)
+                if resolver is None:
+                    raise ValueError(
+                        f'AcousticSceneSnapshot {label} source authority '
+                        f'requires a typed {label} resolver'
+                    )
+                resolved = resolver(source_ref)
+                if resolved is None:
+                    raise ValueError(
+                        f'{label} source exact external authority '
+                        'does not exist'
+                    )
+                if float(resolved) != float(value):
+                    raise ValueError(
+                        f'{label} value does not reproduce from exact '
                         'source authority'
                     )
 

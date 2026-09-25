@@ -9,6 +9,7 @@ import pytest
 from htdt.acoustic_benchmark import GeometricAcousticBand, SpecificImpedancePoint
 from htdt.cad_acoustic_environment import (
     CadAcousticEnvironmentRepository,
+    air_density_moist_ideal_gas_v1,
     build_acoustic_environment_profile,
     environment_compatibility,
     nominal_environment_profile,
@@ -235,6 +236,146 @@ def test_snapshot_environment_ref_carries_per_field_sources() -> None:
     ref = snapshot_environment_ref(profile)
     assert ref.authority.authority_id == profile.authority_id
     assert ref.sound_speed_m_s == pytest.approx(331.3 + 0.606 * 18.0)
+
+
+# ---------------------------------------------------------------------------
+# #932 — Unified acoustic air-state authority
+# ---------------------------------------------------------------------------
+
+
+def _full_air_state_profile(**overrides):
+    kwargs = dict(
+        label='measured air state 20 °C',
+        sound_speed_source_kind='derived_from_temperature',
+        sound_speed_m_s=sound_speed_from_temperature_c(20.0),
+        temperature_c=20.0,
+        temperature_source_kind='manual_measured',
+        air_density_source_kind='derived_from_air_state',
+        air_pressure_pa=101325.0,
+        air_pressure_source_kind='manual_measured',
+        relative_humidity_percent=50.0,
+        relative_humidity_source_kind='manual_measured',
+        provenance='weather station',
+        created_at_utc=NOW,
+    )
+    kwargs.update(overrides)
+    if 'air_density_kg_m3' not in overrides and (
+        kwargs['air_density_source_kind'] == 'derived_from_air_state'
+        and kwargs['temperature_c'] is not None
+        and kwargs['air_pressure_pa'] is not None
+        and kwargs['relative_humidity_percent'] is not None
+    ):
+        kwargs['air_density_kg_m3'] = air_density_moist_ideal_gas_v1(
+            kwargs['temperature_c'],
+            kwargs['air_pressure_pa'],
+            kwargs['relative_humidity_percent'],
+        )
+    return build_acoustic_environment_profile(**kwargs)
+
+
+def test_air_state_profile_binds_density_pressure_humidity() -> None:
+    profile = _full_air_state_profile()
+    assert profile.air_density_kg_m3 == pytest.approx(1.1989, abs=1e-3)
+    ref = snapshot_environment_ref(profile)
+    assert ref.air_density_kg_m3 == profile.air_density_kg_m3
+    assert ref.air_density_source_authority is not None
+    assert ref.air_pressure_pa == pytest.approx(101325.0)
+    assert ref.air_pressure_source_authority is not None
+    assert ref.relative_humidity_percent == pytest.approx(50.0)
+    assert ref.relative_humidity_source_authority is not None
+    # Per-field refs all resolve inside the single environment authority.
+    assert ref.authority.authority_id == profile.authority_id
+
+
+def test_air_state_value_and_source_kind_are_paired() -> None:
+    with pytest.raises(ValueError, match='must be supplied together'):
+        _full_air_state_profile(
+            air_density_kg_m3=1.2,
+            air_density_source_kind=None,
+        )
+    with pytest.raises(ValueError, match='must be supplied together'):
+        _full_air_state_profile(
+            air_density_kg_m3=None,
+            air_density_source_kind=None,
+            relative_humidity_percent=None,
+        )
+    with pytest.raises(ValueError, match='unknown .* source cannot carry'):
+        _full_air_state_profile(air_pressure_source_kind='unknown')
+
+
+def test_derived_air_density_must_replay_the_documented_derivation() -> None:
+    # A claimed density that does not recompute from (T, p, RH) is forged.
+    with pytest.raises(ValueError, match='moist ideal-gas derivation'):
+        _full_air_state_profile(air_density_kg_m3=9.99)
+    # The derivation needs all three inputs declared.
+    with pytest.raises(ValueError, match='requires temperature, pressure'):
+        _full_air_state_profile(
+            air_density_kg_m3=1.2,
+            air_pressure_pa=None,
+            air_pressure_source_kind=None,
+        )
+
+
+def test_air_state_edit_stales_the_environment_authority() -> None:
+    base = _full_air_state_profile()
+    changed = _full_air_state_profile(relative_humidity_percent=60.0)
+    # RH also changes the derived density, so an honest profile must carry it.
+    assert changed.authority_id != base.authority_id
+    assert (
+        environment_compatibility(base.authority_ref(), changed.authority_ref())
+        == 'different'
+    )
+
+
+def test_legacy_profile_without_air_state_keeps_content_hash() -> None:
+    minimal = build_acoustic_environment_profile(
+        label='pre-split profile',
+        sound_speed_source_kind='nominal_assumption',
+        sound_speed_m_s=343.0,
+        provenance='x',
+        created_at_utc=NOW,
+    )
+    ref = snapshot_environment_ref(minimal)
+    assert ref.air_density_kg_m3 is None
+    assert ref.air_density_source_authority is None
+    assert ref.air_pressure_pa is None
+    assert ref.relative_humidity_percent is None
+
+
+def test_snapshot_environment_ref_pairs_each_air_state_field() -> None:
+    from htdt.cad_acoustic_snapshot import SnapshotEnvironmentAuthorityRef
+    from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
+
+    ref_id = ExactExternalAuthorityRef(
+        authority_id='acoustic-environment:' + 'a' * 64,
+        authority_version='1',
+        semantic_hash_sha256='a' * 64,
+    )
+    field_ref = ExactExternalAuthorityRef(
+        authority_id='acoustic-environment-field:' + 'b' * 64,
+        authority_version='1',
+        semantic_hash_sha256='b' * 64,
+    )
+    with pytest.raises(ValueError, match='supplied together'):
+        SnapshotEnvironmentAuthorityRef(
+            authority=ref_id,
+            air_density_kg_m3=1.2,
+        )
+    with pytest.raises(ValueError, match='supplied together'):
+        SnapshotEnvironmentAuthorityRef(
+            authority=ref_id,
+            relative_humidity_percent=50.0,
+        )
+    ok = SnapshotEnvironmentAuthorityRef(
+        authority=ref_id,
+        air_density_kg_m3=1.2,
+        air_density_source_authority=field_ref,
+        air_pressure_pa=101325.0,
+        air_pressure_source_authority=field_ref,
+        relative_humidity_percent=50.0,
+        relative_humidity_source_authority=field_ref,
+    )
+    assert ok.air_density_kg_m3 == pytest.approx(1.2)
 
 
 # ---------------------------------------------------------------------------

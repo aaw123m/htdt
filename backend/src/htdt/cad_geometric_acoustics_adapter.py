@@ -7,14 +7,17 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from importlib.metadata import version as distribution_version
 import json
-from math import atan2, degrees, isfinite, sqrt
+from math import acos, atan2, degrees, isfinite, sqrt
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .acoustic_benchmark import AcousticMaterial
+from .acoustic_benchmark import (
+    AcousticMaterial,
+    GeometricIncidenceCondition,
+)
 from .cad_acoustic_snapshot import AcousticPredictionRequest, AcousticSceneSnapshot
 from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
 from .cad_acoustic_solver_adapter import (
@@ -377,6 +380,18 @@ class DeterministicGaConfiguration(BaseModel):
     coherent_phase_policy: Literal['unavailable_not_synthesized'] = (
         'unavailable_not_synthesized'
     )
+    # The only scalar-boundary-coefficient interpolation rule currently
+    # authorized. Non-exact band incidence evidence is applied at every
+    # reflection angle as an explicit versioned approximation — never an
+    # unlabelled exact angle-specific coefficient.
+    incidence_coefficient_policy: Literal[
+        'scalar_coefficient_all_angles_v1'
+    ] = 'scalar_coefficient_all_angles_v1'
+    # Angle tolerance (degrees) inside which a reflection's evaluated
+    # incidence counts as matching a declared normal/angle-specific band.
+    incidence_exact_angle_tolerance_deg: float = Field(
+        default=1.0, gt=0.0, le=45.0
+    )
 
     @field_validator(
         'frequency_centers_hz',
@@ -393,7 +408,11 @@ class DeterministicGaConfiguration(BaseModel):
             raise ValueError('GA frequency centers must be unique and sorted')
         return values
 
-    @field_validator('geometric_tolerance_m', 'engine_image_match_tolerance_m')
+    @field_validator(
+        'geometric_tolerance_m',
+        'engine_image_match_tolerance_m',
+        'incidence_exact_angle_tolerance_deg',
+    )
     @classmethod
     def finite_positive(cls, value: float) -> float:
         value = float(value)
@@ -448,6 +467,7 @@ def build_deterministic_ga_configuration(
     room_policy: GeometryPolicy = 'exact_axis_aligned_closed_shoebox_v1',
     maximum_reflection_order: Literal[0, 1, 2] = 1,
     maximum_portal_crossings: int | None = None,
+    incidence_exact_angle_tolerance_deg: float = 1.0,
 ) -> DeterministicGaConfiguration:
     if (
         maximum_reflection_order == 2
@@ -503,6 +523,10 @@ def build_deterministic_ga_configuration(
         ),
         'spreading_policy': 'relative_energy_inverse_square',
         'coherent_phase_policy': 'unavailable_not_synthesized',
+        'incidence_coefficient_policy': 'scalar_coefficient_all_angles_v1',
+        'incidence_exact_angle_tolerance_deg': float(
+            incidence_exact_angle_tolerance_deg
+        ),
     }
     if maximum_portal_crossings is not None:
         core['maximum_portal_crossings'] = int(maximum_portal_crossings)
@@ -638,6 +662,9 @@ class DeterministicGaExecutionInput(BaseModel):
     engine_image_match_tolerance_m: float = Field(gt=0.0)
     identity_decimal_places: int = Field(ge=6, le=15)
     maximum_reflection_order: Literal[0, 1, 2] | None = None
+    incidence_exact_angle_tolerance_deg: float | None = Field(
+        default=None, gt=0.0, le=45.0
+    )
 
     @model_validator(mode='after')
     def validate_identity(self) -> 'DeterministicGaExecutionInput':
@@ -705,6 +732,8 @@ class DeterministicGaExecutionInput(BaseModel):
             payload.pop('region_declarations', None)
         if self.maximum_portal_crossings is None:
             payload.pop('maximum_portal_crossings', None)
+        if self.incidence_exact_angle_tolerance_deg is None:
+            payload.pop('incidence_exact_angle_tolerance_deg', None)
         for source in payload['sources']:
             if source.get('acoustic_region_id') is None:
                 source.pop('acoustic_region_id', None)
@@ -740,6 +769,13 @@ class SourceDirectivityContribution(BaseModel):
     energy_factor: float = Field(gt=0.0)
 
 
+BoundaryIncidenceEvaluation = Literal[
+    'angle_specific_exact',
+    'declared_condition_match',
+    'scalar_coefficient_all_angles_v1',
+]
+
+
 class BoundaryMaterialContribution(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -751,6 +787,30 @@ class BoundaryMaterialContribution(BaseModel):
     scattering: float = Field(ge=0.0, le=1.0)
     specular_energy_factor: float = Field(ge=0.0, le=1.0)
     coherent_reflection_phase: Literal['UNAVAILABLE'] = 'UNAVAILABLE'
+    incidence_angle_deg: float | None = Field(default=None, ge=0.0, le=90.0)
+    incidence_cosine: float | None = Field(default=None, ge=0.0, le=1.0)
+    coefficient_incidence_condition: GeometricIncidenceCondition | None = None
+    incidence_evaluation: BoundaryIncidenceEvaluation | None = None
+
+    @model_validator(mode='after')
+    def valid_incidence_metadata(self) -> 'BoundaryMaterialContribution':
+        parts = (
+            self.incidence_angle_deg,
+            self.incidence_cosine,
+            self.coefficient_incidence_condition,
+            self.incidence_evaluation,
+        )
+        if any(item is None for item in parts) and any(
+            item is not None for item in parts
+        ):
+            raise ValueError(
+                'boundary incidence metadata must be supplied together'
+            )
+        if self.incidence_angle_deg is not None and not isfinite(
+            float(self.incidence_angle_deg)
+        ):
+            raise ValueError('boundary incidence angle must be finite')
+        return self
 
 
 class DeterministicPathBandQuantity(BaseModel):
@@ -784,9 +844,15 @@ class DeterministicPathInteraction(BaseModel):
     portal_id: str | None = None
     from_region_id: str | None = None
     to_region_id: str | None = None
+    incidence_angle_deg: float | None = Field(default=None, ge=0.0, le=90.0)
+    incidence_cosine: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @model_validator(mode='after')
     def validate_interaction(self) -> 'DeterministicPathInteraction':
+        if (self.incidence_angle_deg is None) != (self.incidence_cosine is None):
+            raise ValueError(
+                'reflection incidence angle and cosine must be supplied together'
+            )
         if self.kind == 'reflection':
             if self.surface_id is None:
                 raise ValueError('reflection interaction requires surface_id')
@@ -796,6 +862,8 @@ class DeterministicPathInteraction(BaseModel):
             ):
                 raise ValueError('reflection interaction cannot carry Portal fields')
         else:
+            if self.incidence_angle_deg is not None:
+                raise ValueError('portal crossings carry no incidence metadata')
             if (
                 self.portal_id is None
                 or self.from_region_id is None
@@ -1044,9 +1112,9 @@ class DeterministicAcousticPath(BaseModel):
             payload.pop('region_segment_evidence', None)
         if self.execution_input_semantic_sha256 is None:
             payload.pop('execution_input_semantic_sha256', None)
-        for band in payload['bands']:
-            if band.get('boundary_materials') is None:
-                band.pop('boundary_materials', None)
+        payload['bands'] = [
+            _prune_band_payload(band) for band in payload['bands']
+        ]
         return payload
 
 
@@ -1870,6 +1938,9 @@ def _compile_single_portal_execution_input_legacy(
         'geometric_tolerance_m': configuration.geometric_tolerance_m,
         'engine_image_match_tolerance_m': configuration.engine_image_match_tolerance_m,
         'identity_decimal_places': configuration.identity_decimal_places,
+        'incidence_exact_angle_tolerance_deg': float(
+            configuration.incidence_exact_angle_tolerance_deg
+        ),
     }
     digest = _semantic_hash(core)
     return DeterministicGaExecutionInput(
@@ -2283,6 +2354,9 @@ def _compile_multi_region_portal_execution_input(
         'geometric_tolerance_m': configuration.geometric_tolerance_m,
         'engine_image_match_tolerance_m': configuration.engine_image_match_tolerance_m,
         'identity_decimal_places': configuration.identity_decimal_places,
+        'incidence_exact_angle_tolerance_deg': float(
+            configuration.incidence_exact_angle_tolerance_deg
+        ),
     }
     digest = _semantic_hash(core)
     return DeterministicGaExecutionInput(
@@ -2692,6 +2766,9 @@ def compile_deterministic_ga_execution_input(
         'geometric_tolerance_m': configuration.geometric_tolerance_m,
         'engine_image_match_tolerance_m': configuration.engine_image_match_tolerance_m,
         'identity_decimal_places': configuration.identity_decimal_places,
+        'incidence_exact_angle_tolerance_deg': float(
+            configuration.incidence_exact_angle_tolerance_deg
+        ),
     }
     if general_geometry:
         core['geometry_policy'] = 'general_planar_closed_polyhedral_v1'
@@ -3220,12 +3297,58 @@ def _directivity_contribution(
     )
 
 
+def _reflection_incidence(
+    plane: GeometricSurfacePlane,
+    incoming_direction: Sequence[float],
+    *,
+    decimals: int,
+) -> tuple[float, float]:
+    """Evaluated reflection incidence (angle_deg from the surface normal, cosine).
+
+    Incidence is measured between the incoming propagation segment direction
+    and the surface normal: 0 deg / cosine 1.0 is normal incidence.
+    """
+    _, normal = _plane_point_normal(plane)
+    cosine = abs(_dot(_unit(incoming_direction), normal))
+    cosine = min(1.0, max(0.0, cosine))
+    angle = degrees(acos(cosine))
+    return (_round_float(angle, decimals), _round_float(cosine, decimals))
+
+
+def _incidence_evaluation(
+    band_condition: GeometricIncidenceCondition,
+    band_angle_deg: float | None,
+    evaluated_angle_deg: float,
+    *,
+    angle_tolerance_deg: float,
+) -> BoundaryIncidenceEvaluation:
+    """Classify how the declared band incidence evidence applies at one angle.
+
+    Only an angle-specific band evaluated at its declared angle is exact;
+    normal-incidence evidence evaluated at normal incidence records a declared
+    condition match. Every other combination applies the declared scalar band
+    coefficient across angles under the explicit versioned
+    ``scalar_coefficient_all_angles_v1`` approximation policy — non-exact
+    evidence is never silently treated as angle-specific truth.
+    """
+    if band_condition == 'angle_specific':
+        assert band_angle_deg is not None
+        if abs(evaluated_angle_deg - band_angle_deg) <= angle_tolerance_deg:
+            return 'angle_specific_exact'
+    elif band_condition == 'normal_incidence':
+        if evaluated_angle_deg <= angle_tolerance_deg:
+            return 'declared_condition_match'
+    return 'scalar_coefficient_all_angles_v1'
+
+
 def _material_contribution(
     authority: GeometricMaterialAuthority,
     plane: GeometricSurfacePlane,
     *,
     frequency_hz: float,
     tolerance: float,
+    incidence: tuple[float, float] | None = None,
+    incidence_angle_tolerance_deg: float = 1.0,
 ) -> BoundaryMaterialContribution | None:
     if authority.authority_ref != plane.material_authority:
         raise ValueError('resolved material exact authority does not match surface binding')
@@ -3243,6 +3366,20 @@ def _material_contribution(
     specular = (1.0 - float(band.absorption)) * (
         1.0 - float(band.scattering)
     )
+    incidence_fields: dict[str, Any] = {}
+    if incidence is not None:
+        incidence_angle_deg, incidence_cosine = incidence
+        incidence_fields = {
+            'incidence_angle_deg': incidence_angle_deg,
+            'incidence_cosine': incidence_cosine,
+            'coefficient_incidence_condition': band.incidence_condition,
+            'incidence_evaluation': _incidence_evaluation(
+                band.incidence_condition,
+                band.incidence_angle_deg,
+                incidence_angle_deg,
+                angle_tolerance_deg=incidence_angle_tolerance_deg,
+            ),
+        }
     return BoundaryMaterialContribution(
         source_surface_id=plane.source_surface_id,
         material_authority=authority.authority_ref,
@@ -3251,7 +3388,37 @@ def _material_contribution(
         absorption=band.absorption,
         scattering=band.scattering,
         specular_energy_factor=specular,
+        **incidence_fields,
     )
+
+
+_INCIDENCE_CONTRIBUTION_KEYS = (
+    'incidence_angle_deg',
+    'incidence_cosine',
+    'coefficient_incidence_condition',
+    'incidence_evaluation',
+)
+
+
+def _prune_band_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a serialized band payload for content hashing.
+
+    Optional boundary-contribution incidence metadata is omitted when unset so
+    payloads persisted before incidence evaluation existed keep their exact
+    content hash.
+    """
+    if payload.get('boundary_materials') is None:
+        payload.pop('boundary_materials', None)
+    for key in ('boundary_material', 'boundary_materials'):
+        value = payload.get(key)
+        if value is None:
+            continue
+        entries = value if isinstance(value, list) else [value]
+        for entry in entries:
+            for field in _INCIDENCE_CONTRIBUTION_KEYS:
+                if entry.get(field) is None:
+                    entry.pop(field, None)
+    return payload
 
 
 def _make_path(
@@ -3300,11 +3467,7 @@ def _make_path(
             'world_propagation_direction_source_out_and_receiver_in'
         ),
         'bands': [
-            {
-                key: value
-                for key, value in item.model_dump(mode='json').items()
-                if not (key == 'boundary_materials' and value is None)
-            }
+            _prune_band_payload(item.model_dump(mode='json'))
             for item in bands
         ],
         'adapter_id': DETERMINISTIC_GA_ADAPTER_ID,
@@ -3641,6 +3804,20 @@ def _append_single_portal_first_order_reflections(
         departure = _vector(segment_points[0], segment_points[1])
         arrival = _vector(segment_points[-2], segment_points[-1])
         path_length = sum(segment_lengths)
+        reflection_segment_index = (
+            1 if event_order == ('reflection', 'portal_crossing') else 2
+        )
+        incidence = _reflection_incidence(
+            plane,
+            _vector(
+                segment_points[reflection_segment_index - 1],
+                segment_points[reflection_segment_index],
+            ),
+            decimals=execution_input.identity_decimal_places,
+        )
+        incidence_angle_tolerance = (
+            execution_input.incidence_exact_angle_tolerance_deg or 1.0
+        )
         reflection_bands: list[DeterministicPathBandQuantity] = []
         failure: PathCandidateDecision | None = None
         failure_reason = ''
@@ -3664,6 +3841,8 @@ def _append_single_portal_first_order_reflections(
                 plane,
                 frequency_hz=frequency_hz,
                 tolerance=execution_input.geometric_tolerance_m,
+                incidence=incidence,
+                incidence_angle_tolerance_deg=incidence_angle_tolerance,
             )
             if boundary is None:
                 failure = 'UNSUPPORTED_BOUNDARY_QUANTITY'
@@ -3701,6 +3880,8 @@ def _append_single_portal_first_order_reflections(
             kind='reflection',
             point=_rounded_position(reflection, execution_input.identity_decimal_places),
             surface_id=surface_id,
+            incidence_angle_deg=incidence[0],
+            incidence_cosine=incidence[1],
         )
         portal_interaction = DeterministicPathInteraction(
             kind='portal_crossing',
@@ -4468,6 +4649,14 @@ def execute_deterministic_ga(
                     reflection,
                     receiver_world,
                 )
+                incidence = _reflection_incidence(
+                    plane,
+                    departure,
+                    decimals=execution_input.identity_decimal_places,
+                )
+                incidence_angle_tolerance = (
+                    execution_input.incidence_exact_angle_tolerance_deg or 1.0
+                )
                 if plane.material_authority is None:
                     rejected.append(
                         RejectedPathCandidate(
@@ -4522,6 +4711,8 @@ def execute_deterministic_ga(
                         plane,
                         frequency_hz=frequency_hz,
                         tolerance=execution_input.geometric_tolerance_m,
+                        incidence=incidence,
+                        incidence_angle_tolerance_deg=incidence_angle_tolerance,
                     )
                     if boundary is None:
                         failure = 'UNSUPPORTED_BOUNDARY_QUANTITY'
@@ -4571,6 +4762,18 @@ def execute_deterministic_ga(
                         bands=reflection_bands,
                         decimals=execution_input.identity_decimal_places,
                         solver_implementation_ref=execution_input.solver_implementation_ref,
+                        typed_interactions=(
+                            DeterministicPathInteraction(
+                                kind='reflection',
+                                point=_rounded_position(
+                                    reflection,
+                                    execution_input.identity_decimal_places,
+                                ),
+                                surface_id=plane.source_surface_id,
+                                incidence_angle_deg=incidence[0],
+                                incidence_cosine=incidence[1],
+                            ),
+                        ),
                     )
                 )
 
@@ -4843,6 +5046,21 @@ def execute_deterministic_ga(
                         departure = _vector(source_world, first_point)
                         arrival = _vector(second_point, receiver_world)
                         path_length = sum(segment_lengths)
+                        incidences = (
+                            _reflection_incidence(
+                                first_plane,
+                                departure,
+                                decimals=execution_input.identity_decimal_places,
+                            ),
+                            _reflection_incidence(
+                                second_plane,
+                                _vector(first_point, second_point),
+                                decimals=execution_input.identity_decimal_places,
+                            ),
+                        )
+                        incidence_angle_tolerance = (
+                            execution_input.incidence_exact_angle_tolerance_deg or 1.0
+                        )
                         second_order_bands: list[
                             DeterministicPathBandQuantity
                         ] = []
@@ -4867,9 +5085,10 @@ def execute_deterministic_ga(
                             boundary_contributions: list[
                                 BoundaryMaterialContribution
                             ] = []
-                            for interaction_plane, resolved in zip(
+                            for interaction_plane, resolved, incidence in zip(
                                 (first_plane, second_plane),
                                 resolved_materials,
+                                incidences,
                                 strict=True,
                             ):
                                 boundary = _material_contribution(
@@ -4877,6 +5096,10 @@ def execute_deterministic_ga(
                                     interaction_plane,
                                     frequency_hz=frequency_hz,
                                     tolerance=execution_input.geometric_tolerance_m,
+                                    incidence=incidence,
+                                    incidence_angle_tolerance_deg=(
+                                        incidence_angle_tolerance
+                                    ),
                                 )
                                 if boundary is None:
                                     failure = 'UNSUPPORTED_BOUNDARY_QUANTITY'
@@ -4937,6 +5160,28 @@ def execute_deterministic_ga(
                                 decimals=execution_input.identity_decimal_places,
                                 solver_implementation_ref=(
                                     execution_input.solver_implementation_ref
+                                ),
+                                typed_interactions=(
+                                    DeterministicPathInteraction(
+                                        kind='reflection',
+                                        point=_rounded_position(
+                                            first_point,
+                                            execution_input.identity_decimal_places,
+                                        ),
+                                        surface_id=surface_ids[0],
+                                        incidence_angle_deg=incidences[0][0],
+                                        incidence_cosine=incidences[0][1],
+                                    ),
+                                    DeterministicPathInteraction(
+                                        kind='reflection',
+                                        point=_rounded_position(
+                                            second_point,
+                                            execution_input.identity_decimal_places,
+                                        ),
+                                        surface_id=surface_ids[1],
+                                        incidence_angle_deg=incidences[1][0],
+                                        incidence_cosine=incidences[1][1],
+                                    ),
                                 ),
                             )
                         )
