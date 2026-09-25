@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
 from pathlib import Path
 import sqlite3
 
 import pytest
 
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import make_empty_scene
+from htdt.cad_scene import RoomPrism, make_empty_scene
 from htdt.native_backup import DATABASE_NAME
 from htdt.project_lifecycle import (
     ProjectDeletionBlockedError,
+    ProjectDeletionStaleError,
     ProjectLibrary,
+    ProjectLifecycleError,
     ProjectNotFoundError,
 )
 
@@ -235,6 +238,116 @@ def test_pending_inbox_items_block_deletion(tmp_path: Path) -> None:
     assert plan.pending_inbox_item_count == 1
     kinds = {b.kind for b in plan.hard_blockers}
     assert 'pending_inbox_items' in kinds
+
+
+def test_unarchive_between_preview_and_delete_is_blocked(tmp_path: Path) -> None:
+    """A blocker appearing after the preview still stops the delete."""
+    _seed_document(tmp_path, 'doc-a')
+    library = ProjectLibrary(_data_dir(tmp_path) / DATABASE_NAME)
+    record = library.archive_project(
+        library.register_project('doc-a', 'Room A').project_id
+    )
+    plan = library.plan_project_deletion(record.project_id)
+    assert plan.executable
+
+    # The world moved: the project is active again. A stale expected plan
+    # must not authorize the delete — the in-transaction revalidation
+    # sees the live status (#753).
+    library.unarchive_project(record.project_id)
+    with pytest.raises(ProjectDeletionBlockedError):
+        library.delete_project(record.project_id, expected_plan=plan)
+    assert _row_count(
+        _data_dir(tmp_path) / DATABASE_NAME, 'scene_revisions', 'doc-a'
+    ) == 1
+    assert library.get_project(record.project_id).status == 'active'
+
+
+def test_stale_preview_fingerprint_refuses_delete(tmp_path: Path) -> None:
+    _seed_document(tmp_path, 'doc-a')
+    library = ProjectLibrary(_data_dir(tmp_path) / DATABASE_NAME)
+    record = library.archive_project(
+        library.register_project('doc-a', 'Room A').project_id
+    )
+    plan = library.plan_project_deletion(record.project_id)
+    assert plan.executable
+    # Another revision lands after the preview — the approved plan no
+    # longer describes the world under the lock.
+    repository = _repository(tmp_path)
+    head = repository.current_head('doc-a')
+    changed = head.document.model_copy(
+        update={'room': RoomPrism(width_m=6.0, depth_m=4.0, height_m=2.4)}
+    )
+    repository.save(changed, parent_revision_id=head.revision_id)
+    with pytest.raises(ProjectDeletionStaleError):
+        library.delete_project(record.project_id, expected_plan=plan)
+
+
+def test_matching_expected_plan_executes(tmp_path: Path) -> None:
+    _seed_document(tmp_path, 'doc-a')
+    library = ProjectLibrary(_data_dir(tmp_path) / DATABASE_NAME)
+    record = library.archive_project(
+        library.register_project('doc-a', 'Room A').project_id
+    )
+    plan = library.plan_project_deletion(record.project_id)
+    tombstone = library.delete_project(record.project_id, expected_plan=plan)
+    assert tombstone.document_id == 'doc-a'
+    assert tombstone.removed_rows == plan.total_rows
+
+
+def test_payload_document_id_drift_blocks_delete(tmp_path: Path) -> None:
+    """Denormalized document_id columns must agree with the payload."""
+    _seed_document(tmp_path, 'doc-a')
+    library = ProjectLibrary(_data_dir(tmp_path) / DATABASE_NAME)
+    record = library.archive_project(
+        library.register_project('doc-a', 'Room A').project_id
+    )
+    database = _data_dir(tmp_path) / DATABASE_NAME
+    with closing(sqlite3.connect(database)) as connection, connection:
+        # Corrupt the canonical payload so its document_id disagrees with
+        # the denormalized column.
+        revision_id, payload_json = connection.execute(
+            'SELECT revision_id, payload_json FROM scene_revisions '
+            'WHERE document_id=?',
+            ('doc-a',),
+        ).fetchone()
+        payload = json.loads(payload_json)
+        payload['document_id'] = 'doc-other'
+        connection.execute(
+            'UPDATE scene_revisions SET payload_json=? WHERE revision_id=?',
+            (json.dumps(payload), revision_id),
+        )
+    with pytest.raises(ProjectLifecycleError, match='disagrees'):
+        library.delete_project(record.project_id)
+    # Nothing was removed.
+    assert _row_count(database, 'scene_revisions', 'doc-a') == 1
+
+
+def test_tombstone_records_actual_deleted_counts(tmp_path: Path) -> None:
+    """The tombstone reflects what the transaction removed, not a stale
+    preview's guess (#753)."""
+    _seed_document(tmp_path, 'doc-a')
+    library = ProjectLibrary(_data_dir(tmp_path) / DATABASE_NAME)
+    record = library.archive_project(
+        library.register_project('doc-a', 'Room A').project_id
+    )
+    stale_plan = library.plan_project_deletion(record.project_id)
+    # More data lands after the preview; the delete still records truth.
+    repository = _repository(tmp_path)
+    head = repository.current_head('doc-a')
+    changed = head.document.model_copy(
+        update={'room': RoomPrism(width_m=6.0, depth_m=4.0, height_m=2.4)}
+    )
+    repository.save(changed, parent_revision_id=head.revision_id)
+    tombstone = library.delete_project(record.project_id)
+    authorities = json.loads(tombstone.authorities_json)
+    assert tombstone.removed_rows > stale_plan.total_rows
+    assert sum(a['row_count'] for a in authorities) == tombstone.removed_rows
+    revision_entry = next(
+        a for a in authorities if a['table'] == 'scene_revisions'
+    )
+    assert revision_entry['row_count'] == 2
+    database = _data_dir(tmp_path) / DATABASE_NAME
+    assert _row_count(database, 'scene_revisions', 'doc-a') == 0
 
 
 def test_unknown_project_raises(tmp_path: Path) -> None:

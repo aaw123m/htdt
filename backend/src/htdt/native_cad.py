@@ -34,11 +34,14 @@ from .native_upgrade import (
 )
 from .launch_intents import (
     HTDTLaunchIntent,
+    LaunchIntentResult,
     build_launch_intent,
+    complete_queued_intent,
     describe_launch_intent,
     drain_launch_intents,
     forward_launch_intent,
 )
+from .launch_router import route_launch_intent
 from .native_editor import default_data_dir
 from .optimization_workspace import OptimizationWorkspaceWindow
 from .project_bundle import import_project_bundle
@@ -101,12 +104,14 @@ def _route_launch_intent(
     window,
     repository: SceneRepository,
     diagnostics: NativeDiagnostics,
-) -> None:
+) -> LaunchIntentResult:
     """One routing authority for menu, OS association, drop and forwarding.
 
-    Safety contract: project refs open the project they name; capture
-    descriptors are only staged for review; backup archives open as a
-    preview — restore is always an explicit user action.
+    The semantic route runs through ``launch_router`` (Qt-free, testable);
+    this shell layer applies the GUI-only half — the project switch, the
+    Capture Inbox deep link and the Restore preview surface — and maps the
+    exact outcome to user copy (#736). Success copy is shown only after
+    the corresponding domain action actually ran.
     """
 
     from PySide6.QtWidgets import QMessageBox
@@ -119,127 +124,159 @@ def _route_launch_intent(
         intent.source,
         intent.path,
     )
-    if intent.kind == 'open_project':
-        _route_open_project_intent(
-            intent,
-            window=window,
-            repository=repository,
-            diagnostics=diagnostics,
-        )
-        return
-    if intent.kind == 'preview_capture':
-        # Staged-for-review semantics: the package is acknowledged and
-        # surfaced, never silently imported as evidence.
-        QMessageBox.information(
-            window,
-            "HTDT capture",
-            f"Received {describe_launch_intent(intent)}. "
-            "It is staged for review in the Capture Inbox — "
-            "nothing was imported yet.",
-        )
-        return
-    if intent.kind == 'preview_backup':
-        from .native_backup import inspect_backup
 
-        try:
-            manifest, staged_schema = inspect_backup(Path(intent.path))
-        except Exception as exc:
-            QMessageBox.warning(
-                window,
-                "HTDT backup",
-                f"Could not read {describe_launch_intent(intent)}:\n{exc}",
-            )
-            return
-        QMessageBox.information(
-            window,
-            "HTDT backup",
-            f"Backup preview: {Path(intent.path).name}\n"
-            f"- created: {manifest.created_at_utc}\n"
-            f"- schema: {staged_schema}\n"
-            f"- files: {len(manifest.files)}\n\n"
-            "Open Data Management to restore this archive — "
-            "restoring is always a separate, explicit action.",
-        )
-        return
-    QMessageBox.warning(
-        window,
-        "HTDT",
-        f"Don't know how to open {Path(intent.path).name}.",
-    )
-
-
-def _route_open_project_intent(
-    intent: HTDTLaunchIntent,
-    *,
-    window,
-    repository: SceneRepository,
-    diagnostics: NativeDiagnostics,
-) -> None:
-    """Dispatch an ``open_project`` intent by file content, not extension.
-
-    ``.htdtproject`` is overloaded (#736): a ZIP member is a #488 portable
-    project bundle and is imported through the bundle authority before any
-    project switch; a small JSON ``htdt-project-ref`` descriptor names a
-    project that already lives in this data root. Neither path may report
-    "opened" without an import/switch actually happening.
-    """
-
-    from PySide6.QtWidgets import QMessageBox
-
-    path = Path(intent.path)
+    result = route_launch_intent(intent, repository=repository)
+    outcome = result.outcome
     application = getattr(window, 'workflow_application', None)
 
-    if path.is_file() and zipfile.is_zipfile(path):
-        try:
-            result = import_project_bundle(repository, path)
-        except Exception as exc:
-            diagnostics.logger.warning(
-                'project bundle import failed for %s: %s', path, exc
+    if outcome == 'routed_and_opened':
+        if application is None:
+            outcome = 'user_action_required'
+            result = result.model_copy(
+                update={
+                    'outcome': outcome,
+                    'detail': (
+                        f'{result.detail} — open it from the project '
+                        'library'
+                    ),
+                }
             )
-            QMessageBox.warning(
-                window,
-                "HTDT project",
-                f"Could not import {describe_launch_intent(intent)}:\n{exc}",
-            )
-            return
-        diagnostics.logger.info(
-            'project bundle imported: %s -> document %s (mode=%s)',
-            path,
-            result.document_id,
-            result.import_mode,
-        )
-        if application is not None:
-            application._open_project(result.document_id)
-        QMessageBox.information(
-            window,
-            "HTDT project",
-            f"Imported {describe_launch_intent(intent)}.",
-        )
-        return
+        else:
+            try:
+                application._open_project(result.document_id)
+            except Exception as exc:
+                diagnostics.logger.exception(
+                    'project switch failed for %s', intent.path
+                )
+                outcome = 'failed'
+                result = result.model_copy(
+                    update={
+                        'outcome': outcome,
+                        'detail': f'project switch failed: {exc}',
+                    }
+                )
+            else:
+                if application.document_id != result.document_id:
+                    outcome = 'blocked_dirty_state'
+                    result = result.model_copy(
+                        update={
+                            'outcome': outcome,
+                            'detail': (
+                                'current work must be saved or discarded '
+                                'before switching projects'
+                            ),
+                        }
+                    )
 
-    document_id = intent.document_id
-    if document_id and application is not None:
-        if application.project_library.get_by_document_id(document_id) is None:
-            QMessageBox.warning(
-                window,
-                "HTDT project",
-                f"Project {document_id} is not in this data root — it "
-                "was not opened.",
+    if outcome in ('staged_for_review', 'already_staged'):
+        if application is not None:
+            try:
+                from .navigation_target import (
+                    NavigationTarget,
+                    NavigationTargetKind,
+                )
+                from .workflow_navigation import ApplicationDestinationId
+
+                application.shell.navigate_to_target(
+                    NavigationTarget(
+                        kind=NavigationTargetKind.CAPTURE_INBOX_ITEM,
+                        object_ids=(
+                            (result.inbox_item_id,) if result.inbox_item_id else ()
+                        ),
+                        preferred_destination=ApplicationDestinationId.INBOX,
+                    )
+                )
+            except Exception:
+                diagnostics.logger.exception(
+                    'inbox deep link failed for %s', intent.path
+                )
+
+    if outcome == 'preview_opened' and intent.kind == 'preview_backup':
+        if application is None:
+            outcome = 'user_action_required'
+            result = result.model_copy(
+                update={
+                    'outcome': outcome,
+                    'detail': (
+                        f'{result.detail} — open Settings > Data '
+                        'Management to restore it'
+                    ),
+                }
             )
-            return
-        application._open_project(document_id)
+        else:
+            try:
+                application.settings_dialog.open_settings()
+                application.data_management_controller.preview_restore(
+                    Path(intent.path)
+                )
+            except Exception as exc:
+                diagnostics.logger.warning(
+                    'restore preview failed for %s: %s', intent.path, exc
+                )
+                outcome = 'user_action_required'
+                result = result.model_copy(
+                    update={
+                        'outcome': outcome,
+                        'detail': (
+                            f'backup is valid but the preview surface is '
+                            f'busy or unavailable: {exc}'
+                        ),
+                    }
+                )
+
+    diagnostics.logger.info(
+        'launch intent outcome: %s (%s) for %s',
+        outcome,
+        result.detail,
+        intent.path,
+    )
+
+    # User copy maps 1:1 from the outcome contract — no message may claim
+    # more than the outcome states.
+    if outcome in ('routed_and_opened',):
         QMessageBox.information(
             window,
             "HTDT project",
             f"Opened {describe_launch_intent(intent)}.",
         )
-        return
-
-    QMessageBox.information(
-        window,
-        "HTDT project",
-        f"Opened {describe_launch_intent(intent)}.",
-    )
+    elif outcome in ('staged_for_review', 'already_staged'):
+        QMessageBox.information(
+            window,
+            "HTDT capture",
+            f"{'Staged' if outcome == 'staged_for_review' else 'Already staged'} "
+            f"{describe_launch_intent(intent)} for review in the Capture "
+            "Inbox — nothing was promoted to evidence.",
+        )
+    elif outcome == 'preview_opened':
+        QMessageBox.information(
+            window,
+            "HTDT backup",
+            f"Backup preview: {Path(intent.path).name}\n"
+            f"- {result.detail}\n\n"
+            "Restore is always a separate, explicit action.",
+        )
+    elif outcome == 'blocked_dirty_state':
+        QMessageBox.information(
+            window,
+            "HTDT",
+            f"Could not open {describe_launch_intent(intent)}: "
+            f"{result.detail}",
+        )
+    elif outcome == 'user_action_required':
+        QMessageBox.information(
+            window,
+            "HTDT",
+            f"{describe_launch_intent(intent)} needs your action: "
+            f"{result.detail}",
+        )
+    else:
+        QMessageBox.warning(
+            window,
+            "HTDT",
+            f"Could not open {describe_launch_intent(intent)}: "
+            f"{result.detail or outcome}",
+        )
+    return result
 
 
 def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
@@ -407,8 +444,19 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 for path in getattr(args, 'open_paths', None) or ()
             ]
         )
+        # #736: a descriptor may fast-path startup to its document only
+        # when the document is actually registered in this data root —
+        # otherwise initial launch must behave exactly like a forwarded
+        # intent: the router reports "not registered" instead of the
+        # startup path silently creating an empty project under that id.
+        project_library = ProjectLibraryRepository(repository)
         for intent in initial_intents:
-            if intent.kind == 'open_project' and intent.document_id:
+            if (
+                intent.kind == 'open_project'
+                and intent.document_id
+                and project_library.get_by_document_id(intent.document_id)
+                is not None
+            ):
                 args.document_id = intent.document_id
         # #598: detect the retired browser authority in the same data root.
         # Read-only; legacy data outside the canonical store is warned in
@@ -430,7 +478,6 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # #450: resolve the project to open through the library — most recent
         # project wins, existing documents migrate in as named projects, and
         # an explicit --document-id still binds (and registers) directly.
-        project_library = ProjectLibraryRepository(repository)
         project_entry = project_library.resolve_startup_document(
             args.document_id
         )
@@ -443,8 +490,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         )
         window.show()
 
-        def _dispatch(intent: HTDTLaunchIntent) -> None:
-            _route_launch_intent(
+        def _dispatch(intent: HTDTLaunchIntent) -> LaunchIntentResult:
+            return _route_launch_intent(
                 intent,
                 window=window,
                 repository=repository,
@@ -467,8 +514,14 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         intent_pump.setInterval(800)
 
         def _drain() -> None:
-            for intent in drain_launch_intents(args.data_dir):
-                _dispatch(intent)
+            # #736: retire each queue file only after its semantic
+            # dispatch produced an outcome — a crash before completion
+            # leaves the file queued for the next drain.
+            for queued in drain_launch_intents(args.data_dir):
+                result = _dispatch(queued.intent)
+                complete_queued_intent(
+                    queued, succeeded=result.outcome != 'failed'
+                )
 
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
@@ -478,15 +531,17 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         complete_launch(
             args.data_dir, launch_record.launch_id, clean=True
         )
-        # #617: a clean close with changed managed data earns a validated
-        # rotating generation. Failures are logged, never fatal to exit.
+        # #755: shutdown performs no archive work — the event loop and
+        # window are already gone and a hidden post-UI backup is invisible
+        # and uninterruptible. Record the clean close cheaply; the next
+        # eligible scheduler tick performs any due generation.
         try:
             from .automatic_backup import AutomaticBackupScheduler
 
-            AutomaticBackupScheduler(args.data_dir).run_due('clean_close')
+            AutomaticBackupScheduler(args.data_dir).record_clean_close()
         except Exception:
             diagnostics.logger.exception(
-                "clean-close automatic backup failed"
+                "clean-close automatic backup marker failed"
             )
         return exit_code
     except IncompatibleNewerSchemaError as exc:

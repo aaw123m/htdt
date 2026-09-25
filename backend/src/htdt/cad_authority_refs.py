@@ -60,6 +60,13 @@ class ResolvedAuthority:
     #: Canonical containers the ref is a member of (e.g. a comparison
     #: alternative's owning ``design_comparison_set`` ids).
     container_ids: tuple[str, ...] = ()
+    #: Exact scene baseline the authority is pinned to, when the authority
+    #: is scene-bound (predictions, measurements, standards evaluations,
+    #: checkpoints, as-built and measured records).
+    scene_revision_id: str | None = None
+    scene_content_hash: str | None = None
+    #: System variant the authority belongs to, when variant-scoped.
+    system_variant_id: str | None = None
 
 
 class AuthorityRefResolver(Protocol):
@@ -109,6 +116,15 @@ class CanonicalAuthorityRefResolver:
             'target_curve',
             'standards_profile',
             'video_geometry',
+            'prediction',
+            'validation',
+            'standards',
+            'robustness',
+            'as_built',
+            'measured_state',
+            'named_view',
+            'operating_preset',
+            'constraint_snapshot',
         }
     )
 
@@ -143,6 +159,9 @@ class CanonicalAuthorityRefResolver:
             document_id=authority.document_id,
             semantic_sha256=authority.semantic_sha256,
             container_ids=authority.container_ids,
+            scene_revision_id=authority.scene_revision_id,
+            scene_content_hash=authority.scene_content_hash,
+            system_variant_id=authority.system_variant_id,
         )
 
 

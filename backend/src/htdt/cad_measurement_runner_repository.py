@@ -176,6 +176,27 @@ class CadMeasurementRunnerRepository:
         )
         return tuple(plan for plan in plans if plan.document_id == document_id)
 
+    def list_plan_created_at_utc(self, document_id: str) -> dict[str, str]:
+        """``plan_id -> created_at_utc`` for one project's plans (#578).
+
+        The persisted timestamp lives on the row, not the plan payload —
+        surfaces showing a human ``保存`` label for an unnamed plan read it
+        here in one pass.
+        """
+        with self._connect() as connection:
+            rows = connection.execute(
+                'SELECT plan_id, created_at_utc, payload_json '
+                'FROM cad_measurement_runner_plans ORDER BY created_at_utc, plan_id'
+            ).fetchall()
+        return {
+            str(row['plan_id']): str(row['created_at_utc'])
+            for row in rows
+            if MeasurementRunnerPlan.model_validate_json(
+                row['payload_json']
+            ).document_id
+            == document_id
+        }
+
     def list_runs(self, plan_id: str) -> tuple[MeasurementRunnerRun, ...]:
         with self._connect() as connection:
             rows = connection.execute(
