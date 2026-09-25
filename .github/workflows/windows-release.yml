@@ -14,6 +14,9 @@ on:
       - "scripts/validate_backup_pc_migration_windows.py"
       - "installer/**"
       - ".github/workflows/windows-release.yml"
+  # Merge-queue group commits get the full packaging + closure gate.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
@@ -313,15 +316,62 @@ jobs:
             ${{ runner.temp }}\htdt-installer\HTDT-Setup-*.manifest.json
           if-no-files-found: error
 
+  # Diff the PR once up front (same logic as ci.yml's plan job) and emit
+  # the package-test matrix: shards that have affected work, or a single
+  # shard that verifies closure integrity when nothing backend-affecting
+  # changed. Idle shards never start.
+  plan:
+    runs-on: windows-latest
+    outputs:
+      mode: ${{ steps.sel.outputs.mode }}
+      shards: ${{ steps.sel.outputs.shards }}
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Select affected tests
+        id: sel
+        shell: pwsh
+        run: |
+          $base = "${{ github.event.pull_request.base.sha }}"
+          if ($base -ne "") {
+            git fetch --depth=1 origin $base | Out-Null
+          }
+          $mode = (python scripts\select_affected_tests.py --base $base --tests-dir backend\tests --out-file "$env:RUNNER_TEMP\affected.json" | ConvertFrom-Json).mode
+          if ($base -eq "") { $mode = "full" }
+          echo "mode=$mode" >> $env:GITHUB_OUTPUT
+          $shards = @()
+          if ($mode -eq "full") {
+            $shards = 1..12
+          } elseif ($mode -eq "subset") {
+            python -c "import json; open(r'$env:RUNNER_TEMP\affected.txt','w').write('\n'.join(json.load(open(r'$env:RUNNER_TEMP\affected.json'))['files']))"
+            foreach ($s in 1..12) {
+              foreach ($l in (python scripts\pytest_shard.py backend\tests --num-shards 12 --shard $s --weights scripts\test_durations.json --only "$env:RUNNER_TEMP\affected.txt")) {
+                if (-not $l.StartsWith('deselect:')) { $shards += $s; break }
+              }
+            }
+          }
+          # mode=none still needs one shard for closure-integrity verification.
+          if ($shards.Count -eq 0) { $shards = @(1) }
+          echo "shards=$(ConvertTo-Json -Compress -InputObject @($shards))" >> $env:GITHUB_OUTPUT
+
   package-tests:
     # The backend suite under the shipped dependency closure used to run
     # serially inside the `package` job (the largest share of its runtime).
-    # It now runs sharded across twelve runners in parallel with the build;
-    # same coverage, same locked-closure verification.
+    # It runs sharded in parallel with the build; same coverage, same
+    # locked-closure verification — and only for shards with work.
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     runs-on: windows-latest
     env:
       PYTHONUTF8: "1"
@@ -340,39 +390,20 @@ jobs:
             backend/requirements-n05-windows.lock
             backend/pyproject.toml
 
-      # Same changed-file selection as ci.yml: scoped module edits run only
-      # the tests that cover them; core changes run everything. It runs before
-      # the closure setup so shards without affected tests skip the venv
-      # restore and install entirely. `needs_closure` stays true for the one
-      # shard that still verifies closure integrity when tests don't run.
+      # Only needed to rebuild the affected list for the shard's --only flag;
+      # stdlib-only so it stays cheap.
       - name: Select affected tests
-        id: sel
+        if: needs.plan.outputs.mode == 'subset'
         shell: pwsh
         run: |
           $base = "${{ github.event.pull_request.base.sha }}"
           if ($base -ne "") {
             git fetch --depth=1 origin $base | Out-Null
           }
-          $mode = (python scripts\select_affected_tests.py --base $base --tests-dir backend\tests --out-file "$env:RUNNER_TEMP\affected.json" | ConvertFrom-Json).mode
-          if ($base -eq "") { $mode = "full" }
-          echo "mode=$mode" >> $env:GITHUB_OUTPUT
-          $work = "false"
-          if ($mode -eq "full") {
-            $work = "true"
-          } elseif ($mode -eq "subset") {
-            python -c "import json; open(r'$env:RUNNER_TEMP\affected.txt','w').write('\n'.join(json.load(open(r'$env:RUNNER_TEMP\affected.json'))['files']))"
-            foreach ($l in (python scripts\pytest_shard.py backend\tests --num-shards 12 --shard ${{ matrix.shard }} --weights scripts\test_durations.json --only "$env:RUNNER_TEMP\affected.txt")) {
-              if (-not $l.StartsWith('deselect:')) { $work = "true" }
-            }
-          }
-          echo "has_work=$work" >> $env:GITHUB_OUTPUT
-          $needs = "false"
-          if ($work -eq "true") { $needs = "true" }
-          elseif ($mode -eq "none" -and ${{ matrix.shard }} -eq 1) { $needs = "true" }
-          echo "needs_closure=$needs" >> $env:GITHUB_OUTPUT
+          python scripts\select_affected_tests.py --base $base --tests-dir backend\tests --out-file "$env:RUNNER_TEMP\affected.json" | Out-Null
+          python -c "import json; open(r'$env:RUNNER_TEMP\affected.txt','w').write('\n'.join(json.load(open(r'$env:RUNNER_TEMP\affected.json'))['files']))"
 
       - name: Cache shipped-closure venv
-        if: steps.sel.outputs.needs_closure == 'true'
         id: closure-cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -383,7 +414,7 @@ jobs:
           key: htdt-shipped-closure-${{ hashFiles('backend/requirements-n05-windows.lock', 'backend/pyproject.toml') }}
 
       - name: Install shipped closure + test harness
-        if: steps.sel.outputs.needs_closure == 'true' && steps.closure-cache.outputs.cache-hit != 'true'
+        if: steps.closure-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           # The release gate must exercise the exact third-party closure that
@@ -401,13 +432,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Test harness install failed with exit code $LASTEXITCODE" }
 
       - name: Test backend shard ${{ matrix.shard }}/12 under shipped closure
-        if: steps.sel.outputs.has_work == 'true'
+        if: needs.plan.outputs.mode != 'none'
         shell: pwsh
         run: |
           $py = Join-Path $env:RUNNER_TEMP "htdt-shipped-closure\Scripts\python.exe"
           $shard_args = @("backend\tests", "--num-shards", "12", "--shard", "${{ matrix.shard }}", "--weights", "scripts\test_durations.json")
-          if ("${{ steps.sel.outputs.mode }}" -eq "subset") {
-            python -c "import json; open(r'$env:RUNNER_TEMP\affected.txt','w').write('\n'.join(json.load(open(r'$env:RUNNER_TEMP\affected.json'))['files']))"
+          if ("${{ needs.plan.outputs.mode }}" -eq "subset") {
             $shard_args += @("--only", "$env:RUNNER_TEMP\affected.txt")
           }
           $sel = @(); $des = @()
@@ -425,7 +455,7 @@ jobs:
       # One shard is enough for the closure-integrity check when no backend
       # tests run — every shard would verify the identical venv.
       - name: Verify shipped closure integrity
-        if: steps.sel.outputs.mode == 'none' && matrix.shard == 1
+        if: needs.plan.outputs.mode == 'none'
         shell: pwsh
         run: |
           $py = Join-Path $env:RUNNER_TEMP "htdt-shipped-closure\Scripts\python.exe"

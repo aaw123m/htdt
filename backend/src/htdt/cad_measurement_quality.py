@@ -377,6 +377,7 @@ class CadAcquisitionContext(BaseModel):
     signal_path_identity: str | None = None
     input_path_identity: str | None = None
     routing_profile: CadRoutingProfileBinding | None = None
+
     created_at_utc: str = Field(min_length=1)
     notes: tuple[str, ...] = ()
     provenance_json: str = '{}'
@@ -434,6 +435,7 @@ class CadAcquisitionContext(BaseModel):
             payload['input_path_identity'] = self.input_path_identity
         if self.routing_profile is not None:
             payload['routing_profile'] = self.routing_profile.model_dump(mode='json')
+
         return payload
 
 
@@ -564,6 +566,7 @@ def build_acquisition_context(
     signal_path_identity: str | None = None,
     input_path_identity: str | None = None,
     routing_profile: CadRoutingProfileBinding | None = None,
+
     acquisition_context_id: str | None = None,
     created_at_utc: str | None = None,
     notes: Sequence[str] = (),
@@ -597,6 +600,7 @@ def build_acquisition_context(
         'signal_path_identity': signal_path_identity,
         'input_path_identity': input_path_identity,
         'routing_profile': routing_profile,
+
         'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
         'notes': tuple(notes),
         'provenance_json': provenance_json,
