@@ -2,14 +2,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Protocol, get_args
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Literal,
+    Protocol,
+    cast,
+    get_args,
+)
 from uuid import uuid4
 
 from .cad_listener_pose import CadListenerPoseRepository
 
 if TYPE_CHECKING:
     from .cad_listener_pose import ListenerPoseAuthority
+    from .cad_measurement_target_pattern import (
+        CadTargetPatternRepository,
+        MeasurementTargetPattern,
+    )
     from .cad_scene import Position3
+    from .cad_system_variant_measurement_campaign import (
+        CadSystemVariantMeasurementCampaignRepository,
+        SystemVariantMeasurementPlan,
+    )
     from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 from .cad_measurement_disposition import (
@@ -72,9 +88,11 @@ from .cad_measurement_runner import (
     GuidedStep,
     MeasurementRunnerPlan,
     MeasurementRunnerRun,
+    RunnerCellSpec,
     RunnerCellState,
     RunnerPurpose,
     build_runner_plan,
+    build_runner_plan_from_cells,
     guided_step,
     runner_progress,
 )
@@ -443,6 +461,55 @@ class MeasurementSpatialContext:
     room_changed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class RunnerSourceOption:
+    """One selectable campaign source: a speaker or a routed speaker group.
+
+    ``channel_role`` is the logical role the runner cell records;
+    ``speaker_entity_ids`` is the exact radiator set — a grouped option
+    keeps several physical speakers under one logical source so a single
+    subwoofer is never silently equated with the LFE channel (#925).
+    """
+
+    key: str
+    channel_role: str
+    speaker_entity_ids: tuple[str, ...]
+    grouped: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunnerPlanPreview:
+    """Pre-persistence plan shape — what ``create_runner_plan`` would make."""
+
+    scene_revision_id: str
+    source_count: int
+    target_count: int
+    repeat_count: int
+    purposes: tuple[RunnerPurpose, ...]
+    cell_count: int
+
+
+_RUNNER_ROLE_TOKENS = {
+    'FL': 'front_left',
+    'FR': 'front_right',
+    'C': 'center',
+    'LFE': 'subwoofer',
+    'SUB': 'subwoofer',
+}
+_RUNNER_PURPOSE_LABELS = {
+    'measurement': '測定',
+    'calibration': 'キャリブレーション',
+    'holdout': 'ホールドアウト',
+    'diagnostic': '診断',
+}
+
+
+def _runner_purpose(value: str | None) -> RunnerPurpose:
+    if value in get_args(RunnerPurpose):
+        return cast(RunnerPurpose, value)
+    return 'measurement'
+
+
 class MeasurementWorkflowController:
     """Thin UX130 orchestration over existing measurement/import/comparison authorities.
 
@@ -495,6 +562,10 @@ class MeasurementWorkflowController:
             scene_repository,
             self.measurement_repository,
         )
+        self._target_pattern_repository: CadTargetPatternRepository | None = None
+        self._variant_campaign_repository: (
+            CadSystemVariantMeasurementCampaignRepository | None
+        ) = None
 
     @property
     def pending_import(self) -> PendingMeasurementImport | None:
@@ -1421,43 +1492,333 @@ class MeasurementWorkflowController:
             self.document_id
         )
 
-    def create_runner_plan(
-        self,
-        *,
-        repeat_count: int = 1,
-        purposes: tuple[RunnerPurpose, ...] = ('measurement',),
-    ) -> MeasurementRunnerPlan:
-        """Register a new plan from the current scene's speakers and targets."""
-        revision = self.latest_revision()
-        targets = self.assignment_targets()
+    def runner_source_options(self) -> tuple[RunnerSourceOption, ...]:
+        """Selectable campaign sources: each speaker plus role-grouped sources.
+
+        Speakers sharing one channel-role token are physical radiators of
+        the same logical source; the grouped option keeps them in a single
+        runner cell so one physical subwoofer is never silently equated
+        with the logical LFE channel (#925).
+        """
         speakers = self.source_speakers()
-        if not targets or not speakers:
+        options: list[RunnerSourceOption] = []
+        groups: dict[str, list[str]] = {}
+        for speaker in speakers:
+            token = _RUNNER_ROLE_TOKENS.get(speaker.role, speaker.role)
+            options.append(
+                RunnerSourceOption(
+                    key=f'speaker:{speaker.entity_id}',
+                    channel_role=token,
+                    speaker_entity_ids=(speaker.entity_id,),
+                    grouped=False,
+                )
+            )
+            group = groups.setdefault(token, [])
+            if speaker.entity_id not in group:
+                group.append(speaker.entity_id)
+        for token, entity_ids in groups.items():
+            if len(entity_ids) > 1:
+                options.append(
+                    RunnerSourceOption(
+                        key=f'group:{token}',
+                        channel_role=token,
+                        speaker_entity_ids=tuple(entity_ids),
+                        grouped=True,
+                    )
+                )
+        return tuple(options)
+
+    def _resolve_runner_plan_inputs(
+        self,
+        sources: tuple[tuple[str, tuple[str, ...]], ...] | None,
+        target_entity_ids: tuple[str, ...] | None,
+    ) -> tuple[
+        tuple[tuple[str, tuple[str, ...]], ...],
+        tuple[str, ...],
+        SceneRevision,
+    ]:
+        revision = self.latest_revision()
+        entities = {
+            entity.entity_id: entity for entity in revision.document.entities
+        }
+        if sources is None:
+            resolved_sources = tuple(
+                (_RUNNER_ROLE_TOKENS.get(s.role, s.role), (s.entity_id,))
+                for s in self.source_speakers()
+            )
+        else:
+            resolved_sources = tuple(
+                (role, tuple(entity_ids)) for role, entity_ids in sources
+            )
+            for _, speaker_ids in resolved_sources:
+                for speaker_id in speaker_ids:
+                    entity = entities.get(speaker_id)
+                    if entity is None or entity.kind != 'speaker':
+                        raise MeasurementWorkflowError(
+                            "選択された音源が現在の部屋に存在しません"
+                        )
+        if target_entity_ids is None:
+            resolved_targets = tuple(
+                target.entity_id for target in self.assignment_targets()
+            )
+        else:
+            resolved_targets = tuple(target_entity_ids)
+            for target_id in resolved_targets:
+                entity = entities.get(target_id)
+                if entity is None or not is_measurement_target_eligible(entity):
+                    raise MeasurementWorkflowError(
+                        "選択された測定位置が現在の部屋に存在しません"
+                    )
+        if not resolved_sources or not resolved_targets:
             raise MeasurementWorkflowError(
                 "キャンペーンには少なくとも1つの測定位置と1つの音源が必要です"
             )
-        # Speaker display roles ('FL', 'C', ...) map onto the measurement
-        # channel-role tokens used everywhere else in this workflow.
-        role_tokens = {
-            'FL': 'front_left',
-            'FR': 'front_right',
-            'C': 'center',
-            'LFE': 'subwoofer',
-            'SUB': 'subwoofer',
-        }
+        return resolved_sources, resolved_targets, revision
+
+    def preview_runner_plan(
+        self,
+        *,
+        sources: tuple[tuple[str, tuple[str, ...]], ...] | None = None,
+        target_entity_ids: tuple[str, ...] | None = None,
+        repeat_count: int = 1,
+        purposes: tuple[RunnerPurpose, ...] = ('measurement',),
+    ) -> RunnerPlanPreview:
+        """Cell count of a would-be plan — preview before persistence."""
+        resolved_sources, resolved_targets, revision = (
+            self._resolve_runner_plan_inputs(sources, target_entity_ids)
+        )
+        return RunnerPlanPreview(
+            scene_revision_id=revision.revision_id,
+            source_count=len(resolved_sources),
+            target_count=len(resolved_targets),
+            repeat_count=repeat_count,
+            purposes=purposes,
+            cell_count=(
+                len(purposes)
+                * len(resolved_sources)
+                * len(resolved_targets)
+                * repeat_count
+            ),
+        )
+
+    def create_runner_plan(
+        self,
+        *,
+        sources: tuple[tuple[str, tuple[str, ...]], ...] | None = None,
+        target_entity_ids: tuple[str, ...] | None = None,
+        repeat_count: int = 1,
+        purposes: tuple[RunnerPurpose, ...] = ('measurement',),
+        allow_skip: bool = False,
+    ) -> MeasurementRunnerPlan:
+        """Register a new plan from the current scene's speakers and targets.
+
+        With no explicit selection this stays the simple all-speakers x
+        all-targets preset; ``sources``/``target_entity_ids`` author an
+        exact subset that keeps its source/target/routing identity (#925).
+        """
+        resolved_sources, resolved_targets, revision = (
+            self._resolve_runner_plan_inputs(sources, target_entity_ids)
+        )
         plan = build_runner_plan(
             document_id=self.document_id,
             scene_revision_id=revision.revision_id,
             scene_content_hash=revision.content_hash,
-            sources=tuple(
-                (role_tokens.get(speaker.role, speaker.role), (speaker.entity_id,))
-                for speaker in speakers
-            ),
-            target_entity_ids=tuple(target.entity_id for target in targets),
+            sources=resolved_sources,
+            target_entity_ids=resolved_targets,
             repeat_count=repeat_count,
             purposes=purposes,
+            allow_skip=allow_skip,
         )
         self.runner_repository.save_plan(plan)
         return plan
+
+    def runner_plan_summary(self, plan: MeasurementRunnerPlan) -> str:
+        """Human plan identity for selectors — never the raw plan id.
+
+        Names resolve against the plan's own bound SceneRevision so the
+        label cannot drift after later Scene edits (#925).
+        """
+        revision = self.scene_repository.get(plan.scene_revision_id)
+        names = {}
+        if revision is not None:
+            names = {
+                entity.entity_id: (entity.name or entity.entity_id)
+                for entity in revision.document.entities
+            }
+        source_labels: list[str] = []
+        seen_sources: set[tuple[str, tuple[str, ...]]] = set()
+        target_labels: list[str] = []
+        seen_targets: set[str] = set()
+        purposes: list[RunnerPurpose] = []
+        repeats = 1
+        for cell in plan.cells:
+            source_key = (cell.channel_role, cell.source_speaker_ids)
+            if source_key not in seen_sources:
+                seen_sources.add(source_key)
+                speaker_names = [
+                    names.get(entity_id, entity_id)
+                    for entity_id in cell.source_speaker_ids
+                ]
+                if len(speaker_names) == 1:
+                    source_labels.append(speaker_names[0])
+                else:
+                    source_labels.append(
+                        f"{cell.channel_role}（{'+'.join(speaker_names)}）"
+                    )
+            if cell.target_entity_id not in seen_targets:
+                seen_targets.add(cell.target_entity_id)
+                target_labels.append(
+                    names.get(cell.target_entity_id, cell.target_entity_id)
+                )
+            if cell.purpose not in purposes:
+                purposes.append(cell.purpose)
+            repeats = max(repeats, cell.repeat_index + 1)
+        target_label = '・'.join(target_labels[:3])
+        if len(target_labels) > 3:
+            target_label += f" 他{len(target_labels) - 3}"
+        source_label = '・'.join(source_labels[:4])
+        if len(source_labels) > 4:
+            source_label += f" 他{len(source_labels) - 4}"
+        purpose_label = '・'.join(
+            _RUNNER_PURPOSE_LABELS[purpose] for purpose in purposes
+        )
+        return (
+            f"{target_label} / {source_label} / {purpose_label} / "
+            f"{repeats}回 · {len(plan.cells)}セル"
+        )
+
+    def target_patterns(self) -> tuple[MeasurementTargetPattern, ...]:
+        """Persisted #543 target patterns of this project."""
+        return self._target_pattern_repo().list_patterns(self.document_id)
+
+    def target_pattern_entity_ids(self, pattern_id: str) -> tuple[str, ...]:
+        """Materialized target entity ids of a #543 pattern, restricted to
+        entities that are still eligible targets on the document head."""
+        points = self._target_pattern_repo().list_pattern_points(pattern_id)
+        eligible = {t.entity_id for t in self.assignment_targets()}
+        return tuple(
+            point.measurement_point_entity_id
+            for point in points
+            if point.measurement_point_entity_id in eligible
+        )
+
+    def _target_pattern_repo(self) -> CadTargetPatternRepository:
+        if self._target_pattern_repository is None:
+            from .cad_measurement_target_pattern import (
+                CadTargetPatternRepository,
+            )
+
+            self._target_pattern_repository = CadTargetPatternRepository(
+                self.scene_repository
+            )
+        return self._target_pattern_repository
+
+    def variant_measurement_plans(
+        self,
+    ) -> tuple[SystemVariantMeasurementPlan, ...]:
+        """Existing exact SystemVariant/validation plans of this project."""
+        return self._variant_campaign_repo().list_plans(self.document_id)
+
+    def create_runner_plan_from_variant_plan(
+        self,
+        plan_id: str,
+    ) -> MeasurementRunnerPlan:
+        """Project an exact SystemVariant measurement plan into runner cells.
+
+        The runner plan binds the variant plan's exact as-built revision
+        and keeps each target's channel role, exact source entity set,
+        expected repeat count and purpose — lineage is preserved and no
+        extra all×all cells are invented. Projecting the same variant plan
+        twice returns the already-persisted runner plan instead of a
+        duplicate.
+        """
+        variant_plan = self._variant_campaign_repo().get_plan(plan_id)
+        if variant_plan is None:
+            raise MeasurementWorkflowError("対象の測定計画が見つかりません")
+        revision = self.scene_repository.get(variant_plan.as_built_revision_id)
+        if (
+            revision is None
+            or revision.document_id != self.document_id
+            or revision.content_hash != variant_plan.as_built_content_hash
+        ):
+            raise MeasurementWorkflowError(
+                "測定計画が参照するAs-builtリビジョンを確認できません"
+            )
+        cells: list[RunnerCellSpec] = []
+        for target in variant_plan.targets:
+            purpose = _runner_purpose(
+                target.validation_purpose or variant_plan.purpose
+            )
+            for repeat_index in range(target.expected_measurement_count):
+                cells.append(
+                    RunnerCellSpec(
+                        cell_index=len(cells),
+                        channel_role=target.channel_role,
+                        source_speaker_ids=target.source_entity_ids,
+                        target_entity_id=target.measurement_point_entity_id,
+                        repeat_index=repeat_index,
+                        purpose=purpose,
+                    )
+                )
+        for existing in self.runner_plans():
+            if (
+                existing.scene_revision_id == revision.revision_id
+                and existing.scene_content_hash == revision.content_hash
+                and list(existing.cells) == cells
+            ):
+                return existing
+        plan = build_runner_plan_from_cells(
+            document_id=self.document_id,
+            scene_revision_id=revision.revision_id,
+            scene_content_hash=revision.content_hash,
+            cells=cells,
+        )
+        self.runner_repository.save_plan(plan)
+        return plan
+
+    def _variant_campaign_repo(
+        self,
+    ) -> CadSystemVariantMeasurementCampaignRepository:
+        if self._variant_campaign_repository is None:
+            from .cad_system_variant_lifecycle import (
+                CadSystemVariantLifecycleRepository,
+            )
+            from .cad_system_variant_measured_lifecycle import (
+                CadSystemVariantMeasuredLifecycleRepository,
+            )
+            from .cad_system_variant_measurement_campaign import (
+                CadSystemVariantMeasurementCampaignRepository,
+            )
+            from .cad_system_variant_repository import (
+                CadSystemVariantRepository,
+            )
+
+            variant_repository = CadSystemVariantRepository(
+                self.scene_repository
+            )
+            lifecycle_repository = CadSystemVariantLifecycleRepository(
+                scene_repository=self.scene_repository,
+                variant_repository=variant_repository,
+            )
+            measured_lifecycle_repository = (
+                CadSystemVariantMeasuredLifecycleRepository(
+                    scene_repository=self.scene_repository,
+                    lifecycle_repository=lifecycle_repository,
+                    measurement_repository=self.measurement_repository,
+                    quality_repository=self.quality_repository,
+                )
+            )
+            self._variant_campaign_repository = (
+                CadSystemVariantMeasurementCampaignRepository(
+                    scene_repository=self.scene_repository,
+                    variant_repository=variant_repository,
+                    lifecycle_repository=lifecycle_repository,
+                    measurement_repository=self.measurement_repository,
+                    quality_repository=self.quality_repository,
+                    measured_lifecycle_repository=measured_lifecycle_repository,
+                )
+            )
+        return self._variant_campaign_repository
 
     def open_runner(self, plan_id: str) -> MeasurementRunnerRun:
         """Resume the latest run for the plan, or start a new one."""

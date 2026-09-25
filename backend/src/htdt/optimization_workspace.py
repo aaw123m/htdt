@@ -44,6 +44,7 @@ from .cad_extended_search import (
 )
 from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_repository import SceneRepository, SceneRevision
+from .developer_mode import developer_mode_enabled
 from .cad_objectives import build_pareto_set
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_scene import F1_DOCUMENT_ID
@@ -639,14 +640,17 @@ class OptimizationWorkspaceWindow(
 
         adaptive_form = QFormLayout()
         self.adaptive_scope_combo = QComboBox()
-        self.adaptive_scope_combo.addItem(
-            'Synthetic development',
-            'development_synthetic',
-        )
+        # #901: production owned-room first and only by default; the
+        # synthetic development lane is developer-mode-only.
         self.adaptive_scope_combo.addItem(
             'Owned-room production',
             'production_owned_room',
         )
+        if developer_mode_enabled():
+            self.adaptive_scope_combo.addItem(
+                'Synthetic development',
+                'development_synthetic',
+            )
         adaptive_form.addRow('実行scope', self.adaptive_scope_combo)
 
         self.adaptive_length_scale_field = QDoubleSpinBox()

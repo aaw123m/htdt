@@ -813,6 +813,19 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             mutates_managed_data=False,
         ),
         CommandDefinition(
+            command_id='project.deliverables',
+            display_name='プロジェクト デリバラブルセンター',
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=(
+                'deliverables',
+                'outputs',
+                'デリバラブル',
+                '出力センター',
+                'project deliverables',
+            ),
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
             command_id='analysis.export_bundle',
             display_name='解析データをエクスポートする',
             contexts=frozenset({CommandContext.GLOBAL}),

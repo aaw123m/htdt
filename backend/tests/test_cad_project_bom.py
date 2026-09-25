@@ -17,6 +17,8 @@ from htdt.cad_project_bom import (
     diff_boms,
     reconcile_bom,
     treatment_takeoff_lines,
+    validate_purchase_record,
+    validate_substitution_record,
 )
 
 
@@ -187,8 +189,12 @@ def test_readiness_summary_counts_without_score():
 
 
 def test_substitution_preserves_original_requirement():
+    bom = _bom((_line('spk-1', requirement='req-spk-1'),))
     sub = SubstitutionRecord(
         substitution_id='s-1',
+        document_id='doc-1',
+        bom_id='bom-1',
+        bom_semantic_hash=bom.bom_semantic_hash,
         line_id='spk-1',
         original_requirement='req-spk-1',
         substitute='sku-alternative-b',
@@ -198,6 +204,7 @@ def test_substitution_preserves_original_requirement():
     )
     assert sub.original_requirement == 'req-spk-1'
     assert sub.revalidation == 'pending'
+    validate_substitution_record(sub, bom)
 
 
 def test_price_never_enters_identity_and_currency_pairs():
@@ -209,5 +216,151 @@ def test_price_never_enters_identity_and_currency_pairs():
         _line('bad', unit_price=10.0)
     with pytest.raises(ValidationError):
         PurchaseRecord(
-            record_id='p-1', vendor='v', ordered_at_utc=NOW, total=99.0,
+            record_id='p-1',
+            document_id='doc-1',
+            bom_id='bom-1',
+            bom_semantic_hash='0' * 64,
+            vendor='v',
+            ordered_at_utc=NOW,
+            total=99.0,
         )
+
+
+# --- Issue #894: stable requirement identity ----------------------------------
+
+
+def test_reordering_requirements_produces_no_diff():
+    requirements = (
+        CableTakeoffRequirement(
+            cable_type='HDMI fiber',
+            total_length_m=12.0,
+            run_refs=('run-hdmi-1',),
+        ),
+        CableTakeoffRequirement(
+            cable_type='14 AWG speaker',
+            total_length_m=64.0,
+            run_refs=('run-spk-1', 'run-spk-2'),
+        ),
+    )
+    ref = DesignAuthorityRef(authority_kind='cable_plan', ref_id='cp-1')
+    bom_a = _bom(cable_takeoff_lines(requirements, design_ref=ref))
+    bom_b = _bom(
+        cable_takeoff_lines(tuple(reversed(requirements)), design_ref=ref),
+        version='2',
+    )
+    diff = diff_boms(bom_a, bom_b)
+    assert diff.added == ()
+    assert diff.removed == ()
+    assert diff.quantity_changed == ()
+    assert diff.spec_changed == ()
+    # row order may differ but line ids themselves are stable
+    assert sorted(i.line_id for i in bom_a.line_items) == sorted(
+        i.line_id for i in bom_b.line_items
+    )
+
+
+def test_insertion_does_not_reidentify_unrelated_lines():
+    ref = DesignAuthorityRef(authority_kind='cable_plan', ref_id='cp-1')
+    before = cable_takeoff_lines(
+        (CableTakeoffRequirement(
+            cable_type='HDMI fiber', total_length_m=12.0),),
+        design_ref=ref,
+    )
+    after = cable_takeoff_lines(
+        (
+            CableTakeoffRequirement(
+                cable_type='14 AWG speaker', total_length_m=64.0),
+            CableTakeoffRequirement(
+                cable_type='HDMI fiber', total_length_m=12.0),
+        ),
+        design_ref=ref,
+    )
+    # inserted first: the HDMI requirement keeps its identity
+    assert before[0].line_id == after[1].line_id
+    assert before[0].requirement_id == after[1].requirement_id
+    diff = diff_boms(_bom(before), _bom(after, version='2'))
+    assert diff.added == (after[0].requirement_id,)
+    assert diff.removed == ()
+
+
+def test_quantity_and_spec_changes_stay_on_the_same_requirement():
+    ref = DesignAuthorityRef(authority_kind='cable_plan', ref_id='cp-1')
+    req = CableTakeoffRequirement(cable_type='HDMI fiber', total_length_m=12.0)
+    lines = cable_takeoff_lines((req,), design_ref=ref)
+    rid = lines[0].requirement_id
+    old = _bom(lines)
+    qty_changed = _bom(
+        (lines[0].model_copy(update={'quantity': 20.0}),), version='2')
+    spec_changed = _bom(
+        (lines[0].model_copy(update={'requirement': 'HDMI copper'}),),
+        version='2',
+    )
+    assert diff_boms(old, qty_changed).quantity_changed == (rid,)
+    assert diff_boms(old, spec_changed).spec_changed == (rid,)
+
+
+def test_allocations_fail_closed_on_unknown_or_mismatched_requirements():
+    bom = _bom((
+        _line('spk-1', requirement_id='req:spk-1'),
+        _line('cab-1', category='cable', unit='meter', requirement_id='req:cab'),
+        _line('con-1', category='conduit', unit='each', requirement_id='req:con'),
+    ))
+    with pytest.raises(ValueError, match='does not exist'):
+        reconcile_bom(bom, (OwnedAllocation(
+            line_id='nope', instance_id='i-1', quantity=1),))
+    with pytest.raises(ValueError, match='does not match'):
+        reconcile_bom(bom, (OwnedAllocation(
+            line_id='spk-1', requirement_id='req:other',
+            instance_id='i-1', quantity=1),))
+    # an InstalledEquipmentInstance is a countable item — it can never
+    # satisfy metered cable or conduit/material requirements
+    with pytest.raises(ValueError, match='meter'):
+        reconcile_bom(bom, (OwnedAllocation(
+            line_id='cab-1', instance_id='i-1', quantity=10),))
+    with pytest.raises(ValueError, match='conduit'):
+        reconcile_bom(bom, (OwnedAllocation(
+            line_id='con-1', instance_id='i-1', quantity=1),))
+    rec = {item.line_id: item for item in reconcile_bom(
+        bom,
+        (OwnedAllocation(
+            line_id='spk-1', requirement_id='req:spk-1',
+            instance_id='i-1', quantity=1),),
+    )}
+    assert rec['spk-1'].classification == 'owned_reusable'
+
+
+def test_procurement_records_bind_the_exact_snapshot():
+    bom = _bom((_line('spk-1', requirement_id='req:spk-1'),))
+    record = PurchaseRecord(
+        record_id='p-1',
+        document_id='doc-1',
+        bom_id='bom-1',
+        bom_semantic_hash=bom.bom_semantic_hash,
+        vendor='v',
+        ordered_at_utc=NOW,
+        line_allocations=(
+            OwnedAllocation(
+                line_id='spk-1', requirement_id='req:spk-1',
+                instance_id='i-1', quantity=1),
+        ),
+    )
+    validate_purchase_record(record, bom)
+
+    other_bom = _bom((_line('spk-1', requirement_id='req:spk-1'),),
+                     version='2')
+    with pytest.raises(ValueError, match='bom'):
+        validate_purchase_record(record, other_bom)
+
+    misplaced = PurchaseRecord(
+        record_id='p-2',
+        document_id='doc-1',
+        bom_id='bom-1',
+        bom_semantic_hash=bom.bom_semantic_hash,
+        vendor='v',
+        ordered_at_utc=NOW,
+        line_allocations=(
+            OwnedAllocation(line_id='ghost', instance_id='i-2', quantity=1),
+        ),
+    )
+    with pytest.raises(ValueError, match='does not exist'):
+        validate_purchase_record(misplaced, bom)
