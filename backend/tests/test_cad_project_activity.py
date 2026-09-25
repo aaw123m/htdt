@@ -14,6 +14,10 @@ from htdt.cad_project_activity_repository import (
 )
 from htdt.cad_project_activity import CadProjectActivityService
 from htdt.cad_repository import SceneRepository
+from htdt.navigation_target import (
+    NavigationTargetKind,
+    navigation_target_from_uri,
+)
 from htdt.cad_scene import (
     Direction3,
     Position3,
@@ -66,7 +70,10 @@ def test_revision_history_projects_scene_and_creation_events(tmp_path: Path) -> 
     assert events[0].source_refs[0].ref_id == first.revision_id
     assert events[1].source_refs[0].ref_id == second.revision_id
     assert events[1].deep_link is not None
-    assert 'workspace/room' in events[1].deep_link
+    target = navigation_target_from_uri(events[1].deep_link)
+    assert target.kind == NavigationTargetKind.SCENE_REVISION
+    assert target.primary_id == second.revision_id
+    assert target.preferred_section == 'history'
 
 
 def test_labels_project_as_distinct_events(tmp_path: Path) -> None:
@@ -161,3 +168,26 @@ def test_detached_revisions_are_flagged_not_dropped(tmp_path: Path) -> None:
     detached = [e for e in events if e.detail == '非ヘッド履歴']
     assert len(detached) == 1
     assert detached[0].kind == 'scene_revision_saved'
+
+
+def test_event_deep_links_emit_typed_project_secondary_targets(
+    tmp_path: Path,
+) -> None:
+    """Timeline deep links are htdt://nav/v1 typed targets, never SCENE_ENTITY."""
+    scenes, _notes, service = _service(tmp_path)
+    scenes.save(_scene(), parent_revision_id=None)
+    service.add_note(
+        document_id='doc-1', title='メモ', created_at_utc=NOW
+    )
+    for event in service.events('doc-1'):
+        assert event.deep_link is not None
+        assert event.deep_link.startswith('htdt://nav/v1/')
+        target = navigation_target_from_uri(event.deep_link)
+        # authority ids are never re-typed as Scene entities
+        assert target.kind != NavigationTargetKind.SCENE_ENTITY
+        assert target.primary_id is not None
+        assert event.deep_link == target.as_uri()
+    note_target = navigation_target_from_uri(
+        next(e for e in service.events('doc-1') if e.kind == 'project_note').deep_link
+    )
+    assert note_target.kind == NavigationTargetKind.PROJECT_NOTE

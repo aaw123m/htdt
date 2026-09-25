@@ -201,3 +201,271 @@ def test_invalid_profile_is_rejected():
             created_at_utc=NOW,
             target_semantic_hash='0' * 64,
         )
+
+
+def _seat_criterion(
+    criterion_id: str = 'c80-main',
+    *,
+    aggregation: str = 'spatial_worst',
+    population: tuple[str, ...] = ('seat-1', 'seat-2', 'seat-3'),
+) -> AcousticTargetCriterion:
+    return AcousticTargetCriterion(
+        criterion_id=criterion_id,
+        name=criterion_id,
+        metric='clarity_c80',
+        metric_version='iso3382-1:2009-method',
+        origin='user_goal',
+        bands=(_band(),),
+        rule=CriterionRule(operator='min', minimum=3.0),
+        unit='dB',
+        aggregation=aggregation,
+        population_entity_ids=population,
+        required_capability='measured_clarity_c80',
+    )
+
+
+def _seat_observation(value: float, seat: str) -> AcousticTargetObservation:
+    return AcousticTargetObservation(
+        criterion_id='c80-main',
+        band_id='125-250',
+        observed_value=value,
+        unit='dB',
+        evidence_basis='measured',
+        provided_capability='measured_clarity_c80',
+        entity_ids=(seat,),
+    )
+
+
+def test_spatial_worst_aggregation_picks_worst_member():
+    # Negative fixture from the issue contract: 5 / 4 / -1 dB under a
+    # >= 3 dB spatial_worst criterion must be UNMET — never the sorted
+    # first observation.
+    criterion = _seat_criterion()
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(criteria=(criterion,)),
+        observations=[
+            _seat_observation(5.0, 'seat-1'),
+            _seat_observation(4.0, 'seat-2'),
+            _seat_observation(-1.0, 'seat-3'),
+        ],
+        available_capabilities=('measured_clarity_c80',),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    assert result.evaluability == 'AVAILABLE'
+    assert result.verdict == 'UNMET'
+    band = result.band_results[0]
+    assert band.observed_value == pytest.approx(-1.0)
+    assert band.limiting_entity_id == 'seat-3'
+    assert len(band.member_results) == 3
+    assert all(item.status == 'evaluated' for item in band.member_results)
+
+
+def test_spatial_mean_aggregation_averages_members():
+    criterion = _seat_criterion(aggregation='spatial_mean')
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(criteria=(criterion,)),
+        observations=[
+            _seat_observation(5.0, 'seat-1'),
+            _seat_observation(4.0, 'seat-2'),
+            _seat_observation(-1.0, 'seat-3'),
+        ],
+        available_capabilities=('measured_clarity_c80',),
+        created_at_utc=NOW,
+    )
+    band = evaluation.results[0].band_results[0]
+    assert band.observed_value == pytest.approx((5.0 + 4.0 - 1.0) / 3.0)
+    # mean 2.67 < 3.0 -> UNMET under spatial_mean
+    assert evaluation.results[0].verdict == 'UNMET'
+
+
+def test_per_position_aggregation_keeps_member_results():
+    criterion = _seat_criterion(aggregation='per_position')
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(criteria=(criterion,)),
+        observations=[
+            _seat_observation(5.0, 'seat-1'),
+            _seat_observation(4.0, 'seat-2'),
+            _seat_observation(3.5, 'seat-3'),
+        ],
+        available_capabilities=('measured_clarity_c80',),
+        created_at_utc=NOW,
+    )
+    band = evaluation.results[0].band_results[0]
+    assert evaluation.results[0].verdict == 'MET'
+    assert {item.entity_id for item in band.member_results} == {
+        'seat-1', 'seat-2', 'seat-3',
+    }
+    assert all(item.verdict == 'MET' for item in band.member_results)
+
+
+def test_incomplete_population_coverage_stays_unknown():
+    criterion = _seat_criterion()
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(criteria=(criterion,)),
+        observations=[
+            _seat_observation(5.0, 'seat-1'),
+            _seat_observation(4.0, 'seat-2'),
+        ],
+        available_capabilities=('measured_clarity_c80',),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    assert result.evaluability == 'UNKNOWN'
+    band = result.band_results[0]
+    assert band.verdict == 'NOT_EVALUATED'
+    statuses = {item.entity_id: item.status for item in band.member_results}
+    assert statuses['seat-3'] == 'missing'
+
+
+def test_ambiguous_member_observations_stay_unknown():
+    criterion = _seat_criterion()
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(criteria=(criterion,)),
+        observations=[
+            _seat_observation(5.0, 'seat-1'),
+            _seat_observation(6.0, 'seat-1'),
+            _seat_observation(4.0, 'seat-2'),
+            _seat_observation(3.5, 'seat-3'),
+        ],
+        available_capabilities=('measured_clarity_c80',),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    assert result.evaluability == 'UNKNOWN'
+    statuses = {
+        item.entity_id: item.status
+        for item in result.band_results[0].member_results
+    }
+    assert statuses['seat-1'] == 'ambiguous'
+
+
+def test_population_envelope_is_explicitly_unsupported():
+    criterion = _seat_criterion(aggregation='population_envelope')
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(criteria=(criterion,)),
+        observations=[
+            _seat_observation(5.0, 'seat-1'),
+            _seat_observation(4.0, 'seat-2'),
+            _seat_observation(3.5, 'seat-3'),
+        ],
+        available_capabilities=('measured_clarity_c80',),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    assert result.evaluability == 'UNSUPPORTED'
+    assert 'population_envelope' in result.reason
+
+
+def test_unit_conversion_is_applied_with_provenance():
+    observation = AcousticTargetObservation(
+        criterion_id='t30-main',
+        band_id='125-250',
+        observed_value=350.0,
+        unit='ms',
+        evidence_basis='predicted',
+        provided_capability='predicted_t30',
+        entity_ids=('seat-1',),
+    )
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(),
+        observations=[observation],
+        available_capabilities=('predicted_t30',),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    assert result.evaluability == 'AVAILABLE'
+    band = result.band_results[0]
+    # 350 ms converts to 0.35 s inside the 0.2-0.5 s range.
+    assert band.verdict == 'MET'
+    assert band.observed_value == pytest.approx(0.35)
+    member = band.member_results[0]
+    assert member.converted is True
+    assert member.source_value == pytest.approx(350.0)
+    assert member.source_unit == 'ms'
+    assert member.observation_sha256 is not None
+
+
+def test_incompatible_unit_stays_unknown():
+    observation = AcousticTargetObservation(
+        criterion_id='t30-main',
+        band_id='125-250',
+        observed_value=0.35,
+        unit='Hz',
+        evidence_basis='predicted',
+        provided_capability='predicted_t30',
+        entity_ids=('seat-1',),
+    )
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(),
+        observations=[observation],
+        available_capabilities=('predicted_t30',),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    assert result.evaluability == 'UNKNOWN'
+    assert result.verdict == 'NOT_EVALUATED'
+
+
+def test_provided_capability_mismatch_stays_unknown():
+    observation = _observation(provided_capability='measured_t20')
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(),
+        observations=[observation],
+        available_capabilities=('predicted_t30', 'measured_t20'),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    assert result.evaluability == 'UNKNOWN'
+    assert 'capability' in result.reason
+
+
+def test_predicted_and_measured_bases_stay_distinct():
+    criterion = _seat_criterion(population=('seat-1',))
+    predicted = AcousticTargetObservation(
+        criterion_id='c80-main',
+        band_id='125-250',
+        observed_value=1.0,
+        unit='dB',
+        evidence_basis='predicted',
+        provided_capability='measured_clarity_c80',
+        entity_ids=('seat-1',),
+    )
+    measured = AcousticTargetObservation(
+        criterion_id='c80-main',
+        band_id='125-250',
+        observed_value=5.0,
+        unit='dB',
+        evidence_basis='measured',
+        provided_capability='measured_clarity_c80',
+        entity_ids=('seat-1',),
+    )
+    evaluation = evaluate_acoustic_targets(
+        profile=_profile(criteria=(criterion,)),
+        observations=[predicted, measured],
+        available_capabilities=('measured_clarity_c80',),
+        created_at_utc=NOW,
+    )
+    result = evaluation.results[0]
+    # Two separate basis records — they never collapse via sort order.
+    assert len(result.band_results) == 2
+    bases = {item.basis: item for item in result.band_results}
+    assert bases['measured'].verdict == 'MET'
+    assert bases['predicted'].verdict == 'UNMET'
+    assert result.verdict == 'UNMET'
+
+
+def test_evaluation_hash_binds_observation_identity():
+    first = evaluate_acoustic_targets(
+        profile=_profile(),
+        observations=[_observation(observed_value=0.3)],
+        available_capabilities=('predicted_t30',),
+        created_at_utc=NOW,
+    )
+    second = evaluate_acoustic_targets(
+        profile=_profile(),
+        observations=[_observation(observed_value=0.31)],
+        available_capabilities=('predicted_t30',),
+        created_at_utc=NOW,
+    )
+    assert first.evaluation_sha256 != second.evaluation_sha256
