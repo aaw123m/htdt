@@ -73,7 +73,12 @@ def _digest(value: Any) -> str:
 
 
 class InstalledDefinitionRef(BaseModel):
-    """Exact catalog definition resolution for an installed unit."""
+    """Exact catalog definition resolution for an installed unit.
+
+    Presence of this ref is a resolution *claim*; whether an exact persisted
+    ``EquipmentDefinition`` actually resolves is decided by
+    ``CadInstalledEquipmentRepository.resolve_instance_definition`` (#819).
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -93,6 +98,59 @@ class InstalledDefinitionRef(BaseModel):
         )
 
 
+class ExternalEquipmentIdentity(BaseModel):
+    """Observed equipment identity evidence that is NOT a resolved local
+    ``EquipmentDefinition`` (#819).
+
+    Carries the id/version/hash triple an external observation (e.g. a
+    Capture ``equipment-identity`` record) attested on the physical unit.
+    It is evidence of *what was seen*, never a claim that a local catalog
+    definition exists for it — a same-looking id/version string must not
+    count as adoption of a local definition without reconciliation.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    equipment_id: str = Field(min_length=1)
+    equipment_version: str = Field(min_length=1)
+    equipment_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    evidence_source: str | None = Field(default=None, min_length=1)
+
+
+DefinitionResolutionState = Literal[
+    'RESOLVED_EXACT',
+    'EXTERNAL_UNRESOLVED',
+    'MISSING_LOCAL_DEFINITION',
+    'CONFLICT',
+    'UNRESOLVED',
+]
+"""Typed read-side resolution result (#819):
+
+- ``RESOLVED_EXACT``: the in-effect ref resolves to a persisted
+  ``EquipmentDefinition`` with id + version + semantic hash all equal.
+- ``EXTERNAL_UNRESOLVED``: only external/observed identity evidence exists;
+  no exact local definition binding is in effect.
+- ``MISSING_LOCAL_DEFINITION``: a resolution claim exists but no persisted
+  definition carries its semantic hash.
+- ``CONFLICT``: a definition with the claimed hash persists but its
+  id/version differ from the claim.
+- ``UNRESOLVED``: neither a resolution claim nor external identity
+  evidence exists.
+"""
+
+
+class InstanceDefinitionResolution(BaseModel):
+    """Read-side resolution state for one installed unit (#819)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    instance_id: str = Field(min_length=1)
+    status: DefinitionResolutionState
+    definition: EquipmentDefinition | None = None
+    binding: 'InstalledDefinitionBinding | None' = None
+    detail: str | None = None
+
+
 class InstalledEquipmentInstance(BaseModel):
     """Durable physical-unit record, separate from the reusable definition."""
 
@@ -106,6 +164,7 @@ class InstalledEquipmentInstance(BaseModel):
     document_id: str = Field(min_length=1)
     equipment_class: InstalledEquipmentClass
     definition_ref: InstalledDefinitionRef | None = None
+    external_identity: ExternalEquipmentIdentity | None = None
     manufacturer: str | None = Field(default=None, min_length=1)
     model: str | None = Field(default=None, min_length=1)
     user_label: str | None = Field(default=None, min_length=1)
@@ -122,7 +181,7 @@ class InstalledEquipmentInstance(BaseModel):
     def valid_instance(self) -> 'InstalledEquipmentInstance':
         if self.definition_ref is None and (
             self.manufacturer is None or self.model is None
-        ) and self.user_label is None:
+        ) and self.user_label is None and self.external_identity is None:
             raise ValueError(
                 'unresolved installed equipment requires manufacturer/model '
                 'or a user label'
@@ -136,7 +195,7 @@ class InstalledEquipmentInstance(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'instance_id': self.instance_id,
@@ -158,10 +217,30 @@ class InstalledEquipmentInstance(BaseModel):
             'provenance': [item.model_dump(mode='json') for item in self.provenance],
             'created_at_utc': self.created_at_utc,
         }
+        # Absent key keeps persisted pre-#819 digests valid; only a
+        # recorded identity enters the hash.
+        if self.external_identity is not None:
+            payload['external_identity'] = self.external_identity.model_dump(
+                mode='json'
+            )
+        return payload
 
     @property
     def is_catalog_resolved(self) -> bool:
+        """Whether the record carries an exact catalog-resolution *claim*.
+
+        Persistence only admits such a claim after resolving it exactly
+        against the equipment catalog; authoritative truth for a stored
+        instance is
+        ``CadInstalledEquipmentRepository.resolve_instance_definition``
+        (#819). External observed identity alone never sets this.
+        """
         return self.definition_ref is not None
+
+    @property
+    def has_observed_identity(self) -> bool:
+        """Whether external equipment-identity evidence is attached."""
+        return self.external_identity is not None
 
 
 def build_installed_equipment_instance(
@@ -172,6 +251,7 @@ def build_installed_equipment_instance(
     provenance: Sequence[EquipmentDataProvenance],
     created_at_utc: str,
     equipment_definition: EquipmentDefinition | None = None,
+    external_identity: ExternalEquipmentIdentity | None = None,
     manufacturer: str | None = None,
     model: str | None = None,
     user_label: str | None = None,
@@ -183,7 +263,9 @@ def build_installed_equipment_instance(
     """Create one installed-unit record.
 
     ``equipment_definition`` supplies the exact catalog ref and its identity
-    fields; when omitted the unit must still carry manual identity evidence.
+    fields; ``external_identity`` records observed (e.g. Capture) identity
+    evidence that is NOT a local catalog resolution; when both are omitted
+    the unit must still carry manual identity evidence.
     """
     definition_ref = (
         None
@@ -217,11 +299,16 @@ def build_installed_equipment_instance(
         'provenance': [item.model_dump(mode='json') for item in provenance_items],
         'created_at_utc': created_at_utc,
     }
+    if external_identity is not None:
+        payload['external_identity'] = external_identity.model_dump(
+            mode='json'
+        )
     return InstalledEquipmentInstance(
         instance_id=instance_id,
         document_id=document_id,
         equipment_class=equipment_class,
         definition_ref=definition_ref,
+        external_identity=external_identity,
         manufacturer=manufacturer,
         model=model,
         user_label=user_label,
@@ -478,6 +565,16 @@ def installed_instance_from_capture_identity(
     """
     if not equipment_id.strip() or not equipment_version.strip():
         raise ValueError('capture equipment identity requires id and version')
+    if len(equipment_hash) != 64:
+        raise ValueError('capture equipment_hash must be a sha256 hex digest')
+    # The observed identity is always preserved as external evidence; only a
+    # verified catalog match also produces a resolution claim.
+    external_identity = ExternalEquipmentIdentity(
+        equipment_id=equipment_id,
+        equipment_version=equipment_version,
+        equipment_sha256=equipment_hash,
+        evidence_source='capture:equipment-identity',
+    )
     if equipment_definition is not None:
         if (
             equipment_definition.definition_id != equipment_id
@@ -488,17 +585,11 @@ def installed_instance_from_capture_identity(
                 'capture equipment identity does not match the supplied '
                 'catalog definition exactly'
             )
-        definition_ref = InstalledDefinitionRef.from_definition(
-            equipment_definition
+        definition_ref: InstalledDefinitionRef | None = (
+            InstalledDefinitionRef.from_definition(equipment_definition)
         )
     else:
-        if len(equipment_hash) != 64:
-            raise ValueError('capture equipment_hash must be a sha256 hex digest')
-        definition_ref = InstalledDefinitionRef(
-            equipment_definition_id=equipment_id,
-            equipment_definition_version=equipment_version,
-            equipment_definition_sha256=equipment_hash,
-        )
+        definition_ref = None
     serial = None
     asset_tag = None
     if serial_or_asset_tag is not None and serial_or_asset_tag.strip():
@@ -510,7 +601,12 @@ def installed_instance_from_capture_identity(
         'instance_id': instance_id,
         'document_id': document_id,
         'equipment_class': equipment_class,
-        'definition_ref': definition_ref.model_dump(mode='json'),
+        'definition_ref': (
+            None
+            if definition_ref is None
+            else definition_ref.model_dump(mode='json')
+        ),
+        'external_identity': external_identity.model_dump(mode='json'),
         'manufacturer': None,
         'model': None,
         'user_label': equipment_id,
@@ -527,6 +623,7 @@ def installed_instance_from_capture_identity(
         document_id=document_id,
         equipment_class=equipment_class,
         definition_ref=definition_ref,
+        external_identity=external_identity,
         manufacturer=None,
         model=None,
         user_label=equipment_id,
@@ -547,6 +644,9 @@ __all__ = [
     'INSTALLED_INSTANCE_AUTHORITY_VERSION',
     'INSTALLED_OBSERVATION_AUTHORITY_VERSION',
     'INSTALLED_REPLACEMENT_AUTHORITY_VERSION',
+    'DefinitionResolutionState',
+    'ExternalEquipmentIdentity',
+    'InstanceDefinitionResolution',
     'InstalledDefinitionBinding',
     'InstalledDefinitionRef',
     'InstalledDeviceObservation',

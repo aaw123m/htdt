@@ -287,6 +287,13 @@ def _save_synthetic_measurement(
             'synthetic_fixture': True,
             'physical_measurement': False,
             'generator': 'cad_synthetic_demo_v1',
+            # #848: 'verified' routing pins an exact profile id+hash; the
+            # synthetic fixture emulates a verified channel map and marks
+            # the pin as synthetic too.
+            'routing_profile': {
+                'routing_profile_id': 'synthetic-routing-profile',
+                'routing_profile_sha256': digest,
+            },
         },
     )
     dataset = CadFrequencyResponseDataset(

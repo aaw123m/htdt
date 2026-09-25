@@ -116,9 +116,11 @@ try {
         generated_at_utc = (Get-Date).ToUniversalTime().ToString("o")
     } | ConvertTo-Json | Set-Content -Path $BuildInfoFile -Encoding utf8
 
+    # No --clean: the build workpath is already wiped above, and PyInstaller's
+    # content-keyed config-dir cache is safe to keep — CI restores it between
+    # runs to skip re-analysing an unchanged dependency graph.
     & $Python -m PyInstaller `
         --noconfirm `
-        --clean `
         --onedir `
         --windowed `
         --name HTDT `

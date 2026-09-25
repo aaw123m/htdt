@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TypeAlias
 
 from PySide6.QtCore import Signal
@@ -665,6 +665,10 @@ class WorkflowShellWindow(QMainWindow):
         return self.rail.labels
 
     @property
+    def data_mutations_frozen(self) -> bool:
+        return self._data_mutations_frozen
+
+    @property
     def context_labels(self) -> tuple[str, ...]:
         return self.context_bar.context_labels
 
@@ -718,6 +722,10 @@ class WorkflowShellWindow(QMainWindow):
         context; unsupported kinds surface an actionable message instead of
         any name/newest substitution.
         """
+        target = self._establish_target_project(target)
+        if isinstance(target, NavigationResolution):
+            self.statusBar().showMessage(target.message or "対象を開けません")
+            return target
         resolution = self._navigation_resolver.resolve(
             target,
             registered=self.router.registered_ids(),
@@ -748,6 +756,44 @@ class WorkflowShellWindow(QMainWindow):
         if record_history:
             self._navigation_history.record(target, link, referrer=referrer)
         return resolution
+
+    def _establish_target_project(
+        self, target: NavigationTarget
+    ) -> NavigationTarget | NavigationResolution:
+        """Resolve ``target.project_id`` to the active project before routing.
+
+        Project-scoped targets with no explicit identity are stamped with
+        the current canonical project id so recorded history replays against
+        the same authority context. An explicit ``project_id`` goes through
+        the application-level guarded project switch; on failure the target
+        is never routed into the wrong project and no history entry is
+        created.
+        """
+        if target.scope is not NavigationScope.PROJECT:
+            return target
+        application = getattr(self, "workflow_application", None)
+        project_id = target.project_id
+        if project_id is None:
+            if application is None:
+                return target
+            project_id = application.navigation_project_identity()
+            return replace(target, project_id=project_id)
+        if application is None:
+            return NavigationResolution(
+                target=target,
+                link=None,
+                status="unsupported",
+                message="プロジェクト切替機能が利用できないため対象を開けません",
+            )
+        established, message = application.establish_navigation_project(project_id)
+        if not established:
+            return NavigationResolution(
+                target=target,
+                link=None,
+                status="unsupported",
+                message=message or "対象のプロジェクトを開けません",
+            )
+        return target
 
     def navigation_back(self) -> bool:
         """Application Back: replay the previous typed navigation context."""

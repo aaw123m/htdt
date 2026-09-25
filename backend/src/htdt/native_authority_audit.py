@@ -488,7 +488,9 @@ class _RepositoryChain:
                 CadInstalledEquipmentRepository,
             )
 
-            return CadInstalledEquipmentRepository(scene)
+            return CadInstalledEquipmentRepository(
+                scene, self.repo('equipment')
+            )
         if name == 'upgrades':
             from .cad_library_upgrade_repository import (
                 CadLibraryUpgradeRepository,
@@ -1999,7 +2001,8 @@ _NON_AUTHORITY_TABLES: dict[str, str] = {
         'project-management annotation, non-normative'
     ),
     'htdt_storage_gc_pending': (
-        'storage GC work queue — operational state, not retained authority'
+        'pending blob-GC queue — transient operational state re-derivable '
+        'from the blob store'
     ),
     'ci_marker': (
         'CI-injected backup/restore round-trip marker — never a product '
@@ -2021,6 +2024,10 @@ _NO_ADAPTER_RATIONALE = (
     'structural payload integrity — no dedicated canonical replay adapter '
     'registered for this family'
 )
+_PROJECT_LIFECYCLE_RATIONALE = (
+    'project-library/lifecycle record — indexed structurally; lifecycle '
+    'semantics enforced by the project-library consumers'
+)
 
 # Tables whose rows carry a JSON payload but no registered canonical replay
 # adapter (external-resolver domains, link/legacy tables, derived solver and
@@ -2029,6 +2036,15 @@ _NO_ADAPTER_RATIONALE = (
 _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
     table: rationale
     for tables, rationale in (
+        (
+            (
+                'htdt_legacy_imports',
+                'htdt_project_documents',
+                'htdt_project_imports',
+                'htdt_project_tombstones',
+            ),
+            _PROJECT_LIFECYCLE_RATIONALE,
+        ),
         (
             (
                 'asset_links',
@@ -2108,6 +2124,8 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_applied_settings',
                 'cad_av_latency_measurements',
                 'cad_av_sync_conditions',
+                'cad_bass_management_profiles',
+                'cad_bass_management_selections',
                 'cad_cable_runs',
                 'cad_calibration_lifecycle_events',
                 'cad_commissioning_plans',
@@ -2175,6 +2193,8 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_topology_spaces',
                 'cad_validation_cases',
                 'cad_video_geometry_workspaces',
+                'cad_video_presentation_profiles',
+                'cad_video_presentation_selections',
                 'cad_visual_qa_verdicts',
                 'htdt_project_imports',
                 'htdt_legacy_imports',
