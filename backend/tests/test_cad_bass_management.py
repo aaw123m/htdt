@@ -180,9 +180,11 @@ def test_evaluation_coverage_and_resolution():
         (c.check, c.role_id): c.status for c in evaluation.checks
     }
     assert checks[('role_coverage', None)] == 'FAIL'  # SR missing
-    assert checks[('destinations_resolve', 'L')] == 'PASS'
+    assert checks[('redirect_destination_recorded', 'L')] == 'PASS'
+    assert checks[('redirect_destination_resolves', 'L')] == 'PASS'
     assert checks[('high_pass_recorded', 'SL')] == 'UNKNOWN'
-    assert checks[('lfe_path_independent', None)] == 'PASS'
+    assert checks[('lfe_destination_resolves', None)] == 'PASS'
+    assert checks[('lfe_duplication_policy_known', None)] == 'PASS'
 
 
 def test_evaluation_passes_full_coverage():
@@ -211,8 +213,49 @@ def test_unresolved_destination_fails():
     )
     evaluation = evaluate_bass_management(profile=profile)
     checks = {c.check: c.status for c in evaluation.checks}
-    assert checks['destinations_resolve'] == 'FAIL'
-    assert checks['lfe_path_independent'] == 'UNKNOWN'
+    assert checks['redirect_destination_resolves'] == 'FAIL'
+    assert checks['lfe_destination_resolves'] == 'UNKNOWN'
+    assert checks['lfe_duplication_policy_known'] == 'UNKNOWN'
+
+
+def test_empty_redirect_destination_is_unknown_not_pass():
+    profile = _profile(
+        main_rules=(
+            MainChannelBassRule(
+                logical_role_id='L',
+                handling='high_pass',
+                high_pass=CrossoverSpec(frequency_hz=80.0),
+                redirected_destinations=(),
+            ),
+        ),
+        lfe_path=None,
+    )
+    evaluation = evaluate_bass_management(profile=profile)
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['redirect_destination_recorded'] == 'UNKNOWN'
+    assert checks['redirect_destination_resolves'] == 'UNKNOWN'
+    assert bass_management_status(evaluation) == 'UNKNOWN'
+
+
+def test_lfe_resolved_but_unknown_policy_stays_unknown():
+    profile = _profile(
+        lfe_path=LFEPathRule(
+            lfe_input_id='lfe-in',
+            low_pass=CrossoverSpec(frequency_hz=120.0),
+            gain_reference_db=0.0,
+            in_band_boost_db=10.0,
+            destinations=('sub-out-1',),
+            duplication_policy='unknown',
+        ),
+    )
+    evaluation = evaluate_bass_management(
+        profile=profile,
+        known_destination_ids=('sub-out-1', 'sub-out-2'),
+    )
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['lfe_destination_resolves'] == 'PASS'
+    assert checks['lfe_duplication_policy_known'] == 'UNKNOWN'
+    assert bass_management_status(evaluation) == 'UNKNOWN'
 
 
 def test_lfe_group_requires_dsp_ref():

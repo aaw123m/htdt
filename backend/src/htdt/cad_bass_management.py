@@ -292,7 +292,13 @@ class RoutingEdge(BaseModel):
 
 def routing_edges(profile: BassManagementProfile) -> tuple[RoutingEdge, ...]:
     """Flatten the profile into diagram edges — the same semantics the
-    authority stores, in drawable form."""
+    authority stores, in drawable form.
+
+    Only *recorded* edges appear: a high-pass rule with no redirected
+    destination produces no edge, which consumers must read as incomplete
+    routing knowledge (see ``redirect_destination_recorded``), never as
+    intentional silence.
+    """
 
     edges: list[RoutingEdge] = []
     for rule in profile.main_rules:
@@ -369,10 +375,15 @@ def evaluate_bass_management(
 
     - ``role_coverage``: every expected channel role has a rule (UNKNOWN if
       the caller supplies no expectation).
-    - per-rule ``high_pass_recorded`` / ``destinations_resolve``.
-    - ``lfe_path_independent``: LFE destinations are declared and are not
-      silently shared with redirected-bass destinations unless that is the
-      recorded configuration.
+    - per-rule ``high_pass_recorded`` for unrecorded handling; for a
+      ``high_pass`` rule ``redirect_destination_recorded`` and
+      ``redirect_destination_resolves`` are separate checks — an empty
+      destination set is incomplete knowledge (UNKNOWN), never a resolved
+      route, and only a recorded destination can resolve.
+    - ``lfe_destination_resolves`` / ``lfe_duplication_policy_known``: LFE
+      destination resolution is proven separately from shared-routing
+      semantics — resolvable destinations alone do not establish that the
+      .1 path is routed independently of redirected bass.
     """
 
     checks: list[BassCheckResult] = []
@@ -415,18 +426,35 @@ def evaluate_bass_management(
             )
             continue
         if rule.handling == 'high_pass':
+            recorded = bool(rule.redirected_destinations)
+            checks.append(
+                BassCheckResult(
+                    check='redirect_destination_recorded',
+                    status='PASS' if recorded else 'UNKNOWN',
+                    role_id=rule.logical_role_id,
+                    reason=(
+                        'redirected bass destination is recorded'
+                        if recorded
+                        else 'redirected bass has no destination recorded'
+                    ),
+                )
+            )
             unresolved = [
                 d for d in rule.redirected_destinations
                 if d not in known
             ]
             checks.append(
                 BassCheckResult(
-                    check='destinations_resolve',
-                    status='FAIL' if unresolved else 'PASS',
+                    check='redirect_destination_resolves',
+                    status=(
+                        'UNKNOWN'
+                        if not recorded
+                        else ('FAIL' if unresolved else 'PASS')
+                    ),
                     role_id=rule.logical_role_id,
                     reason=(
-                        'redirected bass has no destination recorded'
-                        if not rule.redirected_destinations
+                        'no destination recorded to resolve'
+                        if not recorded
                         else (
                             'unresolved destinations: ' + ', '.join(unresolved)
                             if unresolved
@@ -439,7 +467,14 @@ def evaluate_bass_management(
     if profile.lfe_path is None:
         checks.append(
             BassCheckResult(
-                check='lfe_path_independent',
+                check='lfe_destination_resolves',
+                status='UNKNOWN',
+                reason='no LFE path recorded',
+            )
+        )
+        checks.append(
+            BassCheckResult(
+                check='lfe_duplication_policy_known',
                 status='UNKNOWN',
                 reason='no LFE path recorded',
             )
@@ -449,7 +484,7 @@ def evaluate_bass_management(
         if not lfe_dests:
             checks.append(
                 BassCheckResult(
-                    check='lfe_path_independent',
+                    check='lfe_destination_resolves',
                     status='UNKNOWN',
                     reason='LFE path has no destinations recorded',
                 )
@@ -458,16 +493,31 @@ def evaluate_bass_management(
             unresolved = [d for d in lfe_dests if d not in known]
             checks.append(
                 BassCheckResult(
-                    check='lfe_path_independent',
+                    check='lfe_destination_resolves',
                     status='FAIL' if unresolved else 'PASS',
                     reason=(
                         'unresolved LFE destinations: ' + ', '.join(unresolved)
                         if unresolved
-                        else 'LFE destinations resolve; the .1 path is '
-                        'modelled independently of redirected bass'
+                        else 'LFE destinations resolve'
                     ),
                 )
             )
+        checks.append(
+            BassCheckResult(
+                check='lfe_duplication_policy_known',
+                status=(
+                    'UNKNOWN'
+                    if profile.lfe_path.duplication_policy == 'unknown'
+                    else 'PASS'
+                ),
+                reason=(
+                    'LFE duplication/shared-routing policy not recorded'
+                    if profile.lfe_path.duplication_policy == 'unknown'
+                    else 'LFE duplication policy is '
+                    f"'{profile.lfe_path.duplication_policy}'"
+                ),
+            )
+        )
 
     probe = BassManagementEvaluation.model_construct(
         evaluation_id='',
