@@ -8,6 +8,7 @@ from typing import Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_seat_priority import SeatPriorityProfile
 from .comparison import ComparisonError, FrequencyResponse, compare_frequency_responses
 
 
@@ -383,13 +384,98 @@ def seat_pairwise_objectives(
     spec: ResponseObjectiveSpec,
     *,
     prefix: str = 'seat',
+    seat_entity_ids: Sequence[str] | None = None,
+    priority_profile: SeatPriorityProfile | None = None,
 ) -> ObjectiveVector:
-    if len(responses) < 2:
-        raise ObjectiveError('seat spread objective requires at least two responses')
+    """Seat-spread objectives, optionally bound to exact seat identities
+    and/or a SeatPriorityProfile (#975).
+
+    When ``priority_profile`` is bound, the pairwise population is the
+    profile's soft-objective population (primary/secondary members —
+    diagnostic seats are evidence-only) and every metric carries an
+    ``ObjectiveDefinition`` whose ``comparison_model_version`` pins the
+    exact seat identities and the profile id/hash. Unbound calls keep the
+    legacy positional semantics byte-identical.
+    """
+    ids: tuple[str, ...] | None = None
+    if priority_profile is not None:
+        ids = priority_profile.seat_entity_ids
+        if seat_entity_ids is not None and tuple(seat_entity_ids) != ids:
+            raise ObjectiveError(
+                'pairwise seat identities must equal the bound '
+                'SeatPriorityProfile members'
+            )
+    elif seat_entity_ids is not None:
+        ids = tuple(seat_entity_ids)
+        if len(set(ids)) != len(ids):
+            raise ObjectiveError('seat identities must be unique')
+    if ids is not None and len(ids) != len(responses):
+        raise ObjectiveError(
+            'seat identity count must match the response count'
+        )
+
+    pairwise_responses = list(responses)
+    binding_payload: dict[str, Any] | None = None
+    if priority_profile is not None:
+        soft = set(priority_profile.soft_objective_seat_entity_ids)
+        pairwise_responses = [
+            response
+            for seat_id, response in zip(ids, responses, strict=True)
+            if seat_id in soft
+        ]
+        binding_payload = {
+            'priority_profile_id': priority_profile.profile_id,
+            'priority_profile_sha256': priority_profile.profile_sha256,
+            'seat_population': 'soft_objective',
+            'seat_entity_ids': [
+                seat_id
+                for seat_id in ids
+                if seat_id in soft
+            ],
+        }
+    elif ids is not None:
+        binding_payload = {
+            'seat_population': 'explicit',
+            'seat_entity_ids': list(ids),
+        }
+
+    if len(pairwise_responses) < 2:
+        raise ObjectiveError(
+            'seat spread objective requires at least two responses'
+        )
+
+    def _metric(objective_id: str, value: float) -> ObjectiveMetric:
+        if binding_payload is None:
+            return ObjectiveMetric(
+                objective_id=objective_id,
+                value=value,
+                unit='dB',
+            )
+        definition = ObjectiveDefinition(
+            objective_id=objective_id,
+            quantity=objective_id,
+            unit='dB',
+            direction='minimize',
+            valid_domain=ObjectiveValidDomain(
+                kind='bounded_real',
+                minimum=0.0,
+            ),
+            comparison_model_id='seat-pairwise-response-comparison',
+            comparison_model_version=canonical_objective_definition_sha256(
+                binding_payload
+            ),
+        )
+        return ObjectiveMetric(
+            objective_id=objective_id,
+            value=value,
+            unit='dB',
+            direction='minimize',
+            definition=definition,
+        )
 
     level_values: list[float] = []
     shape_values: list[float] = []
-    for a, b in combinations(responses, 2):
+    for a, b in combinations(pairwise_responses, 2):
         result = _comparison(a, b, spec)
         if result.rms_difference_db is None:
             raise ObjectiveError('seat spread objective requires at least two valid points per pair')
@@ -401,29 +487,25 @@ def seat_pairwise_objectives(
 
     level_rms = sqrt(sum(value * value for value in level_values) / len(level_values))
     metrics: list[ObjectiveMetric] = [
-        ObjectiveMetric(
+        _metric(
             objective_id=f'{prefix}.pairwise_rms_difference_max_db',
             value=max(level_values),
-            unit='dB',
         ),
-        ObjectiveMetric(
+        _metric(
             objective_id=f'{prefix}.pairwise_rms_difference_rms_db',
             value=level_rms,
-            unit='dB',
         ),
     ]
     if shape_values:
         shape_rms = sqrt(sum(value * value for value in shape_values) / len(shape_values))
         metrics.extend((
-            ObjectiveMetric(
+            _metric(
                 objective_id=f'{prefix}.pairwise_shape_max_db',
                 value=max(shape_values),
-                unit='dB',
             ),
-            ObjectiveMetric(
+            _metric(
                 objective_id=f'{prefix}.pairwise_shape_rms_db',
                 value=shape_rms,
-                unit='dB',
             ),
         ))
     return ObjectiveVector(candidate_id=candidate_id, metrics=tuple(metrics))
