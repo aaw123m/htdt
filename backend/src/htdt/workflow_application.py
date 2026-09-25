@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import (
@@ -61,6 +63,7 @@ from .cad_repository import SceneRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .availability_reasons import availability_reason
 from .command_palette import CommandPaletteController
 from .command_registry import (
     CommandAvailability,
@@ -85,6 +88,7 @@ from .installation_output_authority import InstallationReportService
 from .measurement_page_workspace import build_measurement_workspace_mount
 from .measurement_workflow import MeasurementWorkflowController
 from .navigation_target import NavigationTarget, NavigationTargetKind
+from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
 from .optimization_workflow_workspace import build_optimization_workspace_mount
 from .project_bundle import (
     BUNDLE_EXTENSION,
@@ -192,11 +196,19 @@ _WORKSPACE_COMMAND_IDS = (
 )
 
 
-def _available(enabled: bool, reason: str) -> CommandAvailability:
+def _available(
+    enabled: bool,
+    reason_code: str,
+    *,
+    params: dict[str, object] | None = None,
+) -> CommandAvailability:
+    """Availability keyed by a stable catalog reason code (#776)."""
     return (
         CommandAvailability.available()
         if enabled
-        else CommandAvailability.unavailable(reason)
+        else CommandAvailability.blocked(
+            availability_reason(reason_code, params=params)
+        )
     )
 
 
@@ -205,6 +217,19 @@ def _is_kind(workspace: RoomWorkspace, entity_id: str, kind: str) -> bool:
         return workspace.controller.document.entity(entity_id).kind == kind
     except KeyError:
         return False
+
+
+@dataclass(frozen=True, slots=True)
+class _NavigationProjectResolution:
+    """Typed-target ``project_id`` resolved onto a document — or failed closed.
+
+    ``status`` distinguishes the failure cause so the caller can present an
+    actionable message instead of silently substituting another project.
+    """
+
+    document_id: str | None
+    status: Literal['ok', 'missing', 'archived', 'deleted']
+    display_name: str | None = None
 
 
 class WorkflowApplicationComposition:
@@ -237,6 +262,7 @@ class WorkflowApplicationComposition:
 
         self.registry = CommandRegistry()
         register_default_commands(self.registry)
+        self._restore_rebind_note: str | None = None
 
         registrations = build_canonical_workspace_registrations(
             {
@@ -713,22 +739,111 @@ class WorkflowApplicationComposition:
 
     def _open_project(self, document_id: str) -> None:
         """Switch the whole composition to another persisted document (#649)."""
+        reason = self._switch_project(document_id)
+        if reason is not None:
+            self.shell.statusBar().showMessage(reason)
+
+    def _switch_project(self, document_id: str) -> str | None:
+        """Guarded whole-composition project switch; returns the block reason.
+
+        ``None`` means the composition is now bound to ``document_id`` (or
+        already was). Typed navigation reuses exactly this path so a
+        cross-project deep link gets the same dirty-state/running-operation
+        policy as a manual Project Library switch (#610).
+        """
         if document_id == self.document_id:
-            return
+            return None
+        if self.shell.data_mutations_frozen:
+            return 'データ処理中はプロジェクトを切り替えられません'
         # #610: project switching offers the same explicit Save/Discard/
         # Recover-Draft resolution instead of a hard block.
         allowed, reason = self.shell.router.resolve_dispose_all('project_switch')
         if not allowed:
-            self.shell.statusBar().showMessage(
-                reason or '現在の作業を完了してからプロジェクトを切り替えてください'
-            )
-            return
+            return reason or '現在の作業を完了してからプロジェクトを切り替えてください'
         self.shell.dispose_data_workspaces()
         self._unbind_workspace_commands()
         self.document_id = document_id
         self.shell.set_project_identity(document_id)
+        # #775: legacy entries recorded without project identity must never
+        # replay inside the new project's namespace.
+        self.shell.navigation_history.drop_unscoped_project_entries()
         if not self.shell.navigate(WorkspaceId.OVERVIEW):
             raise RuntimeError('プロジェクト切替後の概要画面を再構築できませんでした')
+        return None
+
+    # -- typed-navigation project establishment (#775) -------------------
+
+    def navigation_project_identity(self) -> str:
+        """Canonical project id stamped onto unscoped project targets.
+
+        Registry ``project_id`` is the stable cross-device identity; a
+        document not yet registered keeps its ``document_id`` as identity.
+        """
+        record = ProjectLibrary(self.repository_path).find_by_document(
+            self.document_id
+        )
+        return record.project_id if record is not None else self.document_id
+
+    def establish_navigation_project(
+        self, project_id: str
+    ) -> tuple[bool, str | None]:
+        """Resolve a typed target's ``project_id`` and switch to it.
+
+        Canonical registry ids and legacy document-scoped ids both resolve
+        to a bound ``document_id``; missing/archived/deleted projects fail
+        with an actionable message and never fall back to the current,
+        same-name or newest project. The switch itself is the guarded
+        ``_switch_project`` path — identical dirty-state policy to a manual
+        switch, and a blocked switch leaves the current project untouched.
+        """
+        resolved = self._resolve_navigation_project(project_id)
+        if resolved.document_id is None:
+            if resolved.status == 'archived':
+                return False, (
+                    '対象のプロジェクトはアーカイブされています: '
+                    f'{resolved.display_name or project_id}'
+                )
+            if resolved.status == 'deleted':
+                return False, (
+                    '対象のプロジェクトは削除済みです: '
+                    f'{resolved.display_name or project_id}'
+                )
+            return False, f'対象のプロジェクトが見つかりません: {project_id}'
+        reason = self._switch_project(resolved.document_id)
+        if reason is not None:
+            return False, reason
+        return True, None
+
+    def _resolve_navigation_project(
+        self, project_id: str
+    ) -> '_NavigationProjectResolution':
+        """Canonical ``project_id``/``document_id`` resolution — fail closed."""
+        library = ProjectLibrary(self.repository_path)
+        record = None
+        try:
+            record = library.get_project(project_id)
+        except ProjectNotFoundError:
+            # Versioned normalization: older links carried the bound
+            # document_id where a canonical project_id now goes (#775 E).
+            record = library.find_by_document(project_id)
+        if record is not None:
+            if record.status != 'active':
+                return _NavigationProjectResolution(
+                    None, 'archived', record.display_name
+                )
+            return _NavigationProjectResolution(
+                record.document_id, 'ok', record.display_name
+            )
+        for tombstone in library.list_tombstones():
+            if project_id in (tombstone.project_id, tombstone.document_id):
+                return _NavigationProjectResolution(
+                    None, 'deleted', tombstone.display_name
+                )
+        # Unregistered document with a live head: a pre-registry link stays
+        # resolvable against exactly that document — never a substitute.
+        if self.repository.current_head(project_id) is not None:
+            return _NavigationProjectResolution(project_id, 'ok', project_id)
+        return _NavigationProjectResolution(None, 'missing', None)
 
     def _make_projects(self) -> WorkspaceMount:
         page = ProjectLibraryPage(
@@ -872,40 +987,42 @@ class WorkflowApplicationComposition:
         always = lambda: CommandAvailability.available()  # noqa: E731
         editable = lambda: _available(  # noqa: E731
             workspace.controller.can_edit,
-            "編集できる状態ではありません",
+            'command.blocked.editing_not_available',
         )
         has_selection = lambda: _available(  # noqa: E731
-            _has_selection(), "項目を選択してください"
+            _has_selection(), 'command.blocked.selection_required'
         )
         sel_at_least = lambda count: (  # noqa: E731
             lambda: _available(
-                _min_selection(count), f"{count}つ以上の項目を選択してください"
+                _min_selection(count),
+                'command.blocked.min_selection',
+                params={'required': count},
             )
         )
         room_ready = lambda: _available(  # noqa: E731
             workspace.controller.document.room is not None,
-            "先に部屋を作成してください",
+            'command.blocked.room_required',
         )
         clipboard_ready = lambda: _available(  # noqa: E731
             workspace.controller.can_edit
             and getattr(workspace, "_clipboard", None) is not None
             and bool(workspace._clipboard.entities),
-            "先にコピーしてください",
+            'command.blocked.clipboard_empty',
         )
         isolation_active = lambda: _available(  # noqa: E731
             workspace._pre_isolation_hidden is not None,
-            "分離中ではありません",
+            'command.blocked.isolation_inactive',
         )
         underlays_exist = lambda: _available(  # noqa: E731
             bool(workspace.controller.underlays()),
-            "下図をインポートしてください",
+            'command.blocked.underlay_required',
         )
         selected_speaker = lambda: _available(  # noqa: E731
             _has_selection()
             and workspace.controller.can_edit
             and workspace.controller.selected_id is not None
             and _is_kind(workspace, workspace.controller.selected_id, "speaker"),
-            "スピーカーを選択してください",
+            'command.blocked.speaker_required',
         )
 
         bindings: dict[str, tuple] = {
@@ -1114,49 +1231,49 @@ class WorkflowApplicationComposition:
                     workspace.controller.selected_id is not None
                     and workspace.controller.can_edit
                     and not geometry_input.is_active,
-                    "編集できる項目を選択してください",
+                    'room.edit.requires_editable_selection',
                 ),
                 "room.transform.rotate": lambda: _available(
                     workspace.controller.selected_id is not None
                     and workspace.controller.can_edit
                     and not geometry_input.is_active,
-                    "編集できる項目を選択してください",
+                    'room.edit.requires_editable_selection',
                 ),
                 "room.view.fit_selection": lambda: _available(
                     workspace.controller.selected_id is not None,
-                    "表示する項目を選択してください",
+                    'room.view.requires_selection',
                 ),
                 "room.view.fit_all": lambda: CommandAvailability.available(),
                 "room.edit.cancel": lambda: _available(
                     transform_input.is_active
                     or geometry_input.is_active
                     or workspace.controller.working.has_preview,
-                    "キャンセルする操作はありません",
+                    'command.blocked.nothing_to_cancel',
                 ),
                 "room.edit.commit": lambda: _available(
                     transform_input.is_active
                     or geometry_input.is_active
                     or workspace.controller.working.has_preview,
-                    "確定する操作はありません",
+                    'command.blocked.nothing_to_commit',
                 ),
                 "room.edit.duplicate": lambda: _available(
                     workspace.controller.selected_id is not None
                     and workspace.controller.can_edit
                     and not geometry_input.is_active
                     and not transform_input.is_active,
-                    "複製できる項目を選択してください",
+                    'room.edit.requires_editable_selection',
                 ),
                 "room.transform.axis_x": lambda: _available(
                     transform_input.is_active,
-                    "移動または回転を開始してから軸を指定してください",
+                    'room.transform.requires_active_transform',
                 ),
                 "room.transform.axis_y": lambda: _available(
                     transform_input.is_active,
-                    "移動または回転を開始してから軸を指定してください",
+                    'room.transform.requires_active_transform',
                 ),
                 "room.transform.axis_z": lambda: _available(
                     transform_input.is_active,
-                    "移動または回転を開始してから軸を指定してください",
+                    'room.transform.requires_active_transform',
                 ),
             },
         )
@@ -1172,7 +1289,7 @@ class WorkflowApplicationComposition:
                     )
                     and workspace.controller.recovery_candidate is None
                     and not workspace.controller.working.has_preview,
-                    "保存する変更がありません",
+                    'project.save.nothing_to_save',
                 ),
             )
             self.registry.bind(
@@ -1181,7 +1298,7 @@ class WorkflowApplicationComposition:
                 availability=lambda: _available(
                     workspace.controller.working.can_undo
                     and not workspace.controller.working.has_preview,
-                    "元に戻せる操作はありません",
+                    'command.blocked.nothing_to_undo',
                 ),
             )
             self.registry.bind(
@@ -1190,7 +1307,7 @@ class WorkflowApplicationComposition:
                 availability=lambda: _available(
                     workspace.controller.working.can_redo
                     and not workspace.controller.working.has_preview,
-                    "やり直せる操作はありません",
+                    'command.blocked.nothing_to_redo',
                 ),
             )
             self.registry.bind(
@@ -1200,7 +1317,7 @@ class WorkflowApplicationComposition:
                     workspace.controller.recovery_candidate is None
                     and not workspace.controller.working.has_preview
                     and not transform_input.is_active,
-                    "復旧または編集中の操作を完了してから部屋を描いてください",
+                    'room.draw.blocked_while_editing',
                 ),
             )
             self.registry.bind(
@@ -1210,7 +1327,7 @@ class WorkflowApplicationComposition:
                     workspace.controller.can_edit
                     and not geometry_input.is_active
                     and not transform_input.is_active,
-                    "部屋を作成し、編集中の操作を完了してからスピーカーを追加してください",
+                    'room.add_speaker.requires_finished_room',
                 ),
             )
             self.registry.bind(
@@ -1230,7 +1347,7 @@ class WorkflowApplicationComposition:
                     workspace.controller.selected_id is not None
                     and workspace.controller.can_edit
                     and not transform_input.is_active,
-                    "削除できる項目を選択してください",
+                    'room.edit.requires_editable_selection',
                 ),
             )
             self.registry.bind(
@@ -1245,7 +1362,7 @@ class WorkflowApplicationComposition:
                 ),
                 availability=lambda: _available(
                     bool(workspace.controller.view_state.selection),
-                    "項目を選択してください",
+                    'command.blocked.selection_required',
                 ),
             )
             self.registry.bind(
@@ -1260,7 +1377,7 @@ class WorkflowApplicationComposition:
                 ),
                 availability=lambda: _available(
                     bool(workspace.controller.view_state.selection),
-                    "項目を選択してください",
+                    'command.blocked.selection_required',
                 ),
             )
             self.registry.bind(
@@ -1268,7 +1385,7 @@ class WorkflowApplicationComposition:
                 execute=workspace.toggle_measure,
                 availability=lambda: _available(
                     workspace.controller.document.room is not None,
-                    "部屋を作成してください",
+                    'command.blocked.room_required',
                 ),
             )
             bind_cad_input_commands(self.registry, bindings)
@@ -1426,17 +1543,21 @@ class WorkflowApplicationComposition:
         panel: RoomPredictionPanel,
     ) -> CommandAvailability:
         if prediction.is_busy:
-            return CommandAvailability.unavailable("予測を実行中です")
+            return CommandAvailability.blocked(
+                availability_reason('prediction.run.running')
+            )
         if workspace.controller.working.has_preview:
-            return CommandAvailability.unavailable(
-                "編集中の操作を確定またはキャンセルしてください"
+            return CommandAvailability.blocked(
+                availability_reason('command.blocked.edit_in_progress')
             )
         if workspace.controller.is_dirty:
-            return CommandAvailability.unavailable(
-                "予測の前に現在の配置を保存してください"
+            return CommandAvailability.blocked(
+                availability_reason('prediction.run.requires_saved_layout')
             )
         if panel.receiver.currentData() is None:
-            return CommandAvailability.unavailable("受音点を選択してください")
+            return CommandAvailability.blocked(
+                availability_reason('prediction.run.receiver_required')
+            )
         return CommandAvailability.available()
 
     def _make_measurement(self) -> WorkspaceMount:
@@ -1469,8 +1590,8 @@ class WorkflowApplicationComposition:
         try:
             controller.latest_revision()
         except Exception:
-            return CommandAvailability.unavailable(
-                "部屋を保存してからREWを読み込んでください"
+            return CommandAvailability.blocked(
+                availability_reason('measurement.import.requires_saved_scene')
             )
         return CommandAvailability.available()
 
@@ -1503,7 +1624,7 @@ class WorkflowApplicationComposition:
                 execute=controller.save,
                 availability=lambda: _available(
                     edit_idle() and controller.working.is_dirty,
-                    "保存する変更がないか、候補生成・REW読込・編集操作が実行中です",
+                    'project.save.unavailable_or_busy',
                 ),
             )
             self.registry.bind(
@@ -1511,7 +1632,7 @@ class WorkflowApplicationComposition:
                 execute=controller.undo,
                 availability=lambda: _available(
                     edit_idle() and controller.working.can_undo,
-                    "元に戻せる操作がないか、処理が実行中です",
+                    'edit.undo.unavailable_or_busy',
                 ),
             )
             self.registry.bind(
@@ -1519,7 +1640,7 @@ class WorkflowApplicationComposition:
                 execute=controller.redo,
                 availability=lambda: _available(
                     edit_idle() and controller.working.can_redo,
-                    "やり直せる操作がないか、処理が実行中です",
+                    'edit.redo.unavailable_or_busy',
                 ),
             )
             self.registry.bind(
@@ -1527,7 +1648,7 @@ class WorkflowApplicationComposition:
                 execute=controller.refresh_pareto_comparison,
                 availability=lambda: _available(
                     controller.search_selected_spec_id is not None,
-                    "比較する探索仕様を選択してください",
+                    'optimization.compare.requires_spec_selection',
                 ),
             )
 
@@ -1572,6 +1693,51 @@ class WorkflowApplicationComposition:
 
     def _reopen_data_handles(self) -> None:
         self.repository = SceneRepository(self.repository_path)
+        self._rebind_project_identity_after_restore()
+        # Restore completion reports the actual active project (#768 D);
+        # surfaced after thaw rebuilds the destination.
+        self._restore_rebind_note = (
+            f'アクティブプロジェクト: {self.document_id}'
+            if self.document_id
+            else '復元が完了しました。プロジェクトを選択してください。'
+        )
+
+    def _rebind_project_identity_after_restore(self) -> None:
+        """Re-resolve the active project against the restored generation (#768).
+
+        Whole-data replacement swapped the database: the previous
+        ``document_id`` may not exist in the restored universe, and every
+        pre-restore navigation entry addresses a different data epoch. The
+        chip and composition must reflect the actual restored authority —
+        never a stale id kept alive for UI continuity.
+        """
+        self.shell.navigation_history.clear()
+        previous = self.document_id
+        if self.repository.current_head(previous) is not None:
+            # The exact pre-restore document still exists — it stays active.
+            self.shell.set_project_identity(previous)
+            return
+        # Resolve through canonical project identity: registry first, then
+        # unregistered live documents (restores from pre-registry builds).
+        library = ProjectLibrary(self.repository_path)
+        active = library.list_projects()
+        if active:
+            self.document_id = active[0].document_id
+            self.shell.set_project_identity(self.document_id)
+            return
+        head_document_ids = [
+            entry.document_id
+            for entry in ProjectLibraryService(self.repository).list_projects()
+        ]
+        if head_document_ids:
+            self.document_id = head_document_ids[0]
+            self.shell.set_project_identity(self.document_id)
+            return
+        # The restored generation has no projects at all: route to the
+        # Project Library surface for explicit selection — a non-existent
+        # document id must never remain the active project.
+        self.document_id = ''
+        self.shell.set_project_identity(None)
 
     def _freeze_data_mutations(self) -> None:
         # Gate the command authority first so QShortcut activations and command
@@ -1583,8 +1749,16 @@ class WorkflowApplicationComposition:
         self.shell.thaw_data_mutations()
         self.registry.thaw_data_mutations()
         if self.shell.router.current_workspace_id is None:
-            if not self.shell.navigate(WorkspaceId.OVERVIEW):
-                raise RuntimeError("復元後の概要画面を再構築できませんでした")
+            destination = (
+                WorkspaceId.OVERVIEW
+                if self.document_id
+                else ApplicationDestinationId.PROJECTS
+            )
+            if not self.shell.navigate(destination):
+                raise RuntimeError("復元後の画面を再構築できませんでした")
+        note, self._restore_rebind_note = self._restore_rebind_note, None
+        if note is not None:
+            self.shell.statusBar().showMessage(note)
 
     def _export_capture_equipment_catalog(self) -> None:
         """Operator action behind ``equipment.export_capture_catalog``.

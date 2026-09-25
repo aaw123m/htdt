@@ -58,6 +58,11 @@ class DeviceBindingMismatchError(ValueError):
     """A record is bound to a different device identity/version/routing."""
 
 
+class AdapterResultMismatchError(ValueError):
+    """The adapter returned a result bound to different authorities than
+    the service call requested (#865)."""
+
+
 def _canonical_json(payload: Any) -> str:
     return json.dumps(
         payload,
@@ -90,6 +95,13 @@ class AdapterDeviceBinding(BaseModel):
     firmware_version: str = Field(min_length=1)
     #: channel_id -> physical output on this device.
     routing: tuple[tuple[str, str], ...] = ()
+    #: Optional exact installed-equipment authority this unit corresponds
+    #: to (#865). Future live integrations bind the precise
+    #: InstalledEquipmentInstance instead of fuzzy serial/model matching;
+    #: Stage-A offline bindings leave it unset.
+    installed_equipment_instance_id: str | None = Field(
+        default=None, min_length=1
+    )
     bound_at_utc: str = Field(min_length=1)
     binding_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -106,7 +118,7 @@ class AdapterDeviceBinding(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'binding_id': self.binding_id,
             'adapter_id': self.adapter_id,
             'device_family': self.device_family,
@@ -116,6 +128,11 @@ class AdapterDeviceBinding(BaseModel):
             'routing': [list(entry) for entry in self.routing],
             'bound_at_utc': self.bound_at_utc,
         }
+        if self.installed_equipment_instance_id is not None:
+            payload['installed_equipment_instance_id'] = (
+                self.installed_equipment_instance_id
+            )
+        return payload
 
 
 def build_device_binding(
@@ -128,6 +145,7 @@ def build_device_binding(
     routing: tuple[tuple[str, str], ...],
     bound_at_utc: str,
     binding_id: str | None = None,
+    installed_equipment_instance_id: str | None = None,
 ) -> AdapterDeviceBinding:
     payload: dict[str, Any] = {
         'binding_id': binding_id or str(uuid4()),
@@ -137,6 +155,7 @@ def build_device_binding(
         'device_serial': device_serial,
         'firmware_version': firmware_version,
         'routing': tuple(routing),
+        'installed_equipment_instance_id': installed_equipment_instance_id,
         'bound_at_utc': bound_at_utc,
     }
     provisional = AdapterDeviceBinding.model_construct(
@@ -456,16 +475,86 @@ def _assert_binding(adapter_id: str, binding: AdapterDeviceBinding) -> None:
         )
 
 
+def validate_materialization_result(
+    capability: AdapterCapabilityReport,
+    requested_export: CadCalibrationExportSnapshot,
+    requested_binding: AdapterDeviceBinding,
+    materialization: MaterializedCalibrationSettings,
+) -> None:
+    """#865: framework postcondition on every adapter ``materialize()`` return.
+
+    A self-hashed :class:`MaterializedCalibrationSettings` only proves the
+    payload is internally consistent — a buggy or misbehaving adapter can
+    still return a record bound to different authorities than the call
+    requested. The service runs this check for every adapter; adapter
+    correctness is never the only boundary.
+    """
+
+    if materialization.adapter_id != capability.adapter_id:
+        raise AdapterResultMismatchError(
+            f'materialization adapter_id {materialization.adapter_id} != '
+            f'capability adapter_id {capability.adapter_id}'
+        )
+    if materialization.adapter_version != capability.adapter_version:
+        raise AdapterResultMismatchError(
+            f'materialization adapter_version '
+            f'{materialization.adapter_version} != capability '
+            f'{capability.adapter_version}'
+        )
+    if materialization.export_id != requested_export.export_id:
+        raise AdapterResultMismatchError(
+            f'materialization export_id {materialization.export_id} != '
+            f'requested export {requested_export.export_id}'
+        )
+    if (
+        materialization.exported_settings_semantic_sha256
+        != requested_export.exported_settings_semantic_sha256
+    ):
+        raise AdapterResultMismatchError(
+            'materialization export semantic hash does not equal the '
+            'requested export'
+        )
+    if materialization.binding_id != requested_binding.binding_id:
+        raise AdapterResultMismatchError(
+            f'materialization binding_id {materialization.binding_id} != '
+            f'requested binding {requested_binding.binding_id}'
+        )
+    if (
+        materialization.binding_sha256
+        != requested_binding.binding_sha256
+    ):
+        raise AdapterResultMismatchError(
+            'materialization binding hash does not equal the requested '
+            'device binding'
+        )
+
+
 class CalibrationAdapterService:
     """Framework-level orchestration over a CalibrationDeviceAdapter.
 
     Enforces the contract centrally: capability gating, binding checks,
-    and the explicit operator-confirmation requirement for live mutation.
+    the explicit operator-confirmation requirement for live mutation, and
+    (#865) postcondition validation of every adapter return plus
+    export-derived project identity for observed state.
+
+    ``calibration_repository``: the canonical calibration authority used
+    to re-resolve persisted exports/plans. Required for
+    ``read_back_snapshot``/``record_operator_snapshot`` — an observed
+    snapshot's document identity is *derived* from the exact persisted
+    CalibrationPlan, never taken from arbitrary caller input. Optional for
+    pure materialize/apply flows; when supplied, apply also re-resolves
+    the export the materialization claims.
     """
 
-    def __init__(self, adapter: CalibrationDeviceAdapter) -> None:
+    def __init__(
+        self,
+        adapter: CalibrationDeviceAdapter,
+        *,
+        calibration_repository=None,
+    ) -> None:
         self.adapter = adapter
         self._capability = adapter.capability()
+        self.calibration_repository = calibration_repository
 
     def capability(self) -> AdapterCapabilityReport:
         return self._capability
@@ -484,9 +573,13 @@ class CalibrationAdapterService:
             raise AdapterCapabilityError(
                 f'{self._capability.adapter_id} cannot materialize settings'
             )
-        return self.adapter.materialize(
+        materialization = self.adapter.materialize(
             export, binding, created_at_utc=created_at_utc
         )
+        validate_materialization_result(
+            self._capability, export, binding, materialization
+        )
+        return materialization
 
     def apply_materialization(
         self,
@@ -504,10 +597,38 @@ class CalibrationAdapterService:
         """
 
         _assert_binding(self._capability.adapter_id, binding)
+        if materialization.adapter_id != self._capability.adapter_id:
+            raise AdapterResultMismatchError(
+                'materialization was produced by a different adapter'
+            )
+        if (
+            materialization.adapter_version
+            != self._capability.adapter_version
+        ):
+            raise AdapterResultMismatchError(
+                'materialization was produced by a different adapter version'
+            )
         if binding.binding_sha256 != materialization.binding_sha256:
             raise DeviceBindingMismatchError(
                 'materialization is bound to a different device'
             )
+        if self.calibration_repository is not None:
+            resolved = self.calibration_repository.get_export(
+                materialization.export_id
+            )
+            if resolved is None:
+                raise AdapterResultMismatchError(
+                    f'materialization export {materialization.export_id} '
+                    'is not persisted calibration authority'
+                )
+            if (
+                resolved.exported_settings_semantic_sha256
+                != materialization.exported_settings_semantic_sha256
+            ):
+                raise AdapterResultMismatchError(
+                    'materialization does not match the exact persisted '
+                    'calibration export it claims'
+                )
         if not self._capability.supports_apply:
             raise AdapterCapabilityError(
                 f'{self._capability.adapter_id} cannot apply settings'
@@ -517,19 +638,82 @@ class CalibrationAdapterService:
                 'applying calibration settings requires explicit operator '
                 'confirmation'
             )
-        return self.adapter.apply(
+        ack = self.adapter.apply(
             materialization,
             binding,
             operator_confirmed=operator_confirmed,
             applied_at_utc=applied_at_utc,
         )
+        if ack.materialization_id != materialization.materialization_id:
+            raise AdapterResultMismatchError(
+                'apply ack does not bind the exact materialization requested'
+            )
+        return ack
+
+    def _resolve_observation_document(
+        self,
+        export: CadCalibrationExportSnapshot,
+        claimed_document_id: str | None,
+    ) -> str:
+        """#865: derive the snapshot's project identity from exact persisted
+        calibration authority — never from a caller-supplied label."""
+
+        repository = self.calibration_repository
+        if repository is None:
+            raise AdapterCapabilityError(
+                'observed-state authority requires a calibration repository'
+            )
+        resolved = repository.get_export(export.export_id)
+        if resolved is None or resolved != export:
+            raise AdapterResultMismatchError(
+                'observed state requires the exact persisted calibration '
+                'export'
+            )
+        plan = repository.get_plan(resolved.calibration_plan_id)
+        if plan is None:
+            raise AdapterResultMismatchError(
+                'calibration export resolves no persisted CalibrationPlan'
+            )
+        if (
+            claimed_document_id is not None
+            and claimed_document_id != plan.document_id
+        ):
+            raise AdapterResultMismatchError(
+                f'snapshot document {claimed_document_id} does not match '
+                f'the export authority document {plan.document_id}'
+            )
+        return plan.document_id
+
+    def _assert_observed_channels(
+        self,
+        export: CadCalibrationExportSnapshot,
+        binding: AdapterDeviceBinding,
+        channels: tuple[CadExportedChannelSettings, ...],
+    ) -> None:
+        """#865 channel policy: an observed channel must belong to the
+        export's channel set or the bound device's routing map. Extra or
+        missing channels relative to the export stay recorded as
+        deviations — they can never change project identity or claim a
+        channel that exists in neither authority."""
+
+        known = {item.channel_id for item in export.channels} | {
+            entry[0] for entry in binding.routing
+        }
+        foreign = [
+            item.channel_id for item in channels if item.channel_id not in known
+        ]
+        if foreign:
+            raise AdapterResultMismatchError(
+                f'observed channel ids {foreign} are in neither the export '
+                'nor the bound device routing'
+            )
 
     def read_back_snapshot(
         self,
         binding: AdapterDeviceBinding,
         export: CadCalibrationExportSnapshot,
         *,
-        document_id: str,
+        document_id: str | None = None,
         observed_at_utc: str,
     ) -> EffectiveAppliedSettingsSnapshot:
         """Observe the effective installed state on the bound device."""
@@ -539,7 +723,11 @@ class CalibrationAdapterService:
             raise AdapterCapabilityError(
                 f'{self._capability.adapter_id} cannot read back settings'
             )
+        document_id = self._resolve_observation_document(
+            export, document_id
+        )
         channels = self.adapter.read_back(binding, observed_at_utc=observed_at_utc)
+        self._assert_observed_channels(export, binding, channels)
         return build_observation(
             document_id=document_id,
             binding=binding,
@@ -554,13 +742,17 @@ class CalibrationAdapterService:
         binding: AdapterDeviceBinding,
         export: CadCalibrationExportSnapshot,
         *,
-        document_id: str,
+        document_id: str | None = None,
         observed_channels: tuple[CadExportedChannelSettings, ...],
         observed_at_utc: str,
     ) -> EffectiveAppliedSettingsSnapshot:
         """Explicit operator-entered read-back — same authority shape."""
 
         _assert_binding(self._capability.adapter_id, binding)
+        document_id = self._resolve_observation_document(
+            export, document_id
+        )
+        self._assert_observed_channels(export, binding, observed_channels)
         return build_observation(
             document_id=document_id,
             binding=binding,
@@ -578,6 +770,7 @@ __all__ = [
     'AdapterCapabilityReport',
     'AdapterDeviceBinding',
     'AdapterKind',
+    'AdapterResultMismatchError',
     'CalibrationAdapterService',
     'CalibrationDeviceAdapter',
     'DeviceApplyAck',
@@ -588,4 +781,5 @@ __all__ = [
     'build_device_binding',
     'build_observation',
     'diff_observed_vs_exported',
+    'validate_materialization_result',
 ]

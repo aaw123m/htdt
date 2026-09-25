@@ -267,13 +267,31 @@ class CadAcousticMaterialRepository:
             )
 
     def save_material(self, material: AcousticMaterialAuthority) -> None:
+        """Persist an immutable material authority.
+
+        The same ``material_id`` with a byte-identical payload is an
+        idempotent no-op; a different payload under an existing id is a
+        collision and rejected — a new semantic revision must carry a new
+        authority identity, never an in-place update.
+        """
+        payload_json = material.model_dump_json()
         with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_acoustic_materials'
+                ' WHERE material_id=?',
+                (material.material_id,),
+            ).fetchone()
+            if row is not None:
+                if row['payload_json'] == payload_json:
+                    return
+                raise ValueError(
+                    f'material authority id collision with different payload: '
+                    f'{material.material_id}'
+                )
             connection.execute(
                 'INSERT INTO cad_acoustic_materials(material_id, payload_json)'
-                ' VALUES(?,?)'
-                ' ON CONFLICT(material_id) DO UPDATE SET'
-                ' payload_json=excluded.payload_json',
-                (material.material_id, material.model_dump_json()),
+                ' VALUES(?,?)',
+                (material.material_id, payload_json),
             )
 
     def get_material(
@@ -324,7 +342,33 @@ class CadAcousticMaterialRepository:
         document_id: str,
         source_surface_id: str,
         material: AcousticMaterialAuthority,
+        surfaces: tuple[SemanticSurface, ...] | None = None,
     ) -> None:
+        """Bind a persisted material authority to a document surface.
+
+        The material must already be persisted with an identical semantic
+        hash — assignment never trusts caller-authored content. When
+        ``surfaces`` (the document's semantic geometry) is supplied the
+        target surface must exist in it; without it the target is recorded
+        but unverified.
+        """
+        persisted = self.get_material(material.material_id)
+        if persisted is None:
+            raise ValueError(
+                f'material authority is not persisted: {material.material_id}'
+            )
+        if persisted.semantic_sha256 != material.semantic_sha256:
+            raise ValueError(
+                f'material authority hash does not match the persisted '
+                f'record: {material.material_id}'
+            )
+        if surfaces is not None and all(
+            surface.surface_id != source_surface_id for surface in surfaces
+        ):
+            raise ValueError(
+                f'surface {source_surface_id} is not present in the '
+                'document geometry authority'
+            )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 'INSERT INTO cad_surface_material_assignments'
@@ -410,6 +454,17 @@ class CadAcousticMaterialRepository:
         only surfaces with an explicit assignment produce a binding;
         unassigned surfaces stay UNSUPPORTED downstream, never guessed."""
         assignments = self.assignments_for_document(document_id)
+        surface_ids = {surface.surface_id for surface in surfaces}
+        stale = sorted(
+            source_surface_id
+            for source_surface_id in assignments
+            if source_surface_id not in surface_ids
+        )
+        if stale:
+            raise ValueError(
+                'surface material assignments reference surfaces missing '
+                f'from the document geometry: {", ".join(stale)}'
+            )
         bindings: list[SurfaceBoundaryAuthorityBinding] = []
         for surface in surfaces:
             material = assignments.get(surface.surface_id)
