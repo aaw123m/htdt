@@ -27,6 +27,9 @@ dependencies = [
   # SOFA (netCDF4/HDF5) spatial dataset ingestion (#809); imported lazily only
   # when a .sofa file is loaded.
   "h5py==3.16.0",
+  # YAML parsing for CamillaDSP config import (#1072); imported lazily only
+  # when a YAML (non-JSON) CamillaDSP source is parsed.
+  "PyYAML==6.0.3",
 ]
 
 [project.scripts]
