@@ -534,7 +534,9 @@ class _RepositoryChain:
                 CadInstalledEquipmentRepository,
             )
 
-            return CadInstalledEquipmentRepository(scene)
+            return CadInstalledEquipmentRepository(
+                scene, self.repo('equipment')
+            )
         if name == 'upgrades':
             from .cad_library_upgrade_repository import (
                 CadLibraryUpgradeRepository,
@@ -1960,6 +1962,10 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
     'sqlite_sequence': (
         'OPERATIONAL_METADATA',
         'sqlite autoincrement bookkeeping',
+    ),
+    'htdt_storage_gc_pending': (
+        'pending blob-GC queue — transient operational state re-derivable '
+        'from the blob store'
     ),
     'ci_marker': (
         'OPERATIONAL_METADATA',
