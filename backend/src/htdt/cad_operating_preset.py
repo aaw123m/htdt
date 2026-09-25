@@ -70,6 +70,7 @@ PresetComponentKind = Literal[
     'photometric_state',
     'av_sync_condition',
     'room_operating_state',
+    'playback_level_condition',
     'playback_chain',
     'listening_population',
     'other',
@@ -103,6 +104,12 @@ class PresetComponentRef(BaseModel):
     one; authorities keyed by bare ids (e.g. an operating-state row that has
     no semantic hash) may leave it unset, in which case staleness is decided
     purely by whether the id still resolves.
+
+    ``external_dependency`` marks a component that is *deliberately* not a
+    resolvable local authority — e.g. a service-side or external snapshot
+    the project cannot enumerate. It is the explicit contract for an
+    unresolved pin: without it, ``save_preset`` rejects refs that do not
+    resolve to a persisted authority.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -111,6 +118,7 @@ class PresetComponentRef(BaseModel):
     ref_id: str = Field(min_length=1)
     ref_sha256: str | None = Field(default=None, min_length=8)
     label: str | None = Field(default=None, min_length=1)
+    external_dependency: bool = False
 
 
 class PresetProvenanceItem(BaseModel):
@@ -240,6 +248,15 @@ class PresetMeasurementBinding(BaseModel):
     Repeated measurements are only semantically comparable when they name the
     same operating preset, so the binding is persisted as its own append-only
     record rather than inferred from timestamps.
+
+    ``measurement_sha256s`` optionally pins each measurement's semantic hash
+    (same order as ``measurement_ids``) so the binding references exact
+    measurement versions, not bare ids.
+
+    ``historical_attestation`` is the explicit allowance for binding a
+    measurement captured *before* the preset itself was saved — the recorded
+    claim that this earlier measurement genuinely belongs to this operating
+    configuration.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -249,13 +266,21 @@ class PresetMeasurementBinding(BaseModel):
     preset_id: str = Field(min_length=1)
     preset_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     measurement_ids: tuple[str, ...] = Field(min_length=1)
+    measurement_sha256s: tuple[str, ...] | None = None
     bound_at_utc: str = Field(min_length=1)
+    historical_attestation: bool = False
     binding_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
     @model_validator(mode='after')
     def valid_binding(self) -> 'PresetMeasurementBinding':
         if len(self.measurement_ids) != len(set(self.measurement_ids)):
             raise ValueError('binding measurement ids must be unique')
+        if self.measurement_sha256s is not None and len(
+            self.measurement_sha256s
+        ) != len(self.measurement_ids):
+            raise ValueError(
+                'measurement_sha256s must align one-to-one with measurement_ids'
+            )
         if self.binding_sha256 != _hash(self.semantic_payload()):
             raise ValueError('PresetMeasurementBinding hash mismatch')
         return self
@@ -267,7 +292,13 @@ class PresetMeasurementBinding(BaseModel):
             'preset_id': self.preset_id,
             'preset_sha256': self.preset_sha256,
             'measurement_ids': list(self.measurement_ids),
+            'measurement_sha256s': (
+                list(self.measurement_sha256s)
+                if self.measurement_sha256s is not None
+                else None
+            ),
             'bound_at_utc': self.bound_at_utc,
+            'historical_attestation': self.historical_attestation,
         }
 
 
@@ -380,6 +411,8 @@ def bind_preset_measurements(
     *,
     measurement_ids: tuple[str, ...],
     bound_at_utc: str,
+    measurement_sha256s: tuple[str, ...] | None = None,
+    historical_attestation: bool = False,
     binding_id: str | None = None,
 ) -> PresetMeasurementBinding:
     payload: dict[str, Any] = {
@@ -388,7 +421,11 @@ def bind_preset_measurements(
         'preset_id': preset.preset_id,
         'preset_sha256': preset.preset_sha256,
         'measurement_ids': tuple(measurement_ids),
+        'measurement_sha256s': (
+            tuple(measurement_sha256s) if measurement_sha256s is not None else None
+        ),
         'bound_at_utc': bound_at_utc,
+        'historical_attestation': historical_attestation,
     }
     provisional = PresetMeasurementBinding.model_construct(
         **payload, binding_sha256='0' * 64
@@ -458,6 +495,7 @@ _COMPONENT_LABELS: dict[str, str] = {
     'photometric_state': '光出力状態',
     'av_sync_condition': 'AV同期条件',
     'room_operating_state': '部屋の状態',
+    'playback_level_condition': '再生レベル条件',
     'playback_chain': '再生チェーン',
     'listening_population': 'リスニング範囲',
     'other': 'その他',

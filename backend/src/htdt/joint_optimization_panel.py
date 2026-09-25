@@ -10,6 +10,7 @@ SystemVariant / CalibrationPlan lifecycle (#452).
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -25,6 +26,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import (
+    format_versioned_label,
+    revision_display_label,
+    saved_label,
+    spec_display_label,
+)
 from .cad_joint_optimization import JointDspVariable
 from .joint_optimization_context import (
     DEFAULT_MAGNITUDE_BAND_HZ,
@@ -145,17 +152,33 @@ class JointOptimizationPanel(QWidget):
         plan = baseline.calibration_plan
         report = baseline.quality_report
         robustness = baseline.robustness_spec
+        revision_labels = self.context.repository.revision_labels(
+            self.context.document_id
+        )
         self.baseline_label.setText(
             'ベースライン: 部屋リビジョン '
-            f'{baseline.scene_revision.revision_id[:12]}… / '
-            f'バリアント {baseline.base_variant.variant_id[:18]}… / '
-            f'物理探索 {baseline.physical_search_spec.search_spec_id[:18]}… / '
+            f'{revision_display_label(baseline.scene_revision, revision_labels)} / '
+            f'バリアント {baseline.base_variant.name} / '
+            f'物理探索 '
+            f'{spec_display_label(baseline.physical_search_spec.name, baseline.physical_search_spec.created_at_utc)} / '
             f'CalibrationPlan '
-            f'{plan.plan_id[:18] + "…" if plan is not None else "なし"} / '
-            f'品質レポート '
-            f'{report.report_id[:18] + "…" if report is not None else "なし"} / '
-            f'O90 '
-            f'{robustness.robustness_spec_id[:18] + "…" if robustness is not None else "なし"}'
+            + (
+                format_versioned_label('v', plan.plan_version, plan.created_at_utc)
+                if plan is not None
+                else 'なし'
+            )
+            + ' / 品質レポート '
+            + (
+                saved_label(report.created_at_utc)
+                if report is not None
+                else 'なし'
+            )
+            + ' / O90 '
+            + (
+                saved_label(robustness.created_at_utc)
+                if robustness is not None
+                else 'なし'
+            )
         )
         options = self.context.dsp_variable_options(baseline)
         self._build_dsp_rows(options)
@@ -323,7 +346,8 @@ class JointOptimizationPanel(QWidget):
             return
         if self._on_status is not None:
             self._on_status(
-                f'ジョイント最適化仕様を保存しました: {spec.spec_id[:18]}…'
+                'ジョイント最適化仕様を保存しました: '
+                f'{saved_label(spec.created_at_utc)}'
             )
         self._refresh_saved_specs()
 
@@ -338,10 +362,12 @@ class JointOptimizationPanel(QWidget):
             mode = 'joint' if spec.dsp_variables else 'placement_only'
             item = QTreeWidgetItem(
                 (
-                    spec.spec_id,
+                    saved_label(spec.created_at_utc),
                     mode,
                     str(dsp_count),
                     str(spec.candidate_budget),
                 )
             )
+            item.setData(0, Qt.ItemDataRole.UserRole, spec.spec_id)
+            item.setToolTip(0, spec.spec_id)
             self.spec_tree.addTopLevelItem(item)
