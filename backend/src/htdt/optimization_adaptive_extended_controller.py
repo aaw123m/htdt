@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QTreeWidgetItem
 
 from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
+from .developer_mode import developer_mode_enabled
 from .native_editor import ROLE
 
 
@@ -29,7 +30,7 @@ class AdaptiveExtendedControllerMixin:
             return
 
         scope = (
-            'development_synthetic'
+            'production_owned_room'
             if self.adaptive_scope_combo is None
             else str(self.adaptive_scope_combo.currentData())
         )
@@ -95,7 +96,15 @@ class AdaptiveExtendedControllerMixin:
             return
 
         selected_item = None
+        # #901: historical synthetic plans stay stored and readable but are
+        # hidden from the production list unless developer mode is on.
+        show_synthetic = developer_mode_enabled()
         for plan in reversed(plans):
+            if (
+                not show_synthetic
+                and plan.execution_scope == 'development_synthetic'
+            ):
+                continue
             scope_text = (
                 'synthetic'
                 if plan.execution_scope == 'development_synthetic'

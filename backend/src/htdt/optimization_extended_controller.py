@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from .analysis_markers import render_analysis_marker_cloud
 from .cad_adaptive_repository import CadAdaptivePlanRepository
 from .cad_adaptive_service import CadAdaptivePlannerService
+from .developer_mode import developer_mode_enabled
 from .cad_extended_search import (
     CadExtendedCandidate,
     CadExtendedCandidateSetPage,
@@ -144,7 +145,16 @@ class ExtendedSearchControllerMixin:
         )
         with QSignalBlocker(combo):
             combo.clear()
+            # #901: synthetic-fixture capabilities stay readable but are
+            # filtered from the production selector unless developer mode
+            # is explicitly enabled.
+            show_synthetic = developer_mode_enabled()
             for capability in self.extended_repository.list_capabilities():
+                if (
+                    not show_synthetic
+                    and capability.evidence_scope == 'synthetic_fixture'
+                ):
+                    continue
                 combo.addItem(
                     f'{capability.evidence_scope} · '
                     f'{capability.model_id}/{capability.model_version}',

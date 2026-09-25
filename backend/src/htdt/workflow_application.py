@@ -321,6 +321,14 @@ class WorkflowApplicationComposition:
             "installation.export_handoff",
             execute=self._export_installation_handoff,
         )
+        self.registry.bind(
+            "analysis.export_bundle",
+            execute=self._export_analysis_bundle,
+        )
+        self.registry.bind(
+            "project.deliverables",
+            execute=self._open_deliverables,
+        )
         self._apply_project_title()
         self._build_project_menu()
 
@@ -352,6 +360,10 @@ class WorkflowApplicationComposition:
         )
         menu.addAction(
             "プロジェクトをインポート…", self._import_project_bundle
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "デリバラブルセンター…", self._open_deliverables
         )
         menu.addSeparator()
         menu.addAction(
@@ -908,14 +920,51 @@ class WorkflowApplicationComposition:
         )
 
     def _open_commissioning_wizard(self) -> None:
-        """First-run project commissioning wizard (#588)."""
+        """First-run project commissioning wizard (#588).
+
+        #898: the wizard converges the collected intent into the canonical
+        ProjectDesignBrief and offers the built-in/user ProjectTemplates as
+        a start method — template-instantiated projects land with library
+        identity, instantiation provenance and the pending measurement
+        pattern, while the merged wizard+template brief is written by the
+        wizard on save.
+        """
+        from .cad_design_brief_repository import CadDesignBriefRepository
+        from .cad_project_template import create_project_from_template
+        from .cad_project_template_repository import (
+            CadProjectTemplateRepository,
+        )
         from .commissioning_wizard import CommissioningWizard
+
+        template_repository = CadProjectTemplateRepository(self.repository)
+        brief_repository = CadDesignBriefRepository(self.repository)
+        template_options = tuple(
+            (template.name, template)
+            for template in template_repository.list_templates()
+        )
+
+        def _start_from_template(template, display_name, document_id):
+            return create_project_from_template(
+                self.repository,
+                template,
+                library=ProjectLibrary(self.repository_path),
+                display_name=display_name,
+                document_id=document_id,
+                created_at_utc=datetime.now(timezone.utc).isoformat(),
+                instantiation_repository=template_repository,
+                # The wizard materializes the merged wizard+template brief
+                # itself on save — no duplicate brief write here (#898).
+                design_brief_repository=None,
+            )
 
         wizard = CommissioningWizard(
             self.repository,
             self.document_id,
             data_dir=self.data_dir,
             overview_service=self._build_overview_service(),
+            brief_repository=brief_repository,
+            template_options=template_options,
+            template_starter=_start_from_template,
             parent=self.shell,
         )
         wizard.navigate_requested.connect(self._navigate_target)
@@ -1874,6 +1923,39 @@ class WorkflowApplicationComposition:
             "次のファイルを書き出しました:\n"
             + "\n".join(str(path) for path in outputs.values()),
         )
+
+    def _open_deliverables(self) -> None:
+        """Project Deliverables Center (#900).
+
+        One project-scoped surface for generatable outputs: availability,
+        pinned source authorities and missing inputs are computed live by
+        DeliverablesCatalogService; generation routes to the existing
+        domain commands and input deep-links open the owning workspace.
+        """
+        from .deliverables_catalog import DeliverablesCatalogService
+        from .deliverables_dialog import DeliverablesDialog
+
+        generators = {
+            'installation.export_handoff': self._export_installation_handoff,
+            'analysis.export_bundle': self._export_analysis_bundle,
+            'equipment.export_capture_catalog': (
+                self._export_capture_equipment_catalog
+            ),
+        }
+        dialog = DeliverablesDialog(
+            DeliverablesCatalogService(
+                self.repository,
+                self.document_id,
+                overview_service=self._build_overview_service(),
+            ),
+            document_id=self.document_id,
+            on_command=lambda command_id: generators.get(
+                command_id, lambda: None
+            )(),
+            on_navigate=self._navigate_target,
+            parent=self.shell,
+        )
+        dialog.exec()
 
     def _export_analysis_bundle(self) -> None:
         """Operator action behind ``analysis.export_bundle`` (#512).

@@ -6,6 +6,13 @@ state is limited to the user's declared intent, explicit skip marks, and a
 stage cursor; every requirement's real status is re-derived from the
 authoritative workspace reads (OverviewReadinessService / repositories)
 each time the plan is opened, so resuming never replays stale checkmarks.
+
+The requirement list itself is *derived* from the declared intent (#899):
+audio-only suppresses video-scope work, REW availability changes
+measurement guidance, a declared speaker count produces a current-vs-
+planned topology delta, the hybrid-prediction opt-in adds its measured-
+evidence prerequisite, and performance goals decide whether measurement
+is required or optional — no wizard answer is passive metadata.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
+from .cad_scene import is_unassigned_speaker_role
 from .overview_readiness import OverviewReadinessService
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
@@ -35,6 +43,10 @@ class CommissioningPlanError(Exception):
 
 
 RequirementStatus = Literal['pending', 'satisfied', 'skipped']
+
+#: How mandatory a requirement is for *this* project's declared path —
+#: derived from intent (#899), never a global score.
+RequirementLevel = Literal['required', 'recommended', 'optional']
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +69,8 @@ class CommissioningRequirement:
     title: str
     status: RequirementStatus
     reason: str
+    #: Why this requirement exists on this project's path (#899).
+    level: RequirementLevel = 'required'
     link: WorkspaceDeepLink | None = None
 
 
@@ -182,21 +196,91 @@ class CommissioningPlanRepository:
         return tuple(p for p in plans if p is not None)
 
 
-#: Declarative requirement list. Each entry is re-derived from live reads;
-#: ``skipped_requirements`` on the plan is the only durable per-item state.
-_REQUIREMENTS: tuple[tuple[str, CommissioningStage, str], ...] = (
-    ('room.geometry', CommissioningStage.ROOM, '部屋形状を決定する'),
-    ('system.speakers', CommissioningStage.SYSTEM, 'スピーカーを配置する'),
-    ('system.listening', CommissioningStage.SYSTEM, 'リスニングポイントを設定する'),
-    ('measurement.data', CommissioningStage.MEASUREMENT, '測定データを登録する'),
-    ('readiness.summary', CommissioningStage.READINESS, '準備状況を確認する'),
-)
+def _derive_requirements(
+    intent: CommissioningIntent,
+) -> tuple[tuple[str, CommissioningStage, RequirementLevel, str], ...]:
+    """Requirement graph derived from declared intent (#899).
+
+    Every wizard answer has a documented effect: existing-room intent
+    switches the room requirement to acquisition/import guidance, the
+    planned speaker count turns the speaker requirement into a
+    current-vs-planned delta, performance goals and the hybrid-prediction
+    opt-in make measured data required, and an audio-only project never
+    receives video-scope tasks. A goal-less document/inventory project can
+    reach a useful state without being told measurement is mandatory.
+    """
+    measurement_level: RequirementLevel = 'required'
+    if not intent.goals and not intent.wants_hybrid_prediction:
+        measurement_level = (
+            'recommended' if intent.rew_available else 'optional'
+        )
+    listening_level: RequirementLevel = (
+        'required'
+        if (
+            intent.goals
+            or intent.rew_available
+            or intent.wants_hybrid_prediction
+        )
+        else 'optional'
+    )
+    requirements: list[tuple[str, CommissioningStage, RequirementLevel, str]] = [
+        (
+            'room.geometry',
+            CommissioningStage.ROOM,
+            'required',
+            (
+                '部屋の既存データを取り込む・確認する'
+                if intent.has_existing_room
+                else '部屋形状を決定する'
+            ),
+        ),
+        (
+            'system.speakers',
+            CommissioningStage.SYSTEM,
+            'required',
+            (
+                f'スピーカーを配置する（計画 {intent.planned_speaker_count} 台）'
+                if intent.planned_speaker_count > 0
+                else 'スピーカーを配置する'
+            ),
+        ),
+        (
+            'system.listening',
+            CommissioningStage.SYSTEM,
+            listening_level,
+            'リスニングポイントを設定する',
+        ),
+        (
+            'measurement.data',
+            CommissioningStage.MEASUREMENT,
+            measurement_level,
+            '測定データを登録する',
+        ),
+    ]
+    if intent.wants_hybrid_prediction:
+        # The checkbox has a real downstream effect: hybrid prediction is
+        # only meaningful with measured evidence, so the plan carries that
+        # prerequisite explicitly instead of an inert preference (#899).
+        requirements.append((
+            'prediction.hybrid_evidence',
+            CommissioningStage.MEASUREMENT,
+            'required',
+            'ハイブリッド予測用の測定エビデンスを揃える',
+        ))
+    requirements.append((
+        'readiness.summary',
+        CommissioningStage.READINESS,
+        'required',
+        '準備状況を確認する',
+    ))
+    return tuple(requirements)
 
 
 def _requirement_status(
     requirement_id: str,
     view,
     revision,
+    intent: CommissioningIntent,
 ) -> tuple[RequirementStatus, str, WorkspaceDeepLink | None]:
     """Map an Overview readiness view onto a requirement verdict."""
     blockers = {notice.code: notice for notice in view.blockers}
@@ -221,6 +305,21 @@ def _requirement_status(
                 notice = blockers[code]
                 link = notice.action.target if notice.action else None
                 return 'pending', notice.message, link
+        # Declared topology intent makes the step meaningful (#899-D): a
+        # single valid speaker no longer satisfies a plan that asked for N.
+        planned = intent.planned_speaker_count
+        defined = sum(
+            1
+            for entity in entities
+            if str(entity.kind) == 'speaker'
+            and not is_unassigned_speaker_role(entity.speaker_role)
+        )
+        if planned > 0 and defined < planned:
+            return (
+                'pending',
+                f'計画 {planned} 台のうち {defined} 台がロール定義済みです',
+                WorkspaceDeepLink(WorkspaceId.ROOM, 'placement'),
+            )
         return 'satisfied', 'スピーカー構成は定義済みです', None
     if requirement_id == 'system.listening':
         seat = any(entity.kind == 'seat' for entity in entities)
@@ -238,8 +337,33 @@ def _requirement_status(
         if 'measurement.missing' in warnings:
             notice = warnings['measurement.missing']
             link = notice.action.target if notice.action else None
-            return 'pending', notice.message, link
+            # REW availability changes the guidance, never the verdict —
+            # wizard answers can steer the route but cannot fabricate
+            # measurement readiness (#899-B).
+            if intent.rew_available:
+                return (
+                    'pending',
+                    f'{notice.message} REW などの実測データをインポートしてください。',
+                    link,
+                )
+            return (
+                'pending',
+                f'{notice.message} REW・HTDT-Capture・既存ファイルなどの'
+                '取得経路を選んでください。',
+                link,
+            )
         return 'satisfied', '測定データは登録済みです', None
+    if requirement_id == 'prediction.hybrid_evidence':
+        if 'measurement.missing' in warnings:
+            notice = warnings['measurement.missing']
+            link = notice.action.target if notice.action else None
+            return (
+                'pending',
+                'ハイブリッド予測には測定エビデンスが必要です。'
+                'まず測定データを登録してください。',
+                link or WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'import'),
+            )
+        return 'satisfied', 'ハイブリッド予測に必要な測定エビデンスは揃っています', None
     if requirement_id == 'readiness.summary':
         if view.blockers:
             return (
@@ -263,25 +387,32 @@ class CommissioningService:
         self._overview = overview_service
 
     def requirements(self, plan: CommissioningPlan) -> tuple[CommissioningRequirement, ...]:
+        """Intent-derived requirements against live authority reads (#899).
+
+        The set, classification and guidance all come from ``plan.intent``;
+        manual skips stay explicit and never mean "satisfied".
+        """
         view = self._overview.read(plan.document_id)
         revision = self._repository.latest(plan.document_id)
         results: list[CommissioningRequirement] = []
-        for requirement_id, stage, title in _REQUIREMENTS:
+        for requirement_id, stage, level, title in _derive_requirements(plan.intent):
             if requirement_id in plan.skipped_requirements:
                 results.append(
                     CommissioningRequirement(
                         requirement_id, stage, title,
-                        status='skipped', reason='スキップ済み', link=None,
+                        status='skipped', reason='スキップ済み',
+                        level=level, link=None,
                     )
                 )
                 continue
             status, reason, link = _requirement_status(
-                requirement_id, view, revision
+                requirement_id, view, revision, plan.intent
             )
             results.append(
                 CommissioningRequirement(
                     requirement_id, stage, title,
-                    status=status, reason=reason, link=link,
+                    status=status, reason=reason,
+                    level=level, link=link,
                 )
             )
         return tuple(results)
@@ -295,5 +426,6 @@ __all__ = [
     'CommissioningRequirement',
     'CommissioningService',
     'CommissioningStage',
+    'RequirementLevel',
     'new_plan',
 ]
