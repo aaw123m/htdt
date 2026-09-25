@@ -51,6 +51,13 @@ class CanonicalAuthority:
     semantic_sha256: str | None = None
     #: Canonical containers the ref is a member of.
     container_ids: tuple[str, ...] = ()
+    #: Exact scene baseline the authority is pinned to, when the authority
+    #: is scene-bound (predictions, measurements, standards evaluations,
+    #: checkpoints, as-built and measured records).
+    scene_revision_id: str | None = None
+    scene_content_hash: str | None = None
+    #: System variant the authority belongs to, when variant-scoped.
+    system_variant_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +272,103 @@ def build_canonical_authority_registry(
         return repo(
             'video_geometry',
             lambda: CadVideoGeometryRepository(scene_repository),
+        )
+
+    def predictions():
+        from .cad_prediction_repository import CadPredictionRepository
+
+        return repo(
+            'predictions',
+            lambda: CadPredictionRepository(scene_repository),
+        )
+
+    def search():
+        from .cad_search_repository import CadSearchRepository
+
+        return repo('search', lambda: CadSearchRepository(scene_repository))
+
+    def objectives():
+        from .cad_objective_repository import CadObjectiveRepository
+
+        return repo(
+            'objectives',
+            lambda: CadObjectiveRepository(scene_repository, search()),
+        )
+
+    def roomsim():
+        from .cad_roomsim_repository import CadRoomSimRepository
+
+        return repo(
+            'roomsim',
+            lambda: CadRoomSimRepository(scene_repository, search()),
+        )
+
+    def robustness_repo():
+        from .cad_robustness_repository import CadRobustnessRepository
+
+        return repo(
+            'robustness',
+            lambda: CadRobustnessRepository(
+                scene_repository=scene_repository,
+                search_repository=search(),
+                objective_repository=objectives(),
+            ),
+        )
+
+    def model_validations():
+        from .cad_model_validation_repository import (
+            CadModelValidationRepository,
+        )
+
+        return repo(
+            'model_validations',
+            lambda: CadModelValidationRepository(
+                search(), roomsim(), measurements(), objectives()
+            ),
+        )
+
+    def as_built_lifecycle():
+        from .cad_system_variant_lifecycle import (
+            CadSystemVariantLifecycleRepository,
+        )
+
+        return repo(
+            'as_built_lifecycle',
+            lambda: CadSystemVariantLifecycleRepository(
+                scene_repository=scene_repository,
+                variant_repository=variants(),
+            ),
+        )
+
+    def measured_states():
+        from .cad_system_variant_measured_lifecycle import (
+            CadSystemVariantMeasuredLifecycleRepository,
+        )
+        from .cad_measurement_quality_repository import (
+            CadMeasurementQualityRepository,
+        )
+
+        return repo(
+            'measured_states',
+            lambda: CadSystemVariantMeasuredLifecycleRepository(
+                scene_repository=scene_repository,
+                lifecycle_repository=as_built_lifecycle(),
+                measurement_repository=measurements(),
+                quality_repository=repo(
+                    'measurement_quality',
+                    lambda: CadMeasurementQualityRepository(measurements()),
+                ),
+            ),
+        )
+
+    def presets():
+        from .cad_operating_preset_repository import (
+            CadOperatingPresetRepository,
+        )
+
+        return repo(
+            'presets',
+            lambda: CadOperatingPresetRepository(scene_repository),
         )
 
     registry = CanonicalAuthorityRegistry()
@@ -537,6 +641,8 @@ def build_canonical_authority_registry(
             ref_id=ref_id,
             document_id=record.document_id,
             semantic_sha256=measurement_sha256(record),
+            scene_revision_id=record.scene_revision_id,
+            scene_content_hash=record.scene_content_hash,
         )
 
     register(
@@ -724,6 +830,200 @@ def build_canonical_authority_registry(
         True,
         'CadVideoGeometryRepository',
         video_geometry_resolve,
+    )
+
+    # --- Evaluation/lifecycle authorities ---------------------------------
+
+    def prediction_resolve(ref_id: str, _document_id: str):
+        result = predictions().get(ref_id)
+        if result is None:
+            return None
+        return CanonicalAuthority(
+            kind='prediction',
+            ref_id=ref_id,
+            document_id=result.document_id,
+            semantic_sha256=result.result_sha256,
+            scene_revision_id=result.scene_revision_id,
+            scene_content_hash=result.scene_content_hash,
+        )
+
+    register(
+        'prediction',
+        'project',
+        True,
+        'CadPredictionRepository',
+        prediction_resolve,
+    )
+
+    def validation_resolve(ref_id: str, _document_id: str):
+        record = model_validations().inspect(ref_id)
+        if record is None:
+            return None
+        return CanonicalAuthority(
+            kind='validation',
+            ref_id=ref_id,
+            document_id=record.document_id,
+            semantic_sha256=record.validation_sha256,
+        )
+
+    register(
+        'validation',
+        'project',
+        True,
+        'CadModelValidationRepository',
+        validation_resolve,
+    )
+
+    def standards_evaluation_resolve(ref_id: str, _document_id: str):
+        evaluation = standards().get_evaluation(ref_id)
+        if evaluation is None:
+            return None
+        target = evaluation.target
+        return CanonicalAuthority(
+            kind='standards',
+            ref_id=ref_id,
+            document_id=target.document_id,
+            semantic_sha256=evaluation.evaluation_sha256,
+            scene_revision_id=target.scene_revision_id,
+            scene_content_hash=target.scene_content_hash,
+            system_variant_id=target.system_variant_id,
+        )
+
+    register(
+        'standards',
+        'project',
+        True,
+        'CadStandardsRepository',
+        standards_evaluation_resolve,
+    )
+
+    def robustness_resolve(ref_id: str, _document_id: str):
+        spec = robustness_repo().get_spec(ref_id)
+        if spec is None:
+            return None
+        return CanonicalAuthority(
+            kind='robustness',
+            ref_id=ref_id,
+            document_id=spec.document_id,
+            semantic_sha256=spec.robustness_spec_sha256,
+            scene_revision_id=spec.scene_revision_id,
+            scene_content_hash=spec.scene_content_hash,
+        )
+
+    register(
+        'robustness',
+        'project',
+        True,
+        'CadRobustnessRepository',
+        robustness_resolve,
+    )
+
+    def measured_state_authority(ref_id: str):
+        record = measured_states().get(ref_id)
+        if record is None:
+            return None
+        return CanonicalAuthority(
+            kind='measured_state',
+            ref_id=ref_id,
+            document_id=record.document_id,
+            semantic_sha256=record.record_sha256,
+            scene_revision_id=record.as_built_revision_id,
+            scene_content_hash=record.as_built_content_hash,
+            system_variant_id=record.variant_id,
+        )
+
+    def as_built_resolve(ref_id: str, _document_id: str):
+        if ref_id.startswith('system-variant-measured:'):
+            return measured_state_authority(ref_id)
+        record = as_built_lifecycle().get(ref_id)
+        if record is None:
+            return None
+        variant = variants().get_variant(record.variant_id)
+        return CanonicalAuthority(
+            kind='as_built',
+            ref_id=ref_id,
+            document_id=(
+                variant.document_id if variant is not None else None
+            ),
+            semantic_sha256=record.record_sha256,
+            scene_revision_id=record.as_built_revision_id,
+            scene_content_hash=record.as_built_content_hash,
+            system_variant_id=record.variant_id,
+        )
+
+    register(
+        'as_built',
+        'project',
+        True,
+        'CadSystemVariantLifecycleRepository',
+        as_built_resolve,
+    )
+
+    register(
+        'measured_state',
+        'project',
+        True,
+        'CadSystemVariantMeasuredLifecycleRepository',
+        lambda ref_id, _document_id: measured_state_authority(ref_id),
+    )
+
+    def operating_preset_resolve(ref_id: str, _document_id: str):
+        preset = presets().get_preset(ref_id)
+        if preset is None:
+            return None
+        return CanonicalAuthority(
+            kind='operating_preset',
+            ref_id=ref_id,
+            document_id=preset.document_id,
+            semantic_sha256=preset.preset_sha256,
+            scene_revision_id=preset.scene_revision_id,
+            scene_content_hash=preset.scene_content_hash,
+        )
+
+    register(
+        'operating_preset',
+        'project',
+        True,
+        'CadOperatingPresetRepository',
+        operating_preset_resolve,
+    )
+
+    def constraint_snapshot_resolve(ref_id: str, _document_id: str):
+        snapshot = checkpoints().get_snapshot(ref_id)
+        if snapshot is None:
+            return None
+        return CanonicalAuthority(
+            kind='constraint_snapshot',
+            ref_id=ref_id,
+            document_id=snapshot.document_id,
+            semantic_sha256=snapshot.snapshot_sha256,
+        )
+
+    register(
+        'constraint_snapshot',
+        'project',
+        True,
+        'CadDesignCheckpointRepository',
+        constraint_snapshot_resolve,
+    )
+
+    def named_view_resolve(ref_id: str, document_id: str):
+        # Named views are editor payloads: keyed by record id, id-only.
+        for view in scene_repository.named_views(document_id):
+            if view.record_id == ref_id:
+                return CanonicalAuthority(
+                    kind='named_view',
+                    ref_id=ref_id,
+                    document_id=document_id,
+                )
+        return None
+
+    register(
+        'named_view',
+        'project',
+        False,
+        'SceneRepository',
+        named_view_resolve,
     )
 
     for adapter in extra_adapters:

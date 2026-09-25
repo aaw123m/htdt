@@ -6,12 +6,16 @@ many* validated generations are retained — while delegating every archive
 to the canonical ``native_backup`` authority (snapshot + asset contract +
 round-trip validation).
 
-Trigger policy:
+Trigger policy (one documented interval policy, #755):
 
 - ``periodic``: at most one automatic generation per ``interval_hours``,
   and only when managed data actually changed.
-- ``clean_close``: on a clean application shutdown, again only when the
-  managed data changed since the last recorded backup.
+- ``clean_close``: a clean application shutdown may *opportunistically
+  satisfy* a generation that is already due under the same interval
+  policy — changed data whose interval elapsed. It never forces an
+  extra archive inside the interval, and shutdown itself performs no
+  archive work: the GUI records the close via ``record_clean_close`` and
+  the next eligible scheduler tick performs the due generation.
 - ``pre_destructive``: always, immediately before a destructive workflow
   (the caller invokes this at its own destructive boundary).
 
@@ -22,7 +26,15 @@ mature project's assets on every tick would defeat the "cheap" contract.
 Generations live OUTSIDE the managed input tree (default:
 ``<data_dir>-backups`` sibling directory) and carry their classification in
 the filename, so automatic/manual/pre-upgrade/pre-restore lifecycles are
-never conflated.
+never conflated (#752):
+
+- ``AUTOMATIC_CLASSIFICATIONS`` (``automatic_periodic``,
+  ``automatic_clean_close``) are the only classes the rotation policy may
+  ever delete. ``manual``, ``pre_upgrade``, ``pre_restore`` and
+  ``pre_destructive`` generations are restoration-sensitive: rotation
+  never touches them regardless of age or count.
+- Generation ordering is chronological by the creation timestamp encoded
+  in the filename, never by file mtime or raw name ordering.
 """
 
 from __future__ import annotations
@@ -59,9 +71,28 @@ BackupTrigger = Literal['periodic', 'clean_close', 'pre_destructive']
 BackupClassification = Literal[
     'manual',
     'automatic_periodic',
+    'automatic_clean_close',
     'pre_upgrade',
     'pre_restore',
+    'pre_destructive',
 ]
+
+# Classes produced by the automatic policy itself; only these are ever
+# rotated. Every other class is a user-visible or safety archive that
+# automatic retention must never delete.
+AUTOMATIC_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {'automatic_periodic', 'automatic_clean_close'}
+)
+_KNOWN_CLASSIFICATIONS: frozenset[str] = frozenset(
+    {
+        'manual',
+        'automatic_periodic',
+        'automatic_clean_close',
+        'pre_upgrade',
+        'pre_restore',
+        'pre_destructive',
+    }
+)
 
 
 class AutomaticBackupError(RuntimeError):
@@ -91,12 +122,24 @@ class AutomaticBackupPolicy(BaseModel):
 
 
 class BackupGenerationRecord(BaseModel):
+    """Typed inventory record for one generation on disk (#752).
+
+    ``classification`` is parsed from the generation filename; None means
+    the archive does not match the naming contract and is treated as
+    restoration-sensitive (never rotated). ``created_at_utc`` is the
+    creation timestamp encoded in the filename — the ordering authority,
+    not file mtime.
+    """
+
     model_config = ConfigDict(frozen=True)
 
-    classification: BackupClassification
-    created_at_utc: str
-    fingerprint: str
-    path: str
+    path: Path
+    classification: BackupClassification | None
+    created_at_utc: datetime | None
+
+    @property
+    def is_automatic(self) -> bool:
+        return self.classification in AUTOMATIC_CLASSIFICATIONS
 
 
 def _utc_now() -> str:
@@ -238,57 +281,95 @@ class AutomaticBackupScheduler:
             f'{stamp}-{uuid4().hex[:8]}.htdt-backup'
         )
 
-    def list_generations(self) -> tuple[Path, ...]:
-        """Automatic-policy generations, newest first by name."""
+    def _parse_generation(self, path: Path) -> BackupGenerationRecord:
+        """Parse ``htdt-backup-<class>-<stamp>-<id>.htdt-backup`` names."""
+
+        stem = path.name
+        if stem.endswith('.htdt-backup'):
+            stem = stem[: -len('.htdt-backup')]
+        parts = stem.split('-')
+        classification: BackupClassification | None = None
+        created_at: datetime | None = None
+        if len(parts) >= 4 and parts[2] in _KNOWN_CLASSIFICATIONS:
+            classification = parts[2]  # type: ignore[assignment]
+            try:
+                created_at = datetime.strptime(
+                    parts[3], '%Y%m%dT%H%M%SZ'
+                ).replace(tzinfo=timezone.utc)
+            except ValueError:
+                created_at = None
+        return BackupGenerationRecord(
+            path=path,
+            classification=classification,
+            created_at_utc=created_at,
+        )
+
+    def generation_records(self) -> tuple[BackupGenerationRecord, ...]:
+        """Typed inventory of all generations, newest first by creation
+        timestamp recorded in the filename (#752).
+
+        Every ``htdt-backup-*`` archive is listed — manual, safety and
+        automatic alike — so inventory stays complete; classification
+        decides what rotation may touch, not listing.
+        """
 
         directory = backups_dir(self.data_dir, self.policy)
         if not directory.is_dir():
             return ()
+        records = [
+            self._parse_generation(candidate)
+            for candidate in directory.iterdir()
+            if candidate.is_file()
+            and candidate.name.startswith(f'{GENERATION_PREFIX}-')
+            and candidate.name.endswith('.htdt-backup')
+        ]
         return tuple(
             sorted(
-                (
-                    candidate
-                    for candidate in directory.iterdir()
-                    if candidate.is_file()
-                    and candidate.name.startswith(f'{GENERATION_PREFIX}-')
-                    and candidate.name.endswith('.htdt-backup')
+                records,
+                key=lambda record: (
+                    record.created_at_utc or datetime.min.replace(tzinfo=timezone.utc),
+                    record.path.name,
                 ),
-                key=lambda candidate: candidate.name,
                 reverse=True,
             )
         )
 
-    def _generation_day(self, path: Path) -> str | None:
-        """Extract the UTC day from a generation filename, if present."""
+    def list_generations(self) -> tuple[Path, ...]:
+        """All generations, newest first by recorded creation time."""
 
-        parts = path.name.split('-')
-        for part in parts:
-            if part.endswith('Z') and len(part) >= 9:
-                day = part[:8]
-                if day.isdigit():
-                    return day
-        return None
+        return tuple(record.path for record in self.generation_records())
 
     def prune_generations(self) -> tuple[Path, ...]:
         """Apply the rotation policy: rolling N newest + daily coverage.
 
-        Keeps the newest ``keep_generations`` generations always, plus the
-        newest generation of each UTC day while that day has no
-        already-retained representative, up to
+        Scoped to ``AUTOMATIC_CLASSIFICATIONS`` only (#752): manual,
+        pre-upgrade, pre-restore and pre-destructive generations — and any
+        archive whose classification cannot be determined — are
+        restoration-sensitive and are never deleted here. Within the
+        automatic class, keeps the newest ``keep_generations`` generations
+        always, plus the newest generation of each UTC day while that day
+        has no already-retained representative, up to
         ``keep_daily_generations`` distinct days.
         """
 
-        generations = self.list_generations()
-        keep: set[Path] = set(generations[: self.policy.keep_generations])
+        automatic = [
+            record for record in self.generation_records() if record.is_automatic
+        ]
+        keep: set[Path] = {
+            record.path for record in automatic[: self.policy.keep_generations]
+        }
         day_seen: set[str] = set()
         day_kept = 0
-        for candidate in generations:
-            if candidate in keep:
-                day = self._generation_day(candidate)
+        for record in automatic:
+            day = (
+                record.created_at_utc.strftime('%Y%m%d')
+                if record.created_at_utc is not None
+                else None
+            )
+            if record.path in keep:
                 if day:
                     day_seen.add(day)
                 continue
-            day = self._generation_day(candidate)
             if (
                 day is not None
                 and day not in day_seen
@@ -296,16 +377,18 @@ class AutomaticBackupScheduler:
             ):
                 day_seen.add(day)
                 day_kept += 1
-                keep.add(candidate)
+                keep.add(record.path)
         removed: list[Path] = []
-        for candidate in generations:
-            if candidate in keep:
+        for record in automatic:
+            if record.path in keep:
                 continue
             try:
-                candidate.unlink()
-                removed.append(candidate)
+                record.path.unlink()
+                removed.append(record.path)
             except OSError:
-                _LOGGER.warning('could not prune backup generation %s', candidate)
+                _LOGGER.warning(
+                    'could not prune backup generation %s', record.path
+                )
         return tuple(removed)
 
     # -- trigger evaluation -----------------------------------------------
@@ -329,22 +412,30 @@ class AutomaticBackupScheduler:
             return False, 'no managed data exists yet'
         if not changed:
             return False, 'managed data unchanged since last backup'
-        if trigger == 'clean_close':
-            return True, 'clean shutdown with changed managed data'
-        # periodic
+        # periodic and clean_close share one interval policy (#755): a
+        # clean close may satisfy a backup that is already due, but never
+        # forces an extra archive inside the interval.
         last_run = state.get('last_automatic_at_utc')
         if last_run is None:
-            return True, 'no automatic backup has ever run'
-        try:
-            elapsed = datetime.now(timezone.utc) - _parse_utc(str(last_run))
-        except ValueError:
-            return True, 'last automatic backup time is unreadable'
-        if elapsed >= timedelta(hours=self.policy.interval_hours):
-            return True, (
-                f'last automatic backup was {elapsed} ago '
-                f'(interval {self.policy.interval_hours}h)'
-            )
-        return False, f'within interval ({elapsed} < {self.policy.interval_hours}h)'
+            due_reason = 'no automatic backup has ever run'
+        else:
+            try:
+                elapsed = datetime.now(timezone.utc) - _parse_utc(str(last_run))
+            except ValueError:
+                due_reason = 'last automatic backup time is unreadable'
+            else:
+                if elapsed < timedelta(hours=self.policy.interval_hours):
+                    return False, (
+                        f'within interval ({elapsed} < '
+                        f'{self.policy.interval_hours}h)'
+                    )
+                due_reason = (
+                    f'last automatic backup was {elapsed} ago '
+                    f'(interval {self.policy.interval_hours}h)'
+                )
+        if trigger == 'clean_close':
+            return True, f'clean shutdown satisfies a due backup: {due_reason}'
+        return True, due_reason
 
     # -- run ---------------------------------------------------------------
 
@@ -368,9 +459,9 @@ class AutomaticBackupScheduler:
         kind: BackupClassification = classification or (
             'automatic_periodic'
             if trigger == 'periodic'
-            else 'pre_restore'
+            else 'pre_destructive'
             if trigger == 'pre_destructive'
-            else 'manual'
+            else 'automatic_clean_close'
         )
         destination_dir = backups_dir(self.data_dir, self.policy)
         destination_dir.mkdir(parents=True, exist_ok=True)
@@ -378,13 +469,21 @@ class AutomaticBackupScheduler:
         # Canonical archive authority — the generation is fully validated
         # before it replaces any previous generation.
         manifest = create_backup(self.data_dir, destination)
-        self._save_state({
+        # A generation of ANY class proves the current fingerprint is
+        # covered, but only routine automatic classes advance the periodic
+        # interval clock — a manual/safety archive must not postpone the
+        # next due automatic generation (#752).
+        state = self._load_state()
+        if kind in AUTOMATIC_CLASSIFICATIONS:
+            state['last_automatic_at_utc'] = _utc_now()
+        state.update({
             'schema_version': AUTOMATIC_BACKUP_POLICY_SCHEMA,
-            'last_automatic_at_utc': _utc_now(),
             'fingerprint': managed_data_fingerprint(self.data_dir),
             'last_generation': str(destination),
             'classification': kind,
+            'clean_close_pending': False,
         })
+        self._save_state(state)
         self.prune_generations()
         _LOGGER.info(
             'automatic backup created: %s (classification=%s trigger=%s)',
@@ -394,8 +493,30 @@ class AutomaticBackupScheduler:
         )
         return destination, manifest
 
+    # -- clean-close hint --------------------------------------------------
+
+    def record_clean_close(self) -> None:
+        """Record a clean UI shutdown without performing any archive work.
+
+        #755: shutdown never runs a backup inside teardown — this writes a
+        cheap state marker only. The next eligible scheduler tick
+        (``run_due('periodic')`` or an in-session ``run_due('clean_close')``
+        decision point while the UI is still alive) performs the due
+        generation under the normal interval policy.
+        """
+
+        state = self._load_state()
+        state['schema_version'] = AUTOMATIC_BACKUP_POLICY_SCHEMA
+        state['last_clean_close_at_utc'] = _utc_now()
+        state['clean_close_pending'] = (
+            managed_data_fingerprint(self.data_dir)
+            != str(state.get('fingerprint', ''))
+        )
+        self._save_state(state)
+
 
 __all__ = [
+    'AUTOMATIC_CLASSIFICATIONS',
     'AutomaticBackupError',
     'AutomaticBackupPolicy',
     'AutomaticBackupScheduler',

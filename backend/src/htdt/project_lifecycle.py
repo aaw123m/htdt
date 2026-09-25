@@ -25,6 +25,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -69,6 +70,10 @@ class ProjectDeletionBlockedError(ProjectLifecycleError):
             'project deletion is blocked: '
             + '; '.join(blocker.detail for blocker in plan.hard_blockers)
         )
+
+
+class ProjectDeletionStaleError(ProjectLifecycleError):
+    """The world changed between the deletion preview and execution."""
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,32 @@ class ProjectDeletionPlan(BaseModel):
     @property
     def executable(self) -> bool:
         return not self.hard_blockers
+
+    def fingerprint(self) -> str:
+        """Stable hash of the world the preview observed (#753).
+
+        Callers that let a user approve a stale preview can pass the
+        plan (or its fingerprint) to ``delete_project``; execution
+        recomputes the fingerprint under the write lock and refuses when
+        the world moved.
+        """
+
+        payload = {
+            'project_id': self.project_id,
+            'document_id': self.document_id,
+            'blockers': sorted(b.kind for b in self.hard_blockers),
+            'pending_mission_count': self.pending_mission_count,
+            'pending_inbox_item_count': self.pending_inbox_item_count,
+            'authorities': [
+                [a.table, a.row_count, a.estimated_bytes]
+                for a in self.authorities
+            ],
+            'total_rows': self.total_rows,
+            'estimated_bytes': self.estimated_bytes,
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True).encode('utf-8')
+        ).hexdigest()
 
 
 class ProjectTombstone(BaseModel):
@@ -389,6 +420,119 @@ class ProjectLibrary:
                 raise ProjectNotFoundError(f'unknown project: {project_id}')
         return self.get_project(project_id)
 
+    # -- registry verification (#757 semantic audit) --------------------
+
+    def verify_project_registration(self, project_id: str) -> ProjectRecord:
+        """Re-check one registry row's invariants, raising ``ValueError``.
+
+        Status/timestamp coherence, clone-source resolution (registry or
+        tombstones), no self-clone, and an acyclic clone chain — the
+        invariants the DDL cannot express.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT * FROM htdt_project_documents WHERE project_id=?',
+                (project_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(
+                    f'project registry row {project_id} no longer resolves'
+                )
+            record = self._row_to_record(row)
+        if record.status == 'archived' and record.archived_at_utc is None:
+            raise ValueError(
+                'archived project is missing its archived_at_utc stamp'
+            )
+        if record.status == 'active' and record.archived_at_utc is not None:
+            raise ValueError(
+                'active project still carries an archived_at_utc stamp'
+            )
+        if record.cloned_from_project_id is not None:
+            if record.cloned_from_project_id == project_id:
+                raise ValueError('project cannot be cloned from itself')
+            visited = {project_id}
+            ancestor = record.cloned_from_project_id
+            while ancestor is not None:
+                if ancestor in visited:
+                    raise ValueError('clone lineage contains a cycle')
+                visited.add(ancestor)
+                ancestor = self._clone_source(ancestor)
+        return record
+
+    def verify_persisted_tombstone(self, tombstone_id: str) -> sqlite3.Row:
+        """Re-check one tombstone row's lineage invariants."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT * FROM htdt_project_tombstones WHERE tombstone_id=?',
+                (tombstone_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError(
+                f'project tombstone {tombstone_id} no longer resolves'
+            )
+        authorities = json.loads(str(row['authorities_json']))
+        if not isinstance(authorities, list) or not all(
+            isinstance(entry, dict)
+            and isinstance(entry.get('table'), str)
+            and isinstance(entry.get('row_count'), int)
+            for entry in authorities
+        ):
+            raise ValueError(
+                'tombstone authorities payload is not a deletion manifest'
+            )
+        # A tombstone must document a deletion that actually happened: the
+        # project id must either still exist in the registry (soft audit
+        # trail) or be documented in another tombstone — never both as a
+        # live-clone source cycle.
+        project_id = str(row['project_id'])
+        if self._clone_source(project_id) is None and not self._tombstone_exists(
+            project_id
+        ):
+            raise ValueError(
+                'tombstone names a project absent from registry and tombstones'
+            )
+        return row
+
+    def _clone_source(self, project_id: str) -> str | None:
+        """Resolve ``cloned_from_project_id`` of a live or deleted project.
+
+        ``None`` means the project is not a clone (registry row absent is a
+        tombstone miss checked by the caller).
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT cloned_from_project_id FROM htdt_project_documents '
+                'WHERE project_id=?',
+                (project_id,),
+            ).fetchone()
+            if row is not None:
+                return (
+                    None
+                    if row['cloned_from_project_id'] is None
+                    else str(row['cloned_from_project_id'])
+                )
+            tombstone = connection.execute(
+                'SELECT 1 FROM htdt_project_tombstones WHERE project_id=? '
+                'LIMIT 1',
+                (project_id,),
+            ).fetchone()
+            if tombstone is not None:
+                return None
+            raise ValueError(
+                f'clone lineage names an unknown source project: {project_id}'
+            )
+
+    def _tombstone_exists(self, project_id: str) -> bool:
+        with closing(self._connect()) as connection:
+            return (
+                connection.execute(
+                    'SELECT 1 FROM htdt_project_tombstones WHERE project_id=? '
+                    'LIMIT 1',
+                    (project_id,),
+                ).fetchone()
+                is not None
+            )
+
     # -- deletion planning ----------------------------------------------
 
     def _owned_predicates(
@@ -599,41 +743,47 @@ class ProjectLibrary:
         ).fetchone()
         return int(count)
 
-    def plan_project_deletion(self, project_id: str) -> ProjectDeletionPlan:
-        """Read-only preview: what would be removed, retained, or blocked."""
+    def _build_deletion_plan(
+        self, connection: sqlite3.Connection, project_id: str
+    ) -> ProjectDeletionPlan:
+        """Assemble the deletion plan on an already-open connection.
 
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                'SELECT * FROM htdt_project_documents WHERE project_id=?',
-                (project_id,),
-            ).fetchone()
-            if row is None:
-                raise ProjectNotFoundError(f'unknown project: {project_id}')
-            record = self._row_to_record(row)
+        Shared by the read-only preview and the in-transaction
+        revalidation inside ``delete_project`` so both evaluate exactly
+        the same blocker set (#753).
+        """
 
-            owned = self._owned_predicates(connection, record.document_id)
-            authorities = tuple(
-                count
-                for count in (
-                    self._count_owned(
-                        connection, table, predicates, record.document_id
-                    )
-                    for table, predicates in sorted(owned.items())
+        row = connection.execute(
+            'SELECT * FROM htdt_project_documents WHERE project_id=?',
+            (project_id,),
+        ).fetchone()
+        if row is None:
+            raise ProjectNotFoundError(f'unknown project: {project_id}')
+        record = self._row_to_record(row)
+
+        owned = self._owned_predicates(connection, record.document_id)
+        authorities = tuple(
+            count
+            for count in (
+                self._count_owned(
+                    connection, table, predicates, record.document_id
                 )
-                if count.row_count > 0
+                for table, predicates in sorted(owned.items())
             )
-            pending_missions = self._pending_missions(
-                connection, record.document_id
-            )
-            pending_inbox = self._pending_inbox_items(
-                connection, record.document_id
-            )
-            descendants = connection.execute(
-                'SELECT COUNT(*) FROM htdt_project_documents '
-                'WHERE cloned_from_project_id=?',
-                (project_id,),
-            ).fetchone()[0]
-            assets = self._asset_summary(connection, record.document_id)
+            if count.row_count > 0
+        )
+        pending_missions = self._pending_missions(
+            connection, record.document_id
+        )
+        pending_inbox = self._pending_inbox_items(
+            connection, record.document_id
+        )
+        descendants = connection.execute(
+            'SELECT COUNT(*) FROM htdt_project_documents '
+            'WHERE cloned_from_project_id=?',
+            (project_id,),
+        ).fetchone()[0]
+        assets = self._asset_summary(connection, record.document_id)
 
         blockers: list[DeletionBlocker] = []
         if record.status != 'archived':
@@ -691,17 +841,91 @@ class ProjectLibrary:
             hard_blockers=tuple(blockers),
         )
 
-    # -- deletion --------------------------------------------------------
+    def plan_project_deletion(self, project_id: str) -> ProjectDeletionPlan:
+        """Read-only preview: what would be removed, retained, or blocked."""
 
-    def delete_project(self, project_id: str) -> ProjectTombstone:
-        """Atomically remove the project's authorities and write a tombstone.
+        with closing(self._connect()) as connection:
+            return self._build_deletion_plan(connection, project_id)
 
-        The whole removal runs in one immediate transaction with foreign
-        keys checked before commit — a partially deleted project is never
-        observable. Managed assets themselves stay for the #501 GC.
+    def _assert_semantic_ownership(
+        self,
+        connection: sqlite3.Connection,
+        owned: dict[str, list[str]],
+        document_id: str,
+    ) -> None:
+        """Verify denormalized ownership columns against canonical payloads.
+
+        For every table owned directly by ``document_id = ?`` that also
+        stores a canonical JSON payload, the payload's own ``document_id``
+        must agree with the SQL column. A mismatch — or a payload that
+        cannot be parsed at all — is integrity ambiguity, and ambiguity
+        blocks the destructive delete rather than trusting the
+        denormalized column (#753). Rows whose payload carries no
+        ``document_id`` field cannot be disproven and stay owned by the
+        SQL predicate alone.
         """
 
-        plan = self.plan_project_deletion(project_id)
+        for table in sorted(owned):
+            predicates = owned[table]
+            if predicates != ['document_id = ?']:
+                # FK-chased ownership already derives through the parent
+                # relationship — exact by construction.
+                continue
+            cols = [
+                str(col[1])
+                for col in _table_columns(connection, table)
+                if str(col[1]).endswith('_json')
+            ]
+            if not cols:
+                continue
+            select_cols = ', '.join(cols)
+            rows = connection.execute(
+                f'SELECT rowid AS row_id, {select_cols} FROM {table} '
+                'WHERE document_id = ?',
+                (document_id,),
+            ).fetchall()
+            for row in rows:
+                for col in cols:
+                    raw = row[col]
+                    if raw is None:
+                        continue
+                    try:
+                        payload = json.loads(str(raw))
+                    except (TypeError, ValueError):
+                        raise ProjectLifecycleError(
+                            f'{table} rowid {row["row_id"]}: payload {col} '
+                            'cannot be parsed — ownership is ambiguous, '
+                            'refusing to delete'
+                        )
+                    if not isinstance(payload, dict):
+                        continue
+                    payload_doc = payload.get('document_id')
+                    if payload_doc is not None and str(payload_doc) != document_id:
+                        raise ProjectLifecycleError(
+                            f'{table} rowid {row["row_id"]}: payload '
+                            f'document_id {payload_doc!r} disagrees with '
+                            f'column document_id {document_id!r} — '
+                            'refusing to delete under ambiguity'
+                        )
+
+    # -- deletion --------------------------------------------------------
+
+    def delete_project(
+        self,
+        project_id: str,
+        *,
+        expected_plan: ProjectDeletionPlan | None = None,
+    ) -> ProjectTombstone:
+        """Atomically remove the project's authorities and write a tombstone.
+
+        The whole removal runs in one immediate transaction. Every blocker
+        is re-evaluated *inside* the write lock — the world may have moved
+        between a preview and this call (#753). ``expected_plan`` lets a
+        caller pin the preview the user approved: when its fingerprint
+        disagrees with the world under the lock, the delete is refused.
+        """
+
+        plan = expected_plan or self.plan_project_deletion(project_id)
         if not plan.executable:
             raise ProjectDeletionBlockedError(plan)
 
@@ -714,16 +938,52 @@ class ProjectLibrary:
             connection.execute('PRAGMA foreign_keys=OFF')
             connection.execute('BEGIN IMMEDIATE')
             try:
-                # Re-verify the plan inside the transaction — the world may
-                # have moved between preview and removal.
-                owned = self._owned_predicates(connection, plan.document_id)
+                # Revalidate the project record and every blocker under
+                # the write lock — a preview taken earlier is only a hint.
+                fresh = self._build_deletion_plan(connection, project_id)
+                if fresh.document_id != plan.document_id:
+                    raise ProjectDeletionStaleError(
+                        f'project {project_id} now resolves to document '
+                        f'{fresh.document_id!r} (preview saw '
+                        f'{plan.document_id!r}) — refusing deletion'
+                    )
+                if not fresh.executable:
+                    raise ProjectDeletionBlockedError(fresh)
+                if (
+                    expected_plan is not None
+                    and fresh.fingerprint() != expected_plan.fingerprint()
+                ):
+                    raise ProjectDeletionStaleError(
+                        'project changed since the deletion preview was '
+                        'created — re-preview before deleting'
+                    )
+
+                owned = self._owned_predicates(connection, fresh.document_id)
+                self._assert_semantic_ownership(
+                    connection, owned, fresh.document_id
+                )
+                # Tombstone counts reflect what the transaction actually
+                # removed, not what an earlier preview guessed.
+                removed: list[DeletedAuthorityCount] = []
+                estimates = {
+                    count.table: count.estimated_bytes
+                    for count in fresh.authorities
+                }
                 for table in sorted(owned):
                     predicates = owned[table]
                     where = ' OR '.join(f'({p})' for p in predicates)
-                    connection.execute(
+                    cursor = connection.execute(
                         f'DELETE FROM {table} WHERE {where}',
-                        (plan.document_id,) * len(predicates),
+                        (fresh.document_id,) * len(predicates),
                     )
+                    if cursor.rowcount:
+                        removed.append(
+                            DeletedAuthorityCount(
+                                table=table,
+                                row_count=cursor.rowcount,
+                                estimated_bytes=estimates.get(table, 0),
+                            )
+                        )
                 # Inbox lineages orphaned by this deletion are retained for
                 # the separate GC — they are shared dedup anchors, not
                 # project data.
@@ -739,14 +999,14 @@ class ProjectLibrary:
                     ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                     (
                         uuid4().hex,
-                        plan.project_id,
-                        plan.document_id,
-                        plan.display_name,
+                        fresh.project_id,
+                        fresh.document_id,
+                        fresh.display_name,
                         _utc_now(),
-                        plan.total_rows,
-                        plan.estimated_bytes,
+                        sum(r.row_count for r in removed),
+                        sum(r.estimated_bytes for r in removed),
                         json.dumps(
-                            [a.model_dump() for a in plan.authorities],
+                            [a.model_dump() for a in removed],
                             sort_keys=True,
                         ),
                     ),
@@ -818,6 +1078,7 @@ __all__ = [
     'DeletionBlocker',
     'ProjectDeletionBlockedError',
     'ProjectDeletionPlan',
+    'ProjectDeletionStaleError',
     'ProjectLibrary',
     'ProjectLifecycleError',
     'ProjectNotFoundError',

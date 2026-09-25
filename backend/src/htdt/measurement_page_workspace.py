@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import saved_label
 from .cad_measurement_models import (
     MEASUREMENT_ATTACHMENT_KINDS,
     CadMeasurementComparison,
@@ -602,6 +603,7 @@ class MeasurementPageWorkspace(QWidget):
 
     def _refresh_batch(self) -> None:
         items = self.controller.batch_items()
+        measurement_labels = self._measurement_display_labels()
         self.batch_table.setRowCount(len(items))
         for row_index, item in enumerate(items):
             band = _format_band(item.frequency_band_hz)
@@ -618,7 +620,15 @@ class MeasurementPageWorkspace(QWidget):
             else:
                 status = _batch_status_label(item.status)
             committed_to = (
-                item.duplicate_of_name or item.committed_measurement_id or "—"
+                item.duplicate_of_name
+                or (
+                    measurement_labels.get(
+                        item.committed_measurement_id,
+                        item.committed_measurement_id,
+                    )
+                    if item.committed_measurement_id
+                    else "—"
+                )
                 if item.status in ("committed", "reused")
                 else ("保留中" if item.status == "staged" else "—")
             )
@@ -1786,14 +1796,52 @@ class MeasurementPageWorkspace(QWidget):
             )
             return {}
 
+    def _campaign_speaker_labels(self) -> dict[str, str]:
+        """entity_id -> human speaker label (#578).
+
+        Sources are shown as `name（role）`; a speaker with no human name
+        keeps its entity id — the only remaining non-human identity.
+        """
+
+        try:
+            labels: dict[str, str] = {}
+            for speaker in self.controller.source_speakers():
+                name = speaker.name or speaker.entity_id
+                if speaker.role and speaker.role != speaker.name:
+                    labels[speaker.entity_id] = f'{name}（{speaker.role}）'
+                else:
+                    labels[speaker.entity_id] = name
+            return labels
+        except Exception:
+            return {}
+
+    def _measurement_display_labels(self) -> dict[str, str]:
+        """measurement_id -> human label for the campaign table (#578)."""
+
+        labels: dict[str, str] = {}
+        try:
+            for row in self.controller.measurement_views():
+                labels[row.measurement_id] = (
+                    f"{_channel_role_label(row.channel_role)} · {row.target_name} · "
+                    f"{_evidence_label(row.evidence_type)}"
+                )
+        except Exception:
+            return {}
+        return labels
+
     def _refresh_campaign(self) -> None:
         plans = self.controller.runner_plans()
+        plan_created = self.controller.runner_plan_created_at_utc()
         previous = self.campaign_plan_combo.currentData()
         self.campaign_plan_combo.blockSignals(True)
         self.campaign_plan_combo.clear()
         for plan in plans:
+            created = plan_created.get(plan.plan_id)
+            plan_label = (
+                saved_label(created) if created else '測定計画'
+            )
             self.campaign_plan_combo.addItem(
-                f"{len(plan.cells)} セル · {plan.plan_id[:12]}", plan.plan_id
+                f"{plan_label} · {len(plan.cells)} セル", plan.plan_id
             )
         if previous is not None:
             index = self.campaign_plan_combo.findData(previous)
@@ -1802,13 +1850,13 @@ class MeasurementPageWorkspace(QWidget):
         self.campaign_plan_combo.blockSignals(False)
 
         names = self._campaign_target_names()
+        measurement_labels = self._measurement_display_labels()
         self.campaign_measurement_combo.clear()
         for row in self.controller.measurement_views():
             if row.dataset_id is None:
                 continue
             self.campaign_measurement_combo.addItem(
-                f"{_channel_role_label(row.channel_role)} · {row.target_name} · "
-                f"{_evidence_label(row.evidence_type)}",
+                measurement_labels[row.measurement_id],
                 row.measurement_id,
             )
 
@@ -1830,7 +1878,12 @@ class MeasurementPageWorkspace(QWidget):
                 names.get(cell.target_entity_id, cell.target_entity_id),
                 str(cell.repeat_index + 1),
                 _CELL_STATUS_LABELS[state.status],
-                state.measurement_id or "—",
+                (
+                    measurement_labels.get(state.measurement_id)
+                    if state.measurement_id
+                    else None
+                )
+                or "—",
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -1845,6 +1898,7 @@ class MeasurementPageWorkspace(QWidget):
         )
         next_index = self.controller.runner_next_incomplete(self._campaign_run_id)
         step = self.controller.runner_guided_step(self._campaign_run_id)
+        speaker_labels = self._campaign_speaker_labels()
         if step is None:
             self.campaign_step_label.setText("計画された全セルが完了しました")
         else:
@@ -1852,7 +1906,10 @@ class MeasurementPageWorkspace(QWidget):
                 f"次: {_channel_role_label(step.channel_role)} · "
                 f"{names.get(step.target_entity_id, step.target_entity_id)} · "
                 f"リピート {step.repeat_index + 1} · 音源 "
-                f"{' / '.join(step.source_speaker_ids)}"
+                + ' / '.join(
+                    speaker_labels.get(speaker_id, speaker_id)
+                    for speaker_id in step.source_speaker_ids
+                )
             )
         if next_index is not None:
             self.campaign_table.selectRow(next_index)
@@ -1905,11 +1962,15 @@ class MeasurementPageWorkspace(QWidget):
         if step is None:
             return
         names = self._campaign_target_names()
+        speaker_labels = self._campaign_speaker_labels()
         self.campaign_step_label.setText(
             f"選択: {_channel_role_label(step.channel_role)} · "
             f"{names.get(step.target_entity_id, step.target_entity_id)} · "
             f"リピート {step.repeat_index + 1} · 音源 "
-            f"{' / '.join(step.source_speaker_ids)}"
+            + ' / '.join(
+                speaker_labels.get(speaker_id, speaker_id)
+                for speaker_id in step.source_speaker_ids
+            )
             + (f" · {step.notes}" if step.notes else "")
         )
 

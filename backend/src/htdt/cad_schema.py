@@ -18,7 +18,7 @@ from .content_blobs import CONTENT_BLOB_DDL
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 7
+NATIVE_SCHEMA_VERSION = 8
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1005,6 +1005,14 @@ def _migrate_6_to_7(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_7_to_8(connection: sqlite3.Connection) -> None:
+    # Install the validation-corpus manifest/benchmark-spec tables (#773)
+    # and the data acquisition registry tables (#779). All are new
+    # append-only authorities; the idempotent baseline creates them.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 def require_native_tables(
     connection: sqlite3.Connection,
     *tables: str,
@@ -1034,6 +1042,7 @@ _MIGRATIONS = {
     5: _migrate_4_to_5,
     6: _migrate_5_to_6,
     7: _migrate_6_to_7,
+    8: _migrate_7_to_8,
 }
 
 
