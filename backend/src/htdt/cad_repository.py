@@ -1049,7 +1049,7 @@ class SceneRepository:
                     (document_id,),
                 ).fetchall()
             records: list[EditorPayloadRecord] = []
-            corrupt = False
+            corrupt_record_ids: list[str] = []
             for row in rows:
                 try:
                     payload = json.loads(row['payload_json'])
@@ -1058,13 +1058,15 @@ class SceneRepository:
                 except (TypeError, ValueError, RecursionError) as exc:
                     # Same contract as editor_view_states: a corrupt row of
                     # disposable editor state resets to defaults, never aborts.
+                    record_id = row['record_id'] or row['document_id']
                     _LOGGER.warning(
-                        'discarding corrupt %s row for document %s (%s)',
+                        'discarding corrupt %s record %s for document %s (%s)',
                         store,
+                        record_id,
                         document_id,
                         exc,
                     )
-                    corrupt = True
+                    corrupt_record_ids.append(record_id)
                     continue
                 records.append(
                     EditorPayloadRecord(
@@ -1074,16 +1076,25 @@ class SceneRepository:
                         updated_at_utc=row['updated_at_utc'],
                     )
                 )
-            if corrupt:
+            # Cleanup targets the exact corrupt record identity only; healthy
+            # sibling rows in the same keyed store must survive.
+            for record_id in corrupt_record_ids:
                 try:
-                    connection.execute(
-                        f'DELETE FROM {table} WHERE document_id=?',
-                        (document_id,),
-                    )
+                    if key_column is None:
+                        connection.execute(
+                            f'DELETE FROM {table} WHERE document_id=?',
+                            (document_id,),
+                        )
+                    else:
+                        connection.execute(
+                            f'DELETE FROM {table} WHERE document_id=? AND {key_column}=?',
+                            (document_id, record_id),
+                        )
                 except sqlite3.Error:
                     _LOGGER.warning(
-                        'could not purge corrupt %s rows for document %s',
+                        'could not purge corrupt %s record %s for document %s',
                         store,
+                        record_id,
                         document_id,
                     )
             return tuple(records)

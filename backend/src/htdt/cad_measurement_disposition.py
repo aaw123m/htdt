@@ -24,6 +24,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .r120_geometry_compiler import ExactExternalAuthorityRef
+
 
 def _canonical_json(payload: Any) -> str:
     return json.dumps(
@@ -99,6 +101,26 @@ class CadMeasurementDisposition(BaseModel):
         }
 
 
+# Explicit correction semantics (#863): relabeling a measurement onto another
+# target is never allowed to silently change its physical-position claim.
+# ``assignment_label_only`` is the entity-relabel case that is only valid when
+# the corrected target's acoustic reference equals the immutable import
+# position exactly. ``assignment_with_pose_evidence`` additionally pins an
+# exact pose-observation authority when the corrected target's position
+# differs. ``channel_routing_only`` never touches the target entity.
+CorrectionKind = Literal[
+    'assignment_label_only',
+    'assignment_with_pose_evidence',
+    'channel_routing_only',
+]
+
+CORRECTION_KINDS = (
+    'assignment_label_only',
+    'assignment_with_pose_evidence',
+    'channel_routing_only',
+)
+
+
 class CadMeasurementCorrection(BaseModel):
     """Corrected evidence binding for a measurement.
 
@@ -107,6 +129,12 @@ class CadMeasurementCorrection(BaseModel):
     evidence. Each field that is not None replaces the original assignment;
     ``source_speaker_ids`` replaces the whole tuple when provided. At least one
     field must change.
+
+    ``correction_kind`` is optional additive metadata (#863) — spatial truth is
+    enforced by the repository regardless of the declared kind: a target-entity
+    correction whose acoustic reference differs from the immutable measurement
+    position is only persistable with ``pose_evidence_ref`` pinned to a
+    resolved actual-pose observation authority (#732).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -121,6 +149,8 @@ class CadMeasurementCorrection(BaseModel):
     source_speaker_ids: tuple[str, ...] | None = None
     radiation_scope: str | None = Field(default=None, min_length=1)
     routing_evidence: str | None = Field(default=None, min_length=1)
+    correction_kind: CorrectionKind | None = None
+    pose_evidence_ref: ExactExternalAuthorityRef | None = None
     reason: str = Field(min_length=1)
     created_at_utc: str = Field(min_length=1)
     correction_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -135,6 +165,22 @@ class CadMeasurementCorrection(BaseModel):
             and self.routing_evidence is None
         ):
             raise ValueError('correction must change at least one assignment field')
+        if (
+            self.correction_kind == 'assignment_with_pose_evidence'
+            and self.pose_evidence_ref is None
+        ):
+            raise ValueError(
+                'assignment_with_pose_evidence correction must pin '
+                'pose_evidence_ref'
+            )
+        if (
+            self.correction_kind == 'channel_routing_only'
+            and self.measurement_entity_id is not None
+        ):
+            raise ValueError(
+                'channel_routing_only correction cannot replace the target '
+                'entity'
+            )
         if self.correction_sha256 != _hash(self.identity_payload()):
             raise ValueError('measurement correction hash mismatch')
         return self
@@ -156,6 +202,15 @@ class CadMeasurementCorrection(BaseModel):
             'reason': self.reason,
             'created_at_utc': self.created_at_utc,
         }
+        # Optional #863 fields join identity only when present so pre-
+        # correction-kind rows keep their hashes.
+        if self.correction_kind is not None:
+            payload['correction_kind'] = self.correction_kind
+        if self.pose_evidence_ref is not None:
+            payload['pose_evidence_ref'] = self.pose_evidence_ref.model_dump(
+                mode='json'
+            )
+        return payload
 
 
 def build_measurement_disposition(
@@ -195,6 +250,8 @@ def build_measurement_correction(
     source_speaker_ids: tuple[str, ...] | None = None,
     radiation_scope: str | None = None,
     routing_evidence: str | None = None,
+    correction_kind: CorrectionKind | None = None,
+    pose_evidence_ref: ExactExternalAuthorityRef | None = None,
     correction_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> CadMeasurementCorrection:
@@ -214,15 +271,25 @@ def build_measurement_correction(
         'reason': reason,
         'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
     }
+    provisional = CadMeasurementCorrection.model_construct(
+        **payload,
+        correction_kind=correction_kind,
+        pose_evidence_ref=pose_evidence_ref,
+        correction_sha256='0' * 64,
+    )
     return CadMeasurementCorrection(
         **payload,
-        correction_sha256=_hash(payload),
+        correction_kind=correction_kind,
+        pose_evidence_ref=pose_evidence_ref,
+        correction_sha256=_hash(provisional.identity_payload()),
     )
 
 
 __all__ = [
+    'CORRECTION_KINDS',
     'CadMeasurementCorrection',
     'CadMeasurementDisposition',
+    'CorrectionKind',
     'MEASUREMENT_DISPOSITION_STATES',
     'MEASUREMENT_ELIGIBLE_DISPOSITIONS',
     'MeasurementDispositionState',
