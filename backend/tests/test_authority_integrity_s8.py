@@ -250,7 +250,7 @@ def _profile(revision, *, document_id=DOCUMENT_ID, **kwargs):
     )
 
 
-def _wiring_check(**kwargs):
+def _wiring_check(revision=None, **kwargs):
     kwargs.setdefault('check_kind', 'continuity')
     kwargs.setdefault('method', 'DCR probe')
     kwargs.setdefault('result', 'PASS')
@@ -258,6 +258,15 @@ def _wiring_check(**kwargs):
     if kwargs['result'] == 'PASS':
         kwargs.setdefault('evidence_refs', ('manual:dcr-probe-verified',))
     kwargs.setdefault('document_id', DOCUMENT_ID)
+    # A check pins the exact scene revision it was verified against.
+    kwargs.setdefault(
+        'scene_revision_id',
+        revision.revision_id if revision is not None else 'rev-synthetic',
+    )
+    kwargs.setdefault(
+        'scene_revision_sha256',
+        revision.content_hash if revision is not None else '0' * 64,
+    )
     return build_wiring_check(**kwargs)
 
 
@@ -301,18 +310,32 @@ def _seat_point_scene(tmp_path: Path):
         y_m=seat.position.y_m,
         z_m=seat.position.z_m + seat.acoustic_reference_offset_m.z_m,
     )
-    document = base_revision.document.model_copy(
+    # The seat must pre-exist in the creation revision's parent — the
+    # lineage contract resolves the source seat at the source revision,
+    # never at the revision that created the point.
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document,
+        parent_revision_id=base_revision.revision_id,
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity('point-seat-derived', seat_position),
             )
         }
     )
     revision = scene_repository.save(
         document,
-        parent_revision_id=base_revision.revision_id,
+        parent_revision_id=source_revision.revision_id,
     ).revision
     return scene_repository, revision, quality_repository, seat_position
 
@@ -384,10 +407,27 @@ def test_target_lineage_rejects_mismatched_point_position(tmp_path):
 
 
 def test_target_lineage_rejects_non_seat_source(tmp_path):
-    _, revision, _, quality_repository = _f1_repositories(tmp_path)
+    scene_repository, base_revision, _, quality_repository = (
+        _f1_repositories(tmp_path)
+    )
+    # The point is created in a child revision so the source (parent)
+    # revision resolves 'speaker-fl' — a speaker, never a seat.
+    document = base_revision.document.model_copy(
+        update={
+            'entities': (
+                *base_revision.document.entities,
+                _point_entity(
+                    'point-child', Position3(x_m=1.0, y_m=1.0, z_m=1.0)
+                ),
+            )
+        }
+    )
+    revision = scene_repository.save(
+        document, parent_revision_id=base_revision.revision_id
+    ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
-        measurement_point_id='point-mlp',
+        measurement_point_id='point-child',
         source_seat_id='speaker-fl',  # a speaker, never a seat
         creation_revision_id=revision.revision_id,
         initial_position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
@@ -422,11 +462,21 @@ def test_target_lineage_rejects_seat_without_acoustic_reference(tmp_path):
         position=Position3(x_m=1.0, y_m=1.0, z_m=0.4),
         size_m=Size3(x_m=0.6, y_m=0.5, z_m=0.5),
     )
-    document = base_revision.document.model_copy(
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 bare_seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document, parent_revision_id=base_revision.revision_id
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity(
                     'point-bare', Position3(x_m=1.0, y_m=1.0, z_m=0.4)
                 ),
@@ -434,7 +484,7 @@ def test_target_lineage_rejects_seat_without_acoustic_reference(tmp_path):
         }
     )
     revision = scene_repository.save(
-        document, parent_revision_id=base_revision.revision_id
+        document, parent_revision_id=source_revision.revision_id
     ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
@@ -462,17 +512,27 @@ def test_target_lineage_pose_path_roundtrip(tmp_path):
     pose_repository = CadListenerPoseRepository(quality_repository.path)
     pose_repository.save_pose(pose)
     position = pose_acoustic_reference_position(seat, pose)
-    document = base_revision.document.model_copy(
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document, parent_revision_id=base_revision.revision_id
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity('point-pose', position),
             )
         }
     )
     revision = scene_repository.save(
-        document, parent_revision_id=base_revision.revision_id
+        document, parent_revision_id=source_revision.revision_id
     ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
@@ -501,17 +561,27 @@ def test_target_lineage_rejects_unresolvable_pose_ref(tmp_path):
     # The ref names a pose that was never persisted.
     ref = pose.authority_ref()
     position = Position3(x_m=3.0, y_m=2.6, z_m=1.1)
-    document = base_revision.document.model_copy(
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document, parent_revision_id=base_revision.revision_id
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity('point-pose', position),
             )
         }
     )
     revision = scene_repository.save(
-        document, parent_revision_id=base_revision.revision_id
+        document, parent_revision_id=source_revision.revision_id
     ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
@@ -970,18 +1040,22 @@ def test_acquisition_context_rejects_bad_profile_binding(tmp_path):
 
 
 def test_wiring_check_pass_requires_evidence(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(
-        expected_speaker_ids=('speaker-fl',),
-        evidence_refs=(),
-    )
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     with pytest.raises(ValueError, match='evidence'):
+        check = _wiring_check(
+            revision,
+            expected_speaker_ids=('speaker-fl',),
+            evidence_refs=(),
+            operator=None,
+        )
         quality_repository.save_wiring_check(check)
 
 
 def test_wiring_check_manual_attestation_passes(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(expected_speaker_ids=('speaker-fl',))
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
+    check = _wiring_check(
+        revision,
+        expected_speaker_ids=('speaker-fl',))
     quality_repository.save_wiring_check(check)
     assert (
         quality_repository.get_wiring_check(check.check_id) == check
@@ -989,8 +1063,9 @@ def test_wiring_check_manual_attestation_passes(tmp_path):
 
 
 def test_wiring_check_rejects_unknown_document(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     check = _wiring_check(
+        revision,
         document_id='other-document',
         expected_speaker_ids=(),
     )
@@ -999,15 +1074,18 @@ def test_wiring_check_rejects_unknown_document(tmp_path):
 
 
 def test_wiring_check_rejects_non_speaker_ref(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(expected_speaker_ids=('point-mlp',))
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
+    check = _wiring_check(
+        revision,
+        expected_speaker_ids=('point-mlp',))
     with pytest.raises(ValueError, match='speaker'):
         quality_repository.save_wiring_check(check)
 
 
 def test_wiring_check_rejects_unresolvable_evidence(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     check = _wiring_check(
+        revision,
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('no-such-measurement-id',),
     )
@@ -1021,6 +1099,7 @@ def test_wiring_check_measurement_evidence_resolves(tmp_path):
     )
     _save_measurement(measurement_repository, revision, 'meas-evidence')
     check = _wiring_check(
+        revision,
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('meas-evidence',),
     )
@@ -1032,12 +1111,13 @@ def test_wiring_check_measurement_evidence_resolves(tmp_path):
 
 def test_wiring_check_routing_pass_requires_profile_binding(tmp_path):
     _, revision, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(
-        check_kind='routing',
-        expected_speaker_ids=('speaker-fl',),
-        evidence_refs=('manual:verified-continuity',),
-    )
     with pytest.raises(ValueError, match='routing'):
+        check = _wiring_check(
+            revision,
+            check_kind='routing',
+            expected_speaker_ids=('speaker-fl',),
+            evidence_refs=('manual:verified-continuity',),
+        )
         quality_repository.save_wiring_check(check)
 
 
@@ -1046,6 +1126,7 @@ def test_wiring_check_routing_pass_with_binding(tmp_path):
     profile = _profile(revision)
     quality_repository.save_routing_profile(profile)
     check = _wiring_check(
+        revision,
         check_kind='routing',
         expected_speaker_ids=('speaker-fl',),
         routing_profile_ref=routing_profile_binding(profile),
@@ -1196,7 +1277,7 @@ def test_derive_load_result():
 
 
 def test_load_check_result_must_match_derived(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     observation = build_electrical_load_observation(
         quantity_kind='dcr',
         value_ohm=3.2,
@@ -1208,6 +1289,7 @@ def test_load_check_result_must_match_derived(tmp_path):
     # derive_load_result(observation) == 'FAIL': a claimed PASS cannot
     # contradict the bound quantitative evidence.
     check = _wiring_check(
+        revision,
         check_kind='load',
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('manual:dcr-probe',),
@@ -1218,7 +1300,7 @@ def test_load_check_result_must_match_derived(tmp_path):
 
 
 def test_load_check_pass_with_in_range_observation(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     observation = build_electrical_load_observation(
         quantity_kind='dcr',
         value_ohm=6.4,
@@ -1229,6 +1311,7 @@ def test_load_check_pass_with_in_range_observation(tmp_path):
         measured_at_utc=NOW,
     )
     check = _wiring_check(
+        revision,
         check_kind='load',
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('manual:dcr-probe',),
@@ -1241,8 +1324,9 @@ def test_load_check_pass_with_in_range_observation(tmp_path):
 
 
 def test_load_check_pass_requires_observation(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     check = _wiring_check(
+        revision,
         check_kind='load',
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('manual:dcr-probe',),
