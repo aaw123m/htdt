@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+    # Backend changes are the only thing this workflow verifies; PRs that
+    # only touch docs/frontend/assets skip CI entirely instead of spending
+    # 12+ runner-minutes proving nothing.
+    paths:
+      - "backend/**"
+      - "scripts/**"
+      - "installer/**"
+      - "benchmarks/**"
+      - ".github/**"
 
 permissions:
   contents: read
@@ -123,7 +132,35 @@ jobs:
       - name: Install backend
         run: python -m pip install -e ".\backend[dev]"
 
-      - name: Test backend (shard ${{ matrix.shard }}/12)
+      # Changed-file selection: a module edit selects the tests that cover it,
+      # core/shared changes fall back to the full suite, and PRs that cannot
+      # affect the backend skip test execution entirely on every shard.
+      - name: Select affected tests
+        id: sel
+        shell: pwsh
+        run: |
+          $base = "${{ github.event.pull_request.base.sha }}"
+          if ($base -ne "") {
+            git fetch --depth=1 origin $base | Out-Null
+          }
+          $mode = (python scripts\select_affected_tests.py --base $base --tests-dir backend\tests --out-file "$env:RUNNER_TEMP\affected.json" | ConvertFrom-Json).mode
+          if ($base -eq "") { $mode = "full" }
+          echo "mode=$mode" >> $env:GITHUB_OUTPUT
+
+      - name: Test backend (shard ${{ matrix.shard }}/12, selected)
+        if: steps.sel.outputs.mode == 'subset'
+        shell: pwsh
+        run: |
+          python -c "import json; open(r'$env:RUNNER_TEMP\affected.txt','w').write('\n'.join(json.load(open(r'$env:RUNNER_TEMP\affected.json'))['files']))"
+          $sel = @(); $des = @()
+          foreach ($l in (python scripts\pytest_shard.py backend\tests --num-shards 12 --shard ${{ matrix.shard }} --weights scripts\test_durations.json --only "$env:RUNNER_TEMP\affected.txt")) {
+            if ($l.StartsWith('deselect:')) { $des += '--deselect'; $des += $l.Substring(9) } else { $sel += $l }
+          }
+          if ($sel.Count -eq 0) { echo "shard ${{ matrix.shard }}: no affected tests"; exit 0 }
+          python -m pytest $sel $des -n auto --dist loadscope
+
+      - name: Test backend (shard ${{ matrix.shard }}/12, full)
+        if: steps.sel.outputs.mode == 'full'
         shell: pwsh
         run: |
           $sel = @(); $des = @()
@@ -131,3 +168,7 @@ jobs:
             if ($l.StartsWith('deselect:')) { $des += '--deselect'; $des += $l.Substring(9) } else { $sel += $l }
           }
           python -m pytest $sel $des -n auto --dist loadscope
+
+      - name: Skip backend tests (no backend-affecting changes)
+        if: steps.sel.outputs.mode == 'none'
+        run: 'echo "shard ${{ matrix.shard }}: no backend-affecting changes"'
