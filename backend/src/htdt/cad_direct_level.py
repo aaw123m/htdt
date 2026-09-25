@@ -349,10 +349,12 @@ class DirectLevelAggregates(BaseModel):
 class SeatPriorityAggregates(BaseModel):
     """Priority-aware aggregates (#513).
 
-    ``weighted_*`` is the sum_to_one weighted mean over required seats only;
-    ``worst_required_*`` keeps the hard floor independent of soft weights, so
-    a low-weight required seat can never be silently waived. Diagnostic seats
-    contribute neither aggregate. Recorded normalization is the profile's
+    ``weighted_*`` is the sum_to_one weighted mean over the soft-objective
+    population (non-diagnostic members, independent of ``required``); the
+    ``worst_required_*`` hard floor covers explicitly required seats only.
+    Soft and hard membership are structurally separate (#975): an optional
+    seat can carry weight without joining the floor, and diagnostics never
+    contribute either aggregate. Recorded normalization is the profile's
     exact ``weight_normalization``/``normalization_version``.
     """
 
@@ -975,24 +977,40 @@ def _seat_priority_aggregates(
     seat_results: Sequence[SeatDirectLevelResult],
     priority_profile: SeatPriorityProfile | None,
 ) -> SeatPriorityAggregates | None:
-    """Weighted + required-floor aggregates over the exact profile (#513).
+    """Weighted soft + required-floor aggregates over the exact profile (#513, #975).
 
-    Required seats only — diagnostics are evidence rows, not objective
-    members. A missing/unsupported required seat fails closed rather than
-    silently dropping out of the floor or the weighted mean.
+    Soft population = non-diagnostic members; hard floor = required members.
+    Diagnostics are evidence rows, not objective members. A missing seat in
+    either population fails closed rather than silently dropping out.
     """
     if priority_profile is None:
         return None
     weights = priority_profile.normalized_weights()
     by_id = {item.seat_entity_id: item for item in seat_results}
-    required = tuple(
+    for seat_id in (
+        set(weights) | set(priority_profile.required_seat_entity_ids)
+    ):
+        if seat_id not in by_id:
+            raise ValueError(
+                f'seat priority member {seat_id} is missing from the '
+                'evaluated seat population'
+            )
+    soft = tuple(
         (weights[seat_id], by_id[seat_id])
+        for seat_id in priority_profile.soft_objective_seat_entity_ids
+    )
+    hard = tuple(
+        by_id[seat_id]
         for seat_id in priority_profile.required_seat_entity_ids
     )
-    direct_values = [item.direct_level for _w, item in required]
-    target_values = [item.target_margin for _w, item in required]
-    continuous_values = [item.continuous_headroom for _w, item in required]
-    peak_values = [item.peak_headroom for _w, item in required]
+    direct_values = [item.direct_level for _w, item in soft]
+    target_values = [item.target_margin for _w, item in soft]
+    continuous_values = [item.continuous_headroom for _w, item in soft]
+    peak_values = [item.peak_headroom for _w, item in soft]
+    required_direct_values = [item.direct_level for item in hard]
+    required_target_values = [item.target_margin for item in hard]
+    required_continuous_values = [item.continuous_headroom for item in hard]
+    required_peak_values = [item.peak_headroom for item in hard]
     return SeatPriorityAggregates(
         priority_profile_id=priority_profile.profile_id,
         priority_profile_sha256=priority_profile.profile_sha256,
@@ -1001,42 +1019,42 @@ def _seat_priority_aggregates(
         required_seat_entity_ids=priority_profile.required_seat_entity_ids,
         normalized_weights=weights,
         weighted_direct_level=_aggregate_weighted_mean(
-            [(w, item.direct_level) for w, item in required],
+            [(w, item.direct_level) for w, item in soft],
             unit='dB SPL',
             label='weighted direct level',
         ),
         weighted_target_margin=_aggregate_weighted_mean(
-            [(w, item.target_margin) for w, item in required],
+            [(w, item.target_margin) for w, item in soft],
             unit='dB',
             label='weighted target margin',
         ),
         weighted_continuous_headroom=_aggregate_weighted_mean(
-            [(w, item.continuous_headroom) for w, item in required],
+            [(w, item.continuous_headroom) for w, item in soft],
             unit='dB',
             label='weighted continuous headroom',
         ),
         weighted_peak_headroom=_aggregate_weighted_mean(
-            [(w, item.peak_headroom) for w, item in required],
+            [(w, item.peak_headroom) for w, item in soft],
             unit='dB',
             label='weighted peak headroom',
         ),
         worst_required_seat_direct_level=_aggregate_min(
-            direct_values,
+            required_direct_values,
             unit='dB SPL',
             label='worst required-seat direct level',
         ),
         worst_required_seat_target_margin=_aggregate_min(
-            target_values,
+            required_target_values,
             unit='dB',
             label='worst required-seat target margin',
         ),
         worst_required_seat_continuous_headroom=_aggregate_min(
-            continuous_values,
+            required_continuous_values,
             unit='dB',
             label='worst required-seat continuous headroom',
         ),
         worst_required_seat_peak_headroom=_aggregate_min(
-            peak_values,
+            required_peak_values,
             unit='dB',
             label='worst required-seat peak headroom',
         ),

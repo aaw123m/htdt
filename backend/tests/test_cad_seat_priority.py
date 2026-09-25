@@ -56,6 +56,13 @@ from htdt.cad_system_variant import (
     build_system_variant,
 )
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
+from htdt.comparison import FrequencyResponse
+from htdt.optimization_objectives import (
+    ObjectiveError,
+    ResponseObjectiveSpec,
+    seat_pairwise_objectives,
+)
+from htdt.cad_coverage import coverage_objective_vector
 
 
 NOW = '2026-09-20T12:00:00+00:00'
@@ -274,6 +281,56 @@ def test_profile_binds_head_revision_and_normalizes_required_weights(
     )
 
 
+def test_soft_weights_are_independent_of_required_membership(
+    tmp_path: Path,
+) -> None:
+    """#975: lowering a seat to optional changes the hard floor, not the
+    soft population."""
+    scene_repository, _revision, _vr, _er = _repositories(tmp_path)
+
+    profile = build_seat_priority_profile(
+        scene_repository=scene_repository,
+        document_id=DOCUMENT_ID,
+        members=_members(secondary_required=False),
+    )
+
+    assert profile.required_seat_entity_ids == ('seat-mlp',)
+    assert profile.soft_objective_seat_entity_ids == (
+        'seat-mlp',
+        'seat-secondary',
+    )
+    # The optional secondary seat keeps its soft weight.
+    assert profile.normalized_weights() == pytest.approx(
+        {'seat-mlp': 0.75, 'seat-secondary': 0.25}
+    )
+
+
+def test_diagnostic_never_enters_soft_weights_even_when_required(
+    tmp_path: Path,
+) -> None:
+    """#975: diagnostic membership is evidence-only regardless of the
+    required flag."""
+    scene_repository, _revision, _vr, _er = _repositories(tmp_path)
+
+    members = _members()
+    diagnostic_required = SeatPriorityMember(
+        seat_entity_id='seat-diag',
+        seat_role='diagnostic',
+        required=True,
+        weight=7.0,
+    )
+    profile = build_seat_priority_profile(
+        scene_repository=scene_repository,
+        document_id=DOCUMENT_ID,
+        members=(diagnostic_required,) + members[1:],
+    )
+
+    assert 'seat-diag' not in profile.normalized_weights()
+    # A deliberately required diagnostic still joins the explicit hard
+    # floor — that is a separate hard-constraint policy, not soft weight.
+    assert 'seat-diag' in profile.required_seat_entity_ids
+
+
 def test_profile_rejects_non_seat_and_unsorted_members(tmp_path: Path) -> None:
     scene_repository, _revision, _vr, _er = _repositories(tmp_path)
 
@@ -423,6 +480,140 @@ def test_weighted_direct_level_uses_priority_members_only(tmp_path: Path) -> Non
     assert 'o100d.priority.weighted_direct_level_db_spl' in ids
     assert 'o100d.priority.worst_required_seat_direct_level_db_spl' in ids
     assert len(vector.metrics) == 13
+
+
+def test_optional_secondary_keeps_soft_weight_but_leaves_hard_floor(
+    tmp_path: Path,
+) -> None:
+    """#975: weighted aggregates cover the soft population; the hard floor
+    covers required members only."""
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    definition = _equipment()
+    variant = _persist_variant(
+        variant_repository, equipment_repository, revision, definition
+    )
+    profile = build_seat_priority_profile(
+        scene_repository=scene_repository,
+        document_id=DOCUMENT_ID,
+        members=_members(secondary_required=False),
+    )
+    population = SeatPopulation(
+        population_id='mlp-weighted',
+        seat_entity_ids=profile.seat_entity_ids,
+        population_weighting='seat_priority',
+        priority_profile_id=profile.profile_id,
+        priority_profile_sha256=profile.profile_sha256,
+    )
+    evaluation = evaluate_direct_level(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        scenario=_scenario(population),
+        priority_profile=profile,
+    )
+
+    priority = evaluation.priority_aggregates
+    assert priority is not None
+    assert priority.required_seat_entity_ids == ('seat-mlp',)
+    by_seat = {item.seat_entity_id: item for item in evaluation.seat_results}
+    # Optional secondary still participates in the weighted mean.
+    expected_weighted = (
+        0.75 * by_seat['seat-mlp'].direct_level.value
+        + 0.25 * by_seat['seat-secondary'].direct_level.value
+    )
+    assert priority.weighted_direct_level.value == pytest.approx(
+        expected_weighted
+    )
+    # The hard floor now covers the MLP only.
+    assert priority.worst_required_seat_direct_level.value == pytest.approx(
+        by_seat['seat-mlp'].direct_level.value
+    )
+
+
+def test_seat_pairwise_objectives_bind_exact_profile_and_soft_population(
+    tmp_path: Path,
+) -> None:
+    """#975: pairwise FR objectives reproduce the profile's seat policy."""
+    scene_repository, _revision, _vr, _er = _repositories(tmp_path)
+    profile = build_seat_priority_profile(
+        scene_repository=scene_repository,
+        document_id=DOCUMENT_ID,
+        members=_members(),
+    )
+
+    def response(level: float) -> FrequencyResponse:
+        return FrequencyResponse(
+            frequency_hz=(20.0, 40.0, 80.0, 160.0),
+            level_db=(level, level, level, level),
+        )
+
+    spec = ResponseObjectiveSpec(low_hz=20.0, high_hz=160.0)
+    # Aligned to profile.seat_entity_ids: (seat-diag, seat-mlp, seat-secondary)
+    vector = seat_pairwise_objectives(
+        'candidate-a',
+        (
+            response(50.0),  # diagnostic — evidence only, no pair
+            response(0.0),
+            response(2.0),
+        ),
+        spec,
+        seat_entity_ids=profile.seat_entity_ids,
+        priority_profile=profile,
+    )
+
+    # Only the soft pair (mlp, secondary) contributes: rms difference 2.0.
+    max_metric = vector.metric('seat.pairwise_rms_difference_max_db')
+    assert max_metric.value == pytest.approx(2.0)
+    # Bound metrics carry the exact population/profile authority.
+    assert max_metric.definition is not None
+    assert (
+        max_metric.definition.comparison_model_id
+        == 'seat-pairwise-response-comparison'
+    )
+    bound_again = seat_pairwise_objectives(
+        'candidate-a',
+        (
+            response(50.0),
+            response(0.0),
+            response(2.0),
+        ),
+        spec,
+        seat_entity_ids=profile.seat_entity_ids,
+        priority_profile=profile,
+    )
+    assert (
+        max_metric.definition.comparison_model_version
+        == bound_again.metric(
+            'seat.pairwise_rms_difference_max_db'
+        ).definition.comparison_model_version
+    )
+    # A different profile/seat binding yields a different pinned version.
+    other = seat_pairwise_objectives(
+        'candidate-a',
+        (response(0.0), response(2.0)),
+        spec,
+        seat_entity_ids=('seat-mlp', 'seat-secondary'),
+    )
+    assert (
+        other.metric(
+            'seat.pairwise_rms_difference_max_db'
+        ).definition.comparison_model_version
+        != max_metric.definition.comparison_model_version
+    )
+
+    with pytest.raises(ObjectiveError, match='SeatPriorityProfile'):
+        seat_pairwise_objectives(
+            'candidate-a',
+            (response(0.0), response(2.0), response(1.0)),
+            spec,
+            seat_entity_ids=('seat-mlp', 'seat-secondary', 'seat-other'),
+            priority_profile=profile,
+        )
 
 
 def test_equal_unweighted_population_keeps_identity_unchanged(
@@ -687,3 +878,15 @@ def test_weighted_coverage_fraction_respects_priority_profile(
     assert priority.worst_required_seat_relative_directivity_level.value == (
         pytest.approx(worst)
     )
+
+    # #975: priority coverage metrics reach the optimization vector.
+    vector = coverage_objective_vector(evaluation)
+    ids = {metric.objective_id for metric in vector.metrics}
+    assert 'o100d.priority.coverage.weighted_useful_fraction' in ids
+    assert (
+        'o100d.priority.coverage.worst_required_relative_level_db' in ids
+    )
+    weighted_metric = vector.metric(
+        'o100d.priority.coverage.weighted_useful_fraction'
+    )
+    assert weighted_metric.value == pytest.approx(expected_fraction)
