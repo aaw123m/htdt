@@ -416,16 +416,37 @@ def _quality_repository(measurement_repository: CadMeasurementRepository):
     return CadMeasurementQualityRepository(measurement_repository)
 
 
-def _level_calibration(quality_repository, *, method='acoustic_calibrator'):
+def _level_calibration(
+    quality_repository,
+    *,
+    method='acoustic_calibrator',
+    acquisition_session_id=None,
+):
     from htdt.cad_measurement_authorities import build_acoustic_level_calibration
 
     calibration = build_acoustic_level_calibration(
         method=method,
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
+        validity_scope=(
+            'session' if acquisition_session_id is not None else 'unknown'
+        ),
+        acquisition_session_id=acquisition_session_id,
     )
     quality_repository.save_level_calibration(calibration)
     return calibration
+
+
+def _session_context(quality_repository, session_id, *measurement_ids):
+    from htdt.cad_measurement_quality import build_acquisition_context
+
+    context = build_acquisition_context(
+        source_kind='native',
+        subject_measurement_ids=measurement_ids,
+        acquisition_session_id=session_id,
+    )
+    quality_repository.save_acquisition_context(context)
+    return context
 
 
 def _bind_level_reference(
@@ -472,7 +493,15 @@ def test_comparison_semantics_absolute_levels_comparable(tmp_path: Path) -> None
     _, dataset_b = _save_dataset(
         repository, revision, 'b', levels=(69.0, 70.0, 68.0, 71.0)
     )
-    calibration = _level_calibration(quality_repository)
+    _session_context(
+        quality_repository,
+        'session-1',
+        dataset_a.measurement_id,
+        dataset_b.measurement_id,
+    )
+    calibration = _level_calibration(
+        quality_repository, acquisition_session_id='session-1'
+    )
     _bind_level_reference(
         quality_repository, dataset_a, 'absolute_spl', calibration
     )
@@ -506,7 +535,15 @@ def test_comparison_semantics_absolute_vs_relative_never_upgrades(
     _, dataset_b = _save_dataset(
         repository, revision, 'b', levels=(69.0, 70.0, 68.0, 71.0)
     )
-    calibration = _level_calibration(quality_repository)
+    _session_context(
+        quality_repository,
+        'session-1',
+        dataset_a.measurement_id,
+        dataset_b.measurement_id,
+    )
+    calibration = _level_calibration(
+        quality_repository, acquisition_session_id='session-1'
+    )
     _bind_level_reference(
         quality_repository, dataset_a, 'absolute_spl', calibration
     )
@@ -599,7 +636,15 @@ def test_compare_datasets_persists_semantics_for_history(tmp_path: Path) -> None
     _, dataset_b = _save_dataset(
         repository, revision, 'b', levels=(69.0, 70.0, 68.0, 71.0)
     )
-    calibration = _level_calibration(quality_repository)
+    _session_context(
+        quality_repository,
+        'session-1',
+        dataset_a.measurement_id,
+        dataset_b.measurement_id,
+    )
+    calibration = _level_calibration(
+        quality_repository, acquisition_session_id='session-1'
+    )
     _bind_level_reference(
         quality_repository, dataset_a, 'absolute_spl', calibration
     )
