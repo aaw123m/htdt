@@ -572,7 +572,7 @@ class CadProjectActivityService:
                 deep_link=_link(
                     NavigationTargetKind.CALIBRATION_PLAN,
                     WorkspaceId.MEASUREMENT,
-                    'calibration',
+                    None,
                     plan.plan_id,
                 ),
             )
@@ -588,7 +588,7 @@ class CadProjectActivityService:
                     deep_link=_link(
                         NavigationTargetKind.CALIBRATION_PLAN,
                         WorkspaceId.MEASUREMENT,
-                        'calibration',
+                        None,
                         plan.plan_id,
                     ),
                 )
@@ -617,7 +617,7 @@ class CadProjectActivityService:
                     deep_link=_link(
                         NavigationTargetKind.CALIBRATION_PLAN,
                         WorkspaceId.MEASUREMENT,
-                        'calibration',
+                        None,
                         plan.plan_id,
                     ),
                 )
