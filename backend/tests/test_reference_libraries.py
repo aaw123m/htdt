@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from htdt.reference_libraries import (
+    DependencyReferenceKind,
     ImportOutcome,
     LibraryDeleteBlocked,
     LibraryEntry,
@@ -168,6 +169,60 @@ def test_project_references_and_used_by() -> None:
         project_dependency_sets=([a.semantic_key], [b.semantic_key], [a.semantic_key]),
     )
     assert count == 2
+
+
+def test_project_references_require_semantic_hash() -> None:
+    """#741: identity@version alone can never resolve an exact authority."""
+    a = _entry('sp-1', authority_hash='hash-a')
+    b = _entry('sp-1', authority_hash='hash-b')
+    index = _index([a, b])
+
+    # Exact semantic keys resolve only their own authority.
+    assert index.project_references([a.semantic_key]) == (a,)
+    assert index.project_references([b.semantic_key]) == (b,)
+
+    # A version-only key returns no exact match even when a row exists.
+    assert index.project_references([a.version_key]) == ()
+
+    # Exact used-by ignores version-only project dependency sets.
+    sets = (
+        [a.semantic_key],
+        [a.version_key],          # legacy/version-only -> not exact usage
+        [a.semantic_key, a.version_key],
+    )
+    assert index.used_by_count(a, project_dependency_sets=sets) == 2
+    assert index.legacy_used_by_count(a, project_dependency_sets=sets) == 1
+    # The conflicting hash-B row has no exact users either.
+    assert index.used_by_count(b, project_dependency_sets=sets) == 0
+
+
+def test_classify_project_dependencies() -> None:
+    a = _entry('sp-1', authority_hash='hash-a')
+    b = _entry('sp-1', authority_hash='hash-b')
+    c = _entry('curve-1', family=LibraryFamily.TARGET_CURVE)
+    index = _index([a, b, c])
+
+    kinds = {
+        ref.key: ref.kind
+        for ref in index.classify_project_dependencies(
+            [
+                a.semantic_key,      # exact
+                'sp-1@v1',           # two semantic rows share the version
+                c.version_key,       # one semantic row -> legacy unverified
+                'ghost@v9',          # nothing matches
+                'ghost@v9#' + 'f' * 6,  # semantic-looking pin that resolves to nothing
+            ]
+        )
+    }
+    assert kinds[a.semantic_key] == DependencyReferenceKind.EXACT
+    assert kinds['sp-1@v1'] == DependencyReferenceKind.AMBIGUOUS_VERSION_REFERENCE
+    assert kinds[c.version_key] == DependencyReferenceKind.LEGACY_UNVERIFIED_REFERENCE
+    assert kinds['ghost@v9'] == DependencyReferenceKind.REQUIRED_UNRESOLVED
+    assert kinds['ghost@v9#' + 'f' * 6] == DependencyReferenceKind.REQUIRED_UNRESOLVED
+
+    # Ambiguous candidates are exposed for disambiguation, not as exact refs.
+    ambiguous = index.classify_project_dependencies(['sp-1@v1'])[0]
+    assert {e.authority_hash for e in ambiguous.entries} == {'hash-a', 'hash-b'}
 
 
 def test_archive_without_meta_store_raises() -> None:

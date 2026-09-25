@@ -124,6 +124,34 @@ class ImportOutcome(StrEnum):
     IMPORT = 'import'
 
 
+class DependencyReferenceKind(StrEnum):
+    """How a persisted project dependency key resolves against the index.
+
+    Only a full semantic key (``identity@version#hash``) is exact. A
+    version-only ``identity@version`` key is never upgraded to exact — it is
+    classified as legacy/ambiguous until an explicit rebind (#608) records a
+    semantic pin.
+    """
+
+    EXACT = 'exact'
+    LEGACY_UNVERIFIED_REFERENCE = 'legacy_unverified_reference'
+    AMBIGUOUS_VERSION_REFERENCE = 'ambiguous_version_reference'
+    REQUIRED_UNRESOLVED = 'required_unresolved'
+
+
+@dataclass(frozen=True, slots=True)
+class DependencyReference:
+    """One persisted dependency key classified against the index.
+
+    ``entries`` carries resolved candidates for disambiguation UI; for
+    non-EXACT kinds they are *candidates*, not exact references.
+    """
+
+    key: str
+    kind: DependencyReferenceKind
+    entries: tuple[LibraryEntry, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class ImportResolution:
     outcome: ImportOutcome
@@ -308,28 +336,97 @@ class ReferenceLibraryIndex:
     def project_references(
         self, semantic_keys: Iterable[str]
     ) -> tuple[LibraryEntry, ...]:
-        """Exact reusable authorities a project depends on ("used by this project")."""
+        """Exact reusable authorities a project depends on ("used by this project").
+
+        Only full semantic keys (``identity@version#hash``) resolve. A
+        version-only ``identity@version`` key is never treated as an exact
+        reference — classify it via :meth:`classify_project_dependencies`.
+        """
 
         wanted = set(semantic_keys)
         return tuple(
             entry
             for entry in self.entries(include_archived=True)
-            if entry.semantic_key in wanted or entry.version_key in wanted
+            if entry.semantic_key in wanted
         )
+
+    def classify_project_dependencies(
+        self, keys: Iterable[str]
+    ) -> tuple[DependencyReference, ...]:
+        """Classify persisted project dependency keys by exactness.
+
+        * full ``identity@version#hash`` → EXACT (or REQUIRED_UNRESOLVED
+          when nothing matches);
+        * version-only ``identity@version`` → LEGACY_UNVERIFIED_REFERENCE
+          when a single semantic candidate exists,
+          AMBIGUOUS_VERSION_REFERENCE when several rows share that version,
+          REQUIRED_UNRESOLVED when none do;
+        * any other non-semantic key → REQUIRED_UNRESOLVED.
+
+        Version-only keys are never silently promoted to exact, even when
+        exactly one candidate row currently exists.
+        """
+
+        entries = self.entries(include_archived=True)
+        by_semantic = {entry.semantic_key: entry for entry in entries}
+        by_version: dict[str, list[LibraryEntry]] = {}
+        for entry in entries:
+            by_version.setdefault(entry.version_key, []).append(entry)
+        classified: list[DependencyReference] = []
+        for key in keys:
+            if '#' in key:
+                entry = by_semantic.get(key)
+                classified.append(
+                    DependencyReference(
+                        key=key,
+                        kind=(
+                            DependencyReferenceKind.EXACT
+                            if entry is not None
+                            else DependencyReferenceKind.REQUIRED_UNRESOLVED
+                        ),
+                        entries=(entry,) if entry is not None else (),
+                    )
+                )
+                continue
+            candidates = tuple(by_version.get(key, ()))
+            if not candidates:
+                kind = DependencyReferenceKind.REQUIRED_UNRESOLVED
+            elif len(candidates) == 1:
+                kind = DependencyReferenceKind.LEGACY_UNVERIFIED_REFERENCE
+            else:
+                kind = DependencyReferenceKind.AMBIGUOUS_VERSION_REFERENCE
+            classified.append(
+                DependencyReference(key=key, kind=kind, entries=candidates)
+            )
+        return tuple(classified)
 
     def used_by_count(
         self,
         entry: LibraryEntry,
         project_dependency_sets: Iterable[Iterable[str]],
     ) -> int:
-        """How many projects reference this exact version."""
+        """How many projects reference this exact semantic version."""
 
         key = entry.semantic_key
+        return sum(1 for keys in project_dependency_sets if key in set(keys))
+
+    def legacy_used_by_count(
+        self,
+        entry: LibraryEntry,
+        project_dependency_sets: Iterable[Iterable[str]],
+    ) -> int:
+        """Projects referencing this entry only through a version-only key.
+
+        Possible/legacy usage reported separately from exact usage: a set
+        that also carries the exact semantic key is exact usage, not legacy.
+        """
+
+        semantic = entry.semantic_key
         vkey = entry.version_key
         return sum(
             1
             for keys in project_dependency_sets
-            if key in set(keys) or vkey in set(keys)
+            if vkey in set(keys) and semantic not in set(keys)
         )
 
 
@@ -398,6 +495,8 @@ class LibraryMetaStore:
 
 
 __all__ = [
+    'DependencyReference',
+    'DependencyReferenceKind',
     'ImportOutcome',
     'ImportResolution',
     'LIBRARY_META_FILENAME',
