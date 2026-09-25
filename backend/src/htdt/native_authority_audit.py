@@ -771,6 +771,125 @@ def _verify_measurement_correction(
     return correction
 
 
+def _verify_applied_preset(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    applied_id, preset_id = key
+    applied = chain.repo('presets').verify_persisted_applied_state(applied_id)
+    if applied.preset_id != preset_id:
+        raise ValueError(
+            f'applied preset state {applied_id} binds preset '
+            f'{applied.preset_id}, not recorded {preset_id}'
+        )
+    return applied
+
+
+def _verify_preset_binding(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    binding_id, preset_id = key
+    binding = chain.repo('presets').verify_persisted_measurement_binding(
+        binding_id
+    )
+    if binding.preset_id != preset_id:
+        raise ValueError(
+            f'preset binding {binding_id} binds preset {binding.preset_id}, '
+            f'not recorded {preset_id}'
+        )
+    return binding
+
+
+def _verify_checkpoint_restore(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    restore_id, checkpoint_id = key
+    restore = chain.repo('checkpoints').verify_persisted_restore(restore_id)
+    if restore.checkpoint_id != checkpoint_id:
+        raise ValueError(
+            f'checkpoint restore {restore_id} binds checkpoint '
+            f'{restore.checkpoint_id}, not recorded {checkpoint_id}'
+        )
+    return restore
+
+
+def _verify_health_plan(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    plan_id, baseline_id = key
+    plan = chain.repo('health').verify_persisted_plan(plan_id)
+    if plan.baseline_id != baseline_id:
+        raise ValueError(
+            f'health check plan {plan_id} binds baseline '
+            f'{plan.baseline_id}, not recorded {baseline_id}'
+        )
+    return plan
+
+
+def _verify_health_run(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    run_id, plan_id = key
+    run = chain.repo('health').verify_persisted_run(run_id)
+    if run.plan_id != plan_id:
+        raise ValueError(
+            f'health check run {run_id} binds plan {run.plan_id}, '
+            f'not recorded {plan_id}'
+        )
+    return run
+
+
+def _verify_supersedes_chain(
+    record: Any,
+    lineage: Any,
+    id_attr: str,
+    supersedes_attr: str,
+    description: str,
+) -> Any:
+    """Single-successor supersedes chain within one canonical lineage."""
+
+    lineage_ids = {getattr(item, id_attr) for item in lineage}
+    record_id = getattr(record, id_attr)
+    supersedes = getattr(record, supersedes_attr, None)
+    if supersedes is not None and supersedes not in lineage_ids:
+        raise ValueError(
+            f'{description} {record_id} supersedes {supersedes}, which is '
+            f'absent from its canonical lineage'
+        )
+    if (
+        sum(
+            1
+            for item in lineage
+            if getattr(item, supersedes_attr, None) == record_id
+        )
+        > 1
+    ):
+        raise ValueError(
+            f'branched {description} lineage: multiple records supersede '
+            f'{record_id}'
+        )
+    return record
+
+
+def _verify_comparison_set(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    set_id, document_id = key
+    comparisons = chain.repo('design_comparisons')
+    record = comparisons.verify_persisted_set(set_id)
+    if record.document_id != document_id:
+        raise ValueError(
+            f'comparison set {set_id} binds document '
+            f'{record.document_id}, not recorded {document_id}'
+        )
+    return _verify_supersedes_chain(
+        record,
+        comparisons.list_sets(document_id),
+        'set_id',
+        'supersedes_set_id',
+        'comparison set',
+    )
+
+
 def _verify_design_decision(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
@@ -1003,6 +1122,21 @@ def _verify_runner_event(
             f'runner event {event_id} no longer resolves for run {run_id}'
         )
     return events
+
+
+def _verify_project_tombstone(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    tombstone_id, project_id = key
+    record = chain.repo('project_library').verify_persisted_tombstone(
+        tombstone_id
+    )
+    if str(record['project_id']) != project_id:
+        raise ValueError(
+            f'project tombstone {tombstone_id} binds project '
+            f"{record['project_id']}, not recorded {project_id}"
+        )
+    return record
 
 
 # Persisted authorities enumerated in dependency order. Each verify call is
@@ -1588,8 +1722,8 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     _ReplayProbe(
         'design_comparison_set',
         'cad_design_comparison_sets',
-        ('set_id',),
-        _get('comparison', 'verify_persisted_set'),
+        ('set_id', 'document_id'),
+        _verify_comparison_set,
     ),
     _ReplayProbe(
         'operating_preset',
@@ -1600,14 +1734,14 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     _ReplayProbe(
         'applied_preset_state',
         'cad_applied_preset_states',
-        ('applied_id',),
-        _get('presets', 'verify_persisted_applied_state'),
+        ('applied_id', 'preset_id'),
+        _verify_applied_preset,
     ),
     _ReplayProbe(
         'preset_measurement_binding',
         'cad_preset_measurement_bindings',
-        ('binding_id',),
-        _get('presets', 'verify_persisted_measurement_binding'),
+        ('binding_id', 'preset_id'),
+        _verify_preset_binding,
     ),
     _ReplayProbe(
         'health_baseline',
@@ -1618,14 +1752,14 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     _ReplayProbe(
         'health_check_plan',
         'cad_health_check_plans',
-        ('plan_id',),
-        _get('health', 'verify_persisted_plan'),
+        ('plan_id', 'baseline_id'),
+        _verify_health_plan,
     ),
     _ReplayProbe(
         'health_check_run',
         'cad_health_check_runs',
-        ('run_id',),
-        _get('health', 'verify_persisted_run'),
+        ('run_id', 'plan_id'),
+        _verify_health_run,
     ),
     _ReplayProbe(
         'constraint_snapshot',
@@ -1642,8 +1776,8 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     _ReplayProbe(
         'checkpoint_restore',
         'cad_checkpoint_restores',
-        ('restore_id',),
-        _get('checkpoints', 'verify_persisted_restore'),
+        ('restore_id', 'checkpoint_id'),
+        _verify_checkpoint_restore,
     ),
     _ReplayProbe(
         'project_registry',
@@ -1750,8 +1884,8 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     _ReplayProbe(
         'project_tombstone',
         'htdt_project_tombstones',
-        ('tombstone_id',),
-        _get('project_library', 'verify_persisted_tombstone'),
+        ('tombstone_id', 'project_id'),
+        _verify_project_tombstone,
     ),
 )
 
