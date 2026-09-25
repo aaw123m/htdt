@@ -1032,11 +1032,14 @@ class RoomPredictionPanel(QWidget):
             repository.ensure_default_profile()
         selected = self.controller.selected_environment_profile()
         if selected is None:
+            # Display the shared default without claiming it — persisting a
+            # selection on view would mark the project dirty for an edit the
+            # operator never made (#915).
             selected = repository.ensure_default_profile()
-            self.controller.select_environment_profile(selected)
-        previous = self.environment.currentData() or (
-            None if selected is None else selected.authority_id
-        )
+        # The persisted selection is authoritative — preferring the combo's
+        # currentData would resurrect a selection a Discard just rolled
+        # back (#915).
+        current = None if selected is None else selected.authority_id
         self.environment.blockSignals(True)
         self.environment.clear()
         for profile in self.controller.environment_profiles():
@@ -1049,8 +1052,8 @@ class RoomPredictionPanel(QWidget):
                 f"{profile.label} · {speed} ({profile.sound_speed_source_kind})",
                 profile.authority_id,
             )
-        if previous is not None:
-            index = self.environment.findData(previous)
+        if current is not None:
+            index = self.environment.findData(current)
             if index >= 0:
                 self.environment.setCurrentIndex(index)
         self.environment.blockSignals(False)

@@ -77,9 +77,18 @@ def _service(**kwargs) -> OverviewReadinessService:
 
 
 class _VariantSource:
-    def __init__(self, lifecycle_state: str, measurement_state: str) -> None:
+    def __init__(
+        self,
+        lifecycle_state: str,
+        measurement_state: str,
+        *,
+        application_exists: bool = False,
+    ) -> None:
         self._lifecycle = SimpleNamespace(
-            state=lifecycle_state, label='設置済み', validation_label='未検証'
+            state=lifecycle_state,
+            label='設置済み',
+            validation_label='未検証',
+            application_exists=application_exists,
         )
         self._measurement = SimpleNamespace(
             state=measurement_state, state_label='未計画'
@@ -109,10 +118,39 @@ def test_variant_states_cover_lifecycle() -> None:
     assert state.action.target.workspace.value == 'measurement'
 
 
-def test_current_variant_maps_to_applied() -> None:
+def test_current_variant_maps_to_current() -> None:
+    """#914: a current baseline is the live system, not an applied proposal."""
     service = _service(variant_source=_VariantSource('current', 'unplanned'))
     view = service.read('doc-1')
-    assert view.variant_states[0].stage == 'applied'
+    state = view.variant_states[0]
+    assert state.stage == 'current'
+    assert state.stage_label == '現在のシステム'
+    assert state.action is None
+
+
+def test_applied_proposal_maps_to_applied_with_as_built_action() -> None:
+    """#914: proposed + application authority ⇒ applied, routes to as-built."""
+    service = _service(
+        variant_source=_VariantSource(
+            'proposed', 'unplanned', application_exists=True
+        )
+    )
+    view = service.read('doc-1')
+    state = view.variant_states[0]
+    assert state.stage == 'applied'
+    assert state.stage_label == '適用済み（設置記録なし）'
+    assert state.action is not None
+    assert state.action.target.workspace.value == 'optimization'
+    assert state.action.target.section == 'validation'
+
+
+def test_unapplied_proposal_stays_proposed() -> None:
+    service = _service(variant_source=_VariantSource('proposed', 'unplanned'))
+    view = service.read('doc-1')
+    state = view.variant_states[0]
+    assert state.stage == 'proposed'
+    assert state.action is not None
+    assert state.action.target.section == 'comparison'
 
 
 def test_measured_variant_maps_to_measured_unvalidated() -> None:

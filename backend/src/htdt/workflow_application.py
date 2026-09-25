@@ -122,6 +122,11 @@ from .room_acoustics_panel import (
 from .room_transform_input import RoomEntityTransformController
 from .room_viewport import RoomViewport3D
 from .room_workspace import RoomWorkspace
+from . import dirty_state_dialog
+from .user_facing_error import (
+    operation_error_message,
+    to_user_facing_error,
+)
 from .workspace_dirty_state import WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .workflow_help import HelpDialog
@@ -278,7 +283,7 @@ class WorkflowApplicationComposition:
         ) + self._application_registrations()
         self.shell = WorkflowShellWindow(registrations)
         self.registry.set_deep_link_handler(self.shell.handle_deep_link)
-        self.shell.set_project_identity(document_id)
+        self.shell.set_project_identity(self.project_entry.display_name)
         self.shell.projectSwitchRequested.connect(
             lambda: self.shell.navigate_to_target(
                 NavigationTarget(kind=NavigationTargetKind.PROJECT)
@@ -339,14 +344,30 @@ class WorkflowApplicationComposition:
             "installation.export_handoff",
             execute=self._export_installation_handoff,
         )
+        self.registry.bind(
+            "analysis.export_bundle",
+            execute=self._export_analysis_bundle,
+        )
+        self.registry.bind(
+            "project.deliverables",
+            execute=self._open_deliverables,
+        )
         self._apply_project_title()
         self._build_project_menu()
 
     # ---- project library (#450) -----------------------------------------
 
     def _apply_project_title(self) -> None:
+        # ``project_entry`` may be unbound while a restore finds no projects.
+        name = (
+            self.project_entry.display_name
+            if self.project_entry is not None
+            else None
+        )
         self.shell.setWindowTitle(
-            f"Home Theater Digital Twin — {self.project_entry.display_name}"
+            'Home Theater Digital Twin'
+            if name is None
+            else f"Home Theater Digital Twin — {name}"
         )
 
     def _build_project_menu(self) -> None:
@@ -370,6 +391,10 @@ class WorkflowApplicationComposition:
         )
         menu.addAction(
             "プロジェクトをインポート…", self._import_project_bundle
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "デリバラブルセンター…", self._open_deliverables
         )
         menu.addSeparator()
         menu.addAction(
@@ -483,7 +508,11 @@ class WorkflowApplicationComposition:
             opened = self.project_library.open_project(entry.project_id)
         except ProjectLibraryError as exc:
             QMessageBox.warning(
-                self.shell, "プロジェクトを開けません", str(exc)
+                self.shell,
+                "プロジェクトを開けません",
+                to_user_facing_error(
+                    exc, title="プロジェクトを開けませんでした"
+                ).notice_text(),
             )
             return
         self._open_document(opened.document_id)
@@ -512,7 +541,13 @@ class WorkflowApplicationComposition:
         try:
             entry = self.project_library.create_project(name)
         except ProjectLibraryError as exc:
-            QMessageBox.warning(self.shell, "プロジェクトを作成できません", str(exc))
+            QMessageBox.warning(
+                self.shell,
+                "プロジェクトを作成できません",
+                to_user_facing_error(
+                    exc, title="プロジェクトを作成できませんでした"
+                ).notice_text(),
+            )
             return
         self._switch_to_project(entry)
 
@@ -542,11 +577,78 @@ class WorkflowApplicationComposition:
                 self.project_entry.project_id, name
             )
         except ProjectLibraryError as exc:
-            QMessageBox.warning(self.shell, "名前を変更できません", str(exc))
+            QMessageBox.warning(
+                self.shell,
+                "名前を変更できません",
+                to_user_facing_error(
+                    exc, title="名前を変更できませんでした"
+                ).notice_text(),
+            )
             return
         self._apply_project_title()
+        # The context-bar chip binds once per project switch — re-bind the
+        # renamed identity or title and chip split-brain (#919 family).
+        self.shell.set_project_identity(self.project_entry.display_name)
+
+    def _project_snapshot_decision(
+        self, action_label: str
+    ) -> Literal['saved', 'last_saved'] | None:
+        """Resolve which persisted state an export/duplicate captures.
+
+        Returns ``'saved'`` (the operator asked to save first and every
+        blocked mount actually resolved), ``'last_saved'`` (serialize the
+        last persisted state WITHOUT touching the working copy), or
+        ``None`` (cancel/unresolvable — no artifact may be created).
+
+        #918/#927: a clone or bundle created while Room workspaces hold
+        unsaved edits must never silently mix generations — the operator
+        chooses the source generation explicitly BEFORE the artifact is
+        written.
+        """
+        if self.shell.data_mutations_frozen:
+            return None
+        blocked = [
+            mount
+            for _workspace_id, mount in self.shell.router.mounts()
+            if mount.before_deactivate is not None
+            and not mount.before_deactivate()[0]
+        ]
+        if not blocked:
+            return 'saved'
+        decision = dirty_state_dialog.choose_snapshot_action(
+            action_label, self.shell
+        )
+        if decision is None:
+            return None
+        if decision == 'last_saved':
+            return 'last_saved'
+        # Save path: dirty mounts save directly — the operator already
+        # chose "save"; other blocked states (preview, pending import,
+        # recovery) still need their own explicit choice via the dialog.
+        for mount in blocked:
+            state = (
+                None if mount.dirty_state is None else mount.dirty_state()
+            )
+            if state == 'dirty_recoverable' and (
+                mount.resolve_dirty_state is not None
+            ):
+                resolved, _message = mount.resolve_dirty_state('save')
+            else:
+                resolved = dirty_state_dialog.resolve_mount_dirty_state(
+                    mount, 'project_switch', self.shell
+                )
+            if not resolved:
+                return None
+            allowed, _reason = mount.before_deactivate()
+            if not allowed:
+                return None
+        return 'saved'
 
     def _duplicate_project(self) -> None:
+        # #918: decide the source generation BEFORE the clone is created.
+        decision = self._project_snapshot_decision('複製')
+        if decision is None:
+            return
         name, ok = QInputDialog.getText(
             self.shell,
             "プロジェクトを複製",
@@ -560,19 +662,38 @@ class WorkflowApplicationComposition:
                 self.project_entry.project_id, name
             )
         except ProjectLibraryError as exc:
-            QMessageBox.warning(self.shell, "複製できません", str(exc))
+            QMessageBox.warning(
+                self.shell,
+                "複製できません",
+                to_user_facing_error(
+                    exc, title="複製できませんでした"
+                ).notice_text(),
+            )
             return
         self._switch_to_project(entry)
 
     def _export_project_bundle(self) -> None:
-        """#488: export the open project as a .htdtproject bundle."""
+        """#488: export the open project as a .htdtproject bundle.
 
+        #927: the dirty/running state is resolved BEFORE the bundle is
+        written so the serialized project is always one exact generation —
+        and the default file name stamps that generation's head revision.
+        """
+
+        decision = self._project_snapshot_decision('エクスポート')
+        if decision is None:
+            return
+        head = self.repository.current_head(self.document_id)
+        revision_tag = (
+            '' if head is None else f'-{head.revision_id[:8]}'
+        )
         selected, _filter = QFileDialog.getSaveFileName(
             self.shell,
             "プロジェクトのエクスポート先",
             str(
                 Path.home()
-                / f"{self.project_entry.display_name}{BUNDLE_EXTENSION}"
+                / f"{self.project_entry.display_name}{revision_tag}"
+                f"{BUNDLE_EXTENSION}"
             ),
             f"HTDT project bundle (*{BUNDLE_EXTENSION})",
         )
@@ -586,7 +707,11 @@ class WorkflowApplicationComposition:
             )
         except ProjectBundleError as exc:
             QMessageBox.warning(
-                self.shell, "エクスポートできません", str(exc)
+                self.shell,
+                "エクスポートできません",
+                to_user_facing_error(
+                    exc, title="エクスポートできませんでした"
+                ).notice_text(),
             )
             return
         box = QMessageBox(self.shell)
@@ -617,7 +742,7 @@ class WorkflowApplicationComposition:
             retry = QMessageBox.question(
                 self.shell,
                 "そのままインポートできません",
-                f"{exc}\n\nコピーとして新しいプロジェクトを作成しますか？",
+                f"{to_user_facing_error(exc, title="インポートできませんでした").notice_text()}\n\nコピーとして新しいプロジェクトを作成しますか？",
             )
             if retry != QMessageBox.StandardButton.Yes:
                 return
@@ -792,16 +917,39 @@ class WorkflowApplicationComposition:
         allowed, reason = self.shell.router.resolve_dispose_all('project_switch')
         if not allowed:
             return reason or '現在の作業を完了してからプロジェクトを切り替えてください'
+        # #919: resolve the canonical library entry and mark it opened
+        # BEFORE unbinding anything — a failed open leaves this
+        # composition fully bound to the current project.
+        try:
+            opened = self._open_project_entry(document_id)
+        except ProjectLibraryError as exc:
+            return operation_error_message(exc)
         self.shell.dispose_data_workspaces()
         self._unbind_workspace_commands()
-        self.document_id = document_id
-        self.shell.set_project_identity(document_id)
+        self._bind_project_entry(opened)
         # #775: legacy entries recorded without project identity must never
         # replay inside the new project's namespace.
         self.shell.navigation_history.drop_unscoped_project_entries()
         if not self.shell.navigate(WorkspaceId.OVERVIEW):
             raise RuntimeError('プロジェクト切替後の概要画面を再構築できませんでした')
         return None
+
+    def _open_project_entry(self, document_id: str) -> ProjectLibraryEntry:
+        """Resolve the canonical library entry for a document and mark opened."""
+        entry = self.project_library.ensure_document_registered(document_id)
+        return self.project_library.open_project(entry.project_id)
+
+    def _bind_project_entry(self, entry: ProjectLibraryEntry) -> None:
+        """Rebind document + canonical library entry + title + chip (#919).
+
+        Every switch path must leave ``document_id``, ``project_entry``,
+        the window title and the context-bar project chip describing the
+        SAME project — never a mixture of the old and new bindings.
+        """
+        self.document_id = entry.document_id
+        self.project_entry = entry
+        self._apply_project_title()
+        self.shell.set_project_identity(entry.display_name)
 
     # -- typed-navigation project establishment (#775) -------------------
 
@@ -877,12 +1025,20 @@ class WorkflowApplicationComposition:
             return _NavigationProjectResolution(project_id, 'ok', project_id)
         return _NavigationProjectResolution(None, 'missing', None)
 
+    def _open_project_by_id(self, project_id: str) -> None:
+        """Open a project selected by canonical ``project_id`` (#919)."""
+        ok, reason = self.establish_navigation_project(project_id)
+        if not ok:
+            self.shell.statusBar().showMessage(
+                reason or 'プロジェクトを開けません'
+            )
+
     def _make_projects(self) -> WorkspaceMount:
         page = ProjectLibraryPage(
             ProjectLibraryService(self.repository),
             current_document_id=lambda: self.document_id,
         )
-        page.project_open_requested.connect(self._open_project)
+        page.project_open_requested.connect(self._open_project_by_id)
         page.commission_requested.connect(self._open_commissioning_wizard)
         return WorkspaceMount.from_widget(
             page,
@@ -948,14 +1104,51 @@ class WorkflowApplicationComposition:
         )
 
     def _open_commissioning_wizard(self) -> None:
-        """First-run project commissioning wizard (#588)."""
+        """First-run project commissioning wizard (#588).
+
+        #898: the wizard converges the collected intent into the canonical
+        ProjectDesignBrief and offers the built-in/user ProjectTemplates as
+        a start method — template-instantiated projects land with library
+        identity, instantiation provenance and the pending measurement
+        pattern, while the merged wizard+template brief is written by the
+        wizard on save.
+        """
+        from .cad_design_brief_repository import CadDesignBriefRepository
+        from .cad_project_template import create_project_from_template
+        from .cad_project_template_repository import (
+            CadProjectTemplateRepository,
+        )
         from .commissioning_wizard import CommissioningWizard
+
+        template_repository = CadProjectTemplateRepository(self.repository)
+        brief_repository = CadDesignBriefRepository(self.repository)
+        template_options = tuple(
+            (template.name, template)
+            for template in template_repository.list_templates()
+        )
+
+        def _start_from_template(template, display_name, document_id):
+            return create_project_from_template(
+                self.repository,
+                template,
+                library=ProjectLibrary(self.repository_path),
+                display_name=display_name,
+                document_id=document_id,
+                created_at_utc=datetime.now(timezone.utc).isoformat(),
+                instantiation_repository=template_repository,
+                # The wizard materializes the merged wizard+template brief
+                # itself on save — no duplicate brief write here (#898).
+                design_brief_repository=None,
+            )
 
         wizard = CommissioningWizard(
             self.repository,
             self.document_id,
             data_dir=self.data_dir,
             overview_service=self._build_overview_service(),
+            brief_repository=brief_repository,
+            template_options=template_options,
+            template_starter=_start_from_template,
             parent=self.shell,
         )
         wizard.navigate_requested.connect(self._navigate_target)
@@ -1755,28 +1948,40 @@ class WorkflowApplicationComposition:
         previous = self.document_id
         if self.repository.current_head(previous) is not None:
             # The exact pre-restore document still exists — it stays active.
-            self.shell.set_project_identity(previous)
+            # Rebind the canonical entry as well so title/chip cannot keep
+            # describing the pre-restore binding (#919).
+            self._bind_project_entry(
+                self.project_library.ensure_document_registered(previous)
+            )
             return
         # Resolve through canonical project identity: registry first, then
         # unregistered live documents (restores from pre-registry builds).
         library = ProjectLibrary(self.repository_path)
         active = library.list_projects()
         if active:
-            self.document_id = active[0].document_id
-            self.shell.set_project_identity(self.document_id)
+            self._bind_project_entry(
+                self.project_library.ensure_document_registered(
+                    active[0].document_id
+                )
+            )
             return
         head_document_ids = [
             entry.document_id
             for entry in ProjectLibraryService(self.repository).list_projects()
         ]
         if head_document_ids:
-            self.document_id = head_document_ids[0]
-            self.shell.set_project_identity(self.document_id)
+            self._bind_project_entry(
+                self.project_library.ensure_document_registered(
+                    head_document_ids[0]
+                )
+            )
             return
         # The restored generation has no projects at all: route to the
         # Project Library surface for explicit selection — a non-existent
         # document id must never remain the active project.
         self.document_id = ''
+        self.project_entry = None
+        self._apply_project_title()
         self.shell.set_project_identity(None)
 
     def _freeze_data_mutations(self) -> None:
@@ -1914,6 +2119,39 @@ class WorkflowApplicationComposition:
             "次のファイルを書き出しました:\n"
             + "\n".join(str(path) for path in outputs.values()),
         )
+
+    def _open_deliverables(self) -> None:
+        """Project Deliverables Center (#900).
+
+        One project-scoped surface for generatable outputs: availability,
+        pinned source authorities and missing inputs are computed live by
+        DeliverablesCatalogService; generation routes to the existing
+        domain commands and input deep-links open the owning workspace.
+        """
+        from .deliverables_catalog import DeliverablesCatalogService
+        from .deliverables_dialog import DeliverablesDialog
+
+        generators = {
+            'installation.export_handoff': self._export_installation_handoff,
+            'analysis.export_bundle': self._export_analysis_bundle,
+            'equipment.export_capture_catalog': (
+                self._export_capture_equipment_catalog
+            ),
+        }
+        dialog = DeliverablesDialog(
+            DeliverablesCatalogService(
+                self.repository,
+                self.document_id,
+                overview_service=self._build_overview_service(),
+            ),
+            document_id=self.document_id,
+            on_command=lambda command_id: generators.get(
+                command_id, lambda: None
+            )(),
+            on_navigate=self._navigate_target,
+            parent=self.shell,
+        )
+        dialog.exec()
 
     def _export_analysis_bundle(self) -> None:
         """Operator action behind ``analysis.export_bundle`` (#512).

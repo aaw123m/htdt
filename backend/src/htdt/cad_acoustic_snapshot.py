@@ -78,7 +78,14 @@ def _unique(values: tuple[str, ...]) -> tuple[str, ...]:
 
 
 class SnapshotEnvironmentAuthorityRef(BaseModel):
-    """Exact external environment authority without synthesizing defaults."""
+    """Exact external environment authority without synthesizing defaults.
+
+    Air-state quantities beyond sound speed/temperature (density, pressure,
+    relative humidity) bind to exact per-field source authorities inside the
+    same environment authority: a consumer can never mix an unrelated
+    authority's density with this environment's sound speed silently — each
+    value+source pair must resolve inside ``authority``.
+    """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -87,21 +94,47 @@ class SnapshotEnvironmentAuthorityRef(BaseModel):
     sound_speed_source_authority: ExactExternalAuthorityRef | None = None
     temperature_c: float | None = None
     temperature_source_authority: ExactExternalAuthorityRef | None = None
+    air_density_kg_m3: float | None = Field(default=None, gt=0.0)
+    air_density_source_authority: ExactExternalAuthorityRef | None = None
+    air_pressure_pa: float | None = Field(default=None, gt=0.0)
+    air_pressure_source_authority: ExactExternalAuthorityRef | None = None
+    relative_humidity_percent: float | None = Field(default=None, ge=0.0, le=100.0)
+    relative_humidity_source_authority: ExactExternalAuthorityRef | None = None
 
     @model_validator(mode='after')
     def exact_environment_sources(self) -> 'SnapshotEnvironmentAuthorityRef':
-        if (self.sound_speed_m_s is None) != (
-            self.sound_speed_source_authority is None
+        for name, value, source in (
+            (
+                'sound speed',
+                self.sound_speed_m_s,
+                self.sound_speed_source_authority,
+            ),
+            (
+                'temperature',
+                self.temperature_c,
+                self.temperature_source_authority,
+            ),
+            (
+                'air density',
+                self.air_density_kg_m3,
+                self.air_density_source_authority,
+            ),
+            (
+                'air pressure',
+                self.air_pressure_pa,
+                self.air_pressure_source_authority,
+            ),
+            (
+                'relative humidity',
+                self.relative_humidity_percent,
+                self.relative_humidity_source_authority,
+            ),
         ):
-            raise ValueError(
-                'sound speed value and exact source authority must be supplied together'
-            )
-        if (self.temperature_c is None) != (
-            self.temperature_source_authority is None
-        ):
-            raise ValueError(
-                'temperature value and exact source authority must be supplied together'
-            )
+            if (value is None) != (source is None):
+                raise ValueError(
+                    f'{name} value and exact source authority must be '
+                    'supplied together'
+                )
         return self
 
 

@@ -25,10 +25,20 @@ treatment plan / rack plan refs). Contract properties:
   not proof of installation (#520 owns that);
 - :func:`diff_boms` produces a line-level diff between snapshots: added,
   removed, quantity-changed, spec-changed, and ordered-but-no-longer-
-  required lines stay visible — history is never deleted;
+  required lines stay visible — history is never deleted. Diff identity is
+  the *requirement identity* (#894), never the snapshot-local row id:
+  regenerating a BOM from reordered design inputs leaves requirement ids
+  untouched, so a cosmetic reorder diffs clean while a real quantity or
+  spec change still lands on the same logical requirement;
 - :class:`SubstitutionRecord` keeps the original requirement when a
   purchase substitutes a different product, with an explicit revalidation
   state rather than silently mutating the design;
+- procurement records (:class:`PurchaseRecord`,
+  :class:`SubstitutionRecord`, :class:`OwnedAllocation`) are qualified by
+  the exact document/BOM snapshot (``document_id`` + ``bom_id`` +
+  ``bom_semantic_hash``) and requirement id they were made against — a
+  later BOM snapshot can reconcile them forward explicitly, but line-id
+  reuse can never silently rebind them to a different requirement (#894);
 - cost facts (#514) may decorate a line but never become part of its
   identity, and different currencies are never silently summed;
 - :func:`build_readiness_summary` reports workflow status counts — not a
@@ -139,6 +149,14 @@ class BOMLineItem(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     line_id: str = Field(min_length=1)
+    #: Stable cross-snapshot identity of the logical requirement this line
+    #: satisfies (#894): a deterministic origin key built from the design
+    #: authority + source item/entity/run ids + requirement role — never a
+    #: content hash (quantity/spec changes must stay the same requirement)
+    #: and never an enumeration index (input order is not identity).
+    #: Generated lines always carry one; manual lines may omit it, in which
+    #: case ``line_id`` remains the only identity the snapshot can offer.
+    requirement_id: str | None = Field(default=None, min_length=1)
     category: BOMLineCategory
     name: str = Field(min_length=1)
     quantity: float
@@ -179,6 +197,21 @@ class BOMLineItem(BaseModel):
             'requirement': self.requirement,
             'resolved_sku': self.resolved_sku,
         }
+
+
+def _requirement_key(*parts: str) -> str:
+    """Deterministic requirement identity from design lineage (#894).
+
+    Composite of the source authority, source item/run ids and the
+    requirement role — stable across snapshot regeneration regardless of
+    input ordering, and unrelated to the mutable quantity/spec content.
+    """
+    return ':'.join(parts)
+
+
+def _stable_line_id(prefix: str, requirement_id: str) -> str:
+    """Deterministic snapshot row id derived from requirement identity."""
+    return f'{prefix}-{_digest(requirement_id)[:12]}'
 
 
 class CableTakeoffRequirement(BaseModel):
@@ -239,6 +272,13 @@ class ProjectBOM(BaseModel):
         line_ids = [item.line_id for item in self.line_items]
         if len(line_ids) != len(set(line_ids)):
             raise ValueError('BOM line ids must be unique')
+        requirement_ids = [
+            item.requirement_id
+            for item in self.line_items
+            if item.requirement_id is not None
+        ]
+        if len(requirement_ids) != len(set(requirement_ids)):
+            raise ValueError('BOM requirement ids must be unique')
         if self.bom_semantic_hash != _digest(self.semantic_payload()):
             raise ValueError('ProjectBOM semantic hash mismatch')
         return self
@@ -305,12 +345,25 @@ def cable_takeoff_lines(
     *,
     design_ref: DesignAuthorityRef,
 ) -> tuple[BOMLineItem, ...]:
-    """Derive cable material lines: type × total length, in meters."""
+    """Derive cable material lines: type × total length, in meters.
+
+    Line and requirement ids are derived from the cable-plan authority plus
+    the exact source run refs (#894): reordering or inserting requirements
+    can never reassign an existing line identity to a different run set.
+    """
     lines: list[BOMLineItem] = []
-    for index, req in enumerate(requirements, start=1):
+    for req in requirements:
         length = req.total_length_m + (req.waste_allowance_m or 0.0)
+        requirement_id = _requirement_key(
+            'cable',
+            design_ref.authority_kind,
+            design_ref.ref_id,
+            req.cable_type,
+            ','.join(sorted(req.run_refs)),
+        )
         lines.append(BOMLineItem(
-            line_id=f'cable-{index}',
+            line_id=_stable_line_id('cable', requirement_id),
+            requirement_id=requirement_id,
             category='cable',
             name=req.cable_type,
             quantity=length,
@@ -324,8 +377,10 @@ def cable_takeoff_lines(
             ),
         ))
         if req.pre_terminated_runs:
+            preterm_id = f'{requirement_id}:pre-terminated'
             lines.append(BOMLineItem(
-                line_id=f'cable-{index}-preterm',
+                line_id=_stable_line_id('cable', preterm_id),
+                requirement_id=preterm_id,
                 category='cable',
                 name=f'{req.cable_type} pre-terminated runs',
                 quantity=req.pre_terminated_runs,
@@ -339,10 +394,27 @@ def cable_takeoff_lines(
 def treatment_takeoff_lines(
     requirements: Sequence[TreatmentTakeoffRequirement],
 ) -> tuple[BOMLineItem, ...]:
-    """Derive treatment lines preserving exact resulting dimensions."""
+    """Derive treatment lines preserving exact resulting dimensions.
+
+    Requirement identity comes from the placement's design authority +
+    treatment definition (#894); placements without a design ref fall back
+    to the definition + label pair, and genuine duplicates fail closed at
+    BOM validation instead of silently colliding.
+    """
     lines: list[BOMLineItem] = []
-    for index, req in enumerate(requirements, start=1):
+    for req in requirements:
         refs = (req.design_ref,) if req.design_ref is not None else ()
+        if req.design_ref is not None:
+            requirement_id = _requirement_key(
+                'treatment',
+                req.design_ref.authority_kind,
+                req.design_ref.ref_id,
+                req.treatment_definition_id,
+            )
+        else:
+            requirement_id = _requirement_key(
+                'treatment', 'manual', req.treatment_definition_id, req.label
+            )
         note = (
             'custom dimensions: '
             + ' × '.join(f'{d:g}' for d in req.panel_dimensions_m)
@@ -351,7 +423,8 @@ def treatment_takeoff_lines(
             else None
         )
         lines.append(BOMLineItem(
-            line_id=f'treatment-{index}',
+            line_id=_stable_line_id('treatment', requirement_id),
+            requirement_id=requirement_id,
             category='acoustic_treatment',
             name=req.label,
             quantity=req.count,
@@ -364,13 +437,63 @@ def treatment_takeoff_lines(
 
 
 class OwnedAllocation(BaseModel):
-    """An explicit "already owned" satisfaction of a BOM line (#569)."""
+    """An explicit "already owned" satisfaction of a BOM line (#569).
+
+    Carries the target's requirement identity in addition to the
+    snapshot-local ``line_id`` so the allocation is checked against the
+    logical requirement it was declared for (#894), not just whichever line
+    happened to reuse the row id.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     line_id: str = Field(min_length=1)
+    #: Logical requirement the allocation was declared against; when set it
+    #: must match the resolved line's ``requirement_id`` exactly.
+    requirement_id: str | None = Field(default=None, min_length=1)
     instance_id: str = Field(min_length=1)
     quantity: float = Field(gt=0.0)
+
+
+#: An InstalledEquipmentInstance is a countable owned item — it can never
+#: satisfy metered/surfaced material requirements or stock/consumable
+#: categories (#894-E); those need inventory/material records instead.
+_INSTANCE_ALLOCATABLE_UNITS = frozenset({'each', 'set'})
+_INSTANCE_INELIGIBLE_CATEGORIES = frozenset({
+    'cable', 'connector', 'conduit', 'installation_material',
+})
+
+
+def _resolve_allocation_line(
+    bom: ProjectBOM, allocation: OwnedAllocation
+) -> BOMLineItem:
+    """Fail-closed resolution of one allocation against a BOM (#894)."""
+    line = bom.line(allocation.line_id)
+    if line is None:
+        raise ValueError(
+            f'allocation line_id {allocation.line_id!r} does not exist in '
+            f'BOM {bom.bom_id}'
+        )
+    if (
+        allocation.requirement_id is not None
+        and allocation.requirement_id != line.requirement_id
+    ):
+        raise ValueError(
+            f'allocation requirement {allocation.requirement_id!r} does not '
+            f'match line {line.line_id!r} requirement '
+            f'{line.requirement_id!r}'
+        )
+    if line.unit not in _INSTANCE_ALLOCATABLE_UNITS:
+        raise ValueError(
+            f'an installed-equipment instance cannot satisfy '
+            f'{line.unit!r} requirement {line.line_id!r}'
+        )
+    if line.category in _INSTANCE_INELIGIBLE_CATEGORIES:
+        raise ValueError(
+            f'an installed-equipment instance cannot satisfy '
+            f'{line.category!r} requirement {line.line_id!r}'
+        )
+    return line
 
 
 class LineReconciliation(BaseModel):
@@ -393,9 +516,13 @@ def reconcile_bom(
 
     ``allocations`` are authored facts (which InstalledEquipmentInstance
     covers which line) — reconciliation never guesses from model names.
+    Every allocation must resolve to a real line of *this* snapshot and to
+    the requirement it was declared for; an equipment instance can never
+    satisfy a metered/material requirement (#894).
     """
     by_line: dict[str, float] = {}
     for alloc in allocations:
+        _resolve_allocation_line(bom, alloc)
         by_line[alloc.line_id] = by_line.get(alloc.line_id, 0.0) + alloc.quantity
     optional = set(optional_line_ids)
     spare = set(spare_line_ids)
@@ -425,11 +552,21 @@ def reconcile_bom(
 
 
 class PurchaseRecord(BaseModel):
-    """Lightweight local-first procurement record — HTDT is not an ERP."""
+    """Lightweight local-first procurement record — HTDT is not an ERP.
+
+    Bound to the exact design snapshot the order was placed against
+    (``document_id`` + ``bom_id`` + ``bom_semantic_hash``): a later BOM may
+    reconcile the purchase forward explicitly, but accidental line-id reuse
+    can never silently rebind it (#894).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     record_id: str = Field(min_length=1)
+    #: Exact snapshot the purchase was made against.
+    document_id: str = Field(min_length=1)
+    bom_id: str = Field(min_length=1)
+    bom_semantic_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     vendor: str = Field(min_length=1)
     order_reference: str | None = Field(default=None, min_length=1)
     ordered_at_utc: str = Field(min_length=1)
@@ -453,12 +590,92 @@ class SubstitutionRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     substitution_id: str = Field(min_length=1)
+    #: Exact snapshot the substitution was decided against (#894).
+    document_id: str = Field(min_length=1)
+    bom_id: str = Field(min_length=1)
+    bom_semantic_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     line_id: str = Field(min_length=1)
+    #: Logical requirement the substitution applies to; when set it must
+    #: match the resolved line's ``requirement_id`` exactly.
+    requirement_id: str | None = Field(default=None, min_length=1)
     original_requirement: str = Field(min_length=1)
     substitute: str = Field(min_length=1)
     reason: str = Field(min_length=1)
     revalidation: SubstitutionRevalidation = 'pending'
     created_at_utc: str = Field(min_length=1)
+
+
+def validate_purchase_record(
+    record: PurchaseRecord, bom: ProjectBOM
+) -> None:
+    """Fail-closed check that a purchase binds this exact BOM snapshot.
+
+    Every allocation must resolve to an existing line, match its declared
+    requirement identity, and satisfy the instance-allocation unit/category
+    rules (#894) — a purchase can never satisfy a different requirement
+    through accidental line-id reuse.
+    """
+    _validate_snapshot_binding(
+        bom,
+        document_id=record.document_id,
+        bom_id=record.bom_id,
+        bom_semantic_hash=record.bom_semantic_hash,
+    )
+    for allocation in record.line_allocations:
+        _resolve_allocation_line(bom, allocation)
+
+
+def validate_substitution_record(
+    record: SubstitutionRecord, bom: ProjectBOM
+) -> None:
+    """Fail-closed check that a substitution binds this exact BOM line."""
+    _validate_snapshot_binding(
+        bom,
+        document_id=record.document_id,
+        bom_id=record.bom_id,
+        bom_semantic_hash=record.bom_semantic_hash,
+    )
+    line = bom.line(record.line_id)
+    if line is None:
+        raise ValueError(
+            f'substitution line_id {record.line_id!r} does not exist in '
+            f'BOM {bom.bom_id}'
+        )
+    if (
+        record.requirement_id is not None
+        and record.requirement_id != line.requirement_id
+    ):
+        raise ValueError(
+            f'substitution requirement {record.requirement_id!r} does not '
+            f'match line {line.line_id!r} requirement '
+            f'{line.requirement_id!r}'
+        )
+    if line.requirement != record.original_requirement:
+        raise ValueError(
+            f'substitution original_requirement {record.original_requirement!r} '
+            f'does not match line {line.line_id!r} requirement '
+            f'{line.requirement!r}'
+        )
+
+
+def _validate_snapshot_binding(
+    bom: ProjectBOM,
+    *,
+    document_id: str,
+    bom_id: str,
+    bom_semantic_hash: str,
+) -> None:
+    if document_id != bom.document_id:
+        raise ValueError(
+            f'procurement document {document_id!r} does not match BOM '
+            f'document {bom.document_id!r}'
+        )
+    if bom_id != bom.bom_id or bom_semantic_hash != bom.bom_semantic_hash:
+        raise ValueError(
+            f'procurement record binds BOM {bom_id} ({bom_semantic_hash}) '
+            f'but validation ran against {bom.bom_id} '
+            f'({bom.bom_semantic_hash})'
+        )
 
 
 class BOMDiff(BaseModel):
@@ -477,23 +694,36 @@ class BOMDiff(BaseModel):
     ordered_no_longer_required: tuple[str, ...] = ()
 
 
+def _line_identity_key(item: BOMLineItem) -> str:
+    """Cross-snapshot diff identity (#894): the stable requirement id when
+    the line carries one, else its snapshot-local row id for legacy lines
+    that were authored without requirement lineage."""
+    return item.requirement_id or item.line_id
+
+
 def diff_boms(previous: ProjectBOM, current: ProjectBOM) -> BOMDiff:
-    old = {item.line_id: item for item in previous.line_items}
-    new = {item.line_id: item for item in current.line_items}
+    """Line-level diff keyed on requirement identity, not row order.
+
+    Regenerating a BOM from reordered design inputs produces identical
+    requirement ids, so cosmetic reorder/insertion diffs clean while real
+    quantity/spec changes land on the same logical requirement (#894).
+    """
+    old = {_line_identity_key(item): item for item in previous.line_items}
+    new = {_line_identity_key(item): item for item in current.line_items}
     added = tuple(sorted(set(new) - set(old)))
     removed_ids = set(old) - set(new)
     removed = tuple(sorted(removed_ids))
     qty: list[str] = []
     spec: list[str] = []
-    for line_id in sorted(set(old) & set(new)):
-        if old[line_id].quantity != new[line_id].quantity:
-            qty.append(line_id)
-        elif old[line_id].requirement_signature() != new[line_id].requirement_signature():
-            spec.append(line_id)
+    for key in sorted(set(old) & set(new)):
+        if old[key].quantity != new[key].quantity:
+            qty.append(key)
+        elif old[key].requirement_signature() != new[key].requirement_signature():
+            spec.append(key)
     ordered_obsolete = tuple(sorted(
-        line_id
-        for line_id in removed_ids
-        if old[line_id].procurement_state
+        key
+        for key in removed_ids
+        if old[key].procurement_state
         in {'ordered', 'partially_received', 'received'}
     ))
     return BOMDiff(
@@ -582,4 +812,6 @@ __all__ = [
     'diff_boms',
     'reconcile_bom',
     'treatment_takeoff_lines',
+    'validate_purchase_record',
+    'validate_substitution_record',
 ]

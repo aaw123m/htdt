@@ -26,7 +26,10 @@ from .cad_calibration_repository import (
     _LIFECYCLE_ORDER as CALIBRATION_LIFECYCLE_ORDER,
     _lifecycle_chain_violation,
 )
-from .cad_orientation_constraints import entity_collision_geometry_authority
+from .cad_orientation_constraints import (
+    entity_collision_geometry_authority,
+    entity_view_outline,
+)
 from .cad_repository import SceneRevision
 from .cad_cable_run import CableRun, evaluate_cable_run_freshness
 from .cad_installation_datum import (
@@ -253,6 +256,22 @@ class InstallationAuthorityBinding(BaseModel):
         return self
 
 
+class InstallationViewOutline(BaseModel):
+    """Projected body outline for one orthographic drawing view (#893).
+
+    ``polygons_m`` holds implicitly-closed rings in view coordinates
+    (horizontal, vertical) meters — the renderer maps them straight onto
+    the sheet's view axes, so an outline is never re-derived or invented
+    downstream of the snapshot.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    view: Literal['top', 'front', 'side']
+    basis: Literal['exact_body_geometry', 'bounding_envelope']
+    polygons_m: tuple[tuple[tuple[float, float], ...], ...] = ()
+
+
 class InstallationEntityOutput(BaseModel):
     """Installation-facing pose data derived only from Scene authority."""
 
@@ -274,7 +293,12 @@ class InstallationEntityOutput(BaseModel):
     # Issue #464: which body shape authored the entity and whether clearance was
     # evaluated against the exact body geometry or its bounding envelope.
     body_geometry_kind: Literal['box', 'cylinder', 'extruded_polygon', 'mesh_asset'] | None = None
-    collision_geometry_authority: Literal['exact_body_geometry', 'bounding_envelope'] | None = None
+    collision_geometry_authority: Literal[
+        'exact_body_geometry', 'bounding_envelope', 'envelope_unverified'
+    ] | None = None
+    # Issue #893: hash-bound 2D outlines (top/front/side) so drawing sheets
+    # render the real body shape instead of a fabricated symbol.
+    outlines: tuple[InstallationViewOutline, ...] = ()
 
 
 class InstallationDimensionPoint(BaseModel):
@@ -732,7 +756,27 @@ def _installation_entity(entity: SceneEntity) -> InstallationEntityOutput:
         collision_geometry_authority=(
             None if entity.size_m is None else entity_collision_geometry_authority(entity)
         ),
+        outlines=_entity_outlines(entity),
     )
+
+
+def _entity_outlines(
+    entity: SceneEntity,
+) -> tuple[InstallationViewOutline, ...]:
+    outlines = []
+    for view in ('top', 'front', 'side'):
+        outline = entity_view_outline(entity, view)
+        if outline is None:
+            continue
+        rings, basis = outline
+        if not rings:
+            continue
+        outlines.append(InstallationViewOutline(
+            view=view,
+            basis=basis,
+            polygons_m=rings,
+        ))
+    return tuple(outlines)
 
 
 def _dimension_sheets(
