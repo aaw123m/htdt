@@ -649,14 +649,40 @@ class CadAcousticTreatmentComparisonRepository:
     def list_all(
         self,
     ) -> tuple[TreatmentDesignComparisonSpec, ...]:
-        """Every persisted comparison spec, validated on read (#451)."""
+        """Every persisted comparison spec, validated on read (#451).
+
+        Application-wide: only audit/export surfaces should consume this —
+        project-owned UI must scope through ``list_for_document`` so a
+        foreign project's comparisons can never appear (#917).
+        """
+        return self._list_specs()
+
+    def list_for_document(
+        self,
+        document_id: str,
+    ) -> tuple[TreatmentDesignComparisonSpec, ...]:
+        """Comparison specs owned by one project document (#917)."""
+        return self._list_specs(
+            where="document_id=?",
+            args=(document_id,),
+        )
+
+    def _list_specs(
+        self,
+        *,
+        where: str = "",
+        args: tuple[object, ...] = (),
+    ) -> tuple[TreatmentDesignComparisonSpec, ...]:
+        clause = f" WHERE {where}" if where else ""
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT payload_json
                 FROM cad_acoustic_treatment_comparisons
+                {clause}
                 ORDER BY seq ASC
-                """
+                """,
+                args,
             ).fetchall()
         specs: list[TreatmentDesignComparisonSpec] = []
         for row in rows:

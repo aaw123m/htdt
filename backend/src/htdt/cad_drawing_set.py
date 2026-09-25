@@ -17,10 +17,12 @@ Contract properties:
   the reflected ceiling plan (RCP shows only entities whose height
   places them on the ceiling plane — nothing is fabricated from
   non-spatial records);
-- object outlines render where body geometry exists
-  (``body_geometry_kind``/collision authority on the entity output);
-  entities without geometry get a point symbol that is visually distinct
-  from acoustic-reference/lens/image-center markers;
+- object outlines render the entity snapshot's hash-bound per-view
+  projections (:class:`~htdt.report.InstallationViewOutline`) — a
+  ``bounding_envelope`` basis draws dashed and the sheet states its basis;
+  entities without an outline get a point symbol that is visually distinct
+  from acoustic-reference/lens/image-center markers — outlines are never
+  fabricated;
 - dimensions are datum-relative (:class:`DrawingDatum` —
   finished floor, front wall, room/screen centerline, user datum) and every
   dimension names the *referenced point* (body center, acoustic reference,
@@ -220,7 +222,9 @@ class VectorPrimitive(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    kind: Literal['line', 'rect', 'circle', 'text', 'dimension']
+    # 'polygon' data is a flat (x, y) page-mm sequence — one closed ring
+    # per primitive (#893 body outlines).
+    kind: Literal['line', 'rect', 'circle', 'text', 'dimension', 'polygon']
     layer: str = Field(min_length=1)
     #: Layer-order canonical geometry payload (mm in page space).
     data: tuple[float, ...] = ()
@@ -367,6 +371,15 @@ def _primitive_svg(item: VectorPrimitive) -> str:
             f'<circle cx="{_fmt_m(cx)}" cy="{_fmt_m(cy)}" r="{_fmt_m(r)}" '
             f'fill="none" stroke="{stroke}" stroke-width="0.35"{style}/>'
         )
+    if item.kind == 'polygon':
+        points = ' '.join(
+            f'{_fmt_m(item.data[i])},{_fmt_m(item.data[i + 1])}'
+            for i in range(0, len(item.data) - 1, 2)
+        )
+        return (
+            f'<polygon points="{points}" fill="none" stroke="{stroke}" '
+            f'stroke-width="0.35"{style}/>'
+        )
     if item.kind == 'dimension':
         x1, y1, x2, y2 = item.data[:4]
         tx, ty = item.data[4], item.data[5]
@@ -428,6 +441,38 @@ def _view_axes(kind: SheetKind) -> tuple[str, str]:
         'side_elevation': ('y', 'z'),
         'rcp': ('x', 'y'),
     }[kind]
+
+
+#: Which ``InstallationViewOutline.view`` each sheet draws — the floor plan
+#: and the reflected ceiling plan share the same top-view geometry basis.
+_SHEET_VIEW: dict[str, str] = {
+    'floor_plan': 'top',
+    'front_elevation': 'front',
+    'side_elevation': 'side',
+    'rcp': 'top',
+}
+
+
+def _entity_outline(entity: InstallationEntityOutput, view: str):
+    """The snapshot-bound outline for this view, or ``None``."""
+    return next(
+        (outline for outline in entity.outlines if outline.view == view),
+        None,
+    )
+
+
+def _format_dimension_offset(
+    offset_m: float,
+    unit: Literal['m', 'mm'],
+) -> str:
+    """Datum-relative offset text in the sheet's declared unit (#893).
+
+    The offset is computed in meters; a ``mm`` sheet multiplies by 1000
+    instead of mislabeling the meter value.
+    """
+    if unit == 'mm':
+        return f'{_fmt_m(offset_m * 1000.0)} mm'
+    return f'{_fmt_m(offset_m)} m'
 
 
 def _entity_xy(
@@ -492,13 +537,15 @@ def _compute_scale(
     if spec.scale_policy == 'fit':
         return min(usable_w / span_h, usable_h / span_v), 'NTS', []
     assert spec.fixed_scale_denominator is not None
+    # The declared scale is the truth — when the content does not fit the
+    # page at 1:N the sheet keeps the fixed scale (content may clip) and is
+    # flagged for review; it is never silently rescaled under a 1:N label.
     scale = 1000.0 / spec.fixed_scale_denominator
     reasons: list[str] = []
     if span_h * scale > usable_w or span_v * scale > usable_h:
         reasons.append(
             f'content exceeds page at fixed 1:{spec.fixed_scale_denominator}'
         )
-        scale = min(usable_w / span_h, usable_h / span_v)
     return scale, f'1:{spec.fixed_scale_denominator}', reasons
 
 
@@ -574,6 +621,9 @@ def _render_sheet(
     datum_h, datum_v = _datums_for_axes(datums, axes)
     density = spec.label_density
 
+    outline_view = _SHEET_VIEW[kind]
+    envelope_basis_seen = False
+
     for entity in entities:
         h, v = _entity_xy(entity, axes)
         px, py = layout.to_page(h, v)
@@ -581,14 +631,23 @@ def _render_sheet(
         state = states.get(entity.entity_id, 'current')
         ref_point = _reference_point(entity)
 
-        # Geometry: outline where a body is declared; distinct symbols else.
-        if entity.body_geometry_kind is not None:
-            size = max(2.0, 3.0 * scale * 0.1)
-            primitives.append(VectorPrimitive(
-                kind='rect', layer=layer,
-                data=(px - size / 2, py - size / 2, size, size),
-                state=state,
-            ))
+        # Geometry: the snapshot's real projected outline where it exists —
+        # never a fabricated square; distinct point symbols otherwise.
+        outline = _entity_outline(entity, outline_view)
+        if outline is not None and outline.polygons_m:
+            envelope_basis_seen = (
+                envelope_basis_seen or outline.basis == 'bounding_envelope'
+            )
+            for ring in outline.polygons_m:
+                points: list[float] = []
+                for ring_h, ring_v in ring:
+                    rx, ry = layout.to_page(ring_h, ring_v)
+                    points.extend((rx, ry))
+                primitives.append(VectorPrimitive(
+                    kind='polygon', layer=layer, data=tuple(points),
+                    state=state,
+                    dashed=outline.basis == 'bounding_envelope',
+                ))
         elif ref_point == 'acoustic_reference':
             primitives.append(VectorPrimitive(
                 kind='circle', layer=layer,
@@ -635,8 +694,8 @@ def _render_sheet(
                 continue
             offset = value - datum.offset_m
             dim_text = (
-                f'{_fmt_m(offset)} {spec.unit} from {datum.label} '
-                f'({_POINT_LABEL[ref_point]})'
+                f'{_format_dimension_offset(offset, spec.unit)} from '
+                f'{datum.label} ({_POINT_LABEL[ref_point]})'
             )
             if datum.axis == axes[0]:
                 primitives.append(VectorPrimitive(
@@ -650,6 +709,16 @@ def _render_sheet(
                     data=(px, py, px - 8.0, py, px - 9.0, py + 1.0),
                     text=dim_text,
                 ))
+
+    if envelope_basis_seen:
+        primitives.append(VectorPrimitive(
+            kind='text', layer='callouts',
+            data=(_MARGIN_MM, page_h - _TITLE_BLOCK_MM - 4.0),
+            text=(
+                'dashed outline = bounding-envelope basis '
+                '(exact body geometry unverified)'
+            ),
+        ))
 
     title = {
         'floor_plan': 'Floor plan',

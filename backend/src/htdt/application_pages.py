@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from .build_info import version_string
 from .cad_repository import SceneRepository
 from .navigation_target import NavigationTarget, NavigationTargetKind
+from .project_library_repository import ProjectLibraryRepository
 from .native_diagnostics import diagnostics_dir
 from .ui_theme import TypographyRole, set_typography_role
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
@@ -37,47 +38,80 @@ from .workflow_shell import TargetFocusResult
 
 @dataclass(frozen=True, slots=True)
 class ProjectEntry:
+    """One canonical project row for the Projects listing (#919).
+
+    ``project_id`` is the stable semantic identity used to open a project;
+    ``display_name`` is presentation only.
+    """
+
+    project_id: str
     document_id: str
-    head_revision_id: str
+    display_name: str
+    head_revision_id: str | None
     created_at_utc: str
     revision_count: int
 
 
 class ProjectLibraryService:
-    """Lists persisted project documents — read-only over scene authority."""
+    """Lists canonical projects — read-only over the library authority.
 
-    def __init__(self, repository: SceneRepository) -> None:
+    ``ProjectLibraryRepository`` auto-registers every document that already
+    carries scene content, so canonical ``htdt_project_documents`` rows cover
+    legacy and unregistered documents alike (#919).
+    """
+
+    def __init__(
+        self,
+        repository: SceneRepository,
+        project_library: ProjectLibraryRepository | None = None,
+    ) -> None:
         self.path = Path(repository.path)
+        self._project_library = project_library or ProjectLibraryRepository(
+            repository
+        )
 
     def list_projects(self) -> tuple[ProjectEntry, ...]:
+        heads = self._document_heads()
+        return tuple(
+            ProjectEntry(
+                project_id=entry.project_id,
+                document_id=entry.document_id,
+                display_name=entry.display_name,
+                head_revision_id=(
+                    None
+                    if entry.document_id not in heads
+                    else heads[entry.document_id][0]
+                ),
+                created_at_utc=entry.created_at_utc,
+                revision_count=(
+                    0
+                    if entry.document_id not in heads
+                    else heads[entry.document_id][1]
+                ),
+            )
+            for entry in self._project_library.list_projects()
+        )
+
+    def _document_heads(self) -> dict[str, tuple[str, int]]:
         if not self.path.is_file():
-            return ()
-        with closing(sqlite3.connect(self.path)) as connection:
-            connection.row_factory = sqlite3.Row
-            try:
+            return {}
+        try:
+            with closing(sqlite3.connect(self.path)) as connection:
                 rows = connection.execute(
                     """
                     SELECT h.document_id AS document_id,
                            h.head_revision_id AS head_revision_id,
-                           r.created_at_utc AS created_at_utc,
                            (SELECT COUNT(*) FROM scene_revisions s
                             WHERE s.document_id = h.document_id) AS revisions
                     FROM scene_document_heads h
-                    JOIN scene_revisions r ON r.revision_id = h.head_revision_id
-                    ORDER BY r.created_at_utc DESC
                     """
                 ).fetchall()
-            except sqlite3.Error:
-                return ()
-        return tuple(
-            ProjectEntry(
-                document_id=str(row["document_id"]),
-                head_revision_id=str(row["head_revision_id"]),
-                created_at_utc=str(row["created_at_utc"]),
-                revision_count=int(row["revisions"]),
-            )
-            for row in rows
-        )
+        except sqlite3.Error:
+            return {}
+        return {
+            str(document_id): (str(head_revision_id), int(revisions))
+            for document_id, head_revision_id, revisions in rows
+        }
 
 
 def _page_layout(page: QWidget, title: str, hint: str | None = None) -> QVBoxLayout:
@@ -143,7 +177,7 @@ class ProjectLibraryPage(QWidget):
             row = self.table.rowCount()
             self.table.insertRow(row)
             values = (
-                entry.document_id,
+                entry.display_name,
                 entry.created_at_utc,
                 str(entry.revision_count),
                 "●" if entry.document_id == current else "",
@@ -151,14 +185,14 @@ class ProjectLibraryPage(QWidget):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 if column == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, entry.document_id)
+                    item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
                 self.table.setItem(row, column, item)
         self._sync_buttons()
 
     def _sync_buttons(self) -> None:
         self.open_button.setEnabled(bool(self.table.selectedItems()))
 
-    def _selected_document_id(self) -> str | None:
+    def _selected_project_id(self) -> str | None:
         items = self.table.selectedItems()
         for item in items:
             value = item.data(Qt.ItemDataRole.UserRole)
@@ -167,9 +201,10 @@ class ProjectLibraryPage(QWidget):
         return None
 
     def _open_selected(self) -> None:
-        document_id = self._selected_document_id()
-        if document_id:
-            self.project_open_requested.emit(document_id)
+        # Open routes through the stable canonical project_id (#919).
+        project_id = self._selected_project_id()
+        if project_id:
+            self.project_open_requested.emit(project_id)
 
 
 class CaptureInboxPage(QWidget):

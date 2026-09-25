@@ -186,6 +186,9 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'equipment.export_capture_catalog',
         'installation.export_handoff',
         'analysis.export_bundle',
+        # Deliverables Center is a read-only inventory surface (#900) —
+        # generation routes through the existing export commands.
+        'project.deliverables',
         'room.measure',
         'room.view.history',
         # Display-only viewport commands (#545/#629/#618) never touch data.

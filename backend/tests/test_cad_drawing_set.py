@@ -17,6 +17,7 @@ from htdt.report import (
     InstallationDimensionSheet,
     InstallationEntityOutput,
     InstallationOutput,
+    InstallationViewOutline,
 )
 
 
@@ -178,6 +179,91 @@ def test_dimensions_name_datum_and_referenced_point():
     assert 'image center' in joined       # screen entity
 
 
+def test_mm_sheets_convert_offsets_to_millimeters():
+    # spk-fl sits at y=0.5 — 500 mm off the front-wall datum at y=0
+    ds_m = generate_drawing_set(
+        output=_output(), spec=_spec(sheets=('floor_plan',), unit='m'),
+        datums=_datums(), project_label='p', generated_at_utc=NOW,
+    )
+    text_m = ' | '.join(
+        p.text for p in ds_m.sheet('floor_plan').primitives
+        if p.kind == 'dimension'
+    )
+    assert '0.5 m from Front wall' in text_m
+
+    ds_mm = generate_drawing_set(
+        output=_output(), spec=_spec(sheets=('floor_plan',), unit='mm'),
+        datums=_datums(), project_label='p', generated_at_utc=NOW,
+    )
+    text_mm = ' | '.join(
+        p.text for p in ds_mm.sheet('floor_plan').primitives
+        if p.kind == 'dimension'
+    )
+    assert '500 mm from Front wall' in text_mm
+    assert '0.5 mm' not in text_mm
+
+
+def _outlined_output() -> InstallationOutput:
+    out = _output()
+    outlines = (
+        InstallationViewOutline(
+            view='top',
+            basis='exact_body_geometry',
+            polygons_m=(((0.75, 0.3), (1.25, 0.3), (1.0, 0.8)),),
+        ),
+        InstallationViewOutline(
+            view='front',
+            basis='exact_body_geometry',
+            polygons_m=(((0.75, 1.0), (1.25, 1.0), (1.25, 1.4), (0.75, 1.4)),),
+        ),
+        InstallationViewOutline(
+            view='side',
+            basis='bounding_envelope',
+            polygons_m=(((0.25, 1.0), (0.75, 1.0), (0.75, 1.4), (0.25, 1.4)),),
+        ),
+    )
+    entities = tuple(
+        item.model_copy(update={'outlines': outlines})
+        if item.entity_id == 'spk-fl'
+        else item
+        for item in out.entities
+    )
+    provisional = out.model_copy(update={'entities': entities})
+    payload = provisional.identity_payload()
+    semantic = sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                   separators=(',', ':'), allow_nan=False).encode()
+    ).hexdigest()
+    return InstallationOutput(
+        **{
+            **out.model_dump(mode='python'),
+            'entities': entities,
+            'semantic_sha256': semantic,
+        }
+    )
+
+
+def test_exact_outlines_draw_polygons_envelope_draws_dashed():
+    ds = generate_drawing_set(
+        output=_outlined_output(), spec=_spec(sheets=('floor_plan', 'side_elevation')),
+        datums=(), project_label='p', generated_at_utc=NOW,
+    )
+    floor = ds.sheet('floor_plan')
+    polys = [p for p in floor.primitives if p.kind == 'polygon']
+    assert len(polys) == 1
+    assert not polys[0].dashed
+    svg = floor.to_svg()
+    assert '<polygon' in svg
+
+    side = ds.sheet('side_elevation')
+    side_polys = [p for p in side.primitives if p.kind == 'polygon']
+    assert len(side_polys) == 1
+    assert side_polys[0].dashed
+    legend = [p.text for p in side.primitives
+              if p.kind == 'text' and p.text and 'bounding-envelope' in p.text]
+    assert legend  # the sheet states the envelope basis
+
+
 def test_fixed_scale_label_and_overflow_flag():
     ok = generate_drawing_set(
         output=_output(),
@@ -186,6 +272,10 @@ def test_fixed_scale_label_and_overflow_flag():
         datums=(), project_label='p', generated_at_utc=NOW,
     )
     assert ok.sheet('floor_plan').title_block.scale_label == '1:50'
+    # a4 landscape usable width is 297-30 = 267 mm
+    room = next(p for p in ok.sheet('floor_plan').primitives
+                if p.kind == 'rect' and p.layer == 'room')
+    assert room.data[2] == pytest.approx(100.0)  # 5 m at 1:50
     overflow = generate_drawing_set(
         output=_output(),
         spec=_spec(sheets=('floor_plan',), scale_policy='fixed',
@@ -195,6 +285,11 @@ def test_fixed_scale_label_and_overflow_flag():
     sheet = overflow.sheet('floor_plan')
     assert sheet.needs_review
     assert 'fixed 1:10' in ' '.join(sheet.review_reasons)
+    # the sheet is flagged but NOT silently rescaled — geometry stays at
+    # the declared 1:10 so the label is never a lie
+    room = next(p for p in sheet.primitives
+                if p.kind == 'rect' and p.layer == 'room')
+    assert room.data[2] == pytest.approx(500.0)  # 5 m at 1:10
 
 
 def test_spec_versioning_and_validation():
@@ -239,3 +334,10 @@ def test_output_hash_pinned_to_drawing_set():
     out = _output()
     assert ds.installation_output_sha256 == out.semantic_sha256
     assert ds.spec_sha256 == _spec(sheets=('floor_plan',)).spec_semantic_hash
+
+
+def test_output_with_outlines_binds_them_into_semantic_hash():
+    assert (
+        _outlined_output().semantic_sha256
+        != _output().semantic_sha256
+    )

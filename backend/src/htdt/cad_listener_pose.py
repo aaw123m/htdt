@@ -513,6 +513,30 @@ class CadListenerPoseRepository:
                 ),
             )
 
+    def selections_for_document(
+        self,
+        document_id: str,
+    ) -> dict[str, ListenerPoseAuthority]:
+        """Every verified pose selection recorded for this document.
+
+        Rows whose bound authority hash no longer matches the persisted
+        record are skipped — a stale selection is not an authority claim.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT seat_entity_id, pose_id, pose_sha256'
+                ' FROM cad_listener_pose_selections WHERE document_id=?'
+                ' ORDER BY seat_entity_id ASC',
+                (document_id,),
+            ).fetchall()
+        result: dict[str, ListenerPoseAuthority] = {}
+        for row in rows:
+            pose = self.get_pose(row['pose_id'])
+            if pose is None or pose.semantic_sha256 != row['pose_sha256']:
+                continue
+            result[row['seat_entity_id']] = pose
+        return result
+
     def clear_selection(self, document_id: str, seat_entity_id: str) -> None:
         with closing(self._connect()) as connection, connection:
             connection.execute(

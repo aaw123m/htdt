@@ -21,6 +21,7 @@ from .cad_adaptive_extended_repository import CadAdaptiveExtendedRepository
 from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from .cad_adaptive_repository import CadAdaptivePlanRepository
 from .cad_adaptive_service import CadAdaptivePlannerService
+from .developer_mode import developer_mode_enabled
 from .cad_constraint_repository import CadConstraintRepository
 from .cad_extended_search import CadExtendedCandidateSetPage, CadExtendedSearchAxis
 from .cad_extended_search_repository import CadExtendedSearchRepository
@@ -837,8 +838,12 @@ class OptimizationWorkflowController(
         self.validation_detail_label = QLabel("検証結果が未選択です")
 
         self.adaptive_scope_combo = QComboBox()
-        self.adaptive_scope_combo.addItem("合成データで開発検証", "development_synthetic")
+        # #901: the production owned-room scope is the default and the only
+        # scope in a normal session — the synthetic development lane is
+        # opt-in via developer mode and must never be the operator default.
         self.adaptive_scope_combo.addItem("実室データで本番検証", "production_owned_room")
+        if developer_mode_enabled():
+            self.adaptive_scope_combo.addItem("合成データで開発検証", "development_synthetic")
         self.adaptive_length_scale_field = self._number_field(0.01, 20.0, 0.5, 3)
         self.adaptive_length_scale_field.setSuffix(" m")
         self.adaptive_proposal_limit_field = QSpinBox()
