@@ -24,6 +24,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .cad_bass_management import BassManagementProfile
 from .cad_equipment import FrequencyDomain
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
@@ -321,6 +322,71 @@ class ScenarioSourceTransfer(BaseModel):
         return self.pressure_real is not None
 
 
+class ResolvedPlaybackTransfer(BaseModel):
+    """A resolved complex transfer for an external playback-chain authority.
+
+    ``ExcitationDriveState.filter_authority_ref`` and
+    ``BassManagementRoute.method_authority_ref`` are opaque authority
+    identities — the scenario stores which authority applies, never the
+    curve itself. Composition resolves each ref against this type: the
+    resolved transfer must carry exact complex data on the scenario
+    frequency grid under the same phasor convention.
+
+    ``residual_*`` is only meaningful for crossover/routing methods: it is
+    the complementary transfer the originating channel keeps after its
+    redirected band leaves (e.g. the high-pass a crossover applies to the
+    small main). A plain per-source drive filter never carries one.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority: ExactExternalAuthorityRef
+    frequency_hz: tuple[float, ...] = Field(min_length=1)
+    transfer_real: tuple[float, ...]
+    transfer_imag: tuple[float, ...]
+    phasor_convention: str = Field(min_length=1)
+    residual_real: tuple[float, ...] | None = None
+    residual_imag: tuple[float, ...] | None = None
+
+    @field_validator('frequency_hz')
+    @classmethod
+    def valid_axis(cls, value: tuple[float, ...]) -> tuple[float, ...]:
+        if tuple(value) != tuple(sorted(set(value))):
+            raise ValueError('transfer frequency axis must be sorted and unique')
+        if any(not isfinite(float(v)) or float(v) <= 0.0 for v in value):
+            raise ValueError('transfer frequencies must be finite and positive')
+        return value
+
+    @model_validator(mode='after')
+    def validate_transfer(self) -> 'ResolvedPlaybackTransfer':
+        count = len(self.frequency_hz)
+        if len(self.transfer_real) != count or len(self.transfer_imag) != count:
+            raise ValueError('transfer arrays must match the frequency axis')
+        for value in (*self.transfer_real, *self.transfer_imag):
+            if not isfinite(float(value)):
+                raise ValueError('transfer values must be finite')
+        if (self.residual_real is None) != (self.residual_imag is None):
+            raise ValueError(
+                'residual transfer requires both real and imaginary parts'
+            )
+        if self.residual_real is not None and (
+            len(self.residual_real) != count
+            or len(self.residual_imag) != count
+        ):
+            raise ValueError(
+                'residual transfer arrays must match the frequency axis'
+            )
+        if self.residual_real is not None:
+            for value in (*self.residual_real, *self.residual_imag):
+                if not isfinite(float(value)):
+                    raise ValueError('residual transfer values must be finite')
+        return self
+
+    @property
+    def has_residual(self) -> bool:
+        return self.residual_real is not None
+
+
 class CoherentSystemResponse(BaseModel):
     """The composed system transfer; a distinct authority from any cell."""
 
@@ -344,6 +410,10 @@ class CoherentSystemResponse(BaseModel):
     magnitude_db_spl: tuple[float, ...] | None = None
     phase_deg: tuple[float, ...] | None = None
     phasor_convention: str | None = None
+    #: Exact playback-chain authorities (drive filters, crossover methods)
+    #: whose resolved transfers shaped this response — the numerical result
+    #: depends on the same semantics the scenario identity pins.
+    applied_authority_refs: tuple[ExactExternalAuthorityRef, ...] = ()
     pressure_reference_pa: float = 20.0e-6
 
     @model_validator(mode='after')
@@ -420,6 +490,7 @@ def _unsupported_response(
         'magnitude_db_spl': None,
         'phase_deg': None,
         'phasor_convention': None,
+        'applied_authority_refs': [],
         'pressure_reference_pa': 20.0e-6,
     }
     digest = _digest(payload)
@@ -428,6 +499,7 @@ def _unsupported_response(
         scenario_semantic_sha256=scenario.semantic_sha256,
         state='UNSUPPORTED',
         unsupported_reasons=tuple(sorted(set(reasons))),
+        applied_authority_refs=(),
         response_id=f'mc-coherent-response:{digest}',
         semantic_sha256=digest,
     )
@@ -436,11 +508,21 @@ def _unsupported_response(
 def compose_coherent_system_response(
     scenario: MultiChannelExcitationScenario,
     transfers: tuple[ScenarioSourceTransfer, ...],
+    *,
+    resolved_transfers: tuple[ResolvedPlaybackTransfer, ...] = (),
 ) -> CoherentSystemResponse:
     """Compose one coherent system transfer via exact linear superposition.
 
-    Fails closed to UNSUPPORTED whenever the scenario's timing/normalization
-    requirements or any source's complex authority are missing.
+    ``ScenarioSourceTransfer`` stays the room/source transfer of the
+    physical source; playback-chain drive/filter/routing transfers are
+    applied as separate per-source multipliers before summation so room
+    results stay reusable across scenarios.
+
+    Every ``filter_authority_ref`` and every bass-management
+    ``method_authority_ref`` declared by the scenario must resolve to an
+    exact complex transfer on the scenario grid — unresolved or
+    incomplete routing/filter authority fails closed to UNSUPPORTED
+    instead of being silently ignored.
     """
     reasons: list[str] = []
     if scenario.combination_semantics != 'coherent_system_sum':
@@ -512,23 +594,152 @@ def compose_coherent_system_response(
                     'required by the scenario'
                 )
 
+    resolved: dict[str, ResolvedPlaybackTransfer] = {}
+    for item in resolved_transfers:
+        resolved[item.authority.semantic_hash_sha256] = item
+
+    def _resolve(ref: ExactExternalAuthorityRef) -> ResolvedPlaybackTransfer | None:
+        item = resolved.get(ref.semantic_hash_sha256)
+        if (
+            item is None
+            or item.authority.authority_id != ref.authority_id
+            or item.authority.authority_version != ref.authority_version
+        ):
+            return None
+        return item
+
+    grid = active[0][1].frequency_hz if active else ()
+    convention = active[0][1].phasor_convention if active else None
+
+    # Resolve per-source drive filters before composition; an unresolvable
+    # ref is a fail-closed reason, never an ignored field.
+    participant_filters: dict[str, ResolvedPlaybackTransfer] = {}
+    for participant in scenario.participants:
+        ref = participant.drive.filter_authority_ref
+        if ref is None:
+            continue
+        transfer = _resolve(ref)
+        if transfer is None:
+            reasons.append(
+                f'filter authority {ref.authority_id} for source '
+                f'{participant.source_entity_id} could not be resolved to '
+                'an exact complex transfer'
+            )
+            continue
+        if active:
+            if transfer.frequency_hz != grid:
+                reasons.append(
+                    f'filter authority {ref.authority_id} frequency grid '
+                    'differs from the scenario reference grid'
+                )
+                continue
+            if transfer.phasor_convention != convention:
+                reasons.append(
+                    f'filter authority {ref.authority_id} phasor convention '
+                    'differs from the scenario'
+                )
+                continue
+        participant_filters[participant.logical_channel_id] = transfer
+
+    # Resolve each bass-management route's method authority: the redirected
+    # band needs an exact crossover transfer L(f) into the target and the
+    # complementary residual H(f) the from-channel keeps.
+    route_methods: dict[str, ResolvedPlaybackTransfer] = {}
+    for route in scenario.bass_management_routes:
+        transfer = _resolve(route.method_authority_ref)
+        if transfer is None:
+            reasons.append(
+                f'bass-management route {route.route_id} method authority '
+                f'{route.method_authority_ref.authority_id} could not be '
+                'resolved to an exact complex crossover transfer'
+            )
+            continue
+        if not transfer.has_residual:
+            reasons.append(
+                f'bass-management route {route.route_id} method authority '
+                'declares no complementary residual transfer for the '
+                'originating channel'
+            )
+            continue
+        if active:
+            if transfer.frequency_hz != grid:
+                reasons.append(
+                    f'bass-management route {route.route_id} method '
+                    'frequency grid differs from the scenario reference grid'
+                )
+                continue
+            if transfer.phasor_convention != convention:
+                reasons.append(
+                    f'bass-management route {route.route_id} method phasor '
+                    'convention differs from the scenario'
+                )
+                continue
+        route_methods[route.route_id] = transfer
+
     if reasons:
         return _unsupported_response(scenario, reasons)
 
     grid = active[0][1].frequency_hz
     convention = active[0][1].phasor_convention
-    summed = [0j] * len(grid)
-    for participant, transfer in active:
+    participant_by_channel = {
+        p.logical_channel_id: p for p in scenario.participants
+    }
+    # Effective per-source drive multiplier: own drive state, own resolved
+    # filter, then the residual of every route that redirects bands away.
+    multipliers: dict[str, list[complex]] = {}
+    applied_refs: list[ExactExternalAuthorityRef] = []
+    for participant in scenario.participants:
         gain = 10.0 ** (participant.drive.gain_db / 20.0)
         polarity = float(participant.drive.polarity)
         delay = participant.drive.delay_s
-        for index, frequency in enumerate(grid):
+        base = [
+            polarity
+            * gain
+            * cmath.exp(-1j * 2.0 * pi * delay * frequency)
+            for frequency in grid
+        ]
+        filt = participant_filters.get(participant.logical_channel_id)
+        if filt is not None:
+            base = [
+                b * complex(re, im)
+                for b, re, im in zip(
+                    base, filt.transfer_real, filt.transfer_imag
+                )
+            ]
+            applied_refs.append(filt.authority)
+        multipliers[participant.source_entity_id] = base
+
+    for route in scenario.bass_management_routes:
+        method = route_methods[route.route_id]
+        origin = participant_by_channel[route.from_logical_channel_id]
+        origin_mult = multipliers[origin.source_entity_id]
+        method_real = method.transfer_real
+        method_imag = method.transfer_imag
+        residual_real = method.residual_real
+        residual_imag = method.residual_imag
+        # The originating source keeps only the residual band.
+        multipliers[origin.source_entity_id] = [
+            value * complex(r, i)
+            for value, r, i in zip(origin_mult, residual_real, residual_imag)
+        ]
+        # The redirected band adds to the target source's effective drive.
+        target_mult = multipliers[route.to_source_entity_id]
+        multipliers[route.to_source_entity_id] = [
+            value + origin * complex(l_r, l_i)
+            for value, origin, l_r, l_i in zip(
+                target_mult, origin_mult, method_real, method_imag
+            )
+        ]
+        applied_refs.append(route.method_authority_ref)
+
+    summed = [0j] * len(grid)
+    for participant, transfer in active:
+        multiplier = multipliers[participant.source_entity_id]
+        for index in range(len(grid)):
             phasor = complex(
                 transfer.pressure_real[index], transfer.pressure_imag[index]
             )
-            # e^{+i wt} convention: a delay multiplies by e^{-i w tau}.
-            factor = polarity * gain * cmath.exp(-1j * 2.0 * pi * delay * frequency)
-            summed[index] += phasor * factor
+            summed[index] += phasor * multiplier[index]
 
     magnitude_pa = tuple(abs(value) for value in summed)
     # JSON cannot carry -inf; a true pressure null floors at -400 dB SPL.
@@ -553,6 +764,9 @@ def compose_coherent_system_response(
         'magnitude_db_spl': list(magnitude_db_spl),
         'phase_deg': list(phase_deg),
         'phasor_convention': convention,
+        'applied_authority_refs': [
+            ref.model_dump(mode='json') for ref in applied_refs
+        ],
         'pressure_reference_pa': 20.0e-6,
     }
     digest = _digest(payload)
@@ -567,6 +781,60 @@ def compose_coherent_system_response(
         magnitude_db_spl=tuple(payload['magnitude_db_spl']),
         phase_deg=phase_deg,
         phasor_convention=convention,
+        applied_authority_refs=tuple(applied_refs),
         response_id=f'mc-coherent-response:{digest}',
         semantic_sha256=digest,
     )
+
+
+def bass_management_routes_for_scenario(
+    scenario: MultiChannelExcitationScenario,
+    profile: BassManagementProfile,
+    *,
+    method_authority_ref: ExactExternalAuthorityRef,
+    destination_source_ids: dict[str, str],
+) -> tuple[BassManagementRoute, ...]:
+    """Compile a canonical #633 ``BassManagementProfile`` into scenario
+    routes, so the profile remains the single routing truth.
+
+    Every ``high_pass`` main-channel rule with recorded redirected
+    destinations becomes one ``BassManagementRoute`` per
+    (participant, destination source). ``destination_source_ids`` binds
+    profile destination ids to scenario ``source_entity_id`` values; a
+    missing binding or a rule without a recorded ``redirected_low_band``
+    raises ``ValueError`` rather than silently approximating the routing.
+    """
+    routes: list[BassManagementRoute] = []
+    channel_by_role = {p.channel_role_id: p for p in scenario.participants}
+    for rule in profile.main_rules:
+        if rule.handling != 'high_pass':
+            continue
+        participant = channel_by_role.get(rule.logical_role_id)
+        if participant is None:
+            continue
+        if rule.redirected_low_band is None:
+            raise ValueError(
+                f'bass-management rule for role {rule.logical_role_id} '
+                'records no redirected_low_band; refusing to invent the '
+                'routed band'
+            )
+        for destination in rule.redirected_destinations:
+            target_source = destination_source_ids.get(destination)
+            if target_source is None:
+                raise ValueError(
+                    f'bass destination {destination} is not bound to a '
+                    'scenario source entity'
+                )
+            routes.append(
+                BassManagementRoute(
+                    route_id=f'{rule.logical_role_id}->{destination}',
+                    from_logical_channel_id=participant.logical_channel_id,
+                    to_source_entity_id=target_source,
+                    band=FrequencyDomain(
+                        minimum_hz=max(rule.redirected_low_band.low_hz, 1e-3),
+                        maximum_hz=rule.redirected_low_band.high_hz,
+                    ),
+                    method_authority_ref=method_authority_ref,
+                )
+            )
+    return tuple(routes)

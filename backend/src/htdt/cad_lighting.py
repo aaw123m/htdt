@@ -87,6 +87,16 @@ LightingCapability = Literal[
 
 SetpointStage = Literal['desired', 'commanded', 'read_back', 'measured']
 
+LightingEvaluationDimension = Literal[
+    'scene_definition_integrity',
+    'device_state_conformance',
+    'ambient_measurement_evidence',
+    'photometric_model_capability',
+]
+"""Independent verdict axes. ``photometric_model_capability`` is an
+intentionally unsupported capability — it is reported, never folded into
+the device-state commissioning verdict."""
+
 
 class LightingFixture(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -244,6 +254,35 @@ class LightingCommissioningRecord(BaseModel):
     measured: StageLevel | None = None
     provenance: tuple[EquipmentDataProvenance, ...] = ()
 
+    @model_validator(mode='after')
+    def _check(self) -> 'LightingCommissioningRecord':
+        for slot in ('desired', 'commanded', 'read_back', 'measured'):
+            level = getattr(self, slot)
+            if level is not None and level.stage != slot:
+                raise ValueError(
+                    f'{slot} slot carries a StageLevel with '
+                    f'stage={level.stage!r}; stage must match the slot'
+                )
+        return self
+
+
+class LightingTolerancePolicy(BaseModel):
+    """Versioned tolerance policy for setpoint comparisons.
+
+    Evaluating commissioning records requires an explicit policy — the
+    evaluator never falls back to a hidden dimmer tolerance. Fields are
+    ``None`` when that quantity is not comparable under this policy (a
+    comparison that needs an unconfigured dimension stays UNKNOWN).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: Literal[1] = 1
+    policy_id: str = Field(min_length=1)
+    policy_version: str = Field(min_length=1)
+    level_percent_tolerance: float = Field(gt=0.0, le=100.0)
+    cct_k_tolerance: int | None = Field(default=None, ge=0)
+
 
 class LightingAmbientObservation(BaseModel):
     """A measured lux reading bound to an exact scene identity."""
@@ -269,7 +308,15 @@ class LightingCheckResult(BaseModel):
 
     check: str = Field(min_length=1)
     status: EvaluationStatus
+    dimension: LightingEvaluationDimension
     reason: str | None = None
+
+
+class LightingDimensionResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    dimension: LightingEvaluationDimension
+    status: EvaluationStatus
 
 
 class LightingSceneEvaluation(BaseModel):
@@ -281,6 +328,7 @@ class LightingSceneEvaluation(BaseModel):
     evaluation_id: str = Field(min_length=1)
     scene: LightingScene
     checks: tuple[LightingCheckResult, ...]
+    dimensions: tuple[LightingDimensionResult, ...]
     evaluation_sha256: str = Field(min_length=16)
 
     def semantic_payload(self) -> dict:
@@ -298,14 +346,141 @@ class LightingSceneEvaluation(BaseModel):
         return self
 
 
+def _record_desired_level(
+    record: LightingCommissioningRecord,
+    scene_states: dict[tuple[str, str], ChannelState],
+) -> tuple[float | None, int | None]:
+    """The intended level/CCT for this record's ref: the record's own
+    ``desired`` snapshot wins; otherwise the scene's assignment."""
+    if record.desired is not None:
+        return record.desired.level_percent, record.desired.cct_k
+    state = scene_states.get((record.ref_kind, record.ref_id))
+    if state is None:
+        return None, None
+    return state.level_percent, state.cct_k
+
+
+def _evaluate_record_conformance(
+    record: LightingCommissioningRecord,
+    scene: LightingScene,
+    scene_states: dict[tuple[str, str], ChannelState],
+    known_refs: set[tuple[str, str]],
+    policy: LightingTolerancePolicy,
+) -> LightingCheckResult:
+    """Device-state conformance for one record.
+
+    Commanded state is evidence a request was sent — never proof of
+    applied state. Only ``read_back`` (or a scoped ``measured``
+    observation where no read-back exists) can verify.
+    """
+    name = f'device_state_conformance:{record.ref_kind}:{record.ref_id}'
+
+    if (
+        record.scene_id != scene.scene_id
+        or record.scene_version != scene.version
+        or record.scene_sha256 != scene.scene_sha256
+    ):
+        return LightingCheckResult(
+            check=name,
+            status='FAIL',
+            dimension='device_state_conformance',
+            reason='record is bound to a different scene identity',
+        )
+    if (record.ref_kind, record.ref_id) not in known_refs:
+        return LightingCheckResult(
+            check=name,
+            status='FAIL',
+            dimension='device_state_conformance',
+            reason='record ref does not resolve in the lighting inventory',
+        )
+
+    desired_level, desired_cct = _record_desired_level(record, scene_states)
+    if desired_level is None:
+        return LightingCheckResult(
+            check=name,
+            status='UNKNOWN',
+            dimension='device_state_conformance',
+            reason='no desired state recorded for this ref',
+        )
+
+    observed = record.read_back if record.read_back is not None else record.measured
+    if observed is None:
+        if record.commanded is not None:
+            detail = 'commanded but no read-back — application unverified'
+        else:
+            detail = 'desired only — never executed'
+        return LightingCheckResult(
+            check=name,
+            status='UNKNOWN',
+            dimension='device_state_conformance',
+            reason=detail,
+        )
+
+    mismatches: list[str] = []
+    unknowns: list[str] = []
+    delta = abs(observed.level_percent - desired_level)
+    if delta > policy.level_percent_tolerance:
+        mismatches.append(
+            f'level desired {desired_level}% vs {observed.stage} '
+            f'{observed.level_percent}% (tolerance '
+            f'{policy.level_percent_tolerance}%)'
+        )
+    if observed.cct_k is not None or desired_cct is not None:
+        if (
+            observed.cct_k is None
+            or desired_cct is None
+            or policy.cct_k_tolerance is None
+        ):
+            unknowns.append('cct comparison not possible under this policy')
+        elif abs(observed.cct_k - desired_cct) > policy.cct_k_tolerance:
+            mismatches.append(
+                f'cct desired {desired_cct}K vs {observed.stage} '
+                f'{observed.cct_k}K (tolerance {policy.cct_k_tolerance}K)'
+            )
+
+    if mismatches:
+        return LightingCheckResult(
+            check=name,
+            status='FAIL',
+            dimension='device_state_conformance',
+            reason='; '.join(mismatches),
+        )
+    if unknowns:
+        return LightingCheckResult(
+            check=name,
+            status='UNKNOWN',
+            dimension='device_state_conformance',
+            reason='; '.join(unknowns),
+        )
+    return LightingCheckResult(
+        check=name,
+        status='PASS',
+        dimension='device_state_conformance',
+        reason=f'{observed.stage} matches desired within '
+        f'policy {policy.policy_id} v{policy.policy_version}',
+    )
+
+
 def evaluate_lighting_scene(
     *,
     scene: LightingScene,
     fixtures: tuple[LightingFixture, ...],
     zones: tuple[LightingZone, ...],
     ambient_observation: LightingAmbientObservation | None = None,
+    commissioning_records: tuple[LightingCommissioningRecord, ...] = (),
+    tolerance_policy: LightingTolerancePolicy | None = None,
 ) -> LightingSceneEvaluation:
-    """Per-check evaluation — no hidden overall score."""
+    """Per-check evaluation — no hidden overall score.
+
+    Each check names its dimension; ``dimensions`` folds statuses per axis
+    so an intentionally unsupported capability (photometric modeling)
+    never contaminates the device-state commissioning verdict.
+    """
+
+    if commissioning_records and tolerance_policy is None:
+        raise ValueError(
+            'commissioning records require an explicit tolerance_policy'
+        )
 
     fixture_ids = {f.fixture_id for f in fixtures}
     zone_ids = {z.zone_id for z in zones}
@@ -321,6 +496,7 @@ def evaluate_lighting_scene(
         LightingCheckResult(
             check='references_resolve',
             status='FAIL' if unresolved else 'PASS',
+            dimension='scene_definition_integrity',
             reason=(
                 'unresolved refs: ' + ', '.join(unresolved)
                 if unresolved
@@ -345,6 +521,7 @@ def evaluate_lighting_scene(
             LightingCheckResult(
                 check='bias_target_bound',
                 status='FAIL' if missing_target else 'PASS',
+                dimension='scene_definition_integrity',
                 reason=(
                     'bias zones missing a target surface: '
                     + ', '.join(missing_target)
@@ -358,6 +535,7 @@ def evaluate_lighting_scene(
             LightingCheckResult(
                 check='bias_target_bound',
                 status='NOT_APPLICABLE',
+                dimension='scene_definition_integrity',
                 reason='scene touches no bias zone',
             )
         )
@@ -367,6 +545,7 @@ def evaluate_lighting_scene(
             LightingCheckResult(
                 check='ambient_evidence',
                 status='UNKNOWN',
+                dimension='ambient_measurement_evidence',
                 reason='no measured lux observation bound to this scene',
             )
         )
@@ -379,6 +558,7 @@ def evaluate_lighting_scene(
             LightingCheckResult(
                 check='ambient_evidence',
                 status='FAIL',
+                dimension='ambient_measurement_evidence',
                 reason='ambient observation is bound to a different '
                 'scene identity',
             )
@@ -388,26 +568,63 @@ def evaluate_lighting_scene(
             LightingCheckResult(
                 check='ambient_evidence',
                 status='PASS',
+                dimension='ambient_measurement_evidence',
                 reason=f'measured {ambient_observation.measured_lux} lux at '
                 f'{ambient_observation.location_label}',
             )
         )
 
+    # Device-state conformance: each record is evaluated independently
+    # against the exact scene identity and the versioned tolerance policy.
+    scene_states = {(s.ref_kind, s.ref_id): s for s in scene.states}
+    known_refs = {
+        *(('fixture', f.fixture_id) for f in fixtures),
+        *(('zone', z.zone_id) for z in zones),
+    }
+    for record in commissioning_records:
+        checks.append(
+            _evaluate_record_conformance(
+                record, scene, scene_states, known_refs, tolerance_policy
+            )
+        )
+
     # The twin does no photometric modeling: any illuminance question from
-    # state alone is UNKNOWN.
+    # state alone is UNKNOWN — reported on its own dimension, never folded
+    # into the device-state verdict.
     checks.append(
         LightingCheckResult(
             check='photometric_modeling',
             status='UNKNOWN',
+            dimension='photometric_model_capability',
             reason='dimmer levels are never converted to lux; only '
             'measured evidence carries illuminance',
         )
+    )
+
+    dimension_order = (
+        'scene_definition_integrity',
+        'device_state_conformance',
+        'ambient_measurement_evidence',
+        'photometric_model_capability',
+    )
+    dimensions = tuple(
+        LightingDimensionResult(
+            dimension=dimension,
+            status=_combine_status(
+                tuple(
+                    c.status for c in checks if c.dimension == dimension
+                )
+            ),
+        )
+        for dimension in dimension_order
+        if any(c.dimension == dimension for c in checks)
     )
 
     probe = LightingSceneEvaluation.model_construct(
         evaluation_id='',
         scene=scene,
         checks=tuple(checks),
+        dimensions=dimensions,
         evaluation_sha256='',
     )
     digest = _hash(probe.semantic_payload())
@@ -423,6 +640,18 @@ def evaluate_lighting_scene(
 
 def lighting_scene_status(
     evaluation: LightingSceneEvaluation,
+    *,
+    dimension: LightingEvaluationDimension | None = None,
 ) -> EvaluationStatus:
-    """Fold check statuses — the checks list is the authoritative record."""
-    return _combine_status(tuple(c.status for c in evaluation.checks))
+    """Fold check statuses — the checks list is the authoritative record.
+
+    With ``dimension`` set, only that dimension's verdict is returned, so a
+    caller can ask for the device-state commissioning verdict without the
+    intentionally-unsupported photometric capability contaminating it.
+    """
+    statuses = tuple(
+        c.status
+        for c in evaluation.checks
+        if dimension is None or c.dimension == dimension
+    )
+    return _combine_status(statuses)
