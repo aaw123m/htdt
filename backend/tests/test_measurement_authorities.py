@@ -1317,6 +1317,8 @@ def test_timing_scope_measurement_is_exact(tmp_path):
     m2, _ = _save_measurement(measurement_repository, revision, 'm-2')
     reference = build_timing_reference(
         method='loopback',
+        reference_channel='ch-1',
+        t0_convention='loopback_edge',
         validity_scope='measurement',
         subject_measurement_ids=(m1.measurement_id,),
     )
