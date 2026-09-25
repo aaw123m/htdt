@@ -2161,6 +2161,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'acoustic treatment comparison authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
+    'cad_treatment_comparison_outcomes': (
+        'STRUCTURAL_ONLY',
+        'treatment comparison outcome authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
     'cad_ambient_comparisons': (
         'STRUCTURAL_ONLY',
         'ambient comparison authority; canonical replay path pending — '
@@ -2539,6 +2544,21 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
     'cad_o90_robust_pareto_evaluations': (
         'STRUCTURAL_ONLY',
         'robust Pareto evaluation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_prediction_matrix_specs': (
+        'STRUCTURAL_ONLY',
+        'prediction matrix spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_prediction_matrix_result_sets': (
+        'STRUCTURAL_ONLY',
+        'prediction matrix result-set authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_prediction_matrix_runs': (
+        'STRUCTURAL_ONLY',
+        'prediction matrix run authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
     'cad_prediction_provider_bindings': (
