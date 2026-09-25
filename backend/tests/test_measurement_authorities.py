@@ -558,8 +558,8 @@ def _profile(**kwargs):
 
 
 def test_routing_profile_roundtrip(tmp_path):
-    _, _, quality_repository = _repositories(tmp_path)
-    profile = _profile()
+    revision, _, quality_repository = _repositories(tmp_path)
+    profile = _profile(scene_revision_id=revision.revision_id)
     quality_repository.save_routing_profile(profile)
     assert quality_repository.get_routing_profile(profile.routing_profile_id) == profile
     listed = quality_repository.list_routing_profiles()
@@ -627,7 +627,7 @@ def test_assignment_resolves_routing_profile(tmp_path):
         quality_repository=quality_repository,
         rew_client=object(),  # no REW available; engine_session stays absent
     )
-    profile = _profile()
+    profile = _profile(scene_revision_id=revision.revision_id)
     quality_repository.save_routing_profile(profile)
 
     raw = b'freq level\n20.0 70.0\n40.0 71.0\n80.0 69.0\n'
@@ -658,6 +658,10 @@ def _wiring_check(**kwargs):
     kwargs.setdefault('method', 'DCR probe')
     kwargs.setdefault('result', 'PASS')
     kwargs.setdefault('measured_at_utc', '2026-09-20T00:00:00+00:00')
+    # #848: a PASS claim needs resolvable evidence or an explicit manual
+    # attestation naming what was verified.
+    if kwargs['result'] == 'PASS':
+        kwargs.setdefault('evidence_refs', ('manual:dcr-probe-verified',))
     return build_wiring_check(document_id='fixture-f1', **kwargs)
 
 
@@ -1686,7 +1690,7 @@ def test_save_target_lineage_rejects_foreign_revision(tmp_path):
         creation_revision_id=foreign.revision_id,
         initial_position=position,
     )
-    with pytest.raises(ValueError, match='does not match the creation'):
+    with pytest.raises(ValueError, match='different document'):
         quality_repository.save_target_lineage(lineage)
     lineage = build_measurement_target_lineage(
         document_id='fixture-f1',
@@ -1695,7 +1699,7 @@ def test_save_target_lineage_rejects_foreign_revision(tmp_path):
         creation_revision_id='rev-missing',
         initial_position=position,
     )
-    with pytest.raises(ValueError, match='creation revision is unavailable'):
+    with pytest.raises(ValueError, match='unknown creation revision'):
         quality_repository.save_target_lineage(lineage)
 
 
@@ -1710,25 +1714,25 @@ def test_save_target_lineage_rejects_bad_entities(tmp_path):
         creation_revision_id=revision.revision_id,
         initial_position=position,
     )
-    with pytest.raises(ValueError, match='source seat is missing'):
+    with pytest.raises(ValueError, match='unknown source seat'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{**base, 'source_seat_id': 'seat-9'}
             )
         )
-    with pytest.raises(ValueError, match='not a seat entity'):
+    with pytest.raises(ValueError, match='is not a seat'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{**base, 'source_seat_id': 'speaker-fl'}
             )
         )
-    with pytest.raises(ValueError, match='measurement point is missing'):
+    with pytest.raises(ValueError, match='unknown measurement point'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{**base, 'measurement_point_id': 'point-x'}
             )
         )
-    with pytest.raises(ValueError, match='does not reproduce'):
+    with pytest.raises(ValueError, match='does not match'):
         quality_repository.save_target_lineage(
             build_measurement_target_lineage(
                 **{

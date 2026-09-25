@@ -8,6 +8,11 @@ import pytest
 
 from PySide6.QtWidgets import QApplication, QLabel
 
+from htdt.navigation_target import (
+    NavigationScope,
+    NavigationTarget,
+    NavigationTargetKind,
+)
 from htdt.workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from htdt.workflow_shell import (
     WorkflowShellWindow,
@@ -24,6 +29,29 @@ def _registrations(factory):
     return build_canonical_workspace_registrations(
         {workspace_id: factory(workspace_id) for workspace_id in WorkspaceId}
     )
+
+
+class _StubApplication:
+    """Minimal stand-in for the composition's project-switch authority."""
+
+    def __init__(self, project_id: str, *, can_switch: bool = True) -> None:
+        self._project_id = project_id
+        self._can_switch = can_switch
+        self.switches: list[str] = []
+
+    def navigation_project_identity(self) -> str:
+        return self._project_id
+
+    def establish_navigation_project(self, project_id: str):
+        self.switches.append(project_id)
+        if self._can_switch:
+            self._project_id = project_id
+            return True, None
+        return False, "プロジェクト切替が拒否されました"
+
+
+def _simple_factory(workspace_id: WorkspaceId):
+    return lambda: WorkspaceMount.from_widget(QLabel(workspace_id.value))
 
 
 def test_workflow_shell_routes_canonical_workspaces_lazily() -> None:
@@ -129,6 +157,146 @@ def test_entity_deep_link_is_forwarded_to_workspace_callback() -> None:
     )
     assert window.handle_deep_link(target)
     assert selected == ["speaker-1"]
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_project_scoped_target_is_stamped_with_active_project_identity() -> None:
+    """#775: a project-scoped target without project_id binds to the active
+    project's canonical identity before routing — history replays against
+    the same authority, never the wrong project's namespace."""
+    app = _app()
+    window = WorkflowShellWindow(_registrations(_simple_factory))
+    application = _StubApplication("project-a")
+    window.workflow_application = application
+
+    resolution = window.navigate_to_target(
+        NavigationTarget(
+            kind=NavigationTargetKind.SCENE_ENTITY,
+            object_ids=("speaker-1",),
+        )
+    )
+
+    assert resolution.link is not None
+    assert application.switches == []
+    entry = window.navigation_history.entries()[-1]
+    assert entry.target.project_id == "project-a"
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_explicit_project_target_switches_project_before_routing() -> None:
+    """#775: target.project_id is enforced before workspace routing — the
+    guarded project switch runs and the target never lands inside the
+    previously active project."""
+    app = _app()
+    window = WorkflowShellWindow(_registrations(_simple_factory))
+    application = _StubApplication("project-a")
+    window.workflow_application = application
+
+    resolution = window.navigate_to_target(
+        NavigationTarget(
+            kind=NavigationTargetKind.SCENE_ENTITY,
+            object_ids=("speaker-1",),
+            project_id="project-b",
+        )
+    )
+
+    assert application.switches == ["project-b"]
+    assert resolution.link is not None
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_failed_project_switch_never_routes_and_records_no_history() -> None:
+    """#775: a refused project switch cannot route the target into the
+    wrong project and must not create a successful history entry."""
+    app = _app()
+    window = WorkflowShellWindow(_registrations(_simple_factory))
+    application = _StubApplication("project-a", can_switch=False)
+    window.workflow_application = application
+
+    resolution = window.navigate_to_target(
+        NavigationTarget(
+            kind=NavigationTargetKind.SCENE_ENTITY,
+            object_ids=("speaker-1",),
+            project_id="project-b",
+        )
+    )
+
+    assert resolution.link is None
+    assert window.current_workspace_id is WorkspaceId.OVERVIEW
+    assert window.navigation_history.entries() == ()
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_legacy_deep_link_records_project_scoped_history_with_identity() -> None:
+    """#775: even a legacy WorkspaceDeepLink produces a project-scoped
+    history entry carrying the exact project identity."""
+    app = _app()
+    window = WorkflowShellWindow(_registrations(_simple_factory))
+    application = _StubApplication("project-a")
+    window.workflow_application = application
+
+    assert window.handle_deep_link(
+        WorkspaceDeepLink(WorkspaceId.MEASUREMENT, "quality")
+    )
+
+    entry = window.navigation_history.entries()[-1]
+    assert entry.target.scope is NavigationScope.PROJECT
+    assert entry.target.project_id == "project-a"
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_application_scope_history_stays_valid_across_project_switch() -> None:
+    """#775: application-scope entries are valid independently of the
+    project — manual-switch cleanup must never drop them."""
+    app = _app()
+    window = WorkflowShellWindow(_registrations(_simple_factory))
+    history = window.navigation_history
+    link = WorkspaceDeepLink(WorkspaceId.OVERVIEW)
+    history.record(
+        NavigationTarget(
+            kind=NavigationTargetKind.WORKSPACE,
+            scope=NavigationScope.APPLICATION,
+        ),
+        link,
+    )
+    history.record(
+        NavigationTarget(
+            kind=NavigationTargetKind.SCENE_ENTITY,
+            object_ids=("speaker-1",),
+        ),
+        WorkspaceDeepLink(WorkspaceId.ROOM),
+    )
+    history.record(
+        NavigationTarget(
+            kind=NavigationTargetKind.SCENE_ENTITY,
+            object_ids=("speaker-2",),
+            project_id="project-b",
+        ),
+        WorkspaceDeepLink(WorkspaceId.ROOM),
+    )
+
+    history.drop_unscoped_project_entries()
+
+    entries = history.entries()
+    assert len(entries) == 2
+    assert entries[0].target.scope is NavigationScope.APPLICATION
+    # A project-pinned entry survives: replay performs a guarded switch back.
+    assert entries[1].target.project_id == "project-b"
 
     window.close()
     window.deleteLater()

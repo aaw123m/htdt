@@ -93,6 +93,18 @@ class CadMeasurementTargetLineage(BaseModel):
     creation_revision_id: str = Field(min_length=1)
     initial_position: Position3
     source_pose_ref: ExactExternalAuthorityRef | None = None
+    # Explicit two-revision semantics (#862): ``creation_revision_id`` is the
+    # revision that contains the created point; ``source_scene_revision_id`` is
+    # the revision the seat was read from (the created revision's parent).
+    creation_scene_content_hash: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    source_scene_revision_id: str | None = Field(
+        default=None, min_length=1
+    )
+    source_scene_content_hash: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     created_at_utc: str = Field(min_length=1)
     target_lineage_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -119,6 +131,14 @@ class CadMeasurementTargetLineage(BaseModel):
             payload['source_pose_ref'] = self.source_pose_ref.model_dump(
                 mode='json'
             )
+        if self.creation_scene_content_hash is not None:
+            payload['creation_scene_content_hash'] = (
+                self.creation_scene_content_hash
+            )
+        if self.source_scene_revision_id is not None:
+            payload['source_scene_revision_id'] = self.source_scene_revision_id
+        if self.source_scene_content_hash is not None:
+            payload['source_scene_content_hash'] = self.source_scene_content_hash
         return payload
 
 
@@ -130,6 +150,9 @@ def build_measurement_target_lineage(
     creation_revision_id: str,
     initial_position: Position3,
     source_pose_ref: ExactExternalAuthorityRef | None = None,
+    creation_scene_content_hash: str | None = None,
+    source_scene_revision_id: str | None = None,
+    source_scene_content_hash: str | None = None,
     target_lineage_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> CadMeasurementTargetLineage:
@@ -142,6 +165,9 @@ def build_measurement_target_lineage(
         'creation_revision_id': creation_revision_id,
         'initial_position': initial_position,
         'source_pose_ref': source_pose_ref,
+        'creation_scene_content_hash': creation_scene_content_hash,
+        'source_scene_revision_id': source_scene_revision_id,
+        'source_scene_content_hash': source_scene_content_hash,
         'created_at_utc': created_at_utc or _utc_now(),
     }
     provisional = CadMeasurementTargetLineage.model_construct(

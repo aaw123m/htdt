@@ -26,6 +26,18 @@ Contract points honoured:
 - Cables are first-class limits: an edge's cable capability intersects both
   endpoint ports' capabilities, and an edge may bind a ``cable_run_ref``
   (issue #538 owns the CableRun authority; it is referenced by id only).
+- A path is exactly one connected, directed chain (#820): every node sits on
+  the route, exactly one start and one end exist, and cycles/merges/
+  branches/disconnected edge bags are rejected at construction. Edge media
+  must be structurally compatible with both endpoint port media — a medium
+  conversion is modelled as an explicit adapter node, never implied by an
+  edge label; ``unknown``/``other`` assert nothing and evaluate UNKNOWN.
+- Negotiated evidence verifies the *requested* condition (#820):
+  ``worked=True`` upgrades to VERIFIED_WORKING only when the recorded
+  negotiated mode meets every requested requirement; a degraded negotiated
+  mode reports VERIFIED_DIFFERENT_MODE, and a missing negotiated mode stays
+  UNKNOWN. The evidence object (method, note, provenance) is preserved on
+  the evaluation verbatim so Result Trust keeps method strength visible.
 """
 
 from __future__ import annotations
@@ -80,8 +92,88 @@ MediumKind = Literal[
 
 PathStatus = Literal[
     'SUPPORTED', 'UNSUPPORTED', 'UNKNOWN',
-    'VERIFIED_WORKING', 'VERIFIED_FAILURE',
+    'VERIFIED_WORKING', 'VERIFIED_FAILURE', 'VERIFIED_DIFFERENT_MODE',
 ]
+
+# Media carried over the same physical HDMI connector family. eARC/ARC are
+# HDMI-connector transports, so a port labelled 'hdmi' is link-compatible
+# with an 'earc'/'arc' edge (feature support stays a capability-set check).
+_HDMI_FAMILY = frozenset({'hdmi', 'earc', 'arc'})
+
+# Media that can only ever terminate an audio return/auxiliary channel — a
+# route consisting solely of these is an audio-return route, not a forward
+# video route.
+_RETURN_MEDIA = frozenset({'earc', 'arc', 'toslink', 'analog'})
+
+# Media that assert a concrete electrical/protocol link. 'other'/'unknown'
+# assert nothing and must evaluate UNKNOWN, never implicit compatibility.
+_PROVEN_MEDIA = frozenset(
+    {'hdmi', 'displayport', 'earc', 'arc', 'toslink', 'analog', 'hdBaseT'}
+)
+
+
+def _media_link_compatible(a: MediumKind, b: MediumKind) -> bool | None:
+    """Structural link compatibility between two media.
+
+    ``True`` = same link family; ``False`` = two proven media that cannot
+    mate; ``None`` = either side asserts nothing (unknown/other) — UNKNOWN,
+    never implicit compatibility.
+    """
+    if a not in _PROVEN_MEDIA or b not in _PROVEN_MEDIA:
+        return None
+    if a == b:
+        return True
+    if a in _HDMI_FAMILY and b in _HDMI_FAMILY:
+        return True
+    return False
+
+
+def _route_role(path: 'AVSignalPath') -> Literal['forward', 'audio_return']:
+    """Whether the route is a forward path or a pure audio-return path."""
+    media = {edge.medium for edge in path.edges}
+    if media and media <= _RETURN_MEDIA:
+        return 'audio_return'
+    return 'forward'
+
+
+def _route_endpoints(
+    path: 'AVSignalPath',
+) -> tuple[str, str] | None:
+    """Directed (start, end) node ids of a chain route, or None.
+
+    A route is a linear chain: exactly one node out-degree 1/in-degree 0
+    (start), exactly one in-degree 1/out-degree 0 (end), every other node
+    1-in/1-out. Cycles, merges, branches and disconnected edge bags have no
+    such pair.
+    """
+    out_deg: dict[str, int] = {n.node_id: 0 for n in path.nodes}
+    in_deg: dict[str, int] = {n.node_id: 0 for n in path.nodes}
+    for edge in path.edges:
+        out_deg[edge.from_node_id] += 1
+        in_deg[edge.to_node_id] += 1
+    start = [n for n in out_deg if out_deg[n] == 1 and in_deg[n] == 0]
+    end = [n for n in in_deg if in_deg[n] == 1 and out_deg[n] == 0]
+    if len(start) != 1 or len(end) != 1:
+        return None
+    if any(
+        not (0 <= out_deg[n] <= 1 and 0 <= in_deg[n] <= 1)
+        for n in out_deg
+    ):
+        return None
+    # connectivity: walking forward from the unique start must reach every
+    # edge exactly once and stop at the unique end.
+    edges_from = {edge.from_node_id: edge for edge in path.edges}
+    seen: set[str] = set()
+    node = start[0]
+    while node in edges_from:
+        edge = edges_from[node]
+        if edge.edge_id in seen:
+            return None
+        seen.add(edge.edge_id)
+        node = edge.to_node_id
+    if node != end[0] or len(seen) != len(path.edges):
+        return None
+    return start[0], end[0]
 
 
 class VideoCapabilitySet(BaseModel):
@@ -198,6 +290,39 @@ class AVSignalPath(BaseModel):
                 raise ValueError(
                     f'edge {edge.edge_id} loops a node to itself'
                 )
+            for endpoint, port in (
+                (edge.from_node_id, src),
+                (edge.to_node_id, dst),
+            ):
+                link = _media_link_compatible(edge.medium, port.medium)
+                if link is False:
+                    raise ValueError(
+                        f'edge {edge.edge_id} medium {edge.medium!r} cannot '
+                        f'mate {port.medium!r} port {endpoint}.'
+                        f'{port.port_id} — a medium conversion requires an '
+                        'explicit adapter node'
+                    )
+        if self.edges:
+            # One connected, coherent route — not an arbitrary edge bag:
+            # every node must sit on the route and the directed edges must
+            # form a single linear chain (rejects cycles, merges, branches
+            # and disconnected pairs of valid edges).
+            incident = {
+                edge.from_node_id for edge in self.edges
+            } | {
+                edge.to_node_id for edge in self.edges
+            }
+            stray = set(nodes) - incident
+            if stray:
+                raise ValueError(
+                    f'signal path node(s) {sorted(stray)} sit outside the '
+                    'route'
+                )
+            if _route_endpoints(self) is None:
+                raise ValueError(
+                    'signal path edges do not form one connected chain with '
+                    'a unique start and end'
+                )
         if self.path_sha256 != _hash(self.semantic_payload()):
             raise ValueError('signal path semantic hash mismatch')
         return self
@@ -242,6 +367,11 @@ class MediaPlaybackCondition(BaseModel):
     audio_format: str | None = None
     audio_channels: int | None = Field(default=None, gt=0)
     requires_earc: bool | None = None
+    required_bandwidth_gbps: float | None = Field(default=None, gt=0.0)
+    """Caller-declared transport rate for the requested mode. Compared
+    exactly against each ``VideoCapabilitySet.bandwidth_gbps`` — the
+    condition carries the rate authority (e.g. the mode's CTA-861 required
+    TMDS/FRL rate); this module never derives one."""
 
 
 class NegotiatedModeEvidence(BaseModel):
@@ -316,12 +446,19 @@ def _video_carry(
     if cap is None:
         return 'UNKNOWN'
     if condition.width_px is not None:
-        if cap.max_width_px is None or cap.max_height_px is None:
+        if cap.max_width_px is None:
             return 'UNKNOWN'
         if condition.width_px > cap.max_width_px:
             return 'UNSUPPORTED'
-    if condition.height_px is not None and cap.max_height_px is not None:
+    if condition.height_px is not None:
+        if cap.max_height_px is None:
+            return 'UNKNOWN'
         if condition.height_px > cap.max_height_px:
+            return 'UNSUPPORTED'
+    if condition.required_bandwidth_gbps is not None:
+        if cap.bandwidth_gbps is None:
+            return 'UNKNOWN'
+        if condition.required_bandwidth_gbps > cap.bandwidth_gbps:
             return 'UNSUPPORTED'
     if condition.refresh_hz is not None:
         if cap.max_refresh_hz is None:
@@ -374,6 +511,51 @@ def _audio_carry(
         if not cap.earc:
             return 'UNSUPPORTED'
     return 'SUPPORTED'
+
+
+_NUMERIC_REQUEST_FIELDS = (
+    'width_px',
+    'height_px',
+    'refresh_hz',
+    'bit_depth',
+    'audio_channels',
+    'required_bandwidth_gbps',
+)
+_CATEGORICAL_REQUEST_FIELDS = (
+    'chroma_subsampling',
+    'hdr_format',
+    'audio_format',
+)
+
+
+def _negotiated_meets_request(
+    negotiated: MediaPlaybackCondition | None,
+    requested: MediaPlaybackCondition,
+) -> bool | None:
+    """Whether the observed negotiated mode meets every requested
+    requirement. ``None`` = no negotiated mode recorded (cannot verify).
+
+    Numeric capabilities must meet or exceed the request; categorical
+    formats must match exactly. Unset request fields assert nothing.
+    """
+    if negotiated is None:
+        return None
+    for field in _NUMERIC_REQUEST_FIELDS:
+        req = getattr(requested, field)
+        if req is None:
+            continue
+        got = getattr(negotiated, field)
+        if got is None or got < req:
+            return False
+    for field in _CATEGORICAL_REQUEST_FIELDS:
+        req = getattr(requested, field)
+        if req is not None and getattr(negotiated, field) != req:
+            return False
+    if requested.vrr and negotiated.vrr is not True:
+        return False
+    if requested.requires_earc and negotiated.requires_earc is not True:
+        return False
+    return True
 
 
 def _fold(hop_statuses: tuple[PathStatus, ...]) -> PathStatus:
@@ -443,9 +625,26 @@ def evaluate_signal_path(
             if audio_applies
             else 'SUPPORTED'
         )
+        # Link-media compatibility: a proven mismatch is impossible to
+        # persist (model validation), so a non-proven medium asserts
+        # nothing and stays UNKNOWN — never implicit compatibility.
+        link = _media_link_compatible(src.medium, dst.medium)
+        edge_link = _media_link_compatible(edge.medium, src.medium)
+        edge_link_dst = _media_link_compatible(edge.medium, dst.medium)
+        medium_status: PathStatus = 'SUPPORTED'
+        if (
+            edge.medium not in _PROVEN_MEDIA
+            or src.medium not in _PROVEN_MEDIA
+            or dst.medium not in _PROVEN_MEDIA
+        ):
+            medium_status = 'UNKNOWN'
+        elif (
+            link is False or edge_link is False or edge_link_dst is False
+        ):
+            medium_status = 'UNSUPPORTED'
         # direction check folds into the result
         hop_status = 'UNSUPPORTED' if not ok_direction else _fold(
-            (video, audio)
+            (video, audio, medium_status)
         )
         limiting = None
         if hop_status == 'UNSUPPORTED':
@@ -480,6 +679,38 @@ def evaluate_signal_path(
             )
         )
 
+    # Endpoint semantics: a forward route carrying a requested video mode
+    # must terminate at a display/eARC endpoint input; a pure audio-return
+    # route may legitimately end at the processor/AVR.
+    video_requested = any(
+        getattr(condition, field) is not None
+        for field in (
+            'width_px',
+            'height_px',
+            'refresh_hz',
+            'chroma_subsampling',
+            'bit_depth',
+            'hdr_format',
+            'required_bandwidth_gbps',
+        )
+    ) or bool(condition.vrr)
+    if path.edges and video_requested and _route_role(path) == 'forward':
+        endpoints = _route_endpoints(path)
+        end_kind = nodes[endpoints[1]].kind if endpoints else None
+        if end_kind not in {'display', 'earc_endpoint'}:
+            hops.append(
+                HopResult(
+                    hop='route',
+                    status='UNSUPPORTED',
+                    limiting_component='route:endpoint',
+                    reason=(
+                        'forward path terminates at '
+                        f'{end_kind or "no unique end"}, not a display/eARC '
+                        'endpoint input'
+                    ),
+                )
+            )
+
     if not path.edges:
         declared: PathStatus = 'UNKNOWN'
     else:
@@ -496,10 +727,20 @@ def evaluate_signal_path(
         )
         if not bound:
             status = 'UNKNOWN'
-        elif negotiation.worked:
-            status = 'VERIFIED_WORKING'
-        else:
+        elif not negotiation.worked:
             status = 'VERIFIED_FAILURE'
+        else:
+            meets = _negotiated_meets_request(negotiation.negotiated, condition)
+            if meets is True:
+                status = 'VERIFIED_WORKING'
+            elif meets is False:
+                # The link ran, but under a degraded/different mode than the
+                # requested condition — distinct from success.
+                status = 'VERIFIED_DIFFERENT_MODE'
+            else:
+                # worked=True without a recorded negotiated mode cannot prove
+                # the requested condition — partially verified at best.
+                status = 'UNKNOWN'
 
     probe = SignalPathEvaluation.model_construct(
         evaluation_id='',
