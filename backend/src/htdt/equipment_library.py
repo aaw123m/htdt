@@ -311,7 +311,7 @@ class EquipmentLibraryService:
             self.equipment_repository,
         )
         self.source_response_repository = CadSourceResponseRepository(
-            scene_repository.path
+            scene_repository.path, self.equipment_repository
         )
 
     def responses_for_definition(
