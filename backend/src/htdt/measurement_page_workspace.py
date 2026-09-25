@@ -102,6 +102,13 @@ _CELL_STATUS_LABELS = {
     "completed": "完了",
     "skipped": "スキップ",
 }
+_VARIANT_PURPOSE_LABELS = {
+    "measurement": "測定",
+    "calibration": "キャリブレーション",
+    "holdout": "ホールドアウト",
+    "diagnostic": "診断",
+    "validation": "検証",
+}
 _USER_ROLE = int(Qt.ItemDataRole.UserRole)
 
 
@@ -1677,20 +1684,103 @@ class MeasurementPageWorkspace(QWidget):
         plan_row = QHBoxLayout()
         self.campaign_plan_combo = QComboBox(plan_card)
         plan_row.addWidget(self.campaign_plan_combo, 1)
-        self.campaign_repeat = QSpinBox(plan_card)
-        self.campaign_repeat.setRange(1, 16)
-        self.campaign_repeat.setValue(1)
-        self.campaign_repeat.setPrefix("リピート ")
-        plan_row.addWidget(self.campaign_repeat)
-        self.campaign_create_button = QPushButton("計画を作成", plan_card)
-        self.campaign_create_button.clicked.connect(self._create_campaign_plan)
-        plan_row.addWidget(self.campaign_create_button)
         self.campaign_open_button = QPushButton("実行を開始 / 再開", plan_card)
         set_primary_action(self.campaign_open_button)
         self.campaign_open_button.clicked.connect(self._open_campaign_run)
         plan_row.addWidget(self.campaign_open_button)
         plan_layout.addLayout(plan_row)
+
+        builder_row = QHBoxLayout()
+        sources_column = QVBoxLayout()
+        sources_column.addWidget(QLabel("音源", plan_card))
+        self.campaign_source_list = QListWidget(plan_card)
+        self.campaign_source_list.setMinimumHeight(110)
+        self.campaign_source_list.setMaximumHeight(170)
+        self.campaign_source_list.itemChanged.connect(
+            self._update_campaign_preview
+        )
+        sources_column.addWidget(self.campaign_source_list)
+        builder_row.addLayout(sources_column, 1)
+        targets_column = QVBoxLayout()
+        targets_column.addWidget(QLabel("測定位置", plan_card))
+        self.campaign_target_list = QListWidget(plan_card)
+        self.campaign_target_list.setMinimumHeight(110)
+        self.campaign_target_list.setMaximumHeight(170)
+        self.campaign_target_list.itemChanged.connect(
+            self._update_campaign_preview
+        )
+        targets_column.addWidget(self.campaign_target_list)
+        builder_row.addLayout(targets_column, 1)
+        plan_layout.addLayout(builder_row)
+
+        option_row = QHBoxLayout()
+        option_row.addWidget(QLabel("目的", plan_card))
+        self.campaign_purpose_combo = QComboBox(plan_card)
+        for value, label in (
+            ('measurement', "測定"),
+            ('calibration', "キャリブレーション"),
+            ('holdout', "ホールドアウト"),
+            ('diagnostic', "診断"),
+        ):
+            self.campaign_purpose_combo.addItem(label, value)
+        self.campaign_purpose_combo.currentIndexChanged.connect(
+            lambda _: self._update_campaign_preview()
+        )
+        option_row.addWidget(self.campaign_purpose_combo)
+        self.campaign_repeat = QSpinBox(plan_card)
+        self.campaign_repeat.setRange(1, 16)
+        self.campaign_repeat.setValue(1)
+        self.campaign_repeat.setPrefix("リピート ")
+        self.campaign_repeat.valueChanged.connect(
+            lambda _: self._update_campaign_preview()
+        )
+        option_row.addWidget(self.campaign_repeat)
+        option_row.addWidget(QLabel("ターゲットパターン", plan_card))
+        self.campaign_pattern_combo = QComboBox(plan_card)
+        option_row.addWidget(self.campaign_pattern_combo, 1)
+        self.campaign_apply_pattern_button = QPushButton(
+            "パターンを適用", plan_card
+        )
+        self.campaign_apply_pattern_button.clicked.connect(
+            self._apply_campaign_pattern
+        )
+        option_row.addWidget(self.campaign_apply_pattern_button)
+        plan_layout.addLayout(option_row)
+
+        action_row = QHBoxLayout()
+        self.campaign_all_button = QPushButton(
+            "全スピーカー×全測定位置", plan_card
+        )
+        self.campaign_all_button.clicked.connect(
+            self._select_all_campaign_sources_targets
+        )
+        action_row.addWidget(self.campaign_all_button)
+        self.campaign_preview_label = QLabel("", plan_card)
+        action_row.addWidget(self.campaign_preview_label, 1)
+        self.campaign_create_button = QPushButton("計画を作成", plan_card)
+        self.campaign_create_button.clicked.connect(self._create_campaign_plan)
+        action_row.addWidget(self.campaign_create_button)
+        plan_layout.addLayout(action_row)
         layout.addWidget(plan_card)
+
+        variant_card, variant_layout = _card("登録済みの詳細計画", host)
+        variant_hint = QLabel(
+            "SystemVariant/検証ワークフローが登録した測定計画を、"
+            "そのまま実行用セルとして開きます（新しい全×全計画は作りません）。",
+            variant_card,
+        )
+        variant_hint.setWordWrap(True)
+        variant_layout.addWidget(variant_hint)
+        variant_row = QHBoxLayout()
+        self.campaign_variant_combo = QComboBox(variant_card)
+        variant_row.addWidget(self.campaign_variant_combo, 1)
+        self.campaign_variant_button = QPushButton(
+            "この計画を実行", variant_card
+        )
+        self.campaign_variant_button.clicked.connect(self._open_variant_plan)
+        variant_row.addWidget(self.campaign_variant_button)
+        variant_layout.addLayout(variant_row)
+        layout.addWidget(variant_card)
 
         matrix_card, matrix_layout = _card("計画セル", host)
         self.campaign_table = QTableWidget(0, 5, matrix_card)
@@ -1803,13 +1893,16 @@ class MeasurementPageWorkspace(QWidget):
                 saved_label(created) if created else '測定計画'
             )
             self.campaign_plan_combo.addItem(
-                f"{plan_label} · {len(plan.cells)} セル", plan.plan_id
+                f"{self.controller.runner_plan_summary(plan)}（{plan_label}）",
+                plan.plan_id,
             )
         if previous is not None:
             index = self.campaign_plan_combo.findData(previous)
             if index >= 0:
                 self.campaign_plan_combo.setCurrentIndex(index)
         self.campaign_plan_combo.blockSignals(False)
+
+        self._refresh_campaign_builder()
 
         names = self._campaign_target_names()
         measurement_labels = self._measurement_display_labels()
@@ -1876,10 +1969,259 @@ class MeasurementPageWorkspace(QWidget):
         if next_index is not None:
             self.campaign_table.selectRow(next_index)
 
+    def _checked_campaign_sources(
+        self,
+    ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        sources = []
+        for index in range(self.campaign_source_list.count()):
+            item = self.campaign_source_list.item(index)
+            option = item.data(Qt.ItemDataRole.UserRole)
+            if (
+                option is not None
+                and item.checkState() == Qt.CheckState.Checked
+            ):
+                sources.append((option.channel_role, option.speaker_entity_ids))
+        return tuple(sources)
+
+    def _checked_campaign_targets(self) -> tuple[str, ...]:
+        entity_ids = []
+        for index in range(self.campaign_target_list.count()):
+            item = self.campaign_target_list.item(index)
+            entity_id = item.data(Qt.ItemDataRole.UserRole)
+            if (
+                entity_id is not None
+                and item.checkState() == Qt.CheckState.Checked
+            ):
+                entity_ids.append(entity_id)
+        return tuple(entity_ids)
+
+    def _selected_campaign_purposes(self) -> tuple:
+        purpose = self.campaign_purpose_combo.currentData()
+        return (purpose,) if purpose else ('measurement',)
+
+    def _update_campaign_preview(self) -> None:
+        try:
+            preview = self.controller.preview_runner_plan(
+                sources=self._checked_campaign_sources() or None,
+                target_entity_ids=self._checked_campaign_targets() or None,
+                repeat_count=int(self.campaign_repeat.value()),
+                purposes=self._selected_campaign_purposes(),
+            )
+        except Exception as exc:
+            self.campaign_preview_label.setText(str(exc))
+            return
+        self.campaign_preview_label.setText(
+            f"{preview.cell_count} セル = 音源 {preview.source_count} × "
+            f"測定位置 {preview.target_count} × {preview.repeat_count} 回"
+            + (
+                f" × 目的 {len(preview.purposes)}"
+                if len(preview.purposes) > 1
+                else ""
+            )
+        )
+
+    def _rebuild_campaign_checklist(
+        self,
+        list_widget: QListWidget,
+        entries: tuple[tuple[str, Any], ...],
+    ) -> None:
+        """Repopulate a checkable list, keeping the user's check states."""
+        checked = {
+            list_widget.item(index).data(Qt.ItemDataRole.UserRole)
+            for index in range(list_widget.count())
+            if list_widget.item(index).checkState() == Qt.CheckState.Checked
+        }
+        list_widget.blockSignals(True)
+        list_widget.clear()
+        for label, payload in entries:
+            item = QListWidgetItem(label, list_widget)
+            item.setData(Qt.ItemDataRole.UserRole, payload)
+            item.setFlags(
+                item.flags()
+                | Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEnabled
+            )
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if payload in checked
+                else Qt.CheckState.Unchecked
+            )
+        list_widget.blockSignals(False)
+
+    def _refresh_campaign_builder(self) -> None:
+        speaker_labels = self._campaign_speaker_labels()
+        try:
+            options = self.controller.runner_source_options()
+        except Exception:
+            options = ()
+        source_entries = []
+        for option in options:
+            names = [
+                speaker_labels.get(entity_id, entity_id)
+                for entity_id in option.speaker_entity_ids
+            ]
+            if option.grouped:
+                label = (
+                    f"{_channel_role_label(option.channel_role)} グループ"
+                    f"（{' / '.join(names)}）"
+                )
+            else:
+                label = names[0] if names else option.speaker_entity_ids[0]
+            source_entries.append((label, option))
+        first_population = self.campaign_source_list.count() == 0
+        self._rebuild_campaign_checklist(
+            self.campaign_source_list, tuple(source_entries)
+        )
+        # First population defaults to the simple preset: every speaker.
+        if first_population:
+            self._select_all_campaign_sources_targets()
+
+        try:
+            targets = self.controller.assignment_targets()
+        except Exception:
+            targets = ()
+        first_population = self.campaign_target_list.count() == 0
+        self._rebuild_campaign_checklist(
+            self.campaign_target_list,
+            tuple(
+                (target.name or target.entity_id, target.entity_id)
+                for target in targets
+            ),
+        )
+        if first_population:
+            for index in range(self.campaign_target_list.count()):
+                self.campaign_target_list.item(index).setCheckState(
+                    Qt.CheckState.Checked
+                )
+
+        try:
+            patterns = self.controller.target_patterns()
+        except Exception:
+            patterns = ()
+        target_names = self._campaign_target_names()
+        self.campaign_pattern_combo.clear()
+        for pattern in patterns:
+            anchor_name = target_names.get(
+                pattern.anchor_entity_id, "明示位置"
+            )
+            self.campaign_pattern_combo.addItem(
+                f"{anchor_name} 起点 · {len(pattern.offsets)} 点"
+                f" · v{pattern.pattern_version}",
+                pattern.pattern_id,
+            )
+        self.campaign_apply_pattern_button.setEnabled(
+            self.campaign_pattern_combo.count() > 0
+        )
+
+        try:
+            variant_plans = self.controller.variant_measurement_plans()
+        except Exception:
+            variant_plans = ()
+        previous_variant = self.campaign_variant_combo.currentData()
+        self.campaign_variant_combo.blockSignals(True)
+        self.campaign_variant_combo.clear()
+        for plan in variant_plans:
+            purpose_label = _VARIANT_PURPOSE_LABELS.get(
+                plan.purpose, plan.purpose or '測定計画'
+            )
+            self.campaign_variant_combo.addItem(
+                f"{purpose_label} · {len(plan.targets)} 対象"
+                f" · {saved_label(plan.created_at_utc)}",
+                plan.plan_id,
+            )
+        if previous_variant is not None:
+            index = self.campaign_variant_combo.findData(previous_variant)
+            if index >= 0:
+                self.campaign_variant_combo.setCurrentIndex(index)
+        self.campaign_variant_combo.blockSignals(False)
+        self.campaign_variant_button.setEnabled(
+            self.campaign_variant_combo.count() > 0
+        )
+        self._update_campaign_preview()
+
+    def _select_all_campaign_sources_targets(self) -> None:
+        """Explicit convenience preset: every speaker x every target."""
+        self.campaign_source_list.blockSignals(True)
+        for index in range(self.campaign_source_list.count()):
+            item = self.campaign_source_list.item(index)
+            option = item.data(Qt.ItemDataRole.UserRole)
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if option is not None and not option.grouped
+                else Qt.CheckState.Unchecked
+            )
+        self.campaign_source_list.blockSignals(False)
+        self.campaign_target_list.blockSignals(True)
+        for index in range(self.campaign_target_list.count()):
+            self.campaign_target_list.item(index).setCheckState(
+                Qt.CheckState.Checked
+            )
+        self.campaign_target_list.blockSignals(False)
+        self._update_campaign_preview()
+
+    def _apply_campaign_pattern(self) -> None:
+        pattern_id = self.campaign_pattern_combo.currentData()
+        if not isinstance(pattern_id, str) or not pattern_id:
+            return
+        try:
+            entity_ids = set(
+                self.controller.target_pattern_entity_ids(pattern_id)
+            )
+        except Exception as exc:
+            self._set_notice(
+                f"パターンを適用できませんでした · {exc}",
+                SemanticState.ERROR,
+            )
+            return
+        if not entity_ids:
+            self._set_notice(
+                "パターンの測定点は現在の部屋に存在しません",
+                SemanticState.WARNING,
+            )
+            return
+        self.campaign_target_list.blockSignals(True)
+        for index in range(self.campaign_target_list.count()):
+            item = self.campaign_target_list.item(index)
+            entity_id = item.data(Qt.ItemDataRole.UserRole)
+            if entity_id in entity_ids:
+                item.setCheckState(Qt.CheckState.Checked)
+        self.campaign_target_list.blockSignals(False)
+        self._update_campaign_preview()
+
+    def _open_variant_plan(self) -> None:
+        plan_id = self.campaign_variant_combo.currentData()
+        if not isinstance(plan_id, str) or not plan_id:
+            self._set_notice(
+                "実行する登録済み計画を選択してください。",
+                SemanticState.WARNING,
+            )
+            return
+        try:
+            plan = self.controller.create_runner_plan_from_variant_plan(
+                plan_id
+            )
+        except Exception as exc:
+            self._set_notice(
+                f"計画を開けませんでした · {exc}", SemanticState.ERROR
+            )
+            return
+        self._set_notice(
+            f"{len(plan.cells)} セルの計画を用意しました。"
+            "「実行を開始 / 再開」で開始します。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+        index = self.campaign_plan_combo.findData(plan.plan_id)
+        if index >= 0:
+            self.campaign_plan_combo.setCurrentIndex(index)
+
     def _create_campaign_plan(self) -> None:
         try:
             plan = self.controller.create_runner_plan(
-                repeat_count=int(self.campaign_repeat.value())
+                sources=self._checked_campaign_sources() or None,
+                target_entity_ids=self._checked_campaign_targets() or None,
+                repeat_count=int(self.campaign_repeat.value()),
+                purposes=self._selected_campaign_purposes(),
             )
         except Exception as exc:
             self._set_notice(f"計画を作成できませんでした · {exc}", SemanticState.ERROR)
