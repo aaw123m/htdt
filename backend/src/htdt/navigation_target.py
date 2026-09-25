@@ -199,7 +199,9 @@ TARGET_KIND_ROUTES: dict[
     NavigationTargetKind.HEALTH_CHECK_PLAN: (),
     NavigationTargetKind.PROJECT_NOTE: (),
     NavigationTargetKind.CALIBRATION_PLAN: (
-        (WorkspaceId.MEASUREMENT, "calibration"),
+        # No dedicated calibration surface yet: land on the Measurement
+        # workspace default rather than a section the mount cannot select.
+        (WorkspaceId.MEASUREMENT, None),
     ),
     NavigationTargetKind.AV_SYNC_CONDITION: (
         (WorkspaceId.MEASUREMENT, "quality"),
