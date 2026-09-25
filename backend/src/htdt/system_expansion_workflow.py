@@ -111,6 +111,11 @@ class LifecyclePresentation:
     label: str
     validated: bool
     validation_label: str
+    #: A SystemVariantApplication authority exists for this variant: the
+    #: proposal was applied to the modeled lineage but no AsBuilt record
+    #: proves physical installation yet (#914).
+    application_exists: bool = False
+    applied_revision_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,6 +405,8 @@ def lifecycle_presentation(
     state: LifecycleState,
     *,
     validated: bool = False,
+    application_exists: bool = False,
+    applied_revision_id: str | None = None,
 ) -> LifecyclePresentation:
     # "measured" is physical evidence state. Validation is a separate authority.
     validation_label = "検証済み" if validated else "未検証"
@@ -408,6 +415,8 @@ def lifecycle_presentation(
         label=LIFECYCLE_LABELS[state],
         validated=validated,
         validation_label=validation_label,
+        application_exists=application_exists,
+        applied_revision_id=applied_revision_id,
     )
 
 
@@ -568,6 +577,9 @@ class SystemExpansionWorkflowService:
     def lifecycle(self, variant_id: str) -> LifecyclePresentation:
         variant = self.variant(variant_id)
         application = self._application(variant_id)
+        applied_revision_id = (
+            None if application is None else application.applied_revision_id
+        )
         if application is None:
             if not variant.diff and all(
                 item.state == "current" for item in variant.entity_lifecycle
@@ -577,8 +589,13 @@ class SystemExpansionWorkflowService:
         as_built = self._as_built(variant_id)
         if as_built is None:
             # Application changes modeled revision lineage only. It does not prove
-            # physical installation, so the physical lifecycle remains proposed.
-            return lifecycle_presentation("proposed")
+            # physical installation, so the physical lifecycle remains proposed —
+            # but the presentation must expose that an application exists (#914).
+            return lifecycle_presentation(
+                "proposed",
+                application_exists=True,
+                applied_revision_id=applied_revision_id,
+            )
         campaigns = self._campaigns(variant_id)
         measured_ids = {item.record_id for item in self._measured_records(variant_id)}
         completed = any(
@@ -587,8 +604,17 @@ class SystemExpansionWorkflowService:
             for campaign in campaigns
         )
         if completed:
-            return lifecycle_presentation("measured", validated=False)
-        return lifecycle_presentation("as_built")
+            return lifecycle_presentation(
+                "measured",
+                validated=False,
+                application_exists=True,
+                applied_revision_id=applied_revision_id,
+            )
+        return lifecycle_presentation(
+            "as_built",
+            application_exists=True,
+            applied_revision_id=applied_revision_id,
+        )
 
     def measurement(self, variant_id: str) -> MeasurementPresentation:
         self.variant(variant_id)
