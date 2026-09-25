@@ -372,6 +372,8 @@ def test_explicit_quality_metadata_opens_only_supported_claims(tmp_path: Path) -
     # dataset level reference and its bound acoustic level calibration.
     level_calibration = build_acoustic_level_calibration(
         method='acoustic_calibrator',
+        instrument_identity='minidsp umik-1 sn-0001',
+        instrument_profile='cal-session-2026-09-18',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
         calibrated_at_utc='2026-09-18T00:00:00+00:00',

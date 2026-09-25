@@ -134,7 +134,8 @@ def _persist_calibration(
 ):
     calibration = build_acoustic_level_calibration(
         method=method,
-        instrument_identity=instrument_identity,
+        instrument_identity=instrument_identity or 'minidsp umik-1 sn-0001',
+        instrument_profile='cal-session-2026-09-18',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
         calibrated_at_utc='2026-09-18T00:00:00+00:00',
@@ -329,14 +330,16 @@ def test_unscoped_or_inapplicable_calibration_never_allows(tmp_path: Path) -> No
         level_reference=reference,
         level_calibration=calibration,
     )
-    assert report.capability('absolute_spl').decision == 'UNKNOWN'
+    # An unscoped calibration is provably incapable — BLOCKED, not merely
+    # UNKNOWN.
+    assert report.capability('absolute_spl').decision == 'BLOCKED'
 
     # #859 applicability: an instrument-scoped calibration for a different
     # microphone is provably inapplicable to this acquisition.
     foreign_calibration = _persist_calibration(
         quality_repository,
         validity_scope='instrument',
-        instrument_identity='minidsp umik-2 s/n9999',
+        instrument_identity='sn-9999',
         input_path_identity='input-umik-2',
     )
     # The incompatible-instrument gate is exercised through a second
@@ -348,9 +351,7 @@ def test_unscoped_or_inapplicable_calibration_never_allows(tmp_path: Path) -> No
         quality_repository,
         record2.measurement_id,
         context_id='acq-foreign-2',
-        microphone=CadMicrophoneCapture(
-            manufacturer='minidsp', model='umik-1', serial='sn-0001'
-        ),
+        microphone=CadMicrophoneCapture(serial='sn-0001'),
     )
     reference2 = build_dataset_level_reference(
         measurement_id=record2.measurement_id,
@@ -377,15 +378,13 @@ def test_instrument_scoped_calibration_matching_microphone_allows(tmp_path: Path
     context = _context(
         quality_repository,
         record.measurement_id,
-        microphone=CadMicrophoneCapture(
-            manufacturer='minidsp', model='umik-1', serial='sn-0001'
-        ),
+        microphone=CadMicrophoneCapture(serial='sn-0001'),
         input_path_identity='input-umik-1',
     )
     calibration = _persist_calibration(
         quality_repository,
         validity_scope='instrument',
-        instrument_identity='minidsp umik-1 sn-0001',
+        instrument_identity='sn-0001',
         input_path_identity='input-umik-1',
     )
     reference = _persist_reference(
