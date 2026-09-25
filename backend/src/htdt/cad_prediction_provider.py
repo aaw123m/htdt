@@ -1262,3 +1262,32 @@ class CadPredictionProviderRepository:
         for observable in binding.required_observables:
             provider.require_observable(observable)
         return binding
+
+    def list_bindings(
+        self,
+        provider_id: str | None = None,
+    ) -> tuple[PredictionProviderBinding, ...]:
+        """Persisted bindings without the strict reopen checks.
+
+        Unlike ``get_binding`` (which raises on a stale provider or an
+        observable that is no longer READY), this listing is for read
+        models (#727) that must surface degraded coverage instead of
+        failing closed.
+        """
+
+        with closing(self._connect()) as connection, connection:
+            if provider_id is None:
+                rows = connection.execute(
+                    'SELECT payload_json FROM cad_prediction_provider_bindings '
+                    'ORDER BY seq ASC'
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    'SELECT payload_json FROM cad_prediction_provider_bindings '
+                    'WHERE provider_id=? ORDER BY seq ASC',
+                    (provider_id,),
+                ).fetchall()
+        return tuple(
+            PredictionProviderBinding.model_validate_json(row['payload_json'])
+            for row in rows
+        )
