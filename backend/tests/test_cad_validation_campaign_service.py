@@ -251,6 +251,11 @@ def _fixture(tmp_path):
                 provenance_json=json.dumps({
                     'validation_scope': 'owned_room',
                     'validation_campaign_id': campaign.campaign_id,
+                    # #848: 'verified' routing requires the exact profile pin.
+                    'routing_profile': {
+                        'routing_profile_id': f'profile:{candidate_id}',
+                        'routing_profile_sha256': 'ab' * 32,
+                    },
                 }, separators=(',', ':')),
             )
             measurements.datasets[measurement_id] = CadFrequencyResponseDataset(
