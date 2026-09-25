@@ -36,7 +36,10 @@ from .cad_equipment_evidence import (
     replay_equipment_evidence_extraction,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant import (
     EquipmentBindingRef,
     SystemVariant,
@@ -101,46 +104,7 @@ class CadEquipmentRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_equipment_definitions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    definition_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(definition_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_equipment_definition_seq
-                    ON cad_equipment_definitions(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_assets (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_equipment_evidence_authorities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evidence_id TEXT NOT NULL UNIQUE,
-                    evidence_sha256 TEXT NOT NULL UNIQUE,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    provenance_sha256 TEXT NOT NULL,
-                    source_sha256 TEXT NOT NULL,
-                    authority_kind TEXT NOT NULL,
-                    subject_sha256 TEXT NOT NULL,
-                    field_groups_json TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(equipment_definition_sha256, provenance_sha256)
-                );
-                CREATE INDEX IF NOT EXISTS idx_equipment_evidence_definition_seq
-                    ON cad_equipment_evidence_authorities(
-                        equipment_definition_sha256, seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_equipment_definitions', 'cad_measurement_assets', 'cad_equipment_evidence_authorities')
 
     # ------------------------------------------------------------------
     # Managed source assets (shared measurement-assets contract, #357)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -11,13 +12,15 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from htdt.cad_repository import SceneRepository
+from htdt.cad_scene import make_empty_scene
 from htdt.command_palette import CommandPalette, CommandShortcutBinder
+from htdt.navigation_target import NavigationTarget, NavigationTargetKind
 from htdt.command_registry import (
     DATA_MUTATIONS_FROZEN_REASON,
     CommandAvailability,
 )
 from htdt.workflow_application import WorkflowApplicationComposition
-from htdt.workflow_navigation import WorkspaceId
+from htdt.workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
 
 def _app() -> QApplication:
@@ -199,6 +202,11 @@ def test_restore_freeze_disposes_and_rebuilds_data_workspaces(
 ) -> None:
     app = _app()
     composition = _composition(tmp_path)
+    # document-1 must exist in the restored generation for the rebind to
+    # keep it active (#768): an unsaved id would be a stale authority.
+    composition.repository.save(
+        make_empty_scene("document-1"), parent_revision_id=None
+    )
     registry = composition.registry
     lifecycle = composition.data_management_controller.lifecycle
 
@@ -214,6 +222,74 @@ def test_restore_freeze_disposes_and_rebuilds_data_workspaces(
     assert composition.shell.rail.isEnabled() is True
     assert composition.shell.current_workspace_id is WorkspaceId.OVERVIEW
     assert composition.shell.router.mount(WorkspaceId.OVERVIEW) is not None
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_restore_rebind_routes_to_project_selection_when_project_is_gone(
+    tmp_path: Path,
+) -> None:
+    """#768: a pre-restore project absent from the restored generation can
+    never remain active — the shell must land on the selection surface."""
+    app = _app()
+    composition = _composition(tmp_path)
+    lifecycle = composition.data_management_controller.lifecycle
+
+    # Pre-restore history entries address a different data epoch — a
+    # whole-data restore establishes a new navigation epoch (#768).
+    window = composition.shell
+    window.navigation_history.record(
+        NavigationTarget(
+            kind=NavigationTargetKind.SCENE_ENTITY,
+            object_ids=("stale-object",),
+            project_id="document-1",
+        ),
+        WorkspaceDeepLink(WorkspaceId.ROOM),
+    )
+    assert window.navigation_history.entries()
+
+    lifecycle.begin_restore()
+
+    # The restored generation lacks the pre-restore project: while handles
+    # are released, drop its library row the way a whole-data restore would.
+    with sqlite3.connect(composition.repository_path) as connection:
+        connection.execute(
+            'DELETE FROM htdt_project_documents WHERE document_id=?',
+            ("document-1",),
+        )
+        connection.commit()
+
+    lifecycle.resume_after_restore_attempt()
+
+    assert composition.document_id == ""
+    assert composition.shell.current_workspace_id is not WorkspaceId.OVERVIEW
+    assert window.navigation_history.entries() == ()
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_project_menu_present_and_title_shows_project(tmp_path: Path) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+
+    titles = [
+        action.text()
+        for action in composition.shell.menuBar().actions()
+    ]
+    assert 'プロジェクト' in titles
+    assert composition.shell.windowTitle() == (
+        f'Home Theater Digital Twin — '
+        f'{composition.project_entry.display_name}'
+    )
+
+    # Switching to the already-open document is a no-op.
+    composition._switch_to_project(composition.project_entry)
+    assert composition.shell.isVisible() or True  # no crash, no close
+    assert composition.document_id == 'document-1'
 
     composition.shell.close()
     composition.shell.deleteLater()

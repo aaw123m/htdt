@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget
 from hashlib import sha256
 
 from htdt.cad_document import WorkingDocument
+from htdt.cad_measurement_authorities import build_routing_profile
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
     CadMeasurementQualityEvidence,
@@ -56,10 +57,30 @@ def _app() -> QApplication:
 def test_stage_assignment_and_commit_use_existing_measurement_authorities(tmp_path: Path) -> None:
     scene_repository, revision = _saved_f1(tmp_path)
     measurement_repository = CadMeasurementRepository(scene_repository)
+    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+    # #858: a 'verified' routing claim requires a resolvable profile scoped
+    # to this document with a verified entry for the assigned role.
+    profile = build_routing_profile(
+        document_id=revision.document_id,
+        entries=(
+            {
+                'output_device_label': 'EXCL: DENON-AVR (WASAPI)',
+                'rew_channel_label': 'C:FL',
+                'hardware_channel_index': 0,
+                'logical_role': 'front_left',
+                'expected_speaker_ids': ('speaker-fl',),
+                'observed_speaker_ids': ('speaker-fl',),
+                'verification': 'verified',
+                'verified_at_utc': '2026-09-20T00:00:00+00:00',
+            },
+        ),
+    )
+    quality_repository.save_routing_profile(profile)
     controller = MeasurementWorkflowController(
         scene_repository,
         revision.document_id,
         measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
     )
 
     raw = b"Frequency SPL\n20 70.0\n40 71.5\n80 69.0\n"
@@ -79,6 +100,7 @@ def test_stage_assignment_and_commit_use_existing_measurement_authorities(tmp_pa
             source_speaker_ids=("speaker-fl",),
             radiation_scope="single",
             routing_evidence="verified",
+            routing_profile_id=profile.routing_profile_id,
         )
     )
 

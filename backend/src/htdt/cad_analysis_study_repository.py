@@ -107,8 +107,10 @@ class CadAnalysisStudyRepository:
     """Native storage for AnalysisStudy records.
 
     Studies are immutable: the only "update" path is duplicating a study into
-    a new record (``duplicated_from_study_id`` / ``supersedes_study_id`` keep
-    the iteration chain auditable).
+    a new record. ``duplicated_from_study_id`` / ``supersedes_study_id`` are
+    explicit lineage metadata — the repository treats every persisted study
+    as an independent artifact, does not derive a single current head, and
+    allows parallel branches in the chain.
     """
 
     def __init__(

@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .capture_ingestion_transaction import (
     CaptureCoordinateAuthority,
     CaptureIngestionRepository,
@@ -1105,24 +1106,40 @@ class CaptureSemanticPromotionRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(_CAPTURE_MESH_COMPOSITIONS_DDL)
-            self._migrate_promotion_run_scope(connection)
-            connection.execute(_CAPTURE_SEMANTIC_PROMOTIONS_DDL)
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS idx_capture_semantic_promotion_ingestion
-                ON capture_semantic_promotions(
-                    ingestion_run_id,
-                    raw_mesh_binding_id
-                )
-                '''
+            require_native_tables(
+                connection,
+                'capture_mesh_compositions',
+                'capture_semantic_promotions',
             )
-            connection.execute(
-                '''
-                CREATE INDEX IF NOT EXISTS idx_capture_mesh_composition_run
-                ON capture_mesh_compositions(ingestion_run_id)
-                '''
+
+    def _converge_schema(self, connection: sqlite3.Connection) -> None:
+        """Legacy-shape tail of the schema-authority migration (#302).
+
+        Plain ``CREATE TABLE`` lives in ``cad_schema_ddl`` and runs inside
+        the versioned migration; this sequence converges databases whose
+        persisted shapes predate the canonical contract (the promotion
+        run-scope rebind parses persisted payloads) and installs the
+        semantic-promotion tables so every supported open path converges
+        the same way.
+        """
+        connection.execute(_CAPTURE_MESH_COMPOSITIONS_DDL)
+        self._migrate_promotion_run_scope(connection)
+        connection.execute(_CAPTURE_SEMANTIC_PROMOTIONS_DDL)
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_capture_semantic_promotion_ingestion
+            ON capture_semantic_promotions(
+                ingestion_run_id,
+                raw_mesh_binding_id
             )
+            '''
+        )
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_capture_mesh_composition_run
+            ON capture_mesh_compositions(ingestion_run_id)
+            '''
+        )
 
     @staticmethod
     def _migrate_promotion_run_scope(connection: sqlite3.Connection) -> None:
@@ -2115,6 +2132,41 @@ class CaptureSemanticPromotionRepository:
     def _promotion_from_row(
         row: sqlite3.Row,
     ) -> CaptureSemanticPromotionRecord:
+        # Row/payload invariant (#313): the persisted request is canonical;
+        # duplicated id columns must agree with the request keys they carry.
+        try:
+            request = json.loads(row['request_json'])
+        except (TypeError, ValueError) as exc:
+            raise CapturePromotionReplayError(
+                'persisted promotion request_json is not valid JSON',
+                promotion_id=str(row['promotion_id']),
+                diagnostic='persisted_request_invalid',
+            ) from exc
+        if isinstance(request, dict):
+            # Legacy requests predate run-scoped identity; their rebound
+            # promotion_id legitimately differs from the row identity, so
+            # binding checks apply only to requests written in the current
+            # scope shape (same gate as _request_from_row).
+            authority = request.get('world_to_scene_authority')
+            legacy_scope = 'ingestion_run_id' not in request or (
+                isinstance(authority, dict)
+                and 'coordinate_authority_id' not in authority
+            )
+            if not legacy_scope:
+                for column in (
+                    'promotion_id',
+                    'ingestion_run_id',
+                    'raw_mesh_binding_id',
+                    'mesh_composition_id',
+                    'source_scene_revision_id',
+                ):
+                    if row[column] != request.get(column):
+                        raise CapturePromotionReplayError(
+                            'persisted promotion row disagrees with its '
+                            f'request: {column}',
+                            promotion_id=str(row['promotion_id']),
+                            diagnostic='persisted_row_payload_mismatch',
+                        )
         return CaptureSemanticPromotionRecord(
             promotion_id=str(row['promotion_id']),
             ingestion_run_id=str(row['ingestion_run_id']),
@@ -2495,3 +2547,20 @@ class CaptureSemanticPromotionRepository:
             self.verify_persisted_promotion(promotion_id)
             for promotion_id in ids
         )
+
+
+def run_semantic_promotion_schema_convergence(
+    connection: sqlite3.Connection,
+) -> None:
+    """Legacy-shape tail of the schema-authority migration (#302).
+
+    ``ensure_native_schema`` invokes this while converging databases whose
+    semantic promotions predate the run-scope contract; it runs the same
+    sequence ``CaptureSemanticPromotionRepository._initialize`` applies,
+    without constructing a repository instance.
+    """
+
+    repository = CaptureSemanticPromotionRepository.__new__(
+        CaptureSemanticPromotionRepository
+    )
+    repository._converge_schema(connection)

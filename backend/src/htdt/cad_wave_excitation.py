@@ -21,7 +21,10 @@ from .cad_equipment_repository import CadEquipmentRepository
 from .cad_r110_source import R110CompiledSourceModel
 from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
@@ -958,71 +961,7 @@ class CadWaveExcitationRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_wave_excitations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    excitation_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_wave_excitation_equipment_seq
-                    ON cad_acoustic_wave_excitations(
-                        equipment_definition_sha256,
-                        seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_wave_source_excitation_bindings (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    binding_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    r110_compiled_source_sha256 TEXT NOT NULL,
-                    excitation_id TEXT NOT NULL,
-                    excitation_semantic_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(excitation_id)
-                        REFERENCES cad_acoustic_wave_excitations(excitation_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_wave_source_binding_r110_seq
-                    ON cad_wave_source_excitation_bindings(
-                        r110_compiled_source_sha256,
-                        seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_assets (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_wave_excitation_source_assets (
-                    source_asset_sha256 TEXT PRIMARY KEY
-                        REFERENCES cad_measurement_assets(sha256),
-                    filename TEXT,
-                    media_type TEXT,
-                    declared_schema TEXT,
-                    recorded_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_wave_excitation_evidence_authorities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evidence_id TEXT NOT NULL UNIQUE,
-                    evidence_sha256 TEXT NOT NULL UNIQUE,
-                    evidence_kind TEXT NOT NULL,
-                    source_sha256 TEXT NOT NULL,
-                    subject_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_wave_excitation_evidence_source
-                    ON cad_wave_excitation_evidence_authorities(
-                        evidence_kind, source_sha256, seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_acoustic_wave_excitations', 'cad_wave_source_excitation_bindings', 'cad_measurement_assets', 'cad_wave_excitation_source_assets', 'cad_wave_excitation_evidence_authorities')
 
     def _verified_asset_file(
         self,

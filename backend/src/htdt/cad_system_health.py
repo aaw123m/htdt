@@ -402,7 +402,50 @@ def _context_matches(
     return False
 
 
-def _numeric_repr_value(repr_text: str | None) -> float | None:
+MetricUnit = Literal['db', 'hz', 'm', 'unitless']
+
+# Typed metric keys carry their unit; a metric may never consume a
+# tolerance declared for another unit (#745).
+_METRIC_VALUE_KEYS: tuple[tuple[str, MetricUnit], ...] = (
+    ('value_db', 'db'),
+    ('level_db', 'db'),
+    ('value_hz', 'hz'),
+    ('frequency_hz', 'hz'),
+    ('value_m', 'm'),
+    ('position_m', 'm'),
+)
+
+_TOLERANCE_KEYS: tuple[tuple[str, MetricUnit], ...] = (
+    ('tolerance_db', 'db'),
+    ('tolerance_hz', 'hz'),
+    ('tolerance_m', 'm'),
+)
+
+_POLICY_TOLERANCE_FIELD: dict[MetricUnit, str] = {
+    'db': 'level_tolerance_db',
+    'hz': 'frequency_tolerance_hz',
+    'm': 'position_tolerance_m',
+}
+
+
+def _finite_number(value: Any) -> float | None:
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(float(value))
+    ):
+        return float(value)
+    return None
+
+
+def _typed_repr_value(repr_text: str | None) -> tuple[MetricUnit, float] | None:
+    """Parse one metric repr into ``(unit, value)``.
+
+    The unit comes from the explicit typed key — never from whichever
+    numeric happens to parse first (#745). Bare ``value``/scalars are
+    ``unitless`` and carry no comparison semantics.
+    """
+
     if repr_text is None:
         return None
     try:
@@ -410,14 +453,79 @@ def _numeric_repr_value(repr_text: str | None) -> float | None:
     except ValueError:
         return None
     if isinstance(parsed, dict):
-        for key in ('value_db', 'value', 'level_db', 'value_hz'):
-            candidate = parsed.get(key)
-            if isinstance(candidate, (int, float)) and isfinite(float(candidate)):
-                return float(candidate)
+        for key, unit in _METRIC_VALUE_KEYS:
+            candidate = _finite_number(parsed.get(key))
+            if candidate is not None:
+                return unit, candidate
+        candidate = _finite_number(parsed.get('value'))
+        if candidate is not None:
+            return 'unitless', candidate
         return None
-    if isinstance(parsed, (int, float)) and isfinite(float(parsed)):
-        return float(parsed)
-    return None
+    candidate = _finite_number(parsed)
+    return ('unitless', candidate) if candidate is not None else None
+
+
+def _pin_tolerance(
+    pin: HealthMetricPin,
+    policy: ChangeDetectionPolicy,
+    metric_unit: MetricUnit,
+) -> float | None:
+    """Tolerance for one pin/metric comparison.
+
+    A pin-specific ``tolerance_repr`` overrides the baseline policy when
+    its declared unit matches the metric's unit (a bare ``tolerance`` key
+    inherits the pin's own unit); the policy supplies the per-unit default
+    otherwise. A tolerance declared for a different unit is incompatible
+    and is never applied (#745).
+    """
+
+    if pin.tolerance_repr is not None:
+        try:
+            parsed = json.loads(pin.tolerance_repr)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            for key, unit in _TOLERANCE_KEYS:
+                candidate = _finite_number(parsed.get(key))
+                if (
+                    candidate is not None
+                    and candidate > 0
+                    and unit == metric_unit
+                ):
+                    return candidate
+            candidate = _finite_number(parsed.get('tolerance'))
+            if candidate is not None and candidate > 0:
+                return candidate
+    field = _POLICY_TOLERANCE_FIELD.get(metric_unit)
+    if field is None:
+        return None
+    return getattr(policy, field)
+
+
+def _observation_repr_map(
+    observed_repr: str | None,
+    related: Sequence[HealthMetricPin],
+) -> dict[str, Any] | None:
+    """Explicit observation→pin mapping for multi-pin checks (#745).
+
+    When ``observed_repr`` is a JSON object keyed by ``pin_id`` or
+    ``metric_key``, each entry is that pin's own observed repr; otherwise
+    a scalar repr maps only to a single-pin check — one arbitrary number
+    is never compared against unrelated pins.
+    """
+
+    if observed_repr is None:
+        return None
+    try:
+        parsed = json.loads(observed_repr)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    keys = {pin.pin_id for pin in related} | {pin.metric_key for pin in related}
+    if not keys.intersection(parsed):
+        return None
+    return parsed
 
 
 def assess_health_observation(
@@ -456,31 +564,91 @@ def assess_health_observation(
             state='indeterminate',
             reason='check has no pinned baseline metric to compare against',
         )
-    observed = _numeric_repr_value(observation.observed_repr)
+    observed_map = _observation_repr_map(observation.observed_repr, related)
     deltas: list[dict[str, Any]] = []
     saw_comparable = False
     saw_changed = False
+    saw_indeterminate = False
     for pin in related:
-        expected = _numeric_repr_value(pin.expected_repr)
-        if expected is None or observed is None:
+        if observed_map is not None:
+            raw = observed_map.get(pin.pin_id, observed_map.get(pin.metric_key))
+            if raw is None:
+                observed_typed = None
+            else:
+                observed_typed = _typed_repr_value(
+                    raw if isinstance(raw, str) else _canonical_json(raw)
+                )
+        elif len(related) == 1:
+            observed_typed = _typed_repr_value(observation.observed_repr)
+        else:
+            # Multi-pin check with a scalar observation: no explicit
+            # pin mapping means this pin has no observation (#745).
+            observed_typed = None
+        expected_typed = _typed_repr_value(pin.expected_repr)
+        if observed_typed is None or expected_typed is None:
             if (
-                observation.observed_repr is not None
+                observed_map is None
+                and len(related) == 1
+                and observation.observed_repr is not None
                 and observation.observed_repr == pin.expected_repr
             ):
                 saw_comparable = True
-                deltas.append({'pin_id': pin.pin_id, 'delta': 0.0})
+                deltas.append(
+                    {'pin_id': pin.pin_id, 'delta': 0.0, 'unit': None}
+                )
+                continue
+            saw_indeterminate = True
+            deltas.append(
+                {
+                    'pin_id': pin.pin_id,
+                    'delta': None,
+                    'reason': 'no comparable observation for this pin',
+                }
+            )
+            continue
+        observed_unit, observed = observed_typed
+        expected_unit, expected = expected_typed
+        if observed_unit != expected_unit:
+            saw_indeterminate = True
+            deltas.append(
+                {
+                    'pin_id': pin.pin_id,
+                    'delta': None,
+                    'reason': (
+                        'metric unit mismatch: observed '
+                        f'{observed_unit} vs pinned {expected_unit}'
+                    ),
+                }
+            )
+            continue
+        delta = observed - expected
+        tolerance = _pin_tolerance(pin, baseline.policy, expected_unit)
+        if tolerance is None:
+            saw_indeterminate = True
+            deltas.append(
+                {
+                    'pin_id': pin.pin_id,
+                    'delta': delta,
+                    'unit': expected_unit,
+                    'reason': 'no compatible tolerance for this metric unit',
+                }
+            )
             continue
         saw_comparable = True
-        tolerance = baseline.policy.level_tolerance_db
-        delta = observed - expected
-        deltas.append({'pin_id': pin.pin_id, 'delta': delta})
-        if tolerance is not None and abs(delta) > tolerance:
+        deltas.append(
+            {'pin_id': pin.pin_id, 'delta': delta, 'unit': expected_unit}
+        )
+        if abs(delta) > tolerance:
             saw_changed = True
     if not saw_comparable:
         return HealthCheckAssessment(
             check_id=check.check_id,
             state='indeterminate',
-            reason='observation is not numerically comparable to the baseline pin',
+            observed_delta_repr=_canonical_json(deltas) if deltas else None,
+            reason=(
+                'observation is not numerically comparable to the baseline'
+                ' pin with supported comparison semantics'
+            ),
         )
     delta_repr = _canonical_json(deltas)
     if saw_changed:
@@ -499,6 +667,16 @@ def assess_health_observation(
             state='changed',
             observed_delta_repr=delta_repr,
             reason='observed delta exceeds the baseline tolerance policy',
+        )
+    if saw_indeterminate:
+        return HealthCheckAssessment(
+            check_id=check.check_id,
+            state='indeterminate',
+            observed_delta_repr=delta_repr,
+            reason=(
+                'some pinned metrics could not be compared with supported'
+                ' semantics'
+            ),
         )
     return HealthCheckAssessment(
         check_id=check.check_id,

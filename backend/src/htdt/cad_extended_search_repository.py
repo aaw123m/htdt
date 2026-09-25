@@ -16,6 +16,7 @@ from .cad_extended_search import (
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_search import generate_cad_candidates
 from .cad_search_repository import CadSearchRepository
+from .cad_schema import require_native_tables
 
 if TYPE_CHECKING:
     # CadRobustnessRepository already depends on this module, so the
@@ -64,55 +65,7 @@ class CadExtendedSearchRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_extended_model_capabilities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    capability_id TEXT NOT NULL UNIQUE,
-                    model_id TEXT NOT NULL,
-                    model_version TEXT NOT NULL,
-                    evidence_scope TEXT NOT NULL,
-                    capability_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_extended_capability_model_seq
-                    ON cad_extended_model_capabilities(model_id, model_version, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_extended_parameter_evidence (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evidence_id TEXT NOT NULL UNIQUE,
-                    parameter TEXT NOT NULL,
-                    model_id TEXT NOT NULL,
-                    model_version TEXT NOT NULL,
-                    evidence_scope TEXT NOT NULL,
-                    evidence_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_extended_parameter_evidence_model_seq
-                    ON cad_extended_parameter_evidence(
-                        model_id, model_version, parameter, seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_extended_search_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    extended_search_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    base_search_spec_id TEXT NOT NULL,
-                    capability_id TEXT NOT NULL,
-                    extended_search_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(base_search_spec_id)
-                        REFERENCES cad_search_specs(search_spec_id),
-                    FOREIGN KEY(capability_id)
-                        REFERENCES cad_extended_model_capabilities(capability_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_extended_search_base_seq
-                    ON cad_extended_search_specs(base_search_spec_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_extended_model_capabilities', 'cad_extended_parameter_evidence', 'cad_extended_search_specs')
 
     def _resolve_evidence_source(
         self,

@@ -66,6 +66,52 @@ class PreferenceValueError(PreferenceError):
     pass
 
 
+class IncompatiblePreferencesError(PreferenceError):
+    pass
+
+
+class PreferenceNotificationError(PreferenceError):
+    """One or more change listeners raised *after* a durable commit.
+
+    The preference document itself is already persisted and published;
+    this error is post-commit only and never implies partial durable
+    state (#742).
+    """
+
+    def __init__(self, errors: Iterable[BaseException]) -> None:
+        self.errors = tuple(errors)
+        super().__init__(
+            f'{len(self.errors)} preference listener(s) failed after commit'
+        )
+
+
+class PreferenceLoadState(StrEnum):
+    """Typed compatibility state of the on-disk preferences file.
+
+    Startup fallback (safe defaults) is separate from durable-write
+    authority: a file this build could not fully consume must never be
+    overwritten by a routine ``set()``, only by an explicit reset that first
+    preserves the previous file.
+    """
+
+    OK = 'ok'
+    MISSING = 'missing'
+    PARTIAL_INVALID_VALUE = 'partial_invalid_value'
+    CORRUPT = 'corrupt'
+    INCOMPATIBLE_NEWER_SCHEMA = 'incompatible_newer_schema'
+
+
+#: Load states in which a normal durable write is refused — the file on disk
+#: was not fully consumed, so overwriting it would destroy data this build
+#: does not understand. ``reset_persisted_file()`` is the only sanctioned
+#: recovery path and preserves the old file under a bounded name first.
+_WRITE_REFUSED_STATES = frozenset(
+    {PreferenceLoadState.CORRUPT, PreferenceLoadState.INCOMPATIBLE_NEWER_SCHEMA}
+)
+
+PREFERENCES_RECOVERY_SUFFIX = '.recovery'
+
+
 @dataclass(frozen=True, slots=True)
 class PreferenceDefinition:
     """Stable declaration of one application preference key.
@@ -349,7 +395,9 @@ class ApplicationPreferenceStore:
         self.path = Path(path)
         self._definitions = dict(definitions or PREFERENCE_DEFINITIONS)
         self._values: dict[str, object] = {}
+        self._opaque_values: dict[str, object] = {}
         self._load_error: str | None = None
+        self._load_state = PreferenceLoadState.MISSING
         self._listeners: list[Callable[[PreferenceChange], None]] = []
         self._load()
 
@@ -361,41 +409,82 @@ class ApplicationPreferenceStore:
 
     def _load(self) -> None:
         self._values = {}
+        self._opaque_values = {}
         self._load_error = None
         if not self.path.exists():
+            self._load_state = PreferenceLoadState.MISSING
             return
         try:
             payload = json.loads(self.path.read_text(encoding='utf-8'))
         except (OSError, ValueError) as exc:
+            self._load_state = PreferenceLoadState.CORRUPT
             self._load_error = f'unreadable preferences file: {exc}'
             return
         if not isinstance(payload, dict) or not isinstance(
             payload.get('values'), dict
         ):
+            self._load_state = PreferenceLoadState.CORRUPT
             self._load_error = 'preferences file is not an HTDT preferences payload'
             return
         version = payload.get('schema_version')
         if version != PREFERENCES_SCHEMA_VERSION:
-            self._load_error = f'unsupported preferences schema_version: {version!r}'
+            if isinstance(version, int) and not isinstance(version, bool) and (
+                version > PREFERENCES_SCHEMA_VERSION
+            ):
+                # A newer build wrote this file; an older build must not
+                # modify an on-disk format it does not understand.
+                self._load_state = PreferenceLoadState.INCOMPATIBLE_NEWER_SCHEMA
+                self._load_error = (
+                    'preferences file was written by a newer build '
+                    f'(schema_version {version}); running defaults'
+                )
+            else:
+                self._load_state = PreferenceLoadState.CORRUPT
+                self._load_error = (
+                    f'unsupported preferences schema_version: {version!r}'
+                )
             return
         values: dict[str, object] = {}
+        opaque: dict[str, object] = {}
+        invalid_keys: list[str] = []
         for key, value in payload['values'].items():
             definition = self._definitions.get(key)
             if definition is None:
-                # Unknown persisted keys are dropped, not trusted — a stale or
-                # foreign value must not silently become live configuration.
+                # Unknown persisted keys are never applied, but they are kept
+                # verbatim so a later durable write round-trips a future
+                # build's settings instead of silently destroying them.
+                opaque[key] = value
                 continue
             try:
                 values[key] = definition.validate(value)
             except PreferenceValueError:
-                self._load_error = f'invalid stored value for {key!r}; reset to default'
+                invalid_keys.append(key)
         self._values = values
+        self._opaque_values = opaque
+        self._load_state = (
+            PreferenceLoadState.PARTIAL_INVALID_VALUE if invalid_keys
+            else PreferenceLoadState.OK
+        )
+        if invalid_keys:
+            self._load_error = (
+                f'invalid stored value(s) for {sorted(invalid_keys)!r}; '
+                'reset to default'
+            )
+
+    def _check_writable(self) -> None:
+        if self._load_state in _WRITE_REFUSED_STATES:
+            raise IncompatiblePreferencesError(
+                f'refusing to overwrite preferences file in '
+                f'{self._load_state.value} state; use reset_persisted_file() '
+                'to preserve the old file and write this build\'s schema'
+            )
 
     def _persist(self) -> None:
+        self._check_writable()
         payload = {
             'schema_version': PREFERENCES_SCHEMA_VERSION,
             'authority': 'htdt-application-preferences',
-            'values': self._values,
+            'values': {**self._opaque_values, **self._values},
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(
@@ -419,6 +508,16 @@ class ApplicationPreferenceStore:
     @property
     def load_error(self) -> str | None:
         return self._load_error
+
+    @property
+    def load_state(self) -> PreferenceLoadState:
+        """Typed compatibility state for Settings/Diagnostics presentation."""
+        return self._load_state
+
+    @property
+    def write_allowed(self) -> bool:
+        """Whether normal set/reset/update writes may touch the file."""
+        return self._load_state not in _WRITE_REFUSED_STATES
 
     def definition(self, key: str) -> PreferenceDefinition:
         definition = self._definitions.get(key)
@@ -458,6 +557,47 @@ class ApplicationPreferenceStore:
     def subscribe(self, listener: Callable[[PreferenceChange], None]) -> None:
         self._listeners.append(listener)
 
+    def _commit(
+        self, resolved: Mapping[str, object]
+    ) -> tuple[PreferenceChange, ...]:
+        """Atomically commit one batch of already-validated values.
+
+        The complete candidate document is written once through the
+        tmp + fsync + ``os.replace`` path; live ``_values`` are published
+        only after the durable replacement succeeds, and listeners fire
+        only after that (#742). A failed commit leaves memory and disk at
+        the prior state and emits no notifications.
+        """
+
+        candidate = dict(self._values)
+        changes: list[PreferenceChange] = []
+        for key, validated in resolved.items():
+            definition = self.definition(key)
+            old = self._values.get(key, definition.default)
+            if validated == definition.default:
+                candidate.pop(key, None)
+                new = definition.default
+            else:
+                candidate[key] = validated
+                new = validated
+            if new != old:
+                changes.append(PreferenceChange(key=key, old=old, new=new))
+        if candidate != self._values:
+            self._persist_values(candidate)
+            self._values = candidate
+        errors: list[BaseException] = []
+        for change in changes:
+            for listener in tuple(self._listeners):
+                try:
+                    listener(change)
+                except Exception as exc:
+                    # The commit is already durable — a broken observer
+                    # cannot create a partial preference document.
+                    errors.append(exc)
+        if errors:
+            raise PreferenceNotificationError(errors)
+        return tuple(changes)
+
     def set(self, key: str, value: object) -> PreferenceChange:
         """Validate and persist one preference.
 
@@ -465,47 +605,82 @@ class ApplicationPreferenceStore:
         which keeps features from inventing parallel persistence.
         """
 
+        self._check_writable()
         definition = self.definition(key)
         validated = definition.validate(value)
         old = self.get(key)
-        if validated == old and key in self._values:
-            return PreferenceChange(key=key, old=old, new=validated)
-        if validated == definition.default:
-            self._values.pop(key, None)
-        else:
-            self._values[key] = validated
-        self._persist()
-        change = PreferenceChange(key=key, old=old, new=validated)
-        for listener in tuple(self._listeners):
-            listener(change)
-        return change
+        changes = self._commit({key: validated})
+        if changes:
+            return changes[0]
+        return PreferenceChange(key=key, old=old, new=validated)
 
     def reset(self, key: str) -> PreferenceChange:
-        self.definition(key)
+        self._check_writable()
+        definition = self.definition(key)
         old = self.get(key)
-        self._values.pop(key, None)
-        self._persist()
-        change = PreferenceChange(key=key, old=old, new=self.get(key))
-        for listener in tuple(self._listeners):
-            listener(change)
-        return change
+        changes = self._commit({key: definition.default})
+        if changes:
+            return changes[0]
+        return PreferenceChange(key=key, old=old, new=old)
 
     def update(self, values: Mapping[str, object]) -> tuple[PreferenceChange, ...]:
-        # Validate everything first — a partially-applied batch is a bug.
-        validated = {k: self.definition(k).validate(v) for k, v in values.items()}
-        return tuple(self.set(key, value) for key, value in validated.items())
+        """Apply a batch as one durable preference transaction.
+
+        Every key validates before anything mutates; one candidate
+        document is persisted atomically; listeners fire only after the
+        commit. A partially-applied batch is impossible (#742).
+        """
+
+        self._check_writable()
+        resolved = {
+            k: self.definition(k).validate(v) for k, v in values.items()
+        }
+        return self._commit(resolved)
+
+    def _persist_values(self, values: dict[str, object]) -> None:
+        old_values = self._values
+        self._values = values
+        try:
+            self._persist()
+        except BaseException:
+            self._values = old_values
+            raise
+
+    def reset_persisted_file(self) -> Path | None:
+        """Explicit destructive reset: replace the file with fresh defaults.
+
+        The previous file — corrupt or written by a newer build — is first
+        preserved under a bounded ``<name>.recovery`` sibling name so the
+        destructive step never silently discards the old document. Returns
+        the recovery path, or ``None`` when no file existed.
+        """
+
+        recovery: Path | None = None
+        if self.path.exists():
+            recovery = self.path.with_name(self.path.name + PREFERENCES_RECOVERY_SUFFIX)
+            os.replace(self.path, recovery)
+        self._values = {}
+        self._opaque_values = {}
+        self._load_state = PreferenceLoadState.MISSING
+        self._load_error = None
+        self._persist()
+        return recovery
 
 
 __all__ = [
     'ApplicationPreferenceStore',
     'ApplicationPreferences',
+    'IncompatiblePreferencesError',
     'PREFERENCES_FILENAME',
+    'PREFERENCES_RECOVERY_SUFFIX',
     'PREFERENCES_SCHEMA_VERSION',
     'PREFERENCE_DEFINITIONS',
     'PreferenceCategory',
     'PreferenceChange',
     'PreferenceDefinition',
     'PreferenceError',
+    'PreferenceLoadState',
+    'PreferenceNotificationError',
     'PreferenceValueError',
     'PreferenceValueType',
     'UnknownPreferenceKey',

@@ -7,7 +7,10 @@ import sqlite3
 
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .r120_geometry_compiler import SurfaceBoundaryAuthorityBinding
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from .treatment_boundary_overlay import (
@@ -46,64 +49,7 @@ class TreatmentBoundaryOverlayRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_treatment_boundary_overlays (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    overlay_id TEXT NOT NULL UNIQUE,
-                    overlay_hash_sha256 TEXT NOT NULL UNIQUE,
-                    scene_revision_id TEXT NOT NULL,
-                    compiled_geometry_id TEXT NOT NULL,
-                    treatment_definition_id TEXT NOT NULL,
-                    treatment_definition_version TEXT NOT NULL,
-                    treatment_placement_instance_id TEXT NOT NULL,
-                    treatment_placement_version INTEGER NOT NULL,
-                    surface_binding_evaluation_hash_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(compiled_geometry_id)
-                        REFERENCES cad_r120_compiled_geometry(compiled_geometry_id),
-                    FOREIGN KEY(treatment_definition_id, treatment_definition_version)
-                        REFERENCES cad_acoustic_treatment_definitions(
-                            definition_id, definition_version
-                        ),
-                    FOREIGN KEY(
-                        treatment_placement_instance_id, treatment_placement_version
-                    )
-                        REFERENCES cad_acoustic_treatment_placements(
-                            instance_id, placement_version
-                        )
-                );
-                CREATE INDEX IF NOT EXISTS idx_treatment_overlay_scene
-                    ON cad_treatment_boundary_overlays(scene_revision_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_treatment_overlay_placement
-                    ON cad_treatment_boundary_overlays(
-                        treatment_placement_instance_id,
-                        treatment_placement_version,
-                        seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_treatment_boundary_compositions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    composition_id TEXT NOT NULL UNIQUE,
-                    composition_hash_sha256 TEXT NOT NULL UNIQUE,
-                    scene_revision_id TEXT NOT NULL,
-                    compiled_geometry_id TEXT NOT NULL,
-                    host_surface_id TEXT NOT NULL,
-                    target_domain TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(compiled_geometry_id)
-                        REFERENCES cad_r120_compiled_geometry(compiled_geometry_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_treatment_composition_scene
-                    ON cad_treatment_boundary_compositions(scene_revision_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_treatment_boundary_overlays', 'cad_treatment_boundary_compositions')
 
     def save_overlay(self, overlay: TreatmentBoundaryOverlay) -> TreatmentBoundaryOverlay:
         overlay = TreatmentBoundaryOverlay.model_validate(overlay.model_dump(mode='python'))

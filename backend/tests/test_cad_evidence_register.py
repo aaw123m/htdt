@@ -114,7 +114,10 @@ def test_supersede_requires_same_subject_and_document() -> None:
 
 
 def test_expired_decisions_drop_out() -> None:
-    stale = _decision(expires_at_utc='2026-01-01T00:00:00+00:00')
+    stale = _decision(
+        created_at_utc='2025-01-01T00:00:00+00:00',
+        expires_at_utc='2026-01-01T00:00:00+00:00',
+    )
     live = _decision()
     active = active_assumption_decisions(
         (stale, live), as_of_utc='2026-06-01T00:00:00+00:00'
@@ -405,6 +408,7 @@ def test_expired_assumption_stops_applying(tmp_path: Path) -> None:
     decision = _decision(
         **_floor_gap_subject(),
         attested='assumed',
+        created_at_utc='2025-01-01T00:00:00+00:00',
         expires_at_utc='2026-01-01T00:00:00+00:00',
     )
     decisions.save_decision(decision)

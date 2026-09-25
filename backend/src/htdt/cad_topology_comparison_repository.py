@@ -12,7 +12,10 @@ from .cad_coverage_repository import CadCoverageRepository
 from .cad_direct_level import direct_level_objective_vector
 from .cad_direct_level_repository import CadDirectLevelRepository
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_standards_repository import CadStandardsRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_topology_comparison import (
@@ -104,70 +107,7 @@ class CadTopologyComparisonRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_topology_comparison_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    comparison_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_topology_comparison_spec_document_seq
-                    ON cad_topology_comparison_specs(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_topology_comparison_bundles (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bundle_id TEXT NOT NULL UNIQUE,
-                    bundle_sha256 TEXT NOT NULL UNIQUE,
-                    comparison_id TEXT NOT NULL,
-                    variant_id TEXT NOT NULL,
-                    variant_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(comparison_id)
-                        REFERENCES cad_topology_comparison_specs(comparison_id),
-                    FOREIGN KEY(variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_topology_comparison_bundle_spec_seq
-                    ON cad_topology_comparison_bundles(comparison_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_topology_comparison_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    comparison_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(comparison_id)
-                        REFERENCES cad_topology_comparison_specs(comparison_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_topology_comparison_evaluation_spec_seq
-                    ON cad_topology_comparison_evaluations(comparison_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_topology_comparison_selections (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    selection_id TEXT NOT NULL UNIQUE,
-                    selection_sha256 TEXT NOT NULL UNIQUE,
-                    comparison_evaluation_id TEXT NOT NULL,
-                    selected_variant_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    selected_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(comparison_evaluation_id)
-                        REFERENCES cad_topology_comparison_evaluations(evaluation_id),
-                    FOREIGN KEY(selected_variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_topology_comparison_selection_eval_seq
-                    ON cad_topology_comparison_selections(
-                        comparison_evaluation_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_topology_comparison_specs', 'cad_topology_comparison_bundles', 'cad_topology_comparison_evaluations', 'cad_topology_comparison_selections')
 
     @staticmethod
     def _same_exact_ref(

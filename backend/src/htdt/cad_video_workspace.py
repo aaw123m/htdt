@@ -23,7 +23,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_scene import Position3, SceneDocument
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_video_geometry import (
     AngleRange,
     ProjectorSpecification,
@@ -190,16 +193,7 @@ class CadVideoWorkspaceRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_video_geometry_workspaces (
-                    document_id TEXT PRIMARY KEY,
-                    schema_version INTEGER NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                '''
-            )
+            require_native_tables(connection, 'cad_video_geometry_workspaces')
 
     def load(self, document_id: str) -> VideoGeometryWorkspace:
         if not document_id:

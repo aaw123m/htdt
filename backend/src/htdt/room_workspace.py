@@ -1094,19 +1094,21 @@ class RoomWorkspaceController:
 
     @property
     def authoring_constraints(self):
-        """The persisted authoring-constraint set (lazy, fail-soft read)."""
+        """The persisted authoring-constraint set (lazy read, fail-closed).
+
+        Corrupt authority raises — it is a retained integrity problem, never
+        reinterpreted as an empty set that a later edit would overwrite
+        (#843).
+        """
 
         if self._constraint_state is None:
             record = self.repository.authoring_constraints(self.document_id)
             if record is None:
                 self._constraint_state = AuthoringConstraintSet()
             else:
-                try:
-                    self._constraint_state = AuthoringConstraintSet.model_validate(
-                        record.payload
-                    )
-                except (TypeError, ValueError):
-                    self._constraint_state = AuthoringConstraintSet()
+                self._constraint_state = AuthoringConstraintSet.model_validate(
+                    record.payload
+                )
         return self._constraint_state
 
     def _save_authoring_constraints(self) -> None:
@@ -1115,18 +1117,49 @@ class RoomWorkspaceController:
         self.repository.save_authoring_constraints(
             self.document_id,
             self._constraint_state.model_dump(mode='json'),
+            scene_revision_id=self.working.source_revision_id,
+        )
+
+    def _apply_constraint_state(self, state) -> None:
+        """Swap the in-memory set and persist one versioned revision."""
+
+        self._constraint_state = state
+        self._save_authoring_constraints()
+        self._sync_recovery()
+
+    def update_authoring_constraints(
+        self,
+        new_state,
+        *,
+        presentation: CommandPresentation | None = None,
+    ) -> bool:
+        """Commit a constraint-set change as its own Undo step (#843).
+
+        The command carries no entity edit: Undo restores the previous
+        constraint set and nothing else.
+        """
+
+        before = self.authoring_constraints
+        if new_state == before:
+            return False
+        return self.working.apply_entity_set_edit(
+            apply_side=lambda: self._apply_constraint_state(new_state),
+            revert_side=lambda: self._apply_constraint_state(before),
+            presentation=presentation
+            or CommandPresentation(action='edit', detail='拘束'),
         )
 
     def add_authoring_constraint(self, constraint: AuthoringConstraint) -> None:
         constraints = list(self.authoring_constraints.constraints)
         constraints.append(constraint)
-        self._constraint_state = self.authoring_constraints.model_copy(
-            update={
-                'constraints': tuple(constraints),
-                'solve_version': self.authoring_constraints.solve_version + 1,
-            }
+        self.update_authoring_constraints(
+            self.authoring_constraints.model_copy(
+                update={
+                    'constraints': tuple(constraints),
+                    'solve_version': self.authoring_constraints.solve_version + 1,
+                }
+            )
         )
-        self._save_authoring_constraints()
 
     def remove_authoring_constraints_for(self, entity_ids: set[str]) -> int:
         """Remove constraints involving the given entities. Returns count."""
@@ -1139,13 +1172,14 @@ class RoomWorkspaceController:
         removed = len(self.authoring_constraints.constraints) - len(keep)
         if removed <= 0:
             return 0
-        self._constraint_state = self.authoring_constraints.model_copy(
-            update={
-                'constraints': keep,
-                'solve_version': self.authoring_constraints.solve_version + 1,
-            }
+        self.update_authoring_constraints(
+            self.authoring_constraints.model_copy(
+                update={
+                    'constraints': keep,
+                    'solve_version': self.authoring_constraints.solve_version + 1,
+                }
+            )
         )
-        self._save_authoring_constraints()
         return removed
 
     def pop_constraint_notes(self) -> tuple[str, ...]:
@@ -1209,23 +1243,24 @@ class RoomWorkspaceController:
             replaced_before.append(current)
             replaced_after.append(after)
             notes.append(f'拘束により「{current.name}」を調整しました')
-        if replaced_before:
+        if updates or changed_constraints:
+            new_state = state.model_copy(
+                update={
+                    'constraints': tuple(constraints),
+                    'solve_version': state.solve_version + 1,
+                }
+            )
+            # One Undo unit: entity propagation and the constraint-state
+            # mutation commit together (#843).
             self.working.apply_entity_set_edit(
                 replaced_before=tuple(replaced_before),
                 replaced_after=tuple(replaced_after),
                 presentation=CommandPresentation(
                     action='transform', detail='拘束による追従'
                 ),
+                apply_side=lambda: self._apply_constraint_state(new_state),
+                revert_side=lambda: self._apply_constraint_state(state),
             )
-        if updates or changed_constraints:
-            self._constraint_state = state.model_copy(
-                update={
-                    'constraints': tuple(constraints),
-                    'solve_version': state.solve_version + 1,
-                }
-            )
-            self._save_authoring_constraints()
-            self._sync_recovery()
         return tuple(notes)
 
     def mark_broken_constraints(self) -> tuple[str, ...]:
@@ -1253,13 +1288,14 @@ class RoomWorkspaceController:
                 broken_labels.append(constraint.label or constraint.constraint_id)
                 changed = True
         if changed:
-            self._constraint_state = state.model_copy(
-                update={
-                    'constraints': tuple(constraints),
-                    'solve_version': state.solve_version + 1,
-                }
+            self.update_authoring_constraints(
+                state.model_copy(
+                    update={
+                        'constraints': tuple(constraints),
+                        'solve_version': state.solve_version + 1,
+                    }
+                )
             )
-            self._save_authoring_constraints()
         return tuple(broken_labels)
 
     def guide_render_items(self) -> tuple[GuideRenderItem, ...]:
@@ -4334,10 +4370,11 @@ class RoomWorkspace(QWidget):
             for constraint in state.constraints
             if constraint.constraint_id != constraint_id
         )
-        self.controller._constraint_state = state.model_copy(
-            update={"constraints": keep, "solve_version": state.solve_version + 1}
+        self.controller.update_authoring_constraints(
+            state.model_copy(
+                update={"constraints": keep, "solve_version": state.solve_version + 1}
+            )
         )
-        self.controller._save_authoring_constraints()
         self._refresh_underlay_ui()
         self._set_status("拘束を解除しました")
 
@@ -4346,10 +4383,11 @@ class RoomWorkspace(QWidget):
         keep = tuple(c for c in state.constraints if not c.broken)
         removed = len(state.constraints) - len(keep)
         if removed:
-            self.controller._constraint_state = state.model_copy(
-                update={"constraints": keep, "solve_version": state.solve_version + 1}
+            self.controller.update_authoring_constraints(
+                state.model_copy(
+                    update={"constraints": keep, "solve_version": state.solve_version + 1}
+                )
             )
-            self.controller._save_authoring_constraints()
         self._refresh_underlay_ui()
         self._set_status(f"破損した拘束を{removed}件削除しました")
 

@@ -75,7 +75,7 @@ def _alt_ref(alternative, label: str) -> DecisionAuthorityRef:
         'comparison_alternative',
         alternative.alternative_id,
         label,
-        ref_sha256=alternative.scene_content_hash,
+        ref_sha256=alternative.alternative_sha256,
     )
 
 

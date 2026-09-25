@@ -13,6 +13,7 @@ from .cad_av_sync import (
     _hash,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 def _utc_now() -> str:
@@ -39,31 +40,7 @@ class CadAVSyncRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_av_sync_conditions (
-                    condition_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    condition_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_av_latency_measurements (
-                    measurement_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    condition_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    measurement_sha256 TEXT NOT NULL,
-                    captured_at_utc TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_av_sync_conditions', 'cad_av_latency_measurements')
 
     # ------------------------------------------------------------------
     # Conditions

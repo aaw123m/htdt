@@ -103,12 +103,25 @@ class _MeasurementEvidence:
     def get_measurement(self, measurement_id):
         if measurement_id != 'measurement-a':
             return None
+        # #848: a 'verified' record only satisfies strong routing when it
+        # pins the exact routing profile in its provenance.
+        provenance = (
+            {
+                'routing_profile': {
+                    'routing_profile_id': 'profile:candidate-a',
+                    'routing_profile_sha256': 'ef' * 32,
+                }
+            }
+            if self.routing_evidence == 'verified'
+            else {}
+        )
         return SimpleNamespace(
             measurement_id=measurement_id,
             evidence_type='measured',
             routing_evidence=self.routing_evidence,
             document_id=self.document_id,
             scene_revision_id='applied:candidate-a',
+            provenance_json=json.dumps(provenance),
         )
 
     def dataset_for_measurement(self, measurement_id):
