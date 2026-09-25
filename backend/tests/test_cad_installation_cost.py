@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -15,6 +16,8 @@ from htdt.cad_installation_cost import (
     BudgetConstraint,
     CostRecord,
     FixedLineItem,
+    VariantCostEvaluation,
+    _digest as _cost_digest,
     build_cost_record,
     build_cost_scenario,
     evaluate_variant_installation_cost,
@@ -422,3 +425,107 @@ def test_cost_repository_round_trip_and_tamper_rejection(tmp_path: Path) -> None
     tampered['amount'] = float(tampered['amount']) + 1.0
     with pytest.raises(ValueError, match='semantic hash mismatch'):
         CostRecord.model_validate(tampered)
+
+
+def test_cost_repository_replays_canonical_inputs(tmp_path: Path) -> None:
+    """#994: save and read must replay the canonical evaluator (#514)."""
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    repository = CadInstallationCostRepository(scene_repository)
+    existing = _equipment('owned-speaker', 'b' * 64)
+    added = _equipment('new-speaker', 'c' * 64)
+    _persist_pair(equipment_repository, existing, added)
+    variant = _variant(variant_repository, revision, existing, added)
+    record = _record(added, amount=120000.0)
+    persisted = repository.save_record(record, document_id=DOCUMENT_ID)
+
+    legitimate = evaluate_variant_installation_cost(
+        revision=revision,
+        variant=variant,
+        scenario=_scenario(),
+        cost_records=(persisted,),
+    )
+    saved = repository.save_evaluation(legitimate)
+    assert saved == legitimate
+
+    # Caller-authored total: inflated acquisition amount carried under a
+    # self-consistent (recomputed) identity — replay must still reject it.
+    def forge(payload: dict) -> VariantCostEvaluation:
+        identity = {
+            key: value
+            for key, value in payload.items()
+            if key not in {'evaluation_id', 'evaluation_sha256'}
+        }
+        digest = _cost_digest(identity)
+        return VariantCostEvaluation.model_validate(
+            {
+                **payload,
+                'evaluation_id': f'cost-evaluation-{digest[:24]}',
+                'evaluation_sha256': digest,
+            }
+        )
+
+    lying = legitimate.model_dump(mode='python')
+    for item in lying['line_items']:
+        if item.get('item_kind') == 'equipment_acquisition':
+            item['amount'] = float(item['amount']) + 100.0
+    lying_eval = forge(lying)
+    with pytest.raises(ValueError, match='does not reproduce'):
+        repository.save_evaluation(lying_eval)
+
+    # Pinned record that was never persisted in this document.
+    ghost = legitimate.model_dump(mode='python')
+    ghost['cost_record_sha256s'] = ['d' * 64]
+    ghost_eval = forge(ghost)
+    with pytest.raises(ValueError, match='unresolved cost record'):
+        repository.save_evaluation(ghost_eval)
+
+    # Read path: a row whose payload disagrees with the canonical replay.
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute(
+            """
+            UPDATE cad_cost_evaluations
+            SET evaluation_id=?, evaluation_sha256=?, payload_json=?
+            WHERE evaluation_id=?
+            """,
+            (
+                lying_eval.evaluation_id,
+                lying_eval.evaluation_sha256,
+                lying_eval.model_dump_json(),
+                saved.evaluation_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='does not reproduce'):
+        repository.get_evaluation(lying_eval.evaluation_id)
+
+
+def test_cost_record_rejects_unpersisted_equipment_binding(
+    tmp_path: Path,
+) -> None:
+    (
+        scene_repository,
+        _revision,
+        _variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    repository = CadInstallationCostRepository(scene_repository)
+    existing = _equipment('owned-speaker', 'b' * 64)
+    added = _equipment('new-speaker', 'c' * 64)
+    _persist_pair(equipment_repository, existing, added)
+
+    bogus = build_cost_record(
+        category='equipment_purchase',
+        amount=10.0,
+        currency='JPY',
+        source_kind='user_entered',
+        recorded_at_utc=NOW,
+        equipment_definition_id=added.definition_id,
+        equipment_definition_version=added.version,
+        equipment_definition_sha256='e' * 64,
+    )
+    with pytest.raises(ValueError, match='unpersisted equipment definition'):
+        repository.save_record(bogus, document_id=DOCUMENT_ID)
