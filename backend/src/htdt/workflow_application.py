@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QInputDialog,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -38,6 +39,10 @@ from .cad_input import (
 )
 from .cad_view_state import StandardView
 from .capture_inbox import CaptureInboxRepository
+from .cad_display_labels import (
+    revision_display_label,
+    variant_display_label,
+)
 from .cad_equipment_binding_repository import CadEquipmentBindingRepository
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
@@ -371,6 +376,50 @@ class WorkflowApplicationComposition:
             entry for entry in entries if entry.project_id == project_id
         )
 
+    def _pick_one(
+        self,
+        title: str,
+        prompt: str,
+        entries: list[tuple[str, str]],
+        *,
+        selected_row: int = 0,
+    ) -> str | None:
+        """Single-choice list dialog (#578).
+
+        ``entries`` are ``(human label, exact id)`` pairs: the label is the
+        primary text, the exact authority id stays in ``UserRole`` and is
+        returned verbatim — selections never resolve by display text.
+        """
+
+        if not entries:
+            return None
+        dialog = QDialog(self.shell)
+        dialog.setWindowTitle(title)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(prompt, dialog))
+        listing = QListWidget(dialog)
+        for label, item_id in entries:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, item_id)
+            listing.addItem(item)
+        listing.setCurrentRow(min(selected_row, len(entries) - 1))
+        layout.addWidget(listing)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        item = listing.currentItem()
+        if item is None:
+            return None
+        item_id = item.data(Qt.ItemDataRole.UserRole)
+        return str(item_id)
+
     def _switch_to_project(self, entry: ProjectLibraryEntry) -> None:
         """Guarded project switch (#450): dirty/running/frozen work refuses
         exactly like window close does, then the new document opens in a
@@ -496,13 +545,15 @@ class WorkflowApplicationComposition:
                 self.shell, "エクスポートできません", str(exc)
             )
             return
-        QMessageBox.information(
-            self.shell,
-            "プロジェクトをエクスポートしました",
+        box = QMessageBox(self.shell)
+        box.setWindowTitle("プロジェクトをエクスポートしました")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(
             f"{result.row_count} 件のレコードと {result.asset_count} 件の"
-            f"アセットを書き出しました。\n"
-            f"マニフェストSHA-256: {result.manifest_sha256}",
+            "アセットを書き出しました。"
         )
+        box.setDetailedText(f"マニフェストSHA-256: {result.manifest_sha256}")
+        box.exec()
 
     def _import_project_bundle(self) -> None:
         """#488: staged import; a document-id collision is offered the
@@ -1555,12 +1606,12 @@ class WorkflowApplicationComposition:
             self.repository,
             Path(selected),
         )
-        QMessageBox.information(
-            self.shell,
-            "Capture用機材カタログを書き出しました",
-            f"{result.definition_count} 件の機材定義を書き出しました。\n"
-            f"カタログSHA-256: {result.snapshot_sha256}",
-        )
+        box = QMessageBox(self.shell)
+        box.setWindowTitle("Capture用機材カタログを書き出しました")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"{result.definition_count} 件の機材定義を書き出しました。")
+        box.setDetailedText(f"カタログSHA-256: {result.snapshot_sha256}")
+        box.exec()
 
     def _export_installation_handoff(self) -> None:
         """Operator action behind ``installation.export_handoff`` (#453).
@@ -1580,44 +1631,35 @@ class WorkflowApplicationComposition:
                 "書き出せるシーンリビジョンがありません。",
             )
             return
-        revision_labels = [
-            f'{item.revision_id} ({item.created_at_utc})'
-            for item in revisions
-        ]
-        selected, ok = QInputDialog.getItem(
-            self.shell,
+        revision_label_map = self.repository.revision_labels(self.document_id)
+        scene_revision_id = self._pick_one(
             "設置ハンドオフ",
             "シーンリビジョンを選択してください",
-            revision_labels,
-            len(revision_labels) - 1,
-            False,
+            [
+                (
+                    revision_display_label(item, revision_label_map),
+                    item.revision_id,
+                )
+                for item in revisions
+            ],
+            selected_row=len(revisions) - 1,
         )
-        if not ok:
+        if scene_revision_id is None:
             return
-        scene_revision_id = revisions[
-            revision_labels.index(selected)
-        ].revision_id
         variants = CadSystemVariantRepository(
             self.repository
         ).list_variants(self.document_id)
-        variant_labels = ['（なし）'] + [
-            f'{item.variant_id} — {item.name}' for item in variants
-        ]
-        selected_variant, ok = QInputDialog.getItem(
-            self.shell,
+        system_variant_id = self._pick_one(
             "設置ハンドオフ",
             "システムバリアントを選択してください",
-            variant_labels,
-            0,
-            False,
+            [('（なし）', '')]
+            + [
+                (variant_display_label(item), item.variant_id)
+                for item in variants
+            ],
         )
-        if not ok:
+        if system_variant_id is None:
             return
-        system_variant_id = ''
-        if selected_variant != '（なし）':
-            system_variant_id = variants[
-                variant_labels.index(selected_variant) - 1
-            ].variant_id
         service = InstallationReportService(
             scene_repository=self.repository
         )
@@ -1739,13 +1781,15 @@ class WorkflowApplicationComposition:
         written[2].write_text(
             render_analysis_html(export), encoding='utf-8'
         )
-        QMessageBox.information(
-            self.shell,
-            "解析エクスポートを書き出しました",
+        box = QMessageBox(self.shell)
+        box.setWindowTitle("解析エクスポートを書き出しました")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(
             "次のファイルを書き出しました:\n"
             + "\n".join(str(path) for path in written)
-            + f"\nspec SHA-256: {export.spec_sha256}",
         )
+        box.setDetailedText(f"spec SHA-256: {export.spec_sha256}")
+        box.exec()
 
     def _can_close_application(self) -> tuple[bool, str | None]:
         if self.data_management_component.can_close_application:
