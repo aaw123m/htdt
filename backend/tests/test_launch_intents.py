@@ -6,6 +6,7 @@ from pathlib import Path
 from htdt.launch_intents import (
     build_launch_intent,
     classify_launch_path,
+    complete_queued_intent,
     describe_launch_intent,
     drain_launch_intents,
     forward_launch_intent,
@@ -57,8 +58,25 @@ def test_forward_and_drain_roundtrip(tmp_path: Path) -> None:
     assert dropped.parent == intents_dir(tmp_path) / 'incoming'
 
     drained = drain_launch_intents(tmp_path)
-    assert drained == (intent,)
-    # Consumed intents leave the queue.
+    assert [q.intent for q in drained] == [intent]
+    # #736: the queue file survives until the dispatch completes — a
+    # second drain before completion redelivers the intent.
+    assert drain_launch_intents(tmp_path) == drained
+    for queued in drained:
+        complete_queued_intent(queued, succeeded=True)
+    assert drain_launch_intents(tmp_path) == ()
+    assert (intents_dir(tmp_path) / 'done' / dropped.name).is_file()
+
+
+def test_failed_dispatch_moves_to_failed(tmp_path: Path) -> None:
+    intent = build_launch_intent(
+        Path('broken.htdtcapture'), source='forwarded'
+    )
+    dropped = forward_launch_intent(tmp_path, intent)
+    (queued,) = drain_launch_intents(tmp_path)
+    complete_queued_intent(queued, succeeded=False)
+    assert not dropped.exists()
+    assert (intents_dir(tmp_path) / 'failed' / dropped.name).is_file()
     assert drain_launch_intents(tmp_path) == ()
 
 
@@ -80,7 +98,7 @@ def test_multiple_intents_drain_in_order(tmp_path: Path) -> None:
             tmp_path, build_launch_intent(Path(path), source='forwarded')
         )
     drained = drain_launch_intents(tmp_path)
-    assert [Path(i.path).name for i in drained] == sorted(paths)
+    assert [Path(q.intent.path).name for q in drained] == sorted(paths)
 
 
 def test_describe_intent_is_human_readable(tmp_path: Path) -> None:

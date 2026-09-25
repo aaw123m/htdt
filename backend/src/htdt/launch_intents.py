@@ -21,6 +21,14 @@ Forwarding is lock-free: a second process that cannot take the instance
 lock drops the intent as its own JSON file under
 ``<data_dir>/launch-intents/incoming/`` and exits; the running instance
 drains the directory on a timer and routes the intents itself.
+
+Queue durability (#736): a queue file is retired only AFTER its semantic
+dispatch completed — ``drain_launch_intents`` leaves valid files in
+``incoming/`` and ``complete_queued_intent`` moves each dispatched file to
+``done/`` (or ``failed/``). A crash between drain and completion redelivers
+the intent on the next drain, so forwarding is at-least-once; the routed
+actions (project switch, capture staging, restore preview) are idempotent,
+so re-delivery is safe.
 """
 
 from __future__ import annotations
@@ -42,6 +50,8 @@ _LOGGER = logging.getLogger('htdt.native')
 INTENTS_DIRNAME = 'launch-intents'
 INTENT_INCOMING_DIRNAME = 'incoming'
 INTENT_DEAD_DIRNAME = 'dead'
+INTENT_DONE_DIRNAME = 'done'
+INTENT_FAILED_DIRNAME = 'failed'
 LAUNCH_INTENT_SCHEMA_VERSION = 1
 
 # Intent descriptor files are small JSON references — bound the read so a
@@ -65,6 +75,37 @@ LaunchIntentSource = Literal[
     'drop',
     'forwarded',
 ]
+# One outcome contract (#736) for every kind of intent. The router reports
+# exactly one of these; the shell maps it to copy — it may never print a
+# success message for an outcome that is not a success.
+LaunchIntentOutcome = Literal[
+    'routed_and_opened',
+    'staged_for_review',
+    'already_staged',
+    'preview_opened',
+    'user_action_required',
+    'blocked_dirty_state',
+    'invalid_or_unsupported',
+    'failed',
+]
+
+
+class LaunchIntentResult(BaseModel):
+    """The exact semantic outcome of dispatching one intent (#736).
+
+    ``document_id``/``inbox_item_id`` carry the target the shell should
+    focus when the outcome implies navigation.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    intent_id: str = Field(min_length=1)
+    kind: LaunchIntentKind
+    path: str
+    outcome: LaunchIntentOutcome
+    detail: str = ''
+    document_id: str | None = None
+    inbox_item_id: str | None = None
 
 
 class HTDTLaunchIntent(BaseModel):
@@ -82,6 +123,15 @@ class HTDTLaunchIntent(BaseModel):
     # otherwise None and the router resolves by inspection.
     document_id: str | None = None
     detail: str | None = None
+
+
+class QueuedLaunchIntent(BaseModel):
+    """A drained intent plus the durable queue file that records it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    intent: HTDTLaunchIntent
+    queue_path: str = Field(min_length=1)
 
 
 class HTDTProjectFile(BaseModel):
@@ -218,13 +268,19 @@ def forward_launch_intent(data_dir: Path, intent: HTDTLaunchIntent) -> Path:
     return target
 
 
-def drain_launch_intents(data_dir: Path) -> tuple[HTDTLaunchIntent, ...]:
-    """Consume every queued intent; malformed drops go to ``dead/``."""
+def drain_launch_intents(data_dir: Path) -> tuple[QueuedLaunchIntent, ...]:
+    """Read every queued intent; malformed drops go to ``dead/``.
+
+    Valid queue files are NOT removed here (#736): each drained entry keeps
+    its ``queue_path`` and the caller retires it via
+    ``complete_queued_intent`` only after the semantic dispatch produced an
+    outcome, so a crash can never silently lose an intent.
+    """
 
     incoming = _incoming_dir(Path(data_dir))
     if not incoming.is_dir():
         return ()
-    intents: list[HTDTLaunchIntent] = []
+    queued: list[QueuedLaunchIntent] = []
     dead_dir = intents_dir(data_dir) / INTENT_DEAD_DIRNAME
     for candidate in sorted(incoming.iterdir()):
         if not candidate.is_file() or candidate.suffix != '.json':
@@ -241,12 +297,38 @@ def drain_launch_intents(data_dir: Path) -> tuple[HTDTLaunchIntent, ...]:
             except OSError:
                 pass
             continue
-        try:
-            candidate.unlink()
-        except OSError:
-            continue
-        intents.append(intent)
-    return tuple(intents)
+        queued.append(
+            QueuedLaunchIntent(intent=intent, queue_path=str(candidate))
+        )
+    return tuple(queued)
+
+
+def complete_queued_intent(
+    queued: QueuedLaunchIntent,
+    *,
+    succeeded: bool,
+) -> None:
+    """Retire a dispatched queue file to ``done/`` or ``failed/`` (#736).
+
+    Called exactly once per drained intent, after its semantic dispatch
+    completed. A file that is already gone (retired by a racing drain in an
+    earlier session) is a no-op; a dispatch that never reached completion
+    leaves the file in ``incoming/`` so the next drain redelivers it.
+    """
+
+    source = Path(queued.queue_path)
+    if not source.exists():
+        return
+    target_dir = source.parent.parent / (
+        INTENT_DONE_DIRNAME if succeeded else INTENT_FAILED_DIRNAME
+    )
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        os.replace(source, target_dir / source.name)
+    except OSError:
+        _LOGGER.warning(
+            'could not retire launch intent queue file %s', source
+        )
 
 
 def describe_launch_intent(intent: HTDTLaunchIntent) -> str:
@@ -266,8 +348,12 @@ __all__ = [
     'HTDTCaptureFile',
     'HTDTLaunchIntent',
     'HTDTProjectFile',
+    'LaunchIntentOutcome',
+    'LaunchIntentResult',
+    'QueuedLaunchIntent',
     'build_launch_intent',
     'classify_launch_path',
+    'complete_queued_intent',
     'describe_launch_intent',
     'drain_launch_intents',
     'forward_launch_intent',
