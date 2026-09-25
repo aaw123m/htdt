@@ -33,6 +33,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     DeterministicPathArtifact,
     DeterministicPathBandQuantity,
     DeterministicPathInteraction,
+    GeometricSurfacePlane,
     SourceDirectivityContribution,
 )
 from htdt.cad_geometric_acoustics_response import (
@@ -243,6 +244,7 @@ def _execution_input(
     semantic_sha256: str = 'e' * 64,
     frequency_domain: FrequencyDomain | None = None,
     portal_authority_ref: ExactExternalAuthorityRef | None = None,
+    boundary_planes: tuple[GeometricSurfacePlane, ...] | None = None,
 ) -> DeterministicGaExecutionInput:
     directivity_ref = common['source'].directivity_dataset_ref
     return DeterministicGaExecutionInput.model_construct(
@@ -285,6 +287,9 @@ def _execution_input(
                 entity_id=path.receiver_entity_id,
                 world_position=common['receiver'].world_position,
             ),
+        ),
+        boundary_planes=(
+            boundary_planes if boundary_planes is not None else ()
         ),
         sound_speed_m_s=common['environment'].sound_speed_m_s,
         frequency_domain=(
@@ -511,9 +516,31 @@ def test_specific_impedance_reflection_uses_complex_local_reaction_coefficient()
         sound_speed_m_s=common['environment'].sound_speed_m_s,
         path_id_seed='8',
         surfaces=(SURFACE_A,),
+        interactions=(
+            DeterministicPathInteraction(
+                kind='reflection',
+                point=Position3(x_m=1.0, y_m=0.0, z_m=0.0),
+                surface_id=SURFACE_A,
+            ),
+        ),
+    )
+    plane = GeometricSurfacePlane(
+        source_surface_id=SURFACE_A,
+        point_m=Position3(x_m=1.0, y_m=0.0, z_m=0.0),
+        normal=Direction3(x=1.0, y=0.0, z=0.0),
+        compiled_triangle_indices=(0,),
     )
 
-    response = _response(path, common, surface_reflections={SURFACE_A: reflection})
+    response = _response(
+        path,
+        common,
+        surface_reflections={SURFACE_A: reflection},
+        execution_input=_execution_input(
+            path,
+            common,
+            boundary_planes=(plane,),
+        ),
+    )
 
     z = complex(2.0 * characteristic, characteristic)
     expected_r = (z - characteristic) / (z + characteristic)
@@ -1407,3 +1434,174 @@ def test_execution_input_source_and_environment_bindings_fail_closed() -> None:
     )
     assert environment_mismatch.capability == 'UNSUPPORTED'
     assert 'EXECUTION_INPUT_ENVIRONMENT_MISMATCH' in environment_mismatch.unsupported_reasons
+
+
+def _z_wall(frequency: float, characteristic: float) -> AcousticMaterial:
+    return AcousticMaterial(
+        material_id='z-wall',
+        provenance='explicit impedance fixture',
+        version='1',
+        wave_model='specific_impedance_table',
+        specific_impedance=(
+            SpecificImpedancePoint(
+                frequency_hz=frequency,
+                resistance_pa_s_m=2.0 * characteristic,
+                reactance_pa_s_m=characteristic,
+            ),
+        ),
+    )
+
+
+def test_impedance_authority_rejects_mismatched_evaluated_incidence() -> None:
+    frequency = 500.0
+    common = _common((frequency,), density_kg_m3=1.25, sound_speed_m_s=340.0)
+    characteristic = (
+        common['environment'].density_kg_m3
+        * common['environment'].sound_speed_m_s
+    )
+    material = _z_wall(frequency, characteristic)
+    # The authority was derived for cosine 0.5 (60 deg) but the path evaluates
+    # normal incidence (cosine 1.0): one surface-global impedance authority
+    # must never serve a different reflection angle silently.
+    reflection = build_specific_impedance_surface_reflection_authority(
+        source_surface_id=SURFACE_A,
+        r120_geometry_ref=common['r120'],
+        material_authority_ref=_ref('material:z-wall', H2),
+        material=material,
+        environment=common['environment'],
+        frequency_grid=common['frequency_grid'],
+        incidence_cosine=0.5,
+    )
+    path = _path(
+        length_m=3.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='9',
+        surfaces=(SURFACE_A,),
+        interactions=(
+            DeterministicPathInteraction(
+                kind='reflection',
+                point=Position3(x_m=1.0, y_m=0.0, z_m=0.0),
+                surface_id=SURFACE_A,
+            ),
+        ),
+    )
+    plane = GeometricSurfacePlane(
+        source_surface_id=SURFACE_A,
+        point_m=Position3(x_m=1.0, y_m=0.0, z_m=0.0),
+        normal=Direction3(x=1.0, y=0.0, z=0.0),
+        compiled_triangle_indices=(0,),
+    )
+    response = _response(
+        path,
+        common,
+        surface_reflections={SURFACE_A: reflection},
+        execution_input=_execution_input(
+            path,
+            common,
+            boundary_planes=(plane,),
+        ),
+    )
+    assert response.capability == 'UNSUPPORTED'
+    assert (
+        f'REFLECTION_INCIDENCE_COSINE_MISMATCH:{SURFACE_A}'
+        in response.unsupported_reasons
+    )
+    assert not response.samples
+    # Evaluated incidence is still persisted on the rejected artifact.
+    assert response.ordered_reflection_incidence_cosines == pytest.approx((1.0,))
+    assert response.ordered_reflection_incidence_angles_deg == pytest.approx((0.0,))
+
+
+def test_impedance_authority_fails_closed_when_incidence_underivable() -> None:
+    frequency = 500.0
+    common = _common((frequency,), density_kg_m3=1.25, sound_speed_m_s=340.0)
+    characteristic = (
+        common['environment'].density_kg_m3
+        * common['environment'].sound_speed_m_s
+    )
+    material = _z_wall(frequency, characteristic)
+    reflection = build_specific_impedance_surface_reflection_authority(
+        source_surface_id=SURFACE_A,
+        r120_geometry_ref=common['r120'],
+        material_authority_ref=_ref('material:z-wall', H2),
+        material=material,
+        environment=common['environment'],
+        frequency_grid=common['frequency_grid'],
+        incidence_cosine=1.0,
+    )
+    # No boundary planes in the execution input: incidence cannot be
+    # re-evaluated, so the impedance authority must fail closed.
+    path = _path(
+        length_m=3.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='a',
+        surfaces=(SURFACE_A,),
+    )
+    response = _response(
+        path,
+        common,
+        surface_reflections={SURFACE_A: reflection},
+        execution_input=_execution_input(path, common),
+    )
+    assert response.capability == 'UNSUPPORTED'
+    assert (
+        f'REFLECTION_INCIDENCE_UNDERIVABLE:{SURFACE_A}'
+        in response.unsupported_reasons
+    )
+
+
+def test_evaluated_reflection_incidence_is_persisted_on_response() -> None:
+    frequency = 1000.0
+    common = _common((frequency,))
+    material = AcousticMaterial(
+        material_id='rigid-wall',
+        provenance='analytic rigid fixture',
+        version='1',
+        wave_model='rigid',
+    )
+    reflection = build_rigid_surface_reflection_authority(
+        source_surface_id=SURFACE_A,
+        r120_geometry_ref=common['r120'],
+        material_authority_ref=_ref('material:rigid', H2),
+        material=material,
+        frequency_grid=common['frequency_grid'],
+    )
+    sqrt2 = 1.0 / (2.0 ** 0.5)
+    path = _path(
+        length_m=3.0,
+        sound_speed_m_s=common['environment'].sound_speed_m_s,
+        path_id_seed='b',
+        surfaces=(SURFACE_A,),
+        interactions=(
+            DeterministicPathInteraction(
+                kind='reflection',
+                point=Position3(x_m=1.0, y_m=0.0, z_m=0.0),
+                surface_id=SURFACE_A,
+            ),
+        ),
+    )
+    # Departure (1,0,0) against a (1/sqrt2, -1/sqrt2, 0) normal: 45 deg
+    # oblique incidence.
+    plane = GeometricSurfacePlane(
+        source_surface_id=SURFACE_A,
+        point_m=Position3(x_m=1.0, y_m=0.0, z_m=0.0),
+        normal=Direction3(x=sqrt2, y=-sqrt2, z=0.0),
+        compiled_triangle_indices=(0,),
+    )
+    response = _response(
+        path,
+        common,
+        surface_reflections={SURFACE_A: reflection},
+        execution_input=_execution_input(
+            path,
+            common,
+            boundary_planes=(plane,),
+        ),
+    )
+    assert response.capability == 'COMPLEX_SUPPORTED'
+    assert response.ordered_reflection_incidence_cosines == pytest.approx(
+        (sqrt2,), abs=1e-9
+    )
+    assert response.ordered_reflection_incidence_angles_deg == pytest.approx(
+        (45.0,), abs=1e-9
+    )
