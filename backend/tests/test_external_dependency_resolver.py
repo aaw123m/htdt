@@ -211,3 +211,45 @@ def test_dependency_repository_derives_events(tmp_path: Path) -> None:
             context,
             resolved_at_utc='2026-09-24T01:00:00+00:00',
         )
+
+
+def test_latest_resolution_ignores_caller_timestamp_order(
+    tmp_path: Path,
+) -> None:
+    """A future-dated event label cannot become the current resolution.
+
+    The resolution head is the insertion sequence — the most recently
+    recorded resolver output — so an imported/forged timestamp never
+    outranks a later attempt.
+    """
+
+    repository = ExternalDependencyRepository(
+        SceneRepository(tmp_path / 'scene.sqlite3')
+    )
+    dependency = _dependency()
+    repository.save_dependency(dependency)
+    context = DependencyResolutionContext(
+        supported_kinds=SUPPORTED,
+        local_index={('capture_project', 'capture-proj-A'): 'a' * 64},
+    )
+    forged_future = repository.resolve_and_record(
+        dependency.dependency_id,
+        context,
+        resolved_at_utc='2999-01-01T00:00:00+00:00',
+    )
+    latest = repository.resolve_and_record(
+        dependency.dependency_id,
+        DependencyResolutionContext(supported_kinds=SUPPORTED),
+        resolved_at_utc='2026-09-24T01:00:00+00:00',
+    )
+    assert repository.latest_resolution(dependency.dependency_id) == latest
+    assert repository.latest_resolution(
+        dependency.dependency_id
+    ) != forged_future
+    assert [
+        event.created_at_utc
+        for event in repository.list_resolutions(dependency.dependency_id)
+    ] == [
+        '2999-01-01T00:00:00+00:00',
+        '2026-09-24T01:00:00+00:00',
+    ]

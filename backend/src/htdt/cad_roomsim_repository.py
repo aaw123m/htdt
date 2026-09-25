@@ -18,6 +18,7 @@ from .cad_roomsim_results import (
 from .cad_search import iter_cad_candidate_pages
 from .cad_search_models import CAD_SEARCH_ALGORITHM_VERSION, CadCandidate
 from .cad_search_repository import CadSearchRepository
+from .cad_schema import require_native_tables
 
 
 class CadRoomSimRepository:
@@ -43,45 +44,7 @@ class CadRoomSimRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_roomsim_batch_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_run_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    search_spec_sha256 TEXT NOT NULL,
-                    candidate_set_sha256 TEXT NOT NULL,
-                    batch_spec_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_roomsim_batch_search_seq
-                    ON cad_roomsim_batch_specs(search_spec_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_roomsim_candidate_attempts (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    attempt_id TEXT NOT NULL UNIQUE,
-                    batch_run_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    attempt_index INTEGER NOT NULL,
-                    status TEXT NOT NULL,
-                    attempt_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    completed_at_utc TEXT NOT NULL,
-                    UNIQUE(batch_run_id, candidate_id, attempt_index),
-                    FOREIGN KEY(batch_run_id) REFERENCES cad_roomsim_batch_specs(batch_run_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_roomsim_attempt_batch_seq
-                    ON cad_roomsim_candidate_attempts(batch_run_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_roomsim_attempt_candidate_seq
-                    ON cad_roomsim_candidate_attempts(batch_run_id, candidate_id, attempt_index ASC);
-                '''
-            )
+            require_native_tables(connection, 'cad_roomsim_batch_specs', 'cad_roomsim_candidate_attempts')
 
     def _require_batch_authority(self, spec: CadRoomSimBatchSpec) -> None:
         """Replay the exact batch-input compiler over declared authority.

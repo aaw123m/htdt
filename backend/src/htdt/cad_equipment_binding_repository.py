@@ -9,6 +9,7 @@ import sqlite3
 from .cad_equipment_binding import EquipmentBindingSemantics
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class CadEquipmentBindingRepository:
@@ -41,24 +42,7 @@ class CadEquipmentBindingRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_equipment_binding_semantics (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    binding_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    entity_id TEXT NOT NULL,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_equipment_binding_entity
-                    ON cad_equipment_binding_semantics(
-                        document_id, entity_id, seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_equipment_binding_semantics')
 
     def save_binding(
         self,

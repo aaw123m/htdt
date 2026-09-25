@@ -15,6 +15,7 @@ from .cad_gain_structure import (
     evaluate_gain_structure,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 GainStructureEvaluator = Callable[..., GainStructureEvaluation]
@@ -46,41 +47,7 @@ class CadGainStructureRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_line_level_stages (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    stage_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(stage_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_line_level_stage_seq
-                    ON cad_line_level_stages(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_gain_structure_scenarios (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scenario_id TEXT NOT NULL UNIQUE,
-                    scenario_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_gain_structure_scenario_doc
-                    ON cad_gain_structure_scenarios(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_gain_structure_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    scenario_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_gain_structure_eval_scenario
-                    ON cad_gain_structure_evaluations(scenario_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_line_level_stages', 'cad_gain_structure_scenarios', 'cad_gain_structure_evaluations')
 
     def save_stage(
         self,

@@ -83,6 +83,7 @@ class CanonicalAuthorityRefResolver:
         self._comparison_repository = None
         self._checkpoint_repository = None
         self._study_repository = None
+        self._analysis_repository = None
         self._assumption_repository = None
         self._action_item_repository = None
         self._measurement_repository = None
@@ -148,6 +149,18 @@ class CanonicalAuthorityRefResolver:
                 scene_repository=self._scene_repository
             )
         return self._study_repository
+
+    @property
+    def _analysis(self):
+        if self._analysis_repository is None:
+            from .cad_analysis_study_repository import (
+                CadAnalysisStudyRepository,
+            )
+
+            self._analysis_repository = CadAnalysisStudyRepository(
+                self._scene_repository
+            )
+        return self._analysis_repository
 
     @property
     def _assumptions(self):
@@ -331,6 +344,8 @@ class CanonicalAuthorityRefResolver:
             'comparison_alternative',
             'design_checkpoint',
             'analysis_study',
+            'intervention_study_spec',
+            'intervention_alternative',
             'assumption_decision',
             'action_item',
             'measurement',
@@ -405,6 +420,17 @@ class CanonicalAuthorityRefResolver:
                 scene_content_hash=checkpoint.scene_content_hash,
             )
         if kind == 'analysis_study':
+            # #871: 'analysis_study' names the #594 AnalysisStudy artifact,
+            # never a #519 InterventionStudySpec — the two families share no
+            # id space, so a colliding id cannot resolve the wrong owner.
+            study = self._analysis.get_study(ref_id)
+            if study is None:
+                return None
+            return ResolvedAuthority(
+                document_id=study.document_id,
+                semantic_sha256=study.study_sha256,
+            )
+        if kind == 'intervention_study_spec':
             spec = self._studies.get_spec(ref_id)
             if spec is None:
                 return None
@@ -412,6 +438,20 @@ class CanonicalAuthorityRefResolver:
                 document_id=spec.document_id,
                 semantic_sha256=spec.spec_sha256,
             )
+        if kind == 'intervention_alternative':
+            # Alternative ids are only unique inside their spec — resolve
+            # through the document's specs and report the owning spec as the
+            # container so membership claims can be checked.
+            for spec in self._studies.list_specs(document_id):
+                for alternative in self._studies.list_alternatives(spec.spec_id):
+                    if alternative.alternative_id != ref_id:
+                        continue
+                    return ResolvedAuthority(
+                        document_id=spec.document_id,
+                        semantic_sha256=alternative.alternative_sha256,
+                        container_ids=(spec.spec_id,),
+                    )
+            return None
         if kind == 'assumption_decision':
             decision = self._assumptions.get_decision(ref_id)
             if decision is None:
@@ -549,19 +589,23 @@ class CanonicalAuthorityRefResolver:
     def _resolve_comparison_alternative(
         self, ref_id: str, document_id: str
     ) -> ResolvedAuthority | None:
+        # An alternative_id is set-local: the same id can live in several
+        # sets. The semantic identity is the alternative's own
+        # ``alternative_sha256`` — when colliding matches disagree the ref
+        # is ambiguous and must fail closed rather than pick one hash.
         container_ids: list[str] = []
-        content_hash: str | None = None
+        hashes: set[str] = set()
         for comparison_set in self._comparisons.list_sets(document_id):
             alternative = comparison_set.alternative(ref_id)
             if alternative is None:
                 continue
             container_ids.append(comparison_set.set_id)
-            content_hash = alternative.scene_content_hash
-        if not container_ids:
+            hashes.add(alternative.alternative_sha256)
+        if not container_ids or len(hashes) > 1:
             return None
         return ResolvedAuthority(
             document_id=document_id,
-            semantic_sha256=content_hash,
+            semantic_sha256=hashes.pop(),
             container_ids=tuple(container_ids),
         )
 

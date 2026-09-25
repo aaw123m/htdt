@@ -626,15 +626,15 @@ def test_audit_rejects_registry_clone_cycle(tmp_path: Path):
             ('p-b', 'p-a'),
         ):
             connection.execute(
-                'INSERT INTO project_registry('
-                'project_id, document_id, display_name, status, '
+                'INSERT INTO htdt_project_documents('
+                'project_id, document_id, display_name, archived, '
                 'cloned_from_project_id, created_at_utc, updated_at_utc, '
                 'archived_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 (
                     project_id,
                     f'doc-{project_id}',
                     project_id,
-                    'active',
+                    0,
                     cloned_from,
                     NOW,
                     NOW,
@@ -655,15 +655,15 @@ def test_audit_rejects_registry_unknown_clone_source(tmp_path: Path):
     database = data_dir / 'cad-scenes.sqlite3'
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute(
-            'INSERT INTO project_registry('
-            'project_id, document_id, display_name, status, '
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, archived, '
             'cloned_from_project_id, created_at_utc, updated_at_utc, '
             'archived_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             (
                 'p-orphan',
                 'doc-orphan',
                 'orphan',
-                'active',
+                0,
                 'p-ghost',
                 NOW,
                 NOW,

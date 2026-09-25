@@ -11,17 +11,28 @@ Before export, the handoff is *reviewed*: every
 :class:`InstallationSectionStatus` that is not ``AVAILABLE`` is surfaced in
 the review so the operator sees exactly what the package is missing instead
 of discovering it on site.
+
+The published directory is a *package*: a ``handoff_manifest.json`` binds
+every member file (name, size, SHA-256) to one generation — the exact
+SceneRevision/SystemVariant/InstallationOutput semantic hash, the package
+schema/generator version, the export timestamp and the machine-readable
+complete/degraded review state. Semantic content is deterministic for the
+same pinned authority; ``generated_at_utc`` is intentionally volatile
+export metadata inside the HTML report and the manifest, so files are
+byte-identical only across exports sharing that stamp.
 """
 
 from __future__ import annotations
 
 import csv
+from hashlib import sha256
 import io
+import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,6 +64,38 @@ class InstallationHandoff(BaseModel):
     output: InstallationOutput
     review: HandoffReview
     generated_at_utc: str = Field(min_length=1)
+
+
+class HandoffManifestFile(BaseModel):
+    """Digest of one member file inside a published package."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str = Field(min_length=1)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    size_bytes: int = Field(ge=0)
+
+
+class HandoffPackageManifest(BaseModel):
+    """The machine-readable identity of one handoff package generation.
+
+    Ties every member file to the exact authority it was exported from:
+    an installer can verify all files came from the same generation and
+    read the degraded section list without inferring completeness from
+    file presence.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: Literal[1] = 1
+    generator: str = Field(min_length=1)
+    generated_at_utc: str = Field(min_length=1)
+    scene_revision_id: str = Field(min_length=1)
+    system_variant_id: str | None = None
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    complete: bool
+    degraded: tuple[str, ...] = ()
+    files: tuple[HandoffManifestFile, ...]
 
 
 def review_installation_output(output: InstallationOutput) -> HandoffReview:
@@ -330,72 +373,195 @@ HANDOFF_DIMENSIONS_FILENAME = 'dimension_sheets.csv'
 HANDOFF_SETTINGS_FILENAME = 'settings.csv'
 HANDOFF_REPORT_FILENAME = 'installation_report.html'
 HANDOFF_ENTITIES_FILENAME = 'installation_coordinates.csv'
+HANDOFF_MANIFEST_FILENAME = 'handoff_manifest.json'
+HANDOFF_PACKAGE_GENERATOR = 'installation-handoff-1'
+
+
+def _canonical_json(payload: Any) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+        allow_nan=False,
+    )
+
+
+def build_handoff_manifest(
+    handoff: InstallationHandoff,
+    *,
+    files: dict[str, bytes],
+) -> HandoffPackageManifest:
+    """The manifest sealing one package generation.
+
+    ``files`` maps member filename to its exact bytes — the manifest
+    records each digest so a reader can prove every member belongs to the
+    same generation and read the review verdict without guessing from
+    file presence.
+    """
+
+    return HandoffPackageManifest(
+        generator=HANDOFF_PACKAGE_GENERATOR,
+        generated_at_utc=handoff.generated_at_utc,
+        scene_revision_id=handoff.output.authority.scene_revision_id,
+        system_variant_id=handoff.output.authority.system_variant_id,
+        semantic_sha256=handoff.output.semantic_sha256,
+        complete=handoff.review.complete,
+        degraded=handoff.review.degraded,
+        files=tuple(
+            HandoffManifestFile(
+                name=name,
+                sha256=sha256(content).hexdigest(),
+                size_bytes=len(content),
+            )
+            for name, content in sorted(files.items())
+        ),
+    )
+
+
+def render_handoff_manifest_json(
+    handoff: InstallationHandoff,
+    *,
+    files: dict[str, bytes],
+) -> str:
+    """Canonical JSON for the package manifest."""
+
+    manifest = build_handoff_manifest(handoff, files=files)
+    return _canonical_json(manifest.model_dump(mode='json')) + '\n'
+
+
+def _write_staged_text(path: Path, content: str) -> None:
+    with open(path, 'w', encoding='utf-8', newline='') as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def write_handoff_package(
     handoff: InstallationHandoff, directory: str | Path
 ) -> dict[str, Path]:
-    """Write the handoff files into ``directory`` and return their paths.
+    """Write the handoff package into ``directory`` and return its paths.
 
-    Publish is staged and atomic per file: every artifact is rendered into
-    a temporary staging directory *inside* the target, then moved into
-    place with :func:`os.replace`. A failure before publishing removes the
-    staging directory and leaves the target exactly as it was; a failure
-    mid-publish leaves only already-complete files (no half-written
-    artifact is ever visible under a final name).
+    The whole generation — the four member files plus the manifest that
+    seals them — is rendered and fsync'd inside a ``.htdt-handoff-*``
+    staging directory in the target, verified against the manifest
+    digests, then promoted. Members are promoted first and the manifest
+    last, so its digests always describe a complete on-disk generation.
 
-    Byte-determinism: the CSV bodies are byte-deterministic for the same
-    pinned authority; the HTML report additionally embeds the export's
-    ``generated_at_utc`` wall-clock stamp, so it is byte-identical across
-    regenerations sharing that stamp and the same authority — the pinned
-    ``semantic_sha256`` inside it never depends on the clock.
+    A failure anywhere *before or during* promotion restores the previous
+    complete package: each replaced file's prior bytes are kept inside
+    the staging directory and moved back on rollback, while files that
+    did not exist before are removed. The target therefore always holds
+    either the previous intact generation or the new one — never an
+    unmarked mix of two.
+
+    Determinism contract: semantic content is byte-deterministic for the
+    same pinned authority and the same declared ``generated_at_utc`` —
+    the HTML report and the manifest intentionally carry that volatile
+    export stamp, so bytes are identical across regenerations sharing
+    it, and the ``semantic_sha256`` inside never depends on the clock.
     """
 
     target = Path(directory)
     target.mkdir(parents=True, exist_ok=True)
-    filenames = {
+    member_filenames = {
         'report': HANDOFF_REPORT_FILENAME,
         'dimensions': HANDOFF_DIMENSIONS_FILENAME,
         'settings': HANDOFF_SETTINGS_FILENAME,
         'entities': HANDOFF_ENTITIES_FILENAME,
     }
-    contents = {
+    member_contents = {
         'report': render_handoff_report_html(handoff),
         'dimensions': render_dimension_sheets_csv(handoff),
         'settings': render_settings_csv(handoff),
         'entities': render_installation_csv(handoff.output),
     }
+    manifest_content = render_handoff_manifest_json(
+        handoff,
+        files={
+            member_filenames[key]: content.encode('utf-8')
+            for key, content in member_contents.items()
+        },
+    )
+    contents = {
+        **member_contents,
+        'manifest': manifest_content,
+    }
+    filenames = {
+        **member_filenames,
+        'manifest': HANDOFF_MANIFEST_FILENAME,
+    }
     staging = Path(
         tempfile.mkdtemp(prefix='.htdt-handoff-', dir=target)
     )
+    expected_digests = {
+        key: sha256(contents[key].encode('utf-8')).hexdigest()
+        for key in contents
+    }
     try:
         staged = {
             key: staging / name for key, name in filenames.items()
         }
         for key, path in staged.items():
-            path.write_text(contents[key], encoding='utf-8')
-        outputs = {
-            key: target / name for key, name in filenames.items()
-        }
-        for key, staged_path in staged.items():
-            os.replace(staged_path, outputs[key])
+            _write_staged_text(path, contents[key])
+            if (
+                sha256(path.read_bytes()).hexdigest()
+                != expected_digests[key]
+            ):
+                raise IOError(
+                    f'staged handoff file {path.name} failed digest '
+                    'verification before publish'
+                )
+        backups: dict[str, Path] = {}
+        promoted: list[str] = []
+        # Members first, manifest last — the manifest's digests must only
+        # ever describe a fully written generation.
+        promote_order = [*member_filenames, 'manifest']
+        try:
+            for key in promote_order:
+                final = target / filenames[key]
+                if final.exists():
+                    backup = staging / '.backup' / filenames[key]
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(final, backup)
+                    backups[key] = backup
+                os.replace(staged[key], final)
+                promoted.append(key)
+        except Exception:
+            # Roll back to the previous complete generation: restore every
+            # file moved aside into backup (promoted or merely displaced by
+            # a later failure) and drop members that had no predecessor.
+            for key in reversed(promote_order):
+                final = target / filenames[key]
+                backup = backups.get(key)
+                if backup is not None:
+                    os.replace(backup, final)
+                elif key in promoted:
+                    final.unlink(missing_ok=True)
+            raise
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
     shutil.rmtree(staging, ignore_errors=True)
-    return outputs
+    return {key: target / name for key, name in filenames.items()}
 
 
 __all__ = [
     'HANDOFF_DIMENSIONS_FILENAME',
     'HANDOFF_ENTITIES_FILENAME',
+    'HANDOFF_MANIFEST_FILENAME',
+    'HANDOFF_PACKAGE_GENERATOR',
     'HANDOFF_REPORT_FILENAME',
     'HANDOFF_SETTINGS_FILENAME',
+    'HandoffManifestFile',
+    'HandoffPackageManifest',
     'HandoffReview',
     'InstallationHandoff',
+    'build_handoff_manifest',
     'build_installation_handoff',
     'handoff_preview_text',
     'render_dimension_sheets_csv',
+    'render_handoff_manifest_json',
     'render_handoff_report_html',
     'render_settings_csv',
     'review_installation_output',

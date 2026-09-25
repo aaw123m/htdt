@@ -802,3 +802,62 @@ and workspace UX; no hardware/physical-room evidence involved).
   suites; `python -m compileall src/htdt` clean. QMessageBox interaction,
   native-window exit flow and Windows DPI behavior are GUI/Windows-gated
   and untested here.
+
+## Provenance / reproducibility hardening (#834–#838) — 2026-09-24
+
+- **External Asset Admission Ledger (#834)** (`docs/EXTERNAL_ASSET_ADMISSION_LEDGER.md`):
+  planning/governance ledger recording the cross-domain admission-state
+  vocabulary (READY_FOR_ADMISSION_REVIEW … REJECT_FOR_BUNDLING), per-domain
+  ledgers (acoustic materials, loudspeaker directivity, validation corpus,
+  HRTF/binaural, auralization audio, geometry, video/calibration,
+  interop, OSS reuse, standards), the admission review checklist and the
+  permission/contact backlog. No external payloads downloaded; no legal
+  advice; "downloadable" is never "redistributable".
+- **Saved Analysis exactness (#835)** (`htdt/cad_analysis_study.py` +
+  `cad_analysis_study_repository.py`): supersedes/duplicated_from is now
+  documented as explicit lineage metadata only — every persisted study is
+  an independent artifact, no single current head is derived, parallel
+  branches are allowed. Added `StudyOperationStatus`/
+  `StudyOperationReport` + `evaluate_operation_support` with the
+  `STUDY_OPERATION_CONTRACTS` registry: each bound operation's version is
+  checked against registered contract hashes — known versions report
+  `regenerable`, unregistered versions report `unsupported`/unavailable
+  without invalidating the original study metadata. Save already
+  validates same-document applicability via the typed kind resolvers and
+  every bound ref is hash-bearing (verified, with a regression test for
+  cross-document refs).
+- **External dependency resolver (#836)**
+  (`htdt/external_dependency_repository.py`): current-resolution
+  selection now orders by insertion sequence (`rowid`), not the
+  caller-supplied `created_at_utc` — `list_resolutions` returns event
+  order and `latest_resolution` returns the most recently recorded event.
+  Full identity pins, `authority_version_id`, deterministic
+  embedded/imported/local resolution with named-conflict fallback and
+  the `resolve_and_record` sole write path were already in place.
+- **Installation Handoff package integrity (#837)**
+  (`htdt/installation_handoff.py`): `write_handoff_package` now stages a
+  complete generation — four members + `handoff_manifest.json` — in a
+  staging directory, fsyncs, verifies staged digests against the
+  manifest, then promotes files (backing up the previous generation and
+  restoring it on any mid-publish failure, so a failed publish never
+  leaves a mixed-generation package). `HandoffPackageManifest` records
+  schema/generator versions, generated time, authority ids
+  (scene_revision/system_variant/semantic_sha256), `complete`/`degraded`
+  machine-readable state, and per-file sha256+size.
+- **Analysis Export reproducibility (#838)** (`htdt/analysis_export.py`):
+  every series now requires an exact source pin
+  (source_kind+source_id+source_sha256); `derived`/`display_transformed`
+  additionally pin the processing `operation`/`operation_version`
+  (+`operation_sha256`) that produced the values, and those fields are
+  forbidden on `raw`/`predicted`. `historical` is derived from authority
+  context by all three typed adapters (never a caller boolean);
+  `series_from_comparison` binds algorithm identity and derives
+  historical from the A/B revisions vs the declared current head;
+  `series_from_prediction` takes source/current scene revision ids.
+  Series point order is preserved as the source authority's canonical
+  order (no silent re-sort). CSV exports carry the operation provenance
+  columns.
+- **Verified on Linux**: scoped pytest for the touched areas
+  (analysis_export, analysis_study, external_dependency_resolver,
+  installation_handoff) green; `python -m compileall src/htdt` clean.
+  Windows GUI paths (export dialog) unchanged in behavior.

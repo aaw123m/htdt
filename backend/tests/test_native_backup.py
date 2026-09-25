@@ -172,6 +172,41 @@ def test_native_backup_round_trip_restores_database_and_content_addressed_assets
     assert (data_dir / 'measurement-assets' / digest).read_bytes() == raw
 
 
+def test_backup_covers_every_legacy_archive_generation(tmp_path: Path):
+    """#759: re-migrations archive to numbered generations
+    (``htdt.migrated.sqlite3.1``, ``htdt.migrated.assets.1``) — all of them
+    are the retired-authority record and must ride the backup."""
+
+    data_dir = tmp_path / 'data'
+    _repository, _first, digest, _raw = _seed_data(data_dir)
+    (data_dir / 'htdt.migrated.sqlite3').write_bytes(b'archive-gen-0')
+    (data_dir / 'htdt.migrated.sqlite3.1').write_bytes(b'archive-gen-1')
+    (data_dir / 'htdt.migrated.assets').mkdir()
+    (data_dir / 'htdt.migrated.assets' / 'a.bin').write_bytes(b'gen-0-asset')
+    (data_dir / 'htdt.migrated.assets.1').mkdir()
+    (data_dir / 'htdt.migrated.assets.1' / 'b.bin').write_bytes(b'gen-1-asset')
+
+    manifest = create_backup(data_dir, tmp_path / 'g.htdt-backup')
+
+    paths = {entry.path for entry in manifest.files}
+    assert {
+        'htdt.migrated.sqlite3',
+        'htdt.migrated.sqlite3.1',
+        'htdt.migrated.assets/a.bin',
+        'htdt.migrated.assets.1/b.bin',
+    } <= paths
+
+    # Restore onto a fresh data dir delivers every generation.
+    restored_dir = tmp_path / 'restored'
+    restore_backup(restored_dir, tmp_path / 'g.htdt-backup')
+    assert (restored_dir / 'htdt.migrated.sqlite3.1').read_bytes() == (
+        b'archive-gen-1'
+    )
+    assert (
+        restored_dir / 'htdt.migrated.assets.1' / 'b.bin'
+    ).read_bytes() == b'gen-1-asset'
+
+
 def test_backup_validation_rejects_asset_content_tampering(tmp_path: Path):
     data_dir = tmp_path / 'data'
     _repository, _first, digest, _raw = _seed_data(data_dir)

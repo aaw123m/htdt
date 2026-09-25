@@ -34,7 +34,10 @@ from .cad_scene import (
     SceneEntity,
     acoustic_reference_position,
     quaternion_to_matrix3,
+
 )
+
+from .cad_schema import require_native_tables
 
 
 PatternAnchorKind = Literal['seat', 'measurement_point', 'explicit_point']
@@ -468,31 +471,7 @@ class CadTargetPatternRepository:
 
     def _initialize(self) -> None:
         with self._connect() as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_measurement_target_patterns (
-                    pattern_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    pattern_version INTEGER NOT NULL,
-                    pattern_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_materialized_pattern_points (
-                    point_id TEXT PRIMARY KEY,
-                    pattern_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    measurement_point_entity_id TEXT NOT NULL,
-                    point_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_measurement_target_patterns', 'cad_materialized_pattern_points')
 
     def save_pattern(self, pattern: MeasurementTargetPattern) -> None:
         if self.get_pattern(pattern.pattern_id) is not None:

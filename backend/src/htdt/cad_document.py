@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -287,6 +288,40 @@ def _append_entities(document: SceneDocument, additions: tuple[SceneEntity, ...]
     if duplicates:
         raise EditStateError(f'entities already exist: {sorted(duplicates)}')
     return document.model_copy(update={'entities': document.entities + additions})
+
+
+@dataclass(frozen=True)
+class CompositeEditCommand:
+    """One Undo step covering an entity edit plus external design state.
+
+    The entity command applies/reverts on the document; the side effects
+    capture and restore state that lives outside the document (e.g. the
+    authoring-constraint set, #843) so geometry and design semantics roll
+    back together.
+    """
+
+    inner: 'EditCommand | None'
+    apply_side: Callable[[], None] | None = None
+    revert_side: Callable[[], None] | None = None
+    presentation: CommandPresentation | None = None
+
+    @property
+    def is_noop(self) -> bool:
+        return (
+            self.inner is None or self.inner.is_noop
+        ) and self.apply_side is None and self.revert_side is None
+
+    def apply(self, document: SceneDocument) -> SceneDocument:
+        updated = self.inner.apply(document) if self.inner is not None else document
+        if self.apply_side is not None:
+            self.apply_side()
+        return updated
+
+    def revert(self, document: SceneDocument) -> SceneDocument:
+        updated = self.inner.revert(document) if self.inner is not None else document
+        if self.revert_side is not None:
+            self.revert_side()
+        return updated
 
 
 @dataclass(frozen=True)
@@ -965,6 +1000,21 @@ class WorkingDocument:
         )
         return scene_content_hash(self._document) != before_hash
 
+    def push_command(self, command: EditCommand) -> bool:
+        """Push one arbitrary command through the shared undo history.
+
+        Used by the workspace for composite commands that couple an entity
+        edit with external design state (#843) — a state-only command
+        reports success even when the document hash is unchanged.
+        """
+
+        if self.has_preview:
+            raise EditStateError('cannot apply a command while a preview is active')
+        if command.is_noop:
+            return False
+        self._document = self._history.push(command, self._document)
+        return True
+
     def apply_entity_set_edit(
         self,
         *,
@@ -973,18 +1023,32 @@ class WorkingDocument:
         replaced_after: tuple[SceneEntity, ...] = (),
         added: tuple[SceneEntity, ...] = (),
         presentation: CommandPresentation | None = None,
+        apply_side: Callable[[], None] | None = None,
+        revert_side: Callable[[], None] | None = None,
     ) -> bool:
-        """Apply one atomic mixed batch (removals + replacements + additions)."""
+        """Apply one atomic mixed batch (removals + replacements + additions).
+
+        ``apply_side``/``revert_side`` wrap the entity edit in a composite
+        command so external design state joins the same Undo step (#843).
+        """
 
         if self.has_preview:
             raise EditStateError('cannot apply a batched edit while a preview is active')
-        command = EntitySetEditCommand(
+        inner = EntitySetEditCommand(
             removed=removed,
             replaced_before=replaced_before,
             replaced_after=replaced_after,
             added=added,
             presentation=presentation,
         )
+        command: EditCommand = inner
+        if apply_side is not None or revert_side is not None:
+            command = CompositeEditCommand(
+                inner=inner,
+                apply_side=apply_side,
+                revert_side=revert_side,
+                presentation=presentation,
+            )
         if command.is_noop:
             return False
         # Fail closed: every declared before-state must match the document.
@@ -997,21 +1061,26 @@ class WorkingDocument:
             raise EditStateError(f'entities already exist: {sorted(overlapping)}')
         before_hash = scene_content_hash(self._document)
         self._document = self._history.push(command, self._document)
-        return scene_content_hash(self._document) != before_hash
+        return (
+            scene_content_hash(self._document) != before_hash
+            or command is not inner
+        )
 
     def undo(self) -> bool:
         if self.has_preview:
             raise EditStateError('cancel the active preview before undo')
-        before_hash = scene_content_hash(self._document)
+        # A consumed command may leave the document identical (constraint
+        # state-only sidecar, #843) — report that the revert ran.
+        index = self._history.index
         self._document = self._history.undo(self._document)
-        return scene_content_hash(self._document) != before_hash
+        return self._history.index != index
 
     def redo(self) -> bool:
         if self.has_preview:
             raise EditStateError('cancel the active preview before redo')
-        before_hash = scene_content_hash(self._document)
+        index = self._history.index
         self._document = self._history.redo(self._document)
-        return scene_content_hash(self._document) != before_hash
+        return self._history.index != index
 
     def mark_saved(self, revision_id: str, content_hash: str) -> None:
         if self.has_preview:

@@ -6,6 +6,7 @@ from contextlib import closing
 from pathlib import Path
 import sqlite3
 
+from .cad_equipment_instance import InstalledEquipmentInstance
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_library_upgrade import (
     EquipmentDefinitionUpgrade,
@@ -13,6 +14,7 @@ from .cad_library_upgrade import (
     UpgradeAdoptionRecord,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class CadLibraryUpgradeRepository:
@@ -41,30 +43,7 @@ class CadLibraryUpgradeRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_equipment_upgrades (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    upgrade_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    definition_id TEXT NOT NULL,
-                    from_sha256 TEXT NOT NULL,
-                    to_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_upgrade_adoptions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    adoption_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    upgrade_sha256 TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    decision TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_upgrade_adoption_document
-                    ON cad_upgrade_adoptions(document_id, upgrade_sha256, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_equipment_upgrades', 'cad_upgrade_adoptions')
 
     def _table_exists(self, connection: sqlite3.Connection, table: str) -> bool:
         return (
@@ -255,8 +234,7 @@ class CadLibraryUpgradeRepository:
                 needle = f'%{definition_sha256}%'
                 for row in connection.execute(
                     """
-                    SELECT instance_id, semantic_sha256, document_id,
-                           payload_json
+                    SELECT instance_id, document_id, payload_json
                     FROM cad_installed_equipment_instances
                     WHERE payload_json LIKE ? ORDER BY seq ASC
                     """,
@@ -268,7 +246,11 @@ class CadLibraryUpgradeRepository:
                         EquipmentDefinitionUsage(
                             binding_kind='installed_instance',
                             authority_id=row['instance_id'],
-                            authority_sha256=row['semantic_sha256'],
+                            authority_sha256=(
+                                InstalledEquipmentInstance.model_validate_json(
+                                    row['payload_json']
+                                ).semantic_sha256
+                            ),
                             document_id=row['document_id'],
                         )
                     )

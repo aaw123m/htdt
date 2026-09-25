@@ -223,15 +223,52 @@ def open_browser_when_ready(port: int, *, timeout_s: float = 10.0) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description='Run Home Theater Digital Twin on localhost.')
+    parser = argparse.ArgumentParser(
+        description=(
+            'Development-only launcher for the retired browser stack (#598). '
+            'The installed product is the native application: HTDT.exe / '
+            'python -m htdt.native_cad.'
+        )
+    )
     parser.add_argument('--port', type=int, default=DEFAULT_PORT, help=f'preferred localhost port (default: {DEFAULT_PORT})')
     parser.add_argument('--no-browser', action='store_true', help='do not open the default browser automatically')
+    parser.add_argument(
+        '--data-dir',
+        type=Path,
+        default=None,
+        help=(
+            'isolated development data directory (required unless '
+            '--allow-default-data-root is passed)'
+        ),
+    )
+    parser.add_argument(
+        '--allow-default-data-root',
+        action='store_true',
+        help=(
+            'explicitly permit the legacy store to write htdt.sqlite3 in the '
+            'default data root (creates a second data authority there)'
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    lock = InstanceLock(default_data_dir() / LOCK_FILENAME)
+    if args.data_dir is None and not args.allow_default_data_root:
+        print(
+            'python -m htdt is a development-only launcher for the retired '
+            'browser stack (issue #598). The installed product is the native '
+            'application (HTDT.exe / python -m htdt.native_cad).\n'
+            'Run with --data-dir <isolated-dir> for development, or '
+            '--allow-default-data-root to explicitly write the legacy store '
+            'into the default data root.'
+        )
+        return 2
+    data_dir = args.data_dir or default_data_dir()
+    # The ASGI app reads isolation from the environment at import time (#598).
+    os.environ['HTDT_LEGACY_API'] = '1'
+    os.environ['HTDT_DATA_DIR'] = str(data_dir)
+    lock = InstanceLock(data_dir / LOCK_FILENAME)
     if not lock.acquire():
         existing_url = wait_for_existing_instance(lock)
         if existing_url:

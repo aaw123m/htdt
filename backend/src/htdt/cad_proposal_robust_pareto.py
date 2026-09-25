@@ -11,7 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_proposal_robustness import ProposalRobustnessAuthority
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_topology_comparison import (
     TopologyComparisonEvaluation,
     VariantEvaluationBundle,
@@ -397,23 +400,7 @@ class CadProposalRobustParetoRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_proposal_robust_pareto_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    topology_comparison_evaluation_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_proposal_robust_pareto_topology_seq
-                    ON cad_proposal_robust_pareto_evaluations(
-                        topology_comparison_evaluation_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_proposal_robust_pareto_evaluations')
 
     def _resolve(
         self,

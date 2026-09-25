@@ -176,6 +176,18 @@ def _repository(tmp_path: Path) -> CaptureIngestionRepository:
     return CaptureIngestionRepository(SceneRepository(tmp_path / 'cad.sqlite3'))
 
 
+def _empty_schema_bytes(tmp_path: Path, name: str = 'empty.sqlite3') -> int:
+    """Bytes of a migrated database holding schema pages only (#302).
+
+    The versioned migration installs every canonical table eagerly, so
+    payload-size assertions must discount this constant schema footprint
+    rather than comparing absolute file size directly.
+    """
+    path = tmp_path / name
+    SceneRepository(path)
+    return path.stat().st_size
+
+
 def _query(path: Path, sql: str, args: tuple = ()):
     with closing(sqlite3.connect(path)) as connection:
         connection.row_factory = sqlite3.Row
@@ -439,8 +451,9 @@ def test_large_mesh_persisted_size_and_ingest_memory_are_bounded(
     # canonical manifest and validated-quality evidence add a small constant
     # per bundle on top of that.
     database_bytes = repository.path.stat().st_size
-    assert database_bytes < len(asset) * 1.5
-    assert database_bytes < len(legacy_payload_json) // 3
+    payload_bytes = database_bytes - _empty_schema_bytes(tmp_path)
+    assert payload_bytes < len(asset) * 1.5
+    assert payload_bytes < len(legacy_payload_json) // 3
 
     # Peak ingest memory stays on the order of one decoded mesh plus the
     # caller-held payload bytes; no extra serialized copies are materialized.
@@ -797,10 +810,12 @@ def test_v3_database_migrates_capture_evidence_losslessly(
     assert freelist > 0
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute('VACUUM')
-    # Freed duplicated pages shrink the database below the legacy size;
-    # the run-scoped/quality columns mean the exact ratio depends on the
-    # vendored fixture's payload mix.
-    assert path.stat().st_size < legacy_size
+    # Freed duplicated pages shrink the payload section below the legacy
+    # size; the versioned schema pages added by #302 are discounted
+    # because the legacy fixture predates the eager canonical schema.
+    assert path.stat().st_size - _empty_schema_bytes(
+        tmp_path, 'schema.sqlite3'
+    ) < legacy_size
 
 
 def test_v3_binding_rows_gain_normalized_source_authority_columns(
