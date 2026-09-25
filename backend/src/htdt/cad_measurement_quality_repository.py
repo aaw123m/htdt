@@ -2492,7 +2492,7 @@ class CadMeasurementQualityRepository:
                 )
         if check.result == 'PASS':
             if check.check_kind == 'routing':
-                if check.routing_profile_ref is None:
+                if routing_binding is None:
                     raise ValueError(
                         'a PASS routing check requires an exact routing '
                         'profile binding'

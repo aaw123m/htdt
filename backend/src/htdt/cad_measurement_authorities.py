@@ -1476,7 +1476,10 @@ class CadWiringVerificationCheck(BaseModel):
                     'acoustic polarity PASS requires typed measurement/test '
                     'evidence — an operator label cannot establish it'
                 )
-            if self.check_kind == 'routing' and self.routing_profile is None:
+            if self.check_kind == 'routing' and (
+                self.routing_profile is None
+                and self.routing_profile_ref is None
+            ):
                 raise ValueError(
                     'routing check PASS requires a bound routing profile'
                 )

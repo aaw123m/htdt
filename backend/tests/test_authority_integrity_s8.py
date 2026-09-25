@@ -250,7 +250,7 @@ def _profile(revision, *, document_id=DOCUMENT_ID, **kwargs):
     )
 
 
-def _wiring_check(**kwargs):
+def _wiring_check(revision=None, **kwargs):
     kwargs.setdefault('check_kind', 'continuity')
     kwargs.setdefault('method', 'DCR probe')
     kwargs.setdefault('result', 'PASS')
@@ -258,6 +258,15 @@ def _wiring_check(**kwargs):
     if kwargs['result'] == 'PASS':
         kwargs.setdefault('evidence_refs', ('manual:dcr-probe-verified',))
     kwargs.setdefault('document_id', DOCUMENT_ID)
+    # A check pins the exact scene revision it was verified against.
+    kwargs.setdefault(
+        'scene_revision_id',
+        revision.revision_id if revision is not None else 'rev-synthetic',
+    )
+    kwargs.setdefault(
+        'scene_revision_sha256',
+        revision.content_hash if revision is not None else '0' * 64,
+    )
     return build_wiring_check(**kwargs)
 
 
@@ -1031,18 +1040,22 @@ def test_acquisition_context_rejects_bad_profile_binding(tmp_path):
 
 
 def test_wiring_check_pass_requires_evidence(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(
-        expected_speaker_ids=('speaker-fl',),
-        evidence_refs=(),
-    )
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     with pytest.raises(ValueError, match='evidence'):
+        check = _wiring_check(
+            revision,
+            expected_speaker_ids=('speaker-fl',),
+            evidence_refs=(),
+            operator=None,
+        )
         quality_repository.save_wiring_check(check)
 
 
 def test_wiring_check_manual_attestation_passes(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(expected_speaker_ids=('speaker-fl',))
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
+    check = _wiring_check(
+        revision,
+        expected_speaker_ids=('speaker-fl',))
     quality_repository.save_wiring_check(check)
     assert (
         quality_repository.get_wiring_check(check.check_id) == check
@@ -1050,8 +1063,9 @@ def test_wiring_check_manual_attestation_passes(tmp_path):
 
 
 def test_wiring_check_rejects_unknown_document(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     check = _wiring_check(
+        revision,
         document_id='other-document',
         expected_speaker_ids=(),
     )
@@ -1060,15 +1074,18 @@ def test_wiring_check_rejects_unknown_document(tmp_path):
 
 
 def test_wiring_check_rejects_non_speaker_ref(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(expected_speaker_ids=('point-mlp',))
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
+    check = _wiring_check(
+        revision,
+        expected_speaker_ids=('point-mlp',))
     with pytest.raises(ValueError, match='speaker'):
         quality_repository.save_wiring_check(check)
 
 
 def test_wiring_check_rejects_unresolvable_evidence(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     check = _wiring_check(
+        revision,
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('no-such-measurement-id',),
     )
@@ -1082,6 +1099,7 @@ def test_wiring_check_measurement_evidence_resolves(tmp_path):
     )
     _save_measurement(measurement_repository, revision, 'meas-evidence')
     check = _wiring_check(
+        revision,
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('meas-evidence',),
     )
@@ -1093,12 +1111,13 @@ def test_wiring_check_measurement_evidence_resolves(tmp_path):
 
 def test_wiring_check_routing_pass_requires_profile_binding(tmp_path):
     _, revision, _, quality_repository = _f1_repositories(tmp_path)
-    check = _wiring_check(
-        check_kind='routing',
-        expected_speaker_ids=('speaker-fl',),
-        evidence_refs=('manual:verified-continuity',),
-    )
     with pytest.raises(ValueError, match='routing'):
+        check = _wiring_check(
+            revision,
+            check_kind='routing',
+            expected_speaker_ids=('speaker-fl',),
+            evidence_refs=('manual:verified-continuity',),
+        )
         quality_repository.save_wiring_check(check)
 
 
@@ -1107,6 +1126,7 @@ def test_wiring_check_routing_pass_with_binding(tmp_path):
     profile = _profile(revision)
     quality_repository.save_routing_profile(profile)
     check = _wiring_check(
+        revision,
         check_kind='routing',
         expected_speaker_ids=('speaker-fl',),
         routing_profile_ref=routing_profile_binding(profile),
@@ -1257,7 +1277,7 @@ def test_derive_load_result():
 
 
 def test_load_check_result_must_match_derived(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     observation = build_electrical_load_observation(
         quantity_kind='dcr',
         value_ohm=3.2,
@@ -1269,6 +1289,7 @@ def test_load_check_result_must_match_derived(tmp_path):
     # derive_load_result(observation) == 'FAIL': a claimed PASS cannot
     # contradict the bound quantitative evidence.
     check = _wiring_check(
+        revision,
         check_kind='load',
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('manual:dcr-probe',),
@@ -1279,7 +1300,7 @@ def test_load_check_result_must_match_derived(tmp_path):
 
 
 def test_load_check_pass_with_in_range_observation(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     observation = build_electrical_load_observation(
         quantity_kind='dcr',
         value_ohm=6.4,
@@ -1290,6 +1311,7 @@ def test_load_check_pass_with_in_range_observation(tmp_path):
         measured_at_utc=NOW,
     )
     check = _wiring_check(
+        revision,
         check_kind='load',
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('manual:dcr-probe',),
@@ -1302,8 +1324,9 @@ def test_load_check_pass_with_in_range_observation(tmp_path):
 
 
 def test_load_check_pass_requires_observation(tmp_path):
-    _, _, _, quality_repository = _f1_repositories(tmp_path)
+    _, revision, _, quality_repository = _f1_repositories(tmp_path)
     check = _wiring_check(
+        revision,
         check_kind='load',
         expected_speaker_ids=('speaker-fl',),
         evidence_refs=('manual:dcr-probe',),

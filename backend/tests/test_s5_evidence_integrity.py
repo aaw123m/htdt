@@ -33,6 +33,7 @@ from htdt.cad_design_brief import (
 from htdt.cad_design_brief_repository import (
     CadDesignBriefRepository,
     DesignBriefConflictError,
+    DesignBriefStaleHeadError,
 )
 from htdt.cad_design_decision import (
     DecisionAuthorityRef,
@@ -278,6 +279,7 @@ def test_wiring_check_routing_pass_requires_bound_profile(
         _wiring_check(revision, check_kind='routing', operator='op')
 
     profile = build_routing_profile(
+        scene_revision_id=revision.revision_id,
         entries=(
             {
                 'output_device_label': 'AVR',
@@ -314,6 +316,7 @@ def test_wiring_check_routing_pass_requires_bound_profile(
         )
     # A different profile hash is rejected.
     other = build_routing_profile(
+        scene_revision_id=revision.revision_id,
         entries=(
             {
                 'output_device_label': 'AVR',
@@ -599,7 +602,7 @@ def test_field_evidence_row_columns_checked_on_read(tmp_path: Path) -> None:
         'UPDATE cad_field_evidence SET document_id=? WHERE evidence_id=?',
         ('doc-other', record.evidence_id),
     )
-    with pytest.raises(ValueError, match='row disagrees'):
+    with pytest.raises(ValueError, match='disagrees with its payload'):
         repository.get_evidence(record.evidence_id)
 
 
@@ -702,7 +705,9 @@ def test_brief_lineage_is_single_headed(tmp_path: Path) -> None:
     fork = revise_design_brief(
         first, title='fork', created_at_utc='2026-09-24T02:00:00+00:00'
     )
-    with pytest.raises(DesignBriefConflictError):
+    with pytest.raises(
+        (DesignBriefConflictError, DesignBriefStaleHeadError)
+    ):
         repository.save_brief(fork)
 
     # latest_brief is the lineage head, not the newest timestamped row.
@@ -716,12 +721,12 @@ def test_brief_revision_cannot_predate_parent(tmp_path: Path) -> None:
     backdated = revise_design_brief(
         first, created_at_utc='2026-09-23T00:00:00+00:00'
     )
-    with pytest.raises(ValueError, match='cannot predate'):
+    with pytest.raises(ValueError, match='predates its predecessor'):
         repository.save_brief(backdated)
 
 
 def test_brief_created_at_must_be_tz_aware() -> None:
-    with pytest.raises(ValueError, match='timezone-aware'):
+    with pytest.raises(ValueError, match='UTC offset'):
         _brief(created_at_utc='2026-09-24T00:00:00')
 
 
@@ -734,7 +739,7 @@ def test_brief_row_columns_checked_on_read(tmp_path: Path) -> None:
         'UPDATE cad_design_briefs SET document_id=? WHERE brief_id=?',
         ('doc-other', first.brief_id),
     )
-    with pytest.raises(ValueError, match='row disagrees'):
+    with pytest.raises(ValueError, match='row/payload mismatch'):
         repository.get_brief(first.brief_id)
 
 
