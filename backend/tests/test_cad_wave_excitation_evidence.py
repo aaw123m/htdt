@@ -17,7 +17,14 @@ from htdt.cad_equipment import (
 from htdt.cad_equipment_evidence import build_equipment_manual_evidence
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import Offset3, Size3
+from htdt.cad_scene import Direction3, Offset3, Size3
+from htdt.cad_source_response import (
+    SourceResponseCondition,
+    SourceResponseSample,
+    build_source_response,
+    source_response_wave_excitation_eligible,
+)
+from htdt.cad_equipment import FrequencyDomain
 from htdt.cad_wave_excitation import (
     WAVE_EXCITATION_CONSTANT_MODEL_ID,
     WAVE_EXCITATION_CONSTANT_MODEL_VERSION,
@@ -33,9 +40,11 @@ from htdt.cad_wave_excitation import (
     WaveExcitationEvidenceSubject,
     WaveExcitationManualDerivation,
     WaveExcitationSourceAssetDerivation,
+    WaveExcitationSourceResponseDerivation,
     _digest,
     build_acoustic_wave_excitation_authority,
     build_wave_excitation_evidence_authority,
+    derive_wave_excitation_evidence_from_source_response,
     replay_wave_excitation_source_derivation,
 )
 from htdt.native_backup import create_backup, restore_backup, validate_backup
@@ -893,3 +902,229 @@ def test_native_backup_preserves_excitation_source_assets(
     assert reopened.get_evidence(evidence.evidence_id) == evidence
     assert reopened.get_excitation(excitation.excitation_id) == excitation
     assert reopened.get_source_metadata(digest) is not None
+
+
+# ---------------------------------------------------------------------------
+# #931 — Source-response → wave-excitation derivation chain
+# ---------------------------------------------------------------------------
+
+
+def _volume_velocity_condition() -> SourceResponseCondition:
+    return SourceResponseCondition(
+        input_quantity='voltage_v_rms',
+        input_value=2.83,
+        reference_distance_m=1.0,
+        field_condition='free_field',
+        mounting_condition='infinite baffle',
+        on_axis_direction=Direction3(x=1.0, y=0.0, z=0.0),
+        calibration='acoustic reference point measurement',
+    )
+
+
+def _volume_velocity_response(
+    definition,
+    *,
+    tier='EXACT_VOLUME_VELOCITY',
+    with_phase=True,
+    with_semantics=True,
+):
+    samples = (
+        SourceResponseSample(
+            frequency_hz=100.0,
+            volume_velocity_m3_s=1.0e-4,
+            volume_velocity_phase_deg=0.0 if with_phase else None,
+        ),
+        SourceResponseSample(
+            frequency_hz=200.0,
+            volume_velocity_m3_s=8.0e-5,
+            volume_velocity_phase_deg=14.0362 if with_phase else None,
+        ),
+    )
+    return build_source_response(
+        equipment_definition=definition,
+        label='exact volume velocity sweep',
+        capability_tier=tier,
+        provenance='anechoic rig',
+        condition=_volume_velocity_condition(),
+        valid_frequency_domain=FrequencyDomain(
+            minimum_hz=100.0, maximum_hz=200.0
+        ),
+        response_samples=samples,
+        created_at_utc=NOW,
+        phasor_convention='exp(-i*omega*t)' if with_semantics else None,
+        acoustic_reference_semantics=(
+            'equipment_acoustic_reference_point' if with_semantics else None
+        ),
+    )
+
+
+def test_source_response_derivation_replays_to_complex_excitation(
+    tmp_path: Path,
+) -> None:
+    definition = _definition()
+    _scene, equipment_repository, repository = _repositories(tmp_path)
+    _save_definition(equipment_repository, definition)
+    response = _volume_velocity_response(definition)
+    repository.source_response_repository.save_response(response)
+
+    evidence = derive_wave_excitation_evidence_from_source_response(
+        response=response,
+        evidence_kind='measured',
+        source_name='issue931 rig import',
+        source_version='1',
+        source_reference='retained sealed response authority',
+    )
+    assert isinstance(
+        evidence.derivation, WaveExcitationSourceResponseDerivation
+    )
+    assert evidence.derivation.source_response_id == response.response_id
+    assert (
+        evidence.derivation.source_response_sha256
+        == response.semantic_sha256
+    )
+    # Replayability: subject samples are exactly the converter output.
+    expected = replay_wave_excitation_source_derivation(
+        source_bytes=response.model_dump_json().encode('utf-8'),
+        converter_id=evidence.derivation.converter_id,
+        converter_version=evidence.derivation.converter_version,
+        conversion_parameters=evidence.derivation.conversion_parameters,
+    )
+    assert tuple(evidence.subject.samples) == tuple(expected)
+    assert evidence.subject.samples[0].real_m3_s == pytest.approx(1.0e-4)
+    assert evidence.subject.samples[0].imag_m3_s == pytest.approx(0.0)
+
+    # No managed source bytes: the sealed response authority is the source.
+    repository.save_evidence(evidence)
+    excitation = _excitation(
+        definition, evidence, evidence.subject.samples
+    )
+    repository.save_excitation(excitation)
+    assert repository.get_evidence(evidence.evidence_id) == evidence
+    assert repository.get_excitation(excitation.excitation_id) == excitation
+
+    # Resave must replay identically (idempotent sealed authority).
+    assert repository.save_evidence(evidence) == evidence
+
+
+def test_source_response_derivation_refuses_ineligible_responses(
+    tmp_path: Path,
+) -> None:
+    definition = _definition()
+
+    # Relative magnitude / absolute SPL cannot establish volume velocity.
+    for tier in ('RELATIVE_ON_AXIS_MAGNITUDE', 'ABSOLUTE_FREE_FIELD_SPL'):
+        spl_response = build_source_response(
+            equipment_definition=definition,
+            label=f'{tier} fixture',
+            capability_tier=tier,
+            provenance='rig',
+            condition=_volume_velocity_condition(),
+            valid_frequency_domain=FrequencyDomain(
+                minimum_hz=100.0, maximum_hz=200.0
+            ),
+            response_samples=(
+                SourceResponseSample(frequency_hz=100.0, magnitude_db_spl=88.0),
+                SourceResponseSample(frequency_hz=200.0, magnitude_db_spl=86.0),
+            ),
+            created_at_utc=NOW,
+            phasor_convention='exp(-i*omega*t)',
+            acoustic_reference_semantics='equipment_acoustic_reference_point',
+        )
+        assert source_response_wave_excitation_eligible(spl_response) is not None
+        with pytest.raises(ValueError, match='not eligible'):
+            derive_wave_excitation_evidence_from_source_response(
+                response=spl_response,
+                evidence_kind='measured',
+                source_name='rig',
+                source_version='1',
+                source_reference='x',
+            )
+
+    # Magnitude-only volume velocity (no phase) is not complex excitation.
+    no_phase = _volume_velocity_response(definition, with_phase=False)
+    assert source_response_wave_excitation_eligible(no_phase) is not None
+    with pytest.raises(ValueError, match='complex volume velocity'):
+        derive_wave_excitation_evidence_from_source_response(
+            response=no_phase,
+            evidence_kind='measured',
+            source_name='rig',
+            source_version='1',
+            source_reference='x',
+        )
+
+    # Undeclared phasor/reference semantics is not eligible either.
+    no_semantics = _volume_velocity_response(definition, with_semantics=False)
+    assert source_response_wave_excitation_eligible(no_semantics) is not None
+    with pytest.raises(ValueError, match='not eligible'):
+        derive_wave_excitation_evidence_from_source_response(
+            response=no_semantics,
+            evidence_kind='measured',
+            source_name='rig',
+            source_version='1',
+            source_reference='x',
+        )
+
+
+def test_source_response_derivation_stales_when_response_edited(
+    tmp_path: Path,
+) -> None:
+    definition = _definition()
+    _scene, equipment_repository, repository = _repositories(tmp_path)
+    _save_definition(equipment_repository, definition)
+    response = _volume_velocity_response(definition)
+    repository.source_response_repository.save_response(response)
+    evidence = derive_wave_excitation_evidence_from_source_response(
+        response=response,
+        evidence_kind='measured',
+        source_name='rig',
+        source_version='1',
+        source_reference='x',
+    )
+    repository.save_evidence(evidence)
+
+    # A replacement response authority has a different content hash: a
+    # derivation pinned to it cannot replay from the retained record, so the
+    # chain goes stale instead of silently rebinding to the old response.
+    edited = _volume_velocity_response(definition)
+    assert edited.semantic_sha256 != response.semantic_sha256
+    edited_evidence = build_wave_excitation_evidence_authority(
+        evidence_kind='measured',
+        source_name='rig',
+        source_version='1',
+        source_reference='x',
+        derivation=WaveExcitationSourceResponseDerivation(
+            source_response_id=edited.response_id,
+            source_response_version=edited.authority_version,
+            source_response_sha256=edited.semantic_sha256,
+            converter_id=evidence.derivation.converter_id,
+            converter_version=evidence.derivation.converter_version,
+            conversion_parameters=evidence.derivation.conversion_parameters,
+        ),
+        subject=evidence.subject,
+    )
+    with pytest.raises(ValueError, match='not persisted'):
+        repository.save_evidence(edited_evidence)
+
+
+def test_source_response_derivation_fails_closed_when_unpersisted(
+    tmp_path: Path,
+) -> None:
+    definition = _definition()
+    _scene, equipment_repository, repository = _repositories(tmp_path)
+    _save_definition(equipment_repository, definition)
+    response = _volume_velocity_response(definition)
+    evidence = derive_wave_excitation_evidence_from_source_response(
+        response=response,
+        evidence_kind='measured',
+        source_name='rig',
+        source_version='1',
+        source_reference='x',
+    )
+    # The response authority was never persisted: replay must fail closed.
+    with pytest.raises(ValueError, match='not persisted'):
+        repository.save_evidence(evidence)
+    # Source bytes are meaningless for a source-response derivation.
+    with pytest.raises(
+        ValueError, match='only valid for source-asset evidence'
+    ):
+        repository.save_evidence(evidence, source_bytes=b'{}')

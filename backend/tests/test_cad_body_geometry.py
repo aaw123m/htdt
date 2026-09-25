@@ -67,7 +67,11 @@ from htdt.cad_video_geometry import (
     evaluate_video_geometry,
 )
 from htdt.raw_mesh import import_raw_visual_mesh
-from htdt.report import build_installation_output, render_installation_csv
+from htdt.report import (
+    _installation_entity,
+    build_installation_output,
+    render_installation_csv,
+)
 
 
 DOCUMENT_ID = 'body-geometry-fixture'
@@ -702,3 +706,72 @@ def test_installation_output_reports_geometry_basis(tmp_path: Path) -> None:
     csv_text = render_installation_csv(output)
     assert 'body_geometry_kind' in csv_text
     assert 'exact_body_geometry' in csv_text
+
+
+def test_installation_output_carries_view_outlines(tmp_path: Path) -> None:
+    """Issue #893: the exact snapshot carries hash-bound top/front/side
+    outlines so drawing sheets render the real body shape, never a
+    fabricated marker."""
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    document = SceneDocument(
+        document_id=DOCUMENT_ID,
+        room=RoomPrism(width_m=8.0, depth_m=6.0, height_m=3.0),
+        entities=(
+            SceneEntity(
+                entity_id='sub-cyl',
+                kind='speaker',
+                speaker_role='SW',
+                name='Sub',
+                position=Position3(x_m=1.0, y_m=1.0, z_m=0.4),
+                size_m=Size3(x_m=0.9, y_m=0.9, z_m=0.8),
+                body_geometry=EntityBodyGeometry(kind='cylinder', radius_m=0.4),
+            ),
+            SceneEntity(
+                entity_id='seat-1',
+                kind='seat',
+                name='Seat',
+                position=Position3(x_m=4.0, y_m=3.0, z_m=0.5),
+                size_m=Size3(x_m=0.8, y_m=0.8, z_m=1.0),
+            ),
+        ),
+    )
+    revision = repository.save(document, parent_revision_id=None).revision
+    output = build_installation_output(revision)
+    rows = {item.entity_id: item for item in output.entities}
+
+    cyl = {o.view: o for o in rows['sub-cyl'].outlines}
+    assert set(cyl) == {'top', 'front', 'side'}
+    assert all(o.basis == 'exact_body_geometry' for o in cyl.values())
+    top_ring = cyl['top'].polygons_m[0]
+    # cylinder r=0.4 centered at (1, 1) → silhouette reaches x=1.4
+    assert max(x for x, _ in top_ring) == pytest.approx(1.4)
+    # front view of an upright cylinder: the extrusion rectangle
+    assert cyl['front'].polygons_m[0] == (
+        (0.6, 0.0), (1.4, 0.0), (1.4, 0.8), (0.6, 0.8)
+    )
+
+    seat = {o.view: o for o in rows['seat-1'].outlines}
+    assert set(seat) == {'top', 'front', 'side'}
+    assert all(o.basis == 'bounding_envelope' for o in seat.values())
+    top = seat['top'].polygons_m[0]
+    xs = sorted({x for x, _ in top})
+    ys = sorted({y for _, y in top})
+    assert xs == [pytest.approx(3.6), pytest.approx(4.4)]
+    assert ys == [pytest.approx(2.6), pytest.approx(3.4)]
+
+    # envelope_unverified mesh bodies (legacy oversized inline meshes) no
+    # longer crash the report Literal — the tilted oversized body cannot be
+    # persisted under the post-#653 authority regime, so exercise the row
+    # builder directly.
+    oversized = _furniture(
+        body=EntityBodyGeometry(
+            kind='mesh_asset', mesh=_mesh_asset(uniform_scale=4.0)
+        ),
+        orientation=quaternion_from_euler_deg(
+            yaw_deg=0.0, pitch_deg=30.0, roll_deg=0.0
+        ),
+    )
+    mesh_row = _installation_entity(oversized)
+    assert mesh_row.collision_geometry_authority == 'envelope_unverified'
+    mesh_top = {o.view: o for o in mesh_row.outlines}['top']
+    assert mesh_top.basis == 'bounding_envelope'

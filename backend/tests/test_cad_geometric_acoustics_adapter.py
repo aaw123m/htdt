@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
-from math import isclose, sqrt
+from math import acos, degrees, isclose, sqrt
 from pathlib import Path
 
 import pytest
@@ -997,6 +997,7 @@ def _fixture(
     occluder: bool = False,
     narrow_directivity: bool = False,
     supported_material: bool = True,
+    material: GeometricMaterialAuthority | None = None,
     use_pyroomacoustics: bool = False,
     receiver_position: Position3 | None = None,
     semantic_geometry=None,
@@ -1252,7 +1253,8 @@ def _fixture(
         terminations = make_boundary_termination_authority(
             declaration_mode='explicit_none'
         )
-    material = _material(supported=supported_material)
+    if material is None:
+        material = _material(supported=supported_material)
     boundary_ref = _ref('fixture-boundary-physics', 'boundary')
     bindings = tuple(
         SurfaceBoundaryAuthorityBinding(
@@ -1956,6 +1958,132 @@ def test_general_planar_execution_input_and_artifact_save_reopen_exact_identity(
         fx['execution_input']
     )
     assert repository.get(artifact.artifact_id) == artifact
+
+
+def test_first_order_reflection_incidence_is_evaluated_and_persisted(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    artifact = _execute(fx)
+
+    front_id = fx['surface_by_key']['front-y-min']
+    reflected = next(
+        item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (front_id,)
+    )
+    # Source (1,1,1) -> reflection point (5/3,0,1): incoming segment
+    # (2/3,-1,0) hits the y=0 plane, so the incidence cosine against the
+    # surface normal is 1/|(2/3,-1,0)| = 3/sqrt(13).
+    expected_cosine = 3.0 / sqrt(13.0)
+    expected_angle = degrees(acos(expected_cosine))
+    contribution = reflected.bands[0].boundary_material
+    assert contribution is not None
+    assert contribution.incidence_cosine == pytest.approx(expected_cosine)
+    assert contribution.incidence_angle_deg == pytest.approx(expected_angle)
+    assert contribution.coefficient_incidence_condition == 'unknown_incidence'
+    assert contribution.incidence_evaluation == 'scalar_coefficient_all_angles_v1'
+    assert reflected.ordered_interactions is not None
+    interaction = reflected.ordered_interactions[0]
+    assert interaction.kind == 'reflection'
+    assert interaction.incidence_cosine == pytest.approx(expected_cosine)
+    assert interaction.incidence_angle_deg == pytest.approx(expected_angle)
+
+
+def test_declared_incidence_conditions_classify_evaluation_exactness(
+    tmp_path: Path,
+) -> None:
+    expected_angle = degrees(acos(3.0 / sqrt(13.0)))
+
+    def material_with(condition: str, angle_deg: float | None):
+        material = AcousticMaterial(
+            material_id='fixture-wall-incidence',
+            provenance='fixture exact GA material with incidence evidence',
+            version='1',
+            wave_model='unsupported',
+            geometric_model='banded',
+            geometric_bands=(
+                GeometricAcousticBand(
+                    center_hz=500.0,
+                    absorption=0.2,
+                    scattering=0.1,
+                    incidence_condition=condition,
+                    incidence_angle_deg=angle_deg,
+                ),
+                GeometricAcousticBand(
+                    center_hz=1000.0,
+                    absorption=0.3,
+                    scattering=0.2,
+                    incidence_condition=condition,
+                    incidence_angle_deg=angle_deg,
+                ),
+            ),
+        )
+        payload = material.model_dump(mode='json')
+        return GeometricMaterialAuthority(
+            authority_ref=ExactExternalAuthorityRef(
+                authority_id='fixture-material:incidence',
+                authority_version=material.version,
+                semantic_hash_sha256=_digest(payload),
+            ),
+            material=material,
+        )
+
+    # angle-specific evidence evaluated at its declared angle is exact; the
+    # same band applied at other surfaces' angles is only the versioned
+    # all-angle scalar policy.
+    fx = _fixture(
+        tmp_path / 'angle-specific',
+        material=material_with('angle_specific', expected_angle),
+    )
+    front_id = fx['surface_by_key']['front-y-min']
+    artifact = _execute(fx)
+    front_path = next(
+        item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids == (front_id,)
+    )
+    contribution = front_path.bands[0].boundary_material
+    assert contribution is not None
+    assert contribution.incidence_evaluation == 'angle_specific_exact'
+    assert contribution.coefficient_incidence_condition == 'angle_specific'
+    other = [
+        item.bands[0].boundary_material
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.ordered_interaction_surface_ids != (front_id,)
+        and item.bands[0].boundary_material is not None
+        and item.bands[0].boundary_material.incidence_evaluation
+        != 'angle_specific_exact'
+    ]
+    assert other
+    assert all(
+        item.incidence_evaluation == 'scalar_coefficient_all_angles_v1'
+        for item in other
+    )
+
+    # normal-incidence evidence at an oblique reflection is never silently
+    # exact: it is applied only under the versioned all-angle scalar policy.
+    artifact = _execute(
+        _fixture(
+            tmp_path / 'normal',
+            material=material_with('normal_incidence', None),
+        )
+    )
+    contributions = [
+        item.bands[0].boundary_material
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and item.bands[0].boundary_material is not None
+        and item.bands[0].boundary_material.incidence_cosine < 1.0
+    ]
+    assert contributions
+    assert all(
+        item.incidence_evaluation == 'scalar_coefficient_all_angles_v1'
+        for item in contributions
+    )
 
 
 def test_direct_and_first_reflection_match_analytic_geometry(tmp_path: Path) -> None:

@@ -247,6 +247,64 @@ def test_treatment_comparison_save_reopen_reresolves_variants_and_placements(
     assert reopened == spec
 
 
+def test_comparison_list_scopes_to_owning_document(tmp_path: Path) -> None:
+    """#917: project-owned comparisons never leak across documents."""
+    (
+        scene_repository,
+        variant_repository,
+        treatment_repository,
+        baseline,
+        variant_a,
+        _variant_b,
+        placement_a,
+        _placement_b,
+    ) = _fixture(tmp_path)
+    repository = CadAcousticTreatmentComparisonRepository(
+        scene_repository,
+        variant_repository=variant_repository,
+        treatment_repository=treatment_repository,
+    )
+    spec = repository.save(
+        build_treatment_design_comparison(
+            name='Scoped comparison',
+            baseline=baseline,
+            candidates=(
+                build_treatment_design_candidate(
+                    baseline=baseline,
+                    label='No treatment',
+                    role='no_treatment',
+                ),
+                build_treatment_design_candidate(
+                    baseline=baseline,
+                    label='Treatment A',
+                    role='treatment',
+                    system_variant=variant_a,
+                    placements=(placement_a,),
+                ),
+            ),
+        )
+    )
+
+    # A second project document: its comparisons list must stay empty even
+    # though another project's spec exists in the same database.
+    other_revision = scene_repository.save(
+        SceneDocument(
+            document_id='foreign-document',
+            room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+            entities=(),
+        ),
+        parent_revision_id=None,
+    ).revision
+
+    owned = repository.list_for_document(baseline.document_id)
+    assert [item.comparison_id for item in owned] == [spec.comparison_id]
+    assert repository.list_for_document(other_revision.document_id) == ()
+    # list_all remains application-wide for audit/export surfaces.
+    assert {item.comparison_id for item in repository.list_all()} == {
+        spec.comparison_id
+    }
+
+
 def test_treatment_candidate_rejects_wrong_variant_placement(
     tmp_path: Path,
 ) -> None:

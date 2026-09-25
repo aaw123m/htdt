@@ -106,6 +106,7 @@ class OverviewNotice:
 #: Coarse lifecycle bucket for an active SystemVariant, combining the
 #: physical lifecycle and the measurement campaign stage.
 OverviewVariantStage = Literal[
+    'current',
     'proposed',
     'applied',
     'as_built',
@@ -128,6 +129,7 @@ class OverviewVariantState:
 
 
 _VARIANT_STAGE_LABELS: dict[str, str] = {
+    'current': '現在のシステム',
     'proposed': '提案のみ',
     'applied': '適用済み（設置記録なし）',
     'as_built': '設置済み',
@@ -263,8 +265,12 @@ def _variant_stage(lifecycle, measurement) -> OverviewVariantStage:
     """
     state = getattr(lifecycle, 'state', 'proposed')
     if state == 'current':
-        return 'applied'
+        return 'current'
     if state == 'proposed':
+        # #914: an applied proposal (SystemVariantApplication exists, no
+        # AsBuilt) is not merely "proposed" — surface the application.
+        if getattr(lifecycle, 'application_exists', False):
+            return 'applied'
         return 'proposed'
     if state == 'as_built':
         mstate = getattr(measurement, 'state', 'unplanned')
@@ -715,11 +721,21 @@ class OverviewReadinessService:
             lifecycle = self._variant_source.lifecycle(variant.variant_id)
             measurement = self._variant_source.measurement(variant.variant_id)
             stage = _variant_stage(lifecycle, measurement)
-            if stage in ('proposed', 'applied'):
+            if stage == 'current':
+                action = None
+            elif stage == 'proposed':
                 action = _action(
                     'variant.review_comparison',
                     '比較を確認',
                     OPTIMIZATION_COMPARISON,
+                )
+            elif stage == 'applied':
+                # An applied proposal awaits AsBuilt confirmation, which
+                # lives on the optimization validation surface (#914).
+                action = _action(
+                    'variant.record_as_built',
+                    '実設置を記録',
+                    OPTIMIZATION_VALIDATION,
                 )
             elif stage == 'campaign_preregistered':
                 action = _action(
