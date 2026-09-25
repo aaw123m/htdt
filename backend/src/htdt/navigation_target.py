@@ -283,6 +283,37 @@ class NavigationHistory:
     def entries(self) -> tuple[NavigationContextEntry, ...]:
         return tuple(self._entries)
 
+    def clear(self) -> None:
+        """Drop every entry — establishes a new navigation epoch.
+
+        Whole-data restore/reset replaces the data universe; every recorded
+        target addresses authority that may not exist (or may mean something
+        different) in the new generation and must never be replayed.
+        """
+        self._entries.clear()
+        self._cursor = -1
+
+    def drop_unscoped_project_entries(self) -> None:
+        """Drop project-scope entries recorded without project identity.
+
+        Called when the active project changes: a legacy target carrying no
+        ``project_id`` could otherwise replay against the wrong project's
+        namespace (colliding object ids). Entries pinned to a canonical
+        project id survive — replaying them performs a guarded switch back.
+        Application-scope entries are valid independently of the project.
+        """
+
+        retained = [
+            entry
+            for entry in self._entries
+            if entry.target.scope is not NavigationScope.PROJECT
+            or entry.target.project_id is not None
+        ]
+        if len(retained) == len(self._entries):
+            return
+        self._entries = retained
+        self._cursor = min(self._cursor, len(self._entries) - 1)
+
 
 class NavigationResolver:
     """Maps typed targets onto registered destinations — fail-closed."""

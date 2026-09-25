@@ -69,11 +69,13 @@ from htdt.cad_system_variant import (
 )
 from htdt.cad_video_geometry import ScreenGeometryBinding, build_video_geometry_request
 from htdt.cad_video_geometry import (
+    AngleRange,
     ProjectorSpecification,
     SeatGeometryBinding,
     SightlineSample,
     VideoGeometryPolicy,
 )
+from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 from htdt.semantic_geometry import SemanticSurface
 
 
@@ -346,6 +348,11 @@ def test_screen_transfer_tiers_and_hash(tmp_path: Path) -> None:
         label='woven AT screen measured',
         capability_tier='MEASURED_DATASET',
         provenance='lab-measurement-2026',
+        measured_dataset_ref=ExactExternalAuthorityRef(
+            authority_id='measurement-dataset:lab-2026',
+            authority_version='1',
+            semantic_hash_sha256='c' * 64,
+        ),
         transfer_samples=(
             TransferSample(
                 frequency_hz=500.0,
@@ -358,6 +365,9 @@ def test_screen_transfer_tiers_and_hash(tmp_path: Path) -> None:
         valid_frequency_domain=FrequencyDomain(
             minimum_hz=200.0,
             maximum_hz=8000.0,
+        ),
+        valid_incidence_angle_deg=AngleRange(
+            minimum_deg=0.0, maximum_deg=45.0
         ),
         measurement_condition='anechoic, 1 m mic',
         created_at_utc=NOW,

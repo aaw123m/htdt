@@ -488,7 +488,9 @@ class _RepositoryChain:
                 CadInstalledEquipmentRepository,
             )
 
-            return CadInstalledEquipmentRepository(scene)
+            return CadInstalledEquipmentRepository(
+                scene, self.repo('equipment')
+            )
         if name == 'upgrades':
             from .cad_library_upgrade_repository import (
                 CadLibraryUpgradeRepository,
@@ -1865,13 +1867,13 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
     ),
     _ReplayProbe(
         'project_registry_entry',
-        'project_registry',
+        'htdt_project_documents',
         ('project_id',),
         _get('projects', 'get_project'),
     ),
     _ReplayProbe(
         'project_tombstone',
-        'project_tombstones',
+        'htdt_project_tombstones',
         ('tombstone_id', 'project_id'),
         _verify_project_tombstone,
     ),
@@ -1995,8 +1997,15 @@ _NON_AUTHORITY_TABLES: dict[str, str] = {
         'execution runtime state — derived artifact'
     ),
     'cad_r140_execution_tasks': 'execution runtime state — derived artifact',
+    'htdt_storage_gc_pending': (
+        'deferred-deletion staging queue — re-derivable, non-authority'
+    ),
     'project_action_items': (
         'project-management annotation, non-normative'
+    ),
+    'htdt_storage_gc_pending': (
+        'pending blob-GC queue — transient operational state re-derivable '
+        'from the blob store'
     ),
     'ci_marker': (
         'CI-injected backup/restore round-trip marker — never a product '
@@ -2018,6 +2027,10 @@ _NO_ADAPTER_RATIONALE = (
     'structural payload integrity — no dedicated canonical replay adapter '
     'registered for this family'
 )
+_PROJECT_LIFECYCLE_RATIONALE = (
+    'project-library/lifecycle record — indexed structurally; lifecycle '
+    'semantics enforced by the project-library consumers'
+)
 
 # Tables whose rows carry a JSON payload but no registered canonical replay
 # adapter (external-resolver domains, link/legacy tables, derived solver and
@@ -2026,6 +2039,15 @@ _NO_ADAPTER_RATIONALE = (
 _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
     table: rationale
     for tables, rationale in (
+        (
+            (
+                'htdt_legacy_imports',
+                'htdt_project_documents',
+                'htdt_project_imports',
+                'htdt_project_tombstones',
+            ),
+            _PROJECT_LIFECYCLE_RATIONALE,
+        ),
         (
             (
                 'asset_links',
@@ -2094,6 +2116,7 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_acoustic_materials',
                 'cad_acoustic_solver_adapters',
                 'cad_acoustic_solver_results',
+                'cad_acoustic_source_poses',
                 'cad_acoustic_treatment_comparisons',
                 'cad_ambient_comparisons',
                 'cad_ambient_conditions',
@@ -2104,21 +2127,29 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_applied_settings',
                 'cad_av_latency_measurements',
                 'cad_av_sync_conditions',
+                'cad_bass_management_profiles',
+                'cad_bass_management_selections',
                 'cad_cable_runs',
                 'cad_calibration_lifecycle_events',
                 'cad_commissioning_plans',
                 'cad_commissioning_runs',
+                'cad_compute_benchmarks',
                 'cad_cost_evaluations',
                 'cad_cost_records',
                 'cad_current_topologies',
                 'cad_data_source_registry',
                 'cad_dataset_reviews',
+                'cad_device_action_acks',
+                'cad_device_capability_snapshots',
+                'cad_device_target_bindings',
                 'cad_direct_view_evaluations',
                 'cad_direct_view_specifications',
                 'cad_environment_profiles',
                 'cad_environment_selections',
                 'cad_evidence_observations',
                 'cad_field_evidence',
+                'cad_field_evidence_records',
+                'cad_field_sessions',
                 'cad_frequency_resolved_evaluations',
                 'cad_gain_structure_evaluations',
                 'cad_gain_structure_scenarios',
@@ -2134,13 +2165,19 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_layout_profiles',
                 'cad_line_level_stages',
                 'cad_listener_poses',
+                'cad_material_definitions',
+                'cad_material_evidence',
+                'cad_measurement_pose_observations',
                 'cad_multi_seat_results',
                 'cad_multi_seat_sets',
                 'cad_multifidelity_finalizations',
                 'cad_multifidelity_plans',
                 'cad_multifidelity_screening_evaluations',
                 'cad_multifidelity_stage_results',
+                'cad_observed_device_states',
                 'cad_o90_robust_pareto_evaluations',
+                'cad_playback_level_conditions',
+                'cad_planned_observed_deltas',
                 'cad_prediction_providers',
                 'cad_project_notes',
                 'cad_proposal_objective_result_authorities',
@@ -2148,17 +2185,24 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_proposal_robust_pareto_evaluations',
                 'cad_proposal_robustness_evaluations',
                 'cad_proposal_robustness_specs',
+                'cad_proposed_device_actions',
                 'cad_r140_execution_results',
                 'cad_r140_gpu_authorities',
                 'cad_r140_resource_estimates',
                 'cad_raw_mesh_repair_bundles',
                 'cad_raw_source_records',
                 'cad_reconciliation_decisions',
+                'cad_reference_playback_profiles',
+                'cad_review_notes',
                 'cad_room_operating_states',
                 'cad_screen_transfers',
                 'cad_seat_priority_profiles',
+                'cad_site_relationships',
+                'cad_site_spaces',
                 'cad_source_responses',
                 'cad_source_review_decisions',
+                'cad_speaker_definitions',
+                'cad_speaker_datasets',
                 'cad_speaker_impedances',
                 'cad_target_curve_profiles',
                 'cad_tolerance_profiles',
@@ -2169,7 +2213,13 @@ _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
                 'cad_upstream_version_candidates',
                 'cad_validation_benchmark_specs',
                 'cad_validation_corpus_entries',
+                'cad_validation_cases',
                 'cad_video_geometry_workspaces',
+                'cad_video_presentation_profiles',
+                'cad_video_presentation_selections',
+                'cad_visual_qa_verdicts',
+                'htdt_project_imports',
+                'htdt_legacy_imports',
                 'project_templates',
                 'r150_path_frequency_response_artifacts',
                 'r160_numerical_hybrid_responses',

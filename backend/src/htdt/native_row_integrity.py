@@ -531,6 +531,51 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #817/#818: profile authorities — document_id on profile rows is row
+    # scope (the model has no document field), so it is not bound; every
+    # other duplicated column is a genuine payload field duplicate.
+    'cad_bass_management_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('lifecycle', 'lifecycle'),
+        ),
+        (),
+    ),
+    'cad_bass_management_selections': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('selected_at_utc', 'selected_at_utc'),
+        ),
+        (),
+    ),
+    'cad_video_presentation_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+        ),
+        (),
+    ),
+    'cad_video_presentation_selections': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('screen_entity_id', 'screen_entity_id'),
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('selected_at_utc', 'selected_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

@@ -542,6 +542,9 @@ class CadAcousticLevelCalibration(BaseModel):
     sensitivity_v_per_pa: float | None = Field(default=None, gt=0.0)
     reference_level_db_spl: float | None = None
     reference_frequency_hz: float | None = Field(default=None, gt=0.0)
+    #: Calibration uncertainty retained separately from the calibrated value
+    #: — absence means UNKNOWN, never silently zero uncertainty.
+    uncertainty_db: float | None = Field(default=None, ge=0.0)
     calibrated_at_utc: str = Field(min_length=1)
     validity_scope: LevelCalibrationScope = 'unknown'
     # #850/#859: enforceable applicability identity. ``measurement`` scope
@@ -563,6 +566,7 @@ class CadAcousticLevelCalibration(BaseModel):
             ('reference_level_db_spl', self.reference_level_db_spl),
             ('reference_frequency_hz', self.reference_frequency_hz),
             ('sensitivity_v_per_pa', self.sensitivity_v_per_pa),
+            ('uncertainty_db', self.uncertainty_db),
         ):
             if value is not None and not isfinite(float(value)):
                 raise ValueError(f'{label} must be finite')
@@ -586,14 +590,17 @@ class CadAcousticLevelCalibration(BaseModel):
             'validity_scope': self.validity_scope,
             'provenance_json': self.provenance_json,
         }
-        # Optional post-#850/#859 applicability identity joins the seal
-        # only when present — records persisted before keep their hash.
+        # Optional fields join the identity only when present — the additive
+        # convention that keeps existing authority hashes stable. The
+        # post-#850/#859 applicability fields and ``uncertainty_db`` alike.
         if self.subject_measurement_id is not None:
             payload['subject_measurement_id'] = self.subject_measurement_id
         if self.acquisition_session_id is not None:
             payload['acquisition_session_id'] = self.acquisition_session_id
         if self.input_path_identity is not None:
             payload['input_path_identity'] = self.input_path_identity
+        if self.uncertainty_db is not None:
+            payload['uncertainty_db'] = self.uncertainty_db
         return payload
 
 
@@ -602,16 +609,93 @@ _LEVEL_METHODS_WITH_ABSOLUTE_SPL = frozenset(
 )
 
 
+def absolute_spl_evidence_gaps(
+    calibration: CadAcousticLevelCalibration,
+) -> tuple[str, ...]:
+    """The method-specific evidence missing for an absolute dB-SPL claim.
+
+    A method capable of absolute SPL must carry its minimum evidence set —
+    a bare method enum authorizes nothing:
+
+    * ``acoustic_calibrator``: reference level + reference frequency;
+      measured input-chain/microphone identity; derived scale/sensitivity
+      or the exact producer session it came from; an applicability scope.
+    * ``rew_spl_session``: the exact producer session/profile record;
+      input path/device/channel context; the calibration result or
+      derived scale; an applicability scope.
+    * ``reference_meter_transfer``: the exact reference-meter identity;
+      the target input chain; the observed transfer/calibration result;
+      the transfer method/session record; an applicability scope.
+
+    ``manufacturer_sensitivity``, ``imported``, ``manual`` and ``unknown``
+    are never absolute-SPL authorities on their own — they may be stored
+    as calibration-related information without authorizing absolute SPL.
+    """
+
+    if calibration.method not in _LEVEL_METHODS_WITH_ABSOLUTE_SPL:
+        return ('method cannot authorize absolute SPL',)
+    gaps: list[str] = []
+    has_input_chain = any(
+        (
+            calibration.instrument_identity,
+            calibration.input_device_label,
+            calibration.input_channel,
+            calibration.input_path_identity,
+        )
+    )
+    has_session_record = (
+        bool(calibration.instrument_profile)
+        or bool(calibration.acquisition_session_id)
+        or calibration.provenance_json not in ('', '{}')
+    )
+    if calibration.method == 'acoustic_calibrator':
+        if calibration.reference_level_db_spl is None:
+            gaps.append('calibrator reference level')
+        if calibration.reference_frequency_hz is None:
+            gaps.append('calibrator reference frequency')
+        if not has_input_chain:
+            gaps.append('measured input chain/microphone identity')
+        if calibration.sensitivity_v_per_pa is None and not has_session_record:
+            gaps.append('derived scale or exact producer session')
+    elif calibration.method == 'rew_spl_session':
+        if not has_session_record:
+            gaps.append('exact producer session record')
+        if not has_input_chain:
+            gaps.append('input path/device/channel context')
+        if (
+            calibration.sensitivity_v_per_pa is None
+            and calibration.reference_level_db_spl is None
+        ):
+            gaps.append('calibration result/scale semantics')
+    elif calibration.method == 'reference_meter_transfer':
+        if calibration.instrument_identity is None:
+            gaps.append('reference meter/instrument authority')
+        if not any(
+            (calibration.input_device_label, calibration.input_channel)
+        ):
+            gaps.append('target input-chain identity')
+        if (
+            calibration.reference_level_db_spl is None
+            and calibration.sensitivity_v_per_pa is None
+        ):
+            gaps.append('observed transfer/calibration result')
+        if not has_session_record:
+            gaps.append('transfer method/session record')
+    if calibration.validity_scope == 'unknown':
+        gaps.append('applicability scope')
+    return tuple(gaps)
+
+
 def calibration_supports_absolute_spl(
     calibration: CadAcousticLevelCalibration,
 ) -> bool:
     """Whether this calibration can authorize an absolute dB-SPL claim.
 
-    ``manufacturer_sensitivity``, ``imported``, ``manual`` and ``unknown``
-    methods are never SPL authorities on their own.
+    Evaluates the complete authority — method alone never authorizes SPL;
+    missing required method evidence leaves the capability unsupported.
     """
 
-    return calibration.method in _LEVEL_METHODS_WITH_ABSOLUTE_SPL
+    return not absolute_spl_evidence_gaps(calibration)
 
 
 def calibration_applies_to(
@@ -741,6 +825,7 @@ def build_acoustic_level_calibration(
     sensitivity_v_per_pa: float | None = None,
     reference_level_db_spl: float | None = None,
     reference_frequency_hz: float | None = None,
+    uncertainty_db: float | None = None,
     calibrated_at_utc: str | None = None,
     validity_scope: LevelCalibrationScope = 'unknown',
     subject_measurement_id: str | None = None,
@@ -760,6 +845,7 @@ def build_acoustic_level_calibration(
         'sensitivity_v_per_pa': sensitivity_v_per_pa,
         'reference_level_db_spl': reference_level_db_spl,
         'reference_frequency_hz': reference_frequency_hz,
+        'uncertainty_db': uncertainty_db,
         'calibrated_at_utc': calibrated_at_utc or _utc_now(),
         'validity_scope': validity_scope,
         'subject_measurement_id': subject_measurement_id,
@@ -937,14 +1023,15 @@ class CadRoutingProfile(BaseModel):
 
     routing_profile_id: str = Field(min_length=1)
     profile_name: str = Field(min_length=1, default='routing')
-    # #858: explicit project/topology scope. The speaker ids inside
+    # #848/#858: explicit project/topology scope. The speaker ids inside
     # entries only have meaning inside one SceneDocument; ``document_id``
     # binds the project and the optional ``scene_revision_id`` pins the
     # exact immutable revision the map was verified under. Both join the
     # sealed identity only when present — legacy unscoped profiles keep
-    # their hash but can never prove same-project scope.
-    document_id: str | None = None
-    scene_revision_id: str | None = None
+    # their hash; the repository refuses to persist a new profile without
+    # them.
+    document_id: str | None = Field(default=None, min_length=1)
+    scene_revision_id: str | None = Field(default=None, min_length=1)
     entries: tuple[CadChannelMapEntry, ...] = Field(min_length=1)
     created_at_utc: str = Field(min_length=1)
     provenance_json: str = '{}'
@@ -980,8 +1067,9 @@ class CadRoutingProfile(BaseModel):
             'created_at_utc': self.created_at_utc,
             'provenance_json': self.provenance_json,
         }
-        # Optional post-#858 scope identity joins the seal only when
-        # present — profiles persisted unscoped keep their hash.
+        # Optional scope identity joins the seal only when present
+        # (additive convention) — profiles persisted unscoped keep
+        # their hash.
         if self.document_id is not None:
             payload['document_id'] = self.document_id
         if self.scene_revision_id is not None:
@@ -1111,6 +1199,143 @@ WiringCheckKind = Literal[
 
 WiringCheckResult = Literal['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE']
 
+
+# ---------------------------------------------------------------------------
+# Typed electrical-load observation evidence (#857)
+
+
+LoadQuantityKind = Literal['dcr', 'impedance_magnitude']
+LoadTestCondition = Literal['dc', 'frequency']
+
+
+class CadElectricalLoadObservation(BaseModel):
+    """Typed quantitative load observation for a wiring ``load`` check.
+
+    A DC resistance (DCR) reading and a frequency-dependent impedance
+    magnitude are different quantities — ``quantity_kind`` keeps them apart
+    so a DCR probe result can never be reported as an impedance curve.
+    ``expected_min_ohm``/``expected_max_ohm`` carry the expected range the
+    PASS/FAIL interpretation is derived from; ``expected_source`` names the
+    authority for that range (datasheet, nominal spec, as-built record).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    observation_id: str = Field(min_length=1)
+    quantity_kind: LoadQuantityKind
+    value_ohm: float = Field(gt=0)
+    test_condition: LoadTestCondition
+    test_frequency_hz: float | None = Field(default=None, gt=0)
+    test_point: str | None = Field(default=None, min_length=1)
+    instrument_label: str | None = Field(default=None, min_length=1)
+    instrument_ref: str | None = Field(default=None, min_length=1)
+    uncertainty_ohm: float | None = Field(default=None, ge=0)
+    expected_min_ohm: float | None = Field(default=None, gt=0)
+    expected_max_ohm: float | None = Field(default=None, gt=0)
+    expected_source: str | None = Field(default=None, min_length=1)
+    measured_at_utc: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_observation(self) -> 'CadElectricalLoadObservation':
+        if not isfinite(self.value_ohm):
+            raise ValueError('load observation value must be finite')
+        if self.test_condition == 'dc':
+            if self.test_frequency_hz is not None:
+                raise ValueError(
+                    'a DC load observation carries no test frequency'
+                )
+        elif self.test_frequency_hz is None:
+            raise ValueError(
+                'a frequency-domain load observation requires '
+                'test_frequency_hz'
+            )
+        if self.quantity_kind == 'dcr' and self.test_condition != 'dc':
+            raise ValueError(
+                'a DCR observation is a DC measurement, not a '
+                'frequency-dependent impedance'
+            )
+        if (
+            self.quantity_kind == 'impedance_magnitude'
+            and self.test_condition != 'frequency'
+        ):
+            raise ValueError(
+                'an impedance magnitude observation requires a '
+                'frequency-domain test condition'
+            )
+        if (self.expected_min_ohm is None) != (self.expected_max_ohm is None):
+            raise ValueError('expected load range requires both bounds')
+        if (
+            self.expected_min_ohm is not None
+            and self.expected_max_ohm is not None
+            and self.expected_max_ohm <= self.expected_min_ohm
+        ):
+            raise ValueError('expected load range is invalid')
+        if self.uncertainty_ohm is not None and not isfinite(
+            self.uncertainty_ohm
+        ):
+            raise ValueError('load uncertainty must be finite')
+        _require_iso8601(
+            self.measured_at_utc, 'load observation measured_at_utc'
+        )
+        return self
+
+
+def derive_load_result(
+    observation: CadElectricalLoadObservation,
+) -> WiringCheckResult:
+    """Deterministic interpretation of a load observation.
+
+    A quantitative PASS/FAIL is reproduced from the measured value and the
+    expected range, never trusted from the caller; without an expected range
+    the observation is kept as evidence but stays UNKNOWN.
+    """
+    if (
+        observation.expected_min_ohm is None
+        or observation.expected_max_ohm is None
+    ):
+        return 'UNKNOWN'
+    return (
+        'PASS'
+        if observation.expected_min_ohm
+        <= observation.value_ohm
+        <= observation.expected_max_ohm
+        else 'FAIL'
+    )
+
+
+def build_electrical_load_observation(
+    *,
+    quantity_kind: LoadQuantityKind,
+    value_ohm: float,
+    test_condition: LoadTestCondition,
+    measured_at_utc: str,
+    observation_id: str | None = None,
+    test_frequency_hz: float | None = None,
+    test_point: str | None = None,
+    instrument_label: str | None = None,
+    instrument_ref: str | None = None,
+    uncertainty_ohm: float | None = None,
+    expected_min_ohm: float | None = None,
+    expected_max_ohm: float | None = None,
+    expected_source: str | None = None,
+) -> CadElectricalLoadObservation:
+    """Assemble a typed electrical-load observation record."""
+    return CadElectricalLoadObservation(
+        observation_id=observation_id or str(uuid4()),
+        quantity_kind=quantity_kind,
+        value_ohm=float(value_ohm),
+        test_condition=test_condition,
+        test_frequency_hz=test_frequency_hz,
+        test_point=test_point,
+        instrument_label=instrument_label,
+        instrument_ref=instrument_ref,
+        uncertainty_ohm=uncertainty_ohm,
+        expected_min_ohm=expected_min_ohm,
+        expected_max_ohm=expected_max_ohm,
+        expected_source=expected_source,
+        measured_at_utc=measured_at_utc,
+    )
+
 # Applied polarity-compensation token: each occurrence of this token in a
 # check's ``applied_compensation`` list is one intended signal-polarity
 # inversion (e.g. a DSP/AVR polarity control). Composition is explicit —
@@ -1144,6 +1369,15 @@ class CadWiringVerificationCheck(BaseModel):
     observed_speaker_ids: tuple[str, ...] = ()
     applied_compensation: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
+    # #848/#857: exact typed bindings. ``routing_profile_ref`` pins the
+    # #473 RoutingProfile a routing check resolved against;
+    # ``load_observation`` is the quantitative evidence a ``load`` check
+    # derives its result from; ``scene_revision_id`` pins the exact
+    # as-built baseline the speaker refs were verified in. All are optional
+    # so checks persisted before this authority existed keep their hash.
+    routing_profile_ref: CadRoutingProfileBinding | None = None
+    load_observation: CadElectricalLoadObservation | None = None
+    scene_revision_id: str | None = Field(default=None, min_length=1)
     measured_at_utc: str = Field(min_length=1)
     operator: str | None = None
     result: WiringCheckResult
@@ -1172,12 +1406,16 @@ class CadWiringVerificationCheck(BaseModel):
             self.reason and self.reason.strip()
         ):
             raise ValueError('wiring check FAIL/UNKNOWN requires a reason')
+        if self.load_observation is not None and self.check_kind != 'load':
+            raise ValueError(
+                'a load observation is only valid on a load wiring check'
+            )
         if self.check_sha256 != _hash(self.identity_payload()):
             raise ValueError('wiring verification check hash mismatch')
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'check_id': self.check_id,
             'document_id': self.document_id,
             'check_kind': self.check_kind,
@@ -1196,6 +1434,19 @@ class CadWiringVerificationCheck(BaseModel):
             'notes': list(self.notes),
             'provenance_json': self.provenance_json,
         }
+        # Optional exact bindings join identity only when present (additive
+        # convention) so checks persisted before #848/#857 keep their hash.
+        if self.routing_profile_ref is not None:
+            payload['routing_profile_ref'] = (
+                self.routing_profile_ref.model_dump(mode='json')
+            )
+        if self.load_observation is not None:
+            payload['load_observation'] = self.load_observation.model_dump(
+                mode='json'
+            )
+        if self.scene_revision_id is not None:
+            payload['scene_revision_id'] = self.scene_revision_id
+        return payload
 
 
 def build_wiring_check(
@@ -1213,6 +1464,9 @@ def build_wiring_check(
     observed_speaker_ids: Sequence[str] = (),
     applied_compensation: Sequence[str] = (),
     evidence_refs: Sequence[str] = (),
+    routing_profile_ref: CadRoutingProfileBinding | None = None,
+    load_observation: CadElectricalLoadObservation | None = None,
+    scene_revision_id: str | None = None,
     operator: str | None = None,
     reason: str | None = None,
     notes: Sequence[str] = (),
@@ -1231,6 +1485,9 @@ def build_wiring_check(
         'observed_speaker_ids': tuple(observed_speaker_ids),
         'applied_compensation': tuple(applied_compensation),
         'evidence_refs': tuple(evidence_refs),
+        'routing_profile_ref': routing_profile_ref,
+        'load_observation': load_observation,
+        'scene_revision_id': scene_revision_id,
         'measured_at_utc': measured_at_utc,
         'operator': operator,
         'result': result,
@@ -1302,6 +1559,7 @@ __all__ = [
     'CadAcousticLevelCalibration',
     'CadChannelMapEntry',
     'CadDatasetLevelReference',
+    'CadElectricalLoadObservation',
     'CadMeasurementTimingReference',
     'CadRoutingProfile',
     'CadRoutingProfileBinding',
@@ -1309,6 +1567,8 @@ __all__ = [
     'CadWiringVerificationCheck',
     'LevelCalibrationMethod',
     'LevelCalibrationScope',
+    'LoadQuantityKind',
+    'LoadTestCondition',
     'MeasurementLevelReferenceKind',
     'RoutingVerification',
     'TimingCorrectionApplicationState',
@@ -1319,8 +1579,10 @@ __all__ = [
     'TimingT0Convention',
     'WiringCheckKind',
     'WiringCheckResult',
+    'absolute_spl_evidence_gaps',
     'build_acoustic_level_calibration',
     'build_dataset_level_reference',
+    'build_electrical_load_observation',
     'build_routing_profile',
     'build_timing_reference',
     'build_wiring_check',
@@ -1331,9 +1593,10 @@ __all__ = [
     'correction_application_state',
     'correction_requires_application',
     'correction_sign_convention',
+    'derive_load_result',
     'latest_wiring_checks',
     'net_polarity_state',
-    'routing_profile_binding',
+    'routing_profile',
     'routing_profile_staleness',
     'timing_clocks_shared',
     'timing_corrections_unambiguous',
