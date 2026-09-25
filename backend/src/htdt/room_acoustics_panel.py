@@ -415,7 +415,10 @@ class SurfaceMaterialPanel(QWidget):
             material = repository.get_material(material_id)
             if material is not None:
                 repository.assign_material(
-                    self.controller.document_id, surface_id, material
+                    self.controller.document_id,
+                    surface_id,
+                    material,
+                    surfaces=self._surfaces,
                 )
         self.refresh()
 
@@ -486,6 +489,7 @@ class SurfaceMaterialPanel(QWidget):
                 self.controller.document_id,
                 surface.surface_id,
                 material,
+                surfaces=self._surfaces,
             )
         self.refresh()
 

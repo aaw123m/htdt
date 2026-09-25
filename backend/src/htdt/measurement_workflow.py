@@ -9,12 +9,14 @@ from .cad_listener_pose import CadListenerPoseRepository
 
 if TYPE_CHECKING:
     from .cad_listener_pose import ListenerPoseAuthority
+    from .cad_scene import Position3
     from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 from .cad_measurement_disposition import (
     MEASUREMENT_ELIGIBLE_DISPOSITIONS,
     CadMeasurementCorrection,
     CadMeasurementDisposition,
+    CorrectionKind,
     MeasurementDispositionState,
     build_measurement_correction,
     build_measurement_disposition,
@@ -305,6 +307,19 @@ class MeasurementView:
     # Import-time processing declared on the bound dataset (#503).
     smoothing: str | None
     attachment_count: int
+    # Physical-position truth (#863): the immutable import position never
+    # changes on a correction; ``observed_actual_position`` is the resolved
+    # world position of the pinned pose observation (None unless pose
+    # evidence is bound), and ``assignment_position_compatibility``
+    # classifies how the effective target relates to the import position —
+    # 'original' when uncorrected or non-spatial, 'exact' when the relabeled
+    # target's reference equals the import position, 'pose_observed' when it
+    # differs and an exact pose authority backs the reassignment.
+    original_import_position: Position3
+    observed_actual_position: Position3 | None
+    assignment_position_compatibility: Literal[
+        'original', 'exact', 'pose_observed'
+    ]
 
     @property
     def is_selected(self) -> bool:
@@ -386,13 +401,20 @@ class _BatchEntry:
 
 @dataclass(frozen=True, slots=True)
 class AssignmentCorrection:
-    """Corrected evidence-binding fields (#509). None leaves the field unchanged."""
+    """Corrected evidence-binding fields (#509). None leaves the field unchanged.
+
+    ``correction_kind``/``pose_evidence_ref`` (#863): relabeling a measurement
+    onto a differently positioned target requires pinning an exact pose-
+    observation authority; the repository rejects the correction otherwise.
+    """
 
     measurement_entity_id: str | None = None
     channel_role: str | None = None
     source_speaker_ids: tuple[str, ...] | None = None
     radiation_scope: RadiationScope | None = None
     routing_evidence: RoutingEvidence | None = None
+    correction_kind: CorrectionKind | None = None
+    pose_evidence_ref: ExactExternalAuthorityRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -448,10 +470,20 @@ class MeasurementWorkflowController:
             if measurement_repository is not None
             else CadMeasurementRepository(scene_repository)
         )
+        self.listener_pose_repository = (
+            listener_pose_repository
+            if listener_pose_repository is not None
+            else CadListenerPoseRepository(
+                scene_repository.path, scene_repository
+            )
+        )
         self.quality_repository = (
             quality_repository
             if quality_repository is not None
-            else CadMeasurementQualityRepository(self.measurement_repository)
+            else CadMeasurementQualityRepository(
+                self.measurement_repository,
+                listener_pose_repository=self.listener_pose_repository,
+            )
         )
         if rew_client is None:
             from .rew_api import RewApiClient
@@ -462,11 +494,6 @@ class MeasurementWorkflowController:
         self.runner_repository = CadMeasurementRunnerRepository(
             scene_repository,
             self.measurement_repository,
-        )
-        self.listener_pose_repository = (
-            listener_pose_repository
-            if listener_pose_repository is not None
-            else CadListenerPoseRepository(scene_repository.path)
         )
 
     @property
@@ -950,6 +977,9 @@ class MeasurementWorkflowController:
                 if listener_pose is None
                 else listener_pose.authority_ref()
             ),
+            creation_scene_content_hash=result.revision.content_hash,
+            source_scene_revision_id=revision.revision_id,
+            source_scene_content_hash=revision.content_hash,
         )
         self.quality_repository.save_target_lineage(lineage)
         return lineage
@@ -1029,6 +1059,27 @@ class MeasurementWorkflowController:
                     ).name
                 except KeyError:
                     pass
+            # Physical-position truth (#863): surface the observed pose
+            # position when the correction pins resolvable pose evidence.
+            observed_actual_position = None
+            if (
+                correction is not None
+                and correction.pose_evidence_ref is not None
+            ):
+                resolver = getattr(
+                    self.quality_repository, 'pose_evidence_resolver', None
+                )
+                if resolver is not None:
+                    observed_actual_position = resolver(
+                        correction.pose_evidence_ref, record.document_id
+                    )
+            assignment_compatibility = 'original'
+            if correction is not None and correction.measurement_entity_id is not None:
+                assignment_compatibility = (
+                    'pose_observed'
+                    if correction.pose_evidence_ref is not None
+                    else 'exact'
+                )
             disposition_state = (
                 None if disposition_event is None else disposition_event.disposition
             )
@@ -1157,13 +1208,18 @@ class MeasurementWorkflowController:
                     effective_radiation_scope=effective_scope,
                     effective_routing_evidence=effective_routing,
                     smoothing=None if dataset is None else dataset.smoothing,
-                    attachment_count=len(
-                        self.measurement_repository.list_attachments(
-                            record.measurement_id
+                    attachment_count=(
+                        len(
+                            self.measurement_repository.list_attachments(
+                                record.measurement_id
+                            )
                         )
-                    )
-                    if hasattr(self.measurement_repository, 'list_attachments')
-                    else 0,
+                        if hasattr(self.measurement_repository, 'list_attachments')
+                        else 0
+                    ),
+                    original_import_position=record.measurement_position,
+                    observed_actual_position=observed_actual_position,
+                    assignment_position_compatibility=assignment_compatibility,
                 )
             )
         return tuple(rows)
@@ -2096,6 +2152,8 @@ class MeasurementWorkflowController:
             source_speaker_ids=corrected.source_speaker_ids,
             radiation_scope=corrected.radiation_scope,
             routing_evidence=corrected.routing_evidence,
+            correction_kind=corrected.correction_kind,
+            pose_evidence_ref=corrected.pose_evidence_ref,
         )
         self.quality_repository.save_correction(correction)
         event = build_measurement_disposition(

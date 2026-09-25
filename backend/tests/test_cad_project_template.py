@@ -12,6 +12,7 @@ from htdt.cad_project_template import (
     TemplateMeasurementSpec,
     TemplateSpeakerSpec,
     build_project_template,
+    build_template_layout_reference,
     builtin_project_templates,
     create_project_from_template,
     materialize_template_layout,
@@ -79,10 +80,18 @@ def test_duplicate_roles_rejected() -> None:
             kind='user',
             speaker_specs=(
                 TemplateSpeakerSpec(
-                    speaker_role='FL', name='L', nominal_azimuth_deg=-30.0
+                    speaker_role='FL',
+                    name='L',
+                    nominal_azimuth_deg=-30.0,
+                    nominal_elevation_deg=0.0,
+                    nominal_distance_m=2.5,
                 ),
                 TemplateSpeakerSpec(
-                    speaker_role='FL', name='R', nominal_azimuth_deg=30.0
+                    speaker_role='FL',
+                    name='R',
+                    nominal_azimuth_deg=30.0,
+                    nominal_elevation_deg=0.0,
+                    nominal_distance_m=2.5,
                 ),
             ),
         )
@@ -281,8 +290,18 @@ def test_preview_and_save_exclude_evidence() -> None:
     assert 'furniture-left' in preview.excluded_entity_ids
     assert 'measurements' in preview.excluded_fields
 
+    reference = build_template_layout_reference(
+        document,
+        scene_revision_id='rev-1',
+        source_kind='measurement_point',
+        source_entity_id='point-mlp',
+    )
     template = save_document_as_template(
-        document, template_id='t-user', version='1', name='My room'
+        document,
+        template_id='t-user',
+        version='1',
+        name='My room',
+        layout_reference=reference,
     )
     assert template.kind == 'user'
     roles = {spec.speaker_role for spec in template.speaker_specs}
@@ -290,14 +309,20 @@ def test_preview_and_save_exclude_evidence() -> None:
     # Relative layout intent is carried as nominal angles around the MLP.
     fl = next(spec for spec in template.speaker_specs if spec.speaker_role == 'FL')
     assert fl.nominal_azimuth_deg < 0
+    assert template.layout_reference == reference
 
 
 def test_editing_template_never_touches_created_project(tmp_path: Path) -> None:
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     library = ProjectLibrary(tmp_path / 'cad.sqlite3')
+    repository = _repository(tmp_path)
     template = theater_5_1_4_template()
     document_id, _ = create_project_from_template(
-        scene_repository, template, library=library, created_at_utc=NOW
+        scene_repository,
+        template,
+        library=library,
+        created_at_utc=NOW,
+        instantiation_repository=repository,
     )
     before = scene_repository.latest(document_id).document
     _edited = save_document_as_template(
