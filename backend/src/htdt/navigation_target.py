@@ -52,6 +52,12 @@ class NavigationTargetKind(StrEnum):
     PROJECT_CHECKPOINT = "project_checkpoint"
     ACTIVITY_JOB = "activity_job"
     HELP_TOPIC = "help_topic"
+    OPERATING_PRESET = "operating_preset"
+    HEALTH_BASELINE = "health_baseline"
+    HEALTH_CHECK_PLAN = "health_check_plan"
+    PROJECT_NOTE = "project_note"
+    CALIBRATION_PLAN = "calibration_plan"
+    AV_SYNC_CONDITION = "av_sync_condition"
 
 
 class NavigationIntent(StrEnum):
@@ -187,6 +193,16 @@ TARGET_KIND_ROUTES: dict[
     ),
     NavigationTargetKind.HELP_TOPIC: (
         (ApplicationDestinationId.SUPPORT, None),
+    ),
+    NavigationTargetKind.OPERATING_PRESET: (),
+    NavigationTargetKind.HEALTH_BASELINE: (),
+    NavigationTargetKind.HEALTH_CHECK_PLAN: (),
+    NavigationTargetKind.PROJECT_NOTE: (),
+    NavigationTargetKind.CALIBRATION_PLAN: (
+        (WorkspaceId.MEASUREMENT, "calibration"),
+    ),
+    NavigationTargetKind.AV_SYNC_CONDITION: (
+        (WorkspaceId.MEASUREMENT, "quality"),
     ),
 }
 

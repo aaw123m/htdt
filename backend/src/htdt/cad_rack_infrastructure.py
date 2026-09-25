@@ -20,12 +20,22 @@ Contract properties:
   capability and from heat dissipation;
 - :func:`evaluate_rack_fit` reports per-device PASS/FAIL/UNKNOWN checks for
   RU occupancy, depth and declared clearances only — it never claims
-  airflow adequacy from free space;
+  airflow adequacy from free space; the layout must be bound to the exact
+  rack being evaluated, RU overlap marks every participant (never just the
+  later placement), and a clearance axis whose rack-side value is
+  undeclared stays ``UNKNOWN`` rather than being promoted to ``PASS``;
+- ``RackDefinition.service_clearance_m`` is recorded documentation only:
+  no device-level service requirement exists yet, so it never contributes
+  to ``clearance_fit``;
 - :func:`summarize_load` aggregates only data compatible with the scenario
   state and keeps unknown device contributions explicit — a missing device
   is never 0 W;
 - circuit/PDU assignments are abstract endpoints with arithmetic summaries;
-  no breaker sizing or code-compliance verdict is produced;
+  no breaker sizing or code-compliance verdict is produced; the assignment
+  graph itself is validated — an assignment to an unknown endpoint or
+  device, a duplicate endpoint id, or a device feeding multiple endpoints
+  is a topology error, distinct from a valid device whose power datum is
+  simply missing;
 - :func:`summarize_heat` sums only documented heat dissipation and keeps
   unknown devices visible; a watts→heat conversion is allowed only under an
   explicit recorded assumption and stays labelled derived.
@@ -268,12 +278,45 @@ def evaluate_rack_fit(
 ) -> tuple[DeviceFitResult, ...]:
     """Bounded fit checks: RU occupancy, depth, declared clearances.
 
-    Unknown dimensions stay UNKNOWN — nothing is inferred from the nominal
-    rack family. No airflow-adequacy claim is produced.
+    The layout must be bound to the exact rack being evaluated — evaluating
+    a Rack-A layout against Rack B is an authority-binding error, not an
+    unknown-dimension case. Unknown dimensions stay UNKNOWN — nothing is
+    inferred from the nominal rack family. RU overlap is physical and
+    symmetric: every device whose declared span collides fails, independent
+    of placement order. A declared device clearance requirement whose
+    rack-side value is undeclared stays UNKNOWN — it is never promoted to
+    PASS. No airflow-adequacy claim is produced.
     """
 
+    if layout.rack_id != rack.rack_id:
+        raise ValueError(
+            'rack layout is bound to a different rack definition: '
+            f'{layout.rack_id!r} != {rack.rack_id!r}'
+        )
+
     by_id = {item.device_id: item for item in devices}
-    occupied: dict[int, str] = {}
+
+    # Resolve every declared RU span before evaluating so occupancy is
+    # order-independent; all devices sharing an RU participate in the
+    # conflict, not just the later placement.
+    spans: dict[str, range] = {}
+    for placement in layout.placements:
+        device = by_id.get(placement.device_id)
+        if (
+            placement.ru_position is None
+            or device is None
+            or device.ru_height is None
+        ):
+            continue
+        spans[placement.device_id] = range(
+            placement.ru_position,
+            placement.ru_position + device.ru_height,
+        )
+    occupancy: dict[int, set[str]] = {}
+    for device_id, span in spans.items():
+        for ru in span:
+            occupancy.setdefault(ru, set()).add(device_id)
+
     results: list[DeviceFitResult] = []
     for placement in layout.placements:
         device = by_id.get(placement.device_id)
@@ -282,34 +325,32 @@ def evaluate_rack_fit(
 
         ru_status: FitStatus = 'UNKNOWN'
         if placement.ru_position is not None:
-            span = (
-                None
-                if device is None or device.ru_height is None
-                else range(
-                    placement.ru_position,
-                    placement.ru_position + device.ru_height,
-                )
-            )
+            span = spans.get(placement.device_id)
             if span is None:
                 reasons.append('device RU height is not declared')
-            elif rack.ru_capacity is None:
-                reasons.append('rack RU capacity is not declared')
-            elif span.stop - 1 > rack.ru_capacity:
-                ru_status = 'FAIL'
-                reasons.append('device exceeds declared rack RU capacity')
             else:
-                clash = [occupied.get(ru) for ru in span if ru in occupied]
-                if clash:
+                clashes = sorted({
+                    other
+                    for ru in span
+                    for other in occupancy.get(ru, set())
+                    if other != placement.device_id
+                })
+                exceeds_capacity = (
+                    rack.ru_capacity is not None
+                    and span.stop - 1 > rack.ru_capacity
+                )
+                if exceeds_capacity:
                     ru_status = 'FAIL'
-                    conflicts.extend(
-                        sorted({item for item in clash if item is not None})
-                    )
+                    reasons.append('device exceeds declared rack RU capacity')
+                if clashes:
+                    ru_status = 'FAIL'
+                    conflicts.extend(clashes)
                     reasons.append('device RU span overlaps another placement')
-                else:
-                    ru_status = 'PASS'
-            if span is not None and ru_status == 'PASS':
-                for ru in span:
-                    occupied[ru] = placement.device_id
+                if ru_status != 'FAIL':
+                    if rack.ru_capacity is None:
+                        reasons.append('rack RU capacity is not declared')
+                    else:
+                        ru_status = 'PASS'
 
         depth_status: FitStatus = 'UNKNOWN'
         if device is None or device.chassis_depth_m is None:
@@ -320,27 +361,38 @@ def evaluate_rack_fit(
             depth_status = 'FAIL'
             reasons.append('device depth exceeds rack usable depth')
 
-        clearance_status: FitStatus = 'UNKNOWN'
+        # Per-axis clearance semantics: a declared device requirement
+        # evaluates PASS/FAIL/UNKNOWN against the rack's available value;
+        # any FAIL dominates, then any UNKNOWN — a missing rack-side value
+        # is never promoted to PASS.
         clearance_checks = (
             ('front', device.requires_front_clearance_m if device else None,
              rack.front_clearance_m),
             ('rear', device.requires_rear_clearance_m if device else None,
              rack.rear_clearance_m),
         )
-        saw_requirement = False
+        axis_statuses: list[FitStatus] = []
         for label, required, available in clearance_checks:
             if required is None:
                 continue
-            saw_requirement = True
             if available is None:
+                axis_statuses.append('UNKNOWN')
                 reasons.append(f'rack {label} clearance is not declared')
             elif required > available:
-                clearance_status = 'FAIL'
+                axis_statuses.append('FAIL')
                 reasons.append(
                     f'device {label} clearance requirement exceeds the rack'
                 )
-        if clearance_status != 'FAIL' and saw_requirement:
+            else:
+                axis_statuses.append('PASS')
+        if 'FAIL' in axis_statuses:
+            clearance_status: FitStatus = 'FAIL'
+        elif 'UNKNOWN' in axis_statuses:
+            clearance_status = 'UNKNOWN'
+        elif axis_statuses:
             clearance_status = 'PASS'
+        else:
+            clearance_status = 'UNKNOWN'
 
         results.append(DeviceFitResult(
             device_id=placement.device_id,
@@ -455,13 +507,43 @@ def summarize_endpoint_loads(
 ) -> tuple[EndpointLoadSummary, ...]:
     """Per-endpoint arithmetic summary of the declared rating state.
 
+    The assignment graph is validated before arithmetic: an assignment to
+    an unknown endpoint or device, a duplicate endpoint id, or a device
+    assigned to multiple endpoints (multi-feed is not modeled) is a
+    topology error — never silently dropped or double-counted. A valid
+    assignment whose device lacks a matching power datum remains an
+    ``unknown_device_ids`` evidence gap, distinct from invalid topology.
+
     ``exceeds_declared_rating`` is plain arithmetic against a user-declared
     number — it is not a code-compliance verdict.
     """
 
+    endpoint_ids = [item.endpoint_id for item in endpoints]
+    if len(endpoint_ids) != len(set(endpoint_ids)):
+        raise ValueError('circuit endpoint ids must be unique')
+    known_endpoints = set(endpoint_ids)
+    known_devices = {item.device_id for item in devices}
+
     by_id = {item.device_id: item for item in devices}
     by_endpoint: dict[str, list[str]] = {}
+    assigned_devices: set[str] = set()
     for assignment in assignments:
+        if assignment.endpoint_id not in known_endpoints:
+            raise ValueError(
+                'circuit assignment references unknown endpoint '
+                f'{assignment.endpoint_id!r}'
+            )
+        if assignment.device_id not in known_devices:
+            raise ValueError(
+                'circuit assignment references unknown device '
+                f'{assignment.device_id!r}'
+            )
+        if assignment.device_id in assigned_devices:
+            raise ValueError(
+                f'device {assignment.device_id!r} is assigned to multiple '
+                'endpoints'
+            )
+        assigned_devices.add(assignment.device_id)
         by_endpoint.setdefault(assignment.endpoint_id, []).append(
             assignment.device_id
         )

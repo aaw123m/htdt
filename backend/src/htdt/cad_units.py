@@ -25,6 +25,7 @@ UnitKind = Literal[
     'db',
     'hz',
     's',
+    'ms',
     'dimensionless',
 ]
 
@@ -40,6 +41,7 @@ _QUANTITY_FAMILY: dict[str, str] = {
     'db': 'level',
     'hz': 'frequency',
     's': 'time',
+    'ms': 'time',
     'dimensionless': 'dimensionless',
 }
 
@@ -53,6 +55,7 @@ _TO_BASE: dict[str, float] = {
     'db': 1.0,
     'hz': 1.0,
     's': 1.0,
+    'ms': 0.001,
     'dimensionless': 1.0,
 }
 

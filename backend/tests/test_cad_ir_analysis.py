@@ -11,6 +11,7 @@ from htdt.cad_ir_analysis import (
     CadIRAnalysisRepository,
     IRAnalysisSpec,
     build_ir_analysis_spec,
+    energy_metric_observation,
     replay_ir_analysis,
     run_ir_analysis,
 )
@@ -157,3 +158,98 @@ def test_replay_and_repository(tmp_path: Path):
 
 def test_algorithm_identity_is_versioned():
     assert len(IR_ANALYSIS_ALGORITHM_SHA256) == 64
+
+
+def test_clarity_metrics_anchored_to_time_zero():
+    # Synthetic IR: a strong direct arrival at t0 then exponentially
+    # decaying energy — early/late ratios are deterministic.
+    n = int(0.5 * FS)
+    t = np.arange(n) / FS
+    h = np.exp(-t / 0.05)
+    t0 = int(0.02 * FS)
+    h[:t0] = 0.0
+    spec = _spec(time_zero_sample=t0)
+    result = run_ir_analysis(
+        spec, tuple(float(v) for v in h), created_at='2026-09-23T00:00:00+00:00'
+    )
+    energy = {m.metric: m for m in result.energy_metrics}
+    assert energy['c50'].status == 'estimated'
+    assert energy['c80'].status == 'estimated'
+    assert energy['d50'].status == 'estimated'
+    assert energy['early_energy'].status == 'estimated'
+    assert energy['c50'].split_time_ms == 50.0
+    # More early energy than late energy -> positive clarity.
+    assert energy['c50'].value > 0.0
+    assert 0.0 < energy['d50'].value < 1.0
+    assert energy['early_energy'].early_energy > 0.0
+    assert energy['early_energy'].late_energy > 0.0
+
+
+def test_clarity_metrics_fail_closed_on_truncation():
+    ir = _ir(tau_s=0.2, length_s=1.0)
+    spec = _spec(window_start_s=0.0, window_end_s=0.05)
+    result = run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+    assert result.truncated is True
+    assert result.energy_metrics
+    assert all(m.status == 'blocked' for m in result.energy_metrics)
+    assert all('truncat' in m.reason for m in result.energy_metrics)
+
+
+def test_clarity_metrics_blocked_capability():
+    ir = _ir(tau_s=0.05, length_s=1.0)
+    result = run_ir_analysis(
+        _spec(),
+        ir,
+        capabilities={'clarity': 'BLOCKED'},
+        created_at='2026-09-23T00:00:00+00:00',
+    )
+    assert result.energy_metrics
+    assert all(m.status == 'blocked' for m in result.energy_metrics)
+
+
+def test_clarity_metrics_fail_closed_on_time_zero_outside_window():
+    ir = _ir(tau_s=0.05, length_s=1.0)
+    spec = _spec(time_zero_sample=int(0.9 * FS), window_end_s=0.5)
+    result = run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+    assert all(m.status == 'blocked' for m in result.energy_metrics)
+    assert all('time-zero' in m.reason for m in result.energy_metrics)
+
+
+def test_energy_metric_observation_adapter():
+    n = int(0.5 * FS)
+    t = np.arange(n) / FS
+    h = np.exp(-t / 0.05)
+    spec = _spec()
+    result = run_ir_analysis(
+        spec, tuple(float(v) for v in h), created_at='2026-09-23T00:00:00+00:00'
+    )
+    observation = energy_metric_observation(
+        result,
+        'c80',
+        criterion_id='c80-main',
+        band_id='125-250',
+        entity_ids=('seat-1',),
+    )
+    assert observation.evidence_basis == 'measured'
+    assert observation.provided_capability == 'measured_clarity_c80'
+    assert observation.unit == 'dB'
+    assert observation.entity_ids == ('seat-1',)
+    assert any(
+        ref.kind == 'ir_analysis_result'
+        and ref.evidence_sha256 == result.analysis_sha256
+        for ref in observation.evidence_refs
+    )
+    # A non-estimated metric never adapts — it stays UNKNOWN upstream.
+    blocked = run_ir_analysis(
+        _spec(window_end_s=0.05),
+        _ir(tau_s=0.2, length_s=1.0),
+        created_at='2026-09-23T00:00:00+00:00',
+    )
+    with pytest.raises(ValueError, match='not estimated'):
+        energy_metric_observation(
+            blocked, 'c80', criterion_id='c80-main', band_id='125-250'
+        )
+    with pytest.raises(ValueError, match='unknown IR energy metric kind'):
+        energy_metric_observation(
+            result, 'xyz', criterion_id='c80-main', band_id='125-250'
+        )

@@ -112,10 +112,107 @@ def test_estimate_combines_paths_energetically_not_db_average():
     assert 18.0 < band0.combined_tl_db < 30.0
     assert band0.combined_tl_db != pytest.approx(24.0)
     assert set(band0.modeled_path_ids) == {'wall', 'door'}
+    assert band0.completeness == 'COMPLETE'
     # second band has no door coverage -> door stays UNKNOWN, not dropped
     band1 = estimate.band_estimates[1]
     assert band1.combined_tl_db is not None
     assert 'door' in band1.unknown_path_ids
+    assert band1.completeness == 'PARTIAL_UNKNOWN_PATHS'
+    assert band1.unknown_area_m2 == pytest.approx(1.0)
+
+
+def test_minimum_isolation_goal_fails_closed_on_unknown_paths():
+    wall = _wall()
+    door = _door()
+    scenario = _scenario((
+        IsolationPath(
+            path_id='wall',
+            kind='partition',
+            source_region_id='theater',
+            receiving_region_id='bedroom',
+            assembly_id='asm-wall',
+            area_m2=9.0,
+        ),
+        IsolationPath(
+            path_id='door',
+            kind='door',
+            source_region_id='theater',
+            receiving_region_id='bedroom',
+            assembly_id='asm-door',
+            area_m2=1.0,
+        ),
+    ))
+    estimate = estimate_isolation(scenario=scenario, assemblies=(wall, door))
+    band1 = estimate.band_estimates[1]
+    # The known-subset number stays diagnostic only, and the explicit
+    # tau=1 open-path bound is labelled with its assumption.
+    assert band1.completeness == 'PARTIAL_UNKNOWN_PATHS'
+    assert band1.open_bound_tl_db is not None
+    assert 'tau=1' in (band1.bound_assumption or '')
+    goal = IsolationGoal(
+        goal_id='g-min',
+        kind='minimum_isolation',
+        frequency=_band(400.0, 630.0),
+        value_db=40.0,
+    )
+    result = evaluate_isolation_goal(goal, estimate)
+    # combined_tl_db over the modeled wall alone (55 dB) would satisfy
+    # 40 dB — but the declared door path is UNKNOWN, so the goal cannot
+    # be decided from the modeled subset.
+    assert result.status == 'UNKNOWN'
+    assert 'door' in result.reason
+
+
+def test_ambiguous_overlapping_tl_bands_stay_unknown():
+    assembly = build_isolation_assembly(
+        assembly_id='asm-ambig',
+        name='Ambiguous bands',
+        evidence_tier='lab_tl_spectrum',
+        provenance=(_prov(),),
+        tl_bands=(
+            TransmissionLossBand(
+                band_id='a', frequency=_band(100.0, 160.0), tl_db=30.0,
+            ),
+            TransmissionLossBand(
+                band_id='b', frequency=_band(100.0, 200.0), tl_db=40.0,
+            ),
+        ),
+        valid_frequency=_band(100.0, 630.0),
+    )
+    scenario = _scenario((
+        IsolationPath(
+            path_id='wall',
+            kind='partition',
+            source_region_id='theater',
+            receiving_region_id='bedroom',
+            assembly_id='asm-ambig',
+            area_m2=9.0,
+        ),
+    ))
+    estimate = estimate_isolation(scenario=scenario, assemblies=(assembly,))
+    statuses = {item.path_id: item.status for item in estimate.path_results}
+    # Band 0 (100-160 Hz) is covered by two conflicting TL bands — the
+    # ambiguity stays UNKNOWN rather than inheriting tuple order.
+    assert statuses['wall'] == 'UNKNOWN'
+    assert estimate.band_estimates[0].completeness == 'NO_MODELED_PATHS'
+
+
+def test_duplicate_tl_frequency_ranges_rejected():
+    with pytest.raises(ValidationError):
+        build_isolation_assembly(
+            assembly_id='asm-dup',
+            name='Duplicate ranges',
+            evidence_tier='lab_tl_spectrum',
+            provenance=(_prov(),),
+            tl_bands=(
+                TransmissionLossBand(
+                    band_id='a', frequency=_band(100.0, 160.0), tl_db=30.0,
+                ),
+                TransmissionLossBand(
+                    band_id='b', frequency=_band(100.0, 160.0), tl_db=40.0,
+                ),
+            ),
+        )
 
 
 def test_missing_assembly_stays_unknown_never_default_wall():

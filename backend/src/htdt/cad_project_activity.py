@@ -16,8 +16,9 @@ Contract properties:
   Activity Center (#603 — transient/running app operations);
 - routine UI actions and cache operations never emit events — only durable
   project authority does;
-- events deep-link to the exact surviving authority via
-  ``htdt://workspace/...`` URIs;
+- events deep-link to the exact surviving authority via typed
+  ``htdt://nav/v1/<kind>`` URIs — checkpoint/preset/health/note ids are
+  project-secondary authority objects, never mis-typed as Scene entities;
 - user milestone notes (:class:`ProjectActivityNote`) are documentation and
   can never become measured/as-built truth;
 - events copied with a duplicated/imported project keep ``inherited=True``
@@ -36,7 +37,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
 from .capture_inbox import capture_inbox_item_project_id
-from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from .navigation_target import NavigationTarget, NavigationTargetKind
+from .workflow_navigation import DestinationId, WorkspaceId
 
 
 ACTIVITY_EVENT_KINDS: frozenset[str] = frozenset(
@@ -112,9 +114,19 @@ def _hash(payload: Any) -> str:
     return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
-def _link(workspace: WorkspaceId, context: str | None = None, entity_id: str | None = None) -> str:
-    return WorkspaceDeepLink(
-        workspace=workspace, section=context, entity_id=entity_id
+def _link(
+    kind: NavigationTargetKind,
+    workspace: DestinationId,
+    context: str | None = None,
+    object_id: str | None = None,
+) -> str:
+    """Typed versioned nav URI preserving the preferred surface + section."""
+
+    return NavigationTarget(
+        kind=kind,
+        object_ids=(object_id,) if object_id is not None else (),
+        preferred_destination=workspace,
+        preferred_section=context,
     ).as_uri()
 
 
@@ -368,7 +380,12 @@ class CadProjectActivityService:
                 occurred_at_utc=revision.created_at_utc,
                 title=title,
                 detail='非ヘッド履歴' if revision.detached else None,
-                deep_link=_link(WorkspaceId.ROOM, 'history', revision.revision_id),
+                deep_link=_link(
+                    NavigationTargetKind.SCENE_REVISION,
+                    WorkspaceId.ROOM,
+                    'history',
+                    revision.revision_id,
+                ),
             )
         try:
             labels = self.scene_repository.revision_labels(document_id)
@@ -383,7 +400,12 @@ class CadProjectActivityService:
                 occurred_at_utc=label.updated_at_utc,
                 title=f'リビジョンにラベル「{label.label}」',
                 detail=label.note or None,
-                deep_link=_link(WorkspaceId.ROOM, 'history', revision_id),
+                deep_link=_link(
+                    NavigationTargetKind.SCENE_REVISION,
+                    WorkspaceId.ROOM,
+                    'history',
+                    revision_id,
+                ),
             )
 
     def _variant_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
@@ -398,7 +420,12 @@ class CadProjectActivityService:
                 source_sha256=variant.variant_sha256,
                 occurred_at_utc=variant.created_at_utc,
                 title=f'システムバリアント「{variant.name}」を提案',
-                deep_link=_link(WorkspaceId.OPTIMIZATION, 'candidates', variant.variant_id),
+                deep_link=_link(
+                    NavigationTargetKind.SYSTEM_VARIANT,
+                    WorkspaceId.OPTIMIZATION,
+                    'candidates',
+                    variant.variant_id,
+                ),
             )
             application = self.variant_repository.application_for_variant(
                 variant.variant_id
@@ -413,7 +440,10 @@ class CadProjectActivityService:
                     occurred_at_utc=application.selected_at_utc,
                     title=f'バリアント「{variant.name}」を適用',
                     deep_link=_link(
-                        WorkspaceId.ROOM, 'history', application.applied_revision_id
+                        NavigationTargetKind.SCENE_REVISION,
+                        WorkspaceId.ROOM,
+                        'history',
+                        application.applied_revision_id,
                     ),
                     extra_refs=(
                         ActivitySourceRef(
@@ -437,7 +467,10 @@ class CadProjectActivityService:
                             occurred_at_utc=as_built.confirmed_at_utc,
                             title=f'バリアント「{variant.name}」を As-built として記録',
                             deep_link=_link(
-                                WorkspaceId.ROOM, 'history', as_built.as_built_revision_id
+                                NavigationTargetKind.SCENE_REVISION,
+                                WorkspaceId.ROOM,
+                                'history',
+                                as_built.as_built_revision_id,
                             ),
                         )
 
@@ -459,7 +492,12 @@ class CadProjectActivityService:
                 occurred_at_utc=item.first_arrived_at_utc,
                 title=f'キャプチャリビジョン {item.capture_revision_id} を受信',
                 detail=f'バンドル {item.bundle_digest[:12]}…',
-                deep_link=_link(WorkspaceId.MEASUREMENT, 'import', item.inbox_item_id),
+                deep_link=_link(
+                    NavigationTargetKind.CAPTURE_INBOX_ITEM,
+                    WorkspaceId.MEASUREMENT,
+                    'import',
+                    item.inbox_item_id,
+                ),
             )
             if item.disposition == 'rejected' and item.disposition_at_utc is not None:
                 yield _event(
@@ -470,7 +508,12 @@ class CadProjectActivityService:
                     occurred_at_utc=item.disposition_at_utc,
                     title=f'キャプチャ {item.capture_revision_id} を却下',
                     detail=item.disposition_reason or None,
-                    deep_link=_link(WorkspaceId.MEASUREMENT, 'import', item.inbox_item_id),
+                    deep_link=_link(
+                        NavigationTargetKind.CAPTURE_INBOX_ITEM,
+                        WorkspaceId.MEASUREMENT,
+                        'import',
+                        item.inbox_item_id,
+                    ),
                 )
             elif item.disposition in {'promoted', 'partially_promoted'} and (
                 item.disposition_at_utc is not None
@@ -483,7 +526,12 @@ class CadProjectActivityService:
                     occurred_at_utc=item.disposition_at_utc,
                     title=f'キャプチャ {item.capture_revision_id} を昇格',
                     detail=item.disposition_reason or None,
-                    deep_link=_link(WorkspaceId.MEASUREMENT, 'import', item.inbox_item_id),
+                    deep_link=_link(
+                        NavigationTargetKind.CAPTURE_INBOX_ITEM,
+                        WorkspaceId.MEASUREMENT,
+                        'import',
+                        item.inbox_item_id,
+                    ),
                 )
 
     def _measurement_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
@@ -502,7 +550,10 @@ class CadProjectActivityService:
                 title='測定をインポート',
                 detail=detail,
                 deep_link=_link(
-                    WorkspaceId.MEASUREMENT, 'comparison', measurement.measurement_id
+                    NavigationTargetKind.MEASUREMENT,
+                    WorkspaceId.MEASUREMENT,
+                    'comparison',
+                    measurement.measurement_id,
                 ),
             )
 
@@ -518,7 +569,12 @@ class CadProjectActivityService:
                 source_sha256=plan.plan_semantic_sha256,
                 occurred_at_utc=plan.created_at_utc,
                 title='キャリブレーション計画を作成',
-                deep_link=_link(WorkspaceId.MEASUREMENT, 'calibration', plan.plan_id),
+                deep_link=_link(
+                    NavigationTargetKind.CALIBRATION_PLAN,
+                    WorkspaceId.MEASUREMENT,
+                    'calibration',
+                    plan.plan_id,
+                ),
             )
             for export in self.calibration_repository.list_exports(plan.plan_id):
                 yield _event(
@@ -529,7 +585,12 @@ class CadProjectActivityService:
                     source_sha256=export.exported_settings_semantic_sha256,
                     occurred_at_utc=export.created_at_utc,
                     title='キャリブレーション設定を出力',
-                    deep_link=_link(WorkspaceId.MEASUREMENT, 'calibration', plan.plan_id),
+                    deep_link=_link(
+                        NavigationTargetKind.CALIBRATION_PLAN,
+                        WorkspaceId.MEASUREMENT,
+                        'calibration',
+                        plan.plan_id,
+                    ),
                 )
             for event in self.calibration_repository.list_lifecycle_events(plan.plan_id):
                 kind_map: dict[str, ActivityEventKind] = {
@@ -553,7 +614,12 @@ class CadProjectActivityService:
                         'validated': 'キャリブレーションを検証済みに更新',
                     }[event.state],
                     detail=event.note,
-                    deep_link=_link(WorkspaceId.MEASUREMENT, 'calibration', plan.plan_id),
+                    deep_link=_link(
+                        NavigationTargetKind.CALIBRATION_PLAN,
+                        WorkspaceId.MEASUREMENT,
+                        'calibration',
+                        plan.plan_id,
+                    ),
                 )
 
     def _checkpoint_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
@@ -569,7 +635,12 @@ class CadProjectActivityService:
                 occurred_at_utc=checkpoint.created_at_utc,
                 title=f'設計チェックポイント「{checkpoint.title}」を作成',
                 detail=checkpoint.note,
-                deep_link=_link(WorkspaceId.OVERVIEW, None, checkpoint.checkpoint_id),
+                deep_link=_link(
+                    NavigationTargetKind.PROJECT_CHECKPOINT,
+                    WorkspaceId.OVERVIEW,
+                    None,
+                    checkpoint.checkpoint_id,
+                ),
             )
         for restore in self.checkpoint_repository.list_restores(document_id):
             yield _event(
@@ -581,7 +652,12 @@ class CadProjectActivityService:
                 occurred_at_utc=restore.created_at_utc,
                 title='設計チェックポイントを復元',
                 detail=' / '.join(restore.applied_components),
-                deep_link=_link(WorkspaceId.OVERVIEW, None, restore.checkpoint_id),
+                deep_link=_link(
+                    NavigationTargetKind.PROJECT_CHECKPOINT,
+                    WorkspaceId.OVERVIEW,
+                    None,
+                    restore.checkpoint_id,
+                ),
             )
 
     def _preset_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
@@ -597,7 +673,12 @@ class CadProjectActivityService:
                 occurred_at_utc=preset.created_at_utc,
                 title=f'運用プリセット「{preset.name}」を作成',
                 detail=preset.purpose_note,
-                deep_link=_link(WorkspaceId.OVERVIEW, None, preset.preset_id),
+                deep_link=_link(
+                    NavigationTargetKind.OPERATING_PRESET,
+                    WorkspaceId.OVERVIEW,
+                    None,
+                    preset.preset_id,
+                ),
             )
             for applied in self.preset_repository.list_applied_states(preset.preset_id):
                 yield _event(
@@ -609,7 +690,12 @@ class CadProjectActivityService:
                     occurred_at_utc=applied.confirmed_at_utc,
                     title=f'プリセット「{preset.name}」を実機へ適用と記録',
                     detail=applied.device_context,
-                    deep_link=_link(WorkspaceId.OVERVIEW, None, preset.preset_id),
+                    deep_link=_link(
+                        NavigationTargetKind.OPERATING_PRESET,
+                        WorkspaceId.OVERVIEW,
+                        None,
+                        preset.preset_id,
+                    ),
                 )
 
     def _health_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
@@ -624,7 +710,12 @@ class CadProjectActivityService:
                 source_sha256=baseline.baseline_sha256,
                 occurred_at_utc=baseline.created_at_utc,
                 title=f'健全性ベースライン「{baseline.name}」を固定',
-                deep_link=_link(WorkspaceId.OVERVIEW, None, baseline.baseline_id),
+                deep_link=_link(
+                    NavigationTargetKind.HEALTH_BASELINE,
+                    WorkspaceId.OVERVIEW,
+                    None,
+                    baseline.baseline_id,
+                ),
             )
         for run in self.health_repository.list_document_runs(document_id):
             changed = sum(1 for item in run.assessments if item.state == 'changed')
@@ -638,7 +729,12 @@ class CadProjectActivityService:
                 occurred_at_utc=run.created_at_utc,
                 title='健全性チェックを実施',
                 detail=detail,
-                deep_link=_link(WorkspaceId.OVERVIEW, None, run.plan_id),
+                deep_link=_link(
+                    NavigationTargetKind.HEALTH_CHECK_PLAN,
+                    WorkspaceId.OVERVIEW,
+                    None,
+                    run.plan_id,
+                ),
             )
 
     def _av_sync_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
@@ -656,7 +752,12 @@ class CadProjectActivityService:
                     source_sha256=measurement.measurement_sha256,
                     occurred_at_utc=measurement.captured_at,
                     title='AV同期を記録',
-                    deep_link=_link(WorkspaceId.MEASUREMENT, 'quality', condition.condition_id),
+                    deep_link=_link(
+                        NavigationTargetKind.AV_SYNC_CONDITION,
+                        WorkspaceId.MEASUREMENT,
+                        'quality',
+                        condition.condition_id,
+                    ),
                 )
 
     def _note_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
@@ -672,5 +773,10 @@ class CadProjectActivityService:
                 occurred_at_utc=note.created_at_utc,
                 title=f'メモ「{note.title}」',
                 detail=note.body,
-                deep_link=_link(WorkspaceId.OVERVIEW, None, note.note_id),
+                deep_link=_link(
+                    NavigationTargetKind.PROJECT_NOTE,
+                    WorkspaceId.OVERVIEW,
+                    None,
+                    note.note_id,
+                ),
             )

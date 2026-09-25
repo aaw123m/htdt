@@ -132,9 +132,62 @@ def test_ru_conflict_and_capacity_fail():
         rack=rack,
         devices=two,
     )
-    assert results[0].ru_occupancy == 'PASS'
+    # Overlap is physical and symmetric — both participants FAIL with the
+    # other named, independent of placement order.
+    assert results[0].ru_occupancy == 'FAIL'
+    assert 'b' in results[0].conflicts
     assert results[1].ru_occupancy == 'FAIL'
     assert 'a' in results[1].conflicts
+
+    tall = EquipmentPowerProfile(
+        device_id='c', ru_height=2, provenance=(_prov(),),
+    )
+    over = evaluate_rack_fit(
+        layout=RackLayout(
+            rack_id='rack-a',
+            placements=(RackPlacement(device_id='c', ru_position=6),),
+        ),
+        rack=rack,
+        devices=(tall,),
+    )[0]
+    assert over.ru_occupancy == 'FAIL'
+    assert any('capacity' in reason for reason in over.reasons)
+
+
+def test_rack_fit_requires_matching_rack_id():
+    with pytest.raises(ValueError, match='different rack'):
+        evaluate_rack_fit(
+            layout=RackLayout(
+                rack_id='rack-b',
+                placements=(RackPlacement(device_id='avr-1', ru_position=1),),
+            ),
+            rack=_rack(),
+            devices=(_avr(),),
+        )
+
+
+def test_undeclared_rack_clearance_stays_unknown():
+    rack = _rack(front_clearance_m=None)
+    fit = evaluate_rack_fit(
+        layout=RackLayout(
+            rack_id='rack-a',
+            placements=(RackPlacement(device_id='avr-1', ru_position=1),),
+        ),
+        rack=rack,
+        devices=(
+            EquipmentPowerProfile(
+                device_id='avr-1',
+                ru_height=5,
+                requires_front_clearance_m=0.05,
+                requires_rear_clearance_m=0.1,
+                provenance=(_prov(),),
+            ),
+        ),
+    )[0]
+    # Front axis UNKNOWN (rack value undeclared) must not promote to PASS
+    # even though the rear axis passes.
+    assert fit.clearance_fit == 'UNKNOWN'
+    assert any('front clearance' in reason for reason in fit.reasons)
 
 
 def test_load_summary_never_counts_unknown_as_zero():
@@ -173,14 +226,25 @@ def test_endpoint_loads_are_arithmetic_not_compliance():
             endpoint_id='wall-1', kind='outlet', label='Wall',
         ),
     )
+    streamer = EquipmentPowerProfile(
+        device_id='streamer-1',
+        power_values=(
+            PowerValue(
+                state='rated_max', power_w=15.0,
+                kind='manufacturer_declared', provenance=_prov(),
+            ),
+        ),
+        provenance=(_prov(),),
+    )
     assignments = (
         CircuitAssignment(device_id='avr-1', endpoint_id='pdu-1'),
         CircuitAssignment(device_id='amp-1', endpoint_id='pdu-1'),
-        CircuitAssignment(device_id='avr-1', endpoint_id='wall-1'),
+        CircuitAssignment(device_id='streamer-1', endpoint_id='wall-1'),
     )
     devices = (
         _avr(),
         EquipmentPowerProfile(device_id='amp-1', provenance=(_prov(),)),
+        streamer,
     )
     summaries = {item.endpoint_id: item for item in summarize_endpoint_loads(
         assignments, endpoints, devices, state='rated_max',
@@ -190,8 +254,46 @@ def test_endpoint_loads_are_arithmetic_not_compliance():
     assert pdu.unknown_device_ids == ('amp-1',)
     assert pdu.exceeds_declared_rating is None  # unknowns suppress the check
     wall = summaries['wall-1']
-    assert wall.known_w == 410.0
+    assert wall.known_w == 15.0
     assert wall.exceeds_declared_rating is None  # no declared rating
+
+
+def test_endpoint_loads_reject_invalid_topology():
+    endpoints = (
+        CircuitEndpoint(
+            endpoint_id='pdu-1', kind='pdu_branch', label='PDU 1',
+        ),
+    )
+    devices = (_avr(),)
+
+    # Orphan assignments must be rejected, never silently dropped.
+    with pytest.raises(ValueError, match='unknown endpoint'):
+        summarize_endpoint_loads(
+            (CircuitAssignment(device_id='avr-1', endpoint_id='ghost-1'),),
+            endpoints, devices,
+        )
+    with pytest.raises(ValueError, match='unknown device'):
+        summarize_endpoint_loads(
+            (CircuitAssignment(device_id='ghost-1', endpoint_id='pdu-1'),),
+            endpoints, devices,
+        )
+    # A device feeding multiple endpoints is a topology error, never a
+    # double-counted load.
+    with pytest.raises(ValueError, match='multiple endpoints'):
+        summarize_endpoint_loads(
+            (
+                CircuitAssignment(device_id='avr-1', endpoint_id='pdu-1'),
+                CircuitAssignment(device_id='avr-1', endpoint_id='pdu-1'),
+            ),
+            endpoints, devices,
+        )
+    # Duplicate endpoint ids make the assignment graph ambiguous.
+    with pytest.raises(ValueError, match='endpoint ids must be unique'):
+        summarize_endpoint_loads(
+            (CircuitAssignment(device_id='avr-1', endpoint_id='pdu-1'),),
+            (endpoints[0], endpoints[0]),
+            devices,
+        )
 
 
 def test_heat_summary_keeps_documented_separate_from_derived():
