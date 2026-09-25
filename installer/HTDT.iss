@@ -30,6 +30,14 @@ RestartApplications=no
 UninstallDisplayName=Home Theater Digital Twin
 UninstallDisplayIcon={app}\\HTDT\\HTDT.exe
 
+; #811: an in-place update must not leave obsolete packaged files active —
+; stale modules/plugins could shadow the new payload. Clear the app payload
+; tree before [Files] copies the new package. Only the app tree is touched:
+; user data lives outside {app} (uninstall keeps it), and the uninstaller
+; bookkeeping under {app} itself is Inno-owned.
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\\HTDT"
+
 [Files]
 Source: "{#SourceDir}\\*"; DestDir: "{app}\\HTDT"; Flags: ignoreversion recursesubdirs createallsubdirs
 

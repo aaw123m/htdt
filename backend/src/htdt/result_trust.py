@@ -59,13 +59,32 @@ class ValidationScope(StrEnum):
 
 
 class FreshnessState(StrEnum):
-    """Whether the result is current for the active SceneRevision/Variant."""
+    """Whether the result is current for the active SceneRevision/Variant.
+
+    ``CURRENT`` is a derived claim — an adapter proves it by exact
+    comparison against the active authority. ``UNKNOWN`` is the fail-closed
+    state when that derivation cannot run; it is never optimistic.
+    """
 
     CURRENT = 'current'
     STALE = 'stale'
     HISTORICAL = 'historical'
     INCOMPLETE_DEPENDENCY = 'incomplete_dependency'
     UNSUPPORTED = 'unsupported'
+    UNKNOWN = 'unknown'
+
+
+class ApplicabilityStatus(StrEnum):
+    """How well the applicability of a result has been characterized.
+
+    An empty ``applicability`` tuple is ambiguous on its own: the status
+    distinguishes 'universally/not-applicable' from 'not characterized'.
+    """
+
+    CHARACTERIZED = 'characterized'
+    INCOMPLETE = 'incomplete'
+    UNKNOWN = 'unknown'
+    NOT_APPLICABLE = 'not_applicable'
 
 
 class ApplicabilityDimension(StrEnum):
@@ -189,7 +208,22 @@ _FRESHNESS_LABELS: dict[FreshnessState, dict[PresentationLocale, str]] = {
         PresentationLocale.JAPANESE: '未対応',
         PresentationLocale.ENGLISH: 'unsupported',
     },
+    FreshnessState.UNKNOWN: {
+        PresentationLocale.JAPANESE: '不明',
+        PresentationLocale.ENGLISH: 'unknown',
+    },
 }
+
+
+#: Validation scopes that make a strong user-facing claim: they are only
+#: meaningful with a resolvable provenance link into the exact supporting
+#: authority (validation record, campaign registration, adoption gate).
+_STRONG_SCOPES = frozenset(
+    {
+        ValidationScope.OWNED_ROOM_VALIDATED,
+        ValidationScope.PRODUCTION_QUALIFIED,
+    }
+)
 
 
 class ResultTrustSummary(BaseModel):
@@ -205,8 +239,11 @@ class ResultTrustSummary(BaseModel):
     schema_version: int = TRUST_SCHEMA_VERSION
     evidence_class: EvidenceClass
     validation_scope: ValidationScope = ValidationScope.UNVALIDATED
-    freshness: FreshnessState = FreshnessState.CURRENT
+    # No default: CURRENT must be proven by an adapter, and every other
+    # state is a deliberate declaration — never an optimistic omission.
+    freshness: FreshnessState
     applicability: tuple[ApplicabilityNote, ...] = ()
+    applicability_status: ApplicabilityStatus = ApplicabilityStatus.UNKNOWN
     uncertainty: UncertaintyPresentation = UncertaintyPresentation(
         kind=UncertaintyKind.UNKNOWN
     )
@@ -227,6 +264,20 @@ class ResultTrustSummary(BaseModel):
             )
         if self.freshness != FreshnessState.STALE and self.invalidating_dependencies:
             raise ValueError('invalidating dependencies require stale freshness')
+        if self.validation_scope in _STRONG_SCOPES and not self.provenance_ref:
+            raise ValueError(
+                'strong validation scope requires resolvable provenance'
+            )
+        if self.applicability and (
+            self.applicability_status is not ApplicabilityStatus.CHARACTERIZED
+        ):
+            raise ValueError('applicability notes require characterized status')
+        if not self.applicability and (
+            self.applicability_status is ApplicabilityStatus.CHARACTERIZED
+        ):
+            raise ValueError(
+                'characterized applicability requires at least one note'
+            )
         return self
 
     def label(self, locale: PresentationLocale = PresentationLocale.JAPANESE) -> str:
@@ -252,8 +303,10 @@ class ResultTrustSummary(BaseModel):
         scope = _SCOPE_LABELS[self.validation_scope].get(
             locale, _SCOPE_LABELS[self.validation_scope][PresentationLocale.ENGLISH]
         )
-        if self.validation_scope != ValidationScope.PRODUCTION_QUALIFIED:
-            parts.append(scope)
+        # The exact validation scope is never erased: surfaces that must
+        # distinguish production-qualified from weaker claims cannot
+        # mis-read a suppressed label (#774).
+        parts.append(scope)
         if self.freshness != FreshnessState.CURRENT:
             parts.append(
                 _FRESHNESS_LABELS[self.freshness].get(
@@ -311,6 +364,7 @@ def trace_identity(
 __all__ = [
     'ApplicabilityDimension',
     'ApplicabilityNote',
+    'ApplicabilityStatus',
     'EvidenceClass',
     'FreshnessState',
     'ResultTrustSummary',
