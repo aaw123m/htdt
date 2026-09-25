@@ -41,7 +41,22 @@ def _constraints() -> CadDeviceCapabilityConstraints:
     )
 
 
-def _export() -> CadCalibrationExportSnapshot:
+class _CalibrationAuthority:
+    """Stub of the persisted calibration authority (#865): resolves the
+    exact export and its owning plan."""
+
+    def __init__(self, plan, export) -> None:
+        self._plan = plan
+        self._export = export
+
+    def get_export(self, export_id):
+        return self._export if export_id == self._export.export_id else None
+
+    def get_plan(self, plan_id):
+        return self._plan if plan_id == self._plan.plan_id else None
+
+
+def _plan() -> CadCalibrationPlan:
     channel = CadCalibrationChannel(
         channel_id='ch-1',
         role_id='FL',
@@ -82,7 +97,7 @@ def _export() -> CadCalibrationExportSnapshot:
         'plan_semantic_sha256': '0' * 64,
     }
     provisional = CadCalibrationPlan.model_construct(**payload)
-    plan = CadCalibrationPlan(
+    return CadCalibrationPlan(
         **{
             **payload,
             'plan_semantic_sha256': hashlib.sha256(
@@ -96,7 +111,10 @@ def _export() -> CadCalibrationExportSnapshot:
             ).hexdigest(),
         }
     )
-    return build_generic_biquad_export(plan=plan, created_at_utc=NOW)
+
+
+def _export() -> CadCalibrationExportSnapshot:
+    return build_generic_biquad_export(plan=_plan(), created_at_utc=NOW)
 
 
 def _binding(firmware: str = '1.0'):
@@ -329,10 +347,13 @@ def test_readback_normalize_case(tmp_path) -> None:
         operation='readback_normalize',
         export=export,
         binding=binding,
-        expected={'channel_ids': ['ch-1']},
+        expected={'channel_ids': ['ch-1'], 'document_id': 'doc-1'},
     )
     report = run_conformance_harness(
-        adapter, (case,), generated_at_utc=NOW
+        adapter,
+        (case,),
+        generated_at_utc=NOW,
+        calibration_repository=_CalibrationAuthority(_plan(), export),
     )
     assert report.results[0].status == 'PASS', report.results[0].detail
 

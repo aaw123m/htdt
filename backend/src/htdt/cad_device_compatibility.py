@@ -360,14 +360,19 @@ def run_conformance_harness(
     cases: tuple[ConformanceCase, ...],
     *,
     generated_at_utc: str,
+    calibration_repository: Any = None,
 ) -> AdapterConformanceReport:
     """Run the deterministic conformance contract against one
     ``CalibrationDeviceAdapter`` over sanitized fixtures (#792 §3).
 
     ``UNKNOWN`` marks a case the harness could not evaluate (missing
-    fixture inputs) — never counted as a pass.
+    fixture inputs) — never counted as a pass. ``calibration_repository``
+    supplies the persisted calibration authority observed-state cases
+    (``readback_normalize``) require under the #865 contract.
     """
-    service = CalibrationAdapterService(adapter)
+    service = CalibrationAdapterService(
+        adapter, calibration_repository=calibration_repository
+    )
     results: list[ConformanceCaseResult] = []
 
     for case in cases:
