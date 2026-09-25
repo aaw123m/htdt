@@ -19,7 +19,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
-from math import isfinite
+from math import isclose, isfinite
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal
@@ -93,6 +93,19 @@ class AcousticEnvironmentProfile(BaseModel):
                 raise ValueError('temperature-derived sound speed requires temperature_c')
             if self.temperature_source_kind is None:
                 raise ValueError('temperature-derived sound speed requires temperature provenance')
+            # A derived physical quantity must be reproducible from the
+            # declared source semantics — a claimed value that does not
+            # recompute from temperature_c is a forged claim, not evidence.
+            if not isclose(
+                float(self.sound_speed_m_s),
+                sound_speed_from_temperature_c(self.temperature_c),
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            ):
+                raise ValueError(
+                    'temperature-derived sound speed must equal the '
+                    'documented derivation c = 331.3 + 0.606·T'
+                )
         if self.temperature_c is None and self.temperature_source_kind is not None:
             raise ValueError('temperature source kind requires a temperature value')
         if self.temperature_c is not None and self.temperature_source_kind is None:

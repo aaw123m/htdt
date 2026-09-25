@@ -4,6 +4,20 @@ on:
   push:
     branches: [main]
   pull_request:
+    # Backend changes are the only thing this workflow verifies; PRs that
+    # only touch docs/frontend/assets skip CI entirely instead of spending
+    # 12+ runner-minutes proving nothing.
+    paths:
+      - "backend/**"
+      - "scripts/**"
+      - "installer/**"
+      - "benchmarks/**"
+      - ".github/**"
+  # Runs the full suite on merge-queue group commits when merge queue is
+  # enabled on main — pull_request.base.sha is empty here so selection
+  # falls back to mode=full, which is the right gate for a merge.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -100,19 +114,66 @@ jobs:
         shell: pwsh
         run: .\scripts\run-o60-owned-room-gate.ps1 -RepoRoot $PWD -PreflightOnly
 
+  # Diff the PR once up front and decide which of the 12 shards have any
+  # affected work. The matrix below only spawns those shards, so scoped PRs
+  # no longer occupy a dozen runners just to discover there's nothing to run.
+  plan:
+    runs-on: windows-latest
+    outputs:
+      mode: ${{ steps.sel.outputs.mode }}
+      shards: ${{ steps.sel.outputs.shards }}
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Select affected tests
+        id: sel
+        shell: pwsh
+        run: |
+          $base = "${{ github.event.pull_request.base.sha }}"
+          if ($base -ne "") {
+            git fetch --depth=1 origin $base | Out-Null
+          }
+          $mode = (python scripts\select_affected_tests.py --base $base --tests-dir backend\tests --out-file "$env:RUNNER_TEMP\affected.json" | ConvertFrom-Json).mode
+          if ($base -eq "") { $mode = "full" }
+          echo "mode=$mode" >> $env:GITHUB_OUTPUT
+          $shards = @()
+          if ($mode -eq "full") {
+            $shards = 1..12
+          } elseif ($mode -eq "subset") {
+            python -c "import json; open(r'$env:RUNNER_TEMP\affected.txt','w').write('\n'.join(json.load(open(r'$env:RUNNER_TEMP\affected.json'))['files']))"
+            foreach ($s in 1..12) {
+              foreach ($l in (python scripts\pytest_shard.py backend\tests --num-shards 12 --shard $s --weights scripts\test_durations.json --only "$env:RUNNER_TEMP\affected.txt")) {
+                if (-not $l.StartsWith('deselect:')) { $shards += $s; break }
+              }
+            }
+          }
+          echo "shards=$(ConvertTo-Json -Compress -InputObject @($shards))" >> $env:GITHUB_OUTPUT
+
   windows-tests:
     # The backend suite is sharded across N runners; each shard also uses
     # pytest-xdist within its own runner. Same coverage as the former single
-    # serial 'Test backend' step, in a fraction of the wall-clock time.
+    # serial 'Test backend' step, in a fraction of the wall-clock time. Only
+    # shards the plan job found work for ever start.
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     runs-on: windows-latest
     env:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 1
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -120,10 +181,36 @@ jobs:
           cache: pip
           cache-dependency-path: backend/pyproject.toml
 
+      # Recompute the affected list cheaply (stdlib only): this shard was
+      # spawned because the plan job found work for it, so install and the
+      # selected test subset always apply.
+      - name: Select affected tests
+        if: needs.plan.outputs.mode == 'subset'
+        id: sel
+        shell: pwsh
+        run: |
+          $base = "${{ github.event.pull_request.base.sha }}"
+          if ($base -ne "") {
+            git fetch --depth=1 origin $base | Out-Null
+          }
+          python scripts\select_affected_tests.py --base $base --tests-dir backend\tests --out-file "$env:RUNNER_TEMP\affected.json" | Out-Null
+          python -c "import json; open(r'$env:RUNNER_TEMP\affected.txt','w').write('\n'.join(json.load(open(r'$env:RUNNER_TEMP\affected.json'))['files']))"
+
       - name: Install backend
         run: python -m pip install -e ".\backend[dev]"
 
-      - name: Test backend (shard ${{ matrix.shard }}/12)
+      - name: Test backend (shard ${{ matrix.shard }}/12, selected)
+        if: needs.plan.outputs.mode == 'subset'
+        shell: pwsh
+        run: |
+          $sel = @(); $des = @()
+          foreach ($l in (python scripts\pytest_shard.py backend\tests --num-shards 12 --shard ${{ matrix.shard }} --weights scripts\test_durations.json --only "$env:RUNNER_TEMP\affected.txt")) {
+            if ($l.StartsWith('deselect:')) { $des += '--deselect'; $des += $l.Substring(9) } else { $sel += $l }
+          }
+          python -m pytest $sel $des -n auto --dist loadscope
+
+      - name: Test backend (shard ${{ matrix.shard }}/12, full)
+        if: needs.plan.outputs.mode == 'full'
         shell: pwsh
         run: |
           $sel = @(); $des = @()

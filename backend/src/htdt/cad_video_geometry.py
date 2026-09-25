@@ -799,7 +799,9 @@ class ScreenGeometryBinding(BaseModel):
     # flag (#541): old payloads still parse and round-trip byte-identically,
     # but the flag is dead — it was never acoustic truth and is no longer
     # part of the request identity. Transfer authority is the
-    # ``screen_transfer_ref`` to an AcousticScreenTransferAuthority.
+    # ``screen_transfer_ref`` to an AcousticScreenTransferAuthority. Any
+    # *other* unknown extra field is rejected: semantic identity is a fixed
+    # declared-field set, never whatever extras happen to arrive.
     model_config = ConfigDict(frozen=True, extra='allow')
 
     entity_id: str = Field(min_length=1)
@@ -813,6 +815,63 @@ class ScreenGeometryBinding(BaseModel):
     @classmethod
     def finite_metric(cls, value: float) -> float:
         return _finite(value)
+
+    @model_validator(mode='after')
+    def quarantined_extras_only(self) -> 'ScreenGeometryBinding':
+        unknown = set(self.model_extra or ()) - {'acoustically_transparent'}
+        if unknown:
+            raise ValueError(
+                'screen geometry binding carries unknown fields: '
+                f'{sorted(unknown)}'
+            )
+        return self
+
+
+def _screen_identity_payload(screen: ScreenGeometryBinding) -> dict[str, Any]:
+    """Canonical screen identity: declared fields only.
+
+    ``screen_transfer_ref`` joins identity only when present (a screen that
+    never declared transfer evidence hashes identically to pre-#541 content);
+    the quarantined legacy flag and any extras never join identity.
+    """
+    payload: dict[str, Any] = {
+        'entity_id': screen.entity_id,
+        'visible_width_m': screen.visible_width_m,
+        'visible_height_m': screen.visible_height_m,
+        'image_center_offset_local_m': (
+            screen.image_center_offset_local_m.model_dump(mode='json')
+        ),
+        'frame_clearance_m': screen.frame_clearance_m,
+    }
+    if screen.screen_transfer_ref is not None:
+        payload['screen_transfer_ref'] = screen.screen_transfer_ref.model_dump(
+            mode='json'
+        )
+    return payload
+
+
+def _legacy_v1_screen_payload(screen: ScreenGeometryBinding) -> dict[str, Any]:
+    """Reconstruct the exact pre-#541 v1 screen dump for hash fallback.
+
+    The old model had no ``screen_transfer_ref`` — it is never emitted here.
+    Only the one recognized historical field ``acoustically_transparent`` is
+    restored, verbatim from the quarantined extras (including an explicit
+    null); every other field is already covered by the declared set.
+    """
+    payload: dict[str, Any] = {
+        'entity_id': screen.entity_id,
+        'visible_width_m': screen.visible_width_m,
+        'visible_height_m': screen.visible_height_m,
+        'image_center_offset_local_m': (
+            screen.image_center_offset_local_m.model_dump(mode='json')
+        ),
+        'frame_clearance_m': screen.frame_clearance_m,
+    }
+    extras = screen.model_extra or {}
+    # The v1 model declared the field (default None), so its dump always
+    # carried the key — including an explicit null.
+    payload['acoustically_transparent'] = extras.get('acoustically_transparent')
+    return payload
 
 
 class SeatGeometryBinding(BaseModel):
@@ -934,10 +993,21 @@ class VideoGeometryRequest(BaseModel):
         if self.request_sha256 != _digest(self.identity_payload()):
             # Pre-#541 payloads may embed the legacy acoustically_transparent
             # extra in the screen dump; accept that historical identity so
-            # persisted requests still revalidate.
+            # persisted requests still revalidate. The legacy dump never
+            # carries screen_transfer_ref — that field did not exist.
             legacy = self.identity_payload()
-            legacy['screen'] = self.screen.model_dump(mode='json')
-            if self.request_sha256 != _digest(legacy):
+            legacy['screen'] = _legacy_v1_screen_payload(self.screen)
+            if self.request_sha256 == _digest(legacy):
+                return self
+            # Payloads serialized under the post-#541 model baked
+            # 'screen_transfer_ref': null into identity; accept that
+            # historical hash too so mid-era requests still revalidate.
+            buggy = self.identity_payload()
+            buggy['screen'] = {
+                **buggy['screen'],
+                'screen_transfer_ref': None,
+            }
+            if self.request_sha256 != _digest(buggy):
                 raise ValueError('VideoGeometryRequest semantic hash mismatch')
         return self
 
@@ -949,9 +1019,7 @@ class VideoGeometryRequest(BaseModel):
             'projector_specification_id': self.projector_specification_id,
             'projector_specification_version': self.projector_specification_version,
             'projector_specification_sha256': self.projector_specification_sha256,
-            'screen': self.screen.model_dump(
-                mode='json', exclude={'acoustically_transparent'}
-            ),
+            'screen': _screen_identity_payload(self.screen),
             'seats': [item.model_dump(mode='json') for item in self.seats],
             'policy': self.policy.model_dump(mode='json'),
             'collision_entity_ids': list(self.collision_entity_ids),
@@ -977,9 +1045,7 @@ def build_video_geometry_request(
         'projector_specification_version': projector_specification.version,
         'projector_specification_sha256': projector_specification.specification_sha256,
         # The quarantined legacy flag never joins request identity (#541).
-        'screen': screen.model_dump(
-            mode='json', exclude={'acoustically_transparent'}
-        ),
+        'screen': _screen_identity_payload(screen),
         'seats': [item.model_dump(mode='json') for item in ordered_seats],
         'policy': policy.model_dump(mode='json'),
         'collision_entity_ids': list(ordered_collision_ids),
