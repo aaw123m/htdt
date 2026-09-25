@@ -70,15 +70,30 @@ from htdt.treatment_boundary_overlay import (
 from htdt.treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
 
 
-CLOSED_TETRA = b'''\
+# Closed unit box [0,1]^3, consistently outward-wound. The top face (z=1,
+# faces 3-4) is the planar 'host wall' treatments mount on; the remaining
+# faces form the room shell.
+BOX_ROOM = b'''\
 v 0 0 0
 v 1 0 0
+v 1 1 0
 v 0 1 0
 v 0 0 1
+v 1 0 1
+v 1 1 1
+v 0 1 1
 f 1 3 2
-f 1 2 4
 f 1 4 3
-f 2 3 4
+f 5 6 7
+f 5 7 8
+f 1 2 6
+f 1 6 5
+f 3 4 8
+f 3 8 7
+f 1 8 4
+f 1 5 8
+f 2 3 7
+f 2 7 6
 '''
 
 
@@ -285,9 +300,11 @@ def _definition(kind: str, suffix: str = ''):
 def _fixture(tmp_path: Path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     mesh = import_raw_visual_mesh(
-        CLOSED_TETRA,
+        BOX_ROOM,
         source_name='treatment-snapshot.obj',
     )
+    triangle_ids = raw_triangle_ids(mesh)
+    host_triangle_ids = (triangle_ids[2], triangle_ids[3])
     conversion = make_semantic_geometry_conversion_request(
         mesh,
         source_scene_revision_id=None,
@@ -297,7 +314,16 @@ def _fixture(tmp_path: Path):
         surface_assignments=(
             SurfaceSemanticAssignment(
                 surface_key='room-shell',
-                triangle_ids=raw_triangle_ids(mesh),
+                triangle_ids=host_triangle_ids,
+                semantic_class='room_boundary',
+            ),
+            SurfaceSemanticAssignment(
+                surface_key='room-rest',
+                triangle_ids=tuple(
+                    triangle_id
+                    for index, triangle_id in enumerate(triangle_ids)
+                    if index not in (2, 3)
+                ),
                 semantic_class='room_boundary',
             ),
         ),
@@ -314,16 +340,23 @@ def _fixture(tmp_path: Path):
         parent_revision_id=None,
     ).revision
     surface_id = geometry.surfaces[0].surface_id
+    rest_surface_id = geometry.surfaces[1].surface_id
     base_binding = SurfaceBoundaryAuthorityBinding(
         source_surface_id=surface_id,
         material_authority=_external('base-construction-material', 'a'),
         boundary_physics_authority=_external('base-boundary-physics', 'b'),
     )
+    rest_binding = SurfaceBoundaryAuthorityBinding(
+        source_surface_id=rest_surface_id,
+        material_authority=_external('base-construction-material-rest', 'c'),
+        boundary_physics_authority=_external('base-boundary-physics-rest', 'd'),
+    )
+    base_bindings = (base_binding, rest_binding)
     region = make_acoustic_region_authority(
         (
             AcousticRegionDeclaration(
                 region_id='room-air',
-                boundary_surface_ids=(surface_id,),
+                boundary_surface_ids=(surface_id, rest_surface_id),
             ),
         )
     )
@@ -338,7 +371,7 @@ def _fixture(tmp_path: Path):
     compiled = compile_r120_geometry(
         revision,
         compile_request,
-        surface_boundary_bindings=(base_binding,),
+        surface_boundary_bindings=base_bindings,
         region_authority=region,
         portal_authority=portals,
         boundary_termination_authority=terminations,
@@ -349,7 +382,7 @@ def _fixture(tmp_path: Path):
     r120_repository = R120GeometryCompilerRepository(scene_repository)
     r120_repository.save_compiled_geometry(
         compiled,
-        surface_boundary_bindings=(base_binding,),
+        surface_boundary_bindings=base_bindings,
         region_authority=region,
         portal_authority=portals,
         boundary_termination_authority=terminations,
@@ -398,7 +431,7 @@ def _compile_result(
         definition=definition,
         revision=fx['revision'],
         instance_id=instance_id,
-        position=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+        position=Position3(x_m=0.5, y_m=0.5, z_m=1.0),
         coverage=TreatmentCoverage(
             width_m=1.0,
             height_m=1.0,
@@ -623,7 +656,11 @@ def test_base_material_and_boundary_remain_separate_from_treatment(
         target_domain='wave',
     )
     snapshot = _snapshot(fx, result)
-    base = snapshot.surface_boundary_configuration[0]
+    base = next(
+        surface
+        for surface in snapshot.surface_boundary_configuration
+        if surface.source_surface_id == fx['surface_id']
+    )
     binding = snapshot.treatment_boundary_bindings[0]
 
     assert base.material_authority == fx['base_binding'].material_authority
