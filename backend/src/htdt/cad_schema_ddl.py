@@ -1429,6 +1429,22 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS htdt_project_tombstones ( tombstone_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, document_id TEXT NOT NULL, display_name TEXT NOT NULL, deleted_at_utc TEXT NOT NULL, removed_rows INTEGER NOT NULL, estimated_bytes INTEGER NOT NULL, authorities_json TEXT NOT NULL )
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_bass_management_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_bass_management_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_presentation_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_presentation_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, screen_entity_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -1475,6 +1491,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_applicability_attestations',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
+    'cad_bass_management_profiles',
+    'cad_bass_management_selections',
     'cad_calibration_exports',
     'cad_calibration_lifecycle_events',
     'cad_calibration_plans',
@@ -1638,6 +1656,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_validation_campaigns',
     'cad_video_geometry_evaluations',
     'cad_video_geometry_workspaces',
+    'cad_video_presentation_profiles',
+    'cad_video_presentation_selections',
     'cad_wave_excitation_evidence_authorities',
     'cad_wave_excitation_source_assets',
     'cad_wave_source_excitation_bindings',
