@@ -177,11 +177,15 @@ def test_system_evaluation_target_kinds_and_capability():
         processing=(_processing(),),
         measurements=measurements,
         entity_kinds={'seat-front': 'seat'},
+        known_source_bus_ids=('sub_out_1_parallel',),
+        known_amplifier_channel_ids=('amp-ch-3',),
     )
     assert evaluation.acoustic_solver_status == 'NOT_APPLICABLE'
     checks = {c.check: c.status for c in evaluation.checks}
     assert checks['attachment_target'] == 'PASS'
-    assert checks['processing_source_recorded'] == 'PASS'
+    assert checks['processing_source_resolves'] == 'PASS'
+    assert checks['measurement_coverage'] == 'PASS'
+    assert checks['measurement_binding_resolves'] == 'PASS'
     assert checks['capability_state'] == 'PASS'
     assert evaluation.evaluation_id.startswith('tse-')
 
@@ -201,6 +205,130 @@ def test_system_evaluation_rejects_non_attachable_target():
     assert checks['attachment_target'] == 'FAIL'
     assert checks['capability_state'] == 'UNKNOWN'
     assert tactile_system_status(evaluation) == 'FAIL'
+
+
+def test_unresolved_target_entity_is_unknown_not_pass():
+    evaluation = evaluate_tactile_system(
+        bindings=(_binding(),),
+        entity_kinds={},  # 'seat-front' does not resolve
+    )
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['attachment_target'] == 'UNKNOWN'
+    assert tactile_system_status(evaluation) == 'UNKNOWN'
+
+
+def test_metadata_only_accelerometer_is_not_measured():
+    metadata_only = TactileMeasurement(
+        measurement_id='m-meta',
+        binding_id='bind-seat-1',
+        method='accelerometer',
+        measured_at_utc='2026-09-23T03:00:00+00:00',
+        axis='z',
+        unit='g',
+        # no value, no sensor_ref, no calibration_ref
+    )
+    evaluation = evaluate_tactile_system(
+        bindings=(_binding(),),
+        measurements=(metadata_only,),
+        entity_kinds={'seat-front': 'seat'},
+    )
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['measurement_coverage'] == 'UNKNOWN'
+    assert checks['capability_state'] == 'UNKNOWN'
+    reasons = {c.check: c.reason for c in evaluation.checks}
+    assert 'empirical' in reasons['capability_state']
+
+
+def test_user_confirmed_stays_empirical_never_measured():
+    user_confirmed = TactileMeasurement(
+        measurement_id='m-user',
+        binding_id='bind-seat-1',
+        method='user_confirmed',
+        measured_at_utc='2026-09-23T03:00:00+00:00',
+        value=1.0,
+        unit='subjective',
+        axis='z',
+    )
+    evaluation = evaluate_tactile_system(
+        bindings=(_binding(),),
+        measurements=(user_confirmed,),
+        entity_kinds={'seat-front': 'seat'},
+    )
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['measurement_coverage'] == 'UNKNOWN'
+    assert checks['capability_state'] == 'UNKNOWN'
+
+
+def test_measurement_with_unresolvable_binding_fails():
+    orphan = TactileMeasurement(
+        measurement_id='m-orphan',
+        binding_id='bind-not-supplied',
+        method='user_confirmed',
+        measured_at_utc='2026-09-23T03:00:00+00:00',
+    )
+    evaluation = evaluate_tactile_system(
+        bindings=(_binding(),),
+        measurements=(orphan,),
+        entity_kinds={'seat-front': 'seat'},
+    )
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['measurement_binding_resolves'] == 'FAIL'
+    assert tactile_system_status(evaluation) == 'FAIL'
+
+
+def test_partial_binding_coverage_is_not_measured_capability():
+    measured = TactileMeasurement(
+        measurement_id='m1',
+        binding_id='bind-seat-1',
+        method='accelerometer',
+        measured_at_utc='2026-09-23T03:00:00+00:00',
+        axis='z',
+        value=0.4,
+        unit='g',
+        sensor_ref='accel-usb-1',
+    )
+    evaluation = evaluate_tactile_system(
+        bindings=(
+            _binding(),
+            _binding(
+                binding_id='bind-seat-2',
+                actuator_instance_id='inst-bst-2',
+                target_entity_id='seat-rear',
+            ),
+        ),
+        measurements=(measured,),
+        entity_kinds={'seat-front': 'seat', 'seat-rear': 'seat'},
+    )
+    coverage = [
+        c.status for c in evaluation.checks
+        if c.check == 'measurement_coverage'
+    ]
+    assert coverage == ['PASS', 'UNKNOWN']
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['capability_state'] == 'UNKNOWN'
+    assert 'empirical' in {c.check: c.reason for c in evaluation.checks}[
+        'capability_state'
+    ]
+
+
+def test_processing_source_resolution_states():
+    profile = _processing()
+    # No resolvers supplied: a non-empty string alone is UNKNOWN.
+    evaluation = evaluate_tactile_system(
+        bindings=(),
+        processing=(profile,),
+    )
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['processing_source_resolves'] == 'UNKNOWN'
+    # Resolver supplied and the bus is absent: FAIL.
+    evaluation = evaluate_tactile_system(
+        bindings=(),
+        processing=(profile,),
+        known_source_bus_ids=('other_bus',),
+        known_amplifier_channel_ids=('amp-ch-3',),
+    )
+    checks = {c.check: c.status for c in evaluation.checks}
+    assert checks['processing_source_resolves'] == 'FAIL'
 
 
 def test_rattle_finding_is_separate_evidence():
