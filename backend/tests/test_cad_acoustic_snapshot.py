@@ -1033,6 +1033,53 @@ def test_unknown_observable_is_explicitly_unsupported(
     assert snapshot.readiness.requested_observable_ready is False
 
 
+def test_requested_band_outside_snapshot_valid_domain_blocks_readiness(
+    tmp_path: Path,
+) -> None:
+    """#977: a known narrower valid domain cannot coexist with READY."""
+    fx = _fixture(tmp_path)
+    original = fx['snapshot']
+    snapshot = build_acoustic_scene_snapshot(
+        scene_revision=fx['revision'],
+        system_variant=fx['variant'],
+        compiled_geometry=fx['compiled'],
+        source_models=(fx['magnitude_source'], fx['complex_source']),
+        receivers=fx['receivers'],
+        requested_frequency_domain=FrequencyDomain(
+            minimum_hz=20.0,
+            maximum_hz=20000.0,
+        ),
+        requested_observables=original.requested_observables,
+        environment=original.environment,
+        valid_frequency_domain=original.valid_frequency_domain,
+        valid_frequency_domain_authority_ref=(
+            original.valid_frequency_domain_authority_ref
+        ),
+    )
+
+    assert snapshot.valid_frequency_domain is not None
+    assert not all(
+        snapshot.valid_frequency_domain.contains(bound)
+        for bound in (20.0, 20000.0)
+    )
+    for status in snapshot.readiness.observable_readiness:
+        if status.observable == 'deterministic_paths':
+            # Geometry paths are frequency-agnostic; the acoustic-domain
+            # mismatch is recorded but does not block them.
+            continue
+        assert status.state != 'READY'
+        assert any(
+            'requested_frequency_outside_snapshot_valid_domain'
+            in reason
+            for reason in status.reasons
+        )
+    assert snapshot.readiness.requested_observable_ready is False
+    assert (
+        'requested_frequency_outside_snapshot_valid_domain'
+        in snapshot.unresolved_conditions
+    )
+
+
 def test_rectangular_legacy_prediction_request_identity_is_unchanged(
     tmp_path: Path,
 ) -> None:
