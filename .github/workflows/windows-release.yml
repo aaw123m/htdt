@@ -29,10 +29,6 @@ jobs:
     timeout-minutes: 180
     env:
       PYTHONUTF8: "1"
-      # Redirect PyInstaller's module-graph cache into a cached directory so
-      # unchanged input sets reuse the analysis instead of re-scanning the
-      # whole dependency tree every run. Keyed on the sources that feed it.
-      PYINSTALLER_CONFIG_DIR: ${{ runner.temp }}\pyinstaller-cache
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -59,6 +55,11 @@ jobs:
       - name: Build locked native package
         shell: pwsh
         run: |
+          # Redirect PyInstaller's module-graph cache into the directory
+          # restored above so unchanged input sets reuse the analysis instead
+          # of re-scanning the dependency tree. RUNNER_TEMP is only known
+          # inside a step process, so this can't live in job-level env.
+          $env:PYINSTALLER_CONFIG_DIR = "$env:RUNNER_TEMP\pyinstaller-cache"
           .\scripts\build-native.ps1 -OutputDir "$env:RUNNER_TEMP\htdt-package" -PythonExe (Get-Command python).Source
 
       - name: Smoke packaged maintenance CLI
