@@ -296,3 +296,37 @@ def test_same_bundle_imported_twice_as_copy_rejects_record_collision(
     assert second.document_id != 'doc-a'
     head = target.current_head(second.document_id)
     assert head is not None
+
+
+def test_import_as_copy_honors_manifest_display_name(tmp_path):
+    """#918 regression: a bundled project row arrives verbatim; the copy
+    must take the manifest's display_name (the clone name the operator
+    typed), not the source project's."""
+    repository, _head, _record, _dataset = _seed_project(tmp_path)
+    archive = tmp_path / 'doc-a.htdtproject'
+    export_project_bundle(
+        repository, 'doc-a', archive, display_name='Renamed Clone'
+    )
+    target = SceneRepository(tmp_path / 'target' / 'cad-scenes.sqlite3')
+    target.save(_scene('doc-a', speaker_x=9.9), parent_revision_id=None)
+
+    result = import_project_bundle(target, archive, import_as_copy=True)
+
+    entry = ProjectLibraryRepository(target).get_by_document_id(
+        result.document_id
+    )
+    assert entry is not None
+    assert entry.display_name == 'Renamed Clone'
+
+
+def test_import_rejects_non_zip_payload(tmp_path):
+    """#903 regression: a garbage .htdtproject surfaces as ProjectBundleError
+    (bounded user-facing notice), never a raw BadZipFile."""
+    from htdt.project_bundle import ProjectBundleError
+
+    garbage = tmp_path / 'broken.htdtproject'
+    garbage.write_bytes(b'not a zip archive at all')
+    target = SceneRepository(tmp_path / 'target' / 'cad-scenes.sqlite3')
+
+    with pytest.raises(ProjectBundleError, match='not a readable'):
+        import_project_bundle(target, garbage)

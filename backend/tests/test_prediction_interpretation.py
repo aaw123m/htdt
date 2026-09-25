@@ -591,3 +591,20 @@ def test_workspace_prediction_focus_reaches_viewport_highlight(tmp_path) -> None
 
     workspace.close()
     app.processEvents()
+
+
+def test_panel_view_does_not_claim_environment_selection(tmp_path) -> None:
+    """#915 regression: opening the panel must not persist an environment
+    selection the operator never made (that made a clean project dirty)."""
+    app = _app()
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(_rect_scene("prediction-env"), parent_revision_id=None)
+    room = RoomWorkspaceController(repository, "prediction-env")
+    controller = RoomPredictionController(repository, room)
+
+    assert not room.is_dirty
+    panel = RoomPredictionPanel(controller)  # noqa: F841 — init refreshes
+    app.processEvents()
+
+    assert not room.is_dirty
+    assert controller.selected_environment_profile() is None

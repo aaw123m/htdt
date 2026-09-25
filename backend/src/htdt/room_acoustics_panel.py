@@ -64,6 +64,7 @@ from .cad_acoustic_treatment_comparison import (
 )
 from .cad_scene import Position3
 from .ui_theme import TypographyRole, set_typography_role
+from .user_facing_error import operation_error_message
 
 _SURFACE_ROLE = Qt.ItemDataRole.UserRole
 _MATERIAL_ROLE = Qt.ItemDataRole.UserRole
@@ -461,7 +462,7 @@ class SurfaceMaterialPanel(QWidget):
                 geometric_bands=bands,
             )
         except (ValueError, IndexError) as exc:
-            self.readiness.setText(f'マテリアル登録失敗: {exc}')
+            self.readiness.setText(f'マテリアル登録失敗: {operation_error_message(exc)}')
             return
         self.controller.material_repository.save_material(material)
         self.refresh()
@@ -641,7 +642,11 @@ class RoomTreatmentPanel(QWidget):
             self.placements.addTopLevelItem(item)
 
         self.comparisons.clear()
-        for spec in self.controller.treatment_comparison_repository.list_all():
+        # #917: comparisons are project-owned — never list a foreign
+        # project's specs inside this Room surface.
+        for spec in self.controller.treatment_comparison_repository.list_for_document(
+            self.controller.document_id
+        ):
             roles = ' / '.join(
                 candidate.role for candidate in spec.candidates
             )
@@ -708,7 +713,7 @@ class RoomTreatmentPanel(QWidget):
             repository.save_evidence(evidence)
             repository.save_definition(definition)
         except ValueError as exc:
-            self.status.setText(f'定義作成失敗: {exc}')
+            self.status.setText(f'定義作成失敗: {operation_error_message(exc)}')
             return
         self.refresh()
         self.status.setText(f"定義 '{values['name']}' を作成しました")
@@ -741,7 +746,7 @@ class RoomTreatmentPanel(QWidget):
             )
             repository.save_placement(placement)
         except ValueError as exc:
-            self.status.setText(f'配置失敗: {exc}')
+            self.status.setText(f'配置失敗: {operation_error_message(exc)}')
             return
         self.refresh()
         self.status.setText('proposed として配置しました')
@@ -764,7 +769,7 @@ class RoomTreatmentPanel(QWidget):
             )
             repository.save_placement(updated)
         except ValueError as exc:
-            self.status.setText(f'install失敗: {exc}')
+            self.status.setText(f'install失敗: {operation_error_message(exc)}')
             return
         self.refresh()
         self.status.setText('配置を installed にしました')
@@ -802,7 +807,7 @@ class RoomTreatmentPanel(QWidget):
             )
             self.controller.treatment_comparison_repository.save(spec)
         except ValueError as exc:
-            self.status.setText(f'比較記録失敗: {exc}')
+            self.status.setText(f'比較記録失敗: {operation_error_message(exc)}')
             return
         self.refresh()
         self.status.setText(f"比較 '{name}' を記録しました")

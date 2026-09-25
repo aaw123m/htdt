@@ -1,10 +1,11 @@
 """Append-only persistence for saved analysis studies (#594).
 
 Every ``bound_refs`` entry is resolved through the shared exact-authority
-resolver before the study commits: scene/variant refs use the built-in
-resolvers and remaining kinds (``measurement_dataset``,
-``prediction_result``, ``standards_profile``, …) resolve through injected
-kind resolvers — an unresolvable or hash-mismatched authority fails the
+resolver before the study commits: every kind resolves through the
+canonical registry (#902) — scene/variant refs plus the measurement
+authorities (``measurement``, ``measurement_dataset``, ``comparison_set``)
+wired by ``measurement_repository``, and any additional kind via injected
+kind resolvers. An unresolvable or hash-mismatched authority fails the
 save, so a study can never claim binding to evidence that does not exist
 in this document.
 """
@@ -15,15 +16,11 @@ from contextlib import closing
 import sqlite3
 from typing import Mapping
 
-from hashlib import sha256
-import json
-
 from .cad_analysis_study import AnalysisStudy, StudyAuthorityRef
 from .cad_authority_resolver import (
     AuthorityRef,
     ExactAuthorityResolver,
     KindResolver,
-    ResolvedAuthority,
 )
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository
@@ -32,75 +29,6 @@ from .cad_system_variant_repository import CadSystemVariantRepository
 
 class AnalysisStudyConflictError(ValueError):
     """A study save violated append-only identity rules."""
-
-
-def _record_sha256(record: object) -> str:
-    """Deterministic semantic identity for a measurement record."""
-
-    payload = record.model_dump(mode='json')  # type: ignore[attr-defined]
-    canonical = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-    return sha256(canonical.encode('utf-8')).hexdigest()
-
-
-def _measurement_dataset_resolver(
-    repository: CadMeasurementRepository,
-) -> KindResolver:
-    def resolve(ref_id: str) -> ResolvedAuthority | None:
-        dataset = repository.get_dataset(ref_id)
-        if dataset is None:
-            return None
-        # A dataset's project scope comes through its owning measurement.
-        record = repository.get_measurement(dataset.measurement_id)
-        if record is None:
-            return None
-        return ResolvedAuthority(
-            kind='measurement_dataset',
-            ref_id=ref_id,
-            document_id=record.document_id,
-            semantic_sha256=dataset.dataset_sha256,
-        )
-
-    return resolve
-
-
-def _measurement_record_resolver(
-    repository: CadMeasurementRepository,
-) -> KindResolver:
-    def resolve(ref_id: str) -> ResolvedAuthority | None:
-        record = repository.get_measurement(ref_id)
-        if record is None:
-            return None
-        return ResolvedAuthority(
-            kind='measurement',
-            ref_id=ref_id,
-            document_id=record.document_id,
-            semantic_sha256=_record_sha256(record),
-        )
-
-    return resolve
-
-
-def _comparison_set_resolver(
-    repository: CadMeasurementRepository,
-) -> KindResolver:
-    def resolve(ref_id: str) -> ResolvedAuthority | None:
-        comparison = repository.get_comparison(ref_id)
-        if comparison is None:
-            return None
-        return ResolvedAuthority(
-            kind='comparison_set',
-            ref_id=ref_id,
-            document_id=comparison.document_id,
-            semantic_sha256=comparison.comparison_sha256,
-        )
-
-    return resolve
 
 
 class CadAnalysisStudyRepository:
@@ -124,24 +52,16 @@ class CadAnalysisStudyRepository:
         self.scene_repository = scene_repository
         self.system_variant_repository = system_variant_repository
         self.measurement_repository = measurement_repository
-        resolvers: dict[str, KindResolver] = dict(kind_resolvers or {})
-        if measurement_repository is not None:
-            resolvers.setdefault(
-                'measurement_dataset',
-                _measurement_dataset_resolver(measurement_repository),
-            )
-            resolvers.setdefault(
-                'measurement',
-                _measurement_record_resolver(measurement_repository),
-            )
-            resolvers.setdefault(
-                'comparison_set',
-                _comparison_set_resolver(measurement_repository),
-            )
+        # #902: measurement authorities resolve through the canonical
+        # registry — a study's 'measurement', 'measurement_dataset' and
+        # 'comparison_set' refs share the same adapter and semantic hash
+        # every other consumer uses; a callsite ``kind_resolvers`` entry
+        # may still override for a kind the registry does not own.
         self.resolver = ExactAuthorityResolver(
             scene_repository,
             system_variant_repository=system_variant_repository,
-            kind_resolvers=resolvers,
+            measurement_repository=measurement_repository,
+            kind_resolvers=kind_resolvers,
         )
         self.path = scene_repository.path
         self._initialize()
