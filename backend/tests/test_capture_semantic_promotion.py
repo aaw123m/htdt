@@ -21,6 +21,7 @@ from htdt.capture_semantic_promotion import (
     CaptureSemanticPromotionRequest,
     make_capture_semantic_promotion_request,
     make_capture_world_to_scene_authority,
+    run_semantic_promotion_schema_convergence,
 )
 from htdt.semantic_geometry import SemanticCoordinateTransform
 
@@ -572,6 +573,12 @@ def test_legacy_promotion_table_gains_composite_link_fk(
     _downgrade_promotions_table(scene.path, lineage)
     assert _promotion_link_fk_count(scene.path) == 0
 
+    # Schema convergence is the versioned migration's job (#302/#767):
+    # repository open verifies only, so run the migration-time convergence
+    # entry point directly.
+    with closing(sqlite3.connect(scene.path)) as connection, connection:
+        connection.row_factory = sqlite3.Row
+        run_semantic_promotion_schema_convergence(connection)
     migrated = CaptureSemanticPromotionRepository(
         scene, CaptureIngestionRepository(scene)
     )
@@ -636,10 +643,10 @@ def test_orphaned_legacy_promotion_fails_link_fk_migration(
             (run_id, binding_id),
         )
 
-    with pytest.raises(
-        CaptureSemanticPromotionError,
-        match='not backed by an ingestion-mesh link',
-    ):
-        CaptureSemanticPromotionRepository(
-            scene, CaptureIngestionRepository(scene)
-        )
+    with closing(sqlite3.connect(scene.path)) as connection:
+        connection.row_factory = sqlite3.Row
+        with pytest.raises(
+            CaptureSemanticPromotionError,
+            match='not backed by an ingestion-mesh link',
+        ):
+            run_semantic_promotion_schema_convergence(connection)

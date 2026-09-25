@@ -20,10 +20,15 @@ Identity model:
 - ``export_sha256`` seals the full record (spec + volatile fields) so a
   persisted/exported record is self-verifying end to end.
 
-Series provenance is typed: :func:`series_from_measurement_dataset`,
-:func:`series_from_comparison` and :func:`series_from_prediction` derive
-``source_*``/``historical`` from the real persisted authorities — a caller
-can never claim raw provenance by writing arbitrary strings.
+Series provenance is typed: every source-backed value class requires an
+exact ``source_kind``/``source_id``/``source_sha256`` pin, and derived or
+display-transformed series additionally pin the processing operation
+identity that produced them. ``historical`` is never a caller flag — the
+typed adapters (:func:`series_from_measurement_dataset`,
+:func:`series_from_comparison`, :func:`series_from_prediction`) derive it
+from the authority's scene binding versus the declared current head.
+Point order inside a series is the source authority's canonical order and
+is never rewritten for byte determinism.
 """
 
 from __future__ import annotations
@@ -128,6 +133,15 @@ class AnalysisSeries(BaseModel):
     source_sha256: str | None = Field(
         default=None, pattern=r'^[0-9a-f]{64}$'
     )
+    #: The exact processing operation that produced the values for
+    #: ``derived``/``display_transformed`` series — required there, and
+    #: forbidden on ``raw``/``predicted`` where the source authority
+    #: already carries the full provenance.
+    operation: str | None = Field(default=None, min_length=1)
+    operation_version: str | None = Field(default=None, min_length=1)
+    operation_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     #: Derived by the typed adapters (source revision vs current head) —
     #: never a caller-claimed flag.
     historical: bool = False
@@ -140,6 +154,39 @@ class AnalysisSeries(BaseModel):
             raise ValueError('source_sha256 requires source_kind+source_id')
         if self.source_id is not None and self.source_kind is None:
             raise ValueError('source_id requires source_kind')
+        # Every exported series binds the exact authority its values came
+        # from — a series with no provenance cannot be reproduced.
+        if self.source_sha256 is None:
+            raise ValueError(
+                f"value_class {self.value_class!r} requires an exact "
+                'source authority pin (source_kind+source_id+source_sha256)'
+            )
+        processed = self.value_class in ('derived', 'display_transformed')
+        if processed and (
+            self.operation is None or self.operation_version is None
+        ):
+            raise ValueError(
+                f"value_class {self.value_class!r} requires the processing "
+                'operation+operation_version that produced its values'
+            )
+        if not processed and (
+            self.operation is not None
+            or self.operation_version is not None
+            or self.operation_sha256 is not None
+        ):
+            raise ValueError(
+                f"value_class {self.value_class!r} cannot carry processing "
+                'operation provenance — the source authority pin is its '
+                'full identity'
+            )
+        if self.operation_version is not None and self.operation is None:
+            raise ValueError('operation_version requires operation')
+        if self.operation_sha256 is not None and (
+            self.operation_version is None
+        ):
+            raise ValueError(
+                'operation_sha256 requires operation+operation_version'
+            )
         return self
 
 
@@ -216,25 +263,16 @@ def build_analysis_export(
 ) -> AnalysisExportBundle:
     """Build a bundle with canonical ordering.
 
-    Series are sorted by ``series_id`` and each series' points by ``(x, y)``
-    so equal inputs always produce equal ``spec_sha256`` and equal bytes in
-    every renderer.
+    Series — a keyed set with unique ``series_id`` — are sorted by id, and
+    metadata by key, so equal inputs always produce equal ``spec_sha256``
+    and equal bytes in every renderer. Each series' points keep the
+    source authority's canonical order: an impulse, trajectory,
+    repeated-x or parametric series must never be resampled by an
+    exporter's idea of sorting.
     """
 
     ordered = tuple(
-        sorted(
-            (
-                item.model_copy(
-                    update={
-                        'points': tuple(
-                            sorted(item.points, key=lambda p: (p.x, p.y))
-                        )
-                    }
-                )
-                for item in series
-            ),
-            key=lambda item: item.series_id,
-        )
+        sorted(series, key=lambda item: item.series_id)
     )
     payload: dict[str, Any] = {
         'export_id': export_id or str(uuid4()),
@@ -298,8 +336,15 @@ def series_from_comparison(
     *,
     label: str | None = None,
     series_id: str | None = None,
+    current_scene_revision_id: str | None = None,
 ) -> AnalysisSeries:
-    """Derive a comparison (difference) series from a persisted A/B record."""
+    """Derive a comparison (difference) series from a persisted A/B record.
+
+    The processing operation identity comes from the comparison record
+    itself (``algorithm_version``/``algorithm_sha256``); ``historical`` is
+    derived from the revisions the comparison binds — it is historical
+    once the declared current head is neither side of the A/B.
+    """
 
     return AnalysisSeries(
         series_id=series_id or f'comparison:{comparison.comparison_id}',
@@ -315,7 +360,17 @@ def series_from_comparison(
         source_kind='measurement_comparison',
         source_id=comparison.comparison_id,
         source_sha256=comparison.comparison_sha256,
-        historical=False,
+        operation='measurement_comparison',
+        operation_version=comparison.algorithm_version,
+        operation_sha256=comparison.algorithm_sha256,
+        historical=(
+            current_scene_revision_id is not None
+            and current_scene_revision_id
+            not in (
+                comparison.scene_revision_a_id,
+                comparison.scene_revision_b_id,
+            )
+        ),
     )
 
 
@@ -328,10 +383,16 @@ def series_from_prediction(
     unit: str | None = None,
     x_label: str | None = None,
     y_label: str | None = None,
-    historical: bool = False,
+    source_scene_revision_id: str | None = None,
+    current_scene_revision_id: str | None = None,
     series_id: str | None = None,
 ) -> AnalysisSeries:
-    """Derive a predicted series pinned to an exact prediction authority."""
+    """Derive a predicted series pinned to an exact prediction authority.
+
+    ``historical`` is derived from authority context: the prediction's
+    scene binding (``source_scene_revision_id``) versus the declared
+    current head — never a caller-supplied boolean.
+    """
 
     return AnalysisSeries(
         series_id=series_id or f'prediction:{prediction_ref}',
@@ -346,7 +407,11 @@ def series_from_prediction(
         source_kind='prediction',
         source_id=prediction_ref,
         source_sha256=prediction_sha256,
-        historical=historical,
+        historical=(
+            current_scene_revision_id is not None
+            and source_scene_revision_id is not None
+            and source_scene_revision_id != current_scene_revision_id
+        ),
     )
 
 
@@ -381,6 +446,9 @@ def render_analysis_csv(bundle: AnalysisExportBundle) -> str:
                 'source_kind',
                 'source_id',
                 'source_sha256',
+                'operation',
+                'operation_version',
+                'operation_sha256',
                 'historical',
             )
         )
@@ -399,6 +467,9 @@ def render_analysis_csv(bundle: AnalysisExportBundle) -> str:
                         series.source_kind,
                         series.source_id,
                         series.source_sha256,
+                        series.operation,
+                        series.operation_version,
+                        series.operation_sha256,
                         str(series.historical).lower(),
                     )
                 )

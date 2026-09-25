@@ -298,12 +298,26 @@ class _OperationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class OperationRetryRequest:
+    """Explicit executor wiring for one safe new attempt (#738).
+
+    The previous attempt's cancel callback is deliberately cleared at its
+    terminal transition, so a retry must never resurrect it. The owning
+    operation adapter supplies a fresh callback bound to the new executor
+    submission — without one the new attempt is honestly non-cancellable.
+    """
+
+    domain_payload: Any = None
+    cancel_callback: Callable[[], None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ShutdownReport:
     """App-exit accounting for active operations."""
 
     active_at_exit: tuple[ApplicationOperation, ...]
     cancellation_requested: tuple[str, ...]
-    detached_lingering: tuple[str, ...]
+    detached_lingering: tuple[ApplicationOperation, ...]
     blocking_exclusive: tuple[ApplicationOperation, ...]
 
 
@@ -334,7 +348,16 @@ class ActivityCenter:
             listener(record.snapshot)
 
     def _archive(self, record: _OperationRecord) -> None:
-        self._history.append(record.snapshot)
+        # One operation_id (one attempt) occupies one logical history row:
+        # a post-completion reclassification (COMPLETED ->
+        # COMPLETED_FOR_HISTORICAL_INPUT / RESULT_STALE) replaces its row
+        # instead of appending a duplicate (#738).
+        for index, existing in enumerate(self._history):
+            if existing.operation_id == record.snapshot.operation_id:
+                self._history[index] = record.snapshot
+                break
+        else:
+            self._history.append(record.snapshot)
         if len(self._history) > self._history_limit:
             del self._history[: len(self._history) - self._history_limit]
 
@@ -369,6 +392,13 @@ class ActivityCenter:
         if cancellability == Cancellability.NOT_CANCELLABLE and cancel_callback is not None:
             raise OperationTransitionError(
                 'a non-cancellable operation cannot register a cancel callback'
+            )
+        if (
+            cancellability != Cancellability.NOT_CANCELLABLE
+            and cancel_callback is None
+        ):
+            raise OperationTransitionError(
+                'a cancellable operation requires a live cancel callback'
             )
         snapshot = ApplicationOperation(
             operation_id=operation_id,
@@ -460,7 +490,8 @@ class ActivityCenter:
         ) and current.started_at is None:
             fields['started_at'] = _utc_now()
         if target in TERMINAL_STATES:
-            fields['finished_at'] = _utc_now()
+            if current.state not in TERMINAL_STATES:
+                fields['finished_at'] = _utc_now()
             record.cancel_callback = None
         fields.update(updates)
         record.snapshot = current.model_copy(update={'state': target, **fields})
@@ -587,8 +618,23 @@ class ActivityCenter:
 
     # -- retry -----------------------------------------------------------
 
-    def retry(self, operation_id: str) -> str:
-        """Create a new attempt identity for a failed/cancelled operation."""
+    def retry(
+        self,
+        operation_id: str,
+        *,
+        retry_factory: Callable[
+            [ApplicationOperation], OperationRetryRequest
+        ] | None = None,
+    ) -> str:
+        """Create a new attempt identity for a failed/cancelled operation.
+
+        ``retry_factory`` is the explicit adapter contract that resubmits
+        the operation to its executor and returns the fresh per-attempt
+        wiring (domain payload + live cancel callback). The previous
+        attempt's callback was cleared at its terminal transition, so the
+        new attempt only advertises cancellability when the factory
+        supplies a real delivery path.
+        """
 
         record = self._record(operation_id)
         snapshot = record.snapshot
@@ -598,6 +644,11 @@ class ActivityCenter:
             )
         if snapshot.is_active:
             raise OperationTransitionError('cannot retry an active operation')
+        request = (
+            retry_factory(snapshot)
+            if retry_factory is not None
+            else OperationRetryRequest()
+        )
         return self.submit(
             operation_kind=snapshot.operation_kind,
             operation_class=snapshot.operation_class,
@@ -606,13 +657,21 @@ class ActivityCenter:
             document_ref=snapshot.document_ref,
             input_authority_refs=snapshot.input_authority_refs,
             revision_ref=snapshot.revision_ref,
-            cancellability=snapshot.cancellability,
+            cancellability=(
+                snapshot.cancellability
+                if request.cancel_callback is not None
+                else Cancellability.NOT_CANCELLABLE
+            ),
             retry_policy=snapshot.retry_policy,
             navigation_policy=snapshot.navigation_policy,
             navigation_block_reason=snapshot.navigation_block_reason,
             deep_link=snapshot.deep_link,
-            cancel_callback=record.cancel_callback,
-            domain_payload=record.domain_payload,
+            cancel_callback=request.cancel_callback,
+            domain_payload=(
+                request.domain_payload
+                if request.domain_payload is not None
+                else record.domain_payload
+            ),
             retry_of=snapshot.operation_id,
             attempt=snapshot.attempt + 1,
         )
@@ -639,14 +698,16 @@ class ActivityCenter:
                 if self.request_cancel(op.operation_id):
                     cancelled.append(op.operation_id)
         remaining = self.active()
+        # Every operation still active at teardown is reported as
+        # lingering (#738) — not just cancellation-requested ones. A
+        # non-cancellable RUNNING operation is the work most likely to be
+        # impossible to stop, and its snapshot carries state and
+        # cancellability so shutdown presentation can distinguish
+        # 'cancel requested' from 'cannot cancel'.
         return ShutdownReport(
             active_at_exit=tuple(active),
             cancellation_requested=tuple(cancelled),
-            detached_lingering=tuple(
-                op.operation_id
-                for op in remaining
-                if op.state == OperationState.CANCELLATION_REQUESTED
-            ),
+            detached_lingering=tuple(remaining),
             blocking_exclusive=self.navigation_blockers(),
         )
 
@@ -659,6 +720,12 @@ class ActivityCenter:
             'schema_version': ACTIVITY_SCHEMA_VERSION,
             'authority': 'htdt-activity-center-history',
             'operations': [op.model_dump(mode='json') for op in self._history],
+            # Last-known active-operation context (#738): after a crash the
+            # next session can say what was running when the prior session
+            # ended. Diagnostics only — never treated as resumable work.
+            'active_operations': [
+                op.model_dump(mode='json') for op in self.active()
+            ],
         }
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -691,6 +758,28 @@ class ActivityCenter:
             for item in payload.get('operations', ())
         )
 
+    @classmethod
+    def load_active_operations(
+        cls, path: Path
+    ) -> tuple[ApplicationOperation, ...]:
+        """Last-known active operations from a possibly-crashed session.
+
+        Recovery diagnostics (#604/#739) read this to identify what was
+        running when the previous session ended; the entries are never
+        treated as resumable work.
+        """
+
+        path = Path(path)
+        if not path.exists():
+            return ()
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        if payload.get('schema_version') != ACTIVITY_SCHEMA_VERSION:
+            return ()
+        return tuple(
+            ApplicationOperation.model_validate(item)
+            for item in payload.get('active_operations', ())
+        )
+
 
 __all__ = [
     'ACTIVITY_HISTORY_FILENAME',
@@ -702,6 +791,7 @@ __all__ = [
     'NavigationPolicy',
     'OperationClass',
     'OperationProgress',
+    'OperationRetryRequest',
     'OperationState',
     'OperationTransitionError',
     'ProgressKind',

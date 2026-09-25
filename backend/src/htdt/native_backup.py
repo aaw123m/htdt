@@ -27,6 +27,7 @@ from .cad_schema import (
     ensure_native_schema,
     read_native_schema_version,
 )
+from .native_row_integrity import verify_native_row_integrity
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     canonical_data_path as _canonical_data_path,
@@ -91,7 +92,7 @@ class BackupFileEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     path: str = Field(min_length=1)
-    kind: Literal['database', 'measurement_asset', 'auxiliary']
+    kind: Literal['database', 'measurement_asset', 'auxiliary', 'legacy_archive']
     size_bytes: int = Field(ge=0)
     sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -239,6 +240,9 @@ def _sqlite_health(path: Path) -> None:
             foreign_keys = connection.execute('PRAGMA foreign_key_check').fetchall()
             if foreign_keys:
                 raise ValueError(f'SQLite foreign-key check failed: {foreign_keys!r}')
+            # Semantic health (#313): physical/FK checks cannot see a row
+            # whose duplicated columns drifted from its canonical payload.
+            verify_native_row_integrity(connection)
         try:
             check_native_schema_compatibility(path)
         except NativeSchemaError as exc:
@@ -341,6 +345,50 @@ def _asset_rows(database_path: Path) -> tuple[tuple[str, str, int], ...]:
     return tuple(by_path[relative_path] for relative_path in sorted(by_path))
 
 
+#: Archived legacy-store paths a backup must carry when present — the
+#: immutable record of the retired browser authority (#598).
+_LEGACY_ARCHIVE_DB = 'htdt.migrated.sqlite3'
+_LEGACY_ARCHIVE_ASSETS_DIR = 'htdt.migrated.assets'
+
+
+def _is_archive_generation(name: str, base: str) -> bool:
+    """Match ``base`` itself or the numbered generations ``base.1``,
+    ``base.2``, … that the migration's ``_next_available`` fallback
+    creates (#759) — every generation is part of the immutable record."""
+
+    if name == base:
+        return True
+    if not name.startswith(f'{base}.'):
+        return False
+    return name[len(base) + 1:].isdigit()
+
+
+def _legacy_archive_members(data_dir: Path) -> tuple[str, ...]:
+    """Posix relative paths of every archived legacy store generation.
+
+    A re-migrated store lands as ``htdt.migrated.sqlite3.1`` (and assets
+    as ``htdt.migrated.assets.1``) — numbered generations carry the same
+    retired-authority record and ride the backup identically (#759).
+    """
+
+    members: list[str] = []
+    if not data_dir.is_dir():
+        return ()
+    for candidate in sorted(data_dir.iterdir()):
+        name = candidate.name
+        if _is_archive_generation(name, _LEGACY_ARCHIVE_DB):
+            if candidate.is_file() and not candidate.is_symlink():
+                members.append(name)
+        elif _is_archive_generation(name, _LEGACY_ARCHIVE_ASSETS_DIR):
+            if candidate.is_dir():
+                for child in sorted(candidate.rglob('*')):
+                    if child.is_file() and not child.is_symlink():
+                        members.append(
+                            f'{name}/{child.relative_to(candidate).as_posix()}'
+                        )
+    return tuple(members)
+
+
 def _validate_asset_contract(
     *,
     data_dir: Path,
@@ -431,6 +479,17 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
             size_bytes=aux_path.stat().st_size,
             sha256=_sha256_file(aux_path),
         ))
+    # Retired-authority archives (#598/#759): a migrated legacy store is
+    # immutable user evidence — losing it in a backup/restore would silently
+    # erase the pre-migration record.
+    for member in _legacy_archive_members(snapshot_root):
+        member_path = _safe_data_path(snapshot_root, member)
+        entries.append(BackupFileEntry(
+            path=member,
+            kind='legacy_archive',
+            size_bytes=member_path.stat().st_size,
+            sha256=_sha256_file(member_path),
+        ))
     info = get_build_info()
     build = BackupBuildInfo(
         display_version=info.display_version,
@@ -492,6 +551,13 @@ def _create_backup(data_dir: Path, destination: Path) -> BackupManifest:
             target_aux = snapshot_root / auxiliary_archive_path(component)
             target_aux.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_aux, target_aux)
+        for member in _legacy_archive_members(data_dir):
+            source_member = _safe_data_path(data_dir, member)
+            target_member = _safe_data_path(snapshot_root, member)
+            if source_member.is_symlink() or not source_member.is_file():
+                raise ValueError(f'legacy archive member is missing or not a regular file: {member}')
+            target_member.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_member, target_member)
 
         _validate_asset_contract(
             data_dir=snapshot_root,
@@ -917,6 +983,49 @@ def _live_assets_match(
     return not extras
 
 
+def _swap_legacy_archive_members(
+    data_dir: Path,
+    stage_root: Path,
+    rollback_root: Path,
+    manifest: BackupManifest,
+) -> None:
+    """Land every ``legacy_archive`` manifest member on the live root.
+
+    A live file that differs from the manifest is evacuated (its
+    pre-restore bytes are preserved in the rollback tree), then the
+    staged member lands. Used by both the normal swap and the
+    interrupted-swap completion — a restore that skipped these would
+    silently erase the retired-authority record (#759).
+    """
+
+    for entry in manifest.files:
+        if entry.kind != 'legacy_archive':
+            continue
+        live_member = _safe_data_path(data_dir, entry.path)
+        staged_member = _safe_data_path(stage_root, entry.path)
+        if live_member.exists():
+            if (
+                not live_member.is_file()
+                or _sha256_file(live_member) != entry.sha256
+            ):
+                evacuate_root = (
+                    rollback_root / 'legacy-archive' / PurePosixPath(entry.path).parent
+                )
+                evacuate_root.mkdir(parents=True, exist_ok=True)
+                _evacuate_into(live_member, evacuate_root)
+        if not live_member.exists():
+            if not staged_member.is_file():
+                raise RestoreRecoveryError(
+                    f'staged legacy archive member is missing: {entry.path}'
+                )
+            live_member.parent.mkdir(parents=True, exist_ok=True)
+            _replace_durable(staged_member, live_member)
+        if _sha256_file(live_member) != entry.sha256:
+            raise RestoreRecoveryError(
+                f'live legacy archive member failed verification: {entry.path}'
+            )
+
+
 def _complete_restore_swap(
     data_dir: Path,
     rollback_root: Path,
@@ -998,6 +1107,9 @@ def _complete_restore_swap(
             and auxiliary_archive_path(component) not in aux_paths
         ):
             _evacuate_into(live_aux, rollback_root)
+    _swap_legacy_archive_members(
+        data_dir, stage_root, rollback_root, manifest
+    )
 
     _sqlite_health(live_database)
     _validate_asset_contract(
@@ -1031,6 +1143,23 @@ def _rollback_restore_swap(data_dir: Path, rollback_root: Path) -> None:
         if live_aux.exists():
             evacuated_live.mkdir(exist_ok=True)
             _evacuate_into(live_aux, evacuated_live)
+    # Legacy-archive members: park the current live files, then bring back
+    # the pre-restore generation preserved under the rollback mirror.
+    legacy_rollback = rollback_root / 'legacy-archive'
+    for member in _legacy_archive_members(data_dir):
+        evacuate_root = (
+            legacy_rollback / PurePosixPath(member).parent / '.superseded'
+        )
+        evacuate_root.mkdir(parents=True, exist_ok=True)
+        _evacuate_into(_safe_data_path(data_dir, member), evacuate_root)
+    if legacy_rollback.is_dir():
+        for parked in sorted(legacy_rollback.rglob('*')):
+            if parked.is_dir() or '.superseded' in parked.parts:
+                continue
+            relative = parked.relative_to(legacy_rollback)
+            live_member = data_dir.joinpath(*relative.parts)
+            live_member.parent.mkdir(parents=True, exist_ok=True)
+            _replace_durable(parked, live_member)
     if rollback_database.exists():
         _replace_durable(rollback_database, live_database)
     if rollback_assets.exists():
@@ -1350,6 +1479,11 @@ def _restore_backup(
                         f'staged auxiliary data is missing: {aux_entry.path}'
                     )
                 _replace_durable(staged_aux, data_dir / component.path)
+            # Retired-authority archives ride the same swap: a restore
+            # that skipped them would silently erase the record (#759).
+            _swap_legacy_archive_members(
+                data_dir, stage_root, rollback_root, manifest
+            )
             _journal_phase(rollback_root, journal, 'restored')
 
             _sqlite_health(live_database)

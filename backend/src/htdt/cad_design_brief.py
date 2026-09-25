@@ -32,6 +32,7 @@ Contract properties:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from hashlib import sha256
 import json
 from typing import Any, Literal, Mapping
@@ -158,6 +159,7 @@ class ProjectDesignBrief(BaseModel):
         ]
         if len(ref_keys) != len(set(ref_keys)):
             raise ValueError('brief authority refs must be unique per kind/ref')
+        _validate_instant(self.created_at_utc)
         if self.brief_sha256 != _hash(self.semantic_payload()):
             raise ValueError('ProjectDesignBrief hash mismatch')
         return self
@@ -217,6 +219,107 @@ class BriefCoverage(BaseModel):
             for goal in self.goals
             if goal.state in {'stale', 'missing'}
         )
+
+
+def _validate_instant(value: str) -> None:
+    """Enforce strict, explicitly-UTC ISO 8601 persisted timestamps (#870).
+
+    Naive strings, partial dates and non-UTC offsets are rejected before
+    they can rewrite history semantics silently.
+    """
+
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('created_at_utc is not a valid ISO 8601 instant') from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ValueError('created_at_utc must carry an explicit UTC offset')
+
+
+class DesignBriefIntegrityError(ValueError):
+    """Persisted brief lineage is corrupt (fork, cycle, dangling ref)."""
+
+
+def brief_lineage_issues(
+    briefs: tuple[ProjectDesignBrief, ...],
+) -> tuple[str, ...]:
+    """Detect topology violations in a document's brief history (#870).
+
+    A project's brief is a single-head supersession chain: a fork, a cycle,
+    or a dangling/self/foreign predecessor makes the persisted history
+    untrustworthy and must fail closed rather than collapse to a timestamp
+    "newest" pick.
+    """
+
+    issues: list[str] = []
+    by_id = {item.brief_id: item for item in briefs}
+    successors: dict[str, list[str]] = {}
+    for item in briefs:
+        predecessor = item.supersedes_brief_id
+        if predecessor is None:
+            continue
+        successors.setdefault(predecessor, []).append(item.brief_id)
+        target = by_id.get(predecessor)
+        if predecessor == item.brief_id:
+            issues.append(f'brief {item.brief_id} supersedes itself')
+        elif target is None:
+            issues.append(
+                f'brief {item.brief_id} supersedes missing predecessor '
+                f'{predecessor}'
+            )
+        elif target.document_id != item.document_id:
+            issues.append(
+                f'brief {item.brief_id} supersedes a brief from another '
+                'document'
+            )
+    for predecessor, children in successors.items():
+        if len(children) > 1:
+            issues.append(
+                f'brief {predecessor} has multiple successors '
+                f'({len(children)}): forked lineage'
+            )
+    for item in briefs:
+        seen: set[str] = set()
+        cursor: ProjectDesignBrief | None = item
+        while cursor is not None and cursor.supersedes_brief_id is not None:
+            predecessor_id = cursor.supersedes_brief_id
+            if predecessor_id in seen:
+                issues.append(
+                    f'brief {item.brief_id} reaches a supersession cycle'
+                )
+                break
+            seen.add(predecessor_id)
+            cursor = by_id.get(predecessor_id)
+    return tuple(issues)
+
+
+def current_brief(
+    briefs: tuple[ProjectDesignBrief, ...],
+) -> ProjectDesignBrief | None:
+    """The unique head of the document's supersession chain, or ``None``.
+
+    ``None`` is the NOT_CONFIGURED state — a project with no brief. More
+    than one head is a persisted fork and raises
+    :class:`DesignBriefIntegrityError` instead of guessing (#870).
+    """
+
+    issues = brief_lineage_issues(briefs)
+    if issues:
+        raise DesignBriefIntegrityError(
+            'design brief lineage is corrupt: ' + '; '.join(issues)
+        )
+    superseded = {
+        item.supersedes_brief_id
+        for item in briefs
+        if item.supersedes_brief_id is not None
+    }
+    heads = [item for item in briefs if item.brief_id not in superseded]
+    if len(heads) > 1:
+        raise DesignBriefIntegrityError(
+            'design brief lineage has multiple heads: '
+            + ', '.join(sorted(item.brief_id for item in heads))
+        )
+    return heads[0] if heads else None
 
 
 def build_design_brief(
@@ -356,6 +459,9 @@ __all__ = [
     'BRIEF_NOT_CONFIGURED',
     'BRIEF_SCHEMA_VERSION',
     'BriefCoverage',
+    'DesignBriefIntegrityError',
+    'brief_lineage_issues',
+    'current_brief',
     'BriefGoalFreshness',
     'BriefGoalKind',
     'BriefGoalRef',

@@ -16,11 +16,16 @@ from htdt.native_backup import DATABASE_NAME
 from htdt.native_upgrade import (
     IncompatibleNewerSchemaError,
     NativeUpgradeError,
+    NativeUpgradeQuarantineError,
+    NativeUpgradeVerificationError,
+    UpgradeStateRecord,
     execute_native_upgrade,
     list_upgrade_events,
     newer_schema_guidance,
     plan_native_upgrade,
+    read_upgrade_state,
     upgrade_snapshot_dir,
+    write_upgrade_state,
 )
 from test_cad_schema import _LEGACY_DDL
 
@@ -248,3 +253,177 @@ def test_second_open_after_upgrade_is_silent(tmp_path: Path) -> None:
     assert event.outcome == 'no_upgrade'
     # The first upgrade journaled exactly one event; no new entries appear.
     assert len(list_upgrade_events(tmp_path)) == 1
+
+
+def _prepare_upgrade_candidate(data_dir: Path) -> None:
+    """A live database one schema generation behind the build."""
+
+    _create_current_database(data_dir)
+    _stamp_schema_version(data_dir, NATIVE_SCHEMA_VERSION - 1)
+
+
+def test_post_commit_verification_failure_quarantines_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_upgrade_candidate(tmp_path)
+
+    def _fail_verify(database_path: Path, expected_version: int) -> None:
+        raise NativeUpgradeVerificationError(
+            'semantic_audit', 'injected verification failure'
+        )
+
+    monkeypatch.setattr(
+        'htdt.native_upgrade._verify_upgraded_database', _fail_verify
+    )
+
+    with pytest.raises(NativeUpgradeQuarantineError) as caught:
+        execute_native_upgrade(tmp_path)
+
+    # The migration transaction committed — the live DB IS at vN now.
+    assert read_native_schema_version(_database(tmp_path)) == (
+        NATIVE_SCHEMA_VERSION
+    )
+    # The durable unresolved marker survives for the next startup.
+    marker = read_upgrade_state(tmp_path)
+    assert marker is not None
+    assert marker.state == 'failed_after_commit'
+    assert marker.failure_stage == 'semantic_audit'
+    assert marker.recovery_snapshot_ref is not None
+    # Recovery copy reference + explicit choices travel on the error.
+    assert caught.value.recovery_snapshot_ref == (
+        marker.recovery_snapshot_ref
+    )
+    assert caught.value.recovery_choices == (
+        'retry_verification',
+        'restore_recovery_copy',
+        'open_diagnostics',
+    )
+    # Honest copy: never claims the live database was unmodified.
+    assert 'committed, but verification failed' in str(caught.value)
+    assert 'did not modify' not in str(caught.value)
+
+    events = list_upgrade_events(tmp_path)
+    assert len(events) == 1
+    event = events[0]
+    assert event.outcome == 'failed'
+    assert event.migration_commit_state == 'committed'
+    assert event.live_generation_state == 'migrated_unverified'
+    assert event.verification_failure_stage == 'semantic_audit'
+    assert event.recovery_snapshot_ref is not None
+
+
+def test_restart_after_failed_verification_reverifies_instead_of_no_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_upgrade_candidate(tmp_path)
+
+    def _fail_verify(database_path: Path, expected_version: int) -> None:
+        raise NativeUpgradeVerificationError(
+            'repository_open', 'injected verification failure'
+        )
+
+    monkeypatch.setattr(
+        'htdt.native_upgrade._verify_upgraded_database', _fail_verify
+    )
+    with pytest.raises(NativeUpgradeQuarantineError):
+        execute_native_upgrade(tmp_path)
+
+    # Simulated restart: the same failing verifier keeps the generation
+    # quarantined — never an ordinary no_upgrade.
+    with pytest.raises(NativeUpgradeQuarantineError) as caught:
+        execute_native_upgrade(tmp_path)
+    assert 'will not open this generation' in str(caught.value)
+    assert read_upgrade_state(tmp_path).state == 'failed_after_commit'
+
+    # With the verifier restored, retry-verification reruns the real
+    # bounded checks on the committed generation and clears quarantine
+    # without repeating the migration.
+    monkeypatch.undo()
+    event = execute_native_upgrade(tmp_path)
+    assert event.outcome == 'completed'
+    assert event.verification_state == 'verified'
+    assert event.migration_commit_state == 'committed'
+    assert event.live_generation_state == 'migrated_verified'
+    assert read_upgrade_state(tmp_path) is None
+
+    # The next open is the ordinary silent no-op again.
+    assert execute_native_upgrade(tmp_path).outcome == 'no_upgrade'
+
+
+def test_crash_after_commit_before_state_persistence_is_quarantined(
+    tmp_path: Path,
+) -> None:
+    # Crash window: migration committed vN but the process died before the
+    # pending-verification marker refresh — the marker is still 'migrating'.
+    _create_current_database(tmp_path)
+    write_upgrade_state(
+        tmp_path,
+        UpgradeStateRecord(
+            state='committed_pending_verification',
+            upgrade_id='crash-sim',
+            from_schema=NATIVE_SCHEMA_VERSION - 1,
+            to_schema=NATIVE_SCHEMA_VERSION,
+            started_at_utc='2026-01-01T00:00:00+00:00',
+            updated_at_utc='2026-01-01T00:00:00+00:00',
+        ),
+    )
+
+    event = execute_native_upgrade(tmp_path)
+
+    # Not a silent no_upgrade: the unresolved generation is re-verified.
+    assert event.outcome == 'completed'
+    assert event.verification_state == 'verified'
+    assert event.live_generation_state == 'migrated_verified'
+    assert event.upgrade_id == 'crash-sim'
+    assert read_upgrade_state(tmp_path) is None
+
+
+def test_migration_failure_marks_before_commit_and_allows_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_upgrade_candidate(tmp_path)
+
+    def _boom(database_path: Path) -> None:
+        raise RuntimeError('injected migration failure')
+
+    monkeypatch.setattr(
+        'htdt.native_upgrade.ensure_native_schema', _boom
+    )
+
+    with pytest.raises(NativeUpgradeError) as caught:
+        execute_native_upgrade(tmp_path)
+
+    # Before-commit failure is not a quarantine and says so honestly.
+    assert not isinstance(caught.value, NativeUpgradeQuarantineError)
+    assert 'did not modify the live database' in str(caught.value)
+
+    marker = read_upgrade_state(tmp_path)
+    assert marker is not None
+    assert marker.state == 'failed_before_commit'
+    assert marker.failure_stage == 'migration'
+
+    event = list_upgrade_events(tmp_path)[0]
+    assert event.outcome == 'failed'
+    assert event.migration_commit_state == 'rolled_back'
+    assert event.live_generation_state == 'unchanged'
+    assert event.verification_failure_stage == 'migration'
+
+    # The live database is still the old generation: the next launch
+    # retries the whole upgrade rather than quarantining.
+    assert read_native_schema_version(_database(tmp_path)) == (
+        NATIVE_SCHEMA_VERSION - 1
+    )
+    monkeypatch.undo()
+    assert execute_native_upgrade(tmp_path).outcome == 'completed'
+    assert read_upgrade_state(tmp_path) is None
+
+
+def test_clean_current_schema_has_no_marker_and_stays_silent(
+    tmp_path: Path,
+) -> None:
+    _create_current_database(tmp_path)
+    assert read_upgrade_state(tmp_path) is None
+    event = execute_native_upgrade(tmp_path)
+    assert event.outcome == 'no_upgrade'
+    assert event.live_generation_state == 'unchanged'
+    assert list_upgrade_events(tmp_path) == ()

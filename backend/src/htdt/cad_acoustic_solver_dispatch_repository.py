@@ -19,7 +19,10 @@ from .cad_acoustic_solver_adapter import (
     bind_prediction_request_to_solver_adapter,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -90,51 +93,7 @@ class CadAcousticSolverDispatchRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_solver_adapters (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    descriptor_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    adapter_id TEXT NOT NULL,
-                    adapter_version TEXT NOT NULL,
-                    model_solver_role_id TEXT NOT NULL,
-                    acoustic_domain TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_solver_adapter_role_seq
-                    ON cad_acoustic_solver_adapters(
-                        model_solver_role_id,
-                        acoustic_domain,
-                        seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_acoustic_solver_dispatch_bindings (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    binding_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    prediction_request_id TEXT NOT NULL,
-                    acoustic_scene_snapshot_id TEXT NOT NULL,
-                    adapter_descriptor_id TEXT NOT NULL,
-                    deterministic_solver_input_hash TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(prediction_request_id)
-                        REFERENCES cad_acoustic_prediction_requests(request_id),
-                    FOREIGN KEY(acoustic_scene_snapshot_id)
-                        REFERENCES cad_acoustic_scene_snapshots(snapshot_id),
-                    FOREIGN KEY(adapter_descriptor_id)
-                        REFERENCES cad_acoustic_solver_adapters(descriptor_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_solver_dispatch_request_seq
-                    ON cad_acoustic_solver_dispatch_bindings(
-                        prediction_request_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_acoustic_solver_adapters', 'cad_acoustic_solver_dispatch_bindings')
 
     def _resolve_external_ref(
         self,

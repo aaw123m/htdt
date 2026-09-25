@@ -18,7 +18,10 @@ from .cad_scene import scene_content_hash
 from .cad_search import generate_cad_candidates
 from .cad_search_models import CadSearchSpec
 from .cad_search_repository import CadSearchRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .optimization_robustness import (
     LocalPerturbation,
     PerturbationSample,
@@ -137,73 +140,7 @@ class CadRobustnessRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_robustness_specs (
-                    robustness_spec_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    nominal_objective_evaluation_id TEXT NOT NULL,
-                    model_id TEXT NOT NULL,
-                    model_version TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    robustness_spec_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_cad_robustness_specs_candidate
-                    ON cad_robustness_specs(
-                        document_id,
-                        scene_revision_id,
-                        candidate_id,
-                        created_at_utc
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_perturbation_samples (
-                    sample_id TEXT PRIMARY KEY,
-                    robustness_spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    sample_index INTEGER NOT NULL,
-                    feasible INTEGER NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    sample_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(robustness_spec_id, sample_index),
-                    FOREIGN KEY(robustness_spec_id)
-                        REFERENCES cad_robustness_specs(robustness_spec_id)
-                        ON DELETE RESTRICT
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_cad_perturbation_samples_spec
-                    ON cad_perturbation_samples(
-                        robustness_spec_id,
-                        sample_index
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_robustness_evaluations (
-                    evaluation_id TEXT PRIMARY KEY,
-                    robustness_spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    objective_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(robustness_spec_id, objective_id),
-                    FOREIGN KEY(robustness_spec_id)
-                        REFERENCES cad_robustness_specs(robustness_spec_id)
-                        ON DELETE RESTRICT
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_cad_robustness_evaluations_spec
-                    ON cad_robustness_evaluations(
-                        robustness_spec_id,
-                        objective_id
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_robustness_specs', 'cad_perturbation_samples', 'cad_robustness_evaluations')
 
     @staticmethod
     def _payload(model: Any) -> str:

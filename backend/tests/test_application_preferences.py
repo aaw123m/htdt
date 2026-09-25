@@ -15,6 +15,7 @@ from htdt.application_preferences import (
     PREFERENCE_DEFINITIONS,
     PreferenceChange,
     PreferenceLoadState,
+    PreferenceNotificationError,
     PreferenceValueError,
     UnknownPreferenceKey,
 )
@@ -248,3 +249,107 @@ def test_preferences_model_is_frozen_and_validates() -> None:
         ApplicationPreferences(values={'rogue.key': 1})
     with pytest.raises(ValidationError):
         ApplicationPreferences(values={'integrations.rew_port': -1})
+
+
+def test_update_commits_one_atomic_write(tmp_path) -> None:
+    """#742: a multi-key Apply performs exactly one durable write."""
+    path = tmp_path / 'prefs.json'
+    store = ApplicationPreferenceStore(path)
+    writes: list[dict] = []
+    original = store._persist_values
+    def counting(values):
+        writes.append(dict(values))
+        return original(values)
+    store._persist_values = counting  # type: ignore[assignment]
+
+    seen: list[PreferenceChange] = []
+    store.subscribe(seen.append)
+    changes = store.update({
+        'display_input.theme': 'dark',
+        'integrations.rew_port': 9000,
+        'display_input.length_unit': 'cm',
+    })
+
+    assert len(writes) == 1
+    assert writes[0] == {
+        'display_input.theme': 'dark',
+        'integrations.rew_port': 9000,
+        'display_input.length_unit': 'cm',
+    }
+    assert {c.key for c in changes} == set(writes[0])
+    assert {c.key for c in seen} == set(writes[0])
+    reloaded = ApplicationPreferenceStore(path)
+    assert reloaded.get('display_input.theme') == 'dark'
+    assert reloaded.get('integrations.rew_port') == 9000
+
+
+def test_persist_failure_leaves_memory_and_disk_unchanged(tmp_path) -> None:
+    """#742: injected persistence failure must not half-apply."""
+    path = tmp_path / 'prefs.json'
+    store = ApplicationPreferenceStore(path)
+    store.set('display_input.theme', 'dark')
+    prior_disk = path.read_text(encoding='utf-8')
+
+    seen: list[PreferenceChange] = []
+    store.subscribe(seen.append)
+
+    def broken(values):
+        raise OSError('disk full')
+
+    store._persist_values = broken  # type: ignore[assignment]
+    with pytest.raises(OSError):
+        store.update({
+            'display_input.theme': 'light',
+            'integrations.rew_port': 9000,
+        })
+    assert store.get('display_input.theme') == 'dark'
+    assert store.get('integrations.rew_port') == 4735
+    assert seen == []
+    assert path.read_text(encoding='utf-8') == prior_disk
+
+    # Single-key set() shares the same atomic path: no mutation before
+    # durable replace succeeds.
+    with pytest.raises(OSError):
+        store.set('integrations.rew_port', 1)
+    assert store.get('integrations.rew_port') == 4735
+    assert seen == []
+
+
+def test_listener_failure_cannot_create_partial_state(tmp_path) -> None:
+    """#742: a post-commit listener error keeps the durable commit honest."""
+    path = tmp_path / 'prefs.json'
+    store = ApplicationPreferenceStore(path)
+
+    def boom(change):
+        raise RuntimeError('observer failed')
+
+    seen: list[PreferenceChange] = []
+    store.subscribe(boom)
+    store.subscribe(seen.append)
+    with pytest.raises(PreferenceNotificationError):
+        store.update({'display_input.theme': 'dark', 'integrations.rew_port': 9000})
+    # Commit was still durable and every listener ran.
+    assert {c.key for c in seen} == {'display_input.theme', 'integrations.rew_port'}
+    reloaded = ApplicationPreferenceStore(path)
+    assert reloaded.get('display_input.theme') == 'dark'
+    assert reloaded.get('integrations.rew_port') == 9000
+
+
+def test_update_removes_defaults_in_same_atomic_write(tmp_path) -> None:
+    path = tmp_path / 'prefs.json'
+    store = ApplicationPreferenceStore(path)
+    store.set('display_input.theme', 'dark')
+    store.set('integrations.rew_port', 9000)
+
+    changes = store.update({
+        'display_input.theme': 'system',
+        'display_input.reduced_motion': True,
+    })
+    assert {c.key for c in changes} == {
+        'display_input.theme',
+        'display_input.reduced_motion',
+    }
+    assert store.is_default('display_input.theme')
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    assert 'display_input.theme' not in payload['values']
+    assert payload['values']['display_input.reduced_motion'] is True

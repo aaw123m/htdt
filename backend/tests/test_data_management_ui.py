@@ -30,6 +30,8 @@ class _FakeController(QObject):
     restore_preview_ready = Signal(object)
     restore_completed = Signal(object)
     relocation_completed = Signal(object)
+    storage_scan_completed = Signal(object)
+    storage_gc_completed = Signal(object)
     operation_failed = Signal(object)
 
     def __init__(self, data_dir: Path) -> None:
@@ -47,6 +49,8 @@ class _FakeController(QObject):
         self.preview_requests: list[Path] = []
         self.restore_requests: list[object] = []
         self.relocate_requests: list[Path] = []
+        self.storage_scan_requests = 0
+        self.storage_gc_requests = 0
 
     @property
     def is_busy(self) -> bool:
@@ -71,6 +75,14 @@ class _FakeController(QObject):
     def relocate(self, destination: Path) -> str:
         self.relocate_requests.append(Path(destination))
         return "relocate-op"
+
+    def scan_storage(self) -> str:
+        self.storage_scan_requests += 1
+        return "storage-scan-op"
+
+    def gc_storage(self) -> str:
+        self.storage_gc_requests += 1
+        return "storage-gc-op"
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy

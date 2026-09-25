@@ -22,14 +22,22 @@ Contract properties:
   study is still reproducible, merely not-current, or has broken references;
   refreshing a study means duplicating it onto newer evidence — the original
   is never silently rewritten;
-- studies are append-only; `supersedes`/`duplicated_from` chain iterations.
+- studies are append-only; `supersedes`/`duplicated_from` are lineage
+  metadata only — every persisted study is an independent immutable
+  artifact and no single "current head" is derived from the chain;
+- recorded analysis operations are provenance, not replay instructions:
+  :func:`evaluate_operation_support` reports which pinned
+  ``(operation, version)`` pairs resolve to a processing contract this
+  build can regenerate — an unregistered version is explicitly
+  ``unsupported`` and never silently substituted with whatever
+  implementation happens to be newest.
 """
 
 from __future__ import annotations
 
 from hashlib import sha256
 import json
-from typing import Any, Literal, Mapping
+from typing import AbstractSet, Any, Literal, Mapping
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -416,9 +424,10 @@ def evaluate_study_state(
     """Evaluate whether a study is still reproducible.
 
     ``resolve_sha256`` maps ``(kind, ref_id)`` to the referenced authority's
-    current semantic hash, or ``None`` when the id no longer resolves. The
-    study itself is never rewritten by this evaluation; pinning without a
-    recorded hash counts as reproducible when the id resolves.
+    current semantic hash, or ``None`` when the id no longer resolves. Every
+    bound ref is hash-bearing, so ``reproducible`` means each pin still
+    resolves exactly — an ID-only claim cannot exist. The study itself is
+    never rewritten by this evaluation.
     """
 
     refs: list[StudyRefStatus] = []
@@ -437,7 +446,7 @@ def evaluate_study_state(
                     reason='referenced authority no longer resolves',
                 )
             )
-        elif ref.ref_sha256 is not None and ref.ref_sha256 != current:
+        elif ref.ref_sha256 != current:
             stale = True
             refs.append(
                 StudyRefStatus(
@@ -484,8 +493,91 @@ def evaluate_study_state(
     )
 
 
+#: Operation contract versions this build can regenerate, keyed by
+#: ``StudyOperationKind``. A persisted :class:`StudyAnalysisOperation` is a
+#: provenance record — regenerating its displayed numerics is only provable
+#: when its ``(operation, version)`` resolves to a registered contract.
+#: The product ships no study-operation processors yet, so the shipped
+#: registry is empty: every recorded version reports ``unsupported`` rather
+#: than silently running whatever implementation happens to be newest.
+STUDY_OPERATION_CONTRACTS: Mapping[str, frozenset[str]] = {}
+
+StudyOperationSupport = Literal['regenerable', 'unsupported']
+
+
+class StudyOperationStatus(BaseModel):
+    """Regenerability verdict for one recorded analysis operation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    operation: str
+    version: str
+    support: StudyOperationSupport
+    reason: str
+
+
+class StudyOperationReport(BaseModel):
+    """Per-operation regenerability over a study's recorded operations."""
+
+    model_config = ConfigDict(frozen=True)
+
+    study_id: str
+    regenerable: bool
+    operations: tuple[StudyOperationStatus, ...]
+
+
+def evaluate_operation_support(
+    study: AnalysisStudy,
+    *,
+    supported_contracts: Mapping[str, AbstractSet[str]] = (
+        STUDY_OPERATION_CONTRACTS
+    ),
+) -> StudyOperationReport:
+    """Report which recorded operations this build can regenerate.
+
+    ``supported_contracts`` maps each operation kind to the versions with a
+    known processing contract — the registry the current build declares, or
+    a caller-supplied one. An unregistered ``(operation, version)`` reports
+    ``unsupported``: the study stays a valid historical record, but its
+    numerics are explicitly non-reproducible instead of silently replayed
+    under a newer implementation.
+    """
+
+    operations: list[StudyOperationStatus] = []
+    for operation in study.analysis_operations:
+        supported = supported_contracts.get(operation.operation, frozenset())
+        if operation.version in supported:
+            operations.append(
+                StudyOperationStatus(
+                    operation=operation.operation,
+                    version=operation.version,
+                    support='regenerable',
+                    reason='operation version resolves a registered '
+                    'processing contract',
+                )
+            )
+        else:
+            operations.append(
+                StudyOperationStatus(
+                    operation=operation.operation,
+                    version=operation.version,
+                    support='unsupported',
+                    reason='no registered processing contract for this '
+                    'operation version — regeneration unavailable',
+                )
+            )
+    return StudyOperationReport(
+        study_id=study.study_id,
+        regenerable=all(
+            item.support == 'regenerable' for item in operations
+        ),
+        operations=tuple(operations),
+    )
+
+
 __all__ = [
     'STUDY_AUTHORITY_VERSION',
+    'STUDY_OPERATION_CONTRACTS',
     'STUDY_SCHEMA_VERSION',
     'AnalysisStudy',
     'StudyAnalysisOperation',
@@ -495,6 +587,9 @@ __all__ = [
     'StudyNote',
     'StudyNoteKind',
     'StudyOperationKind',
+    'StudyOperationReport',
+    'StudyOperationStatus',
+    'StudyOperationSupport',
     'StudyRefFreshness',
     'StudyRefStatus',
     'StudySpecItem',
@@ -502,6 +597,7 @@ __all__ = [
     'StudyStateReport',
     'build_analysis_study',
     'duplicate_analysis_study',
+    'evaluate_operation_support',
     'evaluate_study_state',
     'make_study_note',
 ]

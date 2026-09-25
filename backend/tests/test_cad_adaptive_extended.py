@@ -17,6 +17,7 @@ from htdt.cad_adaptive_extended import (
 from htdt.cad_adaptive_extended_repository import (
     AdaptiveObservationConflictError,
     CadAdaptiveExtendedRepository,
+    run_adaptive_extended_schema_convergence,
 )
 from htdt.cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from htdt.cad_extended_search import generate_extended_candidates
@@ -613,6 +614,15 @@ def test_observation_history_backfills_predecessor_column(tmp_path):
             'DROP COLUMN supersedes_observation_sha256'
         )
 
+    # Predecessor-column backfill is the versioned migration's job
+    # (#302/#767): repository open verifies only, so run the migration-time
+    # convergence entry point directly.
+    with closing(
+        sqlite3.connect(adaptive_extended.path)
+    ) as connection, connection:
+        connection.row_factory = sqlite3.Row
+        run_adaptive_extended_schema_convergence(connection)
+
     reopened = CadAdaptiveExtendedRepository(extended, validation_repository)
     with closing(sqlite3.connect(adaptive_extended.path)) as connection:
         connection.row_factory = sqlite3.Row
@@ -702,10 +712,14 @@ def test_observation_history_reports_existing_fork(tmp_path):
             ),
         )
 
-    # Reopen reports the persisted fork explicitly instead of picking a
-    # winner by insertion order.
-    with pytest.raises(ValueError, match='supersession fork'):
-        CadAdaptiveExtendedRepository(extended, validation_repository)
+    # Migration reports the persisted fork explicitly instead of picking a
+    # winner by insertion order — repository open verifies only (#302/#767).
+    with closing(
+        sqlite3.connect(adaptive_extended.path)
+    ) as connection:
+        connection.row_factory = sqlite3.Row
+        with pytest.raises(ValueError, match='supersession fork'):
+            run_adaptive_extended_schema_convergence(connection)
     with pytest.raises(ValueError, match='chain is broken'):
         adaptive_extended.current_observations(result.extended_search_id)
 

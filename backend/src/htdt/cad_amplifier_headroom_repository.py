@@ -17,7 +17,10 @@ from .cad_amplifier_headroom import (
 from .cad_equipment import EquipmentDefinition
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_speaker_impedance import (
     FREQUENCY_RESOLVED_EVALUATION_VERSION,
     AmplifierElectricalLimitAuthority,
@@ -94,105 +97,7 @@ class CadAmplifierHeadroomRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_amplifier_output_capabilities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    capability_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    output_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(capability_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_amplifier_output_capability_seq
-                    ON cad_amplifier_output_capabilities(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_speaker_electrical_loads (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    load_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(load_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_speaker_electrical_load_seq
-                    ON cad_speaker_electrical_loads(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_playback_chain_scenarios (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scenario_id TEXT NOT NULL UNIQUE,
-                    scenario_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    variant_id TEXT NOT NULL,
-                    source_equipment_sha256 TEXT NOT NULL,
-                    amplifier_capability_sha256 TEXT NOT NULL,
-                    speaker_load_sha256 TEXT,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_playback_chain_variant_seq
-                    ON cad_playback_chain_scenarios(variant_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_playback_chain_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    scenario_id TEXT NOT NULL,
-                    variant_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(scenario_id)
-                        REFERENCES cad_playback_chain_scenarios(scenario_id),
-                    FOREIGN KEY(variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_amplifier_headroom_variant_seq
-                    ON cad_playback_chain_evaluations(variant_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_amplifier_headroom_scenario_seq
-                    ON cad_playback_chain_evaluations(scenario_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_speaker_impedances (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    impedance_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    tier TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(impedance_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_speaker_impedance_seq
-                    ON cad_speaker_impedances(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_amplifier_electrical_limits (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    limit_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    amplifier_capability_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(limit_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_amplifier_electrical_limit_seq
-                    ON cad_amplifier_electrical_limits(seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_frequency_resolved_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    impedance_sha256 TEXT NOT NULL,
-                    amplifier_capability_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_frequency_resolved_eval_seq
-                    ON cad_frequency_resolved_evaluations(seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_amplifier_output_capabilities', 'cad_speaker_electrical_loads', 'cad_playback_chain_scenarios', 'cad_playback_chain_evaluations', 'cad_speaker_impedances', 'cad_amplifier_electrical_limits', 'cad_frequency_resolved_evaluations')
 
     def save_amplifier_capability(
         self,

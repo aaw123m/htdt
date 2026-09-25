@@ -7,7 +7,10 @@ from pathlib import Path
 import sqlite3
 
 from .cad_constraint_models import CadConstraintSet
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 
 
 class CadConstraintRepository:
@@ -27,16 +30,7 @@ class CadConstraintRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_constraint_workspaces (
-                    document_id TEXT PRIMARY KEY,
-                    schema_version INTEGER NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                '''
-            )
+            require_native_tables(connection, 'cad_constraint_workspaces')
 
     def load(self, document_id: str) -> CadConstraintSet:
         if not document_id:
@@ -51,30 +45,47 @@ class CadConstraintRepository:
         return CadConstraintSet.model_validate(json.loads(str(row['payload_json'])))
 
     def save(self, constraint_set: CadConstraintSet) -> None:
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with closing(self._connect()) as connection, connection:
+            self.save_in_transaction(
+                connection, constraint_set, updated_at_utc=updated_at
+            )
+
+    def save_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        constraint_set: CadConstraintSet,
+        *,
+        updated_at_utc: str,
+    ) -> None:
+        """Write one workspace generation inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK — this is the write path for
+        higher-level operations (e.g. checkpoint restore) that must commit
+        the workspace together with other domain mutations atomically.
+        """
         payload = json.dumps(
             constraint_set.model_dump(mode='json'),
             ensure_ascii=False,
             sort_keys=True,
             separators=(',', ':'),
         )
-        updated_at = datetime.now(timezone.utc).isoformat()
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                INSERT INTO cad_constraint_workspaces(document_id, schema_version, updated_at_utc, payload_json)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(document_id) DO UPDATE SET
-                    schema_version=excluded.schema_version,
-                    updated_at_utc=excluded.updated_at_utc,
-                    payload_json=excluded.payload_json
-                ''',
-                (
-                    constraint_set.document_id,
-                    constraint_set.schema_version,
-                    updated_at,
-                    payload,
-                ),
-            )
+        connection.execute(
+            '''
+            INSERT INTO cad_constraint_workspaces(document_id, schema_version, updated_at_utc, payload_json)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(document_id) DO UPDATE SET
+                schema_version=excluded.schema_version,
+                updated_at_utc=excluded.updated_at_utc,
+                payload_json=excluded.payload_json
+            ''',
+            (
+                constraint_set.document_id,
+                constraint_set.schema_version,
+                updated_at_utc,
+                payload,
+            ),
+        )
 
     def delete(self, document_id: str) -> bool:
         with closing(self._connect()) as connection, connection:

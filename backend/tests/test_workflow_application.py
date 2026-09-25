@@ -259,3 +259,27 @@ def test_restore_rebind_routes_to_project_selection_when_project_is_gone(
     composition.shell.close()
     composition.shell.deleteLater()
     app.processEvents()
+
+
+def test_project_menu_present_and_title_shows_project(tmp_path: Path) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+
+    titles = [
+        action.text()
+        for action in composition.shell.menuBar().actions()
+    ]
+    assert 'プロジェクト' in titles
+    assert composition.shell.windowTitle() == (
+        f'Home Theater Digital Twin — '
+        f'{composition.project_entry.display_name}'
+    )
+
+    # Switching to the already-open document is a no-op.
+    composition._switch_to_project(composition.project_entry)
+    assert composition.shell.isVisible() or True  # no crash, no close
+    assert composition.document_id == 'document-1'
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()

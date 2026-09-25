@@ -16,7 +16,10 @@ from .cad_directivity_import import replay_directivity_import
 from .cad_equipment import DirectivityDataFormat
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
 
 
@@ -94,41 +97,7 @@ class CadDirectivityRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_directivity_datasets (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    dataset_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    equipment_definition_sha256 TEXT NOT NULL,
-                    source_asset_sha256 TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(dataset_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_directivity_dataset_seq
-                    ON cad_directivity_datasets(seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_directivity_dataset_equipment
-                    ON cad_directivity_datasets(equipment_definition_sha256, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_measurement_assets (
-                    sha256 TEXT PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_directivity_source_assets (
-                    source_asset_sha256 TEXT PRIMARY KEY
-                        REFERENCES cad_measurement_assets(sha256),
-                    filename TEXT,
-                    media_type TEXT,
-                    source_format TEXT NOT NULL,
-                    declared_schema TEXT,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_directivity_datasets', 'cad_measurement_assets', 'cad_directivity_source_assets')
 
     def _verified_asset_file(
         self,

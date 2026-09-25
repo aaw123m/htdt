@@ -34,6 +34,7 @@ Contract properties:
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from hashlib import sha256
 import json
 from typing import Any, Literal
@@ -153,6 +154,17 @@ class AlignmentRef(BaseModel):
         return self.frame_sha256 == other.frame_sha256
 
 
+def _validate_instant(value: str, field: str) -> None:
+    """Enforce strict, explicitly-UTC ISO 8601 persisted timestamps (#873)."""
+
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'{field} is not a valid ISO 8601 instant') from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ValueError(f'{field} must carry an explicit UTC offset')
+
+
 class EvidenceSubject(BaseModel):
     """What is being reconciled across sources.
 
@@ -160,6 +172,11 @@ class EvidenceSubject(BaseModel):
     SceneRevision+entity, SystemVariant, equipment instance or other
     canonical authority — never an opaque string that could collide across
     projects or revisions.
+
+    ``subject_sha256`` is the subject's immutable semantic identity (#873):
+    required for newly built subjects, ``None`` only on legacy payloads
+    persisted before the field existed — repositories classify those as
+    legacy rather than silently trusting them.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -170,6 +187,36 @@ class EvidenceSubject(BaseModel):
     target: AuthorityRef
     attribute: str = Field(min_length=1)
     description: str | None = None
+    subject_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+
+    @model_validator(mode='after')
+    def valid_subject(self) -> 'EvidenceSubject':
+        if (
+            self.subject_sha256 is not None
+            and self.subject_sha256 != _hash(self.semantic_payload())
+        ):
+            raise ValueError('EvidenceSubject hash mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        """The content the subject hash binds — every semantic field."""
+
+        return {
+            'subject_id': self.subject_id,
+            'document_id': self.document_id,
+            'subject_kind': self.subject_kind,
+            'target': self.target.model_dump(mode='json'),
+            'attribute': self.attribute,
+            'description': self.description,
+        }
+
+
+def evidence_subject_sha256(subject: EvidenceSubject) -> str:
+    """Semantic identity of a subject, computed for legacy rows too (#873)."""
+
+    return _hash(subject.semantic_payload())
 
 
 def build_evidence_subject(
@@ -181,13 +228,16 @@ def build_evidence_subject(
     description: str | None = None,
     subject_id: str | None = None,
 ) -> EvidenceSubject:
-    return EvidenceSubject(
+    subject = EvidenceSubject(
         subject_id=subject_id or str(uuid4()),
         document_id=document_id,
         subject_kind=subject_kind,
         target=target,
         attribute=attribute,
         description=description,
+    )
+    return subject.model_copy(
+        update={'subject_sha256': _hash(subject.semantic_payload())}
     )
 
 
@@ -214,6 +264,11 @@ class EvidenceObservation(BaseModel):
     alignment: AlignmentRef | None = None
     captured_at_utc: str | None = None
     note: str | None = None
+    #: Immutable semantic identity (#873): required on newly built
+    #: observations; ``None`` only on legacy payloads.
+    observation_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
 
     @model_validator(mode='after')
     def valid_observation(self) -> 'EvidenceObservation':
@@ -234,7 +289,44 @@ class EvidenceObservation(BaseModel):
                 )
         elif self.source_sha256 is not None and self.source_ref is None:
             raise ValueError('source_sha256 requires source_ref')
+        if self.captured_at_utc is not None:
+            _validate_instant(self.captured_at_utc, 'captured_at_utc')
+        if (
+            self.observation_sha256 is not None
+            and self.observation_sha256 != _hash(self.semantic_payload())
+        ):
+            raise ValueError('EvidenceObservation hash mismatch')
         return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        """The content the observation hash binds (#873): id, bound
+        subject, exact source authority ref/hash, value/unit/uncertainty,
+        alignment frame and provenance fields."""
+
+        return {
+            'observation_id': self.observation_id,
+            'subject_id': self.subject_id,
+            'source': self.source,
+            'source_ref': self.source_ref,
+            'source_sha256': self.source_sha256,
+            'value': self.value,
+            'value_text': self.value_text,
+            'unit': self.unit,
+            'uncertainty': self.uncertainty,
+            'alignment': (
+                None
+                if self.alignment is None
+                else self.alignment.model_dump(mode='json')
+            ),
+            'captured_at_utc': self.captured_at_utc,
+            'note': self.note,
+        }
+
+
+def evidence_observation_sha256(observation: EvidenceObservation) -> str:
+    """Semantic identity of an observation, computed for legacy rows (#873)."""
+
+    return _hash(observation.semantic_payload())
 
 
 def build_observation(
@@ -252,7 +344,7 @@ def build_observation(
     note: str | None = None,
     observation_id: str | None = None,
 ) -> EvidenceObservation:
-    return EvidenceObservation(
+    observation = EvidenceObservation(
         observation_id=observation_id or str(uuid4()),
         subject_id=subject_id,
         source=source,
@@ -265,6 +357,11 @@ def build_observation(
         alignment=alignment,
         captured_at_utc=captured_at_utc,
         note=note,
+    )
+    return observation.model_copy(
+        update={
+            'observation_sha256': _hash(observation.semantic_payload())
+        }
     )
 
 
@@ -281,12 +378,32 @@ class ObservationComparison(BaseModel):
     reason: str = Field(min_length=1)
 
 
+class ReconciliationObservationRef(BaseModel):
+    """Exact pinned identity of one reconciled observation (#873).
+
+    A bare ``observation_id`` cannot prove the stored row is still the
+    bytes the decision reconciled; the hash pin turns row edits/corruption
+    into read failures instead of silently shifting semantics.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    observation_id: str = Field(min_length=1)
+    observation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class ReconciliationDecision(BaseModel):
     """A versioned decision about one subject's observations.
 
     ``observation_ids`` pins the exact (sorted) observation set the
     decision reconciled — observations appended later never retroactively
     change which evidence this decision claims to cover.
+
+    #873 pins the inputs' semantic identities too: ``subject_sha256`` and
+    ``observation_refs`` carry the exact hashes the decision was derived
+    from, so corrupted/imported input rows invalidate the read instead of
+    changing the decision's meaning. ``None`` on both marks a legacy
+    ID-only record persisted before the pins existed.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -299,6 +416,12 @@ class ReconciliationDecision(BaseModel):
     subject_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     observation_ids: tuple[str, ...]
+    #: Exact subject semantic hash the decision reconciled (#873).
+    subject_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    #: Exact observation pins, sorted by id; must match observation_ids.
+    observation_refs: tuple[ReconciliationObservationRef, ...] | None = None
     outcome: ReconciliationOutcome
     tolerance: float | None = Field(default=None, ge=0)
     tolerance_unit: UnitKind | None = None
@@ -307,6 +430,20 @@ class ReconciliationDecision(BaseModel):
     decided_by: str = Field(min_length=1)
     decided_at_utc: str = Field(min_length=1)
     decision_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    @property
+    def pins_exact_inputs(self) -> bool:
+        """Whether the decision carries exact input hashes (#873).
+
+        ``False`` marks a legacy ID-only record — it was replay-verified
+        at save but cannot prove today's stored inputs are the exact bytes
+        it reconciled.
+        """
+
+        return (
+            self.subject_sha256 is not None
+            and self.observation_refs is not None
+        )
 
     @model_validator(mode='after')
     def valid_decision(self) -> 'ReconciliationDecision':
@@ -329,12 +466,27 @@ class ReconciliationDecision(BaseModel):
                     'comparison references an observation outside the '
                     'pinned set'
                 )
+        # #873: pin fields are all-or-nothing — a decision that pins only
+        # some inputs is malformed, not partially exact.
+        if (self.subject_sha256 is None) != (self.observation_refs is None):
+            raise ValueError(
+                'subject_sha256 and observation_refs must pin together'
+            )
+        if self.observation_refs is not None:
+            ref_ids = [r.observation_id for r in self.observation_refs]
+            if ref_ids != sorted(ref_ids) or len(ref_ids) != len(set(ref_ids)):
+                raise ValueError('observation_refs must be sorted and unique')
+            if tuple(ref_ids) != self.observation_ids:
+                raise ValueError(
+                    'observation_refs must pin every observation_id'
+                )
+        _validate_instant(self.decided_at_utc, 'decided_at_utc')
         if self.decision_sha256 != _hash(self.semantic_payload()):
             raise ValueError('ReconciliationDecision hash mismatch')
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'decision_id': self.decision_id,
@@ -351,6 +503,15 @@ class ReconciliationDecision(BaseModel):
             'decided_by': self.decided_by,
             'decided_at_utc': self.decided_at_utc,
         }
+        # Pin fields are part of the semantic payload only when present —
+        # a legacy ID-only payload keeps its original hash (#873).
+        if self.subject_sha256 is not None:
+            payload['subject_sha256'] = self.subject_sha256
+        if self.observation_refs is not None:
+            payload['observation_refs'] = [
+                r.model_dump(mode='json') for r in self.observation_refs
+            ]
+        return payload
 
 
 def _compare_pair(
@@ -498,6 +659,20 @@ def reconcile_subject(
         'observation_ids': tuple(
             sorted(o.observation_id for o in subject_observations)
         ),
+        # #873: pin the exact input semantic hashes so the persisted
+        # decision can later prove which bytes it reconciled.
+        'subject_sha256': (
+            subject.subject_sha256 or evidence_subject_sha256(subject)
+        ),
+        'observation_refs': tuple(
+            ReconciliationObservationRef(
+                observation_id=o.observation_id,
+                observation_sha256=(
+                    o.observation_sha256 or evidence_observation_sha256(o)
+                ),
+            )
+            for o in subject_observations
+        ),
         'outcome': outcome,
         'tolerance': tolerance,
         'tolerance_unit': tolerance_unit,
@@ -525,9 +700,12 @@ __all__ = [
     'ObservationComparison',
     'ObservationSourceKind',
     'ReconciliationDecision',
+    'ReconciliationObservationRef',
     'ReconciliationOutcome',
     'SubjectKind',
     'build_evidence_subject',
     'build_observation',
+    'evidence_observation_sha256',
+    'evidence_subject_sha256',
     'reconcile_subject',
 ]
