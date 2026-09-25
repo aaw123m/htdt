@@ -45,10 +45,17 @@ def assign(
     tests_dir: Path,
     num_shards: int,
     weights: dict[str, float] | None = None,
+    only: set[str] | None = None,
 ) -> list[list[str]]:
-    """Return per-shard lines: file paths, node ids, or ``deselect:<node>``."""
+    """Return per-shard lines: file paths, node ids, or ``deselect:<node>``.
+
+    ``only`` restricts the candidate set to the given file names (basename
+    match); used for changed-file test selection.
+    """
     weights = weights or {}
     files = sorted(tests_dir.glob("test_*.py"))
+    if only is not None:
+        files = [f for f in files if f.name in only]
 
     # Group recorded node durations by test file basename.
     by_file: dict[str, list[tuple[str, float]]] = {}
@@ -97,7 +104,12 @@ def assign(
     # deselect the nodes that landed elsewhere. Tests not present in the
     # weights file (new ones) still run on the home shard.
     for f in sorted(heavy, key=lambda p: -file_weight[p]):
-        entries = by_file[f.name]
+        entries = by_file.get(f.name)
+        if not entries:
+            # No recorded node durations (new or unmeasured file): keep it
+            # whole on the least-loaded shard — there are no nodes to split.
+            _put((file_weight[f], f.as_posix()))
+            continue
         node_home: dict[str, int] = {}
         for node, secs in sorted(entries, key=lambda e: (-e[1], e[0])):
             node_home[node] = _put((secs, node))
@@ -128,10 +140,23 @@ def main() -> int:
         default=None,
         help="JSON map of pytest node id -> recorded seconds (from --durations 0)",
     )
+    parser.add_argument(
+        "--only",
+        type=Path,
+        default=None,
+        help="file listing test file names (one per line) to restrict the shard to",
+    )
     args = parser.parse_args()
     if not 1 <= args.shard <= args.num_shards:
         parser.error("--shard must be between 1 and --num-shards")
-    for line in assign(args.tests_dir, args.num_shards, _load_weights(args.weights))[args.shard - 1]:
+    only = None
+    if args.only is not None:
+        only = {
+            line.strip().rsplit("/", 1)[-1]
+            for line in args.only.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+    for line in assign(args.tests_dir, args.num_shards, _load_weights(args.weights), only)[args.shard - 1]:
         print(line)
     return 0
 

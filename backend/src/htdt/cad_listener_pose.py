@@ -22,7 +22,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -37,6 +37,9 @@ from .cad_scene import (
 from .cad_video_geometry import SeatGeometryBinding
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from hashlib import sha256
+
+if TYPE_CHECKING:
+    from .cad_repository import SceneRepository
 
 
 ListenerPostureKind = Literal[
@@ -91,6 +94,11 @@ class ListenerPoseAuthority(BaseModel):
     pose_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
     seat_entity_id: str = Field(min_length=1)
+    #: Project the seat binding was authored under. ``None`` declares an
+    #: unscoped/reusable pose; a project-local pose always pins the exact
+    #: document so a colliding local entity id in another project cannot
+    #: satisfy the binding by string match alone.
+    document_id: str | None = Field(default=None, min_length=1)
     label: str = Field(min_length=1)
     head_center_offset_local_m: Offset3
     eye_reference_offset_local_m: Offset3
@@ -153,6 +161,8 @@ class ListenerPoseAuthority(BaseModel):
             payload['ear_right_offset_local_m'] = (
                 self.ear_right_offset_local_m.model_dump(mode='json')
             )
+        if self.document_id is not None:
+            payload['document_id'] = self.document_id
         return payload
 
     def authority_ref(self) -> ExactExternalAuthorityRef:
@@ -179,6 +189,7 @@ def build_listener_pose(
     notes: str = '',
     authority_version: str = '1',
     pose_id: str | None = None,
+    document_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> ListenerPoseAuthority:
     """Assemble a sealed listener pose for a seat."""
@@ -187,6 +198,7 @@ def build_listener_pose(
         'pose_id': pose_id or f'{_LISTENER_POSE_PREFIX}{uuid4()}',
         'authority_version': authority_version,
         'seat_entity_id': seat_entity_id,
+        'document_id': document_id,
         'label': label,
         'head_center_offset_local_m': head_center_offset_local_m,
         'eye_reference_offset_local_m': eye_reference_offset_local_m,
@@ -225,6 +237,7 @@ def listener_pose_for_seat(
     ear_left_offset_local_m: Offset3 | None = None,
     ear_right_offset_local_m: Offset3 | None = None,
     notes: str = '',
+    document_id: str | None = None,
 ) -> ListenerPoseAuthority:
     """Materialize a pose whose acoustic reference mirrors the seat's
     ``acoustic_reference_offset_m`` — migration without coordinate changes:
@@ -258,6 +271,7 @@ def listener_pose_for_seat(
         posture_kind=posture_kind,
         provenance=provenance,
         notes=notes,
+        document_id=document_id,
     )
 
 
@@ -341,10 +355,20 @@ def seat_binding_from_pose(
 
 
 class CadListenerPoseRepository:
-    """SQLite persistence for listener poses and per-seat selection."""
+    """SQLite persistence for listener poses and per-seat selection.
 
-    def __init__(self, path: Path | str) -> None:
+    Pass the project's ``SceneRepository`` so ``select_pose`` can prove the
+    document and seat the pose binds actually exist; without it selection
+    still enforces the persisted-authority + exact-hash contract only.
+    """
+
+    def __init__(
+        self,
+        path: Path | str,
+        scene_repository: 'SceneRepository | None' = None,
+    ) -> None:
         self.path = Path(path)
+        self.scene_repository = scene_repository
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
@@ -376,18 +400,26 @@ class CadListenerPoseRepository:
             )
 
     def save_pose(self, pose: ListenerPoseAuthority) -> None:
+        """Persist an immutable pose authority: same id + byte-identical
+        payload is an idempotent no-op; a different payload under an existing
+        id is a collision — a revised pose needs a new authority identity."""
+        payload_json = pose.model_dump_json()
         with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_listener_poses WHERE pose_id=?',
+                (pose.pose_id,),
+            ).fetchone()
+            if row is not None:
+                if row['payload_json'] == payload_json:
+                    return
+                raise ValueError(
+                    f'listener pose id collision with different payload: '
+                    f'{pose.pose_id}'
+                )
             connection.execute(
                 'INSERT INTO cad_listener_poses'
-                '(pose_id, seat_entity_id, payload_json) VALUES(?,?,?)'
-                ' ON CONFLICT(pose_id) DO UPDATE SET'
-                ' seat_entity_id=excluded.seat_entity_id,'
-                ' payload_json=excluded.payload_json',
-                (
-                    pose.pose_id,
-                    pose.seat_entity_id,
-                    pose.model_dump_json(),
-                ),
+                '(pose_id, seat_entity_id, payload_json) VALUES(?,?,?)',
+                (pose.pose_id, pose.seat_entity_id, payload_json),
             )
 
     def get_pose(self, pose_id: str) -> ListenerPoseAuthority | None:
@@ -420,6 +452,51 @@ class CadListenerPoseRepository:
         document_id: str,
         pose: ListenerPoseAuthority,
     ) -> None:
+        """Record the pose choice for one seat in one document.
+
+        The pose must be persisted with an identical semantic hash, and a
+        project-bound pose may only serve the document it was authored for.
+        When a ``SceneRepository`` is wired the document must exist and the
+        named seat entity must be present with kind ``seat`` — a colliding
+        local entity id from another project can never satisfy the binding.
+        """
+        persisted = self.get_pose(pose.pose_id)
+        if persisted is None:
+            raise ValueError(
+                f'selected listener pose is not persisted: {pose.pose_id}'
+            )
+        if persisted.semantic_sha256 != pose.semantic_sha256:
+            raise ValueError(
+                f'selected listener pose hash does not match the persisted '
+                f'authority: {pose.pose_id}'
+            )
+        if pose.document_id is not None and pose.document_id != document_id:
+            raise ValueError(
+                f'listener pose {pose.pose_id} was authored for document '
+                f'{pose.document_id}, not {document_id}'
+            )
+        if self.scene_repository is not None:
+            revision = self.scene_repository.current_head(document_id)
+            if revision is None:
+                raise ValueError(f'document does not exist: {document_id}')
+            seat = next(
+                (
+                    entity
+                    for entity in revision.document.entities
+                    if entity.entity_id == pose.seat_entity_id
+                ),
+                None,
+            )
+            if seat is None:
+                raise ValueError(
+                    f'seat entity {pose.seat_entity_id} does not exist in '
+                    f'document {document_id}'
+                )
+            if seat.kind != 'seat':
+                raise ValueError(
+                    f'entity {pose.seat_entity_id} in document {document_id} '
+                    f'is not a seat (kind={seat.kind})'
+                )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 'INSERT INTO cad_listener_pose_selections'

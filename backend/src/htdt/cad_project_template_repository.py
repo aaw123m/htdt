@@ -16,12 +16,37 @@ from pathlib import Path
 from .cad_project_template import (
     ProjectTemplate,
     ProjectTemplateInstantiation,
+    _hash,
     builtin_project_templates,
 )
 
 
 class ProjectTemplateConflictError(ValueError):
     """A template id+version already exists with different content."""
+
+
+_TEMPLATES_DDL = """
+CREATE TABLE IF NOT EXISTS project_templates (
+    template_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    template_sha256 TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (template_id, version)
+)
+"""
+
+_INSTANTIATIONS_DDL = """
+CREATE TABLE IF NOT EXISTS template_instantiations (
+    instantiation_id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    template_sha256 TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL,
+    instantiation_sha256 TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+"""
 
 
 class CadProjectTemplateRepository:
@@ -33,32 +58,13 @@ class CadProjectTemplateRepository:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS project_templates (
-                template_id TEXT NOT NULL,
-                version TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                template_sha256 TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                PRIMARY KEY (template_id, version)
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS template_instantiations (
-                instantiation_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                template_id TEXT NOT NULL,
-                template_sha256 TEXT NOT NULL,
-                created_at_utc TEXT NOT NULL,
-                instantiation_sha256 TEXT NOT NULL,
-                payload_json TEXT NOT NULL
-            )
-            """
-        )
+        self._ensure_schema(connection)
         return connection
+
+    @staticmethod
+    def _ensure_schema(connection: sqlite3.Connection) -> None:
+        connection.execute(_TEMPLATES_DDL)
+        connection.execute(_INSTANTIATIONS_DDL)
 
     def save_template(self, template: ProjectTemplate) -> ProjectTemplate:
         if template.kind == 'builtin':
@@ -129,48 +135,164 @@ class CadProjectTemplateRepository:
         )
 
     def save_instantiation(
-        self, instantiation: ProjectTemplateInstantiation
+        self,
+        instantiation: ProjectTemplateInstantiation,
+        *,
+        connection: sqlite3.Connection | None = None,
     ) -> ProjectTemplateInstantiation:
+        """Persist an instantiation record only when its claims revalidate.
+
+        ``connection`` (#864): when supplied, the write joins the caller's
+        transaction — project creation commits the Project Library row, the
+        initial SceneRevision and this provenance record as one unit.
+        """
+
+        if connection is not None:
+            self._ensure_schema(connection)
+            return self._save_instantiation_in_transaction(
+                connection, instantiation
+            )
         with closing(self._connect()) as connection:
-            existing = connection.execute(
-                """
-                SELECT instantiation_sha256 FROM template_instantiations
-                WHERE instantiation_id = ?
-                """,
-                (instantiation.instantiation_id,),
-            ).fetchone()
-            if existing is not None:
-                if (
-                    existing['instantiation_sha256']
-                    != instantiation.instantiation_sha256
-                ):
-                    raise ValueError(
-                        'instantiation id already persisted with different content'
-                    )
-                return instantiation
-            with connection:
-                connection.execute(
-                    """
-                    INSERT INTO template_instantiations (
-                        instantiation_id, document_id, template_id,
-                        template_sha256, created_at_utc, instantiation_sha256,
-                        payload_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        instantiation.instantiation_id,
-                        instantiation.document_id,
-                        instantiation.template_id,
-                        instantiation.template_sha256,
-                        instantiation.created_at_utc,
-                        instantiation.instantiation_sha256,
-                        json.dumps(
-                            instantiation.model_dump(mode='json'),
-                            ensure_ascii=False,
-                        ),
-                    ),
+            connection.execute('BEGIN IMMEDIATE')
+            try:
+                result = self._save_instantiation_in_transaction(
+                    connection, instantiation
                 )
+            except BaseException:
+                connection.rollback()
+                raise
+            connection.commit()
+        return result
+
+    def _save_instantiation_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        instantiation: ProjectTemplateInstantiation,
+    ) -> ProjectTemplateInstantiation:
+        existing = connection.execute(
+            """
+            SELECT instantiation_sha256 FROM template_instantiations
+            WHERE instantiation_id = ?
+            """,
+            (instantiation.instantiation_id,),
+        ).fetchone()
+        if existing is not None:
+            if (
+                existing['instantiation_sha256']
+                != instantiation.instantiation_sha256
+            ):
+                raise ValueError(
+                    'instantiation id already persisted with different content'
+                )
+            return instantiation
+        self._validate_instantiation(connection, instantiation)
+        connection.execute(
+            """
+            INSERT INTO template_instantiations (
+                instantiation_id, document_id, template_id,
+                template_sha256, created_at_utc, instantiation_sha256,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                instantiation.instantiation_id,
+                instantiation.document_id,
+                instantiation.template_id,
+                instantiation.template_sha256,
+                instantiation.created_at_utc,
+                instantiation.instantiation_sha256,
+                json.dumps(
+                    instantiation.model_dump(mode='json'),
+                    ensure_ascii=False,
+                ),
+            ),
+        )
         return instantiation
+
+    def _validate_instantiation(
+        self,
+        connection: sqlite3.Connection,
+        instantiation: ProjectTemplateInstantiation,
+    ) -> None:
+        """#864: a self-consistent payload is not proof — every claim must
+        resolve against the persisted/built-in authorities sharing this
+        store."""
+
+        if instantiation.instantiation_sha256 != _hash(
+            instantiation.semantic_payload()
+        ):
+            raise ValueError(
+                'instantiation_sha256 does not match the payload semantics'
+            )
+        template = self._lookup_template(
+            connection,
+            instantiation.template_id,
+            instantiation.template_version,
+        )
+        if template is None:
+            raise ValueError(
+                f'unknown template {instantiation.template_id}'
+                f' version {instantiation.template_version}'
+            )
+        if template.template_sha256 != instantiation.template_sha256:
+            raise ValueError(
+                'instantiation template_sha256 does not match the exact '
+                'template version it claims'
+            )
+        if instantiation.project_id is None:
+            raise ValueError(
+                'instantiation lacks the Project Library project binding'
+            )
+        binding = connection.execute(
+            'SELECT document_id FROM htdt_project_documents WHERE project_id=?',
+            (instantiation.project_id,),
+        ).fetchone()
+        if binding is None:
+            raise ValueError(
+                f'project {instantiation.project_id} is not registered'
+            )
+        if binding['document_id'] != instantiation.document_id:
+            raise ValueError(
+                f'project {instantiation.project_id} is bound to document '
+                f'{binding["document_id"]}, not {instantiation.document_id}'
+            )
+        if connection.execute(
+            'SELECT 1 FROM scene_revisions WHERE document_id=? LIMIT 1',
+            (instantiation.document_id,),
+        ).fetchone() is None:
+            raise ValueError(
+                f'document {instantiation.document_id} has no initial SceneRevision'
+            )
+        for ref in instantiation.unresolved_refs:
+            if ref not in template.target_refs:
+                raise ValueError(
+                    'unresolved ref '
+                    f'{ref.kind}:{ref.ref_id}@{ref.version} is not a '
+                    'declared target ref of the template'
+                )
+
+    @staticmethod
+    def _lookup_template(
+        connection: sqlite3.Connection,
+        template_id: str,
+        version: str,
+    ) -> ProjectTemplate | None:
+        row = connection.execute(
+            """
+            SELECT payload_json FROM project_templates
+            WHERE template_id = ? AND version = ?
+            """,
+            (template_id, version),
+        ).fetchone()
+        if row is not None:
+            return ProjectTemplate.model_validate_json(row['payload_json'])
+        for template in builtin_project_templates():
+            if (
+                template.template_id == template_id
+                and template.version == version
+            ):
+                return template
+        return None
 
     def instantiation_for_document(
         self, document_id: str
@@ -183,9 +305,15 @@ class CadProjectTemplateRepository:
                 """,
                 (document_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return ProjectTemplateInstantiation.model_validate_json(row['payload_json'])
+            if row is None:
+                return None
+            instantiation = ProjectTemplateInstantiation.model_validate_json(
+                row['payload_json']
+            )
+            # Reads revalidate the same bindings (#864): a tampered row must
+            # not surface as valid provenance.
+            self._validate_instantiation(connection, instantiation)
+        return instantiation
 
 
 __all__ = [

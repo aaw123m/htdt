@@ -349,7 +349,9 @@ class RoomWorkspaceController:
         self.video_workspace_repository = CadVideoWorkspaceRepository(repository.path)
         self.video_workspace: VideoGeometryWorkspace | None = None
         self.video_geometry_repository = CadVideoGeometryRepository(repository)
-        self.screen_transfer_repository = CadScreenTransferRepository(repository.path)
+        self.screen_transfer_repository = CadScreenTransferRepository(
+            repository.path, repository
+        )
         self.variant_repository = CadSystemVariantRepository(repository)
         self.material_repository = CadAcousticMaterialRepository(repository.path)
         self.treatment_repository = CadAcousticTreatmentRepository(
@@ -3340,7 +3342,9 @@ class RoomWorkspace(QWidget):
         self.setObjectName("roomWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
         self.controller = RoomWorkspaceController(repository, document_id)
-        self.listener_pose_repository = CadListenerPoseRepository(repository.path)
+        self.listener_pose_repository = CadListenerPoseRepository(
+            repository.path, repository
+        )
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
         self.geometry_input = None
@@ -5055,6 +5059,7 @@ class RoomWorkspace(QWidget):
         try:
             transfer = build_screen_transfer(
                 screen_entity_id=screen_id,
+                document_id=self.controller.document_id,
                 label=str(values['label']),
                 capability_tier=values['capability_tier'],
                 provenance=str(values['provenance']),
@@ -5113,6 +5118,7 @@ class RoomWorkspace(QWidget):
             return
         pose = listener_pose_for_seat(
             seat,
+            document_id=self.controller.document_id,
             label=label.strip(),
             eye_reference_offset_local_m=Offset3(
                 x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value())

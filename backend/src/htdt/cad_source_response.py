@@ -23,7 +23,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from math import isfinite
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -32,6 +32,9 @@ from .cad_equipment import EquipmentDefinition, FrequencyDomain
 from .cad_scene import Direction3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from hashlib import sha256
+
+if TYPE_CHECKING:
+    from .cad_equipment_repository import CadEquipmentRepository
 
 
 SourceResponseCapabilityTier = Literal[
@@ -200,15 +203,58 @@ class SourceFrequencyResponseAuthority(BaseModel):
                 'every sample'
             )
         if self.capability_tier in (
-            'ABSOLUTE_FREE_FIELD_SPL', 'COMPLEX_RESPONSE'
+            'RELATIVE_ON_AXIS_MAGNITUDE',
+            'ABSOLUTE_FREE_FIELD_SPL',
+            'COMPLEX_RESPONSE',
         ) and any(
             sample.magnitude_db_spl is None for sample in self.response_samples
         ):
             raise ValueError(
                 f'{self.capability_tier} tier requires magnitude on every sample'
             )
+        if self.capability_tier == 'ABSOLUTE_FREE_FIELD_SPL':
+            # An absolute level claim must prove the exact field and
+            # calibration semantics — an unspecified field condition or an
+            # empty calibration note is never absolute evidence.
+            if self.condition is not None and (
+                self.condition.field_condition != 'free_field'
+            ):
+                raise ValueError(
+                    'ABSOLUTE_FREE_FIELD_SPL requires an explicit free_field '
+                    'condition'
+                )
+            if self.condition is not None and not self.condition.calibration:
+                raise ValueError(
+                    'ABSOLUTE_FREE_FIELD_SPL requires declared calibration '
+                    'evidence'
+                )
         if self.capability_tier == 'UNKNOWN' and self.response_samples:
             raise ValueError('UNKNOWN tier cannot carry response samples')
+        # The declared frequency domain must honestly bound the evidence:
+        # duplicate frequencies are ambiguous and out-of-domain samples are
+        # unsupported claims, not evidence.
+        frequencies = [
+            sample.frequency_hz for sample in self.response_samples
+        ]
+        if len(frequencies) != len(set(frequencies)):
+            raise ValueError(
+                'duplicate response sample frequencies are not valid evidence'
+            )
+        if self.valid_frequency_domain is not None:
+            outside = [
+                frequency
+                for frequency in frequencies
+                if not (
+                    self.valid_frequency_domain.minimum_hz
+                    <= frequency
+                    <= self.valid_frequency_domain.maximum_hz
+                )
+            ]
+            if outside:
+                raise ValueError(
+                    'response samples lie outside the declared valid '
+                    f'frequency domain: {outside}'
+                )
         if self.semantic_sha256 != _hash(self.identity_payload()):
             raise ValueError('source response semantic hash mismatch')
         return self
@@ -297,10 +343,20 @@ def response_capability_label(tier: SourceResponseCapabilityTier) -> str:
 
 class CadSourceResponseRepository:
     """SQLite persistence for source-response authorities and the per-
-    (document, equipment) selection consumed by R110 compilation."""
+    (document, equipment) selection consumed by R110 compilation.
 
-    def __init__(self, path: Path | str) -> None:
+    Pass the project's ``CadEquipmentRepository`` so ``save_response``
+    re-resolves the bound ``EquipmentDefinition`` instead of trusting
+    caller-declared id/version/hash strings.
+    """
+
+    def __init__(
+        self,
+        path: Path | str,
+        equipment_repository: 'CadEquipmentRepository | None' = None,
+    ) -> None:
         self.path = Path(path)
+        self.equipment_repository = equipment_repository
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
@@ -335,18 +391,49 @@ class CadSourceResponseRepository:
         self,
         response: SourceFrequencyResponseAuthority,
     ) -> None:
+        """Persist an immutable source-response authority: same id +
+        byte-identical payload is an idempotent no-op; a different payload
+        under an existing id is a collision — a revised authority needs a
+        new identity. With an equipment repository wired, the declared
+        EquipmentDefinition id/version/hash must re-resolve exactly."""
+        if self.equipment_repository is not None:
+            definition = self.equipment_repository.get_definition(
+                response.equipment_definition_id,
+                response.equipment_definition_version,
+            )
+            if definition is None:
+                raise ValueError(
+                    'source response binds an EquipmentDefinition that does '
+                    f'not resolve: {response.equipment_definition_id} '
+                    f'version {response.equipment_definition_version}'
+                )
+            if definition.semantic_sha256 != response.equipment_definition_sha256:
+                raise ValueError(
+                    'source response EquipmentDefinition hash does not match '
+                    'the persisted definition authority'
+                )
+        payload_json = response.model_dump_json()
         with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_source_responses '
+                'WHERE response_id=?',
+                (response.response_id,),
+            ).fetchone()
+            if row is not None:
+                if row['payload_json'] == payload_json:
+                    return
+                raise ValueError(
+                    f'source response id collision with different payload: '
+                    f'{response.response_id}'
+                )
             connection.execute(
                 'INSERT INTO cad_source_responses'
                 '(response_id, equipment_definition_id, payload_json)'
-                ' VALUES(?,?,?)'
-                ' ON CONFLICT(response_id) DO UPDATE SET'
-                ' equipment_definition_id=excluded.equipment_definition_id,'
-                ' payload_json=excluded.payload_json',
+                ' VALUES(?,?,?)',
                 (
                     response.response_id,
                     response.equipment_definition_id,
-                    response.model_dump_json(),
+                    payload_json,
                 ),
             )
 
@@ -403,6 +490,22 @@ class CadSourceResponseRepository:
         document_id: str,
         response: SourceFrequencyResponseAuthority,
     ) -> None:
+        """Record the response choice for one equipment in one document.
+
+        The response must be persisted with an identical semantic hash —
+        selection never trusts an unpersisted or mutated authority.
+        """
+        persisted = self.get_response(response.response_id)
+        if persisted is None:
+            raise ValueError(
+                f'selected source response is not persisted: '
+                f'{response.response_id}'
+            )
+        if persisted.semantic_sha256 != response.semantic_sha256:
+            raise ValueError(
+                f'selected source response hash does not match the persisted '
+                f'authority: {response.response_id}'
+            )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 'INSERT INTO cad_source_response_selections'

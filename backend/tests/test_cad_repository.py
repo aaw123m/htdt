@@ -687,6 +687,133 @@ def test_corrupt_view_state_is_replaced_by_next_persist(tmp_path: Path) -> None:
     assert state.hidden_ids == ('speaker-fr',)
 
 
+_KEYED_PAYLOAD_STORES: dict[str, tuple[str, str]] = {
+    'named_view': ('editor_named_views', 'view_id'),
+    'underlay': ('floor_plan_underlays', 'underlay_id'),
+    'seating_spec': ('seating_layout_specs', 'spec_id'),
+}
+
+
+def _corrupt_keyed_payload(
+    path: Path,
+    store: str,
+    document_id: str,
+    record_id: str,
+    payload_json: str = '{corrupt',
+) -> None:
+    """Overwrite one keyed editor-payload row with malformed JSON."""
+    table, key_column = _KEYED_PAYLOAD_STORES[store]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            f'UPDATE {table} SET payload_json=? WHERE document_id=? AND {key_column}=?',
+            (payload_json, document_id, record_id),
+        )
+
+
+def _payload_row_count(path: Path, store: str, document_id: str) -> int:
+    table, _ = _KEYED_PAYLOAD_STORES[store]
+    with closing(sqlite3.connect(path)) as connection:
+        return connection.execute(
+            f'SELECT COUNT(*) FROM {table} WHERE document_id=?',
+            (document_id,),
+        ).fetchone()[0]
+
+
+def test_corrupt_named_view_purges_only_that_record(tmp_path: Path, caplog) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_named_view(first.document_id, 'view-a', {'a': 1})
+    repository.save_named_view(first.document_id, 'view-b', {'b': 2})
+    repository.save_named_view(first.document_id, 'view-c', {'c': 3})
+    _corrupt_keyed_payload(repository.path, 'named_view', first.document_id, 'view-b')
+
+    with caplog.at_level(logging.WARNING, logger='htdt.native'):
+        views = repository.named_views(first.document_id)
+    assert [record.record_id for record in views] == ['view-a', 'view-c']
+    assert any(
+        'named_view' in record.message
+        and 'view-b' in record.message
+        and first.document_id in record.message
+        for record in caplog.records
+    )
+
+    # Healthy siblings must survive the read-side cleanup itself.
+    caplog.clear()
+    assert [record.record_id for record in repository.named_views(first.document_id)] == [
+        'view-a',
+        'view-c',
+    ]
+    assert _payload_row_count(repository.path, 'named_view', first.document_id) == 2
+    # ...and a repository restart.
+    assert [
+        record.record_id
+        for record in SceneRepository(repository.path).named_views(first.document_id)
+    ] == ['view-a', 'view-c']
+
+
+def test_corrupt_underlay_and_seating_spec_purge_single_records(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_underlay(first.document_id, 'underlay-a', {'a': 1})
+    repository.save_underlay(first.document_id, 'underlay-b', {'b': 2})
+    repository.save_seating_spec(first.document_id, 'spec-a', {'a': 1})
+    repository.save_seating_spec(first.document_id, 'spec-b', {'b': 2})
+    repository.save_seating_spec(first.document_id, 'spec-c', {'c': 3})
+    _corrupt_keyed_payload(
+        repository.path, 'underlay', first.document_id, 'underlay-b'
+    )
+    _corrupt_keyed_payload(repository.path, 'seating_spec', first.document_id, 'spec-c')
+
+    assert [record.record_id for record in repository.underlays(first.document_id)] == [
+        'underlay-a'
+    ]
+    assert [record.record_id for record in repository.seating_specs(first.document_id)] == [
+        'spec-a',
+        'spec-b',
+    ]
+    assert _payload_row_count(repository.path, 'underlay', first.document_id) == 1
+    assert _payload_row_count(repository.path, 'seating_spec', first.document_id) == 2
+
+
+def test_corrupt_singleton_payload_resets_only_that_store(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_camera_state(first.document_id, {'zoom': 2})
+    repository.save_named_view(first.document_id, 'view-a', {'a': 1})
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            "UPDATE editor_camera_states SET payload_json='{corrupt' WHERE document_id=?",
+            (first.document_id,),
+        )
+
+    assert repository.camera_state(first.document_id) is None
+    # The singleton reset must not bleed into keyed sibling stores.
+    assert [record.record_id for record in repository.named_views(first.document_id)] == [
+        'view-a'
+    ]
+    with closing(sqlite3.connect(repository.path)) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM editor_camera_states WHERE document_id=?',
+            (first.document_id,),
+        ).fetchone()[0] == 0
+
+
+def test_semantically_invalid_payload_row_is_handled_per_record(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+    repository.save_named_view(first.document_id, 'view-a', {'a': 1})
+    repository.save_named_view(first.document_id, 'view-b', {'b': 2})
+    # Valid JSON, wrong shape for a payload record: per-record recovery only.
+    _corrupt_keyed_payload(
+        repository.path, 'named_view', first.document_id, 'view-b', '["not-a-dict"]'
+    )
+
+    assert [record.record_id for record in repository.named_views(first.document_id)] == [
+        'view-a'
+    ]
+    assert _payload_row_count(repository.path, 'named_view', first.document_id) == 1
+
+
 def test_authoritative_revision_still_fails_closed_on_corruption(tmp_path: Path) -> None:
     repository = SceneRepository(tmp_path / 'cad.sqlite3')
     first = repository.save(make_f1_scene(), parent_revision_id=None).revision
