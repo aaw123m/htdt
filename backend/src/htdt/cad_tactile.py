@@ -16,9 +16,10 @@ radiate into the room; it injects force into a structure, so:
   polarity/limiter fields — they are *not* copied from a subwoofer crossover;
 - electrical compatibility is a bounded check (amplifier load vs actuator
   impedance/power), not a full amplifier model;
-- commissioning evidence is meter-aware: accelerometer readings carry axis,
-  unit, sensor ref and calibration ref; device readback and user-confirmed
-  evidence are distinct kinds;
+- commissioning evidence is meter-aware and evaluated per binding:
+  accelerometer readings carry axis, unit, sensor ref and calibration ref;
+  device readback and user-confirmed evidence stay ``empirical`` — a
+  metadata-only record never upgrades a binding to ``measured``;
 - rattle findings are recorded as findings — never folded into acoustic
   measurements.
 
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+from math import isfinite
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -424,34 +426,50 @@ def evaluate_tactile_system(
     processing: tuple[TactileProcessingProfile, ...] = (),
     measurements: tuple[TactileMeasurement, ...] = (),
     entity_kinds: dict[str, str] | None = None,
+    known_source_bus_ids: tuple[str, ...] = (),
+    known_amplifier_channel_ids: tuple[str, ...] = (),
 ) -> TactileSystemEvaluation:
-    """Binding/processing coherence checks.
+    """Binding/processing coherence checks (fail-closed).
 
-    - every mounted binding targets an entity kind that can carry a shaker
-      (seat/riser/furniture — checked against ``entity_kinds`` when given);
-    - every tactile processing channel names a source bus (recorded, not
-      inferred);
-    - measured capability requires at least one accelerometer datum;
+    - ``attachment_target``: PASS only when the target Scene entity resolves
+      and its kind matches the declared attachable kind; an unresolved or
+      stale target id is UNKNOWN (self-declared ``target_kind`` is
+      provenance, not proof), a resolved kind mismatch is FAIL.
+    - ``processing_source_resolves``: a processing profile's ``source_bus``
+      (and ``amplifier_channel_ref`` when set) must resolve against the
+      supplied canonical bus/channel ids — a non-empty string alone is
+      UNKNOWN, a resolvable id is PASS, a resolver-supplied miss is FAIL.
+    - ``measurement_binding_resolves``: every measurement must name an
+      attachment binding that was actually supplied.
+    - ``measurement_coverage``: per-binding coverage — ``measured`` needs a
+      bound accelerometer record with a finite value, axis, unit and
+      instrument authority (``sensor_ref``); other evidence kinds count as
+      ``empirical``; none is ``not_modeled``.
+    - ``capability_state``: whole-subsystem ``measured`` only when every
+      supplied binding carries qualifying accelerometer evidence — one
+      record never upgrades unmeasured attachments.
     - the acoustic solver reports NOT_APPLICABLE by construction.
     """
 
     checks: list[TactileElectricalCheck] = []
     entity_kinds = entity_kinds or {}
     attachable = {'seat', 'riser', 'furniture', 'floor', 'platform'}
+    binding_ids = {binding.binding_id for binding in bindings}
+    bus_ids = set(known_source_bus_ids)
+    amp_ids = set(known_amplifier_channel_ids)
+    measured_count = 0
 
     for binding in bindings:
         declared = binding.target_kind
         actual = entity_kinds.get(binding.target_entity_id)
         if actual is None:
-            status: EvaluationStatus = (
-                'PASS' if declared in attachable else 'FAIL'
-            )
             checks.append(
                 TactileElectricalCheck(
                     check='attachment_target',
-                    status=status,
-                    reason=f'{binding.binding_id}: target kind asserted '
-                    f"'{declared}' (scene kind unverified)",
+                    status='UNKNOWN',
+                    reason=f'{binding.binding_id}: target entity '
+                    f"'{binding.target_entity_id}' unresolved; declared "
+                    f"kind '{declared}' is unverified",
                 )
             )
         else:
@@ -465,28 +483,131 @@ def evaluate_tactile_system(
                 )
             )
 
-    for profile in processing:
+        bound = [
+            m for m in measurements if m.binding_id == binding.binding_id
+        ]
+        qualified = [
+            m
+            for m in bound
+            if m.method == 'accelerometer'
+            and m.value is not None
+            and isfinite(float(m.value))
+            and m.axis is not None
+            and m.unit is not None
+            and m.sensor_ref is not None
+        ]
+        if qualified:
+            coverage: TactileCapabilityState = 'measured'
+            measured_count += 1
+            coverage_status: EvaluationStatus = 'PASS'
+            calibrated = all(
+                m.calibration_ref is not None for m in qualified
+            )
+            coverage_reason = (
+                'qualifying accelerometer evidence bound'
+                + ('' if calibrated else ' (uncalibrated)')
+            )
+        elif bound:
+            coverage = 'empirical'
+            coverage_status = 'UNKNOWN'
+            coverage_reason = (
+                'only non-instrument or metadata-only evidence bound'
+            )
+        else:
+            coverage = 'not_modeled'
+            coverage_status = 'UNKNOWN'
+            coverage_reason = 'no measurement evidence bound'
         checks.append(
             TactileElectricalCheck(
-                check='processing_source_recorded',
-                status='PASS' if profile.source_bus else 'UNKNOWN',
-                reason=f'{profile.profile_id} sources from '
-                f"'{profile.source_bus}'",
+                check='measurement_coverage',
+                status=coverage_status,
+                reason=f'{binding.binding_id}: {coverage} — '
+                f'{coverage_reason}',
             )
         )
 
-    accel = [m for m in measurements if m.method == 'accelerometer']
-    if accel:
+    for measurement in measurements:
+        resolved = measurement.binding_id in binding_ids
+        checks.append(
+            TactileElectricalCheck(
+                check='measurement_binding_resolves',
+                status='PASS' if resolved else 'FAIL',
+                reason=(
+                    f"{measurement.measurement_id}: bound to "
+                    f"'{measurement.binding_id}'"
+                    if resolved
+                    else f'{measurement.measurement_id}: binding '
+                    f"'{measurement.binding_id}' not among supplied "
+                    'bindings'
+                ),
+            )
+        )
+
+    for profile in processing:
+        states: list[str] = []
+        if not bus_ids:
+            states.append('unverifiable')
+        else:
+            states.append(
+                'resolved' if profile.source_bus in bus_ids else 'missing'
+            )
+        if profile.amplifier_channel_ref is not None:
+            if not amp_ids:
+                states.append('unverifiable')
+            else:
+                states.append(
+                    'resolved'
+                    if profile.amplifier_channel_ref in amp_ids
+                    else 'missing'
+                )
+        if 'missing' in states:
+            status = 'FAIL'
+        elif 'unverifiable' in states:
+            status = 'UNKNOWN'
+        else:
+            status = 'PASS'
+        checks.append(
+            TactileElectricalCheck(
+                check='processing_source_resolves',
+                status=status,
+                reason=f'{profile.profile_id}: source bus '
+                f"'{profile.source_bus}'"
+                + (
+                    f", amplifier channel '{profile.amplifier_channel_ref}'"
+                    if profile.amplifier_channel_ref is not None
+                    else ''
+                )
+                + f' — {"/".join(states)}',
+            )
+        )
+
+    if bindings and measured_count == len(bindings):
         capability: TactileCapabilityState = 'measured'
-    elif measurements:
+        capability_status: EvaluationStatus = 'PASS'
+        capability_reason = (
+            f'capability state: measured ({measured_count} of '
+            f'{len(bindings)} bindings carry qualifying accelerometer '
+            'evidence)'
+        )
+    elif any(
+        m.binding_id in binding_ids for m in measurements
+    ):
         capability = 'empirical'
+        capability_status = 'UNKNOWN'
+        capability_reason = (
+            'capability state: empirical (measured coverage '
+            f'{measured_count} of {len(bindings)} bindings; '
+            'non-instrument or unbound records do not upgrade coverage)'
+        )
     else:
         capability = 'not_modeled'
+        capability_status = 'UNKNOWN'
+        capability_reason = 'capability state: not_modeled'
     checks.append(
         TactileElectricalCheck(
             check='capability_state',
-            status='PASS' if capability != 'not_modeled' else 'UNKNOWN',
-            reason=f'capability state: {capability}',
+            status=capability_status,
+            reason=capability_reason,
         )
     )
 
