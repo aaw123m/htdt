@@ -75,6 +75,26 @@ AcousticMountingCapability = Literal[
     'context_known_geometry_checked',
     'acoustic_effect_unsupported',
 ]
+# #967: shared typed vocabulary for the physical installation condition a
+# source is measured/operated under. Response and directivity evidence
+# declares the condition it is valid for; the installation context derives
+# the actual installed condition; R110 compares them explicitly instead of
+# trusting a free-form label.
+SourceInstallationCondition = Literal[
+    'free_standing',
+    'half_space_baffle',
+    'flush_in_wall',
+    'boundary_adjacent',
+    'manufacturer_fixture',
+    'unknown',
+]
+InstallationConditionCompatibility = Literal[
+    'exact_match',
+    'compatible_by_declared_model',
+    'bounded_approximation',
+    'incompatible',
+    'unknown',
+]
 
 PORT_FACE: dict[str, tuple[ClearanceAxis, ...]] = {
     'sealed': (),
@@ -324,6 +344,116 @@ class InstallationCheck(BaseModel):
         return _finite(value, field_name='installation check value')
 
 
+def installed_condition(
+    context: SpeakerInstallationContext,
+) -> SourceInstallationCondition:
+    """Derive the actual installed condition from mounting/baffle fields.
+
+    An explicit ``baffle_state`` is the more specific declaration and wins
+    over the coarse mounting mode; a declared pair that disagrees cannot
+    certify a condition and resolves to ``unknown``.
+    """
+
+    baffle_map: dict[str, SourceInstallationCondition] = {
+        'free_space': 'free_standing',
+        'flush_baffle': 'flush_in_wall',
+        'finite_baffle': 'half_space_baffle',
+        'boundary_adjacent': 'boundary_adjacent',
+    }
+    mode_map: dict[str, SourceInstallationCondition] = {
+        'free_standing': 'free_standing',
+        'stand': 'free_standing',
+        'shelf': 'boundary_adjacent',
+        'wall': 'boundary_adjacent',
+        'ceiling': 'boundary_adjacent',
+        'in_wall': 'flush_in_wall',
+        'in_ceiling': 'flush_in_wall',
+    }
+    baffle = baffle_map.get(context.baffle_state)
+    mode = mode_map.get(context.selected_mounting_mode)
+    if baffle is not None:
+        if mode is not None and mode != baffle:
+            return 'unknown'
+        return baffle
+    return mode if mode is not None else 'unknown'
+
+
+def directivity_evidence_condition(
+    context: SpeakerInstallationContext,
+) -> SourceInstallationCondition:
+    """Map the declared directivity applicability onto the condition axis."""
+
+    return {
+        'anechoic': 'free_standing',
+        'iec_baffle': 'half_space_baffle',
+        'in_wall': 'flush_in_wall',
+        'manufacturer_fixture': 'manufacturer_fixture',
+        'unknown': 'unknown',
+    }[context.directivity_applicability]
+
+
+_CONDITION_COMPATIBLE_DECLARED: frozenset[tuple[str, str]] = frozenset(
+    {
+        # An IEC/infinite-baffle measurement is physically the same
+        # condition as a flush in-wall/in-ceiling installation.
+        ('flush_in_wall', 'half_space_baffle'),
+        ('half_space_baffle', 'flush_in_wall'),
+    }
+)
+_CONDITION_BOUNDED_APPROXIMATION: frozenset[tuple[str, str]] = frozenset(
+    {
+        ('boundary_adjacent', 'free_standing'),
+        ('boundary_adjacent', 'half_space_baffle'),
+        ('half_space_baffle', 'boundary_adjacent'),
+    }
+)
+
+
+def evaluate_installation_condition(
+    installed: SourceInstallationCondition,
+    evidence: SourceInstallationCondition,
+) -> tuple[InstallationConditionCompatibility, str]:
+    """Compare the actual installed condition with an evidence condition.
+
+    Conservative and symmetric in failure only: only declared physical
+    equivalences upgrade an exact match. Unknown on either side never
+    produces a positive compatibility claim, and manufacturer-fixture
+    evidence is meaningless outside its exact declared fixture.
+    """
+
+    if installed == 'unknown' or evidence == 'unknown':
+        return 'unknown', 'installed or evidence condition is unrecorded'
+    if installed == evidence:
+        return (
+            'exact_match',
+            f'evidence condition {evidence} matches the installed condition',
+        )
+    if 'manufacturer_fixture' in (installed, evidence):
+        return (
+            'unknown',
+            'manufacturer fixture conditions are only comparable to the exact '
+            'same fixture authority',
+        )
+    pair = (installed, evidence)
+    if pair in _CONDITION_COMPATIBLE_DECLARED:
+        return (
+            'compatible_by_declared_model',
+            f'evidence condition {evidence} is the declared model of the '
+            f'installed condition {installed}',
+        )
+    if pair in _CONDITION_BOUNDED_APPROXIMATION:
+        return (
+            'bounded_approximation',
+            f'evidence condition {evidence} is only a bounded approximation '
+            f'of the installed condition {installed}',
+        )
+    return (
+        'incompatible',
+        f'evidence condition {evidence} cannot serve the installed '
+        f'condition {installed}',
+    )
+
+
 class InstallationEvaluation(BaseModel):
     """Immutable evaluation of one persisted installation context."""
 
@@ -338,6 +468,9 @@ class InstallationEvaluation(BaseModel):
     entity_id: str = Field(min_length=1)
     checks: tuple[InstallationCheck, ...]
     mounting_compatible: bool | None
+    installed_condition: SourceInstallationCondition
+    evidence_condition: SourceInstallationCondition
+    condition_compatibility: InstallationConditionCompatibility
     acoustic_mounting_capability: AcousticMountingCapability
     evaluation_id: str = Field(min_length=1)
     evaluation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -362,6 +495,9 @@ class InstallationEvaluation(BaseModel):
             'entity_id': self.entity_id,
             'checks': [check.model_dump(mode='json') for check in self.checks],
             'mounting_compatible': self.mounting_compatible,
+            'installed_condition': self.installed_condition,
+            'evidence_condition': self.evidence_condition,
+            'condition_compatibility': self.condition_compatibility,
             'acoustic_mounting_capability': self.acoustic_mounting_capability,
         }
 
@@ -700,9 +836,17 @@ def evaluate_installation_context(
 
     failed = any(check.state == 'FAIL' for check in checks)
     unknown = any(check.state == 'UNKNOWN' for check in checks)
+    installed = installed_condition(context)
+    evidence = directivity_evidence_condition(context)
+    compatibility, _compatibility_reason = evaluate_installation_condition(
+        installed, evidence
+    )
     if failed or mounting_compatible is False:
         capability: AcousticMountingCapability = 'acoustic_effect_unsupported'
-    elif context.directivity_applicability != 'unknown' and not unknown:
+    elif compatibility in (
+        'exact_match',
+        'compatible_by_declared_model',
+    ) and not unknown:
         capability = 'modeled_supported'
     elif checks:
         capability = 'context_known_geometry_checked'
@@ -717,6 +861,9 @@ def evaluate_installation_context(
         'entity_id': entity.entity_id,
         'checks': [check.model_dump(mode='json') for check in checks],
         'mounting_compatible': mounting_compatible,
+        'installed_condition': installed,
+        'evidence_condition': evidence,
+        'condition_compatibility': compatibility,
         'acoustic_mounting_capability': capability,
     }
     digest = _digest(payload)
@@ -726,6 +873,9 @@ def evaluate_installation_context(
         entity_id=entity.entity_id,
         checks=tuple(checks),
         mounting_compatible=mounting_compatible,
+        installed_condition=installed,
+        evidence_condition=evidence,
+        condition_compatibility=compatibility,
         acoustic_mounting_capability=capability,
         evaluation_id=_semantic_id('install-eval', digest),
         evaluation_sha256=digest,

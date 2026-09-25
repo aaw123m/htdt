@@ -299,6 +299,15 @@ class LowBandPredictionProvider(BaseModel):
     timing_capability: ProviderCapabilityState
     spatial_field_capability: ProviderCapabilityState
 
+    # #942: coherent-composition semantics. Phase availability alone does
+    # not prove transfers can be coherently summed — the matrix machine-
+    # checks these declared identities instead of inferring them.
+    source_normalization_id: str | None = Field(default=None, min_length=1)
+    timing_authority: Literal[
+        'absolute_propagation_time', 'relative_delay', 'unavailable'
+    ] | None = None
+    phasor_convention: str | None = Field(default=None, min_length=1)
+
     response_unit: Literal['Pa'] = 'Pa'
     magnitude_level_reference: Literal['20_uPa'] = '20_uPa'
     valid_frequency_domain: FrequencyDomain
@@ -371,10 +380,20 @@ class LowBandPredictionProvider(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'provider_id', 'semantic_sha256'},
         )
+        # #942: fields absent on pre-composition providers must digest as if
+        # they did not exist, so persisted identities stay byte-exact.
+        for key in (
+            'source_normalization_id',
+            'timing_authority',
+            'phasor_convention',
+        ):
+            if getattr(self, key) is None:
+                payload.pop(key, None)
+        return payload
 
     def ref(self) -> PredictionProviderRef:
         return PredictionProviderRef(
@@ -960,6 +979,9 @@ def build_r130_low_band_prediction_provider(
         'magnitude_level_reference': '20_uPa',
         'valid_frequency_domain': artifact.valid_frequency_domain.model_dump(mode='json'),
         'receiver_responses': [item.model_dump(mode='json') for item in responses],
+        # #942: the artifact's declared phasor convention is real authority;
+        # normalization and timing stay undeclared for the sparse-sample lane.
+        'phasor_convention': phase_convention,
         'result_envelope_id': result.result_id,
         'result_envelope_sha256': result.semantic_sha256,
         'result_artifact_ref': artifact.artifact_authority.model_dump(mode='json'),
@@ -983,6 +1005,7 @@ def build_r130_low_band_prediction_provider(
         phase_capability='READY',
         timing_capability='UNSUPPORTED',
         spatial_field_capability='UNSUPPORTED',
+        phasor_convention=phase_convention,
         valid_frequency_domain=artifact.valid_frequency_domain,
         receiver_responses=tuple(responses),
         result_envelope_id=result.result_id,

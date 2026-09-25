@@ -255,3 +255,96 @@ def test_result_identity_changes_with_fitted_values() -> None:
     second = run_model_calibration(spec, ShiftEvaluator())
     assert first.calibrated_model_id == second.calibrated_model_id
     assert first.result_id == second.result_id
+
+
+def _transformed_param(
+    name: str, transform: str, low: float, high: float
+) -> CalibrationParameterDefinition:
+    return CalibrationParameterDefinition(
+        parameter_id=name,
+        target_kind='boundary_surface_material',
+        target_id='surface-1',
+        quantity='absorption',
+        unit='1',
+        model_family='allpass_alpha',
+        transform=transform,
+        role='fitted',
+        lower_bound=low,
+        upper_bound=high,
+    )
+
+
+def test_transform_grids_sample_transform_coordinates() -> None:
+    from htdt.cad_model_calibration import _grid_points
+
+    identity = _transformed_param('p', 'identity', 0.001, 1.0)
+    assert _grid_points(identity, 4) == pytest.approx(
+        (0.001, 0.334, 0.667, 1.0)
+    )
+
+    logged = _transformed_param('p', 'log', 0.001, 1.0)
+    assert _grid_points(logged, 4) == pytest.approx(
+        (0.001, 0.01, 0.1, 1.0)
+    )
+
+    logit = _transformed_param('p', 'logit01', 0.1, 0.9)
+    points = _grid_points(logit, 3)
+    assert points == pytest.approx((0.1, 0.5, 0.9))
+
+
+def test_transform_domain_bounds_rejected_at_spec_validation() -> None:
+    with pytest.raises(ValueError, match='positive'):
+        _transformed_param('p', 'log', 0.0, 1.0)
+    with pytest.raises(ValueError, match='positive'):
+        _transformed_param('p', 'log', -0.5, 2.0)
+    with pytest.raises(ValueError, match=r'\(0, 1\)'):
+        _transformed_param('p', 'logit01', 0.0, 0.5)
+    with pytest.raises(ValueError, match=r'\(0, 1\)'):
+        _transformed_param('p', 'logit01', 0.2, 1.0)
+    # fixed parameters carry no bounds and keep accepting any transform
+    CalibrationParameterDefinition(
+        parameter_id='p',
+        target_kind='environment',
+        target_id='env-1',
+        quantity='temperature_c',
+        unit='degC',
+        model_family='air',
+        transform='log',
+        role='fixed',
+        fixed_value=20.0,
+    )
+
+
+def test_log_transform_finds_minimum_and_stays_physical() -> None:
+    spec = _spec(
+        parameters=(_transformed_param('alpha', 'log', 0.001, 1.0),),
+        optimizer=CalibrationOptimizerSpec(max_evaluations=64),
+    )
+    # 8-point log grid over [1e-3, 1]: 10^(-3 + 3k/7) for k = 0..7.
+    # Exact grid point k=2 -> 10^(-2.142857...) ~ 0.007197.
+    target = 10.0 ** (-3.0 + 6.0 / 7.0)
+
+    class TargetEvaluator:
+        def evaluate(self, values):
+            return (math.log(values['alpha'] / target),)
+
+    result = run_model_calibration(spec, TargetEvaluator())
+    fitted = dict(result.fitted_values)
+    assert fitted['alpha'] == pytest.approx(target)
+    assert result.sensitivity_parameterization == 'physical_parameter'
+
+
+def test_log_grid_replay_is_deterministic() -> None:
+    spec = _spec(
+        parameters=(_transformed_param('alpha', 'log', 0.001, 1.0),),
+        optimizer=CalibrationOptimizerSpec(max_evaluations=64),
+    )
+
+    class AnyEvaluator:
+        def evaluate(self, values):
+            return (values['alpha'],)
+
+    first = run_model_calibration(spec, AnyEvaluator())
+    second = run_model_calibration(spec, AnyEvaluator())
+    assert first.fitted_values == second.fitted_values
+    assert first.result_id == second.result_id

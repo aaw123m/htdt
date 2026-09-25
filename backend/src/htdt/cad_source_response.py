@@ -29,6 +29,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_equipment import EquipmentDefinition, FrequencyDomain
+from .cad_installation_context import SourceInstallationCondition
 from .cad_scene import Direction3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from hashlib import sha256
@@ -100,6 +101,11 @@ class SourceResponseCondition(BaseModel):
     reference_distance_m: float = Field(gt=0.0)
     field_condition: FieldCondition = 'unspecified'
     mounting_condition: str = ''
+    # #967: typed physical installation the response evidence was
+    # measured/claimed under; R110 compares it against the actual
+    # SpeakerInstallationContext instead of trusting the free-form
+    # ``mounting_condition`` label. 'unknown' carries no claim.
+    installation_condition: SourceInstallationCondition = 'unknown'
     on_axis_direction: Direction3 | None = None
     calibration: str = ''
 
@@ -291,7 +297,12 @@ class SourceFrequencyResponseAuthority(BaseModel):
             'created_at_utc': self.created_at_utc,
         }
         if self.condition is not None:
-            payload['condition'] = self.condition.model_dump(mode='json')
+            condition = self.condition.model_dump(mode='json')
+            # 'unknown' carries no claim: conditions persisted before the
+            # typed installation condition existed keep their exact hash.
+            if self.condition.installation_condition == 'unknown':
+                condition.pop('installation_condition', None)
+            payload['condition'] = condition
         if self.valid_frequency_domain is not None:
             payload['valid_frequency_domain'] = (
                 self.valid_frequency_domain.model_dump(mode='json')

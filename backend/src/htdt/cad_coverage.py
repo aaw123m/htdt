@@ -3,11 +3,17 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 from math import atan2, degrees, hypot, isfinite, sqrt
-from typing import Any, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .cad_listener_pose import ListenerPoseAuthority
+
 from .cad_direct_level import SeatPopulation
+from .cad_listener_pose import resolve_listener_receiver
 from .cad_seat_priority import SeatPriorityProfile
 from .cad_directivity import (
     DirectivityDataset,
@@ -21,7 +27,6 @@ from .cad_scene import (
     Position3,
     Quaternion4,
     SceneEntity,
-    acoustic_reference_position,
     quaternion_to_matrix3,
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
@@ -954,6 +959,9 @@ def evaluate_coverage(
     directivity_dataset: DirectivityDataset,
     scenario: CoverageEvaluationScenario,
     priority_profile: SeatPriorityProfile | None = None,
+    listener_pose_resolver: 'Callable[[str], ListenerPoseAuthority | None] | None' = (
+        None
+    ),
 ) -> CoverageEvaluation:
     """Evaluate exact single-source directivity coverage with no SPL/room coupling."""
 
@@ -1083,7 +1091,16 @@ def evaluate_coverage(
             )
             continue
 
-        receiver = acoustic_reference_position(seat)
+        # #939: seat receivers resolve through the canonical listener-pose
+        # resolver — a selected pose repositions the receiver; no pose keeps
+        # the legacy seat offset as the explicit fallback.
+        pose = (
+            None
+            if listener_pose_resolver is None
+            else listener_pose_resolver(seat.entity_id)
+        )
+        resolved = resolve_listener_receiver(seat, pose)
+        receiver = None if resolved is None else resolved.position
         if receiver is None:
             seat_results.append(
                 _unsupported_seat(

@@ -20,6 +20,14 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from .cad_acoustic_environment import AcousticEnvironmentProfile
+from .cad_listener_pose import (
+    ListenerPoseAuthority,
+    resolve_listener_receiver,
+)
+from .cad_room_operating_state import (
+    RoomOperatingState,
+    compile_operating_state_consumption,
+)
 from .cad_prediction_provider import (
     LowBandPredictionProvider,
     PredictionProviderResolution,
@@ -28,7 +36,6 @@ from .cad_predictions import exact_rectangular_room_frame
 from .cad_repository import SceneRevision
 from .cad_scene import (
     Position3,
-    acoustic_reference_position,
     is_listener_receiver_eligible,
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -108,14 +115,22 @@ def _provider_resolution(
     )
 
 
-def _receiver_position(revision: SceneRevision, receiver_entity_id: str) -> Position3 | None:
+def _receiver_position(
+    revision: SceneRevision,
+    receiver_entity_id: str,
+    *,
+    listener_pose: ListenerPoseAuthority | None = None,
+) -> Position3 | None:
     try:
         entity = revision.document.entity(receiver_entity_id)
     except KeyError:
         return None
-    if not is_listener_receiver_eligible(entity):
+    if not is_listener_receiver_eligible(entity) and not (
+        entity.kind == 'seat' and listener_pose is not None
+    ):
         return None
-    return acoustic_reference_position(entity)
+    resolved = resolve_listener_receiver(entity, listener_pose)
+    return None if resolved is None else resolved.position
 
 
 def _rectangular_option(
@@ -124,9 +139,15 @@ def _rectangular_option(
     *,
     environment_profile: AcousticEnvironmentProfile | None,
     max_mode_hz: float,
+    listener_pose: ListenerPoseAuthority | None = None,
+    operating_state: RoomOperatingState | None = None,
 ) -> RoomPredictionModelOption:
     reasons: list[str] = []
-    receiver = _receiver_position(revision, receiver_entity_id)
+    receiver = _receiver_position(
+        revision,
+        receiver_entity_id,
+        listener_pose=listener_pose,
+    )
     if receiver is None:
         try:
             entity = revision.document.entity(receiver_entity_id)
@@ -163,7 +184,28 @@ def _rectangular_option(
             reasons.append('受音点が矩形ルーム内部にありません')
     if environment_profile is not None and environment_profile.sound_speed_m_s is None:
         reasons.append('選択中の環境プロファイルの音速が不明です')
-    detail_bits = [f'モード上限 {max_mode_hz:g} Hz · 一次反射+モード近似']
+    if operating_state is not None and (
+        operating_state.scene_revision_id != revision.revision_id
+        or operating_state.document_id != revision.document_id
+    ):
+        reasons.append('選択した部屋状態は現在のSceneRevision用ではありません')
+    if listener_pose is not None:
+        detail_bits = [
+            f'姿勢:{listener_pose.label} '
+            f'({listener_pose.posture_kind}) · '
+            'point受音点は向きを使いません',
+            f'モード上限 {max_mode_hz:g} Hz · 一次反射+モード近似',
+        ]
+    else:
+        detail_bits = [f'モード上限 {max_mode_hz:g} Hz · 一次反射+モード近似']
+    if operating_state is not None:
+        consumption = compile_operating_state_consumption(
+            operating_state, revision.document
+        )
+        consumed = ', '.join(consumption.consumed_domains) or 'なし'
+        detail_bits.append(
+            f'部屋状態:{operating_state.name} · 消費領域:{consumed}'
+        )
     if environment_profile is not None:
         source = _SOURCE_KIND_LABELS.get(
             environment_profile.sound_speed_source_kind,
@@ -252,6 +294,8 @@ def resolve_room_prediction_options(
     max_mode_hz: float = 300.0,
     include_wave_placeholder: bool = True,
     include_hybrid_placeholder: bool = True,
+    listener_pose: ListenerPoseAuthority | None = None,
+    operating_state: RoomOperatingState | None = None,
 ) -> tuple[RoomPredictionModelOption, ...]:
     """The product model/provider option set for one receiver and revision.
 
@@ -269,6 +313,8 @@ def resolve_room_prediction_options(
             receiver_entity_id,
             environment_profile=environment_profile,
             max_mode_hz=max_mode_hz,
+            listener_pose=listener_pose,
+            operating_state=operating_state,
         )
     ]
     for provider in sorted(providers, key=lambda item: item.provider_id):

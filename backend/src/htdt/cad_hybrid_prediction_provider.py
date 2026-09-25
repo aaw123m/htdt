@@ -30,6 +30,8 @@ from .cad_prediction_provider import (
     PredictionProviderRef,
     PredictionProviderSourceIdentity,
     ProviderCurrentAuthority,
+    ProviderEvidenceScope,
+    ProviderEvidenceState,
 )
 from .cad_repository import SceneRepository
 from .cad_schema import (
@@ -53,8 +55,18 @@ HYBRID_PRESSURE_RECONSTRUCTION = (
 )
 SPL_REFERENCE_PA = 20.0e-6
 
-HybridProviderEvidenceState = Literal['candidate']
-HybridProviderEvidenceScope = Literal['unvalidated']
+# R170B shares the R170A evidence ladder exactly: candidate -> validated ->
+# production over unvalidated -> synthetic_fixture -> owned_room scope.
+HybridProviderEvidenceState = ProviderEvidenceState
+HybridProviderEvidenceScope = ProviderEvidenceScope
+
+_HYBRID_STATE_ORDER = {'candidate': 0, 'validated': 1, 'production': 2}
+_HYBRID_SCOPE_ORDER = {
+    'unvalidated': 0,
+    'synthetic_fixture': 1,
+    'owned_room': 2,
+}
+
 HybridProviderStaleState = Literal['CURRENT', 'STALE']
 HybridProviderConsumerKind = Literal[
     'O50_MEASUREMENT_PLAN',
@@ -209,8 +221,33 @@ class HybridPredictionProviderRef(BaseModel):
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 
-class HybridPredictionProvider(BaseModel):
-    """Solver-neutral product contract over one exact R160 numerical hybrid result."""
+class HybridValidatedObservable(BaseModel):
+    """One observable-scoped validation claim on a promoted R170B provider.
+
+    Validation is never whole-provider: each claim names one READY
+    observable, the evidence scope established for it, and optionally the
+    exact frequency band inside the provider output grid it covers.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    observable: str = Field(min_length=1)
+    evidence_scope: Literal['synthetic_fixture', 'owned_room']
+    frequency_domain: FrequencyDomain | None = None
+
+
+class HybridPredictionProvider(BaseModel):  # noqa: D101 - documented below
+
+
+    """Solver-neutral product contract over one exact R160 numerical hybrid result.
+
+    Evidence lifecycle mirrors R170A: every build starts as
+    candidate/unvalidated; a validated or production provider is a new
+    immutable projection (``promote_hybrid_provider_evidence``) that keeps all
+    exact R170A/R160 pins, records the replayable validation authority, the
+    observable/band-scoped claims it establishes, and the candidate provider
+    it was promoted from. Promotion never mutates the persisted candidate.
+    """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -282,9 +319,11 @@ class HybridPredictionProvider(BaseModel):
 
     evidence_state: HybridProviderEvidenceState = 'candidate'
     evidence_scope: HybridProviderEvidenceScope = 'unvalidated'
-    validation_authority_ref: None = None
-    production_adoption: Literal[False] = False
-    production_adoption_authority_ref: None = None
+    validation_authority_ref: ExactExternalAuthorityRef | None = None
+    production_adoption: bool = False
+    production_adoption_authority_ref: ExactExternalAuthorityRef | None = None
+    promoted_from_provider_ref: HybridPredictionProviderRef | None = None
+    validated_observables: tuple[HybridValidatedObservable, ...] = ()
     stale_state: Literal['CURRENT'] = 'CURRENT'
 
     @model_validator(mode='after')
@@ -353,6 +392,92 @@ class HybridPredictionProvider(BaseModel):
         ):
             raise ValueError('R170B unsupported capability table was widened')
 
+        if self.evidence_state == 'candidate':
+            if self.evidence_scope != 'unvalidated':
+                raise ValueError('R170B candidate provider must remain unvalidated')
+            if self.validation_authority_ref is not None:
+                raise ValueError(
+                    'R170B candidate provider must not claim validation authority'
+                )
+            if self.promoted_from_provider_ref is not None:
+                raise ValueError(
+                    'R170B candidate provider cannot carry a promotion link'
+                )
+            if self.validated_observables:
+                raise ValueError(
+                    'R170B candidate provider cannot carry validated observables'
+                )
+            if self.production_adoption:
+                raise ValueError('R170B candidate provider cannot be adopted')
+        else:
+            if self.validation_authority_ref is None:
+                raise ValueError(
+                    'R170B validated/production provider requires validation authority'
+                )
+            if self.evidence_scope == 'unvalidated':
+                raise ValueError(
+                    'R170B validated/production provider requires explicit evidence scope'
+                )
+            if self.promoted_from_provider_ref is None:
+                raise ValueError(
+                    'R170B validated/production provider must pin the promoted candidate'
+                )
+            if not self.validated_observables:
+                raise ValueError(
+                    'R170B validated/production provider requires observable-scoped claims'
+                )
+        if self.evidence_state == 'production':
+            if self.evidence_scope != 'owned_room':
+                raise ValueError(
+                    'R170B production provider requires owned-room evidence scope'
+                )
+            if self.production_adoption_authority_ref is None:
+                raise ValueError(
+                    'R170B production provider requires adoption authority'
+                )
+            if not self.production_adoption:
+                raise ValueError('R170B production provider requires adoption flag')
+        else:
+            if self.production_adoption:
+                raise ValueError(
+                    'R170B non-production provider cannot claim adoption'
+                )
+            if self.production_adoption_authority_ref is not None:
+                raise ValueError(
+                    'R170B non-production provider cannot carry adoption authority'
+                )
+
+        claim_keys: list[tuple[str, float | None, float | None]] = []
+        for claim in self.validated_observables:
+            if capability_map.get(claim.observable) != 'READY':
+                raise ValueError(
+                    'R170B validated observable must name a READY observable'
+                )
+            if (
+                _HYBRID_SCOPE_ORDER[claim.evidence_scope]
+                > _HYBRID_SCOPE_ORDER[self.evidence_scope]
+            ):
+                raise ValueError(
+                    'R170B validated observable exceeds provider evidence scope'
+                )
+            if claim.frequency_domain is not None and (
+                float(claim.frequency_domain.minimum_hz) < grid[0]
+                or float(claim.frequency_domain.maximum_hz) > grid[-1]
+            ):
+                raise ValueError(
+                    'R170B validated observable band must lie inside output grid'
+                )
+            domain = claim.frequency_domain
+            claim_keys.append(
+                (
+                    claim.observable,
+                    None if domain is None else float(domain.minimum_hz),
+                    None if domain is None else float(domain.maximum_hz),
+                )
+            )
+        if len(set(claim_keys)) != len(claim_keys):
+            raise ValueError('R170B validated observables must be unique')
+
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('R170B provider semantic hash mismatch')
@@ -361,10 +486,17 @@ class HybridPredictionProvider(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'provider_id', 'semantic_sha256'},
         )
+        # Candidate providers (the only pre-lifecycle state) keep the exact
+        # semantic hash they had before the lifecycle fields existed.
+        if self.promoted_from_provider_ref is None:
+            payload.pop('promoted_from_provider_ref', None)
+        if not self.validated_observables:
+            payload.pop('validated_observables', None)
+        return payload
 
     def ref(self) -> HybridPredictionProviderRef:
         return HybridPredictionProviderRef(
@@ -621,6 +753,98 @@ def build_hybrid_prediction_provider(
         semantic_sha256=digest,
         **core,
     )
+
+
+def promote_hybrid_provider_evidence(
+    provider: HybridPredictionProvider,
+    *,
+    evidence_state: Literal['validated', 'production'],
+    evidence_scope: Literal['synthetic_fixture', 'owned_room'],
+    validation_authority_ref: ExactExternalAuthorityRef,
+    validated_observables: Sequence[HybridValidatedObservable],
+    production_adoption_authority_ref: ExactExternalAuthorityRef | None = None,
+) -> HybridPredictionProvider:
+    """Issue a NEW immutable R170B provider carrying validated evidence.
+
+    The persisted candidate provider is never mutated; the promoted
+    projection keeps every exact R170A/R160 pin, records the exact
+    validation authority and the observable/band-scoped claims it
+    establishes, and pins the candidate it was promoted from. Production
+    adoption additionally requires a separate adoption authority. A
+    validated R170A base alone never promotes the hybrid result: every
+    claim must be declared explicitly.
+    """
+
+    candidate = HybridPredictionProvider.model_validate(
+        provider.model_dump(mode='python')
+    )
+    if candidate.evidence_state != 'candidate':
+        raise ValueError('only a candidate R170B provider can be promoted')
+    payload = candidate.model_dump(mode='python')
+    payload.pop('provider_id', None)
+    payload.pop('semantic_sha256', None)
+    payload['evidence_state'] = evidence_state
+    payload['evidence_scope'] = evidence_scope
+    payload['validation_authority_ref'] = validation_authority_ref
+    payload['production_adoption'] = evidence_state == 'production'
+    payload['production_adoption_authority_ref'] = (
+        production_adoption_authority_ref
+    )
+    promoted_from = candidate.ref()
+    payload['promoted_from_provider_ref'] = promoted_from
+    payload['validated_observables'] = tuple(validated_observables)
+    semantic = dict(payload)
+    for key in (
+        'validation_authority_ref',
+        'production_adoption_authority_ref',
+        'promoted_from_provider_ref',
+    ):
+        ref = semantic[key]
+        semantic[key] = (
+            None if ref is None else ref.model_dump(mode='json')
+        )
+    semantic['validated_observables'] = [
+        item.model_dump(mode='json') for item in validated_observables
+    ]
+    digest = _semantic_hash(semantic)
+    return HybridPredictionProvider.model_validate(
+        {
+            'provider_id': f'r170b-hybrid-provider:{digest}',
+            'semantic_sha256': digest,
+            **payload,
+        }
+    )
+
+
+def require_hybrid_provider_evidence(
+    provider: HybridPredictionProvider,
+    *,
+    minimum_state: HybridProviderEvidenceState,
+    minimum_scope: HybridProviderEvidenceScope = 'unvalidated',
+) -> None:
+    """Evidence gate for product consumers (#938/O60/O70/dashboards).
+
+    Consumers declare the evidence floor they need instead of hard-coding
+    provider checks; candidate providers remain usable where explicitly
+    allowed (minimum_state='candidate').
+    """
+
+    if (
+        _HYBRID_STATE_ORDER[provider.evidence_state]
+        < _HYBRID_STATE_ORDER[minimum_state]
+    ):
+        raise ValueError(
+            'R170B provider evidence state does not satisfy requirement: '
+            f'{provider.evidence_state} < {minimum_state}'
+        )
+    if (
+        _HYBRID_SCOPE_ORDER[provider.evidence_scope]
+        < _HYBRID_SCOPE_ORDER[minimum_scope]
+    ):
+        raise ValueError(
+            'R170B provider evidence scope does not satisfy requirement: '
+            f'{provider.evidence_scope} < {minimum_scope}'
+        )
 
 
 def hybrid_provider_frequency_response(
@@ -889,6 +1113,20 @@ class CadHybridPredictionProviderRepository:
             composition_spec=spec,
             wave_excitation=excitation,
         )
+        if provider.evidence_state != 'candidate':
+            # Promoted providers replay through the same canonical
+            # projection: rebuild the candidate, then re-apply the exact
+            # persisted evidence so reopen preserves the promoted identity.
+            rebuilt = promote_hybrid_provider_evidence(
+                rebuilt,
+                evidence_state=provider.evidence_state,
+                evidence_scope=provider.evidence_scope,
+                validation_authority_ref=provider.validation_authority_ref,
+                validated_observables=provider.validated_observables,
+                production_adoption_authority_ref=(
+                    provider.production_adoption_authority_ref
+                ),
+            )
         if rebuilt != provider:
             raise ValueError(
                 'R170B provider no longer reproduces from exact current authorities'

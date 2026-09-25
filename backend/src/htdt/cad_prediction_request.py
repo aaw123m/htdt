@@ -5,7 +5,9 @@ from dataclasses import dataclass
 import json
 from math import isfinite
 
+from .cad_listener_pose import ListenerPoseAuthority
 from .cad_prediction_models import CadPredictionResult
+from .cad_room_operating_state import RoomOperatingState
 from .cad_predictions import (
     RECTANGULAR_GEOMETRY_MODEL_ID,
     RECTANGULAR_GEOMETRY_MODEL_VERSION,
@@ -33,6 +35,8 @@ def rectangular_geometry_request_identity(
     max_mode_hz: float = 300.0,
     sound_speed_m_s: float = 343.0,
     environment_profile: ExactExternalAuthorityRef | None = None,
+    listener_pose: ListenerPoseAuthority | None = None,
+    operating_state: RoomOperatingState | None = None,
 ) -> RectangularGeometryRequestIdentity:
     """Build the exact canonical model identity used by the rectangular adapter."""
 
@@ -42,6 +46,8 @@ def rectangular_geometry_request_identity(
         max_mode_hz=max_mode_hz,
         sound_speed_m_s=sound_speed_m_s,
         environment_profile=environment_profile,
+        listener_pose=listener_pose,
+        operating_state=operating_state,
     )
     return RectangularGeometryRequestIdentity(
         model_id=RECTANGULAR_GEOMETRY_MODEL_ID,
@@ -76,9 +82,42 @@ def _environment_profile_ref(decoded: object) -> ExactExternalAuthorityRef | Non
         ) from exc
 
 
+def _operating_state_ref(decoded: object) -> dict[str, str] | None:
+    """Optional exact room-operating-state ref inside parameters_json (#941).
+
+    The key only exists on requests bound to a ``RoomOperatingState``;
+    requests persisted before the binding existed have no key and stay
+    canonical. The full sealed authority lives in the input snapshot — the
+    parameters only carry the identity ref.
+    """
+
+    if not isinstance(decoded, dict):
+        raise ValueError('prediction parameters_json must match the rectangular model contract')
+    raw = decoded.get('operating_state')
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError('prediction operating_state must be an exact state ref')
+    keys = ('state_id', 'version', 'semantic_sha256')
+    ref: dict[str, str] = {}
+    for key in keys:
+        value = raw.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError('prediction operating_state must be an exact state ref')
+        ref[key] = value
+    if set(raw) - set(keys):
+        raise ValueError('prediction operating_state must be an exact state ref')
+    return ref
+
+
 def _rectangular_geometry_parameters(
     parameters_json: str,
-) -> tuple[float, float, ExactExternalAuthorityRef | None]:
+) -> tuple[
+    float,
+    float,
+    ExactExternalAuthorityRef | None,
+    dict[str, str] | None,
+]:
     """Parse persisted parameters through the pinned rectangular model contract."""
 
     try:
@@ -87,10 +126,16 @@ def _rectangular_geometry_parameters(
         raise ValueError('prediction parameters_json must contain JSON') from exc
     if not isinstance(decoded, dict) or not {'max_mode_hz', 'sound_speed_m_s'} <= set(decoded):
         raise ValueError('prediction parameters_json must match the rectangular model contract')
-    unknown = set(decoded) - {'max_mode_hz', 'sound_speed_m_s', 'environment_profile'}
+    unknown = set(decoded) - {
+        'max_mode_hz',
+        'sound_speed_m_s',
+        'environment_profile',
+        'operating_state',
+    }
     if unknown:
         raise ValueError('prediction parameters_json must match the rectangular model contract')
     environment_profile = _environment_profile_ref(decoded)
+    operating_state_ref = _operating_state_ref(decoded)
     raw_values = (decoded['max_mode_hz'], decoded['sound_speed_m_s'])
     if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in raw_values):
         raise ValueError('prediction parameters_json must match the rectangular model contract')
@@ -99,7 +144,12 @@ def _rectangular_geometry_parameters(
         raise ValueError('prediction parameters_json must match the rectangular model contract')
     if max_mode_hz <= 0.0 or sound_speed_m_s <= 0.0:
         raise ValueError('prediction parameters_json must match the rectangular model contract')
-    return max_mode_hz, sound_speed_m_s, environment_profile
+    return (
+        max_mode_hz,
+        sound_speed_m_s,
+        environment_profile,
+        operating_state_ref,
+    )
 
 
 def rectangular_geometry_environment_profile_ref(
@@ -107,7 +157,7 @@ def rectangular_geometry_environment_profile_ref(
 ) -> ExactExternalAuthorityRef | None:
     """Exact ``AcousticEnvironmentProfile`` ref a persisted run was bound to."""
 
-    _max_mode_hz, _sound_speed_m_s, environment_profile = (
+    _max, _speed, environment_profile, _state_ref = (
         _rectangular_geometry_parameters(parameters_json)
     )
     return environment_profile
@@ -126,6 +176,86 @@ def _request_receiver_entity_id(input_snapshot_json: str) -> str:
     return receiver_entity_id
 
 
+def _request_listener_pose(
+    input_snapshot_json: str,
+) -> ListenerPoseAuthority | None:
+    """Extract and re-validate the exact ListenerPose a snapshot pinned.
+
+    The sealed authority payload is stored verbatim in the snapshot; model
+    validation re-checks its semantic hash so a snapshot that drifts from
+    the recorded pose content fails closed instead of replaying a different
+    receiver.
+    """
+
+    try:
+        decoded = json.loads(input_snapshot_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError('prediction input_snapshot_json must contain JSON') from exc
+    if not isinstance(decoded, dict):
+        raise ValueError('prediction input_snapshot_json must be a JSON object')
+    block = decoded.get('listener_pose')
+    if block is None:
+        return None
+    if not isinstance(block, dict) or not isinstance(
+        block.get('authority'), dict
+    ):
+        raise ValueError('prediction listener_pose snapshot is malformed')
+    try:
+        return ListenerPoseAuthority.model_validate(block['authority'])
+    except Exception as exc:
+        raise ValueError(
+            'prediction listener_pose authority is not a sealed pose'
+        ) from exc
+
+
+def _request_operating_state(
+    input_snapshot_json: str,
+) -> RoomOperatingState | None:
+    """Extract and re-validate the exact RoomOperatingState a snapshot pinned.
+
+    The sealed authority payload is stored verbatim; model validation
+    re-checks its semantic hash so replay fails closed on drift (#941).
+    """
+
+    try:
+        decoded = json.loads(input_snapshot_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError('prediction input_snapshot_json must contain JSON') from exc
+    if not isinstance(decoded, dict):
+        raise ValueError('prediction input_snapshot_json must be a JSON object')
+    block = decoded.get('room_operating_state')
+    if block is None:
+        return None
+    if not isinstance(block, dict) or not isinstance(
+        block.get('authority'), dict
+    ):
+        raise ValueError('prediction room_operating_state snapshot is malformed')
+    try:
+        return RoomOperatingState.model_validate(block['authority'])
+    except Exception as exc:
+        raise ValueError(
+            'prediction room_operating_state authority is not a sealed state'
+        ) from exc
+
+
+def _operating_state_consistent(
+    ref: dict[str, str] | None,
+    state: RoomOperatingState | None,
+) -> None:
+    if (ref is None) != (state is None):
+        raise ValueError(
+            'prediction operating_state parameters/snapshot mismatch'
+        )
+    if ref is not None and state is not None and (
+        ref['state_id'] != state.state_id
+        or ref['version'] != state.version
+        or ref['semantic_sha256'] != state.semantic_sha256
+    ):
+        raise ValueError(
+            'prediction operating_state ref does not match snapshot authority'
+        )
+
+
 def _replay_rectangular_geometry_request(
     revision: SceneRevision,
     parameters_json: str,
@@ -138,10 +268,16 @@ def _replay_rectangular_geometry_request(
     request-compilation authority used by live prediction requests.
     """
 
-    max_mode_hz, sound_speed_m_s, environment_profile = (
-        _rectangular_geometry_parameters(parameters_json)
-    )
+    (
+        max_mode_hz,
+        sound_speed_m_s,
+        environment_profile,
+        operating_state_ref,
+    ) = _rectangular_geometry_parameters(parameters_json)
     receiver_entity_id = _request_receiver_entity_id(input_snapshot_json)
+    listener_pose = _request_listener_pose(input_snapshot_json)
+    operating_state = _request_operating_state(input_snapshot_json)
+    _operating_state_consistent(operating_state_ref, operating_state)
     try:
         return rectangular_geometry_request_identity(
             revision,
@@ -149,6 +285,8 @@ def _replay_rectangular_geometry_request(
             max_mode_hz=max_mode_hz,
             sound_speed_m_s=sound_speed_m_s,
             environment_profile=environment_profile,
+            listener_pose=listener_pose,
+            operating_state=operating_state,
         )
     except KeyError as exc:
         raise ValueError('prediction input receiver is not part of the source revision') from exc
@@ -224,10 +362,16 @@ def _replay_rectangular_geometry_run(
     canonical output identity can be compared against a stored record.
     """
 
-    max_mode_hz, sound_speed_m_s, environment_profile = (
-        _rectangular_geometry_parameters(parameters_json)
-    )
+    (
+        max_mode_hz,
+        sound_speed_m_s,
+        environment_profile,
+        operating_state_ref,
+    ) = _rectangular_geometry_parameters(parameters_json)
     receiver_entity_id = _request_receiver_entity_id(input_snapshot_json)
+    listener_pose = _request_listener_pose(input_snapshot_json)
+    operating_state = _request_operating_state(input_snapshot_json)
+    _operating_state_consistent(operating_state_ref, operating_state)
     try:
         return analyze_native_rectangular_geometry(
             revision,
@@ -236,6 +380,8 @@ def _replay_rectangular_geometry_run(
             sound_speed_m_s=sound_speed_m_s,
             constraint_workspace_hash=constraint_workspace_hash,
             environment_profile=environment_profile,
+            listener_pose=listener_pose,
+            operating_state=operating_state,
         )
     except KeyError as exc:
         raise ValueError('prediction input receiver is not part of the source revision') from exc

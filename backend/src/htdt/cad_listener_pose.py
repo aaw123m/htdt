@@ -17,6 +17,7 @@ labelled by geometry, never a "user profile".
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import sqlite3
 from contextlib import closing
@@ -31,6 +32,7 @@ from .cad_scene import (
     Offset3,
     Position3,
     SceneEntity,
+    acoustic_reference_position,
     quaternion_to_euler_deg,
     quaternion_to_matrix3,
 )
@@ -333,6 +335,83 @@ def pose_eye_reference_position(
     )
 
 
+# #939: one canonical receiver resolver shared by Room prediction, acoustic
+# snapshot compilation, seat-population evaluation and measurement targets.
+# A seat receiver + selected exact ListenerPose resolves through the pose;
+# the legacy seat acoustic offset is only an explicitly labelled fallback.
+LISTENER_RECEIVER_ORIENTATION_SEMANTICS = (
+    'scalar_point_receiver_ignores_orientation'
+)
+ListenerReceiverResolutionKind = Literal[
+    'listener_pose',
+    'legacy_seat_offset',
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedListenerReceiver:
+    """Result of resolving one receiver entity through the pose authority.
+
+    ``pose_ref`` is the exact ListenerPose authority (id/version/semantic
+    hash) the position was derived from, or ``None`` on the legacy seat
+    offset fallback. ``facing_yaw_deg``/``posture_kind`` are recorded for
+    provenance; ``orientation_semantics`` states explicitly that the scalar
+    point-pressure receiver ignores head orientation — directional/binaural
+    consumers must bind ear geometry separately and may not reuse this
+    center reference silently.
+    """
+
+    entity_id: str
+    position: Position3
+    resolution: ListenerReceiverResolutionKind
+    pose_ref: ExactExternalAuthorityRef | None
+    facing_yaw_deg: float | None
+    posture_kind: str | None
+    orientation_semantics: Literal[
+        'scalar_point_receiver_ignores_orientation'
+    ] = LISTENER_RECEIVER_ORIENTATION_SEMANTICS
+
+
+def resolve_listener_receiver(
+    entity: SceneEntity,
+    pose: ListenerPoseAuthority | None = None,
+) -> ResolvedListenerReceiver | None:
+    """Resolve the canonical acoustic receiver for one scene entity.
+
+    Returns ``None`` when the entity carries no acoustic reference at all.
+    A bound ``pose`` must name this exact seat entity and, when scoped, the
+    pose's project document id — mismatches raise instead of silently
+    falling back to the legacy offset.
+    """
+
+    if pose is not None:
+        if entity.kind != 'seat':
+            raise ValueError(
+                'a listener pose can only resolve a seat receiver '
+                f'({entity.entity_id} is {entity.kind})'
+            )
+        position = pose_acoustic_reference_position(entity, pose)
+        return ResolvedListenerReceiver(
+            entity_id=entity.entity_id,
+            position=position,
+            resolution='listener_pose',
+            pose_ref=pose.authority_ref(),
+            facing_yaw_deg=float(pose.facing_yaw_deg),
+            posture_kind=str(pose.posture_kind),
+        )
+    reference = acoustic_reference_position(entity)
+    if reference is None:
+        return None
+    return ResolvedListenerReceiver(
+        entity_id=entity.entity_id,
+        position=reference,
+        resolution='legacy_seat_offset',
+        pose_ref=None,
+        facing_yaw_deg=None,
+        posture_kind=None,
+    )
+
+
 def seat_binding_from_pose(
     pose: ListenerPoseAuthority,
     *,
@@ -571,11 +650,15 @@ class CadListenerPoseRepository:
 
 __all__ = [
     'CadListenerPoseRepository',
+    'LISTENER_RECEIVER_ORIENTATION_SEMANTICS',
     'ListenerPoseAuthority',
     'ListenerPostureKind',
+    'ListenerReceiverResolutionKind',
+    'ResolvedListenerReceiver',
     'build_listener_pose',
     'listener_pose_for_seat',
     'pose_acoustic_reference_position',
     'pose_eye_reference_position',
+    'resolve_listener_receiver',
     'seat_binding_from_pose',
 ]

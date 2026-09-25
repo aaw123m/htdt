@@ -3,7 +3,7 @@ from __future__ import annotations
 from hashlib import sha256
 from itertools import product
 import json
-from math import cos, isfinite, radians, sin
+from math import isfinite
 from typing import Any, Callable, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -19,6 +19,7 @@ from .cad_constraints import build_g10_constraint_request, scene_to_g10_context
 from .cad_extended_search import (
     CadExtendedCandidate,
     aim_horizontal_yaw_deg,
+    direction_with_aim_pitch,
     extended_candidate_preview_document,
 )
 from .cad_orientation_constraints import orientation_constraint_rejections
@@ -906,22 +907,6 @@ def _all_o10_candidates(
         result.extend(batch)
         offset += len(batch)
     return tuple(result), first
-
-
-def direction_with_aim_pitch(
-    direction: Direction3,
-    pitch_deg: float,
-) -> Direction3:
-    """Set acoustic elevation while preserving the current O80 horizontal yaw."""
-
-    yaw = radians(aim_horizontal_yaw_deg(direction))
-    pitch = radians(float(pitch_deg))
-    horizontal = cos(pitch)
-    return Direction3(
-        x=horizontal * sin(yaw),
-        y=horizontal * cos(yaw),
-        z=sin(pitch),
-    )
 
 
 def _orientation_maps(

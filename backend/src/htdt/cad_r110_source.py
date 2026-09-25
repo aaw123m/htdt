@@ -247,6 +247,28 @@ class R110CompiledSourceModel(BaseModel):
         ]
         | None
     ) = None
+    # #967: explicit evidence-vs-installation compatibility decisions,
+    # recorded instead of trusting a declared applicability label.
+    directivity_condition_compatibility: (
+        Literal[
+            'exact_match',
+            'compatible_by_declared_model',
+            'bounded_approximation',
+            'incompatible',
+            'unknown',
+        ]
+        | None
+    ) = None
+    source_response_condition_compatibility: (
+        Literal[
+            'exact_match',
+            'compatible_by_declared_model',
+            'bounded_approximation',
+            'incompatible',
+            'unknown',
+        ]
+        | None
+    ) = None
 
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -343,6 +365,8 @@ class R110CompiledSourceModel(BaseModel):
             'equipment_binding_semantics_sha256',
             'installation_context_sha256',
             'installation_capability',
+            'directivity_condition_compatibility',
+            'source_response_condition_compatibility',
             'source_response_authority_id',
             'source_response_authority_version',
             'source_response_authority_sha256',
@@ -543,6 +567,40 @@ def compile_r110_source_model(
     magnitude_ready = numerical_magnitude and axis is not None
     complex_ready = complex_data and axis is not None
 
+    # #967: evaluate the declared installation context up-front so the
+    # installed-condition-vs-evidence decision gates every downstream
+    # capability instead of only landing as metadata.
+    installation_evaluation = None
+    if installation_context is not None:
+        from .cad_installation_context import evaluate_installation_context
+
+        installation_evaluation = evaluate_installation_context(
+            document=derived_scene,
+            entity=source_entity,
+            equipment_definition=equipment_definition,
+            context=installation_context,
+        )
+        if (
+            installation_evaluation.condition_compatibility == 'incompatible'
+        ):
+            magnitude_ready = False
+            complex_ready = False
+
+    response_compatibility = None
+    if (
+        installation_evaluation is not None
+        and source_response is not None
+        and source_response.condition is not None
+    ):
+        from .cad_installation_context import evaluate_installation_condition
+
+        response_compatibility, _response_reason = (
+            evaluate_installation_condition(
+                installation_evaluation.installed_condition,
+                source_response.condition.installation_condition,
+            )
+        )
+
     capability = equipment_definition.directivity
     if directivity_dataset is not None:
         frequency_domain = directivity_dataset.valid_domain.frequency
@@ -619,6 +677,27 @@ def compile_r110_source_model(
     elif capability.tier == 'unknown':
         reasons.append('EquipmentDefinition directivity capability is unknown')
 
+    if installation_evaluation is not None:
+        compatibility = installation_evaluation.condition_compatibility
+        if compatibility == 'incompatible':
+            reasons.append(
+                'installed mounting condition is incompatible with the bound '
+                'directivity applicability evidence — directivity is not '
+                'consumed as exact'
+            )
+        elif compatibility == 'bounded_approximation':
+            detail = (
+                'directivity evidence is only a bounded approximation of the '
+                'installed mounting condition'
+            )
+            approximations.append(
+                R110ApproximationMetadata(
+                    kind='installation_condition_bounded_approximation',
+                    detail=detail,
+                )
+            )
+            reasons.append(detail)
+
     if directivity_dataset is not None and not magnitude_ready:
         reasons.append(
             'numerical directivity cannot be used without an explicit source aim axis'
@@ -688,6 +767,25 @@ def compile_r110_source_model(
 
     if source_response is not None:
         response_ready = source_response.capability_tier != 'UNKNOWN'
+        if response_compatibility == 'incompatible':
+            response_ready = False
+            reasons.append(
+                'installed mounting condition is incompatible with the bound '
+                'source response evidence condition — the response is not '
+                'consumed as exact'
+            )
+        elif response_compatibility == 'bounded_approximation':
+            detail = (
+                'source response evidence is only a bounded approximation of '
+                'the installed mounting condition'
+            )
+            approximations.append(
+                R110ApproximationMetadata(
+                    kind='installation_condition_bounded_approximation',
+                    detail=detail,
+                )
+            )
+            reasons.append(detail)
         capability_statuses = (
             *capability_statuses,
             R110CapabilityStatus(
@@ -697,8 +795,11 @@ def compile_r110_source_model(
                     'exact bound frequency-dependent source response authority '
                     f'({source_response.capability_tier})'
                     if response_ready
-                    else 'bound source response authority is UNKNOWN — no '
-                    'output capability is fabricated'
+                    else (
+                        'bound source response is UNKNOWN or incompatible '
+                        'with the installed mounting condition — no output '
+                        'capability is fabricated'
+                    )
                 ),
             ),
         )
@@ -813,18 +914,24 @@ def compile_r110_source_model(
         payload['equipment_binding_semantics_sha256'] = (
             binding_semantics.semantic_sha256
         )
-    if installation_context is not None:
-        installation_capability = _installation_capability(
-            derived_scene,
-            source_entity,
-            equipment_definition,
-            installation_context,
-        )
+    if installation_evaluation is not None:
         payload['installation_context_sha256'] = (
             installation_context.semantic_sha256
         )
-        payload['installation_capability'] = installation_capability
-        if installation_capability == 'acoustic_effect_unsupported':
+        payload['installation_capability'] = (
+            installation_evaluation.acoustic_mounting_capability
+        )
+        payload['directivity_condition_compatibility'] = (
+            installation_evaluation.condition_compatibility
+        )
+        if response_compatibility is not None:
+            payload['source_response_condition_compatibility'] = (
+                response_compatibility
+            )
+        if (
+            installation_evaluation.acoustic_mounting_capability
+            == 'acoustic_effect_unsupported'
+        ):
             payload['unsupported_reasons'] = [
                 *payload['unsupported_reasons'],
                 'speaker installation mounting/port context is recorded but '
@@ -836,23 +943,6 @@ def compile_r110_source_model(
         **payload,
         semantic_sha256=_digest(payload),
     )
-
-
-def _installation_capability(
-    derived_scene: SceneDocument,
-    source_entity: SceneEntity,
-    equipment_definition: EquipmentDefinition,
-    context: SpeakerInstallationContext,
-) -> str:
-    from .cad_installation_context import evaluate_installation_context
-
-    evaluation = evaluate_installation_context(
-        document=derived_scene,
-        entity=source_entity,
-        equipment_definition=equipment_definition,
-        context=context,
-    )
-    return evaluation.acoustic_mounting_capability
 
 
 def require_r110_source_capability(

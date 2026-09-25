@@ -18,13 +18,16 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
-from math import isfinite, sqrt
-from typing import Any, Literal, Protocol, Sequence
+from math import exp, isfinite, log, sqrt
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_equipment import FrequencyDomain
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+
+if TYPE_CHECKING:
+    from .cad_acoustic_snapshot import AcousticSceneSnapshot
 
 
 MODEL_CALIBRATION_SCHEMA_VERSION = 1
@@ -32,6 +35,13 @@ MODEL_CALIBRATION_SPEC_AUTHORITY_VERSION = 'r180-model-calibration-spec-1'
 MODEL_CALIBRATION_RESULT_AUTHORITY_VERSION = 'r180-model-calibration-result-1'
 MODEL_FREEZE_AUTHORITY_VERSION = 'r180-calibrated-model-freeze-1'
 HOLDOUT_DISCIPLINE_AUTHORITY_VERSION = 'r180-holdout-discipline-1'
+
+# Forward/inverse parameter transforms (pinned convention; replay depends on
+# this name plus optimizer id, not on call-site context):
+#   identity: z = x,            x = z
+#   log:      z = ln(x),        x = exp(z)          (natural log, x > 0)
+#   logit01:  z = ln(x/(1-x)),  x = sigmoid(z)      (natural log-odds, 0 < x < 1)
+PARAMETER_TRANSFORM_CONVENTION = 'r180-parameter-transform-natural-log-v1'
 
 ParameterTargetKind = Literal[
     'boundary_surface_material',
@@ -102,6 +112,16 @@ class CalibrationParameterDefinition(BaseModel):
                 raise ValueError('parameter upper bound must exceed lower bound')
             if self.fixed_value is not None:
                 raise ValueError('fitted parameter cannot carry a fixed value')
+            if self.transform == 'log' and self.lower_bound <= 0.0:
+                raise ValueError(
+                    'log transform requires positive parameter bounds'
+                )
+            if self.transform == 'logit01' and not (
+                0.0 < self.lower_bound < self.upper_bound < 1.0
+            ):
+                raise ValueError(
+                    'logit01 transform requires bounds inside (0, 1)'
+                )
         else:
             if self.fixed_value is None:
                 raise ValueError('fixed parameter requires an explicit value')
@@ -136,6 +156,11 @@ class CalibrationOptimizerSpec(BaseModel):
         'deterministic_grid_search_v1'
     )
     optimizer_version: Literal['1'] = '1'
+    # Grid generation convention: uniform steps in each parameter's declared
+    # transform coordinate, then inverse-transformed to physical values.
+    transform_convention: Literal[
+        'r180-parameter-transform-natural-log-v1'
+    ] = PARAMETER_TRANSFORM_CONVENTION
     max_evaluations: int = Field(gt=0)
     deterministic_seed: int = Field(ge=0, default=0)
 
@@ -279,6 +304,12 @@ class AcousticModelCalibrationResult(BaseModel):
     training_sample_count: int = Field(gt=0)
     termination_state: TerminationState
     evaluations_used: int = Field(gt=0)
+    # Whether the sensitivity derivative is d(residual)/d(physical x) or
+    # d(residual)/d(transformed z). Search coordinates are transformed;
+    # reported sensitivity is the physical-parameter derivative.
+    sensitivity_parameterization: Literal[
+        'physical_parameter', 'transformed_coordinate'
+    ]
     sensitivity: tuple[ParameterSensitivityEvidence, ...]
     correlation_groups: tuple[ParameterCorrelationGroup, ...] = ()
     identifiability_verdict: Literal[
@@ -322,33 +353,353 @@ class AcousticModelCalibrationResult(BaseModel):
         )
 
 
-def _grid_points(
-    parameter: CalibrationParameterDefinition,
-    per_parameter_count: int,
-) -> tuple[float, ...]:
-    low = float(parameter.lower_bound)
-    high = float(parameter.upper_bound)
-    if per_parameter_count <= 1:
-        return (0.5 * (low + high),)
-    step = (high - low) / (per_parameter_count - 1)
-    return tuple(low + index * step for index in range(per_parameter_count))
+# #948: legal fitted quantities per target kind. Anything outside the
+# declared contract fails closed during target resolution.
+CALIBRATION_TARGET_QUANTITIES: dict[str, frozenset[str]] = {
+    'boundary_surface_material': frozenset(
+        {'absorption', 'scattering', 'impedance'}
+    ),
+    'source_strength': frozenset(
+        {'drive_gain', 'level_db', 'rms_pressure_pa'}
+    ),
+    'environment': frozenset({'sound_speed_m_s', 'temperature_c'}),
+    'scattering_parameter': frozenset(
+        {'scattering_coefficient', 'scattering_azimuth_spread'}
+    ),
+}
 
 
-def _transform_search(
+class ResolvedCalibrationTarget(BaseModel):
+    """One parameter resolved against exact baseline authority (#948)."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    parameter_id: str = Field(min_length=1)
+    target_kind: ParameterTargetKind
+    target_id: str = Field(min_length=1)
+    quantity: str = Field(min_length=1)
+    unit: str = Field(min_length=1)
+    resolved_identity: str = Field(min_length=1)
+    resolved_authority_ref: ExactExternalAuthorityRef | None = None
+
+
+def resolve_calibration_targets(
+    spec: AcousticModelCalibrationSpec,
+    snapshot: 'AcousticSceneSnapshot',
+) -> tuple[ResolvedCalibrationTarget, ...]:
+    """Resolve every spec parameter against the baseline snapshot.
+
+    Fails closed on unresolved targets, unknown quantities, or targets whose
+    snapshot authority is not exactly bound — a fitted value that cannot be
+    applied to a real authority must never reach a solver.
+    """
+
+    if spec.baseline_snapshot_sha256 != snapshot.semantic_sha256:
+        raise ValueError(
+            'calibration spec does not pin this baseline snapshot'
+        )
+    surface_ids = {
+        item.source_surface_id
+        for item in snapshot.surface_boundary_configuration
+    }
+    surface_material = {
+        item.source_surface_id: item.material_authority
+        for item in snapshot.surface_boundary_configuration
+    }
+    surface_physics = {
+        item.source_surface_id: item.boundary_physics_authority
+        for item in snapshot.surface_boundary_configuration
+    }
+    source_ids = {
+        item.source_entity_id for item in snapshot.sources
+    }
+
+    resolved: list[ResolvedCalibrationTarget] = []
+    for parameter in spec.parameters:
+        legal = CALIBRATION_TARGET_QUANTITIES[parameter.target_kind]
+        if parameter.quantity not in legal:
+            raise ValueError(
+                f'calibration parameter {parameter.parameter_id} declares '
+                f'illegal quantity {parameter.quantity!r} for '
+                f'{parameter.target_kind}'
+            )
+        authority: ExactExternalAuthorityRef | None = None
+        if parameter.target_kind == 'boundary_surface_material':
+            if parameter.target_id not in surface_ids:
+                raise ValueError(
+                    f'calibration target surface {parameter.target_id} is '
+                    'not bound in the baseline snapshot'
+                )
+            authority = surface_material[parameter.target_id]
+            if authority is None:
+                raise ValueError(
+                    f'calibration target surface {parameter.target_id} has '
+                    'no exact material authority to calibrate'
+                )
+            identity = f'surface:{parameter.target_id}'
+        elif parameter.target_kind == 'scattering_parameter':
+            if parameter.target_id not in surface_ids:
+                raise ValueError(
+                    f'calibration target surface {parameter.target_id} is '
+                    'not bound in the baseline snapshot'
+                )
+            authority = surface_physics[parameter.target_id]
+            if authority is None:
+                raise ValueError(
+                    f'calibration target surface {parameter.target_id} has '
+                    'no exact boundary-physics authority to calibrate'
+                )
+            identity = f'surface:{parameter.target_id}'
+        elif parameter.target_kind == 'source_strength':
+            if parameter.target_id not in source_ids:
+                raise ValueError(
+                    f'calibration target source {parameter.target_id} is '
+                    'not bound in the baseline snapshot'
+                )
+            identity = f'source:{parameter.target_id}'
+        else:  # environment
+            if parameter.target_id != parameter.quantity:
+                raise ValueError(
+                    'environment calibration parameters must target the '
+                    'field they fit (target_id == quantity)'
+                )
+            environment = snapshot.environment
+            if environment is None:
+                raise ValueError(
+                    'environment calibration requires a bound environment '
+                    'authority on the baseline snapshot'
+                )
+            if parameter.quantity == 'sound_speed_m_s':
+                authority = environment.sound_speed_source_authority
+            else:
+                authority = environment.temperature_source_authority
+            if authority is None:
+                raise ValueError(
+                    f'environment field {parameter.quantity} has no exact '
+                    'authority to calibrate'
+                )
+            identity = f'environment:{parameter.quantity}'
+        resolved.append(
+            ResolvedCalibrationTarget(
+                parameter_id=parameter.parameter_id,
+                target_kind=parameter.target_kind,
+                target_id=parameter.target_id,
+                quantity=parameter.quantity,
+                unit=parameter.unit,
+                resolved_identity=identity,
+                resolved_authority_ref=authority,
+            )
+        )
+    return tuple(resolved)
+
+
+class CalibratedModelOverride(BaseModel):
+    """One applied parameter value bound to its resolved authority."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    parameter_id: str = Field(min_length=1)
+    target_kind: ParameterTargetKind
+    target_id: str = Field(min_length=1)
+    quantity: str = Field(min_length=1)
+    unit: str = Field(min_length=1)
+    value: float
+    resolved_identity: str = Field(min_length=1)
+    resolved_authority_ref: ExactExternalAuthorityRef | None = None
+
+
+class CalibratedAcousticModel(BaseModel):
+    """Materialized calibrated acoustic configuration (#948).
+
+    The replayable authority solvers consume: it pins the exact baseline
+    snapshot, the calibration spec+result lineage, every resolved target,
+    and the applied fitted/fixed values — the ``calibrated_model_sha256``
+    therefore identifies a real calibrated model, not just a tuple of
+    parameter values. Baseline authority is never mutated.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema_version: Literal[1] = MODEL_CALIBRATION_SCHEMA_VERSION
+    authority_version: Literal[
+        'r180-calibrated-model-1'
+    ] = 'r180-calibrated-model-1'
+    materialized_model_id: str = Field(
+        pattern=r'^materialized-calibrated-model:[0-9a-f]{64}$'
+    )
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    spec_id: str = Field(pattern=r'^model-calibration-spec:[0-9a-f]{64}$')
+    spec_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    calibration_result_id: str = Field(
+        pattern=r'^model-calibration-result:[0-9a-f]{64}$'
+    )
+    calibration_result_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    calibrated_model_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    baseline_snapshot_id: str = Field(min_length=1)
+    baseline_snapshot_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    solver_id: str = Field(min_length=1)
+    solver_version: str = Field(min_length=1)
+    resolved_targets: tuple[ResolvedCalibrationTarget, ...] = Field(
+        min_length=1
+    )
+    overrides: tuple[CalibratedModelOverride, ...] = Field(min_length=1)
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode='json',
+            exclude={'materialized_model_id', 'semantic_sha256'},
+        )
+
+    @model_validator(mode='after')
+    def validate_model(self) -> 'CalibratedAcousticModel':
+        target_ids = {item.parameter_id for item in self.resolved_targets}
+        override_ids = {item.parameter_id for item in self.overrides}
+        if target_ids != override_ids:
+            raise ValueError(
+                'calibrated overrides must cover every resolved target '
+                'exactly once'
+            )
+        expected = _digest(self.semantic_payload())
+        if self.semantic_sha256 != expected:
+            raise ValueError('materialized calibrated model hash mismatch')
+        if (
+            self.materialized_model_id
+            != f'materialized-calibrated-model:{expected}'
+        ):
+            raise ValueError('materialized calibrated model id mismatch')
+        return self
+
+    def authority_ref(self) -> ExactExternalAuthorityRef:
+        return ExactExternalAuthorityRef(
+            authority_id=self.materialized_model_id,
+            authority_version=self.authority_version,
+            semantic_hash_sha256=self.semantic_sha256,
+        )
+
+
+def materialize_calibrated_model(
+    spec: AcousticModelCalibrationSpec,
+    result: AcousticModelCalibrationResult,
+    snapshot: 'AcousticSceneSnapshot',
+) -> CalibratedAcousticModel:
+    """Apply fitted values to resolved targets, producing the model solvers execute."""
+
+    if result.spec_semantic_sha256 != spec.semantic_sha256:
+        raise ValueError('result does not belong to the supplied spec')
+    resolved = resolve_calibration_targets(spec, snapshot)
+    target_by_id = {item.parameter_id: item for item in resolved}
+    applied = dict(result.fitted_values)
+    for parameter in spec.parameters:
+        if parameter.role == 'fixed':
+            applied[parameter.parameter_id] = float(parameter.fixed_value)
+    missing = set(target_by_id) - set(applied)
+    if missing:
+        raise ValueError(
+            f'calibration result omits fitted values for {sorted(missing)}'
+        )
+    overrides = tuple(
+        CalibratedModelOverride(
+            parameter_id=parameter.parameter_id,
+            target_kind=parameter.target_kind,
+            target_id=parameter.target_id,
+            quantity=parameter.quantity,
+            unit=parameter.unit,
+            value=applied[parameter.parameter_id],
+            resolved_identity=target_by_id[
+                parameter.parameter_id
+            ].resolved_identity,
+            resolved_authority_ref=target_by_id[
+                parameter.parameter_id
+            ].resolved_authority_ref,
+        )
+        for parameter in spec.parameters
+    )
+    core = {
+        'schema_version': MODEL_CALIBRATION_SCHEMA_VERSION,
+        'authority_version': 'r180-calibrated-model-1',
+        'spec_id': spec.spec_id,
+        'spec_semantic_sha256': spec.semantic_sha256,
+        'calibration_result_id': result.result_id,
+        'calibration_result_sha256': result.semantic_sha256,
+        'calibrated_model_sha256': result.calibrated_model_sha256,
+        'baseline_snapshot_id': snapshot.snapshot_id,
+        'baseline_snapshot_sha256': snapshot.semantic_sha256,
+        'solver_id': spec.solver_id,
+        'solver_version': spec.solver_version,
+        'resolved_targets': [
+            item.model_dump(mode='json') for item in resolved
+        ],
+        'overrides': [item.model_dump(mode='json') for item in overrides],
+    }
+    digest = _digest(core)
+    return CalibratedAcousticModel(
+        materialized_model_id=f'materialized-calibrated-model:{digest}',
+        semantic_sha256=digest,
+        spec_id=spec.spec_id,
+        spec_semantic_sha256=spec.semantic_sha256,
+        calibration_result_id=result.result_id,
+        calibration_result_sha256=result.semantic_sha256,
+        calibrated_model_sha256=result.calibrated_model_sha256,
+        baseline_snapshot_id=snapshot.snapshot_id,
+        baseline_snapshot_sha256=snapshot.semantic_sha256,
+        solver_id=spec.solver_id,
+        solver_version=spec.solver_version,
+        resolved_targets=resolved,
+        overrides=overrides,
+    )
+
+
+def _forward_transform(
     parameter: CalibrationParameterDefinition,
     value: float,
 ) -> float:
-    """Map a fitted value onto the preregistered transform domain."""
+    """Map a physical parameter value into its declared search coordinate."""
     if parameter.transform == 'identity':
         return value
     if parameter.transform == 'log':
         if value <= 0.0:
             raise ValueError('log transform requires positive parameter values')
-        return value
-    # logit01 maps (0,1); bounds must already lie inside the open interval.
+        return log(value)
+    # logit01 maps (0,1); bounds are validated inside the open interval.
     if not (0.0 < value < 1.0):
         raise ValueError('logit01 transform requires bounds inside (0, 1)')
-    return value
+    return log(value / (1.0 - value))
+
+
+def _inverse_transform(
+    parameter: CalibrationParameterDefinition,
+    value: float,
+) -> float:
+    """Map a transformed search coordinate back to a physical value."""
+    if parameter.transform == 'identity':
+        return value
+    if parameter.transform == 'log':
+        return exp(value)
+    # sigmoid; grid coordinates come from finite log-odds bounds, so the
+    # argument never overflows exp in practice.
+    return 1.0 / (1.0 + exp(-value))
+
+
+def _grid_points(
+    parameter: CalibrationParameterDefinition,
+    per_parameter_count: int,
+) -> tuple[float, ...]:
+    """Uniform grid in the declared transform coordinate, in physical units.
+
+    ``identity`` reduces to the physical linear grid; ``log`` and
+    ``logit01`` distribute samples in ln(x) and log-odds space respectively
+    and inverse-transform back to physical candidate values.
+    """
+    z_low = _forward_transform(parameter, float(parameter.lower_bound))
+    z_high = _forward_transform(parameter, float(parameter.upper_bound))
+    if per_parameter_count <= 1:
+        return (_inverse_transform(parameter, 0.5 * (z_low + z_high)),)
+    step = (z_high - z_low) / (per_parameter_count - 1)
+    return tuple(
+        _inverse_transform(parameter, z_low + index * step)
+        for index in range(per_parameter_count)
+    )
 
 
 def run_model_calibration(
@@ -366,9 +717,6 @@ def run_model_calibration(
     count = len(fitted)
     per_parameter = max(1, int(spec.optimizer.max_evaluations ** (1.0 / count)))
     grids = [_grid_points(parameter, per_parameter) for parameter in fitted]
-    for parameter in fitted:
-        for value in _grid_points(parameter, per_parameter):
-            _transform_search(parameter, value)
 
     base_values = {
         item.parameter_id: float(item.fixed_value)
@@ -412,7 +760,9 @@ def run_model_calibration(
     )
 
     # Local sensitivity: central finite difference of the residual vector
-    # along each fitted parameter, using the grid step as the probe distance.
+    # along each fitted parameter in *physical* units (the declared transform
+    # only shapes the search grid; reported derivatives are d/dx, not d/dz),
+    # using the grid step as the probe distance.
     sensitivity: list[ParameterSensitivityEvidence] = []
     sensitivity_columns: dict[str, list[float]] = {}
     for index, parameter in enumerate(fitted):
@@ -564,6 +914,7 @@ def run_model_calibration(
         'training_sample_count': len(best_residuals),
         'termination_state': termination,
         'evaluations_used': evaluations,
+        'sensitivity_parameterization': 'physical_parameter',
         'sensitivity': [
             item.model_dump(mode='json') for item in sensitivity_final
         ],
@@ -583,6 +934,7 @@ def run_model_calibration(
         training_sample_count=len(best_residuals),
         termination_state=termination,
         evaluations_used=evaluations,
+        sensitivity_parameterization='physical_parameter',
         sensitivity=tuple(sensitivity_final),
         correlation_groups=tuple(groups),
         identifiability_verdict=verdict,
@@ -616,9 +968,23 @@ class CalibratedModelFreeze(BaseModel):
     observable_contract: str = Field(min_length=1)
     normalization_policy_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     holdout_campaign_ref: ExactExternalAuthorityRef
+    # #948: exact materialized calibrated-model authority this freeze binds;
+    # serialized only when set so pre-materialization freezes digest as before.
+    materialized_model_ref: ExactExternalAuthorityRef | None = None
 
     @model_validator(mode='after')
     def validate_freeze(self) -> 'CalibratedModelFreeze':
+        if self.materialized_model_ref is not None:
+            ref = self.materialized_model_ref
+            if (
+                not ref.authority_id.startswith(
+                    'materialized-calibrated-model:'
+                )
+            ):
+                raise ValueError(
+                    'freeze materialized model must reference a '
+                    'materialized-calibrated-model authority'
+                )
         expected = _digest(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('calibrated model freeze semantic hash mismatch')
@@ -627,10 +993,13 @@ class CalibratedModelFreeze(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'freeze_id', 'semantic_sha256'},
         )
+        if self.materialized_model_ref is None:
+            payload.pop('materialized_model_ref', None)
+        return payload
 
 
 def freeze_calibrated_model(
@@ -638,9 +1007,20 @@ def freeze_calibrated_model(
     spec: AcousticModelCalibrationSpec,
     *,
     normalization_policy_sha256: str,
+    materialized_model: CalibratedAcousticModel | None = None,
 ) -> CalibratedModelFreeze:
     if result.spec_semantic_sha256 != spec.semantic_sha256:
         raise ValueError('freeze result does not belong to the supplied spec')
+    if materialized_model is not None:
+        if materialized_model.calibration_result_sha256 != result.semantic_sha256:
+            raise ValueError(
+                'materialized model does not belong to this result'
+            )
+        if (
+            materialized_model.calibrated_model_sha256
+            != result.calibrated_model_sha256
+        ):
+            raise ValueError('materialized model hash mismatch')
     payload = {
         'schema_version': MODEL_CALIBRATION_SCHEMA_VERSION,
         'authority_version': MODEL_FREEZE_AUTHORITY_VERSION,
@@ -655,6 +1035,10 @@ def freeze_calibrated_model(
         'normalization_policy_sha256': normalization_policy_sha256,
         'holdout_campaign_ref': spec.holdout_campaign_ref.model_dump(mode='json'),
     }
+    if materialized_model is not None:
+        payload['materialized_model_ref'] = (
+            materialized_model.authority_ref().model_dump(mode='json')
+        )
     digest = _digest(payload)
     return CalibratedModelFreeze(
         calibration_result_id=result.result_id,
@@ -667,6 +1051,11 @@ def freeze_calibrated_model(
         observable_contract=spec.objective.observable,
         normalization_policy_sha256=normalization_policy_sha256,
         holdout_campaign_ref=spec.holdout_campaign_ref,
+        materialized_model_ref=(
+            None
+            if materialized_model is None
+            else materialized_model.authority_ref()
+        ),
         freeze_id=f'calibrated-model-freeze:{digest}',
         semantic_sha256=digest,
     )

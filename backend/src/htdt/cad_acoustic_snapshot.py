@@ -2,12 +2,23 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_serializer,
+    model_validator,
+)
+
+if TYPE_CHECKING:
+    from .cad_listener_pose import ListenerPoseAuthority
+    from .cad_room_operating_state import RoomOperatingState
 
 from .cad_acoustic_treatment import semantic_surface_host_authority_sha256
 from .cad_equipment import DirectivityCapabilityTier, FrequencyDomain
+from .cad_listener_pose import resolve_listener_receiver
 from .cad_prediction_models import canonical_prediction_json, prediction_input_hash
 from .cad_r110_source import R110CompiledSourceModel
 from .cad_repository import SceneRevision
@@ -56,6 +67,9 @@ ObservableState = Literal['READY', 'BLOCKED', 'UNSUPPORTED']
 ReceiverReferenceSemantics = Literal[
     'scene_acoustic_reference_position',
     'explicit_measurement_authority',
+    # #939: the receiver was resolved through the selected exact
+    # ListenerPoseAuthority rather than the legacy seat offset.
+    'selected_listener_pose',
 ]
 
 
@@ -147,7 +161,17 @@ class AcousticReceiverBinding(BaseModel):
     orientation: Quaternion4 | None = None
     acoustic_reference_semantics: ReceiverReferenceSemantics
     measurement_authority_ref: ExactExternalAuthorityRef | None = None
+    # #939: exact selected listener pose the receiver was resolved through;
+    # serialized only when set so pre-pose snapshots digest identically.
+    listener_pose_ref: ExactExternalAuthorityRef | None = None
     requested_output_capabilities: tuple[str, ...]
+
+    @model_serializer(mode='wrap')
+    def _serialize(self, handler):
+        data = handler(self)
+        if self.listener_pose_ref is None:
+            data.pop('listener_pose_ref', None)
+        return data
 
     @model_validator(mode='after')
     def receiver_contract(self) -> 'AcousticReceiverBinding':
@@ -163,6 +187,13 @@ class AcousticReceiverBinding(BaseModel):
         ):
             raise ValueError(
                 'explicit measurement receiver semantics require an exact authority ref'
+            )
+        if (self.listener_pose_ref is not None) != (
+            self.acoustic_reference_semantics == 'selected_listener_pose'
+        ):
+            raise ValueError(
+                'selected listener pose receivers require the exact pose '
+                'authority ref and the matching reference semantics'
             )
         return self
 
@@ -415,6 +446,9 @@ class AcousticSceneSnapshot(BaseModel):
     sources: tuple[AcousticSceneSourceBinding, ...]
     receivers: tuple[AcousticReceiverBinding, ...]
     environment: SnapshotEnvironmentAuthorityRef | None = None
+    # #941: exact RoomOperatingState bound at request time; digested only
+    # when set so pre-state snapshots keep their canonical identity.
+    operating_state_ref: ExactExternalAuthorityRef | None = None
 
     valid_frequency_domain: FrequencyDomain | None = None
     valid_frequency_domain_authority_ref: ExactExternalAuthorityRef | None = None
@@ -545,6 +579,8 @@ class AcousticSceneSnapshot(BaseModel):
             payload.pop('wave_source_excitation_bindings', None)
         if self.geometric_acoustics_topology_preflight_ref is None:
             payload.pop('geometric_acoustics_topology_preflight_ref', None)
+        if self.operating_state_ref is None:
+            payload.pop('operating_state_ref', None)
         if self.schema_version == 1:
             payload.pop('treatment_boundary_bindings', None)
             readiness = payload.get('readiness')
@@ -640,6 +676,7 @@ def receiver_binding_from_scene(
     system_variant: SystemVariant | None = None,
     orientation_authoritative: bool = False,
     measurement_authority_ref: ExactExternalAuthorityRef | None = None,
+    listener_pose: 'ListenerPoseAuthority | None' = None,
 ) -> AcousticReceiverBinding:
     if system_variant is not None:
         if (
@@ -657,11 +694,22 @@ def receiver_binding_from_scene(
         entity = scene.entity(entity_id)
     except KeyError as exc:
         raise ValueError('receiver entity does not exist in exact scene') from exc
-    position = acoustic_reference_position(entity)
+    if listener_pose is not None:
+        if listener_pose.document_id not in (None, scene.document_id):
+            raise ValueError(
+                'listener pose is scoped to a different document'
+            )
+        resolved = resolve_listener_receiver(entity, listener_pose)
+        assert resolved is not None
+        position = resolved.position
+    else:
+        position = acoustic_reference_position(entity)
     if position is None:
         raise ValueError('receiver entity has no acoustic reference position')
     semantics: ReceiverReferenceSemantics = (
-        'explicit_measurement_authority'
+        'selected_listener_pose'
+        if listener_pose is not None
+        else 'explicit_measurement_authority'
         if measurement_authority_ref is not None
         else 'scene_acoustic_reference_position'
     )
@@ -672,6 +720,9 @@ def receiver_binding_from_scene(
         orientation=entity.orientation if orientation_authoritative else None,
         acoustic_reference_semantics=semantics,
         measurement_authority_ref=measurement_authority_ref,
+        listener_pose_ref=(
+            None if listener_pose is None else listener_pose.authority_ref()
+        ),
         requested_output_capabilities=_unique(requested_output_capabilities),
     )
 
@@ -1235,6 +1286,7 @@ def build_acoustic_scene_snapshot(
     treatment_boundary_results: tuple[TreatmentBoundaryCompilationResult, ...] = (),
     wave_source_excitation_bindings: tuple[WaveSourceExcitationBinding, ...] = (),
     geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None = None,
+    operating_state: 'RoomOperatingState | None' = None,
 ) -> AcousticSceneSnapshot:
     compiled_geometry = R120CompiledGeometry.model_validate(
         compiled_geometry.model_dump(mode='python')
@@ -1426,6 +1478,16 @@ def build_acoustic_scene_snapshot(
     else:
         snapshot_authority_version = ACOUSTIC_SCENE_SNAPSHOT_AUTHORITY_VERSION
         snapshot_compiler_version = ACOUSTIC_SCENE_SNAPSHOT_COMPILER_VERSION
+    if operating_state is not None:
+        if operating_state.scene_revision_id != scene_revision.revision_id:
+            raise ValueError(
+                'operating state pins a different SceneRevision'
+            )
+        if operating_state.document_id != scene_revision.document_id:
+            raise ValueError(
+                'operating state belongs to a different document'
+            )
+
     core: dict[str, Any] = {
         'schema_version': snapshot_schema_version,
         'authority_version': snapshot_authority_version,
@@ -1475,6 +1537,14 @@ def build_acoustic_scene_snapshot(
     if geometric_acoustics_topology_preflight_ref is not None:
         core['geometric_acoustics_topology_preflight_ref'] = (
             geometric_acoustics_topology_preflight_ref
+        )
+    if operating_state is not None:
+        core['operating_state_ref'] = ExactExternalAuthorityRef(
+            authority_id=(
+                f'room-operating-state:{operating_state.state_id}'
+            ),
+            authority_version=operating_state.version,
+            semantic_hash_sha256=operating_state.semantic_sha256,
         )
     if snapshot_schema_version >= 2:
         core['treatment_boundary_bindings'] = treatment_bindings

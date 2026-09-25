@@ -854,6 +854,7 @@ class OptimizationWorkflowController(
         self.extended_capability_combo = QComboBox()
         self.extended_parameter_combo = QComboBox()
         self.extended_parameter_combo.addItem("音響の向き（yaw）", "aim_yaw_deg")
+        self.extended_parameter_combo.addItem("音響の向き（pitch）", "aim_pitch_deg")
         self.extended_parameter_combo.addItem(
             "筐体の向き（toe-in）", "body_yaw_deg"
         )

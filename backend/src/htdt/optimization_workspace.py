@@ -720,6 +720,10 @@ class OptimizationWorkspaceWindow(
             'aim_yaw_deg',
         )
         self.extended_parameter_combo.addItem(
+            'Acoustic aim pitch',
+            'aim_pitch_deg',
+        )
+        self.extended_parameter_combo.addItem(
             'Physical cabinet toe-in (body yaw)',
             'body_yaw_deg',
         )
