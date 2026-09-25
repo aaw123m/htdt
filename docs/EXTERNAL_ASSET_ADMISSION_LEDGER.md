@@ -32,6 +32,11 @@ current state.
 | `STANDARDS_REFERENCE_ONLY` | Paid/copyrighted/licensed standard used for source/version/method semantics. Never bundle the document payload. |
 | `SOFTWARE_REUSE_BAKEOFF` | Open-source software/dependency candidate. Code license and binary/runtime/sample-data terms are reviewed independently. |
 | `REJECT_FOR_BUNDLING` | Known bad fit for redistribution/product inclusion. |
+| `USER_MEASURED` | Evidence produced by the user's own instrument/process on their own equipment — strong provenance for that unit, never generic library truth. |
+| `PUBLIC_DOMAIN_COMMUNITY` | Community-contributed corpus published as public domain; admissible for a specific setup only, never auto-applied. |
+| `DOCUMENTED_TEXT_INTERCHANGE` | A published, documented text format usable as an interchange contract without reusing the tool's code. |
+| `USER_SIDE_LICENSED_IMPORT` | The user imports the asset under their own license/account; HTDT stores user-local evidence but ships nothing. |
+| `THIRD_PARTY_DISCOVERY_ONLY` | Third-party database/site used to find models/sources — canonical values must come from primary evidence; no bulk scrape or re-hosting. |
 
 ## 2. Acoustic materials ledger
 
@@ -122,19 +127,42 @@ current state.
 
 ### Video colorimetry
 
-- Argyll CTI3/CAL/CCMX/CCSS formats: **READY_FOR_ADMISSION_REVIEW** as
-  documented text interchange.
+- Argyll CTI3 `.ti3` / `.cal` / CCMX / CCSS formats: **READY_FOR_ADMISSION_REVIEW**
+  as `DOCUMENTED_TEXT_INTERCHANGE`.
 - Argyll code: AGPLv3 — an independent parser is preferred.
 - DisplayCAL correction DB entries: **PUBLIC_DOMAIN_COMMUNITY**, but
   quality/admissibility remains user-selected; never auto-applied.
 - Spears & Munsil media: **USER_OWNED_EXTERNAL_MEDIA** — no bundling.
 
+### Speaker impedance
+
+- REW `.zma`/text impedance magnitude+phase import path: **USER_MEASURED** —
+  the preferred path for #544; never scrape impedance graphs. Bundle no
+  user-measured data.
+
 ### Projector / screen
 
+| Asset | State | License/rights found | Proposed use |
+|---|---|---|---|
+| JVC DLA-NZ500/NZ900 family spec pages + PDFs | READY_FOR_ADMISSION_REVIEW (field extraction) | manufacturer primary documents | projector zoom/throw/shift capability evidence for #415 |
+| Epson model/lens throw-distance tables + simulator | LINK_ONLY | manufacturer tool/table; not a redistributable dataset | per-model exact geometry reference |
+| Sony projector installation/throw simulator | LINK_ONLY | manufacturer tool | geometry reference; user supplies values |
+| ProjectorCentral database | THIRD_PARTY_DISCOVERY_ONLY | copyright policy permits limited personal use; online reproduction needs permission | model discovery only — no bulk scrape; canonical values from manufacturer evidence |
+| Stewart Filmscreen material pages (gain, half-gain, min throw, AT claims) | LICENSE_REVIEW_REQUIRED | manufacturer claims; field extraction rights unreviewed | screen optical profile for #631 as manufacturer evidence |
+| Seymour AV Center Stage acoustic-transparent/attenuation claims | LICENSE_REVIEW_REQUIRED | manufacturer claims, no published test method details | AT evidence stays manufacturer-claimed until a test method is recorded |
+
 - Manufacturer primary documents: **LINK/EXTRACT_WITH_PROVENANCE**.
-- ProjectorCentral: **DISCOVERY_ONLY / NO_BULK_SCRAPE**.
-- Stewart/Seymour published data: manufacturer evidence; rights review
-  required before any built-in copied dataset.
+- Screen gain/half-gain/acoustic rows keep `MANUFACTURER_DECLARED`
+  provenance; independent measurement supersedes only through explicit
+  new evidence — never convert prose into high-resolution curves.
+
+### Speaker / subwoofer usable-output datasets (#648)
+
+| Asset | State | License/rights found | Proposed use |
+|---|---|---|---|
+| Data-Bass tabulated CEA-2010 max-output | PERMISSION_REQUIRED | no explicit redistribution grant found | subwoofer output-capability discovery + method comparison; preserve protocol/distance/RMS-peak/environment if admitted |
+| Erin's Audio Corner compression/distortion reviews | THIRD_PARTY_DISCOVERY_ONLY | copyrighted review graphs/articles | method research + user-linked evidence only; no plot digitization without permission |
+| Manufacturer max-output specs | USER_IMPORT_CANDIDATE | manufacturer primary documents | declared-level evidence input, never silently upgraded to measured |
 
 ## 9. Device / software interoperability ledger
 

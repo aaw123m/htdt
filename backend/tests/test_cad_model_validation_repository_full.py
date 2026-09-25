@@ -232,6 +232,11 @@ class _MeasurementEvidence:
             provenance_json=json.dumps({
                 'validation_scope': validation_scope,
                 'validation_campaign_id': self.campaign_id,
+                # #848: 'verified' routing requires the exact profile pin.
+                'routing_profile': {
+                    'routing_profile_id': 'profile:fixture',
+                    'routing_profile_sha256': 'ab' * 32,
+                },
             }, separators=(',', ':')),
             captured_at='2030-01-01T00:00:00+00:00',
         )
