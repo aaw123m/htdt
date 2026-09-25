@@ -55,6 +55,35 @@ EvidenceState = Literal[
 
 ComparabilityState = Literal['comparable', 'incompatible_fidelity']
 
+EvaluationCoverage = Literal['complete', 'partial', 'blocked']
+
+EvidenceStateOrder = {
+    'exploratory': 0,
+    'predicted_unvalidated': 1,
+    'predicted_validated': 2,
+    'measured_verified': 3,
+}
+
+# Evidence authority kinds that substantiate ``predicted_validated``.
+_VALIDATION_EVIDENCE_KINDS = frozenset(
+    {'model_validation', 'validation_campaign'}
+)
+
+
+class InterventionAuthorityRef(BaseModel):
+    """Typed, content-addressed pin of one persisted authority row.
+
+    ``authority_kind`` selects the canonical registry entry the repository
+    resolves the reference against; ``authority_id`` + ``authority_sha256``
+    pin the exact immutable record (never a bare caller-trusted label).
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_kind: str = Field(min_length=1)
+    authority_id: str = Field(min_length=1)
+    authority_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
 
 def _canonical(value: Any) -> str:
     return json.dumps(
@@ -316,7 +345,15 @@ def build_intervention_study_spec(
 
 
 class InterventionMetric(BaseModel):
-    """One independent observable value — never folded into a score."""
+    """One independent observable value — never folded into a score.
+
+    ``domain`` says which side of the study contract the metric evaluates;
+    the optional coordinate fields bind the exact band/seat/observable
+    aggregation the value represents, so declared guardrail cells can be
+    demonstrably covered (or explicitly missing/unsupported) instead of
+    disappearing (#962). An ``available`` metric must pin the exact
+    evaluation/result authority that produced its value (#960).
+    """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -324,14 +361,46 @@ class InterventionMetric(BaseModel):
     value: float | None = None
     state: Literal['available', 'missing', 'unsupported'] = 'available'
     domain: Literal['target_roi', 'guardrail'] = 'target_roi'
+    band_hz: tuple[float, float] | None = None
+    seat_entity_id: str | None = Field(default=None, min_length=1)
+    observable: str | None = Field(default=None, min_length=1)
+    producer: InterventionAuthorityRef | None = None
 
     @model_validator(mode='after')
     def valid_metric(self) -> 'InterventionMetric':
         if self.state == 'available':
             if self.value is None or not isfinite(float(self.value)):
                 raise ValueError('available metric requires a finite value')
-        elif self.value is not None:
-            raise ValueError('missing/unsupported metric must not carry a value')
+            if self.producer is None:
+                raise ValueError(
+                    'available metric requires the exact producer authority'
+                )
+        else:
+            if self.value is not None:
+                raise ValueError(
+                    'missing/unsupported metric must not carry a value'
+                )
+            if self.producer is not None:
+                raise ValueError(
+                    'missing/unsupported metric must not carry a producer'
+                )
+        if self.band_hz is not None:
+            low, high = self.band_hz
+            if (
+                not isfinite(float(low))
+                or not isfinite(float(high))
+                or low <= 0.0
+                or high <= low
+            ):
+                raise ValueError('metric band must be a finite ordered range')
+        if self.domain == 'guardrail' and not (
+            self.band_hz is not None
+            or self.seat_entity_id is not None
+            or self.observable is not None
+        ):
+            raise ValueError(
+                'guardrail metric must bind an exact band, seat or observable'
+            )
         return self
 
 
@@ -358,14 +427,20 @@ class InterventionAlternative(BaseModel):
 
     family: InterventionFamily
     semantic_diff: InterventionSemanticDiff
-    generated_authority_ids: tuple[str, ...] = ()
+    generated_authorities: tuple[InterventionAuthorityRef, ...] = ()
+    evidence_authorities: tuple[InterventionAuthorityRef, ...] = ()
     evidence_state: EvidenceState
     fidelity_label: str = Field(min_length=1)
     comparability: ComparabilityState
+    evaluation_coverage: EvaluationCoverage
     incomparability_reason: str | None = None
     metrics: tuple[InterventionMetric, ...] = ()
     regressions: tuple[str, ...] = ()
-    apply_instructions: str | None = None
+    # Presentation-only annotation. It never drives apply: the authoritative
+    # apply action is materializing the typed ``generated_authorities`` —
+    # no unhashed free-form text may alter what is physically/digitally
+    # applied (#959).
+    application_note: str | None = None
 
     alternative_id: str = Field(min_length=1)
     alternative_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -389,6 +464,19 @@ class InterventionAlternative(BaseModel):
             raise ValueError('intervention alternative ID mismatch')
         return self
 
+    @property
+    def quantitatively_comparable(self) -> bool:
+        """True only when fidelity matches AND required coverage is complete.
+
+        Same ``fidelity_label`` alone never implies evaluation completeness
+        (#962): quantitative side-by-side/dominance interpretation requires
+        both dimensions.
+        """
+        return (
+            self.comparability == 'comparable'
+            and self.evaluation_coverage == 'complete'
+        )
+
     def identity_payload(self) -> dict[str, Any]:
         return {
             'schema_version': self.schema_version,
@@ -396,14 +484,86 @@ class InterventionAlternative(BaseModel):
             'study_spec_sha256': self.study_spec_sha256,
             'family': self.family,
             'semantic_diff': self.semantic_diff.model_dump(mode='json'),
-            'generated_authority_ids': list(self.generated_authority_ids),
+            'generated_authorities': [
+                item.model_dump(mode='json')
+                for item in self.generated_authorities
+            ],
+            'evidence_authorities': [
+                item.model_dump(mode='json')
+                for item in self.evidence_authorities
+            ],
             'evidence_state': self.evidence_state,
             'fidelity_label': self.fidelity_label,
             'comparability': self.comparability,
+            'evaluation_coverage': self.evaluation_coverage,
             'incomparability_reason': self.incomparability_reason,
             'metrics': [item.model_dump(mode='json') for item in self.metrics],
             'regressions': list(self.regressions),
+            'application_note': self.application_note,
         }
+
+
+def _evaluation_cells(
+    spec: InterventionStudySpec,
+    metrics: Sequence[InterventionMetric],
+) -> dict[tuple[str, Any], str]:
+    """Materialize the required target/guardrail evaluation set.
+
+    Every preregistered required cell resolves to ``available``,
+    ``represented`` (an explicit missing/unsupported metric exists) or
+    ``absent`` (the caller omitted it entirely). Omitted cells never
+    silently disappear (#962).
+    """
+    cells: dict[tuple[str, Any], str] = {}
+    for definition in spec.metric_definitions:
+        cell = ('target_roi', 'objective_id', definition.objective_id)
+        states = [
+            item.state
+            for item in metrics
+            if item.domain == 'target_roi'
+            and item.objective_id == definition.objective_id
+        ]
+        cells[cell] = _cell_state(states)
+    domain = spec.guardrail_domain
+    for band in domain.guardrail_bands_hz:
+        cell = ('guardrail', 'band_hz', band)
+        cells[cell] = _cell_state(
+            item.state
+            for item in metrics
+            if item.domain == 'guardrail' and item.band_hz == band
+        )
+    for seat_id in domain.guardrail_seat_entity_ids:
+        cell = ('guardrail', 'seat_entity_id', seat_id)
+        cells[cell] = _cell_state(
+            item.state
+            for item in metrics
+            if item.domain == 'guardrail' and item.seat_entity_id == seat_id
+        )
+    for observable in domain.guardrail_observables:
+        cell = ('guardrail', 'observable', observable)
+        cells[cell] = _cell_state(
+            item.state
+            for item in metrics
+            if item.domain == 'guardrail' and item.observable == observable
+        )
+    return cells
+
+
+def _cell_state(states) -> str:
+    states = list(states)
+    if 'available' in states:
+        return 'available'
+    if states:
+        return 'represented'
+    return 'absent'
+
+
+def _evaluation_coverage(cells: dict[tuple[str, Any], str]) -> EvaluationCoverage:
+    if all(state == 'available' for state in cells.values()):
+        return 'complete'
+    if all(state == 'absent' for state in cells.values()):
+        return 'blocked'
+    return 'partial'
 
 
 def build_intervention_alternative(
@@ -414,16 +574,21 @@ def build_intervention_alternative(
     evidence_state: EvidenceState,
     fidelity_label: str,
     metrics: Sequence[InterventionMetric],
-    generated_authority_ids: Sequence[str] = (),
+    generated_authorities: Sequence[InterventionAuthorityRef] = (),
+    evidence_authorities: Sequence[InterventionAuthorityRef] = (),
     regressions: Sequence[str] = (),
-    apply_instructions: str | None = None,
+    application_note: str | None = None,
 ) -> InterventionAlternative:
     """Record one evaluated alternative against its study contract.
 
     Fail-closed semantics: the family must be allowed by the spec; metric ids
-    must be declared by the spec's metric definitions; cross-family fidelity
+    must be declared by the spec's metric definitions; the recorded evidence
+    state must meet the preregistered ``evidence_state_floor`` and strong
+    states must carry typed supporting authorities; cross-family fidelity
     must match the spec label or the alternative is recorded
-    ``incompatible_fidelity`` with an explicit reason.
+    ``incompatible_fidelity`` with an explicit reason. Evaluation coverage
+    is derived from the preregistered target/guardrail cells — never
+    caller-asserted (#960/#962).
     """
     if family not in spec.allowed_families:
         raise ValueError(
@@ -439,6 +604,31 @@ def build_intervention_alternative(
         raise ValueError(
             f'alternative metrics are not declared by the study: {sorted(set(unknown))}'
         )
+    if (
+        EvidenceStateOrder[evidence_state]
+        < EvidenceStateOrder[spec.evidence_state_floor]
+    ):
+        raise ValueError(
+            f'evidence state {evidence_state!r} is below the study floor '
+            f'{spec.evidence_state_floor!r} — the alternative cannot be '
+            'recorded without fabricating stronger evidence semantics'
+        )
+    evidence_kinds = {
+        ref.authority_kind for ref in evidence_authorities
+    }
+    if evidence_state == 'predicted_validated' and not (
+        evidence_kinds & _VALIDATION_EVIDENCE_KINDS
+    ):
+        raise ValueError(
+            'predicted_validated requires a typed model-validation or '
+            'validation-campaign evidence authority'
+        )
+    if evidence_state == 'measured_verified' and (
+        'measurement' not in evidence_kinds
+    ):
+        raise ValueError(
+            'measured_verified requires a typed measurement evidence authority'
+        )
     if fidelity_label == spec.fidelity_label:
         comparability: ComparabilityState = 'comparable'
         incomparability_reason = None
@@ -450,19 +640,30 @@ def build_intervention_alternative(
             'comparison is not established'
         )
 
+    evaluation_coverage = _evaluation_coverage(
+        _evaluation_cells(spec, metrics)
+    )
+
     identity: dict[str, Any] = {
         'schema_version': INTERVENTION_SCHEMA_VERSION,
         'study_spec_id': spec.spec_id,
         'study_spec_sha256': spec.spec_sha256,
         'family': family,
         'semantic_diff': semantic_diff.model_dump(mode='json'),
-        'generated_authority_ids': list(generated_authority_ids),
+        'generated_authorities': [
+            item.model_dump(mode='json') for item in generated_authorities
+        ],
+        'evidence_authorities': [
+            item.model_dump(mode='json') for item in evidence_authorities
+        ],
         'evidence_state': evidence_state,
         'fidelity_label': fidelity_label,
         'comparability': comparability,
+        'evaluation_coverage': evaluation_coverage,
         'incomparability_reason': incomparability_reason,
         'metrics': [item.model_dump(mode='json') for item in metrics],
         'regressions': list(regressions),
+        'application_note': application_note,
     }
     digest = _digest(identity)
     return InterventionAlternative(
@@ -470,14 +671,16 @@ def build_intervention_alternative(
         study_spec_sha256=spec.spec_sha256,
         family=family,
         semantic_diff=semantic_diff,
-        generated_authority_ids=tuple(generated_authority_ids),
+        generated_authorities=tuple(generated_authorities),
+        evidence_authorities=tuple(evidence_authorities),
         evidence_state=evidence_state,
         fidelity_label=fidelity_label,
         comparability=comparability,
+        evaluation_coverage=evaluation_coverage,
         incomparability_reason=incomparability_reason,
         metrics=tuple(metrics),
         regressions=tuple(regressions),
-        apply_instructions=apply_instructions,
+        application_note=application_note,
         alternative_id=_semantic_id('intervention-alt', digest),
         alternative_sha256=digest,
     )

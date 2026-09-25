@@ -528,9 +528,11 @@ class CoverageAggregates(BaseModel):
 class SeatPriorityCoverageAggregates(BaseModel):
     """Priority-aware coverage aggregates over the exact profile (#513).
 
-    ``weighted_useful_coverage_fraction`` is the weighted share of required
-    seats that pass; ``worst_required_*`` keeps the hard floor independent of
-    soft weights. Diagnostics never enter these aggregates.
+    ``weighted_*`` metrics cover the soft-objective population
+    (non-diagnostic members, independent of ``required``);
+    ``worst_required_*`` is the hard floor over explicitly required seats.
+    Soft and hard membership are separate (#975); diagnostics never enter
+    either aggregate.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -1267,52 +1269,83 @@ def _seat_priority_aggregates(
     seat_results: Sequence[SeatCoverageResult],
     priority_profile: SeatPriorityProfile | None,
 ) -> SeatPriorityCoverageAggregates | None:
-    """Weighted coverage over required seats only; the floor stays hard."""
+    """Weighted soft + required-floor coverage over the exact profile (#975).
+
+    Soft population = non-diagnostic members; hard floor = required members.
+    Each aggregate evaluates its own population; a missing seat fails closed
+    rather than silently dropping out.
+    """
     if priority_profile is None:
         return None
     weights = priority_profile.normalized_weights()
     by_id = {item.seat_entity_id: item for item in seat_results}
-    required = tuple(
+    for seat_id in (
+        set(weights) | set(priority_profile.required_seat_entity_ids)
+    ):
+        if seat_id not in by_id:
+            raise ValueError(
+                f'seat priority member {seat_id} is missing from the '
+                'evaluated seat population'
+            )
+    soft = tuple(
         (weights[seat_id], by_id[seat_id])
+        for seat_id in priority_profile.soft_objective_seat_entity_ids
+    )
+    hard = tuple(
+        by_id[seat_id]
         for seat_id in priority_profile.required_seat_entity_ids
     )
-    unavailable = [item for _w, item in required if item.state != 'available']
-    if unavailable:
-        reason = (
-            'priority coverage aggregate unavailable because at least one '
+
+    soft_unavailable = any(item.state != 'available' for _w, item in soft)
+    if soft_unavailable:
+        soft_reason = (
+            'weighted priority coverage aggregate unavailable because at '
+            'least one soft-objective seat is unsupported; partial '
+            'population evaluation is forbidden'
+        )
+        weighted_fraction = _unsupported(soft_reason, 'ratio')
+        weighted_level = _unsupported(soft_reason, 'dB')
+    else:
+        weighted_fraction = _available(
+            sum(
+                float(weight)
+                for weight, item in soft
+                if item.coverage_pass is True
+            ),
+            'ratio',
+        )
+        weighted_level = _available(
+            sum(
+                float(weight)
+                * float(item.aggregated_relative_directivity_level.value)
+                for weight, item in soft
+            ),
+            'dB',
+        )
+
+    hard_unavailable = any(item.state != 'available' for item in hard)
+    if hard_unavailable:
+        hard_reason = (
+            'required-seat coverage floor unavailable because at least one '
             'required seat is unsupported; partial population evaluation is '
             'forbidden'
         )
-        unsupported = _unsupported(reason, 'ratio')
-        return SeatPriorityCoverageAggregates(
-            priority_profile_id=priority_profile.profile_id,
-            priority_profile_sha256=priority_profile.profile_sha256,
-            weight_normalization=priority_profile.weight_normalization,
-            normalization_version=priority_profile.normalization_version,
-            required_seat_entity_ids=priority_profile.required_seat_entity_ids,
-            normalized_weights=weights,
-            weighted_useful_coverage_fraction=unsupported,
-            weighted_relative_directivity_level=_unsupported(reason, 'dB'),
-            worst_required_seat_relative_directivity_level=_unsupported(
-                reason, 'dB'
-            ),
-            worst_required_seat_off_axis_loss=_unsupported(reason, 'dB'),
-        )
-    levels = [
-        float(item.aggregated_relative_directivity_level.value)
-        for _w, item in required
-        if item.aggregated_relative_directivity_level.value is not None
-    ]
-    losses = [
-        float(item.aggregated_off_axis_loss.value)
-        for _w, item in required
-        if item.aggregated_off_axis_loss.value is not None
-    ]
-    weighted_pass = sum(
-        float(weight)
-        for weight, item in required
-        if item.coverage_pass is True
-    )
+        worst_level = _unsupported(hard_reason, 'dB')
+        worst_loss = _unsupported(hard_reason, 'dB')
+    else:
+        levels = [
+            float(item.aggregated_relative_directivity_level.value)
+            for item in hard
+            if item.aggregated_relative_directivity_level.value is not None
+        ]
+        losses = [
+            float(item.aggregated_off_axis_loss.value)
+            for item in hard
+            if item.aggregated_off_axis_loss.value is not None
+        ]
+        worst_level = _available(min(levels), 'dB')
+        worst_loss = _available(max(losses), 'dB')
+
     return SeatPriorityCoverageAggregates(
         priority_profile_id=priority_profile.profile_id,
         priority_profile_sha256=priority_profile.profile_sha256,
@@ -1320,18 +1353,10 @@ def _seat_priority_aggregates(
         normalization_version=priority_profile.normalization_version,
         required_seat_entity_ids=priority_profile.required_seat_entity_ids,
         normalized_weights=weights,
-        weighted_useful_coverage_fraction=_available(weighted_pass, 'ratio'),
-        weighted_relative_directivity_level=_available(
-            sum(
-                float(weight) * float(item.aggregated_relative_directivity_level.value)
-                for weight, item in required
-            ),
-            'dB',
-        ),
-        worst_required_seat_relative_directivity_level=_available(
-            min(levels), 'dB'
-        ),
-        worst_required_seat_off_axis_loss=_available(max(losses), 'dB'),
+        weighted_useful_coverage_fraction=weighted_fraction,
+        weighted_relative_directivity_level=weighted_level,
+        worst_required_seat_relative_directivity_level=worst_level,
+        worst_required_seat_off_axis_loss=worst_loss,
     )
 
 
@@ -1411,6 +1436,66 @@ def coverage_objective_vector(
         evaluation.aggregates.worst_seat_off_axis_loss,
         evaluation.aggregates.seat_to_seat_directivity_spread,
     )
+    pairs: list[tuple[ObjectiveDefinition, CoverageScalarResult]] = list(
+        zip(definitions, results, strict=True)
+    )
+    if evaluation.priority_aggregates is not None:
+        priority = evaluation.priority_aggregates
+        # #975: the weighted soft aggregate and the independent
+        # required-seat floor are optimization objectives too — selecting a
+        # SeatPriorityProfile must change the vector optimization consumes,
+        # not only the persisted evidence.
+        bounded = ObjectiveValidDomain(
+            kind='bounded_real', minimum=0.0, maximum=1.0
+        )
+        finite = ObjectiveValidDomain(kind='finite_real')
+        for objective_id, quantity, unit, direction, domain, result in (
+            (
+                'o100d.priority.coverage.weighted_useful_fraction',
+                'coverage_weighted_useful_fraction',
+                'ratio',
+                'maximize',
+                bounded,
+                priority.weighted_useful_coverage_fraction,
+            ),
+            (
+                'o100d.priority.coverage.weighted_relative_level_db',
+                'coverage_weighted_relative_directivity_level',
+                'dB',
+                'maximize',
+                finite,
+                priority.weighted_relative_directivity_level,
+            ),
+            (
+                'o100d.priority.coverage.worst_required_relative_level_db',
+                'coverage_worst_required_relative_directivity_level',
+                'dB',
+                'maximize',
+                finite,
+                priority.worst_required_seat_relative_directivity_level,
+            ),
+            (
+                'o100d.priority.coverage.worst_required_off_axis_loss_db',
+                'coverage_worst_required_off_axis_loss',
+                'dB',
+                'minimize',
+                finite,
+                priority.worst_required_seat_off_axis_loss,
+            ),
+        ):
+            pairs.append(
+                (
+                    _objective_definition(
+                        evaluation.scenario,
+                        objective_id=objective_id,
+                        quantity=quantity,
+                        unit=unit,
+                        direction=direction,
+                        valid_domain=domain,
+                    ),
+                    result,
+                )
+            )
     return ObjectiveVector(
         candidate_id=evaluation.variant_id,
         metrics=tuple(
@@ -1422,10 +1507,6 @@ def coverage_objective_vector(
                 state=result.state,
                 definition=definition,
             )
-            for definition, result in zip(
-                definitions,
-                results,
-                strict=True,
-            )
+            for definition, result in pairs
         ),
     )

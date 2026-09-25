@@ -743,6 +743,26 @@ def _surface_configuration(
     )
 
 
+_FREQUENCY_DOMAIN_REASONS = {
+    'requested_frequency_outside_snapshot_valid_domain',
+    'source_directivity_domain_incomplete',
+    'wave_excitation_domain_incomplete',
+}
+
+
+def _covers_requested(
+    domain: FrequencyDomain | None,
+    requested: FrequencyDomain,
+) -> bool:
+    """Requested band containment; an undeclared domain is not a known
+    contradiction (it is flagged via ``valid_frequency_domain_unknown``
+    unresolved conditions instead)."""
+    return domain is None or (
+        domain.contains(requested.minimum_hz)
+        and domain.contains(requested.maximum_hz)
+    )
+
+
 def _observable_readiness(
     observable: str,
     *,
@@ -754,18 +774,27 @@ def _observable_readiness(
     geometric_boundary_ready: bool,
     environment_ready: bool,
     receiver_ready: bool,
+    snapshot_frequency_domain_ready: bool = True,
+    source_directivity_domain_ready: bool = True,
+    wave_excitation_domain_ready: bool = True,
 ) -> ObservableReadiness:
     wave_reasons: list[str] = []
     if not geometry_ready:
         wave_reasons.append('geometry_not_ready')
     if not wave_source_ready:
         wave_reasons.append('wave_source_not_ready')
+    if not wave_excitation_domain_ready:
+        wave_reasons.append('wave_excitation_domain_incomplete')
     if not wave_boundary_ready:
         wave_reasons.append('wave_boundary_not_ready')
     if not environment_ready:
         wave_reasons.append('environment_not_ready')
     if not receiver_ready:
         wave_reasons.append('receiver_not_ready')
+    if not snapshot_frequency_domain_ready:
+        wave_reasons.append(
+            'requested_frequency_outside_snapshot_valid_domain'
+        )
 
     ga_reasons: list[str] = []
     if not geometry_ready:
@@ -774,18 +803,25 @@ def _observable_readiness(
         ga_reasons.append('geometric_acoustics_geometry_not_ready')
     if not geometric_directivity_ready:
         ga_reasons.append('geometric_directivity_not_ready')
+    if not source_directivity_domain_ready:
+        ga_reasons.append('source_directivity_domain_incomplete')
     if not geometric_boundary_ready:
         ga_reasons.append('geometric_boundary_not_ready')
     if not environment_ready:
         ga_reasons.append('environment_not_ready')
     if not receiver_ready:
         ga_reasons.append('receiver_not_ready')
+    if not snapshot_frequency_domain_ready:
+        ga_reasons.append(
+            'requested_frequency_outside_snapshot_valid_domain'
+        )
 
     if observable == 'deterministic_paths':
         path_reasons = [
             reason
             for reason in ga_reasons
             if reason != 'environment_not_ready'
+            and reason not in _FREQUENCY_DOMAIN_REASONS
         ]
         return ObservableReadiness(
             observable=observable,
@@ -865,6 +901,7 @@ def _derive_readiness(
     treatment_bindings: tuple[TreatmentBoundarySnapshotBinding, ...],
     wave_excitation_bindings: tuple[WaveSourceExcitationBinding, ...],
     requested_frequency_domain: FrequencyDomain,
+    valid_frequency_domain: FrequencyDomain | None,
     schema_version: int,
     geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None = None,
 ) -> AcousticSceneReadiness:
@@ -873,17 +910,49 @@ def _derive_readiness(
         compiled.readiness.geometric_acoustics_geometry_ready
         or geometric_acoustics_topology_preflight_ref is not None
     )
+    # #977: requested-vs-valid frequency coverage is part of canonical
+    # readiness, not only adapter-dispatch policy.
+    snapshot_frequency_domain_ready = _covers_requested(
+        valid_frequency_domain, requested_frequency_domain
+    )
+    source_directivity_domain_ready = all(
+        _covers_requested(
+            item.valid_frequency_domain, requested_frequency_domain
+        )
+        for item in sources
+    )
     geometric_directivity_ready = bool(sources) and all(
         item.geometric_directivity_state
         == 'SUPPORTED_FOR_GEOMETRIC_DIRECTIVITY'
+        and _covers_requested(
+            item.valid_frequency_domain, requested_frequency_domain
+        )
         for item in sources
     )
     excitation_by_source_hash = {
         item.r110_compiled_source_sha256: item
         for item in wave_excitation_bindings
     }
+    wave_excitation_domain_ready = all(
+        _covers_requested(
+            item.valid_frequency_domain, requested_frequency_domain
+        )
+        and (
+            item.r110_compiled_source_sha256 not in excitation_by_source_hash
+            or _covers_requested(
+                excitation_by_source_hash[
+                    item.r110_compiled_source_sha256
+                ].valid_frequency_domain,
+                requested_frequency_domain,
+            )
+        )
+        for item in sources
+    )
     wave_source_ready = bool(sources) and all(
-        (
+        _covers_requested(
+            item.valid_frequency_domain, requested_frequency_domain
+        )
+        and (
             item.wave_excitation_state not in {
                 'BLOCKED_FOR_WAVE_EXCITATION',
                 'UNSUPPORTED',
@@ -929,6 +998,7 @@ def _derive_readiness(
     structural_blocks = {
         'BLOCKED_NO_ACOUSTIC_MODEL',
         'BLOCKED_PARTIAL_COVERAGE',
+        'BLOCKED_COVERAGE_MISMATCH',
         'BLOCKED_OVERLAP',
     }
     if any(
@@ -965,6 +1035,13 @@ def _derive_readiness(
             ),
             environment_ready=environment_ready,
             receiver_ready=receiver_ready,
+            snapshot_frequency_domain_ready=(
+                snapshot_frequency_domain_ready
+            ),
+            source_directivity_domain_ready=(
+                source_directivity_domain_ready
+            ),
+            wave_excitation_domain_ready=wave_excitation_domain_ready,
         )
         for observable in requested_observables
     )
@@ -1032,6 +1109,20 @@ def _derive_unresolved_conditions(
         unresolved.append('environment_sound_speed_unknown')
     if valid_frequency_domain is None:
         unresolved.append('valid_frequency_domain_unknown')
+    elif not _covers_requested(
+        valid_frequency_domain, requested_frequency_domain
+    ):
+        unresolved.append(
+            'requested_frequency_outside_snapshot_valid_domain'
+        )
+    if any(
+        item.valid_frequency_domain is not None
+        and not _covers_requested(
+            item.valid_frequency_domain, requested_frequency_domain
+        )
+        for item in sources
+    ):
+        unresolved.append('source_directivity_domain_incomplete')
     if compiled.region_authority_ref is None:
         unresolved.append('acoustic_region_authority_missing')
     if compiled.portal_authority_ref is None:
@@ -1451,6 +1542,7 @@ def build_acoustic_scene_snapshot(
         treatment_bindings=treatment_bindings,
         wave_excitation_bindings=wave_excitation_bindings,
         requested_frequency_domain=requested_frequency_domain,
+        valid_frequency_domain=valid_frequency_domain,
         schema_version=snapshot_schema_version,
         geometric_acoustics_topology_preflight_ref=(
             geometric_acoustics_topology_preflight_ref

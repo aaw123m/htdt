@@ -79,9 +79,12 @@ class SeatPriorityMember(BaseModel):
 class SeatPriorityProfile(BaseModel):
     """Versioned immutable listening-population authority.
 
-    ``members`` order is part of the identity. ``normalized_weights`` covers
-    required members only — diagnostic seats never influence weighted
-    aggregates but may still appear in per-seat evidence.
+    ``members`` order is part of the identity. ``normalized_weights`` is the
+    soft-objective projection: it covers primary/secondary (non-diagnostic)
+    members regardless of ``required`` — soft importance is independent of
+    hard-constraint membership (#975). Diagnostic members never enter the
+    soft weights but may still appear in per-seat evidence; the hard floor
+    is governed by ``required_seat_entity_ids`` alone.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -133,8 +136,19 @@ class SeatPriorityProfile(BaseModel):
 
     @property
     def required_seat_entity_ids(self) -> tuple[str, ...]:
+        """Hard-constraint membership: seats the worst-seat floor covers."""
         return tuple(
             item.seat_entity_id for item in self.members if item.required
+        )
+
+    @property
+    def soft_objective_seat_entity_ids(self) -> tuple[str, ...]:
+        """Soft-weighted objective population: non-diagnostic members only,
+        independent of ``required`` (#975)."""
+        return tuple(
+            item.seat_entity_id
+            for item in self.members
+            if item.seat_role != 'diagnostic'
         )
 
     @property
@@ -152,16 +166,24 @@ class SeatPriorityProfile(BaseModel):
         )
 
     def normalized_weights(self) -> dict[str, float]:
-        """Deterministic relative importance over required seats only.
+        """Deterministic relative importance over the soft-objective
+        population (primary/secondary members; #975).
 
-        Diagnostic members are excluded; the result always sums to 1.0. This
-        is a weighting policy — it is never a probability distribution.
+        ``required=False`` never zeroes soft importance — an optional
+        secondary seat still compromises the weighted objective. Diagnostic
+        members are evidence-only and are always excluded; the result sums
+        to 1.0. This is a weighting policy — never a probability
+        distribution.
         """
-        required = [item for item in self.members if item.required]
-        total = sum(float(item.weight) for item in required)
+        soft = [item for item in self.members if item.seat_role != 'diagnostic']
+        total = sum(float(item.weight) for item in soft)
+        if total <= 0.0 or not isfinite(total):
+            raise ValueError(
+                'seat priority profile has no soft-objective members'
+            )
         return {
             item.seat_entity_id: float(item.weight) / total
-            for item in required
+            for item in soft
         }
 
 
