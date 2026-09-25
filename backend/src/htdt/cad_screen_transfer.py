@@ -502,6 +502,29 @@ class CadScreenTransferRepository:
                 ),
             )
 
+    def selections_for_document(
+        self,
+        document_id: str,
+    ) -> dict[str, AcousticScreenTransferAuthority]:
+        """Every verified transfer selection recorded for this document."""
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT screen_entity_id, transfer_id, transfer_sha256'
+                ' FROM cad_screen_transfer_selections WHERE document_id=?'
+                ' ORDER BY screen_entity_id ASC',
+                (document_id,),
+            ).fetchall()
+        result: dict[str, AcousticScreenTransferAuthority] = {}
+        for row in rows:
+            transfer = self.get_transfer(row['transfer_id'])
+            if (
+                transfer is None
+                or transfer.semantic_sha256 != row['transfer_sha256']
+            ):
+                continue
+            result[row['screen_entity_id']] = transfer
+        return result
+
     def clear_selection(self, document_id: str, screen_entity_id: str) -> None:
         with closing(self._connect()) as connection, connection:
             connection.execute(

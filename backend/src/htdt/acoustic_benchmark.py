@@ -198,12 +198,47 @@ class BoundaryTermination(BaseModel):
         return self
 
 
+GeometricIncidenceCondition = Literal[
+    'normal_incidence',
+    'random_or_diffuse_incidence',
+    'angle_specific',
+    'model_derived_angle_response',
+    'unknown_incidence',
+]
+
+
 class GeometricAcousticBand(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     center_hz: float = Field(gt=0.0)
     absorption: float = Field(ge=0.0, le=1.0)
     scattering: float = Field(ge=0.0, le=1.0)
+    # Declared incidence semantics of the scalar band. 'unknown_incidence' is
+    # the honest default — a bare scalar is never an implicit all-angle or
+    # normal-incidence claim. 'angle_specific' requires the declared angle;
+    # every other condition forbids one.
+    incidence_condition: GeometricIncidenceCondition = 'unknown_incidence'
+    incidence_angle_deg: float | None = Field(default=None, ge=0.0, le=90.0)
+    incidence_provenance: str = ''
+
+    @model_validator(mode='after')
+    def valid_incidence_semantics(self) -> 'GeometricAcousticBand':
+        if self.incidence_condition == 'angle_specific':
+            if self.incidence_angle_deg is None:
+                raise ValueError(
+                    'angle_specific band incidence requires an explicit '
+                    'incidence_angle_deg'
+                )
+        elif self.incidence_angle_deg is not None:
+            raise ValueError(
+                'incidence_angle_deg is only meaningful for angle_specific '
+                'band incidence evidence'
+            )
+        if self.incidence_angle_deg is not None and not isfinite(
+            float(self.incidence_angle_deg)
+        ):
+            raise ValueError('band incidence angle must be finite')
+        return self
 
 
 class SpecificImpedancePoint(BaseModel):

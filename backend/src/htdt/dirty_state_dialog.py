@@ -10,7 +10,7 @@ mount's message — a failed resolution never loses the operator's context.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from PySide6.QtWidgets import QMessageBox, QWidget
 
@@ -100,4 +100,39 @@ def _apply(
     return allowed
 
 
-__all__ = ["resolve_mount_dirty_state"]
+def choose_snapshot_action(
+    action_label: str,
+    parent: QWidget | None,
+) -> Literal["save", "last_saved"] | None:
+    """Pick which project generation an export/duplicate serializes.
+
+    #918/#927: when mounted workspaces hold unsaved state, the operator
+    explicitly chooses between saving first and serializing the last
+    persisted state. ``last_saved`` never mutates the working copy, and
+    cancelling must never produce an artifact.
+    """
+
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle(f"未保存の変更 — {action_label}")
+    box.setText(
+        "現在のプロジェクトには未保存の変更があります。\n"
+        f"{action_label}する対象の状態を選んでください。"
+    )
+    save_button = box.addButton(
+        f"保存して{action_label}", QMessageBox.ButtonRole.AcceptRole
+    )
+    last_saved_button = box.addButton(
+        f"保存済みの状態を{action_label}", QMessageBox.ButtonRole.DestructiveRole
+    )
+    box.addButton("キャンセル", QMessageBox.ButtonRole.RejectRole)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is last_saved_button:
+        return "last_saved"
+    if clicked is save_button:
+        return "save"
+    return None
+
+
+__all__ = ["choose_snapshot_action", "resolve_mount_dirty_state"]
