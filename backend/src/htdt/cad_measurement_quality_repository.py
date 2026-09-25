@@ -22,6 +22,7 @@ from .cad_measurement_authorities import (
     _validate_timing_scope_identity,
     calibration_applies_to,
     calibration_supports_absolute_spl,
+    derive_load_result,
     timing_reference_scope_is_applicable,
 )
 from .cad_measurement_disposition import (
@@ -53,7 +54,7 @@ from .cad_measurement_repository import (
     CadMeasurementRepository,
     VerifiedMeasurementAsset,
 )
-from .cad_scene import acoustic_reference_position
+from .cad_scene import SceneDocument, acoustic_reference_position
 from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
@@ -77,6 +78,9 @@ class CadMeasurementQualityRepository:
         self.path = Path(measurement_repository.path)
         self.assets_dir = Path(measurement_repository.assets_dir)
         self._asset_store = ManagedAssetStore(self.assets_dir)
+        # Listener poses persist into the same authority database (#632);
+        # target-lineage derivation re-validates exact pose pins (#840).
+        self._pose_repository = CadListenerPoseRepository(self.path)
         check_native_schema_compatibility(self.path)
         self._initialize()
 
@@ -170,6 +174,7 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'acquisition context routing profile belongs to a '
                     'different document'
+
                 )
 
     def save_acquisition_context(self, context: CadAcquisitionContext) -> None:
@@ -1288,22 +1293,30 @@ class CadMeasurementQualityRepository:
         self,
         profile: CadRoutingProfile,
     ) -> None:
-        """Project/topology scope + speaker identity validation (#858).
+        """Project/topology scope + speaker identity validation (#848/#858).
 
-        A profile pinned to ``scene_revision_id`` resolves that exact
-        immutable revision (whose document must equal ``document_id`` when
-        both are declared); a document-only profile validates against the
-        document's current head. Runs at save; on read it re-runs only for
-        pinned revisions — a document-scoped profile remains inspectable
-        history after the head topology moves.
+        A profile must declare a document or revision scope at save — an
+        unscoped record can never prove applicability later. A profile
+        pinned to ``scene_revision_id`` resolves that exact immutable
+        revision (whose document must equal ``document_id`` when both are
+        declared); a document-only profile validates against the document's
+        current head. Runs at save; on read it re-runs only for pinned
+        revisions — a document-scoped profile remains inspectable history
+        after the head topology moves.
         """
+
+        if profile.document_id is None and profile.scene_revision_id is None:
+            raise ValueError(
+                'routing profile requires a document_id or '
+                'scene_revision_id scope'
+            )
         scene_repository = self.measurement_repository.scene_repository
         revision = None
         if profile.scene_revision_id is not None:
             revision = scene_repository.get(profile.scene_revision_id)
             if revision is None:
                 raise ValueError(
-                    'routing profile pins an unknown scene revision: '
+                    'routing profile scope revision is unresolvable: '
                     f'{profile.scene_revision_id}'
                 )
             if (
@@ -1311,8 +1324,9 @@ class CadMeasurementQualityRepository:
                 and revision.document_id != profile.document_id
             ):
                 raise ValueError(
-                    'routing profile document does not match the pinned '
-                    'scene revision'
+                    'routing profile scope revision is unresolvable for '
+                    f'document {profile.document_id}: document does not '
+                    'match the pinned scene revision'
                 )
         elif profile.document_id is not None:
             revision = scene_repository.current_head(profile.document_id)
@@ -1340,6 +1354,7 @@ class CadMeasurementQualityRepository:
                         'routing profile source is not a speaker entity: '
                         f'{speaker_id}'
                     )
+
 
     def save_routing_profile(self, profile: CadRoutingProfile) -> None:
         """Persist an immutable verified channel-map authority."""
@@ -1431,8 +1446,172 @@ class CadMeasurementQualityRepository:
     # ------------------------------------------------------------------
     # Speaker wiring commissioning checks (#645)
 
+    def _wiring_check_document(
+        self, check: CadWiringVerificationCheck
+    ) -> SceneDocument:
+        """Resolve the document the check's scene refs are verified in.
+
+        When the check pins a ``scene_revision_id`` the check is judged
+        inside that exact as-built baseline; otherwise the document's
+        current head is the scope.
+        """
+        scene_repository = self.measurement_repository.scene_repository
+        if check.scene_revision_id is not None:
+            revision = scene_repository.get(check.scene_revision_id)
+            if revision is None or revision.document_id != check.document_id:
+                raise ValueError(
+                    'wiring check scene revision is unresolvable for '
+                    f'document {check.document_id}'
+                )
+            return revision.document
+        head = scene_repository.current_head(check.document_id)
+        if head is None:
+            raise ValueError(
+                f'wiring check references an unknown document: '
+                f'{check.document_id}'
+            )
+        return head.document
+
+    def _wiring_evidence_document_id(self, reference: str) -> str | None:
+        """The document a wiring evidence ref resolves inside, or None.
+
+        Evidence refs name a persisted measurement id, a raw-asset digest
+        owned by a measurement in this document, or a measurement
+        attachment id/digest — never a free-form string.
+        """
+        measurement = self.measurement_repository.get_measurement(reference)
+        if measurement is not None:
+            return measurement.document_id
+        if len(reference) == 64:
+            with closing(self._connect()) as connection:
+                row = connection.execute(
+                    '''
+                    SELECT m.document_id AS document_id
+                    FROM cad_frequency_responses f
+                    JOIN cad_measurements m
+                        ON m.measurement_id = f.measurement_id
+                    WHERE f.source_sha256=?
+                    UNION
+                    SELECT m.document_id
+                    FROM cad_impulse_responses i
+                    JOIN cad_measurements m
+                        ON m.measurement_id = i.measurement_id
+                    WHERE i.source_sha256=?
+                    UNION
+                    SELECT document_id FROM cad_measurement_attachments
+                    WHERE sha256=? OR attachment_id=?
+                    ''',
+                    (reference, reference, reference, reference),
+                ).fetchone()
+            if row is not None:
+                return str(row['document_id'])
+        return None
+
+    def _validate_wiring_check(self, check: CadWiringVerificationCheck) -> None:
+        """#848/#857: resolve every claimed speaker/output/evidence ref.
+
+        A wiring check only becomes authority when the document scope
+        resolves, every speaker reference names a ``speaker`` entity in the
+        check's revision scope, and every evidence ref either resolves to a
+        persisted authority in the same document or is an explicit
+        ``manual:`` attestation. A PASS claim additionally requires the
+        kind-appropriate evidence: routing PASS binds an exact
+        RoutingProfile, load PASS binds a typed load observation whose
+        derived result is PASS, and other kinds need at least one
+        resolvable/attested evidence ref.
+        """
+        document = self._wiring_check_document(check)
+        speaker_ids = {
+            speaker_id
+            for speaker_id in (
+                *check.expected_speaker_ids,
+                *check.source_speaker_ids,
+                *check.observed_speaker_ids,
+            )
+        }
+        for speaker_id in sorted(speaker_ids):
+            try:
+                entity = document.entity(speaker_id)
+            except KeyError as exc:
+                raise ValueError(
+                    'wiring check references an unknown speaker entity: '
+                    f'{speaker_id}'
+                ) from exc
+            if entity.kind != 'speaker':
+                raise ValueError(
+                    'wiring check references a non-speaker entity: '
+                    f'{speaker_id}'
+                )
+        for reference in check.evidence_refs:
+            if reference.startswith('manual:'):
+                if len(reference) <= len('manual:'):
+                    raise ValueError(
+                        'manual wiring evidence attestation must name what '
+                        'was observed'
+                    )
+                continue
+            if (
+                self._wiring_evidence_document_id(reference)
+                != check.document_id
+            ):
+                raise ValueError(
+                    'wiring check evidence ref is unresolvable in this '
+                    f'document: {reference}'
+                )
+        if check.routing_profile_ref is not None:
+            if check.check_kind != 'routing':
+                raise ValueError(
+                    'a routing profile binding is only valid on a routing '
+                    'wiring check'
+                )
+            profile = self.get_routing_profile(
+                check.routing_profile_ref.routing_profile_id
+            )
+            if (
+                profile is None
+                or profile.routing_profile_sha256
+                != check.routing_profile_ref.routing_profile_sha256
+            ):
+                raise ValueError(
+                    'wiring check binds an unresolvable routing profile'
+                )
+            if (
+                profile.document_id is not None
+                and profile.document_id != check.document_id
+            ):
+                raise ValueError(
+                    'wiring check routing profile belongs to another '
+                    'document'
+                )
+        if check.load_observation is not None:
+            derived = derive_load_result(check.load_observation)
+            if check.result != derived:
+                raise ValueError(
+                    'a load wiring check result must equal the derived '
+                    f'result of its bound observation ({derived})'
+                )
+        if check.result == 'PASS':
+            if check.check_kind == 'routing':
+                if check.routing_profile_ref is None:
+                    raise ValueError(
+                        'a PASS routing check requires an exact routing '
+                        'profile binding'
+                    )
+            elif check.check_kind == 'load':
+                if check.load_observation is None:
+                    raise ValueError(
+                        'a PASS load check requires a typed electrical load '
+                        'observation'
+                    )
+            elif not check.evidence_refs:
+                raise ValueError(
+                    'a PASS wiring check requires resolvable evidence or '
+                    'manual attestation refs'
+                )
+
     def save_wiring_check(self, check: CadWiringVerificationCheck) -> None:
         """Persist one independent wiring-verification check result."""
+        self._validate_wiring_check(check)
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1614,6 +1793,7 @@ class CadMeasurementQualityRepository:
                 'persisted target lineage row disagrees with its payload'
             )
 
+
     def save_target_lineage(
         self, lineage: CadMeasurementTargetLineage
     ) -> None:
@@ -1662,6 +1842,7 @@ class CadMeasurementQualityRepository:
             row = connection.execute(
                 'SELECT target_lineage_id, document_id, measurement_point_id, '
                 'target_lineage_sha256, created_at_utc, payload_json '
+
                 'FROM cad_measurement_target_lineages '
                 'WHERE measurement_point_id=?',
                 (measurement_point_id,),
@@ -1675,6 +1856,7 @@ class CadMeasurementQualityRepository:
         self._validate_target_lineage(lineage)
         return lineage
 
+
     def list_target_lineages(
         self, document_id: str
     ) -> tuple[CadMeasurementTargetLineage, ...]:
@@ -1683,6 +1865,7 @@ class CadMeasurementQualityRepository:
             rows = connection.execute(
                 'SELECT target_lineage_id, document_id, measurement_point_id, '
                 'target_lineage_sha256, created_at_utc, payload_json '
+
                 'FROM cad_measurement_target_lineages '
                 'WHERE document_id=? ORDER BY created_at_utc ASC, '
                 'target_lineage_id',
@@ -1697,6 +1880,7 @@ class CadMeasurementQualityRepository:
             self._validate_target_lineage(lineage)
             lineages.append(lineage)
         return tuple(lineages)
+
 
     # ------------------------------------------------------------------
     # Disposition / assignment-correction authority (#509)
