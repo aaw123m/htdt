@@ -18,11 +18,13 @@ Contract properties:
   it is an identity pointer only;
 - ``resolve_label_scan`` answers whether a scanned payload belongs to this
   project and which record it names, distinguishing wrong project, stale
-  generation, retired targets, unknown targets, bad checksums and
-  malformed payloads;
-- replacing equipment creates a new instance **and** a new label
-  (generation increments); a display name may persist but label identity
-  never does;
+  generation, unissued future generation, retired targets, unknown
+  targets, bad checksums and malformed payloads;
+- replacing equipment creates a new instance **and** a new label minted
+  against the *new* target id (generation restarts); label identity is
+  never reused across targets, while reissuing a label for the *same*
+  target increments its generation (a lost/damaged print, not a
+  replacement — see #892);
 - :func:`generate_label_sheet` renders printable label sheets as
   deterministic SVG for ordinary office printers — device, cable flag and
   compact-termination layouts;
@@ -55,6 +57,7 @@ LabelScanStatus = Literal[
     'ok',
     'wrong_project',
     'stale_generation',
+    'unissued_generation',
     'retired_target',
     'unknown_target',
     'bad_checksum',
@@ -197,13 +200,19 @@ def mint_label(
     )
 
 
-def mint_replacement_label(
+def mint_reissued_label_for_same_target(
     previous: FieldLabel,
     *,
     created_at_utc: str,
 ) -> FieldLabel:
-    """Replacement equipment gets a new instance AND a new label —
-    generation increments; label identity is never reused."""
+    """Reissue a label for the SAME target id — generation increments.
+
+    Reissue covers a lost, damaged or re-printed physical label; it is
+    NOT equipment replacement. Physical replacement creates a new
+    instance with a new target id whose label is minted with
+    :func:`mint_label` (generation restarts at 1), linked to the prior
+    instance through the #569 lineage edge.
+    """
     return mint_label(
         project_id=previous.payload.p,
         target_kind=previous.payload.k,
@@ -306,6 +315,17 @@ def resolve_label_scan(
             generation=payload.g,
             reason=(
                 f'generation {payload.g} superseded by '
+                f'generation {record.latest_generation}'
+            ),
+        )
+    if payload.g > record.latest_generation:
+        return LabelScanResult(
+            status='unissued_generation',
+            target_id=payload.t,
+            target_kind=payload.k,
+            generation=payload.g,
+            reason=(
+                f'generation {payload.g} was never issued; latest is '
                 f'generation {record.latest_generation}'
             ),
         )
@@ -462,7 +482,7 @@ __all__ = [
     'LabelTargetRecord',
     'generate_label_sheet',
     'mint_label',
-    'mint_replacement_label',
+    'mint_reissued_label_for_same_target',
     'parse_label_payload',
     'resolve_label_scan',
 ]

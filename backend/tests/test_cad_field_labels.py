@@ -13,7 +13,7 @@ from htdt.cad_field_labels import (
     LabelTargetRecord,
     generate_label_sheet,
     mint_label,
-    mint_replacement_label,
+    mint_reissued_label_for_same_target,
     parse_label_payload,
     resolve_label_scan,
 )
@@ -90,7 +90,7 @@ def test_scan_resolution_states():
         label.payload.qr_text(), registry_missing_kind
     ).status == 'unknown_target'
 
-    # stale generation after replacement
+    # stale generation after a same-target reissue
     stale_registry = _registry(LabelTargetRecord(
         target_id='inst-1', target_kind='installed_equipment',
         latest_generation=2,
@@ -98,6 +98,16 @@ def test_scan_resolution_states():
     assert resolve_label_scan(
         label.payload.qr_text(), stale_registry
     ).status == 'stale_generation'
+
+    # a payload minted for a generation the registry never issued is
+    # never accepted — the checksum alone cannot make it real (#892)
+    future = mint_label(
+        project_id=PROJECT_ID, target_kind='installed_equipment',
+        target_id='inst-1', generation=5, created_at_utc=NOW,
+    )
+    assert resolve_label_scan(
+        future.payload.qr_text(), stale_registry
+    ).status == 'unissued_generation'
 
     retired_registry = _registry(LabelTargetRecord(
         target_id='inst-1', target_kind='installed_equipment',
@@ -118,14 +128,33 @@ def test_scan_resolution_states():
     ).status == 'unknown_target'
 
 
-def test_replacement_mints_new_generation():
+def test_reissue_increments_generation_for_same_target():
     old = mint_label(project_id=PROJECT_ID, target_kind='rack',
                      target_id='rack-1', created_at_utc=NOW)
-    new = mint_replacement_label(old, created_at_utc=NOW)
+    new = mint_reissued_label_for_same_target(old, created_at_utc=NOW)
     assert new.payload.g == 2
     assert new.payload.t == old.payload.t
     assert new.payload.c != old.payload.c
     assert new.label_id != old.label_id
+
+    # the reissued label resolves ok while the g1 label is now stale
+    registry = _registry(LabelTargetRecord(
+        target_id='rack-1', target_kind='rack', latest_generation=2,
+    ))
+    assert resolve_label_scan(
+        new.payload.qr_text(), registry
+    ).status == 'ok'
+    assert resolve_label_scan(
+        old.payload.qr_text(), registry
+    ).status == 'stale_generation'
+
+    # a *replacement* instead mints a fresh g1 label on the NEW target id
+    replacement = mint_label(
+        project_id=PROJECT_ID, target_kind='rack', target_id='rack-2',
+        created_at_utc=NOW,
+    )
+    assert replacement.payload.g == 1
+    assert replacement.payload.t != old.payload.t
 
 
 def test_payload_checksum_detection():
