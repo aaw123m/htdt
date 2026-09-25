@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QInputDialog,
+    QListWidget,
+    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPlainTextEdit,
@@ -82,6 +85,14 @@ from .measurement_workflow import MeasurementWorkflowController
 from .navigation_target import NavigationTarget, NavigationTargetKind
 from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
 from .optimization_workflow_workspace import build_optimization_workspace_mount
+from .project_bundle import (
+    BUNDLE_EXTENSION,
+    ProjectBundleError,
+    export_project_bundle,
+    import_project_bundle,
+)
+from .project_library import ProjectLibraryEntry, ProjectLibraryError
+from .project_library_repository import ProjectLibraryRepository
 from .overview_readiness import OverviewReadinessService
 from .overview_workspace import OverviewWorkspace
 from .palette_search import (
@@ -223,11 +234,26 @@ class WorkflowApplicationComposition:
     lazy workspace construction, command binding and restore-time handle rebuild.
     """
 
-    def __init__(self, repository: SceneRepository, document_id: str) -> None:
+    def __init__(
+        self,
+        repository: SceneRepository,
+        document_id: str,
+        *,
+        project_library: ProjectLibraryRepository | None = None,
+        open_project: Callable[[str], None] | None = None,
+    ) -> None:
         self.repository = repository
         self.repository_path = Path(repository.path)
         self.data_dir = self.repository_path.parent
         self.document_id = document_id
+        self.project_library = project_library or ProjectLibraryRepository(
+            repository
+        )
+        self.project_entry = self.project_library.ensure_document_registered(
+            document_id
+        )
+        self._open_project_callback = open_project
+        self._spawned_compositions: list[WorkflowApplicationComposition] = []
 
         self.registry = CommandRegistry()
         register_default_commands(self.registry)
@@ -290,10 +316,275 @@ class WorkflowApplicationComposition:
             "installation.export_handoff",
             execute=self._export_installation_handoff,
         )
-        self.registry.bind(
-            "analysis.export_bundle",
-            execute=self._export_analysis_bundle,
+        self._apply_project_title()
+        self._build_project_menu()
+
+    # ---- project library (#450) -----------------------------------------
+
+    def _apply_project_title(self) -> None:
+        self.shell.setWindowTitle(
+            f"Home Theater Digital Twin — {self.project_entry.display_name}"
         )
+
+    def _build_project_menu(self) -> None:
+        menu = self.shell.menuBar().addMenu("プロジェクト")
+        menu.addAction(
+            "新規プロジェクト…", self._new_project
+        )
+        menu.addAction(
+            "プロジェクトを開く…", self._open_project_dialog
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "プロジェクト名を変更…", self._rename_project
+        )
+        menu.addAction(
+            "プロジェクトを複製…", self._duplicate_project
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "プロジェクトをエクスポート…", self._export_project_bundle
+        )
+        menu.addAction(
+            "プロジェクトをインポート…", self._import_project_bundle
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "アーカイブ…",
+            lambda: self._archive_dialog(archived=True),
+        )
+        menu.addAction(
+            "アーカイブから復元…",
+            lambda: self._archive_dialog(archived=False),
+        )
+
+    def _choose_project(
+        self,
+        entries: tuple[ProjectLibraryEntry, ...],
+        title: str,
+        label: str,
+    ) -> ProjectLibraryEntry | None:
+        if not entries:
+            QMessageBox.information(
+                self.shell, title, "対象のプロジェクトがありません"
+            )
+            return None
+        dialog = QDialog(self.shell)
+        dialog.setWindowTitle(title)
+        layout = QVBoxLayout(dialog)
+        listing = QListWidget(dialog)
+        for entry in entries:
+            item = QListWidgetItem(entry.display_name)
+            item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
+            listing.addItem(item)
+        listing.setCurrentRow(0)
+        layout.addWidget(listing)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        item = listing.currentItem()
+        if item is None:
+            return None
+        project_id = item.data(Qt.ItemDataRole.UserRole)
+        return next(
+            entry for entry in entries if entry.project_id == project_id
+        )
+
+    def _switch_to_project(self, entry: ProjectLibraryEntry) -> None:
+        """Guarded project switch (#450): dirty/running/frozen work refuses
+        exactly like window close does, then the new document opens in a
+        fresh shell and this one closes."""
+
+        if entry.document_id == self.document_id:
+            return
+        allowed, reason = self._can_close_application()
+        if not allowed:
+            self.shell.statusBar().showMessage(
+                reason or "現在の処理が完了してからプロジェクトを切り替えてください"
+            )
+            return
+        if not self.shell.close():
+            return
+        try:
+            opened = self.project_library.open_project(entry.project_id)
+        except ProjectLibraryError as exc:
+            QMessageBox.warning(
+                self.shell, "プロジェクトを開けません", str(exc)
+            )
+            return
+        self._open_document(opened.document_id)
+
+    def _open_document(self, document_id: str) -> None:
+        if self._open_project_callback is not None:
+            self._open_project_callback(document_id)
+            return
+        composition = WorkflowApplicationComposition(
+            self.repository,
+            document_id,
+            project_library=self.project_library,
+            open_project=self._open_project_callback,
+        )
+        self._spawned_compositions.append(composition)
+        composition.shell.show()
+        composition.shell.raise_()
+        composition.shell.activateWindow()
+
+    def _new_project(self) -> None:
+        name, ok = QInputDialog.getText(
+            self.shell, "新規プロジェクト", "プロジェクト名:"
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            entry = self.project_library.create_project(name)
+        except ProjectLibraryError as exc:
+            QMessageBox.warning(self.shell, "プロジェクトを作成できません", str(exc))
+            return
+        self._switch_to_project(entry)
+
+    def _open_project_dialog(self) -> None:
+        entries = tuple(
+            entry
+            for entry in self.project_library.list_projects()
+            if entry.project_id != self.project_entry.project_id
+        )
+        entry = self._choose_project(
+            entries, "プロジェクトを開く", "開くプロジェクト:"
+        )
+        if entry is not None:
+            self._switch_to_project(entry)
+
+    def _rename_project(self) -> None:
+        name, ok = QInputDialog.getText(
+            self.shell,
+            "プロジェクト名を変更",
+            "新しいプロジェクト名:",
+            text=self.project_entry.display_name,
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            self.project_entry = self.project_library.rename_project(
+                self.project_entry.project_id, name
+            )
+        except ProjectLibraryError as exc:
+            QMessageBox.warning(self.shell, "名前を変更できません", str(exc))
+            return
+        self._apply_project_title()
+
+    def _duplicate_project(self) -> None:
+        name, ok = QInputDialog.getText(
+            self.shell,
+            "プロジェクトを複製",
+            "複製後のプロジェクト名:",
+            text=f"{self.project_entry.display_name} のコピー",
+        )
+        if not ok or not name.strip():
+            return
+        try:
+            entry = self.project_library.duplicate_project(
+                self.project_entry.project_id, name
+            )
+        except ProjectLibraryError as exc:
+            QMessageBox.warning(self.shell, "複製できません", str(exc))
+            return
+        self._switch_to_project(entry)
+
+    def _export_project_bundle(self) -> None:
+        """#488: export the open project as a .htdtproject bundle."""
+
+        selected, _filter = QFileDialog.getSaveFileName(
+            self.shell,
+            "プロジェクトのエクスポート先",
+            str(
+                Path.home()
+                / f"{self.project_entry.display_name}{BUNDLE_EXTENSION}"
+            ),
+            f"HTDT project bundle (*{BUNDLE_EXTENSION})",
+        )
+        if not selected:
+            return
+        try:
+            result = export_project_bundle(
+                self.repository,
+                self.document_id,
+                Path(selected),
+            )
+        except ProjectBundleError as exc:
+            QMessageBox.warning(
+                self.shell, "エクスポートできません", str(exc)
+            )
+            return
+        QMessageBox.information(
+            self.shell,
+            "プロジェクトをエクスポートしました",
+            f"{result.row_count} 件のレコードと {result.asset_count} 件の"
+            f"アセットを書き出しました。\n"
+            f"マニフェストSHA-256: {result.manifest_sha256}",
+        )
+
+    def _import_project_bundle(self) -> None:
+        """#488: staged import; a document-id collision is offered the
+        explicit import-as-copy path (new project identity)."""
+
+        selected, _filter = QFileDialog.getOpenFileName(
+            self.shell,
+            "インポートするプロジェクトバンドル",
+            str(Path.home()),
+            f"HTDT project bundle (*{BUNDLE_EXTENSION})",
+        )
+        if not selected:
+            return
+        try:
+            result = import_project_bundle(self.repository, Path(selected))
+        except ProjectBundleError as exc:
+            retry = QMessageBox.question(
+                self.shell,
+                "そのままインポートできません",
+                f"{exc}\n\nコピーとして新しいプロジェクトを作成しますか？",
+            )
+            if retry != QMessageBox.StandardButton.Yes:
+                return
+            try:
+                result = import_project_bundle(
+                    self.repository, Path(selected), import_as_copy=True
+                )
+            except ProjectBundleError as retry_exc:
+                QMessageBox.warning(
+                    self.shell, "インポートできません", str(retry_exc)
+                )
+                return
+        QMessageBox.information(
+            self.shell,
+            "プロジェクトをインポートしました",
+            f"{result.imported_rows} 件のレコードと "
+            f"{result.imported_assets} 件のアセットを取り込みました。",
+        )
+        entry = self.project_library.get_by_document_id(result.document_id)
+        if entry is not None:
+            self._switch_to_project(entry)
+
+    def _archive_dialog(self, *, archived: bool) -> None:
+        candidates = tuple(
+            entry
+            for entry in self.project_library.list_projects(
+                include_archived=True
+            )
+            if entry.archived != archived
+            and entry.project_id != self.project_entry.project_id
+        )
+        title = "プロジェクトをアーカイブ" if archived else "アーカイブから復元"
+        entry = self._choose_project(candidates, title, title)
+        if entry is None:
+            return
+        self.project_library.set_archived(entry.project_id, archived)
 
     def _command_context(self) -> CommandContext | None:
         current = self.shell.router.current_workspace_id
@@ -1581,7 +1872,12 @@ class WorkflowApplicationComposition:
                 )
             )
         for comparison in comparisons:
-            series.append(series_from_comparison(comparison))
+            series.append(
+                series_from_comparison(
+                    comparison,
+                    current_scene_revision_id=current_revision_id,
+                )
+            )
         title, ok = QInputDialog.getText(
             self.shell,
             "解析エクスポート",
@@ -1634,8 +1930,16 @@ class WorkflowApplicationComposition:
 def build_workflow_application(
     repository: SceneRepository,
     document_id: str,
+    *,
+    project_library: ProjectLibraryRepository | None = None,
+    open_project: Callable[[str], None] | None = None,
 ) -> WorkflowShellWindow:
-    composition = WorkflowApplicationComposition(repository, document_id)
+    composition = WorkflowApplicationComposition(
+        repository,
+        document_id,
+        project_library=project_library,
+        open_project=open_project,
+    )
     return composition.shell
 
 

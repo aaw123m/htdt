@@ -15,7 +15,10 @@ from .cad_constraints import evaluate_cad_constraints
 from .cad_orientation_constraints import orientation_constraint_rejections
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import SceneDocument, scene_content_hash
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_topology_comparison import (
@@ -1240,70 +1243,7 @@ class CadProposalRobustnessRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_proposal_robustness_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    robustness_spec_id TEXT NOT NULL UNIQUE,
-                    robustness_spec_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    candidate_variant_id TEXT NOT NULL,
-                    topology_candidate_id TEXT NOT NULL,
-                    nominal_bundle_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_proposal_robustness_variant_seq
-                    ON cad_proposal_robustness_specs(
-                        candidate_variant_id,
-                        seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_proposal_perturbation_samples (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sample_id TEXT NOT NULL UNIQUE,
-                    sample_sha256 TEXT NOT NULL UNIQUE,
-                    robustness_spec_id TEXT NOT NULL,
-                    sample_index INTEGER NOT NULL,
-                    feasible INTEGER NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(robustness_spec_id, sample_index),
-                    FOREIGN KEY(robustness_spec_id)
-                        REFERENCES cad_proposal_robustness_specs(robustness_spec_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_proposal_objective_result_authorities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    authority_kind TEXT NOT NULL,
-                    authority_id TEXT NOT NULL,
-                    objective_id TEXT NOT NULL,
-                    sample_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(authority_kind, authority_id, objective_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_proposal_objective_result_sample_seq
-                    ON cad_proposal_objective_result_authorities(
-                        sample_id,
-                        seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_proposal_robustness_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    robustness_spec_id TEXT NOT NULL,
-                    objective_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(robustness_spec_id, objective_id),
-                    FOREIGN KEY(robustness_spec_id)
-                        REFERENCES cad_proposal_robustness_specs(robustness_spec_id)
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_proposal_robustness_specs', 'cad_proposal_perturbation_samples', 'cad_proposal_objective_result_authorities', 'cad_proposal_robustness_evaluations')
 
     def _resolve_external(self, ref: ExactAuthorityRef) -> None:
         resolver = self.external_resolvers.get(ref.authority_kind)

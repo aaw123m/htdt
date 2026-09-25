@@ -75,6 +75,13 @@ class CadMeasurementTargetLineage(BaseModel):
     in and the acoustic-reference position it was created at, so a later
     seat move can be reported as drift instead of being silently merged
     into the measurement point's stored coordinates.
+
+    ``creation_revision_id`` has one adopted meaning (#847): the resulting
+    SceneRevision that contains BOTH the source seat and the derived
+    measurement point — the revision the derivation produced, not the
+    pre-derivation head. Persisted reads re-verify the derivation in that
+    pinned revision; current-head drift is reported by
+    :func:`measurement_target_drift` and never invalidates the record.
     """
 
     model_config = ConfigDict(frozen=True)

@@ -1149,7 +1149,12 @@ class MeasurementPageWorkspace(QWidget):
         self.routing_profile_combo.clear()
         self.routing_profile_combo.addItem("（未選択）", None)
         try:
-            profiles = self.controller.quality_repository.list_routing_profiles()
+            # #858: only profiles scoped to this exact document are
+            # selectable — an unscoped or foreign-project channel map can
+            # never stand in for this project's routing authority.
+            profiles = self.controller.quality_repository.list_routing_profiles(
+                document_id=self.controller.document_id
+            )
         except Exception:
             profiles = ()
         for profile in profiles:

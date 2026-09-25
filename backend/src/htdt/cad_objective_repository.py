@@ -26,6 +26,7 @@ from .cad_search_models import CadCandidate, CadCandidateSetPage, CadSearchSpec
 from .cad_search_repository import CadSearchRepository
 from .optimization_objectives import ObjectiveVector
 from .pareto import pareto_front
+from .cad_schema import require_native_tables
 
 
 class _CandidateSetScan:
@@ -139,65 +140,7 @@ class CadObjectiveRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_objective_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    search_spec_sha256 TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    evaluation_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_objective_search_seq
-                    ON cad_objective_evaluations(search_spec_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_pareto_sets (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    pareto_set_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    search_spec_sha256 TEXT NOT NULL,
-                    pareto_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_pareto_search_seq
-                    ON cad_pareto_sets(search_spec_id, seq ASC);
-                '''
-            )
-            # Authority-attestation migration: rows written before O30 replay
-            # existed keep NULL and are non-authoritative — reads fail closed
-            # (``_validated_evaluation``) rather than silently fabricating the
-            # candidate-set identity or input provenance this version never
-            # attested.
-            columns = {
-                row['name']
-                for row in connection.execute(
-                    'PRAGMA table_info(cad_objective_evaluations)'
-                )
-            }
-            if 'candidate_set_sha256' not in columns:
-                connection.execute(
-                    'ALTER TABLE cad_objective_evaluations '
-                    'ADD COLUMN candidate_set_sha256 TEXT'
-                )
-            if 'input_authorities_json' not in columns:
-                connection.execute(
-                    'ALTER TABLE cad_objective_evaluations '
-                    'ADD COLUMN input_authorities_json TEXT'
-                )
+            require_native_tables(connection, 'cad_objective_evaluations', 'cad_pareto_sets')
 
     def _resolve_binding(
         self,

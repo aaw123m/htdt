@@ -25,7 +25,10 @@ from .cad_multifidelity_execution import (
     build_multifidelity_execution_cache_entry,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 
 
 R140_EXECUTOR_SCHEMA_VERSION = 1
@@ -607,44 +610,7 @@ class CadR140ExecutorRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_r140_resource_estimates (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    estimate_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_r140_execution_results (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    execution_result_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    task_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(task_id)
-                        REFERENCES cad_r140_execution_tasks(task_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_r140_result_task_seq
-                    ON cad_r140_execution_results(task_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_r140_execution_attempts (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    attempt_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    task_id TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(task_id)
-                        REFERENCES cad_r140_execution_tasks(task_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_r140_attempt_task_seq
-                    ON cad_r140_execution_attempts(task_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_r140_resource_estimates', 'cad_r140_execution_results', 'cad_r140_execution_attempts')
 
     def save_resource_estimate(
         self,

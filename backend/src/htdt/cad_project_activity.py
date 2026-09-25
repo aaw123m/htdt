@@ -35,6 +35,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
+from .capture_inbox import capture_inbox_item_project_id
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
 
@@ -443,7 +444,13 @@ class CadProjectActivityService:
     def _capture_events(self, document_id: str) -> Iterable[ProjectActivityEvent]:
         if self.capture_inbox is None:
             return
-        for item in self.capture_inbox.list_items():
+        # Canonical Capture scope rule (#737): only items whose assigned
+        # scope is exactly this document project into its timeline.
+        # Unassigned (application-scoped) deliveries and items owned by
+        # another project never emit events here.
+        for item in self.capture_inbox.list_items(scope=document_id):
+            if capture_inbox_item_project_id(item) != document_id:
+                continue
             yield _event(
                 document_id=document_id,
                 kind='capture_staged',

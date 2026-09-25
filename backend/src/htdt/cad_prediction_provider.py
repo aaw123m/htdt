@@ -21,7 +21,10 @@ from .cad_acoustic_snapshot import (
 from .cad_acoustic_solver_result import AcousticSolverResultEnvelope
 from .cad_equipment import FrequencyDomain
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .comparison import FrequencyResponse
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
@@ -1076,37 +1079,7 @@ class CadPredictionProviderRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_prediction_providers (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    provider_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    result_envelope_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_prediction_provider_document_seq
-                    ON cad_prediction_providers(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_prediction_provider_bindings (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    binding_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    provider_id TEXT NOT NULL,
-                    consumer_kind TEXT NOT NULL,
-                    consumer_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_prediction_provider_binding_consumer
-                    ON cad_prediction_provider_bindings(
-                        consumer_kind,
-                        consumer_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_prediction_providers', 'cad_prediction_provider_bindings')
 
     def _validate_provider(
         self,

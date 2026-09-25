@@ -70,6 +70,21 @@ class IncompatiblePreferencesError(PreferenceError):
     pass
 
 
+class PreferenceNotificationError(PreferenceError):
+    """One or more change listeners raised *after* a durable commit.
+
+    The preference document itself is already persisted and published;
+    this error is post-commit only and never implies partial durable
+    state (#742).
+    """
+
+    def __init__(self, errors: Iterable[BaseException]) -> None:
+        self.errors = tuple(errors)
+        super().__init__(
+            f'{len(self.errors)} preference listener(s) failed after commit'
+        )
+
+
 class PreferenceLoadState(StrEnum):
     """Typed compatibility state of the on-disk preferences file.
 
@@ -542,6 +557,47 @@ class ApplicationPreferenceStore:
     def subscribe(self, listener: Callable[[PreferenceChange], None]) -> None:
         self._listeners.append(listener)
 
+    def _commit(
+        self, resolved: Mapping[str, object]
+    ) -> tuple[PreferenceChange, ...]:
+        """Atomically commit one batch of already-validated values.
+
+        The complete candidate document is written once through the
+        tmp + fsync + ``os.replace`` path; live ``_values`` are published
+        only after the durable replacement succeeds, and listeners fire
+        only after that (#742). A failed commit leaves memory and disk at
+        the prior state and emits no notifications.
+        """
+
+        candidate = dict(self._values)
+        changes: list[PreferenceChange] = []
+        for key, validated in resolved.items():
+            definition = self.definition(key)
+            old = self._values.get(key, definition.default)
+            if validated == definition.default:
+                candidate.pop(key, None)
+                new = definition.default
+            else:
+                candidate[key] = validated
+                new = validated
+            if new != old:
+                changes.append(PreferenceChange(key=key, old=old, new=new))
+        if candidate != self._values:
+            self._persist_values(candidate)
+            self._values = candidate
+        errors: list[BaseException] = []
+        for change in changes:
+            for listener in tuple(self._listeners):
+                try:
+                    listener(change)
+                except Exception as exc:
+                    # The commit is already durable — a broken observer
+                    # cannot create a partial preference document.
+                    errors.append(exc)
+        if errors:
+            raise PreferenceNotificationError(errors)
+        return tuple(changes)
+
     def set(self, key: str, value: object) -> PreferenceChange:
         """Validate and persist one preference.
 
@@ -553,39 +609,33 @@ class ApplicationPreferenceStore:
         definition = self.definition(key)
         validated = definition.validate(value)
         old = self.get(key)
-        if validated == old and key in self._values:
-            return PreferenceChange(key=key, old=old, new=validated)
-        new_values = dict(self._values)
-        if validated == definition.default:
-            new_values.pop(key, None)
-        else:
-            new_values[key] = validated
-        # Persist first, then swap memory: a failed durable write must not
-        # leave the live store ahead of the file on disk.
-        self._persist_values(new_values)
-        change = PreferenceChange(key=key, old=old, new=validated)
-        for listener in tuple(self._listeners):
-            listener(change)
-        return change
+        changes = self._commit({key: validated})
+        if changes:
+            return changes[0]
+        return PreferenceChange(key=key, old=old, new=validated)
 
     def reset(self, key: str) -> PreferenceChange:
         self._check_writable()
-        self.definition(key)
+        definition = self.definition(key)
         old = self.get(key)
-        new_values = dict(self._values)
-        if key in new_values:
-            new_values.pop(key)
-            self._persist_values(new_values)
-        change = PreferenceChange(key=key, old=old, new=self.get(key))
-        for listener in tuple(self._listeners):
-            listener(change)
-        return change
+        changes = self._commit({key: definition.default})
+        if changes:
+            return changes[0]
+        return PreferenceChange(key=key, old=old, new=old)
 
     def update(self, values: Mapping[str, object]) -> tuple[PreferenceChange, ...]:
+        """Apply a batch as one durable preference transaction.
+
+        Every key validates before anything mutates; one candidate
+        document is persisted atomically; listeners fire only after the
+        commit. A partially-applied batch is impossible (#742).
+        """
+
         self._check_writable()
-        # Validate everything first — a partially-applied batch is a bug.
-        validated = {k: self.definition(k).validate(v) for k, v in values.items()}
-        return tuple(self.set(key, value) for key, value in validated.items())
+        resolved = {
+            k: self.definition(k).validate(v) for k, v in values.items()
+        }
+        return self._commit(resolved)
 
     def _persist_values(self, values: dict[str, object]) -> None:
         old_values = self._values
@@ -630,6 +680,7 @@ __all__ = [
     'PreferenceDefinition',
     'PreferenceError',
     'PreferenceLoadState',
+    'PreferenceNotificationError',
     'PreferenceValueError',
     'PreferenceValueType',
     'UnknownPreferenceKey',

@@ -13,6 +13,7 @@ from .cad_multi_seat_analysis import (
     replay_multi_seat_analysis,
 )
 from .comparison import FrequencyResponse
+from .cad_schema import require_native_tables
 
 
 def _utc_now() -> str:
@@ -44,28 +45,7 @@ class CadMultiSeatAnalysisRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_multi_seat_sets (
-                    set_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    set_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_multi_seat_results (
-                    result_id TEXT PRIMARY KEY,
-                    set_id TEXT NOT NULL,
-                    analysis_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_multi_seat_sets', 'cad_multi_seat_results')
 
     def _member_responses(
         self,

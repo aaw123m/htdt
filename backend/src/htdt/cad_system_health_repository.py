@@ -1,15 +1,26 @@
-"""Append-only persistence for system-health baselines/checks (#568)."""
+"""Append-only persistence for system-health baselines/checks (#568).
+
+Project-scope integrity (#744): the repository is the authority boundary,
+so every write verifies the pinned chain stays inside one document —
+``run.document_id == plan.document_id == baseline.document_id ==
+revision.document_id`` — and runs must reproduce canonically from their
+recorded inputs rather than merely carrying a self-consistent hash.
+"""
 
 from __future__ import annotations
 
 from contextlib import closing
 import sqlite3
+from typing import Callable
 
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_system_health import (
+    HealthAuthorityRef,
     HealthCheckPlan,
     HealthCheckRun,
     SystemHealthBaseline,
+    run_health_check,
 )
 
 
@@ -22,10 +33,25 @@ class CadSystemHealthRepository:
 
     All three tables are append-only: repeated verifications form history,
     and a new run never rewrites the baseline or earlier runs.
+
+    ``preset_repository`` resolves ``operating_preset_id`` bindings so a
+    baseline cannot pin a preset from another document. ``source_resolver``
+    maps a project-scoped ``HealthAuthorityRef`` to its owning document id;
+    refs the resolver reports as foreign are rejected, and unresolvable
+    refs are rejected when a resolver is configured (they cannot silently
+    contribute to a commissioned baseline).
     """
 
-    def __init__(self, scene_repository: SceneRepository) -> None:
+    def __init__(
+        self,
+        scene_repository: SceneRepository,
+        *,
+        preset_repository: object | None = None,
+        source_resolver: Callable[[HealthAuthorityRef], str | None] | None = None,
+    ) -> None:
         self.scene_repository = scene_repository
+        self.preset_repository = preset_repository
+        self.source_resolver = source_resolver
         self.path = scene_repository.path
         self._initialize()
 
@@ -36,46 +62,14 @@ class CadSystemHealthRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_health_baselines (
-                    baseline_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    baseline_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_health_check_plans (
-                    plan_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    baseline_id TEXT NOT NULL,
-                    baseline_sha256 TEXT NOT NULL,
-                    plan_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_health_check_runs (
-                    run_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    plan_id TEXT NOT NULL,
-                    run_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_health_baselines',
+                'cad_health_check_plans',
+                'cad_health_check_runs',
             )
 
-    # ------------------------------------------------------------------
-    # Baselines
 
     def save_baseline(self, baseline: SystemHealthBaseline) -> None:
         if self.get_baseline(baseline.baseline_id) is not None:
@@ -85,8 +79,43 @@ class CadSystemHealthRepository:
         revision = self.scene_repository.get(baseline.scene_revision_id)
         if revision is None:
             raise ValueError('baseline pins a SceneRevision that is not persisted')
+        # The pinned revision must belong to this document — a foreign
+        # revision can never become this project's commissioned state.
+        if revision.document_id != baseline.document_id:
+            raise ValueError(
+                'baseline SceneRevision belongs to another document'
+            )
         if revision.content_hash != baseline.scene_content_hash:
             raise ValueError('baseline SceneRevision content hash mismatch')
+        if baseline.operating_preset_id is not None and (
+            self.preset_repository is not None
+        ):
+            preset = self.preset_repository.get_preset(
+                baseline.operating_preset_id
+            )
+            if preset is None:
+                raise ValueError(
+                    'baseline pins an operating preset that is not persisted'
+                )
+            if preset.document_id != baseline.document_id:
+                raise ValueError(
+                    'baseline operating preset belongs to another document'
+                )
+            if preset.preset_sha256 != baseline.operating_preset_sha256:
+                raise ValueError(
+                    'baseline operating preset hash mismatch'
+                )
+        if self.source_resolver is not None:
+            foreign: list[str] = []
+            for ref in baseline.source_refs:
+                owner = self.source_resolver(ref)
+                if owner is not None and owner != baseline.document_id:
+                    foreign.append(f'{ref.kind}:{ref.ref_id}')
+            if foreign:
+                raise ValueError(
+                    'baseline pins source refs owned by another document: '
+                    + ', '.join(sorted(foreign))
+                )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
@@ -104,15 +133,42 @@ class CadSystemHealthRepository:
                 ),
             )
 
+    def _baseline_from_row(
+        self, row: sqlite3.Row
+    ) -> SystemHealthBaseline | None:
+        """Fail-closed read: inconsistent legacy/corrupt rows never project.
+
+        The persisted payload must agree with the row's document column
+        and pin a same-document SceneRevision (#744).
+        """
+
+        try:
+            baseline = SystemHealthBaseline.model_validate_json(
+                row['payload_json']
+            )
+        except ValueError:
+            return None
+        if baseline.document_id != row['document_id']:
+            return None
+        revision = self.scene_repository.get(baseline.scene_revision_id)
+        if (
+            revision is None
+            or revision.document_id != baseline.document_id
+            or revision.content_hash != baseline.scene_content_hash
+        ):
+            return None
+        return baseline
+
     def get_baseline(self, baseline_id: str) -> SystemHealthBaseline | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_health_baselines WHERE baseline_id=?',
+                'SELECT document_id, payload_json'
+                ' FROM cad_health_baselines WHERE baseline_id=?',
                 (baseline_id,),
             ).fetchone()
         if row is None:
             return None
-        return SystemHealthBaseline.model_validate_json(row['payload_json'])
+        return self._baseline_from_row(row)
 
     def list_baselines(
         self,
@@ -121,7 +177,7 @@ class CadSystemHealthRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT document_id, payload_json
                 FROM cad_health_baselines
                 WHERE document_id=?
                 ORDER BY created_at_utc, baseline_id
@@ -129,8 +185,9 @@ class CadSystemHealthRepository:
                 (document_id,),
             ).fetchall()
         return tuple(
-            SystemHealthBaseline.model_validate_json(row['payload_json'])
-            for row in rows
+            baseline
+            for baseline in (self._baseline_from_row(row) for row in rows)
+            if baseline is not None
         )
 
     # ------------------------------------------------------------------
@@ -144,6 +201,11 @@ class CadSystemHealthRepository:
             raise ValueError('health check plan requires a persisted baseline')
         if baseline.baseline_sha256 != plan.baseline_sha256:
             raise ValueError('health check plan is bound to a different baseline')
+        if plan.document_id != baseline.document_id:
+            raise ValueError(
+                'health check plan belongs to a different document than its'
+                ' baseline'
+            )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
@@ -163,15 +225,45 @@ class CadSystemHealthRepository:
                 ),
             )
 
+    def _plan_from_row(
+        self, connection: sqlite3.Connection, row: sqlite3.Row
+    ) -> HealthCheckPlan | None:
+        """Fail-closed read: plan must agree with its row and its baseline."""
+
+        try:
+            plan = HealthCheckPlan.model_validate_json(row['payload_json'])
+        except ValueError:
+            return None
+        if (
+            plan.document_id != row['document_id']
+            or plan.baseline_id != row['baseline_id']
+            or plan.baseline_sha256 != row['baseline_sha256']
+        ):
+            return None
+        baseline_row = connection.execute(
+            'SELECT document_id, baseline_sha256'
+            ' FROM cad_health_baselines WHERE baseline_id=?',
+            (plan.baseline_id,),
+        ).fetchone()
+        if (
+            baseline_row is None
+            or baseline_row['document_id'] != plan.document_id
+            or baseline_row['baseline_sha256'] != plan.baseline_sha256
+        ):
+            return None
+        return plan
+
     def get_plan(self, plan_id: str) -> HealthCheckPlan | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_health_check_plans WHERE plan_id=?',
+                'SELECT document_id, baseline_id, baseline_sha256,'
+                ' payload_json'
+                ' FROM cad_health_check_plans WHERE plan_id=?',
                 (plan_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return HealthCheckPlan.model_validate_json(row['payload_json'])
+            if row is None:
+                return None
+            return self._plan_from_row(connection, row)
 
     def list_plans(
         self,
@@ -180,17 +272,20 @@ class CadSystemHealthRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT document_id, baseline_id, baseline_sha256, payload_json
                 FROM cad_health_check_plans
                 WHERE baseline_id=?
                 ORDER BY created_at_utc, plan_id
                 """,
                 (baseline_id,),
             ).fetchall()
-        return tuple(
-            HealthCheckPlan.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+            return tuple(
+                plan
+                for plan in (
+                    self._plan_from_row(connection, row) for row in rows
+                )
+                if plan is not None
+            )
 
     # ------------------------------------------------------------------
     # Runs
@@ -203,6 +298,51 @@ class CadSystemHealthRepository:
             raise ValueError('health run requires a persisted check plan')
         if plan.plan_sha256 != run.plan_sha256:
             raise ValueError('health run is bound to a different plan')
+        if run.document_id != plan.document_id:
+            raise ValueError(
+                'health run belongs to a different document than its plan'
+            )
+        baseline = self.get_baseline(plan.baseline_id)
+        if (
+            baseline is None
+            or baseline.baseline_sha256 != plan.baseline_sha256
+            or baseline.document_id != plan.document_id
+        ):
+            raise ValueError(
+                'health run baseline lineage is not resolvable within this'
+                ' document'
+            )
+        # A persisted run is derived authority: its assessments must
+        # reproduce exactly from the persisted plan + baseline + recorded
+        # observations, not merely carry a self-consistent hash (#744).
+        check_ids = {item.check_id for item in plan.checks}
+        unknown = [
+            item.check_id
+            for item in run.observations
+            if item.check_id not in check_ids
+        ]
+        if unknown:
+            raise ValueError(
+                'health run records observations for checks outside the'
+                f' plan: {sorted(unknown)}'
+            )
+        expected = run_health_check(
+            plan,
+            baseline,
+            observations=run.observations,
+            trigger=run.trigger,
+            cause_hypothesis=run.cause_hypothesis,
+            created_at_utc=run.created_at_utc,
+            run_id=run.run_id,
+        )
+        if (
+            expected.assessments != run.assessments
+            or expected.run_sha256 != run.run_sha256
+        ):
+            raise ValueError(
+                'health run assessments do not reproduce from canonical'
+                ' inputs'
+            )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
@@ -221,15 +361,43 @@ class CadSystemHealthRepository:
                 ),
             )
 
+    def _run_from_row(
+        self, connection: sqlite3.Connection, row: sqlite3.Row
+    ) -> HealthCheckRun | None:
+        """Fail-closed read: run must agree with its row and its plan."""
+
+        try:
+            run = HealthCheckRun.model_validate_json(row['payload_json'])
+        except ValueError:
+            return None
+        if (
+            run.document_id != row['document_id']
+            or run.plan_id != row['plan_id']
+        ):
+            return None
+        plan_row = connection.execute(
+            'SELECT document_id, plan_sha256'
+            ' FROM cad_health_check_plans WHERE plan_id=?',
+            (run.plan_id,),
+        ).fetchone()
+        if (
+            plan_row is None
+            or plan_row['document_id'] != run.document_id
+            or plan_row['plan_sha256'] != run.plan_sha256
+        ):
+            return None
+        return run
+
     def get_run(self, run_id: str) -> HealthCheckRun | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT payload_json FROM cad_health_check_runs WHERE run_id=?',
+                'SELECT document_id, plan_id, payload_json'
+                ' FROM cad_health_check_runs WHERE run_id=?',
                 (run_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return HealthCheckRun.model_validate_json(row['payload_json'])
+            if row is None:
+                return None
+            return self._run_from_row(connection, row)
 
     def list_runs(
         self,
@@ -239,17 +407,20 @@ class CadSystemHealthRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT document_id, plan_id, payload_json
                 FROM cad_health_check_runs
                 WHERE plan_id=?
                 ORDER BY created_at_utc, run_id
                 """,
                 (plan_id,),
             ).fetchall()
-        return tuple(
-            HealthCheckRun.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+            return tuple(
+                run
+                for run in (
+                    self._run_from_row(connection, row) for row in rows
+                )
+                if run is not None
+            )
 
     def list_document_runs(
         self,
@@ -258,14 +429,17 @@ class CadSystemHealthRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT document_id, plan_id, payload_json
                 FROM cad_health_check_runs
                 WHERE document_id=?
                 ORDER BY created_at_utc, run_id
                 """,
                 (document_id,),
             ).fetchall()
-        return tuple(
-            HealthCheckRun.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+            return tuple(
+                run
+                for run in (
+                    self._run_from_row(connection, row) for row in rows
+                )
+                if run is not None
+            )

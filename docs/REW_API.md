@@ -12,8 +12,12 @@ REW公式APIは既定で `http://127.0.0.1:4735`。HTDTも既定値をこれに�
 
 ```powershell
 $env:HTDT_REW_API_URL = "http://127.0.0.1:4735"
-python -m htdt
+python -m htdt --data-dir <isolated-dev-data-dir>
 ```
+
+> issue #598: `python -m htdt` は退役済みbrowser stackの開発専用ランチャーになった。
+> 製品のデータルートを汚さないよう `--data-dir`（isolated dir）が必須。
+> 既定ルートへ書き込む場合のみ `--allow-default-data-root` を明示する。
 
 ## HTDT側のエンドポイント
 

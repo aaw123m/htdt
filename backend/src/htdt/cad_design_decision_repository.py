@@ -18,11 +18,18 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .cad_authority_refs import (
     AuthorityRefResolver,
     CanonicalAuthorityRefResolver,
 )
-from .cad_design_decision import DecisionAuthorityRef, DesignDecisionRecord
+from .cad_design_decision import (
+    DecisionAuthorityRef,
+    DesignDecisionIntegrityError,
+    DesignDecisionRecord,
+    decision_lineage_issues,
+)
 
 
 class DesignDecisionConflictError(ValueError):
@@ -31,6 +38,14 @@ class DesignDecisionConflictError(ValueError):
 
 class DesignDecisionRefError(ValueError):
     """A decision names an authority that canonical resolution rejects."""
+
+
+class DesignDecisionStaleHeadError(ValueError):
+    """The superseded decision already has a successor (#868).
+
+    Supersession is a single-head lineage: the losing writer rebuilds the
+    decision as superseding the current head instead.
+    """
 
 
 class CadDesignDecisionRepository:
@@ -147,7 +162,10 @@ class CadDesignDecisionRepository:
                     )
 
     def save_decision(self, decision: DesignDecisionRecord) -> DesignDecisionRecord:
-        with closing(self._connect()) as connection:
+        # BEGIN IMMEDIATE makes the successor-existence check atomic: two
+        # concurrent writers cannot both observe the same head (#868).
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute(
                 'SELECT decision_sha256 FROM design_decisions WHERE decision_id = ?',
                 (decision.decision_id,),
@@ -172,9 +190,18 @@ class CadDesignDecisionRepository:
                     raise ValueError(
                         'superseded decision belongs to another document'
                     )
+                successor = connection.execute(
+                    'SELECT decision_id FROM design_decisions '
+                    'WHERE supersedes_decision_id = ?',
+                    (decision.supersedes_decision_id,),
+                ).fetchone()
+                if successor is not None:
+                    raise DesignDecisionStaleHeadError(
+                        f'decision {decision.supersedes_decision_id} is '
+                        f'already superseded by {successor["decision_id"]}'
+                    )
             self._resolve_refs(decision)
-            with connection:
-                connection.execute(
+            connection.execute(
                     """
                     INSERT INTO design_decisions (
                         decision_id, document_id, decision_scope,
@@ -197,15 +224,47 @@ class CadDesignDecisionRepository:
                 )
         return decision
 
+    def _row_to_decision(self, row: sqlite3.Row) -> DesignDecisionRecord:
+        """Authoritative read: row columns, payload and refs must agree (#868).
+
+        The row columns are denormalized copies of the payload — a drift
+        between them means the store was written outside the repository.
+        Canonical refs are re-resolved exactly: the historical authorities
+        they pin must still exist and still carry the pinned semantic hash.
+        """
+
+        try:
+            decision = DesignDecisionRecord.model_validate_json(
+                row['payload_json']
+            )
+        except ValidationError as exc:
+            raise DesignDecisionIntegrityError(
+                f'design decision payload corrupt: {row["decision_id"]}'
+            ) from exc
+        if (
+            decision.decision_id != row['decision_id']
+            or decision.document_id != row['document_id']
+            or decision.decision_scope != row['decision_scope']
+            or decision.selected_ref.ref_id != row['selected_ref_id']
+            or decision.supersedes_decision_id != row['supersedes_decision_id']
+            or decision.created_at_utc != row['created_at_utc']
+            or decision.decision_sha256 != row['decision_sha256']
+        ):
+            raise DesignDecisionIntegrityError(
+                f'design decision row/payload mismatch: {row["decision_id"]}'
+            )
+        self._resolve_refs(decision)
+        return decision
+
     def get_decision(self, decision_id: str) -> DesignDecisionRecord | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT payload_json FROM design_decisions WHERE decision_id = ?',
+                'SELECT * FROM design_decisions WHERE decision_id = ?',
                 (decision_id,),
             ).fetchone()
         if row is None:
             return None
-        return DesignDecisionRecord.model_validate_json(row['payload_json'])
+        return self._row_to_decision(row)
 
     def list_decisions(
         self,
@@ -223,20 +282,37 @@ class CadDesignDecisionRepository:
             clauses.append('selected_ref_id = ?')
             params.append(selected_ref_id)
         query = (
-            'SELECT payload_json FROM design_decisions WHERE '
+            'SELECT * FROM design_decisions WHERE '
             + ' AND '.join(clauses)
             + ' ORDER BY created_at_utc ASC, decision_id ASC'
         )
         with closing(self._connect()) as connection:
             rows = connection.execute(query, params).fetchall()
-        return tuple(
-            DesignDecisionRecord.model_validate_json(row['payload_json'])
-            for row in rows
+            if decision_scope is not None or selected_ref_id is not None:
+                # A scope/ref filter can hide the rest of the lineage —
+                # validate topology against the document's full set (#868).
+                lineage_rows = connection.execute(
+                    'SELECT * FROM design_decisions WHERE document_id = ? '
+                    'ORDER BY created_at_utc ASC, decision_id ASC',
+                    (document_id,),
+                ).fetchall()
+            else:
+                lineage_rows = rows
+        issues = decision_lineage_issues(
+            tuple(self._row_to_decision(row) for row in lineage_rows)
         )
+        if issues:
+            raise DesignDecisionIntegrityError(
+                'persisted design decision lineage is corrupt: '
+                + '; '.join(issues)
+            )
+        return tuple(self._row_to_decision(row) for row in rows)
 
 
 __all__ = [
     'CadDesignDecisionRepository',
     'DesignDecisionConflictError',
+    'DesignDecisionIntegrityError',
     'DesignDecisionRefError',
+    'DesignDecisionStaleHeadError',
 ]

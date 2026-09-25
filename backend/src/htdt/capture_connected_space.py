@@ -32,7 +32,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import ensure_native_schema, require_native_tables
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
@@ -479,43 +479,68 @@ class ConnectedSpacePromotionRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
-                    lineage_digest TEXT PRIMARY KEY
-                );
-
-                CREATE TABLE IF NOT EXISTS capture_connected_space_documents (
-                    connected_document_id TEXT PRIMARY KEY,
-                    lineage_digest TEXT NOT NULL
-                        REFERENCES capture_ingestion_lineages(lineage_digest),
-                    document_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    staged_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_connected_doc_lineage
-                ON capture_connected_space_documents(lineage_digest);
-
-                CREATE TABLE IF NOT EXISTS physical_space_models (
-                    physical_space_model_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    revision INTEGER NOT NULL,
-                    parent_model_id TEXT,
-                    source_connected_document_id TEXT NOT NULL
-                        REFERENCES capture_connected_space_documents(
-                            connected_document_id
-                        ),
-                    world_to_scene_authority_id TEXT,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    reason TEXT NOT NULL,
-                    UNIQUE(document_id, revision)
-                );
-                CREATE INDEX IF NOT EXISTS idx_physical_space_document
-                ON physical_space_models(document_id);
-                '''
+            require_native_tables(
+                connection,
+                'capture_ingestion_lineages',
+                'capture_connected_space_documents',
+                'physical_space_models',
             )
-            self._repoint_documents_lineage_parent(connection)
+
+    def _converge_schema(self, connection: sqlite3.Connection) -> None:
+        """Legacy-shape tail of the schema-authority migration (#302).
+
+        Plain ``CREATE TABLE`` lives in ``cad_schema_ddl`` and runs inside
+        the versioned migration; this sequence converges databases whose
+        persisted shapes predate the canonical contract (the lineage
+        foreign-key repoint rebuilds the documents table) and installs
+        the connected-space tables so every supported open path converges
+        the same way.
+        """
+        connection.executescript(
+            '''
+            CREATE TABLE IF NOT EXISTS capture_ingestion_lineages (
+                lineage_digest TEXT PRIMARY KEY
+            );
+
+            CREATE TABLE IF NOT EXISTS capture_connected_space_documents (
+                connected_document_id TEXT PRIMARY KEY,
+                lineage_digest TEXT NOT NULL
+                    REFERENCES capture_ingestion_lineages(lineage_digest),
+                document_sha256 TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                staged_at_utc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_connected_doc_lineage
+            ON capture_connected_space_documents(lineage_digest);
+
+            CREATE TABLE IF NOT EXISTS physical_space_models (
+                physical_space_model_id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                parent_model_id TEXT,
+                source_connected_document_id TEXT NOT NULL
+                    REFERENCES capture_connected_space_documents(
+                        connected_document_id
+                    ),
+                world_to_scene_authority_id TEXT,
+                payload_json TEXT NOT NULL,
+                created_at_utc TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                UNIQUE(document_id, revision)
+            );
+            CREATE INDEX IF NOT EXISTS idx_physical_space_document
+            ON physical_space_models(document_id);
+            '''
+        )
+        self._repoint_documents_lineage_parent(connection)
+        # The repoint rebuild drops and recreates the documents
+        # table; re-install its index after.
+        connection.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_connected_doc_lineage
+            ON capture_connected_space_documents(lineage_digest)
+            '''
+        )
 
     def _repoint_documents_lineage_parent(
         self, connection: sqlite3.Connection
@@ -1483,3 +1508,21 @@ class ConnectedSpacePromotionRepository:
         if model is None:
             raise ConnectedSpacePromotionError('unknown physical space model')
         return model
+
+
+def run_connected_space_schema_convergence(
+    connection: sqlite3.Connection,
+) -> None:
+    """Legacy-shape tail of the schema-authority migration (#302).
+
+    ``ensure_native_schema`` invokes this while converging databases whose
+    connected-space documents table still points its lineage key at the
+    runs table; it runs the same sequence
+    ``ConnectedSpacePromotionRepository._initialize`` applies, without
+    constructing a repository instance.
+    """
+
+    repository = ConnectedSpacePromotionRepository.__new__(
+        ConnectedSpacePromotionRepository
+    )
+    repository._converge_schema(connection)
