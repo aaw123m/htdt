@@ -24,6 +24,9 @@ dependencies = [
   "PyMuPDF==1.26.7",
   # QR encoding for printable field labels (#665); pure-python, no imaging deps.
   "segno==1.6.6",
+  # SOFA (netCDF4/HDF5) spatial dataset ingestion (#809); imported lazily only
+  # when a .sofa file is loaded.
+  "h5py==3.16.0",
 ]
 
 [project.scripts]
@@ -57,5 +60,7 @@ htdt = ["capture_contract/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
-pythonpath = ["src"]
+# ".." puts the repository root on sys.path so the repo-level scripts/
+# package (e.g. run_r130a_candidate_wave_execution fixtures) resolves.
+pythonpath = ["src", ".."]
 testpaths = ["tests"]
