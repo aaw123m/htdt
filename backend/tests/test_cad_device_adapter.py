@@ -30,6 +30,28 @@ from htdt.cad_device_adapter_file import (
 NOW = '2026-09-24T00:00:00+00:00'
 
 
+class _CalibrationAuthority:
+    """Stub of the persisted calibration authority used by read-back tests
+    (#865): resolves the exact export and its owning plan."""
+
+    def __init__(self, plan, export) -> None:
+        self._plan = plan
+        self._export = export
+
+    def get_export(self, export_id):
+        return self._export if export_id == self._export.export_id else None
+
+    def get_plan(self, plan_id):
+        return self._plan if plan_id == self._plan.plan_id else None
+
+
+def _service_with_authority(adapter, plan, export):
+    return CalibrationAdapterService(
+        adapter,
+        calibration_repository=_CalibrationAuthority(plan, export),
+    )
+
+
 def _constraints() -> CadDeviceCapabilityConstraints:
     return CadDeviceCapabilityConstraints(
         capability_id='test-device-1',
@@ -233,8 +255,8 @@ def test_binding_mismatch_rejected(tmp_path: Path) -> None:
 
 def test_read_back_observation(tmp_path: Path) -> None:
     adapter = FileCalibrationAdapter(tmp_path / 'out')
-    service = CalibrationAdapterService(adapter)
     export = _export()
+    service = _service_with_authority(adapter, _plan(), export)
     binding = _binding()
     with pytest.raises(AdapterCapabilityError, match='no read-back'):
         service.read_back_snapshot(
@@ -273,7 +295,8 @@ def test_read_back_observation(tmp_path: Path) -> None:
 
 def test_read_back_rejects_foreign_binding(tmp_path: Path) -> None:
     adapter = FileCalibrationAdapter(tmp_path / 'out')
-    service = CalibrationAdapterService(adapter)
+    export = _export()
+    service = _service_with_authority(adapter, _plan(), export)
     binding = _binding()
     (tmp_path / 'out').mkdir(parents=True, exist_ok=True)
     (tmp_path / 'out' / FILE_READBACK_NAME).write_text(
@@ -284,7 +307,7 @@ def test_read_back_rejects_foreign_binding(tmp_path: Path) -> None:
     )
     with pytest.raises(AdapterCapabilityError, match='different device'):
         service.read_back_snapshot(
-            binding, _export(), document_id='doc-1', observed_at_utc=NOW
+            binding, export, document_id='doc-1', observed_at_utc=NOW
         )
 
 

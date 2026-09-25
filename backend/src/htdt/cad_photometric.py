@@ -23,12 +23,21 @@ predicted values and measured values in separate authority objects:
   the exact scene revision, projector spec/mode profile, screen optical
   profile and active aperture versions involved. Any missing input (e.g.
   lens/throw light loss without an exact profile) yields ``UNKNOWN`` rather
-  than a guess.
+  than a guess. Native (dark-room) and ambient-adjusted *effective* values
+  are separate fields (#1015); the light-output evidence class actually
+  used is machine-readable (#1016).
+- :class:`AmbientReflectanceProfile` — how a display/screen surface returns
+  *external ambient* light toward the viewer: a different physical quantity
+  from projector image gain, with its own evidence tiers (#1050). Never
+  inferred from ``nominal_gain`` or a marketing label.
 - :class:`LuminanceMeasurement` — a metered reading (white level, black
-  floor, contrast) retaining instrument, method and position context.
-- :func:`evaluate_photometric_state` — compares one estimate with one
-  measurement set per criterion (peak luminance, black floor, on/off
-  contrast) with per-criterion statuses and no hidden overall score.
+  floor, contrast) retaining instrument, method and position context plus
+  the exact scene/profile/ambient bindings a comparison requires (#1014).
+- :func:`evaluate_photometric_state` — derives typed compatibility axes
+  (same surface, scene state, display profile, operating mode, aperture,
+  screen optics, ambient state, method) before comparing per criterion;
+  incompatible or unbound applicability yields ``UNKNOWN``, never a numeric
+  PASS (#1014). There is no hidden overall score.
 
 Works polymorphically for projected and direct-view surfaces: the estimate
 machinery accepts either a lumen-based projection chain or a display whose
@@ -67,6 +76,56 @@ PhotometricEvidenceClass = Literal['rated', 'user_measured', 'measured']
 - ``user_measured``: owner/tinkerer meter reading (unverified instrument).
 - ``measured``: commissioning-grade instrument reading.
 """
+
+PhotometricEvidencePolicy = Literal[
+    'require_measured',
+    'allow_user_measured_or_better',
+    'allow_rated_estimate',
+    'best_available_diagnostic',
+]
+"""Light-output evidence selection policy (#1016).
+
+- ``require_measured``: commissioning gate — only ``measured`` readings may
+  drive the estimate; anything weaker yields UNKNOWN.
+- ``allow_user_measured_or_better``: owner meter readings allowed, ``rated``
+  is not.
+- ``allow_rated_estimate``: planning/diagnostic estimate — any class may be
+  used; the actual class is recorded on the result.
+- ``best_available_diagnostic``: strongest available class wins and is
+  recorded; identical selection to ``allow_rated_estimate`` but the honest
+  default for exploratory tooling.
+"""
+
+AmbientObservationQuantity = Literal[
+    'screen_plane_illuminance',
+    'room_illuminance',
+    'reflected_luminance',
+    'unknown',
+]
+"""What an ambient-light reading physically measures (#1050).
+
+- ``screen_plane_illuminance``: lux incident on the display/screen plane —
+  the only illuminance quantity a screen reflection equation may consume.
+- ``room_illuminance``: a generic room lux reading elsewhere; it cannot be
+  fed into a screen equation as if it were screen-plane illuminance.
+- ``reflected_luminance``: an already-reflected screen/panel luminance
+  (cd/m²) — strongest evidence, no reflectance model required.
+- ``unknown``: quantity semantics unrecorded; unusable numerically.
+"""
+
+# Ordered weakest→strongest for evidence-policy selection (#1016).
+_EVIDENCE_RANK: dict[PhotometricEvidenceClass, int] = {
+    'rated': 0,
+    'user_measured': 1,
+    'measured': 2,
+}
+
+_POLICY_MINIMUM: dict[PhotometricEvidencePolicy, PhotometricEvidenceClass] = {
+    'require_measured': 'measured',
+    'allow_user_measured_or_better': 'user_measured',
+    'allow_rated_estimate': 'rated',
+    'best_available_diagnostic': 'rated',
+}
 
 HDRFormatFamily = Literal[
     'hdr10', 'hdr10_plus', 'dolby_vision', 'hlg', 'sdr', 'other', 'unknown'
@@ -292,6 +351,10 @@ class AmbientLightObservation(BaseModel):
     ``declared_lux`` is the design intent, ``measured_lux`` is a meter reading
     with instrument/position/timestamp context. Neither is ever derived from
     the other; an observation may carry one, both, or neither (UNKNOWN).
+
+    ``quantity_kind`` records what the reading physically measures (#1050):
+    only ``screen_plane_illuminance`` may feed a screen-reflection equation
+    and only ``reflected_luminance`` may bypass a reflectance model entirely.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -301,10 +364,136 @@ class AmbientLightObservation(BaseModel):
     location_label: str | None = None
     declared_lux: float | None = Field(default=None, ge=0.0)
     measured_lux: float | None = Field(default=None, ge=0.0)
+    measured_luminance_cd_m2: float | None = Field(default=None, ge=0.0)
+    quantity_kind: AmbientObservationQuantity = 'unknown'
+    incidence_geometry: str | None = None
     measured_at_utc: str | None = None
     instrument: str | None = None
     lighting_scene_ref: str | None = None
     provenance: tuple[EquipmentDataProvenance, ...] = ()
+
+
+AmbientReflectanceEvidenceKind = Literal[
+    'measured_lift',
+    'measured_reflectance',
+    'manufacturer_reflectance',
+    'user_declared',
+]
+"""Evidence tier of an ambient-reflectance figure (#1050).
+
+``visual_only`` is deliberately absent: a surface color or marketing label
+never authorizes a numerical ambient model.
+"""
+
+
+class AmbientReflectanceProfile(BaseModel):
+    """How one display/screen surface returns external ambient light toward
+    the viewer (#1050).
+
+    This is *not* projector image gain: ``nominal_gain`` on
+    :class:`ScreenOpticalProfile` describes on-axis gain for projector light
+    and must never be reused as an ambient-reflection coefficient. Two
+    numeric paths exist, in strict strength order:
+
+    - ``measured_black_lift_cd_m2_per_lux`` — a measured effective luminance
+      lift per unit screen-plane illuminance (strongest);
+    - ``diffuse_reflectance_fraction`` — a bounded Lambertian reflectance
+      (0–1) evidence figure; lift = rho · E_screen / π.
+
+    ``alr_directional_evidence`` records whether exact angular/rejection
+    data exists. When it does not, ALR-adjusted performance stays UNKNOWN —
+    directional behavior is never inferred from ``nominal_gain``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: Literal[1] = 1
+    authority_version: Literal['ambient-reflectance-1'] = (
+        'ambient-reflectance-1'
+    )
+    profile_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    surface_kind: Literal['projection', 'direct_view']
+    screen_optical_profile_id: str | None = None
+    screen_optical_profile_version: str | None = None
+    screen_optical_profile_sha256: str | None = None
+    display_specification_sha256: str | None = None
+    diffuse_reflectance_fraction: float | None = Field(
+        default=None, ge=0.0, le=1.0
+    )
+    measured_black_lift_cd_m2_per_lux: float | None = Field(
+        default=None, ge=0.0
+    )
+    alr_directional_evidence: bool | None = None
+    evidence_kind: AmbientReflectanceEvidenceKind | None = None
+    provenance: tuple[EquipmentDataProvenance, ...] = ()
+    profile_sha256: str = Field(min_length=16)
+
+    def semantic_payload(self) -> dict:
+        return self.model_dump(mode='python', exclude={'profile_sha256'})
+
+    @model_validator(mode='after')
+    def _check(self) -> 'AmbientReflectanceProfile':
+        provided = (
+            self.screen_optical_profile_id is not None,
+            self.screen_optical_profile_version is not None,
+            self.screen_optical_profile_sha256 is not None,
+        )
+        if any(provided) and not all(provided):
+            raise ValueError(
+                'screen optical profile id, version and sha256 must be '
+                'supplied together'
+            )
+        if self.diffuse_reflectance_fraction is not None and (
+            self.evidence_kind is None
+        ):
+            raise ValueError(
+                'diffuse reflectance requires an evidence kind — it is '
+                'never implicit'
+            )
+        if self.profile_sha256 != _hash(self.semantic_payload()):
+            raise ValueError(
+                'ambient reflectance profile semantic hash mismatch'
+            )
+        return self
+
+
+def build_ambient_reflectance_profile(
+    *,
+    profile_id: str,
+    version: str,
+    surface_kind: Literal['projection', 'direct_view'],
+    screen_optical_profile_id: str | None = None,
+    screen_optical_profile_version: str | None = None,
+    screen_optical_profile_sha256: str | None = None,
+    display_specification_sha256: str | None = None,
+    diffuse_reflectance_fraction: float | None = None,
+    measured_black_lift_cd_m2_per_lux: float | None = None,
+    alr_directional_evidence: bool | None = None,
+    evidence_kind: AmbientReflectanceEvidenceKind | None = None,
+    provenance: tuple[EquipmentDataProvenance, ...] = (),
+) -> AmbientReflectanceProfile:
+    probe = AmbientReflectanceProfile.model_construct(
+        profile_id=profile_id,
+        version=version,
+        surface_kind=surface_kind,
+        screen_optical_profile_id=screen_optical_profile_id,
+        screen_optical_profile_version=screen_optical_profile_version,
+        screen_optical_profile_sha256=screen_optical_profile_sha256,
+        display_specification_sha256=display_specification_sha256,
+        diffuse_reflectance_fraction=diffuse_reflectance_fraction,
+        measured_black_lift_cd_m2_per_lux=(
+            measured_black_lift_cd_m2_per_lux
+        ),
+        alr_directional_evidence=alr_directional_evidence,
+        evidence_kind=evidence_kind,
+        provenance=tuple(provenance),
+        profile_sha256='',
+    )
+    return AmbientReflectanceProfile(
+        **probe.model_dump(mode='python', exclude={'profile_sha256'}),
+        profile_sha256=_hash(probe.semantic_payload()),
+    )
 
 
 class ExpectedLuminanceEstimate(BaseModel):
@@ -323,6 +512,7 @@ class ExpectedLuminanceEstimate(BaseModel):
     schema_version: Literal[1] = 1
     estimate_id: str = Field(min_length=1)
     surface_kind: Literal['projection', 'direct_view']
+    surface_entity_id: str | None = None
     scene_revision_id: str = Field(min_length=1)
     scene_content_sha256: str = Field(min_length=16)
     projector_image_profile_id: str | None = None
@@ -332,14 +522,25 @@ class ExpectedLuminanceEstimate(BaseModel):
     screen_optical_profile_version: str | None = None
     screen_optical_profile_sha256: str | None = None
     display_specification_sha256: str | None = None
+    operating_mode: str | None = None
     aperture_width_m: float | None = Field(default=None, gt=0.0)
     aperture_height_m: float | None = Field(default=None, gt=0.0)
     ambient_observation_id: str | None = None
+    ambient_reflectance_profile_id: str | None = None
+    ambient_reflectance_profile_version: str | None = None
+    ambient_reflectance_profile_sha256: str | None = None
+    light_output_evidence_class: PhotometricEvidenceClass | None = None
+    light_output_evidence_policy: PhotometricEvidencePolicy | None = None
     status: EvaluationStatus
     status_reason: str
     predicted_peak_white_cd_m2: float | None = None
     predicted_black_floor_cd_m2: float | None = None
     predicted_on_off_contrast: float | None = None
+    predicted_native_peak_white_cd_m2: float | None = None
+    predicted_native_black_floor_cd_m2: float | None = None
+    predicted_native_on_off_contrast: float | None = None
+    ambient_black_lift_cd_m2: float | None = None
+    ambient_model: str | None = None
     input_notes: tuple[str, ...] = ()
     estimate_sha256: str = Field(min_length=16)
 
@@ -360,7 +561,14 @@ class ExpectedLuminanceEstimate(BaseModel):
 
 class LuminanceMeasurement(BaseModel):
     """Metered readings of the surface at a point in time — kept separate
-    from every prediction. Method context is retained verbatim."""
+    from every prediction. Method context is retained verbatim.
+
+    The optional binding fields pin the exact applicable state the reading
+    was taken under (#1014): scene revision, display/projector profile,
+    screen optics, aperture and ambient observation. A measurement missing
+    a binding is still valid historical evidence — it simply cannot
+    validate a different current state (UNKNOWN applicability).
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -371,6 +579,19 @@ class LuminanceMeasurement(BaseModel):
     method: str | None = None
     surface_kind: Literal['projection', 'direct_view']
     surface_entity_id: str = Field(min_length=1)
+    scene_revision_id: str | None = None
+    scene_content_sha256: str | None = None
+    projector_image_profile_id: str | None = None
+    projector_image_profile_version: str | None = None
+    projector_image_profile_sha256: str | None = None
+    screen_optical_profile_id: str | None = None
+    screen_optical_profile_version: str | None = None
+    screen_optical_profile_sha256: str | None = None
+    display_specification_sha256: str | None = None
+    operating_mode: str | None = None
+    aperture_width_m: float | None = Field(default=None, gt=0.0)
+    aperture_height_m: float | None = Field(default=None, gt=0.0)
+    ambient_observation_id: str | None = None
     peak_white_cd_m2: float | None = Field(default=None, ge=0.0)
     black_floor_cd_m2: float | None = Field(default=None, ge=0.0)
     on_off_contrast_ratio: float | None = Field(default=None, ge=0.0)
@@ -387,14 +608,60 @@ class PhotometricCriterionResult(BaseModel):
     predicted: float | None = None
     measured: float | None = None
     tolerance_fraction: float | None = None
+    blocking_axes: tuple[str, ...] = ()
     note: str | None = None
+
+
+CompatibilityAxis = Literal[
+    'compatible', 'incompatible', 'unbound', 'not_applicable'
+]
+"""One applicability axis between estimate and measurement (#1014).
+
+- ``compatible``: both sides bind the axis and agree (or agree to disagree
+  is impossible).
+- ``incompatible``: both sides bind the axis and disagree — the measurement
+  describes a different configuration.
+- ``unbound``: at least one side does not pin the axis — applicability
+  cannot be proven.
+- ``not_applicable``: the axis does not exist for this surface kind (e.g.
+  screen optics on a direct-view display).
+"""
+
+
+class PhotometricCompatibilityAxes(BaseModel):
+    """Typed applicability result derived before any numeric comparison
+    (#1014). Only ``compatible``/``not_applicable`` axes may admit a
+    numeric PASS/FAIL; anything else yields UNKNOWN per criterion.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    same_surface: CompatibilityAxis
+    same_scene_state: CompatibilityAxis
+    same_display_profile: CompatibilityAxis
+    same_operating_mode: CompatibilityAxis
+    same_aperture: CompatibilityAxis
+    same_screen_optics: CompatibilityAxis
+    same_ambient_state: CompatibilityAxis
+    compatible_method: CompatibilityAxis
+
+    def blockers(self, required: tuple[str, ...]) -> tuple[str, ...]:
+        """Names of required axes that are not satisfied."""
+        blocked = []
+        for axis in required:
+            state = getattr(self, axis)
+            if state in ('incompatible', 'unbound'):
+                blocked.append(f'{axis}:{state}')
+        return tuple(blocked)
 
 
 class PhotometricEvaluation(BaseModel):
     """Per-criterion comparison of one estimate vs one measurement set.
 
     There is deliberately no hidden overall score — callers judge the listed
-    criteria individually.
+    criteria individually. The compatibility axes are part of the result so
+    a replayed evaluation can re-derive why each criterion was or was not
+    eligible (#1014).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -403,6 +670,7 @@ class PhotometricEvaluation(BaseModel):
     evaluation_id: str = Field(min_length=1)
     estimate: ExpectedLuminanceEstimate | None
     measurement: LuminanceMeasurement | None
+    compatibility: PhotometricCompatibilityAxes | None
     criteria: tuple[PhotometricCriterionResult, ...]
     evaluation_sha256: str = Field(min_length=16)
 
@@ -421,6 +689,112 @@ class PhotometricEvaluation(BaseModel):
         return self
 
 
+def _select_light_output(
+    readings: tuple[LightOutputReading, ...],
+    policy: PhotometricEvidencePolicy,
+) -> tuple[LightOutputReading | None, PhotometricEvidenceClass | None]:
+    """Deterministic evidence-tier selection (#1016).
+
+    Among readings of the selected class, the most recent timestamped
+    reading wins; ties and missing timestamps resolve to the conservative
+    (lowest) lumen figure — the estimate under-predicts rather than
+    over-predicts light output.
+    """
+
+    minimum = _POLICY_MINIMUM[policy]
+    eligible = [
+        r for r in readings
+        if _EVIDENCE_RANK[r.evidence_class] >= _EVIDENCE_RANK[minimum]
+    ]
+    if not eligible:
+        return None, None
+    strongest_rank = max(_EVIDENCE_RANK[r.evidence_class] for r in eligible)
+    strongest = [r for r in eligible
+                 if _EVIDENCE_RANK[r.evidence_class] == strongest_rank]
+    # Most recent timestamped reading wins; a missing timestamp counts as
+    # oldest, and equal timestamps take the lower lumens (conservative).
+    strongest.sort(key=lambda r: r.lumens)
+    strongest.sort(
+        key=lambda r: (r.measured_at_utc is not None, r.measured_at_utc),
+        reverse=True,
+    )
+    chosen = strongest[0]
+    return chosen, chosen.evidence_class
+
+
+def _ambient_black_lift(
+    ambient_observation: AmbientLightObservation | None,
+    reflectance: AmbientReflectanceProfile | None,
+    notes: list[str],
+) -> tuple[float | None, str | None]:
+    """Modeled ambient-reflected luminance at the surface (#1050).
+
+    Returns ``(lift_cd_m2, model)``. ``(None, None)`` means ambient light
+    could not be modeled — never silently substituted by screen image gain.
+    """
+
+    if ambient_observation is None:
+        return None, None
+    if ambient_observation.quantity_kind == 'reflected_luminance':
+        if ambient_observation.measured_luminance_cd_m2 is not None:
+            return (
+                ambient_observation.measured_luminance_cd_m2,
+                'reflected-luminance-v1',
+            )
+        notes.append(
+            'ambient observation declared reflected luminance but carries '
+            'no measured luminance — ambient contribution UNKNOWN'
+        )
+        return None, None
+    if ambient_observation.quantity_kind == 'room_illuminance':
+        notes.append(
+            'ambient lux was measured away from the screen plane — it is '
+            'not screen-plane illuminance, ambient contribution UNKNOWN'
+        )
+        return None, None
+    if ambient_observation.quantity_kind not in (
+        'screen_plane_illuminance', 'unknown'
+    ):
+        notes.append('ambient observation quantity unrecognized')
+        return None, None
+    if ambient_observation.measured_lux is None:
+        notes.append(
+            'ambient observation carries no measured lux'
+        )
+        return None, None
+    if ambient_observation.quantity_kind == 'unknown':
+        notes.append(
+            'ambient lux quantity semantics unrecorded — cannot feed the '
+            'screen-plane reflection equation'
+        )
+        return None, None
+    illuminance = ambient_observation.measured_lux
+    if reflectance is None:
+        notes.append(
+            'no ambient reflectance authority — ambient contribution '
+            'UNKNOWN (screen image gain is not an ambient-reflection '
+            'coefficient)'
+        )
+        return None, None
+    if reflectance.measured_black_lift_cd_m2_per_lux is not None:
+        return (
+            reflectance.measured_black_lift_cd_m2_per_lux * illuminance,
+            'measured-lift-v1',
+        )
+    if reflectance.diffuse_reflectance_fraction is not None:
+        return (
+            reflectance.diffuse_reflectance_fraction
+            * illuminance
+            / 3.141592653589793,
+            'diffuse-reflectance-v1',
+        )
+    notes.append(
+        'ambient reflectance profile carries no measured lift or '
+        'reflectance figure — ambient contribution UNKNOWN'
+    )
+    return None, None
+
+
 def estimate_projection_luminance(
     *,
     scene_revision_id: str,
@@ -430,36 +804,43 @@ def estimate_projection_luminance(
     projector_profile: ProjectorImagePerformanceProfile | None,
     screen_profile: ScreenOpticalProfile | None,
     ambient_observation: AmbientLightObservation | None = None,
-    reference_evidence_class: PhotometricEvidenceClass = 'measured',
+    ambient_reflectance: AmbientReflectanceProfile | None = None,
+    surface_entity_id: str | None = None,
+    evidence_policy: PhotometricEvidencePolicy = 'best_available_diagnostic',
 ) -> ExpectedLuminanceEstimate:
     """Predict on-screen peak luminance for a projected image.
 
-    Uses the best available light-output reading (preferring the requested
-    evidence class, else the strongest available) times screen gain over the
-    exact active aperture area. Lens/throw loss is UNKNOWN unless the profile
-    carries an exact ``lens_transmission_fraction``.
+    Light output is selected under an explicit ``evidence_policy`` (#1016):
+    the actual evidence class used is recorded on the result and the
+    policy's minimum tier fails closed (UNKNOWN). Screen image gain applies
+    only to projector light; ambient reflected luminance comes from an
+    :class:`AmbientReflectanceProfile` or a ``reflected_luminance``
+    observation — never from ``nominal_gain`` (#1050). Where ambient is
+    modeled, white and black both gain the same additive luminance and
+    effective contrast is recomputed (``effective-on-off-v1``, #1015).
     """
 
     notes: list[str] = []
-    lumens: float | None = None
+    reading: LightOutputReading | None = None
+    used_class: PhotometricEvidenceClass | None = None
     if projector_profile is None:
         notes.append('no projector image performance profile supplied')
     elif not projector_profile.light_output:
         notes.append('profile carries no light-output readings')
     else:
-        by_class = {r.evidence_class: r.lumens
-                    for r in projector_profile.light_output}
-        lumens = by_class.get(reference_evidence_class)
-        if lumens is None:
-            # fall back to the best available evidence class, flagged
-            for klass in ('measured', 'user_measured', 'rated'):
-                if klass in by_class:
-                    lumens = by_class[klass]
-                    notes.append(
-                        f'using {klass} light output (requested '
-                        f'{reference_evidence_class} unavailable)'
-                    )
-                    break
+        reading, used_class = _select_light_output(
+            projector_profile.light_output, evidence_policy
+        )
+        if reading is None:
+            notes.append(
+                f'no light-output reading satisfies evidence policy '
+                f'{evidence_policy}'
+            )
+        else:
+            notes.append(
+                f'light output {reading.lumens} lm from {used_class} '
+                f'evidence (policy {evidence_policy})'
+            )
 
     gain = screen_profile.nominal_gain if screen_profile is not None else None
     if gain is None:
@@ -476,37 +857,70 @@ def estimate_projection_luminance(
         )
 
     area = aperture_width_m * aperture_height_m
-    if lumens is not None and gain is not None and transmission is not None:
+    if (
+        reading is not None
+        and gain is not None
+        and transmission is not None
+    ):
         # illuminance = lumens/area (lux on screen); luminance = E * gain / pi
-        predicted = lumens * transmission / area * gain / 3.141592653589793
+        native_white = (
+            reading.lumens * transmission / area * gain
+            / 3.141592653589793
+        )
         status: EvaluationStatus = 'PASS'
-        reason = 'predicted from exact inputs'
+        reason = {
+            'measured': 'predicted from measured evidence',
+            'user_measured': 'predicted from user-measured evidence',
+            'rated': 'predicted from rated specification',
+        }[used_class]
     else:
-        predicted = None
+        native_white = None
         status = 'UNKNOWN'
         reason = '; '.join(notes)
 
-    black_floor: float | None = None
-    contrast: float | None = None
+    native_black: float | None = None
+    native_contrast: float | None = None
     if (
-        predicted is not None
+        native_white is not None
         and projector_profile is not None
         and projector_profile.on_off_contrast_ratio is not None
     ):
-        contrast = projector_profile.on_off_contrast_ratio
-        black_floor = predicted / contrast
-        if ambient_observation is not None and (
-            ambient_observation.measured_lux is not None
-        ):
-            # ambient light adds a reflected black-floor component
-            black_floor += (
-                ambient_observation.measured_lux * (gain or 1.0) / 3.141592653589793
-            )
-            notes.append('black floor includes measured ambient lux')
+        native_contrast = projector_profile.on_off_contrast_ratio
+        native_black = native_white / native_contrast
+
+    ambient_lift, ambient_model = _ambient_black_lift(
+        ambient_observation, ambient_reflectance, notes
+    )
+
+    # effective-on-off-v1: ambient reflected luminance is additive on both
+    # white and black fields; effective contrast is recomputed from the
+    # ambient-adjusted pair, never left equal to the native ratio (#1015).
+    if ambient_lift is not None:
+        effective_white = (
+            native_white + ambient_lift if native_white is not None else None
+        )
+        effective_black = (
+            native_black + ambient_lift if native_black is not None else None
+        )
+        notes.append(
+            f'ambient model {ambient_model}: +{ambient_lift:.4g} cd/m² on '
+            'white and black fields'
+        )
+    else:
+        effective_white = native_white
+        effective_black = native_black
+    effective_contrast: float | None = None
+    if (
+        effective_white is not None
+        and effective_black is not None
+        and effective_black > 0.0
+    ):
+        effective_contrast = effective_white / effective_black
 
     probe = ExpectedLuminanceEstimate.model_construct(
         estimate_id='',
         surface_kind='projection',
+        surface_entity_id=surface_entity_id,
         scene_revision_id=scene_revision_id,
         scene_content_sha256=scene_content_sha256,
         projector_image_profile_id=(
@@ -528,16 +942,35 @@ def estimate_projection_luminance(
             screen_profile.profile_sha256 if screen_profile else None
         ),
         display_specification_sha256=None,
+        operating_mode=(
+            projector_profile.operating_mode if projector_profile else None
+        ),
         aperture_width_m=aperture_width_m,
         aperture_height_m=aperture_height_m,
         ambient_observation_id=(
             ambient_observation.observation_id if ambient_observation else None
         ),
+        ambient_reflectance_profile_id=(
+            ambient_reflectance.profile_id if ambient_reflectance else None
+        ),
+        ambient_reflectance_profile_version=(
+            ambient_reflectance.version if ambient_reflectance else None
+        ),
+        ambient_reflectance_profile_sha256=(
+            ambient_reflectance.profile_sha256 if ambient_reflectance else None
+        ),
+        light_output_evidence_class=used_class,
+        light_output_evidence_policy=evidence_policy,
         status=status,
         status_reason=reason,
-        predicted_peak_white_cd_m2=predicted,
-        predicted_black_floor_cd_m2=black_floor,
-        predicted_on_off_contrast=contrast,
+        predicted_peak_white_cd_m2=effective_white,
+        predicted_black_floor_cd_m2=effective_black,
+        predicted_on_off_contrast=effective_contrast,
+        predicted_native_peak_white_cd_m2=native_white,
+        predicted_native_black_floor_cd_m2=native_black,
+        predicted_native_on_off_contrast=native_contrast,
+        ambient_black_lift_cd_m2=ambient_lift,
+        ambient_model=ambient_model,
         input_notes=tuple(notes),
         estimate_sha256='',
     )
@@ -560,9 +993,20 @@ def estimate_direct_view_luminance(
     black_level_cd_m2: float | None,
     display_specification_sha256: str | None,
     ambient_observation: AmbientLightObservation | None = None,
+    ambient_reflectance: AmbientReflectanceProfile | None = None,
+    surface_entity_id: str | None = None,
+    operating_mode: str | None = None,
 ) -> ExpectedLuminanceEstimate:
     """Predict direct-view surface luminance from a display spec's exact
-    photometric capability figures (no optical chain to model)."""
+    photometric capability figures (no optical chain to model).
+
+    Ambient light affects the result only through an explicit panel
+    reflectance model or a ``reflected_luminance`` observation (#1050):
+    the intrinsic spec figures stay on the ``predicted_native_*`` fields,
+    and ambient-adjusted values are produced only when a valid ambient
+    model exists — otherwise ``ambient_black_lift_cd_m2`` stays ``None``
+    and the observation is visibly unmodeled, never silently zero.
+    """
 
     notes: list[str] = []
     if peak_luminance_cd_m2 is None:
@@ -571,17 +1015,47 @@ def estimate_direct_view_luminance(
     else:
         status = 'PASS'
         reason = 'predicted from display photometric capability'
-    contrast = None
+    native_contrast = None
     if (
         peak_luminance_cd_m2 is not None
         and black_level_cd_m2 is not None
         and black_level_cd_m2 > 0.0
     ):
-        contrast = peak_luminance_cd_m2 / black_level_cd_m2
+        native_contrast = peak_luminance_cd_m2 / black_level_cd_m2
+
+    ambient_lift, ambient_model = _ambient_black_lift(
+        ambient_observation, ambient_reflectance, notes
+    )
+    if ambient_lift is not None:
+        effective_white = (
+            peak_luminance_cd_m2 + ambient_lift
+            if peak_luminance_cd_m2 is not None
+            else None
+        )
+        effective_black = (
+            black_level_cd_m2 + ambient_lift
+            if black_level_cd_m2 is not None
+            else None
+        )
+        notes.append(
+            f'ambient model {ambient_model}: +{ambient_lift:.4g} cd/m² on '
+            'white and black fields'
+        )
+    else:
+        effective_white = peak_luminance_cd_m2
+        effective_black = black_level_cd_m2
+    effective_contrast: float | None = None
+    if (
+        effective_white is not None
+        and effective_black is not None
+        and effective_black > 0.0
+    ):
+        effective_contrast = effective_white / effective_black
 
     probe = ExpectedLuminanceEstimate.model_construct(
         estimate_id='',
         surface_kind='direct_view',
+        surface_entity_id=surface_entity_id,
         scene_revision_id=scene_revision_id,
         scene_content_sha256=scene_content_sha256,
         projector_image_profile_id=None,
@@ -591,16 +1065,33 @@ def estimate_direct_view_luminance(
         screen_optical_profile_version=None,
         screen_optical_profile_sha256=None,
         display_specification_sha256=display_specification_sha256,
+        operating_mode=operating_mode,
         aperture_width_m=None,
         aperture_height_m=None,
         ambient_observation_id=(
             ambient_observation.observation_id if ambient_observation else None
         ),
+        ambient_reflectance_profile_id=(
+            ambient_reflectance.profile_id if ambient_reflectance else None
+        ),
+        ambient_reflectance_profile_version=(
+            ambient_reflectance.version if ambient_reflectance else None
+        ),
+        ambient_reflectance_profile_sha256=(
+            ambient_reflectance.profile_sha256 if ambient_reflectance else None
+        ),
+        light_output_evidence_class=None,
+        light_output_evidence_policy=None,
         status=status,
         status_reason=reason,
-        predicted_peak_white_cd_m2=peak_luminance_cd_m2,
-        predicted_black_floor_cd_m2=black_level_cd_m2,
-        predicted_on_off_contrast=contrast,
+        predicted_peak_white_cd_m2=effective_white,
+        predicted_black_floor_cd_m2=effective_black,
+        predicted_on_off_contrast=effective_contrast,
+        predicted_native_peak_white_cd_m2=peak_luminance_cd_m2,
+        predicted_native_black_floor_cd_m2=black_level_cd_m2,
+        predicted_native_on_off_contrast=native_contrast,
+        ambient_black_lift_cd_m2=ambient_lift,
+        ambient_model=ambient_model,
         input_notes=tuple(notes),
         estimate_sha256='',
     )
@@ -615,14 +1106,198 @@ def estimate_direct_view_luminance(
     )
 
 
+def _axis_state(
+    estimate_value,
+    measurement_value,
+    *,
+    applicable: bool = True,
+    none_means_absent: bool = False,
+) -> CompatibilityAxis:
+    if not applicable:
+        return 'not_applicable'
+    if estimate_value is None and measurement_value is None:
+        # For axes where None means "this input does not exist" (e.g. no
+        # ambient observation bound), both-None is an agreement, not a
+        # missing binding.
+        return 'compatible' if none_means_absent else 'unbound'
+    if estimate_value is None or measurement_value is None:
+        return 'unbound'
+    return (
+        'compatible' if estimate_value == measurement_value
+        else 'incompatible'
+    )
+
+
+def _axis_triple(
+    estimate_triple: tuple[str | None, str | None, str | None],
+    measurement_triple: tuple[str | None, str | None, str | None],
+    *,
+    applicable: bool = True,
+) -> CompatibilityAxis:
+    """Compare (id, version, sha256) bindings — all-or-none profiles."""
+    if not applicable:
+        return 'not_applicable'
+    if None in estimate_triple or None in measurement_triple:
+        return 'unbound'
+    return (
+        'compatible' if estimate_triple == measurement_triple
+        else 'incompatible'
+    )
+
+
+def _aperture_axis(
+    estimate: ExpectedLuminanceEstimate,
+    measurement: LuminanceMeasurement,
+    *,
+    applicable: bool,
+) -> CompatibilityAxis:
+    if not applicable:
+        return 'not_applicable'
+    pairs = (
+        (estimate.aperture_width_m, measurement.aperture_width_m),
+        (estimate.aperture_height_m, measurement.aperture_height_m),
+    )
+    if any(a is None or b is None for a, b in pairs):
+        return 'unbound'
+    for a, b in pairs:
+        if abs(a - b) > 1e-9 * max(a, b):
+            return 'incompatible'
+    return 'compatible'
+
+
+def _compatibility_axes(
+    estimate: ExpectedLuminanceEstimate,
+    measurement: LuminanceMeasurement,
+) -> PhotometricCompatibilityAxes:
+    projection = (
+        estimate.surface_kind == 'projection'
+        and measurement.surface_kind == 'projection'
+    )
+    direct_view = (
+        estimate.surface_kind == 'direct_view'
+        and measurement.surface_kind == 'direct_view'
+    )
+    if projection:
+        same_display_profile = _axis_triple(
+            (
+                estimate.projector_image_profile_id,
+                estimate.projector_image_profile_version,
+                estimate.projector_image_profile_sha256,
+            ),
+            (
+                measurement.projector_image_profile_id,
+                measurement.projector_image_profile_version,
+                measurement.projector_image_profile_sha256,
+            ),
+        )
+    elif direct_view:
+        same_display_profile = _axis_state(
+            estimate.display_specification_sha256,
+            measurement.display_specification_sha256,
+        )
+    else:
+        same_display_profile = 'not_applicable'
+    scene_state = _axis_state(
+        estimate.scene_revision_id, measurement.scene_revision_id
+    )
+    if scene_state == 'compatible':
+        scene_state = _axis_state(
+            estimate.scene_content_sha256, measurement.scene_content_sha256
+        )
+    same_surface = _axis_state(
+        estimate.surface_kind, measurement.surface_kind
+    )
+    if same_surface == 'compatible':
+        same_surface = _axis_state(
+            estimate.surface_entity_id, measurement.surface_entity_id
+        )
+    return PhotometricCompatibilityAxes(
+        same_surface=same_surface,
+        same_scene_state=scene_state,
+        same_display_profile=same_display_profile,
+        same_operating_mode=_axis_state(
+            estimate.operating_mode, measurement.operating_mode
+        ),
+        same_aperture=_aperture_axis(
+            estimate, measurement, applicable=projection
+        ),
+        same_screen_optics=_axis_triple(
+            (
+                estimate.screen_optical_profile_id,
+                estimate.screen_optical_profile_version,
+                estimate.screen_optical_profile_sha256,
+            ),
+            (
+                measurement.screen_optical_profile_id,
+                measurement.screen_optical_profile_version,
+                measurement.screen_optical_profile_sha256,
+            ),
+            applicable=projection,
+        ),
+        same_ambient_state=_axis_state(
+            estimate.ambient_observation_id,
+            measurement.ambient_observation_id,
+            none_means_absent=True,
+        ),
+        compatible_method=(
+            'unbound' if measurement.method is None else 'compatible'
+        ),
+    )
+
+
+# Applicability axes each criterion requires before a numeric PASS/FAIL.
+_CRITERION_AXES: dict[str, tuple[str, ...]] = {
+    'peak_white_luminance': (
+        'same_surface',
+        'same_scene_state',
+        'same_display_profile',
+        'same_operating_mode',
+        'same_aperture',
+        'same_screen_optics',
+        'same_ambient_state',
+        'compatible_method',
+    ),
+    'black_floor': (
+        'same_surface',
+        'same_scene_state',
+        'same_display_profile',
+        'same_operating_mode',
+        'same_aperture',
+        'same_screen_optics',
+        'same_ambient_state',
+        'compatible_method',
+    ),
+    'on_off_contrast': (
+        'same_surface',
+        'same_scene_state',
+        'same_display_profile',
+        'same_operating_mode',
+        'same_aperture',
+        'same_screen_optics',
+        'same_ambient_state',
+        'compatible_method',
+    ),
+}
+
+
 def _criterion(
     name: str,
     predicted: float | None,
     measured: float | None,
     tolerance_fraction: float,
+    compatibility: PhotometricCompatibilityAxes | None,
 ) -> PhotometricCriterionResult:
-    if predicted is None or measured is None:
-        status: EvaluationStatus = 'UNKNOWN'
+    blocking: tuple[str, ...] = ()
+    note: str | None = None
+    if compatibility is not None:
+        blocking = compatibility.blockers(_CRITERION_AXES[name])
+        if blocking:
+            note = 'not applicable to the same configuration'
+    status: EvaluationStatus
+    if blocking:
+        status = 'UNKNOWN'
+    elif predicted is None or measured is None:
+        status = 'UNKNOWN'
     elif abs(measured - predicted) <= predicted * tolerance_fraction:
         status = 'PASS'
     else:
@@ -633,6 +1308,8 @@ def _criterion(
         predicted=predicted,
         measured=measured,
         tolerance_fraction=tolerance_fraction,
+        blocking_axes=blocking,
+        note=note,
     )
 
 
@@ -647,8 +1324,19 @@ def evaluate_photometric_state(
     """Compare predicted vs measured photometric state per criterion.
 
     Both sides may be ``None`` — a measurement-only evaluation reports the
-    predicted side as missing without inventing values.
+    predicted side as missing without inventing values. When both sides are
+    present, typed compatibility axes are derived first (#1014): a criterion
+    can only produce PASS/FAIL when estimate and measurement provably
+    describe the same surface, scene state, display profile, operating mode,
+    aperture, screen optics, ambient state and method; otherwise it reports
+    UNKNOWN with the blocking axes named.
     """
+
+    compatibility = (
+        _compatibility_axes(estimate, measurement)
+        if estimate is not None and measurement is not None
+        else None
+    )
 
     predicted_white = (
         estimate.predicted_peak_white_cd_m2 if estimate is not None else None
@@ -674,24 +1362,28 @@ def evaluate_photometric_state(
             predicted_white,
             measured_white,
             peak_white_tolerance_fraction,
+            compatibility,
         ),
         _criterion(
             'black_floor',
             predicted_black,
             measured_black,
             black_floor_tolerance_fraction,
+            compatibility,
         ),
         _criterion(
             'on_off_contrast',
             predicted_contrast,
             measured_contrast,
             contrast_tolerance_fraction,
+            compatibility,
         ),
     )
     probe = PhotometricEvaluation.model_construct(
         evaluation_id='',
         estimate=estimate,
         measurement=measurement,
+        compatibility=compatibility,
         criteria=criteria,
         evaluation_sha256='',
     )

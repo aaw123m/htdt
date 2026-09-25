@@ -598,9 +598,38 @@ def _evaluate_routing(
             source_id=plan.plan_id,
             source_sha256=plan_sha256,
         ))
+    def _strong_routing(measurement: Any) -> bool:
+        """Verified routing requires an exact #473 profile pin (#848).
+
+        The coarse ``routing_evidence`` enum alone never satisfies the
+        strong-routing capability: the record must also pin a persisted
+        RoutingProfile by id + semantic hash in its provenance, so a bare
+        'verified' label cannot masquerade as a resolved authority.
+        """
+        if (
+            getattr(measurement, 'evidence_type', None) != 'measured'
+            or getattr(measurement, 'routing_evidence', None) != 'verified'
+        ):
+            return False
+        try:
+            provenance = json.loads(
+                getattr(measurement, 'provenance_json', '') or '{}'
+            )
+        except (ValueError, TypeError):
+            return False
+        profile = provenance.get('routing_profile')
+        if not isinstance(profile, dict):
+            return False
+        profile_id = profile.get('routing_profile_id')
+        profile_sha256 = profile.get('routing_profile_sha256')
+        return (
+            isinstance(profile_id, str)
+            and isinstance(profile_sha256, str)
+            and len(profile_sha256) == 64
+        )
+
     passed = all(
-        getattr(measurement, 'evidence_type', None) == 'measured'
-        and getattr(measurement, 'routing_evidence', None) == 'verified'
+        _strong_routing(measurement)
         for measurement in context.measurements
     )
     subject = {

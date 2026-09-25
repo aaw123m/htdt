@@ -2722,7 +2722,179 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'legacy schema-marker table — superseded by cad_* domain '
         'authorities; strongest verification is schema + payload parse',
+    ),    'cad_acoustic_source_poses': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
     ),
+    'cad_bass_management_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_bass_management_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_calibration_lifecycle_events': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_compute_benchmarks': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_data_source_registry': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_dataset_reviews': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_device_action_acks': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_device_capability_snapshots': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_device_target_bindings': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_field_evidence_records': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_field_sessions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_importer_declarations': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_material_definitions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_material_evidence': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_measurement_pose_observations': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_observed_device_states': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_planned_observed_deltas': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_playback_level_conditions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_project_notes': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_proposed_device_actions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_raw_source_records': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_reconciliation_decisions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_reference_playback_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_review_notes': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_site_relationships': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_site_spaces': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_source_review_decisions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_speaker_datasets': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_speaker_definitions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_upstream_version_candidates': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_validation_benchmark_specs': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_validation_cases': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_validation_corpus_entries': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_presentation_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_presentation_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_visual_qa_verdicts': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'capture_bundles': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_revisions': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_revision_conflicts': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_roomplan_records': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_source_evidence': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_raw_visual_mesh_bindings': (
+        'STRUCTURAL_ONLY',
+        'link/junction table — referential integrity enforced by replay of both endpoint authorities',
+    ),
+
 }
 
 #: Bookkeeping/editor/derived tables (the ``OPERATIONAL_METADATA`` and

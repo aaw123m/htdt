@@ -30,6 +30,7 @@ from .native_backup import (
     validate_backup as native_validate_backup,
 )
 from .native_upgrade import UpgradeEvent, execute_native_upgrade
+from .persisted_data import backup_excluded_names
 from .storage_maintenance import (
     StorageGcResult,
     StorageReport,
@@ -91,6 +92,12 @@ class BackupMetadata:
     managed_size_bytes: int
     file_count: int
     manifest_sha256: str
+    # Auxiliary registry components the archive carries (e.g.
+    # auxiliary/commissioning-plans.json) and the persisted-data categories
+    # the backup contract deliberately excludes — shown so 'whole-data
+    # backup' is a declared contract, not whatever was enumerated (#769).
+    auxiliary_components: tuple[str, ...] = ()
+    excluded_categories: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -173,6 +180,10 @@ def _metadata_from_manifest(
         managed_size_bytes=sum(entry.size_bytes for entry in manifest.files),
         file_count=len(manifest.files),
         manifest_sha256=manifest.manifest_sha256,
+        auxiliary_components=tuple(
+            entry.path for entry in manifest.files if entry.kind == 'auxiliary'
+        ),
+        excluded_categories=backup_excluded_names(),
     )
 
 
