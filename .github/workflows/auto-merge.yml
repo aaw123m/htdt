@@ -15,8 +15,44 @@ on:
     branches: [main]
   # check_suite.completed does not fire for suites produced by GitHub Actions
   # itself; workflow_run.completed on the CI workflows is the reliable signal.
+  # Every workflow that can show up in a PR's check rollup must be listed —
+  # the last one to finish fires the sweep that merges the PR.
   workflow_run:
-    workflows: ["CI", "Windows Release Artifact"]
+    workflows:
+      - "Capture ingestion"
+      - "CI"
+      - "golden-path-preflight"
+      - "O100G workflow UX"
+      - "R100A-3 Radiation Reference"
+      - "R100B MFEM Concave Bounded Experiment"
+      - "R100B MFEM Wave References"
+      - "R100B MFEM Finite Record Reference"
+      - "R100B MFEM Modal Experiment"
+      - "R100B MFEM Rigid Modes Probe"
+      - "R100B MFEM Spatial H-Refinement"
+      - "R100B MFEM GL2 Exact Four Substeps"
+      - "R100B PFFDTD Concave Evidence"
+      - "R100B PFFDTD Complex Convergence"
+      - "R100B PFFDTD Impedance Reflection"
+      - "R100B PFFDTD Python CPU Probe"
+      - "R100B PFFDTD Rigid Modes"
+      - "R100B Production Adoption Readiness"
+      - "R100B Pyroomacoustics Probe"
+      - "R100B Pyroomacoustics Stochastic Gate"
+      - "R130A Candidate Wave Execution"
+      - "R130B Candidate Explicit Impedance Execution"
+      - "R130C Candidate Causal Boundary Execution"
+      - "R130D Independent General-3D Validation"
+      - "R130D Polyhedral Candidate Wave Execution"
+      - "R140 GPU Execution Authority"
+      - "R140 PFFDTD Resource Executor"
+      - "R150 Complex Path Response Authority"
+      - "R150 Deterministic GA Adapter"
+      - "R150 Single-Portal First-Order Reflection"
+      - "R160 Numerical Hybrid Composition"
+      - "R170A Low-Band Prediction Provider"
+      - "R170B Hybrid Prediction Provider"
+      - "Windows Release Artifact"
     types: [completed]
   workflow_dispatch:
 
@@ -46,8 +82,7 @@ jobs:
             gh pr view "$pr_number" --repo "$REPO" \
               --json labels,author,isDraft,state,headRefOid \
               --jq '(.isDraft == false) and (.state == "OPEN") and
-                    ((.author.login == "'"$BOT_LOGIN"'") or
-                     ([.labels[].name] | any(. == "automerge")))'
+                    ([.labels[].name] | any(. == "automerge"))'
           }
 
           merge_if_green() {
@@ -80,9 +115,11 @@ jobs:
           }
 
           sweep() {
-            # One API call covers the whole sweep: eligibility (bot author or
-            # automerge label) and every check rollup are folded into the PR
-            # list response instead of two calls per open PR.
+            # One API call covers the whole sweep: eligibility and every
+            # check rollup are folded into the PR list response instead of
+            # two calls per open PR. The automerge label is the queue: an
+            # orchestrator labels only the head PR so merges land one at a
+            # time in a chosen order.
             local prs
             prs=$(gh pr list --repo "$REPO" --state open --limit 100 \
               --json number,author,labels,isDraft,state,statusCheckRollup) || {
@@ -99,7 +136,7 @@ jobs:
                 or ((.state // "") == "SUCCESS");
               .[]
               | select(.isDraft == false and .state == "OPEN")
-              | select(.author.login == $bot or ([.labels[].name] | index("automerge")))
+              | select([.labels[].name] | index("automerge"))
               | ([.statusCheckRollup[]? | select(ctxname != "merge") | select(passing | not) | ctxname]) as $blockers
               | if ($blockers | length) == 0
                 then "MERGE \(.number)"
