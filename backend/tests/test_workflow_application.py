@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -250,6 +251,16 @@ def test_restore_rebind_routes_to_project_selection_when_project_is_gone(
     assert window.navigation_history.entries()
 
     lifecycle.begin_restore()
+
+    # The restored generation lacks the pre-restore project: while handles
+    # are released, drop its library row the way a whole-data restore would.
+    with sqlite3.connect(composition.repository_path) as connection:
+        connection.execute(
+            'DELETE FROM htdt_project_documents WHERE document_id=?',
+            ("document-1",),
+        )
+        connection.commit()
+
     lifecycle.resume_after_restore_attempt()
 
     assert composition.document_id == ""
