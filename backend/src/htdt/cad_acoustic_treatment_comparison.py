@@ -21,13 +21,19 @@ from .cad_schema import (
 )
 from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 TREATMENT_COMPARISON_SCHEMA_VERSION = 1
 TREATMENT_COMPARISON_AUTHORITY_VERSION = 'acoustic-treatment-comparison-1'
 TREATMENT_COMPARISON_CANDIDATE_VERSION = 'acoustic-treatment-comparison-candidate-1'
+TREATMENT_COMPARISON_OUTCOME_VERSION = 'acoustic-treatment-comparison-outcome-1'
 
 TreatmentComparisonRole = Literal['no_treatment', 'treatment']
+TreatmentCandidateAvailability = Literal['evaluated', 'unavailable']
+TreatmentOutcomeCompatibility = Literal[
+    'compatible', 'partial', 'incompatible'
+]
 
 
 def _canonical(value: Any) -> str:
@@ -421,6 +427,157 @@ def build_treatment_design_comparison(
     )
 
 
+class TreatmentCandidateOutcome(BaseModel):
+    """Whether one named design bound evaluated result evidence (#985).
+
+    Only exact evaluated authorities are admitted — a request that was
+    never successfully evaluated can never display a benefit.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    candidate_id: str = Field(
+        pattern=r'^treatment-comparison-candidate:[0-9a-f]{64}$'
+    )
+    candidate_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    availability: TreatmentCandidateAvailability
+    unavailable_reason: str | None = None
+    evaluated_result_refs: tuple[ExactExternalAuthorityRef, ...] = ()
+
+    @model_validator(mode='after')
+    def validate_outcome(self) -> 'TreatmentCandidateOutcome':
+        if self.availability == 'evaluated':
+            if not self.evaluated_result_refs:
+                raise ValueError(
+                    'evaluated candidate outcome requires exact result refs'
+                )
+            if self.unavailable_reason is not None:
+                raise ValueError(
+                    'evaluated candidate outcome cannot carry an '
+                    'unavailable reason'
+                )
+        else:
+            if self.evaluated_result_refs:
+                raise ValueError(
+                    'unavailable candidate outcome cannot carry '
+                    'evaluated result refs'
+                )
+            if not self.unavailable_reason:
+                raise ValueError(
+                    'unavailable candidate outcome requires an explicit '
+                    'reason'
+                )
+        ref_ids = [item.authority_id for item in self.evaluated_result_refs]
+        if len(ref_ids) != len(set(ref_ids)):
+            raise ValueError('candidate outcome result refs must be unique')
+        return self
+
+
+class TreatmentComparisonOutcome(BaseModel):
+    """Evaluated-evidence binding for a persisted comparison spec (#985)."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    authority_version: Literal[
+        'acoustic-treatment-comparison-outcome-1'
+    ] = TREATMENT_COMPARISON_OUTCOME_VERSION
+    outcome_id: str = Field(
+        pattern=r'^treatment-comparison-outcome:[0-9a-f]{64}$'
+    )
+    outcome_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    comparison_id: str = Field(
+        pattern=r'^treatment-design-comparison:[0-9a-f]{64}$'
+    )
+    comparison_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    document_id: str = Field(min_length=1)
+    outcomes: tuple[TreatmentCandidateOutcome, ...] = ()
+    compatibility: TreatmentOutcomeCompatibility
+    compatibility_reasons: tuple[str, ...] = ()
+    evaluated_at_utc: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def validate_outcome(self) -> 'TreatmentComparisonOutcome':
+        ids = [item.candidate_id for item in self.outcomes]
+        if len(ids) != len(set(ids)):
+            raise ValueError('comparison outcome candidates must be unique')
+        payload = self.model_dump(
+            mode='json', exclude={'outcome_id', 'outcome_sha256'}
+        )
+        digest = _digest(payload)
+        if self.outcome_sha256 != digest:
+            raise ValueError('TreatmentComparisonOutcome semantic hash mismatch')
+        if self.outcome_id != f'treatment-comparison-outcome:{digest}':
+            raise ValueError('TreatmentComparisonOutcome id mismatch')
+        return self
+
+
+def build_treatment_comparison_outcome(
+    *,
+    spec: TreatmentDesignComparisonSpec,
+    outcomes: Sequence[TreatmentCandidateOutcome],
+    evaluated_at_utc: str,
+) -> TreatmentComparisonOutcome:
+    """Bind evaluated candidate outcomes against the exact spec (#985 §4).
+
+    Compatibility verdict: all candidates evaluated → ``compatible``;
+    some → ``partial``; none → ``incompatible`` — never a fabricated
+    benefit for an unevaluated design.
+    """
+    spec_ids = {item.candidate_id: item for item in spec.candidates}
+    outcome_tuple = tuple(outcomes)
+    for outcome in outcome_tuple:
+        candidate = spec_ids.get(outcome.candidate_id)
+        if candidate is None:
+            raise ValueError(
+                'outcome candidate does not exist in the comparison spec'
+            )
+        if candidate.candidate_sha256 != outcome.candidate_sha256:
+            raise ValueError(
+                'outcome candidate semantic hash mismatch'
+            )
+    evaluated = sum(
+        1 for item in outcome_tuple if item.availability == 'evaluated'
+    )
+    if evaluated == len(spec.candidates):
+        compatibility: TreatmentOutcomeCompatibility = 'compatible'
+    elif evaluated == 0:
+        compatibility = 'incompatible'
+    else:
+        compatibility = 'partial'
+    missing = [
+        item.label
+        for item in spec.candidates
+        if item.candidate_id
+        not in {outcome.candidate_id for outcome in outcome_tuple}
+    ]
+    reasons = tuple(
+        [f'{evaluated}/{len(spec.candidates)} candidates evaluated']
+        + [f'no outcome bound for candidate: {label}' for label in missing]
+    )
+    payload: dict[str, Any] = {
+        'authority_version': TREATMENT_COMPARISON_OUTCOME_VERSION,
+        'comparison_id': spec.comparison_id,
+        'comparison_sha256': spec.comparison_sha256,
+        'document_id': spec.document_id,
+        'outcomes': [item.model_dump(mode='json') for item in outcome_tuple],
+        'compatibility': compatibility,
+        'compatibility_reasons': list(reasons),
+        'evaluated_at_utc': evaluated_at_utc,
+    }
+    digest = _digest(payload)
+    return TreatmentComparisonOutcome(
+        outcome_id=f'treatment-comparison-outcome:{digest}',
+        outcome_sha256=digest,
+        comparison_id=spec.comparison_id,
+        comparison_sha256=spec.comparison_sha256,
+        document_id=spec.document_id,
+        outcomes=outcome_tuple,
+        compatibility=compatibility,
+        compatibility_reasons=reasons,
+        evaluated_at_utc=evaluated_at_utc,
+    )
+
+
 class CadAcousticTreatmentComparisonRepository:
     """Append-only exact treatment-design comparison persistence."""
 
@@ -470,7 +627,11 @@ class CadAcousticTreatmentComparisonRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'cad_acoustic_treatment_comparisons')
+            require_native_tables(
+                connection,
+                'cad_acoustic_treatment_comparisons',
+                'cad_treatment_comparison_outcomes',
+            )
 
     def _validate(self, spec: TreatmentDesignComparisonSpec) -> None:
         revision = self.scene_repository.get(spec.baseline_scene_revision_id)
@@ -692,3 +853,124 @@ class CadAcousticTreatmentComparisonRepository:
             self._validate(spec)
             specs.append(spec)
         return tuple(specs)
+
+    def _validate_outcome(
+        self,
+        outcome: TreatmentComparisonOutcome,
+    ) -> TreatmentDesignComparisonSpec:
+        spec = self.get(outcome.comparison_id)
+        if spec is None:
+            raise ValueError(
+                'outcome references missing treatment comparison spec'
+            )
+        if spec.comparison_sha256 != outcome.comparison_sha256:
+            raise ValueError('outcome comparison semantic hash mismatch')
+        candidate_ids = {item.candidate_id for item in spec.candidates}
+        for entry in outcome.outcomes:
+            if entry.candidate_id not in candidate_ids:
+                raise ValueError(
+                    'outcome references a candidate outside the spec'
+                )
+        return spec
+
+    def save_outcome(
+        self,
+        outcome: TreatmentComparisonOutcome,
+    ) -> TreatmentComparisonOutcome:
+        outcome = TreatmentComparisonOutcome.model_validate(
+            outcome.model_dump(mode='python')
+        )
+        self._validate_outcome(outcome)
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_treatment_comparison_outcomes
+                WHERE outcome_id=?
+                """,
+                (outcome.outcome_id,),
+            ).fetchone()
+            if existing is not None:
+                persisted = TreatmentComparisonOutcome.model_validate_json(
+                    existing['payload_json']
+                )
+                if persisted != outcome:
+                    raise ValueError(
+                        'TreatmentComparisonOutcome id exists with '
+                        'different semantics'
+                    )
+                return persisted
+            connection.execute(
+                """
+                INSERT INTO cad_treatment_comparison_outcomes(
+                    outcome_id,
+                    outcome_sha256,
+                    comparison_id,
+                    document_id,
+                    compatibility,
+                    evaluated_at_utc,
+                    payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    outcome.outcome_id,
+                    outcome.outcome_sha256,
+                    outcome.comparison_id,
+                    outcome.document_id,
+                    outcome.compatibility,
+                    outcome.evaluated_at_utc,
+                    outcome.model_dump_json(),
+                ),
+            )
+        return outcome
+
+    def get_outcome(
+        self,
+        outcome_id: str,
+    ) -> TreatmentComparisonOutcome | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_treatment_comparison_outcomes
+                WHERE outcome_id=?
+                """,
+                (outcome_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        outcome = TreatmentComparisonOutcome.model_validate_json(
+            row['payload_json']
+        )
+        self._validate_outcome(outcome)
+        return outcome
+
+    def list_outcomes(
+        self,
+        comparison_id: str,
+    ) -> tuple[TreatmentComparisonOutcome, ...]:
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_treatment_comparison_outcomes
+                WHERE comparison_id=?
+                ORDER BY seq ASC
+                """,
+                (comparison_id,),
+            ).fetchall()
+        outcomes: list[TreatmentComparisonOutcome] = []
+        for row in rows:
+            outcome = TreatmentComparisonOutcome.model_validate_json(
+                row['payload_json']
+            )
+            self._validate_outcome(outcome)
+            outcomes.append(outcome)
+        return tuple(outcomes)
+
+    def latest_outcome(
+        self,
+        comparison_id: str,
+    ) -> TreatmentComparisonOutcome | None:
+        outcomes = self.list_outcomes(comparison_id)
+        return None if not outcomes else outcomes[-1]

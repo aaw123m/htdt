@@ -28,6 +28,10 @@ from PySide6.QtWidgets import (
 from .cad_measurement_jobs import MeasurementJobApplyContext, MeasurementJobGuard, MeasurementJobToken
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_repository import CadMeasurementRepository
+from .measurement_target_service import (
+    TARGET_PATTERN_PRESETS,
+    MeasurementTargetService,
+)
 from .cad_measurements import measurement_record_for_revision, normalize_rew_api_snapshot, normalize_rew_text
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import (
@@ -90,6 +94,11 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self.compare_low_field: QDoubleSpinBox | None = None
         self.compare_high_field: QDoubleSpinBox | None = None
         self.rew_client = RewApiClient()
+        self.target_service = MeasurementTargetService(repository, document_id)
+        self.pattern_anchor_combo: QComboBox | None = None
+        self.pattern_preset_combo: QComboBox | None = None
+        self.pattern_spacing_field: QDoubleSpinBox | None = None
+        self.pattern_list_label: QLabel | None = None
         self.rew_job_guard = MeasurementJobGuard()
         # Parentless until self is a QObject; reparented right after super().
         self._rew_pool = NativeWorkerPool()
@@ -203,6 +212,32 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self.diff_plot.showGrid(x=True, y=True, alpha=0.25)
         layout.addWidget(self.diff_plot)
 
+        pattern_form = QFormLayout()
+        self.pattern_anchor_combo = QComboBox()
+        self.pattern_anchor_combo.setMinimumContentsLength(18)
+        pattern_form.addRow('ターゲット基準', self.pattern_anchor_combo)
+        self.pattern_preset_combo = QComboBox()
+        self.pattern_preset_combo.addItems(TARGET_PATTERN_PRESETS)
+        pattern_form.addRow('パターン', self.pattern_preset_combo)
+        self.pattern_spacing_field = QDoubleSpinBox()
+        self.pattern_spacing_field.setRange(0.01, 1.0)
+        self.pattern_spacing_field.setDecimals(3)
+        self.pattern_spacing_field.setValue(0.10)
+        self.pattern_spacing_field.setSuffix(' m')
+        pattern_form.addRow('間隔', self.pattern_spacing_field)
+        layout.addLayout(pattern_form)
+        pattern_buttons = QHBoxLayout()
+        pattern_create_button = QPushButton('ターゲット作成')
+        pattern_create_button.clicked.connect(self._create_target_pattern)
+        pattern_buttons.addWidget(pattern_create_button)
+        pattern_materialize_button = QPushButton('ターゲット実体化')
+        pattern_materialize_button.clicked.connect(self._materialize_target_pattern)
+        pattern_buttons.addWidget(pattern_materialize_button)
+        layout.addLayout(pattern_buttons)
+        self.pattern_list_label = QLabel('target patternなし')
+        self.pattern_list_label.setWordWrap(True)
+        layout.addWidget(self.pattern_list_label)
+
         dock = QDockWidget('実測', self)
         dock.setWidget(panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
@@ -213,6 +248,105 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         if constraint_dock is not None:
             self.tabifyDockWidget(constraint_dock, dock)
         dock.raise_()
+        self._refresh_target_patterns()
+
+    def _refresh_target_patterns(self) -> None:
+        """Populate anchor choices and the persisted pattern list (#987)."""
+        if self.pattern_anchor_combo is not None:
+            current = self.pattern_anchor_combo.currentData()
+            self.pattern_anchor_combo.clear()
+            for kind, entity_id in self.target_service.anchor_entity_options():
+                self.pattern_anchor_combo.addItem(
+                    f'{kind}: {entity_id}', (kind, entity_id)
+                )
+            index = self.pattern_anchor_combo.findData(current)
+            if index >= 0:
+                self.pattern_anchor_combo.setCurrentIndex(index)
+        if self.pattern_list_label is None:
+            return
+        presentations = self.target_service.list_presentations()
+        if not presentations:
+            self.pattern_list_label.setText('target patternなし')
+            return
+        lines = []
+        for item in presentations[-6:]:
+            state = 'stale(要rebase)' if item.stale else 'current'
+            lines.append(
+                f"{item.pattern_id.split(':')[-1][:8]} "
+                f"{item.anchor_kind} v{item.pattern_version} "
+                f"{item.materialized_count}/{item.point_count} {state}"
+            )
+        self.pattern_list_label.setText('\n'.join(lines))
+
+    def _create_target_pattern(self) -> None:
+        combo = self.pattern_anchor_combo
+        if combo is None or combo.currentData() is None:
+            self.statusBar().showMessage('ターゲット基準がありません')
+            return
+        kind, entity_id = combo.currentData()
+        try:
+            pattern = self.target_service.create_pattern(
+                anchor_kind=kind,
+                anchor_entity_id=entity_id,
+                preset=self.pattern_preset_combo.currentText(),
+                spacing_m=self.pattern_spacing_field.value(),
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f'パターンを作成できません · {exc}')
+            return
+        preview = self.target_service.preview(pattern)
+        self.statusBar().showMessage(
+            f'パターン作成 · {len(preview.positions)}点 '
+            f'(anchor {pattern.anchor_revision_id[:8]}) — 実体化で確定'
+        )
+        self._refresh_target_patterns()
+
+    def _materialize_target_pattern(self) -> None:
+        presentations = self.target_service.list_presentations()
+        if not presentations:
+            self.statusBar().showMessage('materializeするpatternがありません')
+            return
+        # Materialize the newest un-materialized or stale-anchored pattern
+        # via the canonical pinned-revision authority (#987).
+        target = next(
+            (
+                item
+                for item in reversed(presentations)
+                if item.materialized_count < item.point_count
+            ),
+            None,
+        )
+        if target is None:
+            target = presentations[-1]
+            if target.stale:
+                try:
+                    rebased = self.target_service.rebase(target.pattern_id)
+                except Exception as exc:
+                    self.statusBar().showMessage(f'rebaseできません · {exc}')
+                    return
+                target_id = rebased.pattern_id
+            else:
+                self.statusBar().showMessage('すべてのpatternは実体化済みです')
+                self._refresh_target_patterns()
+                return
+        else:
+            target_id = target.pattern_id
+            if target.stale:
+                try:
+                    rebased = self.target_service.rebase(target_id)
+                    target_id = rebased.pattern_id
+                except Exception as exc:
+                    self.statusBar().showMessage(f'rebaseできません · {exc}')
+                    return
+        try:
+            points = self.target_service.materialize(target_id)
+        except Exception as exc:
+            self.statusBar().showMessage(f'実体化できません · {exc}')
+            return
+        ids = ', '.join(point.measurement_point_entity_id for point in points)
+        self.statusBar().showMessage(f'実体化しました · {ids}')
+        self._refresh_target_patterns()
+        self._rebuild()
 
     def _rebuild(self, *, reset_camera: bool = False) -> None:
         super()._rebuild(reset_camera=reset_camera)

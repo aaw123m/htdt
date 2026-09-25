@@ -1038,13 +1038,16 @@ class SystemExpansionOptimizePanel(QFrame):
         layout.addWidget(self.advanced_label)
 
         actions = QHBoxLayout()
+        self.evaluate_button = QPushButton("提案を評価 / 比較を更新")
         self.robustness_button = QPushButton("ばらつき耐性を確認")
         self.apply_button = QPushButton("この提案を適用…")
         set_primary_action(self.apply_button)
+        actions.addWidget(self.evaluate_button)
         actions.addWidget(self.robustness_button)
         actions.addWidget(self.apply_button)
         actions.addStretch(1)
         layout.addLayout(actions)
+        self.evaluate_button.clicked.connect(self._evaluate)
         self.robustness_button.clicked.connect(self._robustness)
         self.apply_button.clicked.connect(self._apply)
         self.selector.changed.connect(lambda _variant_id: self.refresh())
@@ -1123,6 +1126,32 @@ class SystemExpansionOptimizePanel(QFrame):
                 )
             )
         )
+
+    def _evaluate(self) -> None:
+        variant_ids = [
+            variant.variant_id for variant in self.service.variants()
+        ]
+        if not variant_ids:
+            self.summary.setText("評価対象の提案がありません。")
+            return
+        try:
+            execution = self.service.evaluate_proposals(
+                variant_ids,
+                include_current=True,
+            )
+        except (ValueError, KeyError) as exc:
+            self.summary.setText(f"評価できません: {exc}")
+            return
+        evaluated = sum(
+            1
+            for candidate in execution.candidates
+            if candidate.bundle is not None
+        )
+        self.summary.setText(
+            f"{execution.spec.name}: {evaluated}/"
+            f"{len(execution.candidates)} 候補の証跡を永続化しました。"
+        )
+        self.refresh()
 
     def _robustness(self) -> None:
         variant_id = self.selector.current_variant_id()

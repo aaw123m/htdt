@@ -241,13 +241,47 @@ def test_authority_mismatch_blocks() -> None:
 def test_cached_cells_reuse_exact_hash() -> None:
     spec = _spec()
     providers = {'source-fl': _provider(spec), 'source-fr': _provider(spec)}
-    cached = {('source-fl', 'seat-a'): _hash('cached')}
+    first = collect_matrix_results(spec, providers)
+    ready_sha = first.cell('source-fl', 'seat-a').result_sha256
+    cached = {('source-fl', 'seat-a'): ready_sha}
     result = collect_matrix_results(
         spec, providers, cached_result_sha256=cached
     )
     cell = result.cell('source-fl', 'seat-a')
     assert cell.state == 'CACHED'
-    assert cell.result_sha256 == _hash('cached')
+    assert cell.result_sha256 == ready_sha
+
+
+def test_wrong_cached_hash_is_rejected() -> None:
+    spec = _spec()
+    providers = {'source-fl': _provider(spec), 'source-fr': _provider(spec)}
+    cached = {('source-fl', 'seat-a'): _hash('cached')}
+    with pytest.raises(ValueError, match='cached result hash does not match'):
+        collect_matrix_results(
+            spec, providers, cached_result_sha256=cached
+        )
+
+
+def test_provider_grid_mismatch_blocks_cell() -> None:
+    spec = _spec()
+    provider = _provider(spec)
+    for response in provider.receiver_responses:
+        response.frequency_hz = (20.0, 50.0, 200.0)
+    providers = {'source-fl': provider, 'source-fr': _provider(spec)}
+    result = collect_matrix_results(spec, providers)
+    cell_states = {
+        (cell.matrix_source_id, cell.matrix_receiver_id): cell.state
+        for cell in result.cells
+    }
+    assert cell_states[('source-fl', 'seat-a')] == 'BLOCKED'
+    assert cell_states[('source-fl', 'seat-b')] == 'BLOCKED'
+    assert cell_states[('source-fr', 'seat-a')] == 'READY'
+    blocked = next(
+        cell
+        for cell in result.cells
+        if cell.matrix_source_id == 'source-fl'
+    )
+    assert 'frequency grid' in blocked.blocked_reason
 
 
 def test_currency_marks_stale_scene() -> None:
