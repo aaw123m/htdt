@@ -509,12 +509,20 @@ def test_explicit_as_built_record_uses_descendant_without_rewriting_proposal(
         confirmed_by='installer-fixture',
         confirmed_at_utc='2026-09-20T00:10:00+00:00',
         notes=('SL moved 0.12 m during installation',),
+        accepted_deviations={
+            'sl': 'SL moved 0.12 m during installation',
+        },
     )
 
     assert [item.revision_id for item in record.revision_lineage] == [
         applied.revision_id,
         as_built_revision.revision_id,
     ]
+    # #958: deviations are explicit per entity, not collapsed into as_built.
+    conformance = {
+        item.entity_id: item.state for item in record.entity_conformance
+    }
+    assert conformance == {'sl': 'deviated', 'sr': 'exact'}
     assert {item.entity_id for item in record.entity_lifecycle} == {'sl', 'sr'}
     assert all(item.state == 'as_built' for item in record.entity_lifecycle)
     assert variant.proposed_entities[0].entity.position.x_m == pytest.approx(0.6)
@@ -539,6 +547,112 @@ def test_explicit_as_built_record_uses_descendant_without_rewriting_proposal(
         reopened_lifecycle.for_application(application.application_id)
         == record
     )
+
+
+def test_as_built_rejects_silent_deviation_after_apply(tmp_path: Path) -> None:
+    """#958: moving a proposed entity post-apply is never silently conformant."""
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    edited_entities = tuple(
+        entity.model_copy(
+            update={
+                'position': entity.position.model_copy(update={'x_m': 0.72})
+            }
+        )
+        if entity.entity_id == 'sl'
+        else entity
+        for entity in applied.document.entities
+    )
+    drifted = scene_repository.save(
+        applied.document.model_copy(update={'entities': edited_entities}),
+        parent_revision_id=applied.revision_id,
+    ).revision
+
+    with pytest.raises(ValueError, match='accepted-deviation'):
+        build_system_variant_as_built_record(
+            scene_repository=scene_repository,
+            variant_repository=variant_repository,
+            application=application,
+            variant=variant,
+            as_built_revision=drifted,
+            confirmed_by='installer-fixture',
+            confirmed_at_utc='2026-09-20T00:10:00+00:00',
+        )
+
+
+def test_as_built_detects_reintroduced_removed_entity(tmp_path: Path) -> None:
+    """#958: every remove diff must stay absent in the as-built revision."""
+    (
+        scene_repository,
+        variant_repository,
+        variant,
+        application,
+        applied,
+    ) = _applied_502_fixture(tmp_path)
+
+    removal_variant = build_system_variant(
+        baseline=applied,
+        name='Retire surrounds',
+        role_bindings=_roles('FL', 'C', 'FR', 'TFL', 'TFR'),
+        proposed_entities=(),
+        remove_entity_ids=('sl', 'sr'),
+        created_at_utc=NOW,
+    )
+    variant_repository.save_variant(removal_variant)
+    removal_application = variant_repository.apply_variant(
+        removal_variant.variant_id,
+        selected_by='fixture-removal',
+        selected_at_utc='2026-09-21T00:00:00+00:00',
+    )
+    removal_revision = scene_repository.get(
+        removal_application.applied_revision_id
+    )
+    assert removal_revision is not None
+
+    # Removal-only variants now complete As-built (#958).
+    record = build_system_variant_as_built_record(
+        scene_repository=scene_repository,
+        variant_repository=variant_repository,
+        application=removal_application,
+        variant=removal_variant,
+        as_built_revision=removal_revision,
+        confirmed_by='installer-fixture',
+        confirmed_at_utc='2026-09-21T00:10:00+00:00',
+    )
+    conformance = {
+        item.entity_id: (item.diff_kind, item.state)
+        for item in record.entity_conformance
+    }
+    assert conformance == {'sl': ('remove', 'exact'), 'sr': ('remove', 'exact')}
+    # No entity was installed, so the derived lifecycle view is empty.
+    assert record.entity_lifecycle == ()
+
+    # Reintroducing a removed entity in a descendant is detected.
+    resurrected = scene_repository.save(
+        removal_revision.document.model_copy(
+            update={
+                'entities': removal_revision.document.entities
+                + (_speaker('sl', 'SL', 0.6, 3.0, 1.3),)
+            }
+        ),
+        parent_revision_id=removal_revision.revision_id,
+    ).revision
+    with pytest.raises(ValueError, match='reintroduces'):
+        build_system_variant_as_built_record(
+            scene_repository=scene_repository,
+            variant_repository=variant_repository,
+            application=removal_application,
+            variant=removal_variant,
+            as_built_revision=resurrected,
+            confirmed_by='installer-fixture',
+            confirmed_at_utc='2026-09-21T00:10:00+00:00',
+        )
 
 
 def test_as_built_promotion_rejects_missing_proposed_entity(tmp_path: Path) -> None:
