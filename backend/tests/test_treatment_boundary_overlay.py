@@ -55,15 +55,30 @@ from htdt.treatment_boundary_overlay import (
 from htdt.treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
 
 
-CLOSED_TETRA = b'''\
+# Closed unit box [0,1]^3, consistently outward-wound. The top face (z=1,
+# faces 3-4) is the planar 'host wall' treatments mount on; the remaining
+# faces form the room shell.
+BOX_ROOM = b'''\
 v 0 0 0
 v 1 0 0
+v 1 1 0
 v 0 1 0
 v 0 0 1
+v 1 0 1
+v 1 1 1
+v 0 1 1
 f 1 3 2
-f 1 2 4
 f 1 4 3
-f 2 3 4
+f 5 6 7
+f 5 7 8
+f 1 2 6
+f 1 6 5
+f 3 4 8
+f 3 8 7
+f 1 8 4
+f 1 5 8
+f 2 3 7
+f 2 7 6
 '''
 
 
@@ -230,8 +245,9 @@ def _definition(kind: str, suffix: str = ''):
 
 def _fixture(tmp_path: Path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
-    mesh = import_raw_visual_mesh(CLOSED_TETRA, source_name='treatment-boundary.obj')
+    mesh = import_raw_visual_mesh(BOX_ROOM, source_name='treatment-boundary.obj')
     triangle_ids = raw_triangle_ids(mesh)
+    host_triangle_ids = (triangle_ids[2], triangle_ids[3])
     conversion = make_semantic_geometry_conversion_request(
         mesh,
         source_scene_revision_id=None,
@@ -241,7 +257,16 @@ def _fixture(tmp_path: Path):
         surface_assignments=(
             SurfaceSemanticAssignment(
                 surface_key='room-shell',
-                triangle_ids=triangle_ids,
+                triangle_ids=host_triangle_ids,
+                semantic_class='room_boundary',
+            ),
+            SurfaceSemanticAssignment(
+                surface_key='room-rest',
+                triangle_ids=tuple(
+                    triangle_id
+                    for index, triangle_id in enumerate(triangle_ids)
+                    if index not in (2, 3)
+                ),
                 semantic_class='room_boundary',
             ),
         ),
@@ -309,7 +334,7 @@ def _input(
         definition=definition,
         revision=revision,
         instance_id=instance_id,
-        position=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+        position=Position3(x_m=0.5, y_m=0.5, z_m=1.0),
         coverage=TreatmentCoverage(
             width_m=1.0,
             height_m=1.0,
@@ -440,20 +465,178 @@ def test_geometric_only_treatment_never_becomes_fake_wave_impedance(tmp_path: Pa
     assert geometric.status == 'AVAILABLE'
 
 
-def test_partial_coverage_is_fail_closed_without_surface_subdivision(tmp_path: Path) -> None:
+def test_partial_coverage_compiles_to_derived_patch(tmp_path: Path) -> None:
+    """#976: a partial wall panel compiles to a clipped solver-facing patch,
+    never blocked and never silently full-surface."""
     fixture = _fixture(tmp_path)
     item = _input(
         fixture,
         _definition('both'),
         instance_id='panel-partial',
+        fraction=None,
+    )
+    # Shrink the panel: 0.4x0.4 m centered off-centre on the 1x1 host face.
+    placement = revise_treatment_placement(
+        item.placement,
+        revision=fixture['revision'],
+        position=Position3(x_m=0.3, y_m=0.3, z_m=1.0),
+        coverage=TreatmentCoverage(width_m=0.4, height_m=0.4),
+    )
+    fixture['treatment_repository'].save_placement(placement)
+    evaluation = fixture['treatment_repository'].evaluate_placement_surface_binding(
+        placement,
+        scene_revision_id=fixture['revision'].revision_id,
+    )
+    item = TreatmentBoundaryCompileInput(
+        definition=item.definition,
+        placement=placement,
+        surface_binding_evaluation=evaluation,
+    )
+
+    result = _compile(fixture, item, 'geometric')
+
+    assert result.status == 'AVAILABLE'
+    footprint = result.overlay.derived_footprint
+    assert footprint is not None
+    assert footprint.patch_area_m2 == pytest.approx(0.16)
+    assert footprint.derived_fraction == pytest.approx(0.16)
+    assert footprint.covers_entire_surface is False
+    assert result.composition_request.derived_coverage_fraction == (
+        pytest.approx(0.16)
+    )
+    assert result.composition_request.covers_entire_surface is False
+    assert (
+        result.composition_request.treatment_footprint_sha256
+        == footprint.footprint_sha256
+    )
+    # The untreated remainder keeps the exact base boundary authorities.
+    assert result.composition_request.base_material_authority == (
+        fixture['base_binding'].material_authority
+    )
+    assert result.composition_request.base_boundary_physics_authority == (
+        fixture['base_binding'].boundary_physics_authority
+    )
+
+
+def test_supplied_fraction_disagreeing_with_derived_geometry_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """#976: a caller-asserted fraction can never authorize the patch."""
+    fixture = _fixture(tmp_path)
+    item = _input(
+        fixture,
+        _definition('both'),
+        instance_id='panel-mismatch',
         fraction=0.5,
     )
 
     result = _compile(fixture, item, 'geometric')
 
-    assert result.status == 'BLOCKED_PARTIAL_COVERAGE'
-    assert result.overlay.treatment_coverage.host_surface_fraction == 0.5
+    # Placement covers the full host face; the supplied 0.5 scalar disagrees
+    # with the derived 1.0 fraction and is rejected rather than trusted.
+    assert result.status == 'BLOCKED_COVERAGE_MISMATCH'
+    assert result.overlay.derived_footprint.derived_fraction == (
+        pytest.approx(1.0)
+    )
     assert result.r120_surface_binding is None
+    assert result.composition_request is None
+
+
+def test_supplied_full_coverage_claim_requires_derived_proof(
+    tmp_path: Path,
+) -> None:
+    """#976: host_surface_fraction=1.0 on a small panel cannot become a
+    whole-surface replacement."""
+    fixture = _fixture(tmp_path)
+    item = _input(
+        fixture,
+        _definition('both'),
+        instance_id='panel-fake-full',
+        fraction=1.0,
+    )
+    placement = revise_treatment_placement(
+        item.placement,
+        revision=fixture['revision'],
+        position=Position3(x_m=0.3, y_m=0.3, z_m=1.0),
+        coverage=TreatmentCoverage(
+            width_m=0.4,
+            height_m=0.4,
+            host_surface_fraction=1.0,
+        ),
+    )
+    fixture['treatment_repository'].save_placement(placement)
+    evaluation = fixture['treatment_repository'].evaluate_placement_surface_binding(
+        placement,
+        scene_revision_id=fixture['revision'].revision_id,
+    )
+    item = TreatmentBoundaryCompileInput(
+        definition=item.definition,
+        placement=placement,
+        surface_binding_evaluation=evaluation,
+    )
+
+    result = _compile(fixture, item, 'geometric')
+
+    assert result.status == 'BLOCKED_COVERAGE_MISMATCH'
+    assert result.overlay.derived_footprint.derived_fraction == (
+        pytest.approx(0.16)
+    )
+    assert result.composition_request is None
+
+
+def test_disjoint_panels_on_one_surface_both_compile(tmp_path: Path) -> None:
+    """#976: only true geometric overlap is blocked; separated panels on one
+    wall each get their own derived patch."""
+    fixture = _fixture(tmp_path)
+
+    def panel(instance_id: str, x_m: float, y_m: float):
+        item = _input(
+            fixture,
+            _definition('both', instance_id),
+            instance_id=instance_id,
+            fraction=None,
+        )
+        placement = revise_treatment_placement(
+            item.placement,
+            revision=fixture['revision'],
+            position=Position3(x_m=x_m, y_m=y_m, z_m=1.0),
+            coverage=TreatmentCoverage(width_m=0.4, height_m=0.4),
+        )
+        fixture['treatment_repository'].save_placement(placement)
+        evaluation = fixture[
+            'treatment_repository'
+        ].evaluate_placement_surface_binding(
+            placement,
+            scene_revision_id=fixture['revision'].revision_id,
+        )
+        return TreatmentBoundaryCompileInput(
+            definition=item.definition,
+            placement=placement,
+            surface_binding_evaluation=evaluation,
+        )
+
+    first = panel('panel-left', 0.2, 0.2)
+    second = panel('panel-right', 0.8, 0.8)
+
+    results = compile_treatment_boundary_overlays(
+        fixture['revision'],
+        fixture['compiled'],
+        (first, second),
+        target_domain='geometric',
+        base_surface_bindings=(fixture['base_binding'],),
+    )
+
+    assert [item.status for item in results] == ['AVAILABLE', 'AVAILABLE']
+    footprints = [item.overlay.derived_footprint for item in results]
+    assert all(
+        item is not None
+        and item.derived_fraction == pytest.approx(0.16)
+        and not item.covers_entire_surface
+        for item in footprints
+    )
+    assert (
+        footprints[0].footprint_sha256 != footprints[1].footprint_sha256
+    )
 
 
 def test_stale_surface_binding_is_rejected(tmp_path: Path) -> None:
@@ -1014,7 +1197,7 @@ def test_overlay_save_fails_closed_when_placement_authority_is_missing(
         definition=definition,
         revision=fixture['revision'],
         instance_id='panel-unsaved-placement',
-        position=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+        position=Position3(x_m=0.5, y_m=0.5, z_m=1.0),
         coverage=TreatmentCoverage(
             width_m=1.0,
             height_m=1.0,
