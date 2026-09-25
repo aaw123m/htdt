@@ -11,6 +11,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'backend' / 'src'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from htdt.cad_model_validation_repository import CadModelValidationIntegrityError
 from htdt.rew_api import RewApiClient, RewApiError
