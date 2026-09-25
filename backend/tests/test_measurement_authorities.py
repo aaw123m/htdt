@@ -388,8 +388,8 @@ def _profile(**kwargs):
 
 
 def test_routing_profile_roundtrip(tmp_path):
-    _, _, quality_repository = _repositories(tmp_path)
-    profile = _profile()
+    revision, _, quality_repository = _repositories(tmp_path)
+    profile = _profile(scene_revision_id=revision.revision_id)
     quality_repository.save_routing_profile(profile)
     assert quality_repository.get_routing_profile(profile.routing_profile_id) == profile
     listed = quality_repository.list_routing_profiles()
@@ -457,7 +457,7 @@ def test_assignment_resolves_routing_profile(tmp_path):
         quality_repository=quality_repository,
         rew_client=object(),  # no REW available; engine_session stays absent
     )
-    profile = _profile()
+    profile = _profile(scene_revision_id=revision.revision_id)
     quality_repository.save_routing_profile(profile)
 
     raw = b'freq level\n20.0 70.0\n40.0 71.0\n80.0 69.0\n'
@@ -488,6 +488,10 @@ def _wiring_check(**kwargs):
     kwargs.setdefault('method', 'DCR probe')
     kwargs.setdefault('result', 'PASS')
     kwargs.setdefault('measured_at_utc', '2026-09-20T00:00:00+00:00')
+    # #848: a PASS claim needs resolvable evidence or an explicit manual
+    # attestation naming what was verified.
+    if kwargs['result'] == 'PASS':
+        kwargs.setdefault('evidence_refs', ('manual:dcr-probe-verified',))
     return build_wiring_check(document_id='fixture-f1', **kwargs)
 
 
