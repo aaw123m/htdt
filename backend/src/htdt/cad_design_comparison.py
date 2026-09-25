@@ -34,6 +34,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_authority_refs import ResolvedAuthority
 from .cad_repository import SceneRevision
 from .cad_scene import SceneDocument
 from .cad_scene_history import SceneDiff, diff_scene_documents
@@ -63,8 +64,12 @@ ComparisonEvidenceKind = Literal[
 EvidenceAvailability = Literal[
     'available',
     'missing_reference',
-    'unresolvable',
+    'foreign_project',
+    'semantic_hash_conflict',
     'incompatible_baseline',
+    'context_mismatch',
+    'unresolvable',
+    'unsupported',
 ]
 
 
@@ -112,6 +117,9 @@ class ComparisonAlternative(BaseModel):
         default=None, pattern=r'^[0-9a-f]{64}$'
     )
     as_built_ref_id: str | None = Field(default=None, min_length=1)
+    as_built_ref_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
     design_checkpoint_id: str | None = Field(default=None, min_length=1)
     design_checkpoint_sha256: str | None = Field(
         default=None, pattern=r'^[0-9a-f]{64}$'
@@ -138,6 +146,12 @@ class ComparisonAlternative(BaseModel):
         )
         if checkpoint_pair[0] != checkpoint_pair[1]:
             raise ValueError('design checkpoint id/hash must be supplied together')
+        as_built_pair = (
+            self.as_built_ref_id is not None,
+            self.as_built_ref_sha256 is not None,
+        )
+        if as_built_pair[0] != as_built_pair[1]:
+            raise ValueError('as-built ref id/hash must be supplied together')
         keys = [(item.kind, item.ref_id) for item in self.evidence_refs]
         if len(keys) != len(set(keys)):
             raise ValueError('alternative evidence refs must be unique per kind/ref')
@@ -146,7 +160,7 @@ class ComparisonAlternative(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'alternative_id': self.alternative_id,
             'label': self.label,
             'kind': self.kind,
@@ -164,6 +178,11 @@ class ComparisonAlternative(BaseModel):
             'semantic_change_summary': self.semantic_change_summary,
             'created_at_utc': self.created_at_utc,
         }
+        if self.as_built_ref_sha256 is not None:
+            # New field — only hashed when set so rows persisted before it
+            # existed keep verifying against their original payload.
+            payload['as_built_ref_sha256'] = self.as_built_ref_sha256
+        return payload
 
 
 class DesignComparisonSet(BaseModel):
@@ -271,6 +290,7 @@ def build_alternative(
     system_variant_id: str | None = None,
     system_variant_sha256: str | None = None,
     as_built_ref_id: str | None = None,
+    as_built_ref_sha256: str | None = None,
     design_checkpoint_id: str | None = None,
     design_checkpoint_sha256: str | None = None,
     evidence_refs: tuple[ComparisonEvidenceRef, ...] = (),
@@ -288,6 +308,7 @@ def build_alternative(
         'system_variant_id': system_variant_id,
         'system_variant_sha256': system_variant_sha256,
         'as_built_ref_id': as_built_ref_id,
+        'as_built_ref_sha256': as_built_ref_sha256,
         'design_checkpoint_id': design_checkpoint_id,
         'design_checkpoint_sha256': design_checkpoint_sha256,
         'evidence_refs': tuple(evidence_refs),
@@ -391,55 +412,110 @@ def diff_alternatives(
     )
 
 
+#: Evidence kinds without a canonical authority — ``other`` is an explicit
+#: escape hatch for non-exact evidence and never resolves.
+UNRESOLVABLE_EVIDENCE_KINDS: frozenset[str] = frozenset({'other'})
+
+
 def evaluate_comparison_set(
     comparison_set: DesignComparisonSet,
     *,
-    evidence_exists: 'Mapping[tuple[str, str], str | None]',
+    resolved_evidence: 'Mapping[tuple[str, str], ResolvedAuthority | None]',
 ) -> ComparisonAvailability:
     """Report per-alternative evidence availability; nothing is coerced.
 
-    ``evidence_exists`` maps ``(kind, ref_id)`` to the referenced evidence's
-    current semantic hash or ``None`` when it does not resolve. Scene-bound
-    evidence additionally requires the alternative's pinned SceneRevision to
-    still be the baseline the evidence was produced under — a mismatched
-    pin is ``incompatible_baseline`` rather than silently compared.
+    ``resolved_evidence`` maps ``(kind, ref_id)`` to the
+    :class:`ResolvedAuthority` the canonical typed resolver produced for the
+    ref, or ``None`` when it does not resolve. Distinct failure reasons stay
+    distinct: a missing authority is ``missing_reference``, a semantic-hash
+    mismatch is ``semantic_hash_conflict``, a foreign-document authority is
+    ``foreign_project``, a scene-bound authority pinned to a different scene
+    baseline is ``incompatible_baseline``, a variant-scoped authority on the
+    wrong variant is ``context_mismatch``, a hash-bearing authority whose
+    ref omits ``ref_sha256`` is ``unresolvable`` (it cannot claim the exact
+    pin), and kinds without a canonical authority are ``unsupported``.
     """
 
     items: list[EvidenceAvailabilityItem] = []
     for alternative in comparison_set.alternatives:
         for ref in alternative.evidence_refs:
-            current = evidence_exists.get((ref.kind, ref.ref_id))
-            if current is None:
-                items.append(
-                    EvidenceAvailabilityItem(
-                        alternative_id=alternative.alternative_id,
-                        kind=ref.kind,
-                        ref_id=ref.ref_id,
-                        state='unresolvable',
-                        reason='referenced evidence does not resolve',
-                    )
+            state, reason = _evaluate_ref(
+                alternative,
+                ref,
+                resolved_evidence.get((ref.kind, ref.ref_id)),
+                comparison_set.document_id,
+            )
+            items.append(
+                EvidenceAvailabilityItem(
+                    alternative_id=alternative.alternative_id,
+                    kind=ref.kind,
+                    ref_id=ref.ref_id,
+                    state=state,
+                    reason=reason,
                 )
-            elif ref.ref_sha256 is not None and ref.ref_sha256 != current:
-                items.append(
-                    EvidenceAvailabilityItem(
-                        alternative_id=alternative.alternative_id,
-                        kind=ref.kind,
-                        ref_id=ref.ref_id,
-                        state='incompatible_baseline',
-                        reason='referenced evidence no longer matches the pinned hash',
-                    )
-                )
-            else:
-                items.append(
-                    EvidenceAvailabilityItem(
-                        alternative_id=alternative.alternative_id,
-                        kind=ref.kind,
-                        ref_id=ref.ref_id,
-                        state='available',
-                        reason='reference resolves to the pinned authority',
-                    )
-                )
+            )
     return ComparisonAvailability(
         set_id=comparison_set.set_id,
         items=tuple(items),
     )
+
+
+def _evaluate_ref(
+    alternative: ComparisonAlternative,
+    ref: ComparisonEvidenceRef,
+    resolved: 'ResolvedAuthority | None',
+    document_id: str,
+) -> tuple[EvidenceAvailability, str]:
+    if ref.kind in UNRESOLVABLE_EVIDENCE_KINDS:
+        return (
+            'unsupported',
+            'evidence kind has no canonical authority and cannot resolve',
+        )
+    if resolved is None:
+        return (
+            'missing_reference',
+            'referenced evidence does not resolve to a persisted authority',
+        )
+    if (
+        resolved.document_id is not None
+        and resolved.document_id != document_id
+    ):
+        return (
+            'foreign_project',
+            'referenced evidence belongs to another document',
+        )
+    if ref.scene_bound and resolved.scene_revision_id is not None and (
+        resolved.scene_revision_id != alternative.scene_revision_id
+        or (
+            resolved.scene_content_hash is not None
+            and resolved.scene_content_hash != alternative.scene_content_hash
+        )
+    ):
+        return (
+            'incompatible_baseline',
+            'referenced evidence is pinned to a different scene baseline',
+        )
+    if (
+        resolved.system_variant_id is not None
+        and resolved.system_variant_id != alternative.system_variant_id
+    ):
+        return (
+            'context_mismatch',
+            'referenced evidence is bound to a different system variant',
+        )
+    if (
+        ref.ref_sha256 is not None
+        and resolved.semantic_sha256 is not None
+        and ref.ref_sha256 != resolved.semantic_sha256
+    ):
+        return (
+            'semantic_hash_conflict',
+            'referenced evidence no longer matches the pinned hash',
+        )
+    if resolved.semantic_sha256 is not None and ref.ref_sha256 is None:
+        return (
+            'unresolvable',
+            'authority exposes a semantic hash; a ref without ref_sha256 '
+            'cannot claim exact availability',
+        )
+    return 'available', 'reference resolves to the pinned authority'
