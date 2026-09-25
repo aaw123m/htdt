@@ -46,6 +46,13 @@ class ResolvedAuthority:
     #: Canonical containers the ref is a member of (e.g. a comparison
     #: alternative's owning ``design_comparison_set`` ids).
     container_ids: tuple[str, ...] = ()
+    #: Exact scene baseline the authority is pinned to, when the authority
+    #: is scene-bound (predictions, measurements, standards evaluations,
+    #: checkpoints, as-built and measured records).
+    scene_revision_id: str | None = None
+    scene_content_hash: str | None = None
+    #: System variant the authority belongs to, when variant-scoped.
+    system_variant_id: str | None = None
 
 
 class AuthorityRefResolver(Protocol):
@@ -81,6 +88,17 @@ class CanonicalAuthorityRefResolver:
         self._action_item_repository = None
         self._measurement_repository = None
         self._inbox_repository = None
+        self._prediction_repository = None
+        self._standards_repository = None
+        self._search_repository = None
+        self._objective_repository = None
+        self._roomsim_repository = None
+        self._robustness_repository = None
+        self._model_validation_repository = None
+        self._lifecycle_repository = None
+        self._quality_repository = None
+        self._measured_repository = None
+        self._preset_repository = None
 
     # -- lazy repository accessors -------------------------------------
 
@@ -186,6 +204,133 @@ class CanonicalAuthorityRefResolver:
             )
         return self._inbox_repository
 
+    @property
+    def _predictions(self):
+        if self._prediction_repository is None:
+            from .cad_prediction_repository import CadPredictionRepository
+
+            self._prediction_repository = CadPredictionRepository(
+                self._scene_repository
+            )
+        return self._prediction_repository
+
+    @property
+    def _standards(self):
+        if self._standards_repository is None:
+            from .cad_standards_repository import CadStandardsRepository
+
+            self._standards_repository = CadStandardsRepository(
+                self._scene_repository
+            )
+        return self._standards_repository
+
+    @property
+    def _search(self):
+        if self._search_repository is None:
+            from .cad_search_repository import CadSearchRepository
+
+            self._search_repository = CadSearchRepository(
+                self._scene_repository
+            )
+        return self._search_repository
+
+    @property
+    def _objectives(self):
+        if self._objective_repository is None:
+            from .cad_objective_repository import CadObjectiveRepository
+
+            self._objective_repository = CadObjectiveRepository(
+                self._scene_repository,
+                self._search,
+            )
+        return self._objective_repository
+
+    @property
+    def _roomsim(self):
+        if self._roomsim_repository is None:
+            from .cad_roomsim_repository import CadRoomSimRepository
+
+            self._roomsim_repository = CadRoomSimRepository(
+                self._scene_repository,
+                self._search,
+            )
+        return self._roomsim_repository
+
+    @property
+    def _robustness(self):
+        if self._robustness_repository is None:
+            from .cad_robustness_repository import CadRobustnessRepository
+
+            self._robustness_repository = CadRobustnessRepository(
+                scene_repository=self._scene_repository,
+                search_repository=self._search,
+                objective_repository=self._objectives,
+            )
+        return self._robustness_repository
+
+    @property
+    def _model_validations(self):
+        if self._model_validation_repository is None:
+            from .cad_model_validation_repository import (
+                CadModelValidationRepository,
+            )
+
+            self._model_validation_repository = CadModelValidationRepository(
+                self._search,
+                self._roomsim,
+                self._measurements,
+                self._objectives,
+            )
+        return self._model_validation_repository
+
+    @property
+    def _as_built_lifecycle(self):
+        if self._lifecycle_repository is None:
+            from .cad_system_variant_lifecycle import (
+                CadSystemVariantLifecycleRepository,
+            )
+
+            self._lifecycle_repository = CadSystemVariantLifecycleRepository(
+                scene_repository=self._scene_repository,
+                variant_repository=self._variants,
+            )
+        return self._lifecycle_repository
+
+    @property
+    def _measured(self):
+        if self._measured_repository is None:
+            from .cad_measurement_quality_repository import (
+                CadMeasurementQualityRepository,
+            )
+            from .cad_system_variant_measured_lifecycle import (
+                CadSystemVariantMeasuredLifecycleRepository,
+            )
+
+            self._quality_repository = CadMeasurementQualityRepository(
+                self._measurements
+            )
+            self._measured_repository = (
+                CadSystemVariantMeasuredLifecycleRepository(
+                    scene_repository=self._scene_repository,
+                    lifecycle_repository=self._as_built_lifecycle,
+                    measurement_repository=self._measurements,
+                    quality_repository=self._quality_repository,
+                )
+            )
+        return self._measured_repository
+
+    @property
+    def _presets(self):
+        if self._preset_repository is None:
+            from .cad_operating_preset_repository import (
+                CadOperatingPresetRepository,
+            )
+
+            self._preset_repository = CadOperatingPresetRepository(
+                self._scene_repository
+            )
+        return self._preset_repository
+
     # -- protocol -------------------------------------------------------
 
     #: Ref kinds this resolver can prove against canonical persistence.
@@ -205,6 +350,15 @@ class CanonicalAuthorityRefResolver:
             'action_item',
             'measurement',
             'capture_inbox_item',
+            'prediction',
+            'validation',
+            'standards',
+            'robustness',
+            'as_built',
+            'measured_state',
+            'named_view',
+            'operating_preset',
+            'constraint_snapshot',
         }
     )
 
@@ -262,6 +416,8 @@ class CanonicalAuthorityRefResolver:
             return ResolvedAuthority(
                 document_id=checkpoint.document_id,
                 semantic_sha256=checkpoint.checkpoint_sha256,
+                scene_revision_id=checkpoint.scene_revision_id,
+                scene_content_hash=checkpoint.scene_content_hash,
             )
         if kind == 'analysis_study':
             # #871: 'analysis_study' names the #594 AnalysisStudy artifact,
@@ -321,7 +477,91 @@ class CanonicalAuthorityRefResolver:
             return ResolvedAuthority(
                 document_id=record.document_id,
                 semantic_sha256=measurement_sha256(record),
+                scene_revision_id=record.scene_revision_id,
+                scene_content_hash=record.scene_content_hash,
             )
+        if kind == 'prediction':
+            result = self._predictions.get(ref_id)
+            if result is None:
+                return None
+            return ResolvedAuthority(
+                document_id=result.document_id,
+                semantic_sha256=result.result_sha256,
+                scene_revision_id=result.scene_revision_id,
+                scene_content_hash=result.scene_content_hash,
+            )
+        if kind == 'validation':
+            record = self._model_validations.inspect(ref_id)
+            if record is None:
+                return None
+            return ResolvedAuthority(
+                document_id=record.document_id,
+                semantic_sha256=record.validation_sha256,
+            )
+        if kind == 'standards':
+            evaluation = self._standards.get_evaluation(ref_id)
+            if evaluation is None:
+                return None
+            target = evaluation.target
+            return ResolvedAuthority(
+                document_id=target.document_id,
+                semantic_sha256=evaluation.evaluation_sha256,
+                scene_revision_id=target.scene_revision_id,
+                scene_content_hash=target.scene_content_hash,
+                system_variant_id=target.system_variant_id,
+            )
+        if kind == 'robustness':
+            spec = self._robustness.get_spec(ref_id)
+            if spec is None:
+                return None
+            return ResolvedAuthority(
+                document_id=spec.document_id,
+                semantic_sha256=spec.robustness_spec_sha256,
+                scene_revision_id=spec.scene_revision_id,
+                scene_content_hash=spec.scene_content_hash,
+            )
+        if kind == 'as_built':
+            if ref_id.startswith('system-variant-measured:'):
+                return self._resolve_measured_state(ref_id)
+            record = self._as_built_lifecycle.get(ref_id)
+            if record is None:
+                return None
+            variant = self._variants.get_variant(record.variant_id)
+            return ResolvedAuthority(
+                document_id=(
+                    variant.document_id if variant is not None else None
+                ),
+                semantic_sha256=record.record_sha256,
+                scene_revision_id=record.as_built_revision_id,
+                scene_content_hash=record.as_built_content_hash,
+                system_variant_id=record.variant_id,
+            )
+        if kind == 'measured_state':
+            return self._resolve_measured_state(ref_id)
+        if kind == 'operating_preset':
+            preset = self._presets.get_preset(ref_id)
+            if preset is None:
+                return None
+            return ResolvedAuthority(
+                document_id=preset.document_id,
+                semantic_sha256=preset.preset_sha256,
+                scene_revision_id=preset.scene_revision_id,
+                scene_content_hash=preset.scene_content_hash,
+            )
+        if kind == 'constraint_snapshot':
+            snapshot = self._checkpoints.get_snapshot(ref_id)
+            if snapshot is None:
+                return None
+            return ResolvedAuthority(
+                document_id=snapshot.document_id,
+                semantic_sha256=snapshot.snapshot_sha256,
+            )
+        if kind == 'named_view':
+            # Named views are editor payloads: keyed by record id, id-only.
+            for view in self._scene_repository.named_views(document_id):
+                if view.record_id == ref_id:
+                    return ResolvedAuthority(document_id=document_id)
+            return None
         if kind == 'capture_inbox_item':
             # Refs name the public inbox_item_id; the store keys rows by
             # lineage_digest, so resolve through a scoped scan.
@@ -367,6 +607,20 @@ class CanonicalAuthorityRefResolver:
             document_id=document_id,
             semantic_sha256=hashes.pop(),
             container_ids=tuple(container_ids),
+        )
+
+    def _resolve_measured_state(
+        self, ref_id: str
+    ) -> ResolvedAuthority | None:
+        record = self._measured.get(ref_id)
+        if record is None:
+            return None
+        return ResolvedAuthority(
+            document_id=record.document_id,
+            semantic_sha256=record.record_sha256,
+            scene_revision_id=record.as_built_revision_id,
+            scene_content_hash=record.as_built_content_hash,
+            system_variant_id=record.variant_id,
         )
 
 

@@ -51,6 +51,7 @@ AuditFailureClass = Literal[
     'missing_evidence',
     'stale_authority',
     'noncanonical_derivation',
+    'unclassified',
     'coverage_gap',
 ]
 
@@ -80,11 +81,35 @@ class AuthorityAuditReport:
     database_path: Path
     checked: tuple[tuple[str, int], ...]
     diagnostics: tuple[AuthorityAuditDiagnostic, ...]
+    #: Tables that carried neither a replay probe, an evidence-bytes check,
+    #: nor an explicit coverage-policy entry. Always empty on a passing
+    #: report — an unclassified table means the audit never saw its rows
+    #: and cannot claim coverage for them.
+    unclassified_tables: tuple[str, ...] = ()
     coverage: tuple[tuple[str, AuditCoverageMode, int], ...] = ()
 
     @property
     def ok(self) -> bool:
-        return not self.diagnostics
+        return not self.diagnostics and not self.unclassified_tables
+
+    @property
+    def coverage_counts(self) -> dict[str, int]:
+        """Tables covered per coverage class (replayed/evidence_bytes/
+        structural_only/operational_metadata) plus unclassified count."""
+        counts = {
+            'replayed_records': 0,
+            'structural_only_tables': 0,
+            'operational_metadata_tables': 0,
+            'unclassified_tables': len(self.unclassified_tables),
+        }
+        for name, count in self.checked:
+            if name.startswith('structural:'):
+                counts['structural_only_tables'] += 1
+            elif name.startswith('metadata:'):
+                counts['operational_metadata_tables'] += 1
+            else:
+                counts['replayed_records'] += count
+        return counts
 
     def coverage_summary(self) -> dict[AuditCoverageMode, int]:
         """Row counts per audit coverage mode (0 when a mode never ran)."""
@@ -107,8 +132,13 @@ class AuthorityAuditReport:
         ).format(**coverage)
         if self.ok:
             total = sum(count for _, count in self.checked)
+            counts = self.coverage_counts
             return (
-                f'authority graph audit passed ({total} records replayed)'
+                f'authority graph audit passed ({total} records checked; '
+                f"{counts['replayed_records']} replayed, "
+                f"{counts['structural_only_tables']} structural-only tables, "
+                f"{counts['operational_metadata_tables']} operational "
+                'metadata tables, 0 unclassified)'
                 f'{coverage_note}'
             )
         lines = [
@@ -121,6 +151,12 @@ class AuthorityAuditReport:
             )
         if len(self.diagnostics) > 20:
             lines.append(f'  ... {len(self.diagnostics) - 20} more')
+        for table in self.unclassified_tables[:10]:
+            lines.append(f'  [coverage:{table}] unclassified table')
+        if len(self.unclassified_tables) > 10:
+            lines.append(
+                f'  ... {len(self.unclassified_tables) - 10} more unclassified'
+            )
         return '\n'.join(lines)
 
 
@@ -435,24 +471,34 @@ class _RepositoryChain:
             )
 
             return CaptureIngestionRepository(scene)
+        if name == 'comparison':
+            from .cad_design_comparison_repository import (
+                CadDesignComparisonRepository,
+            )
+
+            return CadDesignComparisonRepository(scene)
         if name == 'presets':
             from .cad_operating_preset_repository import (
                 CadOperatingPresetRepository,
             )
 
             return CadOperatingPresetRepository(scene)
-        if name == 'checkpoints':
-            from .cad_design_checkpoint_repository import (
-                CadDesignCheckpointRepository,
-            )
-
-            return CadDesignCheckpointRepository(scene)
         if name == 'health':
             from .cad_system_health_repository import (
                 CadSystemHealthRepository,
             )
 
             return CadSystemHealthRepository(scene)
+        if name == 'checkpoints':
+            from .cad_design_checkpoint_repository import (
+                CadDesignCheckpointRepository,
+            )
+
+            return CadDesignCheckpointRepository(scene)
+        if name == 'project_library':
+            from .project_lifecycle import ProjectLibrary
+
+            return ProjectLibrary(self.db_path)
         if name == 'design_comparisons':
             from .cad_design_comparison_repository import (
                 CadDesignComparisonRepository,
@@ -731,24 +777,11 @@ def _verify_applied_preset(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     applied_id, preset_id = key
-    presets = chain.repo('presets')
-    applied = _require(
-        presets.get_applied_state(applied_id),
-        f'applied preset state {applied_id}',
-    )
+    applied = chain.repo('presets').verify_persisted_applied_state(applied_id)
     if applied.preset_id != preset_id:
         raise ValueError(
             f'applied preset state {applied_id} binds preset '
             f'{applied.preset_id}, not recorded {preset_id}'
-        )
-    preset = _require(
-        presets.get_preset(preset_id), f'operating preset {preset_id}'
-    )
-    if preset.preset_sha256 != applied.preset_sha256:
-        raise ValueError(
-            f'applied preset state {applied_id} pins preset_sha256 '
-            f'{applied.preset_sha256} but the recorded preset resolves to '
-            f'{preset.preset_sha256}'
         )
     return applied
 
@@ -757,22 +790,13 @@ def _verify_preset_binding(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     binding_id, preset_id = key
-    presets = chain.repo('presets')
-    binding = _require(
-        presets.get_measurement_binding(binding_id),
-        f'preset measurement binding {binding_id}',
+    binding = chain.repo('presets').verify_persisted_measurement_binding(
+        binding_id
     )
     if binding.preset_id != preset_id:
         raise ValueError(
             f'preset binding {binding_id} binds preset {binding.preset_id}, '
             f'not recorded {preset_id}'
-        )
-    _require(presets.get_preset(preset_id), f'operating preset {preset_id}')
-    measurements = chain.repo('measurement')
-    for measurement_id in binding.measurement_ids:
-        _require(
-            measurements.get_measurement(measurement_id),
-            f'measurement {measurement_id} bound to preset {preset_id}',
         )
     return binding
 
@@ -781,20 +805,12 @@ def _verify_checkpoint_restore(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     restore_id, checkpoint_id = key
-    checkpoints = chain.repo('checkpoints')
-    restore = _require(
-        checkpoints.get_restore(restore_id),
-        f'checkpoint restore {restore_id}',
-    )
+    restore = chain.repo('checkpoints').verify_persisted_restore(restore_id)
     if restore.checkpoint_id != checkpoint_id:
         raise ValueError(
             f'checkpoint restore {restore_id} binds checkpoint '
             f'{restore.checkpoint_id}, not recorded {checkpoint_id}'
         )
-    _require(
-        checkpoints.get_checkpoint(checkpoint_id),
-        f'design checkpoint {checkpoint_id}',
-    )
     return restore
 
 
@@ -802,16 +818,12 @@ def _verify_health_plan(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     plan_id, baseline_id = key
-    health = chain.repo('health')
-    plan = _require(health.get_plan(plan_id), f'health check plan {plan_id}')
+    plan = chain.repo('health').verify_persisted_plan(plan_id)
     if plan.baseline_id != baseline_id:
         raise ValueError(
             f'health check plan {plan_id} binds baseline '
             f'{plan.baseline_id}, not recorded {baseline_id}'
         )
-    _require(
-        health.get_baseline(baseline_id), f'health baseline {baseline_id}'
-    )
     return plan
 
 
@@ -819,14 +831,12 @@ def _verify_health_run(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     run_id, plan_id = key
-    health = chain.repo('health')
-    run = _require(health.get_run(run_id), f'health check run {run_id}')
+    run = chain.repo('health').verify_persisted_run(run_id)
     if run.plan_id != plan_id:
         raise ValueError(
             f'health check run {run_id} binds plan {run.plan_id}, '
             f'not recorded {plan_id}'
         )
-    _require(health.get_plan(plan_id), f'health check plan {plan_id}')
     return run
 
 
@@ -866,13 +876,19 @@ def _verify_comparison_set(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     set_id, document_id = key
-    sets = chain.repo('design_comparisons').list_sets(document_id)
-    record = _require(
-        next((s for s in sets if s.set_id == set_id), None),
-        f'design comparison set {set_id} in document {document_id}',
-    )
+    comparisons = chain.repo('design_comparisons')
+    record = comparisons.verify_persisted_set(set_id)
+    if record.document_id != document_id:
+        raise ValueError(
+            f'comparison set {set_id} binds document '
+            f'{record.document_id}, not recorded {document_id}'
+        )
     return _verify_supersedes_chain(
-        record, sets, 'set_id', 'supersedes_set_id', 'comparison set'
+        record,
+        comparisons.list_sets(document_id),
+        'set_id',
+        'supersedes_set_id',
+        'comparison set',
     )
 
 
@@ -1114,18 +1130,13 @@ def _verify_project_tombstone(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     tombstone_id, project_id = key
-    tombstones = chain.repo('projects').list_tombstones()
-    record = _require(
-        next(
-            (t for t in tombstones if t.tombstone_id == tombstone_id),
-            None,
-        ),
-        f'project tombstone {tombstone_id}',
+    record = chain.repo('project_library').verify_persisted_tombstone(
+        tombstone_id
     )
-    if record.project_id != project_id:
+    if str(record['project_id']) != project_id:
         raise ValueError(
             f'project tombstone {tombstone_id} binds project '
-            f'{record.project_id}, not recorded {project_id}'
+            f"{record['project_id']}, not recorded {project_id}"
         )
     return record
 
@@ -1306,6 +1317,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_measurement_observations',
         ('observation_id',),
         _get('quality', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'measurement_excitation_asset',
+        'cad_excitation_assets',
+        ('excitation_asset_id',),
+        _get('quality', 'get_excitation_asset'),
+    ),
+    _ReplayProbe(
+        'measurement_stimulus_profile',
+        'cad_stimulus_profiles',
+        ('stimulus_profile_id',),
+        _get('quality', 'get_stimulus_profile'),
     ),
     _ReplayProbe(
         'measurement_timing_reference',
@@ -1709,11 +1732,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('correction_id', 'measurement_id'),
         _verify_measurement_correction,
     ),
+    # ---- #718 hardening families ---------------------------------------
+    _ReplayProbe(
+        'design_comparison_set',
+        'cad_design_comparison_sets',
+        ('set_id', 'document_id'),
+        _verify_comparison_set,
+    ),
     _ReplayProbe(
         'operating_preset',
         'cad_operating_presets',
         ('preset_id',),
-        _get('presets', 'get_preset'),
+        _get('presets', 'verify_persisted_preset'),
     ),
     _ReplayProbe(
         'applied_preset_state',
@@ -1728,28 +1758,10 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _verify_preset_binding,
     ),
     _ReplayProbe(
-        'design_checkpoint',
-        'cad_design_checkpoints',
-        ('checkpoint_id',),
-        _get('checkpoints', 'get_checkpoint'),
-    ),
-    _ReplayProbe(
-        'checkpoint_restore',
-        'cad_checkpoint_restores',
-        ('restore_id', 'checkpoint_id'),
-        _verify_checkpoint_restore,
-    ),
-    _ReplayProbe(
-        'constraint_snapshot',
-        'cad_constraint_snapshots',
-        ('snapshot_id',),
-        _get('checkpoints', 'get_snapshot'),
-    ),
-    _ReplayProbe(
         'health_baseline',
         'cad_health_baselines',
         ('baseline_id',),
-        _get('health', 'get_baseline'),
+        _get('health', 'verify_persisted_baseline'),
     ),
     _ReplayProbe(
         'health_check_plan',
@@ -1764,10 +1776,28 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _verify_health_run,
     ),
     _ReplayProbe(
-        'design_comparison_set',
-        'cad_design_comparison_sets',
-        ('set_id', 'document_id'),
-        _verify_comparison_set,
+        'constraint_snapshot',
+        'cad_constraint_snapshots',
+        ('snapshot_id',),
+        _get('checkpoints', 'verify_persisted_snapshot'),
+    ),
+    _ReplayProbe(
+        'design_checkpoint',
+        'cad_design_checkpoints',
+        ('checkpoint_id',),
+        _get('checkpoints', 'verify_persisted_checkpoint'),
+    ),
+    _ReplayProbe(
+        'checkpoint_restore',
+        'cad_checkpoint_restores',
+        ('restore_id', 'checkpoint_id'),
+        _verify_checkpoint_restore,
+    ),
+    _ReplayProbe(
+        'project_registry',
+        'htdt_project_documents',
+        ('project_id',),
+        _get('project_library', 'verify_project_registration'),
     ),
     _ReplayProbe(
         'design_decision',
@@ -1866,12 +1896,6 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _verify_runner_event,
     ),
     _ReplayProbe(
-        'project_registry_entry',
-        'htdt_project_documents',
-        ('project_id',),
-        _get('projects', 'get_project'),
-    ),
-    _ReplayProbe(
         'project_tombstone',
         'htdt_project_tombstones',
         ('tombstone_id', 'project_id'),
@@ -1930,305 +1954,977 @@ _ASSET_TABLES: tuple[
 
 _REPLAY_TABLES = frozenset(probe.table for probe in _REPLAY_PROBES)
 
-# Audit coverage registry: every persisted table must be explicitly assigned
-# one coverage mode. A table absent from every registry below fails the audit
-# with a ``coverage_gap`` diagnostic — a new authority table can never
-# silently degrade to the structural fallback.
-#
-# * REPLAY_CANONICAL — ``_REPLAY_PROBES`` plus the capture-ingestion verifier.
-# * EVIDENCE_BYTES — ``_ASSET_TABLES`` plus the ``htdt_content_blobs`` store.
-# * STRUCTURAL_ONLY_WITH_RATIONALE — ``_STRUCTURAL_ONLY_TABLES`` below, each
-#   entry documenting why no canonical replay adapter exists.
-# * TRANSIENT_OR_NON_AUTHORITY — ``_NON_AUTHORITY_TABLES`` below; the rows are
-#   operational/ephemeral state that downstream authorities never consume.
-_NON_AUTHORITY_TABLES: dict[str, str] = {
-    'sqlite_sequence': 'sqlite rowid bookkeeping, not a persisted authority',
-    'native_schema_metadata': 'schema bookkeeping, not a persisted authority',
-    'native_schema_migrations': 'schema bookkeeping, not a persisted authority',
-    'editor_view_states': (
-        'disposable editor state — never consumed by authorities'
-    ),
-    'editor_camera_states': (
-        'disposable editor state — never consumed by authorities'
-    ),
-    'editor_named_views': (
-        'disposable editor state — never consumed by authorities'
-    ),
-    'scene_recovery_snapshots': (
-        'recovery cache re-derivable from scene_revisions'
-    ),
-    'floor_plan_underlays': (
-        'authoring aid — underlay bytes verified via the content-blob tier'
-    ),
-    'scene_revision_labels': 'display labels — non-normative annotation',
-    'seating_layout_specs': (
-        'editor convenience spec — layout authority is the scene graph'
-    ),
-    'capture_inbox_items': 'transient intake queue, not retained authority',
-    'capture_inbox_promotions': (
-        'transient intake queue, not retained authority'
-    ),
-    'capture_inbox_registrations': (
-        'transient intake queue, not retained authority'
-    ),
-    'capture_inbox_supersessions': (
-        'transient intake queue, not retained authority'
-    ),
-    'capture_receiver_config': (
-        'device pairing operational state, non-normative'
-    ),
-    'capture_receiver_deliveries': (
-        'device pairing operational state, non-normative'
-    ),
-    'capture_receiver_pairings': (
-        'device pairing operational state, non-normative'
-    ),
-    'capture_mission_packages': 'device mission staging, non-normative',
-    'field_return_contributions': (
-        'transient staging queue, not retained authority'
-    ),
-    'cad_r140_execution_cache': (
-        'execution cache — derived runtime artifact'
-    ),
-    'cad_r140_execution_schedules': (
-        'execution runtime state — derived artifact'
-    ),
-    'cad_r140_execution_attempts': (
-        'execution runtime state — derived artifact'
-    ),
-    'cad_r140_execution_tasks': 'execution runtime state — derived artifact',
-    'htdt_storage_gc_pending': (
-        'deferred-deletion staging queue — re-derivable, non-authority'
-    ),
-    'project_action_items': (
-        'project-management annotation, non-normative'
+#: Explicit coverage policy for every persistent table that carries no
+#: replay probe and no managed-bytes check — each entry is
+#: ``(coverage class, bounded reason)``. Classes:
+#:
+#: - ``STRUCTURAL_ONLY``: rows carry semantic payload claims but no
+#:   canonical replay path exists yet; the strongest available
+#:   verification is schema + JSON-payload parse. The reason records why
+#:   no replay exists — "JSON parses" alone is not a semantic audit.
+#: - ``OPERATIONAL_METADATA``: bookkeeping/editor/derived state with no
+#:   independent semantic claim (schema versions, head pointers, editor
+#:   payloads, ingestion bookkeeping).
+#: - ``EPHEMERAL``: transient state that may be stale by design.
+#:
+#: A persistent table absent from this registry and from the replay/asset
+#: registries is reported UNCLASSIFIED and fails the audit: coverage is
+#: fail-closed, never inferred from parseability.
+_TABLE_POLICY: dict[str, tuple[str, str]] = {
+    'sqlite_sequence': (
+        'OPERATIONAL_METADATA',
+        'sqlite autoincrement bookkeeping',
     ),
     'htdt_storage_gc_pending': (
         'pending blob-GC queue — transient operational state re-derivable '
         'from the blob store'
     ),
     'ci_marker': (
-        'CI-injected backup/restore round-trip marker — never a product '
-        'authority row'
+        'OPERATIONAL_METADATA',
+        'scratch table the packaged-build CI pipeline writes into the live '
+        'database to prove backup/restore round-trips carry non-HTDT rows; '
+        'it stores no HTDT authority',
     ),
+    'native_schema_metadata': (
+        'OPERATIONAL_METADATA',
+        'schema version bookkeeping, not user authority',
+    ),
+    'native_schema_migrations': (
+        'OPERATIONAL_METADATA',
+        'migration history bookkeeping',
+    ),
+    'scene_recovery_snapshots': (
+        'OPERATIONAL_METADATA',
+        'crash-recovery payload replaced by the next save; not an '
+        'authoritative derivation',
+    ),
+    'editor_camera_states': (
+        'OPERATIONAL_METADATA',
+        'editor camera payload — viewport convenience, not design authority',
+    ),
+    'editor_named_views': (
+        'OPERATIONAL_METADATA',
+        'editor named-view payloads — presentation convenience, not '
+        'design authority',
+    ),
+    'editor_view_states': (
+        'OPERATIONAL_METADATA',
+        'editor view-state payloads — presentation convenience, not '
+        'design authority',
+    ),
+    'floor_plan_underlays': (
+        'OPERATIONAL_METADATA',
+        'editor floor-plan underlay payloads — UI convenience, not '
+        'design authority',
+    ),
+    'seating_layout_specs': (
+        'OPERATIONAL_METADATA',
+        'editor seating-layout payloads — UI convenience, not design '
+        'authority',
+    ),
+    'capture_bundles': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion staging-bundle bookkeeping',
+    ),
+    'capture_revisions': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion revision bookkeeping',
+    ),
+    'capture_roomplan_records': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion room-plan bookkeeping',
+    ),
+    'capture_source_evidence': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion source-evidence bookkeeping',
+    ),
+    'capture_revision_conflicts': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion conflict bookkeeping',
+    ),
+    'capture_raw_visual_mesh_bindings': (
+        'OPERATIONAL_METADATA',
+        'capture ingestion raw-mesh binding bookkeeping',
+    ),
+    'capture_coordinate_authorities': (
+        'STRUCTURAL_ONLY',
+        'coordinate-authority linkage claims; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_authority_records': (
+        'STRUCTURAL_ONLY',
+        'capture authority linkage claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_authority_links': (
+        'STRUCTURAL_ONLY',
+        'ingestion authority-link claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_mesh_links': (
+        'STRUCTURAL_ONLY',
+        'ingestion mesh-link claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_source_links': (
+        'STRUCTURAL_ONLY',
+        'ingestion source-link claims; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'capture_ingestion_lineages': (
+        'STRUCTURAL_ONLY',
+        'ingestion lineage claims retained across deletion; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_amplifier_electrical_limits': (
+        'STRUCTURAL_ONLY',
+        'electrical-limit payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_frequency_resolved_evaluations': (
+        'STRUCTURAL_ONLY',
+        'frequency-resolved evaluation payload authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_installation_contexts': (
+        'STRUCTURAL_ONLY',
+        'installation-context payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_measurement_attachments': (
+        'STRUCTURAL_ONLY',
+        'measurement attachment payload authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r120_compile_inputs': (
+        'STRUCTURAL_ONLY',
+        'compile-input record; derivations are re-verified via the '
+        'compiled-geometry replay probe',
+    ),
+    'cad_r120_leak_diagnostic_inputs': (
+        'STRUCTURAL_ONLY',
+        'leak-diagnostic input record; derivations are re-verified via '
+        'the leak-diagnostic replay probe',
+    ),
+    'cad_raw_mesh_repair_bundles': (
+        'STRUCTURAL_ONLY',
+        'mesh-repair bundle payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_speaker_impedances': (
+        'STRUCTURAL_ONLY',
+        'speaker impedance payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_calibration_lifecycle_events': (
+        'OPERATIONAL_METADATA',
+        'append-only lifecycle event log — operational bookkeeping',
+    ),
+    # ---- operational bookkeeping -------------------------------------
+    'cad_reconciliation_decisions': (
+        'OPERATIONAL_METADATA',
+        'append-only reconciliation decision log — operational bookkeeping',
+    ),
+    'cad_project_notes': (
+        'OPERATIONAL_METADATA',
+        'operator-entered free-text notes — no authority claims',
+    ),
+    'capture_inbox_items': (
+        'OPERATIONAL_METADATA',
+        'capture inbox triage/disposition bookkeeping — operational '
+        'intake state, not canonical authority',
+    ),
+    'capture_inbox_promotions': (
+        'OPERATIONAL_METADATA',
+        'capture inbox promotion log — operational bookkeeping',
+    ),
+    'capture_inbox_registrations': (
+        'OPERATIONAL_METADATA',
+        'capture inbox registration bookkeeping — operational intake '
+        'alignment record',
+    ),
+    'capture_inbox_supersessions': (
+        'OPERATIONAL_METADATA',
+        'capture inbox supersession bookkeeping — operational intake '
+        'replacement record',
+    ),
+    'scene_revision_labels': (
+        'OPERATIONAL_METADATA',
+        'editor-provided revision labels — display metadata, not '
+        'authority',
+    ),
+    # ---- payload authority, replay pending ----------------------------
+    'cad_acoustic_treatment_comparisons': (
+        'STRUCTURAL_ONLY',
+        'acoustic treatment comparison authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_comparisons': (
+        'STRUCTURAL_ONLY',
+        'ambient comparison authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_conditions': (
+        'STRUCTURAL_ONLY',
+        'ambient condition authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_criteria': (
+        'STRUCTURAL_ONLY',
+        'ambient criteria authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_evaluations': (
+        'STRUCTURAL_ONLY',
+        'ambient evaluation authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_ambient_profiles': (
+        'STRUCTURAL_ONLY',
+        'ambient profile authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_applied_settings': (
+        'STRUCTURAL_ONLY',
+        'applied-settings authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_av_latency_measurements': (
+        'STRUCTURAL_ONLY',
+        'AV latency measurement authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_av_sync_conditions': (
+        'STRUCTURAL_ONLY',
+        'AV sync condition authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_cable_runs': (
+        'STRUCTURAL_ONLY',
+        'cable run authority; canonical replay path pending — strongest '
+        'verification is schema + payload parse',
+    ),
+    'cad_commissioning_plans': (
+        'STRUCTURAL_ONLY',
+        'commissioning plan authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_commissioning_runs': (
+        'STRUCTURAL_ONLY',
+        'commissioning run authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_cost_evaluations': (
+        'STRUCTURAL_ONLY',
+        'cost evaluation authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_cost_records': (
+        'STRUCTURAL_ONLY',
+        'cost record authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_direct_view_evaluations': (
+        'STRUCTURAL_ONLY',
+        'direct-view evaluation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_direct_view_specifications': (
+        'STRUCTURAL_ONLY',
+        'direct-view specification authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_evidence_observations': (
+        'STRUCTURAL_ONLY',
+        'evidence observation authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_evidence_subjects': (
+        'STRUCTURAL_ONLY',
+        'evidence subject authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_field_evidence': (
+        'STRUCTURAL_ONLY',
+        'field evidence authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_field_evidence_targets': (
+        'STRUCTURAL_ONLY',
+        'field evidence target authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_gain_structure_evaluations': (
+        'STRUCTURAL_ONLY',
+        'gain-structure evaluation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_gain_structure_scenarios': (
+        'STRUCTURAL_ONLY',
+        'gain-structure scenario authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_installation_datums': (
+        'STRUCTURAL_ONLY',
+        'installation datum authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_ir_analysis_results': (
+        'STRUCTURAL_ONLY',
+        'IR analysis result authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_ir_analysis_specs': (
+        'STRUCTURAL_ONLY',
+        'IR analysis spec authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_layout_profiles': (
+        'STRUCTURAL_ONLY',
+        'layout profile authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_line_level_stages': (
+        'STRUCTURAL_ONLY',
+        'line-level stage authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_materialized_pattern_points': (
+        'STRUCTURAL_ONLY',
+        'materialized pattern point authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_measurement_target_patterns': (
+        'STRUCTURAL_ONLY',
+        'measurement target pattern authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_multi_seat_results': (
+        'STRUCTURAL_ONLY',
+        'multi-seat result authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_multi_seat_sets': (
+        'STRUCTURAL_ONLY',
+        'multi-seat set authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_plan_target_bindings': (
+        'STRUCTURAL_ONLY',
+        'plan target binding authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_r140_gpu_authorities': (
+        'STRUCTURAL_ONLY',
+        'R140 GPU authority; canonical replay path pending — strongest '
+        'verification is schema + payload parse',
+    ),
+    'cad_room_operating_states': (
+        'STRUCTURAL_ONLY',
+        'room operating state authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_seat_priority_profiles': (
+        'STRUCTURAL_ONLY',
+        'seat priority profile authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_source_response_selections': (
+        'STRUCTURAL_ONLY',
+        'source response selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_source_responses': (
+        'STRUCTURAL_ONLY',
+        'source response payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_target_curve_profiles': (
+        'STRUCTURAL_ONLY',
+        'target curve profile authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_tolerance_profiles': (
+        'STRUCTURAL_ONLY',
+        'tolerance profile authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'capture_connected_space_documents': (
+        'STRUCTURAL_ONLY',
+        'connected space document authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'physical_space_models': (
+        'STRUCTURAL_ONLY',
+        'physical space model authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_topology_spaces': (
+        'STRUCTURAL_ONLY',
+        'topology search space authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_topology_space_options': (
+        'STRUCTURAL_ONLY',
+        'topology space option binding authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_topology_search_specs': (
+        'STRUCTURAL_ONLY',
+        'topology search spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_topology_placement_candidates': (
+        'STRUCTURAL_ONLY',
+        'topology placement candidate authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_topology_candidate_variants': (
+        'STRUCTURAL_ONLY',
+        'topology candidate variant binding authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    # ---- further payload authorities, replay pending ------------------
+    'field_return_contributions': (
+        'STRUCTURAL_ONLY',
+        'field return contribution authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'project_action_items': (
+        'STRUCTURAL_ONLY',
+        'project action item authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'project_templates': (
+        'STRUCTURAL_ONLY',
+        'project template authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'template_instantiations': (
+        'STRUCTURAL_ONLY',
+        'template instantiation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'r150_path_frequency_response_artifacts': (
+        'STRUCTURAL_ONLY',
+        'path frequency response artifact authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'r160_numerical_hybrid_responses': (
+        'STRUCTURAL_ONLY',
+        'numerical hybrid response authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_acoustic_materials': (
+        'STRUCTURAL_ONLY',
+        'acoustic material authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_acoustic_solver_adapters': (
+        'STRUCTURAL_ONLY',
+        'acoustic solver adapter authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_acoustic_solver_dispatch_bindings': (
+        'STRUCTURAL_ONLY',
+        'acoustic solver dispatch binding authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_acoustic_solver_results': (
+        'STRUCTURAL_ONLY',
+        'acoustic solver result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_current_topologies': (
+        'STRUCTURAL_ONLY',
+        'current topology authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_deterministic_ga_execution_inputs': (
+        'STRUCTURAL_ONLY',
+        'deterministic GA execution input authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_deterministic_path_artifacts': (
+        'STRUCTURAL_ONLY',
+        'deterministic path artifact authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_environment_profiles': (
+        'STRUCTURAL_ONLY',
+        'environment profile authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_environment_selections': (
+        'STRUCTURAL_ONLY',
+        'environment selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_hybrid_acoustic_results': (
+        'STRUCTURAL_ONLY',
+        'hybrid acoustic result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_hybrid_prediction_provider_bindings': (
+        'STRUCTURAL_ONLY',
+        'hybrid prediction provider binding authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_hybrid_prediction_provider_objectives': (
+        'STRUCTURAL_ONLY',
+        'hybrid prediction provider objective authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_hybrid_prediction_providers': (
+        'STRUCTURAL_ONLY',
+        'hybrid prediction provider authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_hybrid_stitching_policies': (
+        'STRUCTURAL_ONLY',
+        'hybrid stitching policy authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_intervention_alternatives': (
+        'STRUCTURAL_ONLY',
+        'intervention alternative authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_intervention_study_specs': (
+        'STRUCTURAL_ONLY',
+        'intervention study spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_listener_pose_selections': (
+        'STRUCTURAL_ONLY',
+        'listener pose selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_listener_poses': (
+        'STRUCTURAL_ONLY',
+        'listener pose authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_multifidelity_finalizations': (
+        'STRUCTURAL_ONLY',
+        'multifidelity finalization authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_multifidelity_plans': (
+        'STRUCTURAL_ONLY',
+        'multifidelity plan authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_multifidelity_screening_evaluations': (
+        'STRUCTURAL_ONLY',
+        'multifidelity screening evaluation authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_multifidelity_stage_results': (
+        'STRUCTURAL_ONLY',
+        'multifidelity stage result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_o90_robust_pareto_evaluations': (
+        'STRUCTURAL_ONLY',
+        'robust Pareto evaluation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_prediction_provider_bindings': (
+        'STRUCTURAL_ONLY',
+        'prediction provider binding authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_prediction_provider_objectives': (
+        'STRUCTURAL_ONLY',
+        'prediction provider objective authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_prediction_providers': (
+        'STRUCTURAL_ONLY',
+        'prediction provider authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_proposal_objective_result_authorities': (
+        'STRUCTURAL_ONLY',
+        'proposal objective result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_proposal_perturbation_samples': (
+        'STRUCTURAL_ONLY',
+        'proposal perturbation sample authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_proposal_robust_pareto_evaluations': (
+        'STRUCTURAL_ONLY',
+        'proposal robust Pareto evaluation authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_proposal_robustness_evaluations': (
+        'STRUCTURAL_ONLY',
+        'proposal robustness evaluation authority; canonical replay '
+        'path pending — strongest verification is schema + payload '
+        'parse',
+    ),
+    'cad_proposal_robustness_specs': (
+        'STRUCTURAL_ONLY',
+        'proposal robustness spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_attempts': (
+        'STRUCTURAL_ONLY',
+        'R140 execution attempt authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_cache': (
+        'STRUCTURAL_ONLY',
+        'R140 execution cache authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_results': (
+        'STRUCTURAL_ONLY',
+        'R140 execution result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_schedules': (
+        'STRUCTURAL_ONLY',
+        'R140 execution schedule authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_r140_execution_tasks': (
+        'STRUCTURAL_ONLY',
+        'R140 execution task authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_r140_resource_estimates': (
+        'STRUCTURAL_ONLY',
+        'R140 resource estimate authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_screen_transfer_selections': (
+        'STRUCTURAL_ONLY',
+        'screen transfer selection authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_screen_transfers': (
+        'STRUCTURAL_ONLY',
+        'screen transfer authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_surface_material_assignments': (
+        'STRUCTURAL_ONLY',
+        'surface material assignment authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_video_geometry_workspaces': (
+        'STRUCTURAL_ONLY',
+        'video geometry workspace authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_mesh_compositions': (
+        'STRUCTURAL_ONLY',
+        'capture mesh composition authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_mission_packages': (
+        'STRUCTURAL_ONLY',
+        'capture mission package authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_receiver_config': (
+        'STRUCTURAL_ONLY',
+        'capture receiver config authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_receiver_deliveries': (
+        'STRUCTURAL_ONLY',
+        'capture receiver delivery authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_receiver_pairings': (
+        'STRUCTURAL_ONLY',
+        'capture receiver pairing authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_semantic_promotions': (
+        'STRUCTURAL_ONLY',
+        'capture semantic promotion authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'htdt_project_imports': (
+        'OPERATIONAL_METADATA',
+        'project import bookkeeping — the registry and tombstones are the '
+        'persisted authority, import rows only record the operation',
+    ),
+    'htdt_legacy_imports': (
+        'OPERATIONAL_METADATA',
+        'legacy-data migration bookkeeping — records which legacy '
+        'projects already migrated into the native registry',
+    ),
+    'htdt_storage_gc_pending': (
+        'OPERATIONAL_METADATA',
+        'storage-GC work queue — pending deletions are re-derived from '
+        'scan state and carry no semantic authority',
+    ),
+    'projects': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'contexts': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'sessions': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'constraint_sets': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'search_specs': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'assets': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'measurements': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'datasets': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'comparisons': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'asset_links': (
+        'STRUCTURAL_ONLY',
+        'legacy generic store — superseded by cad_* domain authorities; '
+        'strongest verification is schema + payload parse',
+    ),
+    'metadata': (
+        'STRUCTURAL_ONLY',
+        'legacy schema-marker table — superseded by cad_* domain '
+        'authorities; strongest verification is schema + payload parse',
+    ),    'cad_acoustic_source_poses': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_bass_management_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_bass_management_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_calibration_lifecycle_events': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_compute_benchmarks': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_data_source_registry': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_dataset_reviews': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_device_action_acks': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_device_capability_snapshots': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_device_target_bindings': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_field_evidence_records': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_field_sessions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_importer_declarations': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_material_definitions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_material_evidence': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_measurement_pose_observations': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_observed_device_states': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_planned_observed_deltas': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_playback_level_conditions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_project_notes': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_proposed_device_actions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_raw_source_records': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_reconciliation_decisions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_reference_playback_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_review_notes': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_site_relationships': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_site_spaces': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_source_review_decisions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_speaker_datasets': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_speaker_definitions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_upstream_version_candidates': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_validation_benchmark_specs': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_validation_cases': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_validation_corpus_entries': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_presentation_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_presentation_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_visual_qa_verdicts': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'capture_bundles': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_revisions': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_revision_conflicts': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_roomplan_records': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_source_evidence': (
+        'STRUCTURAL_ONLY',
+        'capture-pipeline record — covered by canonical ingestion-run replay; strongest verification is schema + payload parse',
+    ),
+    'capture_raw_visual_mesh_bindings': (
+        'STRUCTURAL_ONLY',
+        'link/junction table — referential integrity enforced by replay of both endpoint authorities',
+    ),
+
 }
 
-_JUNCTION_RATIONALE = (
-    'link/junction table — referential integrity enforced by replay of '
-    'both endpoint authorities'
-)
-_LEGACY_RATIONALE = (
-    'legacy generic store — superseded by cad_* domain authorities'
-)
-_CAPTURE_RATIONALE = (
-    'capture-pipeline record — covered by canonical ingestion-run replay'
-)
-_NO_ADAPTER_RATIONALE = (
-    'structural payload integrity — no dedicated canonical replay adapter '
-    'registered for this family'
-)
-_PROJECT_LIFECYCLE_RATIONALE = (
-    'project-library/lifecycle record — indexed structurally; lifecycle '
-    'semantics enforced by the project-library consumers'
-)
+#: Bookkeeping/editor/derived tables (the ``OPERATIONAL_METADATA`` and
+#: ``EPHEMERAL`` policy classes): row counts are reported but the rows
+#: carry no independent semantic claim for the audit to replay.
+_NON_AUTHORITY_TABLES: dict[str, str] = {
+    table: reason
+    for table, (kind, reason) in _TABLE_POLICY.items()
+    if kind in {'OPERATIONAL_METADATA', 'EPHEMERAL'}
+}
 
-# Tables whose rows carry a JSON payload but no registered canonical replay
-# adapter (external-resolver domains, link/legacy tables, derived solver and
-# pipeline artifacts). They are still enumerated so raw payload corruption
-# cannot slip through the audit.
+#: Tables whose rows carry semantic payload claims but have no registered
+#: canonical replay adapter; the strongest verification is schema plus
+#: payload parse. Each reason documents why no replay path exists.
 _STRUCTURAL_ONLY_TABLES: dict[str, str] = {
-    table: rationale
-    for tables, rationale in (
-        (
-            (
-                'htdt_legacy_imports',
-                'htdt_project_documents',
-                'htdt_project_imports',
-                'htdt_project_tombstones',
-            ),
-            _PROJECT_LIFECYCLE_RATIONALE,
-        ),
-        (
-            (
-                'asset_links',
-                'cad_acoustic_solver_dispatch_bindings',
-                'cad_evidence_subjects',
-                'cad_field_evidence_targets',
-                'cad_hybrid_prediction_provider_bindings',
-                'cad_hybrid_prediction_provider_objectives',
-                'cad_prediction_provider_bindings',
-                'cad_prediction_provider_objectives',
-                'cad_materialized_pattern_points',
-                'cad_measurement_attachments',
-                'cad_measurement_target_patterns',
-                'cad_plan_target_bindings',
-                'cad_screen_transfer_selections',
-                'cad_source_response_selections',
-                'cad_listener_pose_selections',
-                'cad_surface_material_assignments',
-                'cad_topology_space_options',
-                'cad_r120_compile_inputs',
-                'cad_r120_leak_diagnostic_inputs',
-                'cad_deterministic_ga_execution_inputs',
-                'cad_deterministic_path_artifacts',
-                'cad_intervention_alternatives',
-                'capture_ingestion_authority_links',
-                'capture_ingestion_mesh_links',
-                'capture_ingestion_source_links',
-                'capture_raw_visual_mesh_bindings',
-            ),
-            _JUNCTION_RATIONALE,
-        ),
-        (
-            (
-                'assets',
-                'comparisons',
-                'constraint_sets',
-                'contexts',
-                'datasets',
-                'measurements',
-                'metadata',
-                'projects',
-                'search_specs',
-                'sessions',
-            ),
-            _LEGACY_RATIONALE,
-        ),
-        (
-            (
-                'capture_authority_records',
-                'capture_bundles',
-                'capture_connected_space_documents',
-                'capture_coordinate_authorities',
-                'capture_ingestion_lineages',
-                'capture_mesh_compositions',
-                'capture_revisions',
-                'capture_revision_conflicts',
-                'capture_roomplan_records',
-                'capture_semantic_promotions',
-                'capture_source_evidence',
-                'physical_space_models',
-            ),
-            _CAPTURE_RATIONALE,
-        ),
-        (
-            (
-                'cad_acoustic_materials',
-                'cad_acoustic_solver_adapters',
-                'cad_acoustic_solver_results',
-                'cad_acoustic_source_poses',
-                'cad_acoustic_treatment_comparisons',
-                'cad_ambient_comparisons',
-                'cad_ambient_conditions',
-                'cad_ambient_criteria',
-                'cad_ambient_evaluations',
-                'cad_ambient_profiles',
-                'cad_amplifier_electrical_limits',
-                'cad_applied_settings',
-                'cad_av_latency_measurements',
-                'cad_av_sync_conditions',
-                'cad_bass_management_profiles',
-                'cad_bass_management_selections',
-                'cad_cable_runs',
-                'cad_calibration_lifecycle_events',
-                'cad_commissioning_plans',
-                'cad_commissioning_runs',
-                'cad_compute_benchmarks',
-                'cad_cost_evaluations',
-                'cad_cost_records',
-                'cad_current_topologies',
-                'cad_data_source_registry',
-                'cad_dataset_reviews',
-                'cad_device_action_acks',
-                'cad_device_capability_snapshots',
-                'cad_device_target_bindings',
-                'cad_direct_view_evaluations',
-                'cad_direct_view_specifications',
-                'cad_environment_profiles',
-                'cad_environment_selections',
-                'cad_evidence_observations',
-                'cad_field_evidence',
-                'cad_field_evidence_records',
-                'cad_field_sessions',
-                'cad_frequency_resolved_evaluations',
-                'cad_gain_structure_evaluations',
-                'cad_gain_structure_scenarios',
-                'cad_hybrid_acoustic_results',
-                'cad_hybrid_prediction_providers',
-                'cad_hybrid_stitching_policies',
-                'cad_importer_declarations',
-                'cad_installation_contexts',
-                'cad_installation_datums',
-                'cad_intervention_study_specs',
-                'cad_ir_analysis_results',
-                'cad_ir_analysis_specs',
-                'cad_layout_profiles',
-                'cad_line_level_stages',
-                'cad_listener_poses',
-                'cad_material_definitions',
-                'cad_material_evidence',
-                'cad_measurement_pose_observations',
-                'cad_multi_seat_results',
-                'cad_multi_seat_sets',
-                'cad_multifidelity_finalizations',
-                'cad_multifidelity_plans',
-                'cad_multifidelity_screening_evaluations',
-                'cad_multifidelity_stage_results',
-                'cad_observed_device_states',
-                'cad_o90_robust_pareto_evaluations',
-                'cad_playback_level_conditions',
-                'cad_planned_observed_deltas',
-                'cad_prediction_providers',
-                'cad_project_notes',
-                'cad_proposal_objective_result_authorities',
-                'cad_proposal_perturbation_samples',
-                'cad_proposal_robust_pareto_evaluations',
-                'cad_proposal_robustness_evaluations',
-                'cad_proposal_robustness_specs',
-                'cad_proposed_device_actions',
-                'cad_r140_execution_results',
-                'cad_r140_gpu_authorities',
-                'cad_r140_resource_estimates',
-                'cad_raw_mesh_repair_bundles',
-                'cad_raw_source_records',
-                'cad_reconciliation_decisions',
-                'cad_reference_playback_profiles',
-                'cad_review_notes',
-                'cad_room_operating_states',
-                'cad_screen_transfers',
-                'cad_seat_priority_profiles',
-                'cad_site_relationships',
-                'cad_site_spaces',
-                'cad_source_responses',
-                'cad_source_review_decisions',
-                'cad_speaker_definitions',
-                'cad_speaker_datasets',
-                'cad_speaker_impedances',
-                'cad_target_curve_profiles',
-                'cad_tolerance_profiles',
-                'cad_topology_candidate_variants',
-                'cad_topology_placement_candidates',
-                'cad_topology_search_specs',
-                'cad_topology_spaces',
-                'cad_upstream_version_candidates',
-                'cad_validation_benchmark_specs',
-                'cad_validation_corpus_entries',
-                'cad_validation_cases',
-                'cad_video_geometry_workspaces',
-                'cad_video_presentation_profiles',
-                'cad_video_presentation_selections',
-                'cad_visual_qa_verdicts',
-                'htdt_project_imports',
-                'htdt_legacy_imports',
-                'project_templates',
-                'r150_path_frequency_response_artifacts',
-                'r160_numerical_hybrid_responses',
-                'template_instantiations',
-            ),
-            _NO_ADAPTER_RATIONALE,
-        ),
-    )
-    for table in tables
+    table: reason
+    for table, (kind, reason) in _TABLE_POLICY.items()
+    if kind == 'STRUCTURAL_ONLY'
 }
 
 
@@ -2241,18 +2937,19 @@ def audit_table_modes() -> dict[str, AuditCoverageMode]:
     """
 
     modes: dict[str, AuditCoverageMode] = {}
+    for table, (kind, _reason) in _TABLE_POLICY.items():
+        modes[table] = (
+            'structural_only'
+            if kind == 'STRUCTURAL_ONLY'
+            else 'non_authority'
+        )
     for table in _REPLAY_TABLES:
         modes[table] = 'replay_canonical'
     modes['capture_ingestion_runs'] = 'replay_canonical'
     for table, *_rest in _ASSET_TABLES:
         modes[table] = 'evidence_bytes'
     modes['htdt_content_blobs'] = 'evidence_bytes'
-    for table in _STRUCTURAL_ONLY_TABLES:
-        modes[table] = 'structural_only'
-    for table in _NON_AUTHORITY_TABLES:
-        modes[table] = 'non_authority'
     return modes
-
 
 
 def _classify_error(exc: BaseException) -> AuditFailureClass:
@@ -2538,10 +3235,10 @@ def audit_native_authority_graph(
             checked.append(('content_blob', count))
             coverage.append(('content_blob', 'evidence_bytes', count))
 
-        # ---- coverage registry -------------------------------------------
-        # Every persisted table must hold an explicit registry entry; an
-        # unregistered table fails the audit instead of silently degrading
-        # to a payload-parse fallback.
+        # ---- coverage classification tier ------------------------------
+        # Every persistent table is covered exactly once: a replay probe,
+        # an evidence-bytes check, or an explicit _TABLE_POLICY entry.
+        # Anything else is UNCLASSIFIED and fails closed.
         modes = audit_table_modes()
         tables = [
             row['name']
@@ -2550,9 +3247,11 @@ def audit_native_authority_graph(
                 "WHERE type='table' ORDER BY name"
             ).fetchall()
         ]
+        unclassified: list[str] = []
         for table in tables:
             mode = modes.get(table)
             if mode is None:
+                unclassified.append(table)
                 diagnostics.append(
                     AuthorityAuditDiagnostic(
                         authority=table,
@@ -2570,6 +3269,7 @@ def audit_native_authority_graph(
                 count = connection.execute(
                     f'SELECT COUNT(*) AS n FROM "{table}"'
                 ).fetchone()['n']
+                checked.append((f'metadata:{table}', count))
                 coverage.append(
                     (f'non_authority:{table}', 'non_authority', count)
                 )
@@ -2583,28 +3283,27 @@ def audit_native_authority_graph(
                 for column in _table_columns(connection, table)
                 if column.endswith('_json')
             ]
-            if not payload_columns:
-                continue
             count = 0
-            select = ', '.join(f'"{c}"' for c in payload_columns)
-            for row in connection.execute(
-                f'SELECT {select} FROM "{table}"'
-                + _order_clause(connection, table)
-            ).fetchall():
-                for column in payload_columns:
-                    raw = row[column]
-                    if raw is None:
-                        continue
-                    try:
-                        json.loads(raw)
-                    except Exception as exc:  # noqa: BLE001
-                        record(
-                            table,
-                            f'row {count}',
-                            exc,
-                            dependency=f'{table}.{column}',
-                        )
-                count += 1
+            if payload_columns:
+                select = ', '.join(f'"{c}"' for c in payload_columns)
+                for row in connection.execute(
+                    f'SELECT {select} FROM "{table}"'
+                    + _order_clause(connection, table)
+                ).fetchall():
+                    for column in payload_columns:
+                        raw = row[column]
+                        if raw is None:
+                            continue
+                        try:
+                            json.loads(raw)
+                        except Exception as exc:  # noqa: BLE001
+                            record(
+                                table,
+                                f'row {count}',
+                                exc,
+                                dependency=f'{table}.{column}',
+                            )
+                    count += 1
             checked.append((f'structural:{table}', count))
             coverage.append(
                 (f'structural:{table}', 'structural_only', count)
@@ -2616,6 +3315,7 @@ def audit_native_authority_graph(
         database_path=db_path,
         checked=tuple(checked),
         diagnostics=tuple(diagnostics),
+        unclassified_tables=tuple(unclassified),
         coverage=tuple(coverage),
     )
 

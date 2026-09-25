@@ -287,6 +287,76 @@ def test_older_native_schema_backup_reports_migration_required(
     assert preview.metadata.native_schema_compatibility == 'migration_required'
 
 
+def test_restore_migrates_older_schema_through_upgrade_lifecycle(
+    tmp_path: Path,
+) -> None:
+    """#756: an older-schema archive restores exact bytes, then the
+    journaled #606 lifecycle performs the migration — not a silent
+    repository-open migration."""
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    older_version = NATIVE_SCHEMA_VERSION - 1
+    with closing(sqlite3.connect(data_dir / 'cad-scenes.sqlite3')) as connection, connection:
+        connection.execute(
+            'UPDATE native_schema_metadata SET schema_version=? WHERE singleton=1',
+            (older_version,),
+        )
+        connection.execute(
+            'DELETE FROM native_schema_migrations WHERE schema_version>?',
+            (older_version,),
+        )
+
+    backend = DataManagementBackend(data_dir)
+    backup_path = tmp_path / 'older-restore.htdt-backup'
+    backend.create_backup(backup_path)
+    preview = backend.preview_restore(backup_path)
+    assert preview.metadata.native_schema_version == older_version
+
+    result = backend.restore(preview)
+
+    assert result.restored_native_schema_version == older_version
+    assert result.migration_performed is True
+    assert result.final_native_schema_version == NATIVE_SCHEMA_VERSION
+    assert result.upgrade_event_id is not None
+    # Result metadata keeps describing the archive, not the upgraded live
+    # database.
+    assert result.metadata.native_schema_version == older_version
+    # The #606 upgrade journal records the restore-driven migration.
+    from htdt.native_upgrade import list_upgrade_events
+
+    events = list_upgrade_events(data_dir)
+    completed = [e for e in events if e.upgrade_id == result.upgrade_event_id]
+    assert len(completed) == 1
+    assert completed[0].outcome == 'completed'
+    assert completed[0].from_schema == older_version
+    assert completed[0].to_schema == NATIVE_SCHEMA_VERSION
+    # The live database is really at the current schema afterwards.
+    from htdt.cad_schema import read_native_schema_version
+
+    assert (
+        read_native_schema_version(data_dir / 'cad-scenes.sqlite3')
+        == NATIVE_SCHEMA_VERSION
+    )
+
+
+def test_restore_of_current_schema_reports_no_migration(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / 'data'
+    _seed_data(data_dir)
+    backend = DataManagementBackend(data_dir)
+    backup_path = tmp_path / 'current.htdt-backup'
+    backend.create_backup(backup_path)
+    preview = backend.preview_restore(backup_path)
+
+    result = backend.restore(preview)
+
+    assert result.migration_performed is False
+    assert result.upgrade_event_id is None
+    assert result.restored_native_schema_version == NATIVE_SCHEMA_VERSION
+    assert result.final_native_schema_version == NATIVE_SCHEMA_VERSION
+
+
 def test_manifest_native_schema_version_is_verified_against_staged_database(
     tmp_path: Path,
 ) -> None:

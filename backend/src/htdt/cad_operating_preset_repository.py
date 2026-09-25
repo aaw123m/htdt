@@ -26,6 +26,7 @@ from .cad_repository import SceneRepository
 from .cad_schema import require_native_tables
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .cad_authority_refs import AuthorityRefResolver
     from .cad_measurement_models import CadMeasurementRecord
     from .cad_measurement_quality_repository import CadMeasurementQualityRepository
     from .cad_measurement_repository import CadMeasurementRepository
@@ -33,6 +34,18 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 class OperatingPresetConflictError(ValueError):
     """A preset/applied/binding save violated append-only identity rules."""
+
+
+#: Preset component kinds that name canonical persisted authorities and can
+#: therefore be re-verified by exact reference resolution. Component kinds
+#: naming declared-only or UI-level artifacts (e.g. ``playback_chain``,
+#: ``presentation_profile``) have no canonical table and stay declared-only —
+#: an authority's absence there is never fabricated as a failure.
+_COMPONENT_RESOLVER_KINDS: dict[str, str] = {
+    'system_variant': 'system_variant',
+    'operating_preset': 'operating_preset',
+    'design_checkpoint': 'design_checkpoint',
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,8 +279,14 @@ class CadOperatingPresetRepository:
         component_resolvers: Mapping[str, PresetComponentResolver] | None = None,
         measurement_repository: 'CadMeasurementRepository | None' = None,
         measurement_quality_repository: 'CadMeasurementQualityRepository | None' = None,
+        ref_resolver: 'AuthorityRefResolver | None' = None,
     ) -> None:
         self.scene_repository = scene_repository
+        if ref_resolver is None:
+            from .cad_authority_refs import CanonicalAuthorityRefResolver
+
+            ref_resolver = CanonicalAuthorityRefResolver(scene_repository)
+        self.ref_resolver = ref_resolver
         self.path = scene_repository.path
         self._component_resolvers = (
             dict(component_resolvers) if component_resolvers is not None else None
@@ -370,13 +389,12 @@ class CadOperatingPresetRepository:
             raise OperatingPresetConflictError(
                 'TheaterOperatingPreset ids are append-only'
             )
-        revision = self.scene_repository.get(preset.scene_revision_id)
-        if revision is None:
-            raise ValueError('preset pins a SceneRevision that is not persisted')
-        if revision.content_hash != preset.scene_content_hash:
-            raise ValueError('preset SceneRevision content hash mismatch')
-        if revision.document_id != preset.document_id:
-            raise ValueError('preset SceneRevision belongs to another document')
+        self._assert_scene_pin(
+            preset.scene_revision_id,
+            preset.scene_content_hash,
+            preset.document_id,
+            'preset',
+        )
         self._validate_component_refs(preset)
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -614,3 +632,119 @@ class CadOperatingPresetRepository:
             PresetMeasurementBinding.model_validate_json(row['payload_json'])
             for row in rows
         )
+
+    # ------------------------------------------------------------------
+    # Persisted-record verification (#757 semantic audit)
+
+    def verify_persisted_preset(self, preset_id: str) -> TheaterOperatingPreset:
+        """Re-run the save-time invariants on a persisted preset.
+
+        Raises ``ValueError`` when the row fails any invariant — the scene
+        pin must resolve, and every component ref whose kind names a
+        canonical authority must resolve, stay in-project, and match the
+        pinned semantic hash.
+        """
+        preset = self.get_preset(preset_id)
+        if preset is None:
+            raise ValueError(f'preset {preset_id} no longer resolves')
+        self._assert_scene_pin(
+            preset.scene_revision_id,
+            preset.scene_content_hash,
+            preset.document_id,
+            'preset',
+        )
+        for ref in preset.component_refs:
+            resolver_kind = _COMPONENT_RESOLVER_KINDS.get(ref.kind)
+            if resolver_kind is None:
+                continue
+            self._assert_resolves(
+                resolver_kind, ref.ref_id, ref.ref_sha256, preset.document_id
+            )
+        return preset
+
+    def verify_persisted_applied_state(self, applied_id: str) -> AppliedPresetState:
+        applied = self.get_applied_state(applied_id)
+        if applied is None:
+            raise ValueError(f'applied preset state {applied_id} no longer resolves')
+        self._assert_preset_binding(
+            applied.preset_id, applied.preset_sha256, applied.document_id
+        )
+        return applied
+
+    def verify_persisted_measurement_binding(
+        self, binding_id: str
+    ) -> PresetMeasurementBinding:
+        binding = self.get_measurement_binding(binding_id)
+        if binding is None:
+            raise ValueError(
+                f'measurement binding {binding_id} no longer resolves'
+            )
+        self._assert_preset_binding(
+            binding.preset_id, binding.preset_sha256, binding.document_id
+        )
+        for measurement_id in binding.measurement_ids:
+            self._assert_resolves(
+                'measurement', measurement_id, None, binding.document_id
+            )
+        return binding
+
+    def _assert_scene_pin(
+        self,
+        scene_revision_id: str,
+        scene_content_hash: str,
+        document_id: str,
+        owner: str,
+    ) -> None:
+        revision = self.scene_repository.get(scene_revision_id)
+        if revision is None:
+            raise ValueError(f'{owner} pins a SceneRevision that is not persisted')
+        if revision.content_hash != scene_content_hash:
+            raise ValueError(f'{owner} SceneRevision content hash mismatch')
+        if revision.document_id != document_id:
+            raise ValueError(f'{owner} SceneRevision belongs to another document')
+
+    def _assert_preset_binding(
+        self, preset_id: str, preset_sha256: str, document_id: str
+    ) -> None:
+        preset = self.get_preset(preset_id)
+        if preset is None:
+            raise ValueError('referenced preset is not persisted')
+        if preset.preset_sha256 != preset_sha256:
+            raise ValueError('bound preset revision does not match the persisted preset')
+        if preset.document_id != document_id:
+            raise ValueError('bound preset belongs to another document')
+
+    def _assert_resolves(
+        self,
+        resolver_kind: str,
+        ref_id: str,
+        ref_sha256: str | None,
+        document_id: str,
+    ) -> None:
+        resolved = self.ref_resolver.resolve(resolver_kind, ref_id, document_id)
+        if resolved is None:
+            raise ValueError(
+                f'references a {resolver_kind} authority that does not resolve'
+            )
+        if (
+            resolved.document_id is not None
+            and resolved.document_id != document_id
+        ):
+            raise ValueError(
+                f'{resolver_kind} authority belongs to another document'
+            )
+        if resolved.semantic_sha256 is not None:
+            if ref_sha256 is None:
+                raise ValueError(
+                    f'ref must pin the {resolver_kind} semantic hash to claim '
+                    'an exact reference'
+                )
+            if ref_sha256 != resolved.semantic_sha256:
+                raise ValueError(
+                    f'{resolver_kind} hash does not match the canonical authority'
+                )
+        elif ref_sha256 is not None:
+            raise ValueError(
+                f'ref supplies a hash the id-only {resolver_kind} authority '
+                'does not expose'
+            )

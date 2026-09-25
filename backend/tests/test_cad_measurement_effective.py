@@ -27,6 +27,7 @@ from htdt.cad_measurements import (
 )
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Position3, RoomPrism, SceneDocument, SceneEntity, Size3
+from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 
 
 def _scene() -> SceneDocument:
@@ -62,7 +63,14 @@ def _setup(tmp_path: Path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     revision = scene_repository.save(_scene(), parent_revision_id=None).revision
     measurement_repository = CadMeasurementRepository(scene_repository)
-    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+    # Spatially-different corrections need a resolver for pinned pose
+    # evidence (#732); the fixture correction retargets to 'point-right'.
+    quality_repository = CadMeasurementQualityRepository(
+        measurement_repository,
+        pose_evidence_resolver=lambda ref, document_id: Position3(
+            x_m=4.0, y_m=3.0, z_m=1.1
+        ),
+    )
     return revision, measurement_repository, quality_repository
 
 
@@ -148,6 +156,12 @@ def test_correction_overlays_effective_binding(tmp_path: Path):
         reason='mic was at the right seat',
         measurement_entity_id='point-right',
         channel_role='front_right',
+        correction_kind='assignment_with_pose_evidence',
+        pose_evidence_ref=ExactExternalAuthorityRef(
+            authority_id='pose-right-seat',
+            authority_version='pose-observation-1',
+            semantic_hash_sha256=sha256(b'pose-authority').hexdigest(),
+        ),
     )
     qrepo.save_correction(correction)
     qrepo.save_disposition(

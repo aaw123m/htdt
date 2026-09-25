@@ -89,6 +89,15 @@ def _hash(payload: Any) -> str:
     return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
+def _require_iso8601(value: str, label: str) -> None:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f'{label} must be ISO-8601') from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f'{label} must be timezone-aware')
+
+
 class BriefGoalRef(BaseModel):
     """One design goal: an exact authority reference plus human intent.
 

@@ -7,17 +7,20 @@ from hashlib import sha256
 from pathlib import Path
 import sqlite3
 
-from typing import get_args
+from typing import Mapping, get_args
 
-from .cad_listener_pose import (
-    CadListenerPoseRepository,
-    pose_acoustic_reference_position,
+from .cad_authority_resolver import (
+    AuthorityRef,
+    ExactAuthorityResolver,
+    KindResolver,
+    ResolvedAuthority,
 )
 from .cad_measurement_authorities import (
     CadAcousticLevelCalibration,
     CadDatasetLevelReference,
     CadMeasurementTimingReference,
     CadRoutingProfile,
+    CadRoutingProfileBinding,
     CadWiringVerificationCheck,
     _validate_calibration_scope_identity,
     _validate_timing_scope_identity,
@@ -26,6 +29,11 @@ from .cad_measurement_authorities import (
     calibration_supports_absolute_spl,
     derive_load_result,
     timing_reference_scope_is_applicable,
+    timing_reference_supports_common_timing,
+)
+from .cad_measurement_stimulus import (
+    CadMeasurementExcitationAsset,
+    CadMeasurementStimulusProfile,
 )
 from .cad_measurement_disposition import (
     CadMeasurementCorrection,
@@ -101,6 +109,9 @@ class CadMeasurementQualityRepository:
         self,
         measurement_repository: CadMeasurementRepository,
         *,
+        system_variant_repository=None,
+        field_evidence_repository=None,
+        kind_resolvers: Mapping[str, KindResolver] | None = None,
         listener_pose_repository: CadListenerPoseRepository | None = None,
         pose_evidence_resolver: Callable[[ExactExternalAuthorityRef, str], Position3 | None] | None = None,
     ) -> None:
@@ -108,6 +119,17 @@ class CadMeasurementQualityRepository:
         self.path = Path(measurement_repository.path)
         self.assets_dir = Path(measurement_repository.assets_dir)
         self._asset_store = ManagedAssetStore(self.assets_dir)
+        resolvers: dict[str, KindResolver] = {
+            'measurement': self._resolve_measurement_kind,
+            'stimulus_profile': self._resolve_stimulus_profile_kind,
+        }
+        resolvers.update(kind_resolvers or {})
+        self.resolver = ExactAuthorityResolver(
+            measurement_repository.scene_repository,
+            system_variant_repository=system_variant_repository,
+            field_evidence_repository=field_evidence_repository,
+            kind_resolvers=resolvers,
+        )
         self.listener_pose_repository = (
             listener_pose_repository
             if listener_pose_repository is not None
@@ -124,6 +146,39 @@ class CadMeasurementQualityRepository:
         check_native_schema_compatibility(self.path)
         self._initialize()
 
+    def _resolve_measurement_kind(self, ref_id: str) -> ResolvedAuthority | None:
+        record = self.measurement_repository.get_measurement(ref_id)
+        if record is None:
+            return None
+        return ResolvedAuthority(
+            kind='measurement',
+            ref_id=ref_id,
+            document_id=record.document_id,
+            semantic_sha256=measurement_sha256(record),
+        )
+
+    def _resolve_stimulus_profile_kind(
+        self, ref_id: str
+    ) -> ResolvedAuthority | None:
+        profile = self.get_stimulus_profile(ref_id)
+        if profile is None:
+            return None
+        return ResolvedAuthority(
+            kind='stimulus_profile',
+            ref_id=ref_id,
+            document_id=profile.document_id,
+            semantic_sha256=profile.stimulus_profile_sha256,
+        )
+
+    def _require_document(self, document_id: str) -> None:
+        """Reject records pinning a document with no scene history."""
+        if (
+            self.measurement_repository.scene_repository
+            .most_recently_created_revision(document_id)
+            is None
+        ):
+            raise ValueError(f'unknown document: {document_id}')
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
@@ -133,6 +188,176 @@ class CadMeasurementQualityRepository:
     def _initialize(self) -> None:
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
+            connection.executescript(
+                '''
+                CREATE TABLE IF NOT EXISTS cad_measurement_quality_reports (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    report_id TEXT NOT NULL UNIQUE,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
+                    raw_asset_sha256 TEXT NOT NULL REFERENCES cad_measurement_assets(sha256),
+                    report_sha256 TEXT NOT NULL,
+                    profile_sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_quality_measurement_seq
+                    ON cad_measurement_quality_reports(measurement_id, seq ASC);
+                CREATE INDEX IF NOT EXISTS idx_measurement_quality_dataset_seq
+                    ON cad_measurement_quality_reports(dataset_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_lineage (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lineage_id TEXT NOT NULL UNIQUE,
+                    document_id TEXT NOT NULL,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    supersedes_measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    selected_measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    lineage_sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_document_seq
+                    ON cad_measurement_lineage(document_id, seq ASC);
+                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_measurement
+                    ON cad_measurement_lineage(measurement_id, seq ASC);
+                CREATE INDEX IF NOT EXISTS idx_measurement_lineage_supersedes
+                    ON cad_measurement_lineage(supersedes_measurement_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_acquisition_contexts (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    acquisition_context_id TEXT NOT NULL UNIQUE,
+                    acquisition_context_sha256 TEXT NOT NULL,
+                    source_kind TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_observations (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    observation_id TEXT NOT NULL UNIQUE,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    observation_sha256 TEXT NOT NULL,
+                    source_kind TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_observations_measurement_seq
+                    ON cad_measurement_observations(measurement_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_quality_calibration_files (
+                    sha256 TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    relative_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_timing_references (
+                    timing_reference_id TEXT PRIMARY KEY,
+                    timing_reference_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_acoustic_level_calibrations (
+                    calibration_id TEXT PRIMARY KEY,
+                    calibration_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_dataset_level_references (
+                    level_reference_id TEXT PRIMARY KEY,
+                    dataset_id TEXT NOT NULL UNIQUE REFERENCES cad_frequency_responses(dataset_id),
+                    level_reference_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_routing_profiles (
+                    routing_profile_id TEXT PRIMARY KEY,
+                    routing_profile_sha256 TEXT NOT NULL UNIQUE,
+                    profile_name TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS cad_wiring_checks (
+                    check_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    check_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_wiring_checks_document
+                    ON cad_wiring_checks(document_id, created_at_utc);
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_target_lineages (
+                    target_lineage_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    measurement_point_id TEXT NOT NULL,
+                    target_lineage_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_target_lineages_document
+                    ON cad_measurement_target_lineages(document_id);
+                CREATE INDEX IF NOT EXISTS idx_target_lineages_point
+                    ON cad_measurement_target_lineages(measurement_point_id);
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_dispositions (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    disposition_id TEXT NOT NULL UNIQUE,
+                    document_id TEXT NOT NULL,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    disposition TEXT NOT NULL,
+                    correction_id TEXT,
+                    disposition_sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_measurement_seq
+                    ON cad_measurement_dispositions(measurement_id, seq ASC);
+                CREATE INDEX IF NOT EXISTS idx_measurement_dispositions_document_seq
+                    ON cad_measurement_dispositions(document_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_measurement_corrections (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    correction_id TEXT NOT NULL UNIQUE,
+                    document_id TEXT NOT NULL,
+                    measurement_id TEXT NOT NULL REFERENCES cad_measurements(measurement_id),
+                    dataset_id TEXT NOT NULL REFERENCES cad_frequency_responses(dataset_id),
+                    dataset_sha256 TEXT NOT NULL,
+                    correction_sha256 TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_measurement_corrections_measurement_seq
+                    ON cad_measurement_corrections(measurement_id, seq ASC);
+
+                CREATE TABLE IF NOT EXISTS cad_excitation_assets (
+                    excitation_asset_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    excitation_sha256 TEXT NOT NULL UNIQUE,
+                    byte_length INTEGER NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_excitation_assets_document
+                    ON cad_excitation_assets(document_id, created_at_utc);
+
+                CREATE TABLE IF NOT EXISTS cad_stimulus_profiles (
+                    stimulus_profile_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL,
+                    stimulus_profile_sha256 TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_stimulus_profiles_document
+                    ON cad_stimulus_profiles(document_id, created_at_utc);
+                '''
+            )
             require_native_tables(connection, 'cad_measurement_quality_reports', 'cad_measurement_lineage', 'cad_acquisition_contexts', 'cad_measurement_observations', 'cad_quality_calibration_files', 'cad_timing_references', 'cad_acoustic_level_calibrations', 'cad_dataset_level_references', 'cad_routing_profiles', 'cad_wiring_checks', 'cad_measurement_target_lineages', 'cad_measurement_dispositions', 'cad_measurement_corrections')
 
     def _validate_acquisition_context(self, context: CadAcquisitionContext) -> None:
@@ -174,6 +399,7 @@ class CadMeasurementQualityRepository:
                     'acquisition context timing_reference_id does not match '
                     'the bound timing authority'
                 )
+            self._require_timing_flat_consistency(context, reference)
             # #849/#860: a matching hash alone is not scope proof — every
             # declared scope must actually cover the context's subjects.
             # An 'unknown'-scope reference binds as honest legacy evidence
@@ -214,6 +440,61 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'acquisition context routing profile belongs to a '
                     'different document'
+                )
+
+    def _require_timing_flat_consistency(
+        self,
+        context: CadAcquisitionContext,
+        reference: CadMeasurementTimingReference,
+    ) -> None:
+        """Flat timing fields cannot strengthen what the bound authority declared.
+
+        A context binding a ``CadMeasurementTimingReference`` may only repeat
+        values that authority itself attests: ``clock_source`` must name one
+        of the authority's declared clock identities (or be absent),
+        ``sample_rate_hz`` must equal the authority's rate (and be absent
+        when the authority declares none), and ``delay_correction_s`` must
+        equal the sum of the authority's typed corrections (absent when the
+        authority declares none). A caller-authored value the authority does
+        not carry is a contradiction and fails closed.
+        """
+        if context.clock_source is not None:
+            identities = {
+                identity
+                for identity in (
+                    reference.input_clock_identity,
+                    reference.output_clock_identity,
+                    reference.reference_channel,
+                )
+                if identity is not None
+            }
+            if context.clock_source not in identities:
+                raise ValueError(
+                    'acquisition context clock_source is not attested by '
+                    'the bound timing authority'
+                )
+        if context.sample_rate_hz is not None:
+            if (
+                reference.sample_rate_hz is None
+                or context.sample_rate_hz != reference.sample_rate_hz
+            ):
+                raise ValueError(
+                    'acquisition context sample_rate_hz diverges from the '
+                    'bound timing authority'
+                )
+        if context.delay_correction_s is not None:
+            if not reference.delay_corrections:
+                raise ValueError(
+                    'acquisition context declares a delay correction the '
+                    'bound timing authority does not carry'
+                )
+            declared_total = sum(
+                correction.value_s for correction in reference.delay_corrections
+            )
+            if context.delay_correction_s != declared_total:
+                raise ValueError(
+                    'acquisition context delay_correction_s diverges from '
+                    'the bound timing authority corrections'
 
                 )
 
@@ -519,6 +800,28 @@ class CadMeasurementQualityRepository:
                     f'timing evidence field {field} diverges from the resolved '
                     'acquisition context'
                 )
+        if context.timing_reference_sha256 is not None:
+            reference = self._find_timing_reference_by_sha256(
+                context.timing_reference_sha256
+            )
+            if reference is None:
+                raise ValueError(
+                    'acquisition context binds an unknown timing reference'
+                )
+            if not timing_reference_supports_common_timing(reference):
+                # The bound authority cannot witness common timing: no
+                # report may claim timing PASS or common_timing ALLOWED
+                # from it — whatever its flat fields say.
+                if report.timing_reference.status == 'PASS':
+                    raise ValueError(
+                        'timing reference PASS requires a bound timing '
+                        'authority that supports common timing'
+                    )
+                if report.capability('common_timing').decision == 'ALLOWED':
+                    raise ValueError(
+                        'common_timing ALLOWED requires a bound timing '
+                        'authority that supports common timing'
+                    )
         return context
 
     def _resolve_level_reference(
@@ -1174,6 +1477,275 @@ class CadMeasurementQualityRepository:
         return reference
 
     # ------------------------------------------------------------------
+    # Measurement stimulus authorities (#874)
+
+    def _find_stimulus_profile_by_sha256(
+        self, stimulus_profile_sha256: str
+    ) -> CadMeasurementStimulusProfile | None:
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT stimulus_profile_id FROM cad_stimulus_profiles '
+                'WHERE stimulus_profile_sha256=?',
+                (stimulus_profile_sha256,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self.get_stimulus_profile(row['stimulus_profile_id'])
+
+    def save_excitation_asset(
+        self,
+        asset: CadMeasurementExcitationAsset,
+        content: bytes,
+    ) -> None:
+        """Admit one managed excitation file and persist its sealed record.
+
+        ``content`` must hash to the declared ``sha256``/``byte_length`` —
+        the bytes are installed into the #834 managed asset store before the
+        row lands, and every later read re-verifies the file against the
+        row, so a persisted asset can never describe missing or mutated
+        bytes.
+        """
+        self._require_document(asset.document_id)
+        if sha256(content).hexdigest() != asset.sha256:
+            raise ManagedAssetError(
+                'excitation asset content does not match its declared sha256'
+            )
+        if len(content) != asset.byte_length:
+            raise ManagedAssetError(
+                'excitation asset content does not match its declared '
+                'byte_length'
+            )
+        expected_path = str(
+            self._asset_store.asset_path(asset.sha256).relative_to(
+                self.path.parent
+            )
+        ).replace('\\', '/')
+        if asset.relative_path.replace('\\', '/') != expected_path:
+            raise ManagedAssetError(
+                'excitation asset relative_path does not name its '
+                f'content-addressed store path: {expected_path}'
+            )
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_excitation_assets WHERE excitation_asset_id=?',
+                (asset.excitation_asset_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    'excitation asset already exists: '
+                    f'{asset.excitation_asset_id}'
+                )
+            self._asset_store.ensure_installed(asset.sha256, content)
+            connection.execute(
+                '''
+                INSERT INTO cad_excitation_assets(
+                    excitation_asset_id, document_id, sha256,
+                    excitation_sha256, byte_length, payload_json,
+                    created_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    asset.excitation_asset_id,
+                    asset.document_id,
+                    asset.sha256,
+                    asset.excitation_sha256,
+                    asset.byte_length,
+                    asset.model_dump_json(),
+                    asset.created_at_utc,
+                ),
+            )
+
+    def get_excitation_asset(
+        self, excitation_asset_id: str
+    ) -> CadMeasurementExcitationAsset | None:
+        """Resolve a persisted excitation asset, re-verifying row, seal and
+        managed bytes."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT excitation_asset_id, document_id, sha256, '
+                'excitation_sha256, byte_length, payload_json, created_at_utc '
+                'FROM cad_excitation_assets WHERE excitation_asset_id=?',
+                (excitation_asset_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        asset = CadMeasurementExcitationAsset.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['excitation_asset_id'] != asset.excitation_asset_id
+            or row['document_id'] != asset.document_id
+            or row['sha256'] != asset.sha256
+            or row['excitation_sha256'] != asset.excitation_sha256
+            or row['byte_length'] != asset.byte_length
+            or row['created_at_utc'] != asset.created_at_utc
+        ):
+            raise ValueError(
+                'persisted excitation asset row disagrees with its payload'
+            )
+        verify_managed_asset(
+            data_dir=self.path.parent,
+            digest=asset.sha256,
+            relative_path=asset.relative_path,
+            size_bytes=asset.byte_length,
+            required_root=self.assets_dir,
+        )
+        return asset
+
+    def _validate_stimulus_profile(
+        self, profile: CadMeasurementStimulusProfile
+    ) -> None:
+        self._require_document(profile.document_id)
+        if profile.excitation_asset is not None:
+            asset = self.get_excitation_asset(
+                profile.excitation_asset.excitation_asset_id
+            )
+            if asset is None:
+                raise ValueError(
+                    'stimulus profile binds an unknown excitation asset: '
+                    f'{profile.excitation_asset.excitation_asset_id}'
+                )
+            if asset.document_id != profile.document_id:
+                raise ValueError(
+                    'stimulus profile excitation asset belongs to a '
+                    'different document'
+                )
+            if (
+                asset.excitation_sha256
+                != profile.excitation_asset.excitation_sha256
+                or asset.sha256 != profile.excitation_asset.sha256
+            ):
+                raise ValueError(
+                    'stimulus profile excitation asset binding hash mismatch'
+                )
+        if profile.measurement_dataset_sha256 is not None:
+            dataset = self._find_dataset_by_sha256(
+                profile.measurement_dataset_sha256
+            )
+            if dataset is None:
+                raise ValueError(
+                    'stimulus profile binds an unknown measurement dataset'
+                )
+            record = self.measurement_repository.get_measurement(
+                dataset.measurement_id
+            )
+            if record is None or record.document_id != profile.document_id:
+                raise ValueError(
+                    'stimulus profile measurement dataset belongs to a '
+                    'different document'
+                )
+
+    def _find_dataset_by_sha256(
+        self, dataset_sha256_value: str
+    ) -> CadFrequencyResponseDataset | None:
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT dataset_id FROM cad_frequency_responses '
+                'WHERE dataset_sha256=?',
+                (dataset_sha256_value,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self.measurement_repository.get_dataset(row['dataset_id'])
+
+    def save_stimulus_profile(
+        self, profile: CadMeasurementStimulusProfile
+    ) -> None:
+        """Persist an immutable stimulus-profile authority.
+
+        Bound excitation assets and source measurement datasets are resolved
+        at save: an unresolvable or foreign-document binding is never
+        persisted as an exact reference.
+        """
+        self._validate_stimulus_profile(profile)
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            if connection.execute(
+                'SELECT 1 FROM cad_stimulus_profiles WHERE stimulus_profile_id=?',
+                (profile.stimulus_profile_id,),
+            ).fetchone() is not None:
+                raise ValueError(
+                    'stimulus profile already exists: '
+                    f'{profile.stimulus_profile_id}'
+                )
+            connection.execute(
+                '''
+                INSERT INTO cad_stimulus_profiles(
+                    stimulus_profile_id, document_id,
+                    stimulus_profile_sha256, payload_json, created_at_utc
+                ) VALUES (?, ?, ?, ?, ?)
+                ''',
+                (
+                    profile.stimulus_profile_id,
+                    profile.document_id,
+                    profile.stimulus_profile_sha256,
+                    profile.model_dump_json(),
+                    profile.created_at_utc,
+                ),
+            )
+
+    def get_stimulus_profile(
+        self, stimulus_profile_id: str
+    ) -> CadMeasurementStimulusProfile | None:
+        """Resolve a persisted stimulus profile, re-verifying row, seal and
+        bound authorities."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT stimulus_profile_id, document_id, '
+                'stimulus_profile_sha256, payload_json, created_at_utc '
+                'FROM cad_stimulus_profiles WHERE stimulus_profile_id=?',
+                (stimulus_profile_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        profile = CadMeasurementStimulusProfile.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['stimulus_profile_id'] != profile.stimulus_profile_id
+            or row['document_id'] != profile.document_id
+            or row['stimulus_profile_sha256'] != profile.stimulus_profile_sha256
+            or row['created_at_utc'] != profile.created_at_utc
+        ):
+            raise ValueError(
+                'persisted stimulus profile row disagrees with its payload'
+            )
+        self._validate_stimulus_profile(profile)
+        return profile
+
+    def list_stimulus_profiles(
+        self, document_id: str
+    ) -> tuple[CadMeasurementStimulusProfile, ...]:
+        """Every persisted stimulus profile for the document, oldest first."""
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT stimulus_profile_sha256, payload_json '
+                'FROM cad_stimulus_profiles '
+                'WHERE document_id=? ORDER BY created_at_utc ASC, '
+                'stimulus_profile_id',
+                (document_id,),
+            ).fetchall()
+        profiles: list[CadMeasurementStimulusProfile] = []
+        for row in rows:
+            profile = CadMeasurementStimulusProfile.model_validate_json(
+                row['payload_json']
+            )
+            if row['stimulus_profile_sha256'] != profile.stimulus_profile_sha256:
+                raise ValueError(
+                    'persisted stimulus profile row disagrees with its payload'
+                )
+            self._validate_stimulus_profile(profile)
+            profiles.append(profile)
+        return tuple(profiles)
+
+    # ------------------------------------------------------------------
     # Acoustic level calibrations + dataset level references (#643)
 
     def _validate_level_calibration(
@@ -1647,6 +2219,127 @@ class CadMeasurementQualityRepository:
     # ------------------------------------------------------------------
     # Speaker wiring commissioning checks (#645)
 
+    def _resolve_wiring_check(self, check: CadWiringVerificationCheck) -> None:
+        """Prove every pinned authority and claimed reference resolves (#825).
+
+        The check must pin an exact ``SceneRevision`` (id + content hash) of
+        the same document, every speaker id in the three speaker tuples must
+        resolve to a ``speaker`` entity inside that pinned revision, a bound
+        ``SystemVariant`` and every typed ``evidence_ref`` must resolve
+        same-document with exact hashes, and a ``routing`` check's optional
+        profile binding must resolve to a persisted ``CadRoutingProfile``
+        whose matching channel-map entry is applicable to the pinned scene.
+        """
+        revision = self.measurement_repository.scene_repository.get(
+            check.scene_revision_id
+        )
+        if revision is None:
+            raise ValueError(
+                'wiring check pins an unknown scene revision: '
+                f'{check.scene_revision_id}'
+            )
+        if revision.document_id != check.document_id:
+            raise ValueError(
+                'wiring check scene revision belongs to a different document'
+            )
+        if revision.content_hash != check.scene_revision_sha256:
+            raise ValueError(
+                'wiring check scene revision hash mismatch'
+            )
+        for label, speaker_ids in (
+            ('expected_speaker_ids', check.expected_speaker_ids),
+            ('source_speaker_ids', check.source_speaker_ids),
+            ('observed_speaker_ids', check.observed_speaker_ids),
+        ):
+            for speaker_id in speaker_ids:
+                try:
+                    entity = revision.document.entity(speaker_id)
+                except KeyError:
+                    raise ValueError(
+                        f'wiring check {label} names an entity outside the '
+                        f'pinned scene revision: {speaker_id}'
+                    ) from None
+                if entity.kind != 'speaker':
+                    raise ValueError(
+                        f'wiring check {label} names a non-speaker entity: '
+                        f'{speaker_id}'
+                    )
+        if check.system_variant_id is not None:
+            self.resolver.resolve(
+                AuthorityRef(
+                    kind='system_variant',
+                    ref_id=check.system_variant_id,
+                    ref_sha256=check.system_variant_sha256,
+                ),
+                document_id=check.document_id,
+            )
+        for ref in check.evidence_refs:
+            if isinstance(ref, AuthorityRef):
+                self.resolver.resolve(ref, document_id=check.document_id)
+        if check.routing_profile is not None:
+            profile = self.get_routing_profile(
+                check.routing_profile.routing_profile_id
+            )
+            if profile is None:
+                raise ValueError(
+                    'wiring check binds an unknown routing profile: '
+                    f'{check.routing_profile.routing_profile_id}'
+                )
+            if (
+                profile.routing_profile_sha256
+                != check.routing_profile.routing_profile_sha256
+            ):
+                raise ValueError('wiring check routing profile hash mismatch')
+            if check.expected_output_reference is not None:
+                entry = next(
+                    (
+                        candidate
+                        for candidate in profile.entries
+                        if check.expected_output_reference
+                        in (
+                            candidate.rew_channel_label,
+                            candidate.logical_role,
+                            candidate.output_device_label,
+                        )
+                    ),
+                    None,
+                )
+                if entry is None:
+                    raise ValueError(
+                        'wiring check expected_output_reference does not '
+                        'resolve to a bound routing profile entry'
+                    )
+                if (
+                    check.expected_speaker_ids
+                    and entry.expected_speaker_ids
+                    and set(check.expected_speaker_ids)
+                    != set(entry.expected_speaker_ids)
+                ):
+                    raise ValueError(
+                        'wiring check expected speakers disagree with the '
+                        'bound routing profile entry'
+                    )
+                for speaker_id in (
+                    *entry.expected_speaker_ids,
+                    *entry.observed_speaker_ids,
+                ):
+                    try:
+                        entity = revision.document.entity(speaker_id)
+                    except KeyError:
+                        raise ValueError(
+                            'routing profile entry names a speaker outside '
+                            f'the pinned scene revision: {speaker_id}'
+                        ) from None
+                    if entity.kind != 'speaker':
+                        raise ValueError(
+                            'routing profile entry names a non-speaker '
+                            f'entity: {speaker_id}'
+                        )
+
+    def save_wiring_check(self, check: CadWiringVerificationCheck) -> None:
+        """Persist one independent wiring-verification check result."""
+        self._resolve_wiring_check(check)
+        self._validate_wiring_check(check)
     def _wiring_check_document(
         self, check: CadWiringVerificationCheck
     ) -> SceneDocument:
@@ -1744,6 +2437,11 @@ class CadMeasurementQualityRepository:
                     f'{speaker_id}'
                 )
         for reference in check.evidence_refs:
+            if isinstance(reference, AuthorityRef):
+                self.resolver.resolve(
+                    reference, document_id=check.document_id
+                )
+                continue
             if reference.startswith('manual:'):
                 if len(reference) <= len('manual:'):
                     raise ValueError(
@@ -1759,19 +2457,20 @@ class CadMeasurementQualityRepository:
                     'wiring check evidence ref is unresolvable in this '
                     f'document: {reference}'
                 )
-        if check.routing_profile_ref is not None:
+        routing_binding = check.routing_profile_ref or check.routing_profile
+        if routing_binding is not None:
             if check.check_kind != 'routing':
                 raise ValueError(
                     'a routing profile binding is only valid on a routing '
                     'wiring check'
                 )
             profile = self.get_routing_profile(
-                check.routing_profile_ref.routing_profile_id
+                routing_binding.routing_profile_id
             )
             if (
                 profile is None
                 or profile.routing_profile_sha256
-                != check.routing_profile_ref.routing_profile_sha256
+                != routing_binding.routing_profile_sha256
             ):
                 raise ValueError(
                     'wiring check binds an unresolvable routing profile'
@@ -1793,7 +2492,7 @@ class CadMeasurementQualityRepository:
                 )
         if check.result == 'PASS':
             if check.check_kind == 'routing':
-                if check.routing_profile_ref is None:
+                if routing_binding is None:
                     raise ValueError(
                         'a PASS routing check requires an exact routing '
                         'profile binding'
@@ -1810,9 +2509,7 @@ class CadMeasurementQualityRepository:
                     'manual attestation refs'
                 )
 
-    def save_wiring_check(self, check: CadWiringVerificationCheck) -> None:
-        """Persist one independent wiring-verification check result."""
-        self._validate_wiring_check(check)
+
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -1856,6 +2553,7 @@ class CadMeasurementQualityRepository:
             raise ValueError(
                 'persisted wiring check row disagrees with its payload'
             )
+        self._resolve_wiring_check(check)
         return check
 
     def list_wiring_checks(
@@ -1878,6 +2576,7 @@ class CadMeasurementQualityRepository:
                 raise ValueError(
                     'persisted wiring check row disagrees with its payload'
                 )
+            self._resolve_wiring_check(check)
             checks.append(check)
         return tuple(checks)
 

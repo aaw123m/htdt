@@ -96,7 +96,92 @@ def test_pre_destructive_always_backs_up(tmp_path: Path) -> None:
     second = scheduler.run_due('pre_destructive')
     assert second is not None
     names = [p.name for p in scheduler.list_generations()]
-    assert all('pre_restore' in name for name in names)
+    assert all('pre_destructive' in name for name in names)
+
+
+def test_clean_close_respects_interval(tmp_path: Path) -> None:
+    _seed_data(tmp_path)
+    scheduler = _scheduler(tmp_path, interval_hours=24.0)
+    assert scheduler.run_due('clean_close') is not None
+    # Changed data but inside the interval: clean-close never forces an
+    # extra generation (#755).
+    _seed_data(tmp_path, document_id='doc-2')
+    assert scheduler.run_due('clean_close') is None
+
+
+def test_record_clean_close_defers_due_backup(tmp_path: Path) -> None:
+    _seed_data(tmp_path)
+    scheduler = _scheduler(tmp_path)
+    scheduler.record_clean_close()
+    state = scheduler._load_state()
+    assert state['clean_close_pending'] is True
+    assert 'last_clean_close_at_utc' in state
+    # The next eligible periodic tick performs the deferred generation.
+    result = scheduler.run_due('periodic')
+    assert result is not None
+    assert 'automatic_periodic' in result[0].name
+    assert scheduler._load_state()['clean_close_pending'] is False
+
+
+def test_rotation_never_deletes_safety_generations(tmp_path: Path) -> None:
+    _seed_data(tmp_path)
+    scheduler = _scheduler(tmp_path, keep_generations=2)
+    backup_dir = backups_dir(scheduler.data_dir, scheduler.policy)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    safety_names = [
+        'htdt-backup-pre_restore-20260101T000000Z-aa.htdt-backup',
+        'htdt-backup-manual-20260101T010000Z-bb.htdt-backup',
+        'htdt-backup-pre_upgrade-20260101T020000Z-cc.htdt-backup',
+        'htdt-backup-pre_destructive-20260101T030000Z-dd.htdt-backup',
+        # Unknown-classification archive: unrecognised = protected.
+        'htdt-backup-unknownkind-20260101T040000Z-ee.htdt-backup',
+    ]
+    for name in safety_names:
+        (backup_dir / name).write_bytes(b'x')
+    # Six same-day automatic generations: only the newest 2 survive.
+    for index in range(6):
+        (
+            backup_dir
+            / f'htdt-backup-automatic_periodic-20260115T0{index}0000Z-{index}.htdt-backup'
+        ).write_bytes(b'x')
+    scheduler.prune_generations()
+    remaining = {p.name for p in scheduler.list_generations()}
+    assert remaining == set(safety_names) | {
+        'htdt-backup-automatic_periodic-20260115T050000Z-5.htdt-backup',
+        'htdt-backup-automatic_periodic-20260115T040000Z-4.htdt-backup',
+    }
+
+
+def test_safety_generation_does_not_reset_interval(tmp_path: Path) -> None:
+    _seed_data(tmp_path)
+    scheduler = _scheduler(tmp_path, interval_hours=24.0)
+    scheduler.run_due('pre_destructive')
+    _seed_data(tmp_path, document_id='doc-2')
+    # The safety archive covered the old fingerprint but did not advance
+    # the routine automatic clock — a never-automatic dir is still due.
+    should, reason = scheduler.evaluate('periodic')
+    assert should is True
+    assert 'no automatic backup has ever run' in reason
+    result = scheduler.run_due('periodic')
+    assert result is not None
+    # Data unchanged since that generation: pre-destructive still runs.
+    assert scheduler.run_due('pre_destructive') is not None
+
+
+def test_generation_records_are_chronological(tmp_path: Path) -> None:
+    _seed_data(tmp_path)
+    scheduler = _scheduler(tmp_path)
+    backup_dir = backups_dir(scheduler.data_dir, scheduler.policy)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    # uuid suffixes would invert plain name ordering; timestamps must win.
+    (backup_dir / 'htdt-backup-automatic_periodic-20260102T000000Z-zz.htdt-backup').write_bytes(b'x')
+    (backup_dir / 'htdt-backup-automatic_periodic-20260103T000000Z-aa.htdt-backup').write_bytes(b'x')
+    records = scheduler.generation_records()
+    assert [r.path.name for r in records] == [
+        'htdt-backup-automatic_periodic-20260103T000000Z-aa.htdt-backup',
+        'htdt-backup-automatic_periodic-20260102T000000Z-zz.htdt-backup',
+    ]
+    assert all(r.classification == 'automatic_periodic' for r in records)
 
 
 def test_classification_in_generation_names(tmp_path: Path) -> None:
