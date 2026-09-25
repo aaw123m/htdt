@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_scene import SceneDocument, scene_content_hash
+from .cad_schema import require_native_tables
 
 
 def _utc_now() -> str:
@@ -110,47 +111,7 @@ class CadSystemVariantRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_system_variants (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    variant_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    baseline_revision_id TEXT NOT NULL,
-                    baseline_content_hash TEXT NOT NULL,
-                    parent_variant_id TEXT,
-                    variant_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(baseline_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(parent_variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_system_variant_document_seq
-                    ON cad_system_variants(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_system_variant_applications (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    application_id TEXT NOT NULL UNIQUE,
-                    variant_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    baseline_revision_id TEXT NOT NULL,
-                    applied_revision_id TEXT NOT NULL UNIQUE,
-                    application_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    selected_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(variant_id)
-                        REFERENCES cad_system_variants(variant_id),
-                    FOREIGN KEY(baseline_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(applied_revision_id)
-                        REFERENCES scene_revisions(revision_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_system_variant_application_document_seq
-                    ON cad_system_variant_applications(document_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_system_variants', 'cad_system_variant_applications')
 
     def _validate_equipment_bindings_persisted(
         self,

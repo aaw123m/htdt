@@ -183,6 +183,14 @@ class CadMeasurementComparison(BaseModel):
     algorithm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     spec_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     comparison_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    # Semantic provenance (#852): the frozen side contexts, advisory
+    # mismatches and metric-eligibility decisions derived at comparison
+    # time — history reopens with the same interpretation regardless of
+    # how the project has evolved since. ``None`` only on legacy rows.
+    semantics_json: str | None = None
+    label_a: str | None = None
+    label_b: str | None = None
+    level_compatibility: str | None = None
 
     @model_validator(mode='after')
     def valid_result(self) -> 'CadMeasurementComparison':
@@ -267,7 +275,7 @@ class CadMeasurementComparison(BaseModel):
         )
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'comparison_id': self.comparison_id,
             'document_id': self.document_id,
             'dataset_a_id': self.dataset_a_id,
@@ -299,6 +307,14 @@ class CadMeasurementComparison(BaseModel):
             'algorithm_sha256': self.algorithm_sha256,
             'spec_sha256': self.spec_sha256,
         }
+        # Semantics seal into the identity only when present — legacy rows
+        # keep replaying under their original hash.
+        if self.semantics_json is not None:
+            payload['semantics_json'] = self.semantics_json
+            payload['label_a'] = self.label_a
+            payload['label_b'] = self.label_b
+            payload['level_compatibility'] = self.level_compatibility
+        return payload
 
 
 def build_measurement_comparison(
@@ -313,6 +329,10 @@ def build_measurement_comparison(
     scene_revision_b_id: str,
     created_at: str,
     result: ComparisonResult,
+    semantics_json: str | None = None,
+    label_a: str | None = None,
+    label_b: str | None = None,
+    level_compatibility: str | None = None,
 ) -> CadMeasurementComparison:
     """Assemble an identity-bound record for a canonical comparison result.
 
@@ -335,6 +355,10 @@ def build_measurement_comparison(
         'algorithm_sha256': comparison_algorithm_sha256(result.algorithm_version),
         'spec_sha256': '0' * 64,
         'comparison_sha256': '0' * 64,
+        'semantics_json': semantics_json,
+        'label_a': label_a,
+        'label_b': label_b,
+        'level_compatibility': level_compatibility,
     }
     provisional = CadMeasurementComparison.model_construct(**payload)
     payload['spec_sha256'] = _hash(provisional.spec_identity_payload())

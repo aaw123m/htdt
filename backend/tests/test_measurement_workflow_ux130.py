@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget
 from hashlib import sha256
 
 from htdt.cad_document import WorkingDocument
+from htdt.cad_measurement_authorities import build_routing_profile
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
 from htdt.cad_measurement_quality import (
     CadMeasurementQualityEvidence,
@@ -56,10 +57,30 @@ def _app() -> QApplication:
 def test_stage_assignment_and_commit_use_existing_measurement_authorities(tmp_path: Path) -> None:
     scene_repository, revision = _saved_f1(tmp_path)
     measurement_repository = CadMeasurementRepository(scene_repository)
+    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+    # #858: a 'verified' routing claim requires a resolvable profile scoped
+    # to this document with a verified entry for the assigned role.
+    profile = build_routing_profile(
+        document_id=revision.document_id,
+        entries=(
+            {
+                'output_device_label': 'EXCL: DENON-AVR (WASAPI)',
+                'rew_channel_label': 'C:FL',
+                'hardware_channel_index': 0,
+                'logical_role': 'front_left',
+                'expected_speaker_ids': ('speaker-fl',),
+                'observed_speaker_ids': ('speaker-fl',),
+                'verification': 'verified',
+                'verified_at_utc': '2026-09-20T00:00:00+00:00',
+            },
+        ),
+    )
+    quality_repository.save_routing_profile(profile)
     controller = MeasurementWorkflowController(
         scene_repository,
         revision.document_id,
         measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
     )
 
     raw = b"Frequency SPL\n20 70.0\n40 71.5\n80 69.0\n"
@@ -79,6 +100,7 @@ def test_stage_assignment_and_commit_use_existing_measurement_authorities(tmp_pa
             source_speaker_ids=("speaker-fl",),
             radiation_scope="single",
             routing_evidence="verified",
+            routing_profile_id=profile.routing_profile_id,
         )
     )
 
@@ -363,6 +385,9 @@ def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Pat
         "arrival_time",
         "decay",
         "calibrated_response",
+        "frequency_response_corrected",
+        "absolute_spl",
+        "absolute_noise_level",
         "repeatability",
         "polarity",
     ]
@@ -372,6 +397,9 @@ def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Pat
     assert decisions["common_timing"] == "UNKNOWN"
     assert decisions["arrival_time"] == "BLOCKED"
     assert decisions["calibrated_response"] == "BLOCKED"
+    assert decisions["frequency_response_corrected"] == "BLOCKED"
+    assert decisions["absolute_spl"] == "UNKNOWN"
+    assert decisions["absolute_noise_level"] == "UNKNOWN"
     assert decisions["polarity"] == "UNKNOWN"
 
     # Independent checks are independently visible.
@@ -442,7 +470,7 @@ def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
     assert view.retake_guidance is None
 
     decisions = {cap.claim: cap.decision for cap in view.capabilities}
-    assert len(view.capabilities) == 8
+    assert len(view.capabilities) == 11
     # Dataset-local claims keep dataset verdicts; everything else fails closed.
     assert decisions["magnitude_response"] == "ALLOWED"
     assert decisions["phase_response"] == "ALLOWED"
@@ -450,6 +478,9 @@ def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
     assert decisions["arrival_time"] == "UNKNOWN"
     assert decisions["decay"] == "UNKNOWN"
     assert decisions["calibrated_response"] == "UNKNOWN"
+    assert decisions["frequency_response_corrected"] == "UNKNOWN"
+    assert decisions["absolute_spl"] == "UNKNOWN"
+    assert decisions["absolute_noise_level"] == "UNKNOWN"
     assert decisions["repeatability"] == "UNKNOWN"
     assert decisions["polarity"] == "UNKNOWN"
 

@@ -12,7 +12,7 @@ from .cad_intervention_study import (
     InterventionStudySpec,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import ensure_native_schema, require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -60,45 +60,13 @@ class CadInterventionStudyRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_intervention_study_specs (
-                    spec_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    spec_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_cad_intervention_specs_doc
-                    ON cad_intervention_study_specs(
-                        document_id,
-                        scene_revision_id,
-                        created_at_utc
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_intervention_alternatives (
-                    alternative_id TEXT PRIMARY KEY,
-                    spec_id TEXT NOT NULL,
-                    family TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    alternative_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(spec_id)
-                        REFERENCES cad_intervention_study_specs(spec_id)
-                        ON DELETE RESTRICT
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_cad_intervention_alts_spec
-                    ON cad_intervention_alternatives(
-                        spec_id,
-                        created_at_utc
-                    );
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_intervention_study_specs',
+                'cad_intervention_alternatives',
             )
+
 
     def _require_scene_revision(
         self, spec: InterventionStudySpec

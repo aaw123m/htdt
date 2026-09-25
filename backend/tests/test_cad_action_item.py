@@ -16,14 +16,34 @@ from htdt.cad_action_item_repository import (
     CadActionItemRepository,
 )
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import make_empty_scene
+from htdt.cad_scene import (
+    Position3,
+    SceneDocument,
+    SceneEntity,
+    make_empty_scene,
+)
 
 NOW = '2026-09-24T00:00:00+00:00'
 
 
 def _repository(tmp_path: Path) -> CadActionItemRepository:
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
-    scene_repository.save(make_empty_scene('doc-1'), parent_revision_id=None)
+    scene_repository.save(
+        SceneDocument(
+            document_id='doc-1',
+            schema_version=2,
+            room=None,
+            entities=(
+                SceneEntity(
+                    entity_id='sub-1',
+                    kind='measurement_point',
+                    name='Subwoofer',
+                    position=Position3(x_m=1.0, y_m=1.0, z_m=0.0),
+                ),
+            ),
+        ),
+        parent_revision_id=None,
+    )
     return CadActionItemRepository(scene_repository)
 
 

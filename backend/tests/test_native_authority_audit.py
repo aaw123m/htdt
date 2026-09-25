@@ -18,6 +18,7 @@ from htdt.native_authority_audit import (
 )
 import htdt.native_backup as native_backup
 from htdt.native_backup import create_backup, restore_backup, validate_backup
+from htdt.native_row_integrity import NativeRowIntegrityError
 
 
 def _seeded_data(tmp_path: Path):
@@ -312,7 +313,10 @@ def test_create_backup_rejects_semantically_corrupt_live_data(tmp_path: Path):
         ),
     )
 
-    with pytest.raises(AuthorityAuditError):
+    # #313: payload-level corruption is now rejected by the row-integrity
+    # gate before the authority graph audit runs; either layer failing
+    # closed satisfies the contract.
+    with pytest.raises((AuthorityAuditError, NativeRowIntegrityError)):
         create_backup(data_dir, tmp_path / 'must-not-exist.htdt-backup')
 
     assert not (tmp_path / 'must-not-exist.htdt-backup').exists()
@@ -325,7 +329,10 @@ def test_validate_backup_rejects_semantically_corrupt_archive(tmp_path: Path):
         tmp_path / 'corrupt.htdt-backup', tampered, data_dir
     )
 
-    with pytest.raises(ValueError, match='authority graph audit failed'):
+    with pytest.raises(
+        ValueError,
+        match='authority graph audit failed|native semantic integrity check failed',
+    ):
         validate_backup(archive)
 
 
@@ -339,7 +346,10 @@ def test_restore_rejects_semantically_corrupt_archive(tmp_path: Path):
         tmp_path / 'corrupt.htdt-backup', tampered, data_dir
     )
 
-    with pytest.raises(ValueError, match='authority graph audit failed'):
+    with pytest.raises(
+        ValueError,
+        match='authority graph audit failed|native semantic integrity check failed',
+    ):
         restore_backup(data_dir, archive)
 
     # Live data is untouched: staging validation failed before any swap.

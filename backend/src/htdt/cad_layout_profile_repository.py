@@ -13,6 +13,7 @@ from .cad_layout_profile import (
     LayoutProfile,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class CadLayoutProfileRepository:
@@ -31,19 +32,7 @@ class CadLayoutProfileRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_layout_profiles (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    profile_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    name TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(profile_id, version)
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_layout_profiles')
 
     def save_profile(self, profile: LayoutProfile) -> LayoutProfile:
         profile = LayoutProfile.model_validate(profile.model_dump(mode='python'))
@@ -164,25 +153,7 @@ class CadCurrentTopologyRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_current_topologies (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    topology_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    layout_profile_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_current_topology_document
-                    ON cad_current_topologies(document_id, seq ASC)
-                """
-            )
+            require_native_tables(connection, 'cad_current_topologies')
 
     def _validate_topology_refs(
         self,

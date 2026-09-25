@@ -5,7 +5,18 @@ from pathlib import Path
 
 import pytest
 
+from htdt.cad_measurement_disposition import build_measurement_disposition
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
+from htdt.cad_measurement_quality import (
+    CadMeasurementQualityEvidence,
+    acquisition_context_binding,
+    build_acquisition_context,
+    build_measurement_observation,
+    build_measurement_quality_profile,
+    build_measurement_quality_report,
+    observation_binding,
+)
+from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_measurement_runner import (
     build_runner_plan,
@@ -67,12 +78,16 @@ def _setup(tmp_path: Path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     revision = scene_repository.save(_scene('doc-runner'), parent_revision_id=None).revision
     measurement_repository = CadMeasurementRepository(scene_repository)
-    runner = CadMeasurementRunnerRepository(scene_repository, measurement_repository)
-    return revision, measurement_repository, runner
+    quality_repository = CadMeasurementQualityRepository(measurement_repository)
+    runner = CadMeasurementRunnerRepository(
+        scene_repository, measurement_repository, quality_repository
+    )
+    return scene_repository, revision, measurement_repository, quality_repository, runner
 
 
 def _plan(revision, **overrides):
     kwargs: dict = {
+        'document_id': revision.document_id,
         'scene_revision_id': revision.revision_id,
         'scene_content_hash': revision.content_hash,
         'sources': (
@@ -129,8 +144,95 @@ def _save_measurement(
     return record, dataset
 
 
+def _save_report(
+    quality_repository: CadMeasurementQualityRepository,
+    record,
+    dataset,
+    *,
+    retake: bool = False,
+):
+    """Persist a replay-validated quality report for the runner to read.
+
+    ``retake=True`` yields a FAIL clipping check (RETAKE); otherwise every
+    check resolves PASS/NOT_EVALUATED (NOT_NEEDED).
+    """
+    acquisition = None
+    observation = None
+    if retake:
+        obs = build_measurement_observation(
+            measurement_id=record.measurement_id,
+            source_kind='rew_metadata',
+            source_asset_sha256=dataset.source_sha256,
+            clipping_detected=True,
+        )
+        quality_repository.save_observation(obs)
+        observation = observation_binding(obs)
+        evidence = CadMeasurementQualityEvidence(
+            clipping_detected=True,
+            evidence_source='rew_metadata',
+        )
+    else:
+        calibration_sha = quality_repository.save_calibration_file(
+            filename='umik.txt',
+            raw_bytes=b'runner-calibration',
+        )
+        context = build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(record.measurement_id,),
+            timing_reference_valid=True,
+            timing_reference_id='loopback-1',
+            clock_source='umik-1-usb',
+            sample_rate_hz=48000,
+            delay_correction_s=0.00025,
+        )
+        quality_repository.save_acquisition_context(context)
+        acquisition = acquisition_context_binding(context)
+        obs = build_measurement_observation(
+            measurement_id=record.measurement_id,
+            source_kind='rew_metadata',
+            source_asset_sha256=dataset.source_sha256,
+            clipping_detected=False,
+            peak_dbfs=-3.0,
+            snr_db=40.0,
+            usable_frequency_band_hz=(20.0, 80.0),
+            polarity_correct=True,
+            polarity_confidence=0.99,
+            has_impulse_response=False,
+        )
+        quality_repository.save_observation(obs)
+        observation = observation_binding(obs)
+        evidence = CadMeasurementQualityEvidence(
+            clipping_detected=False,
+            peak_dbfs=-3.0,
+            snr_db=40.0,
+            usable_frequency_band_hz=(20.0, 80.0),
+            timing_reference_valid=True,
+            timing_reference_id='loopback-1',
+            clock_source='umik-1-usb',
+            sample_rate_hz=48000,
+            delay_correction_s=0.00025,
+            polarity_correct=True,
+            polarity_confidence=0.99,
+            has_impulse_response=False,
+            calibration_filename='umik.txt',
+            calibration_file_sha256=calibration_sha,
+            expected_calibration_file_sha256=calibration_sha,
+            evidence_source='rew_metadata',
+        )
+    report = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=evidence,
+        profile=build_measurement_quality_profile(),
+        acquisition_context=acquisition,
+        observation=observation,
+    )
+    quality_repository.save_report(report)
+    return report
+
+
 def test_plan_enumerates_matrix_deterministically(tmp_path: Path):
-    revision, _, _ = _setup(tmp_path)
+    _, revision, _, _, _ = _setup(tmp_path)
     plan = _plan(revision)
     # 2 sources × 2 targets × 1 repeat = 4 cells, purpose-major order.
     assert len(plan.cells) == 4
@@ -144,46 +246,81 @@ def test_plan_enumerates_matrix_deterministically(tmp_path: Path):
     assert other.plan_sha256 == plan.plan_sha256
 
 
+def test_plan_requires_document_scope(tmp_path: Path):
+    scene_repository, revision, _, _, runner = _setup(tmp_path)
+    plan = _plan(revision)
+    runner.save_plan(plan)
+    # Plans only list inside their owning document (#853).
+    assert runner.list_plans('doc-runner') == (plan,)
+    assert runner.list_plans('doc-other') == ()
+    # A plan binding a foreign document's scene revision is rejected.
+    other_revision = scene_repository.save(
+        _scene('doc-other'), parent_revision_id=None
+    ).revision
+    foreign = _plan(other_revision, document_id='doc-runner', plan_id='plan-foreign')
+    with pytest.raises(RunnerError, match='foreign project scene'):
+        runner.save_plan(foreign)
+    # A plan naming entities that do not exist in the scene is rejected.
+    ghost = _plan(
+        revision,
+        plan_id='plan-ghost',
+        target_entity_ids=('point-missing',),
+        sources=(('front_left', ('speaker-fl',)),),
+    )
+    with pytest.raises(RunnerError, match='not an eligible measurement point'):
+        runner.save_plan(ghost)
+
+
 def test_run_persists_and_next_incomplete_walks_cells(tmp_path: Path):
-    revision, mrepo, runner = _setup(tmp_path)
+    scene_repository, revision, mrepo, qrepo, runner = _setup(tmp_path)
     plan = _plan(revision)
     runner.save_plan(plan)
     run = runner.start_run(plan.plan_id, started_at='2026-09-23T00:00:00+00:00')
     assert runner.next_incomplete(run.run_id) == 0
     record, dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-1', 'front_left')
-    runner.commit_cell(
+    # Without a quality report the cell stays quality_pending — the caller
+    # cannot assert completion (#853).
+    pending = runner.commit_cell(
         run.run_id,
         0,
         measurement_id=record.measurement_id,
         dataset_id=dataset.dataset_id,
         dataset_sha256=dataset.dataset_sha256,
-        quality_decision='passed',
         created_at='2026-09-23T00:01:00+00:00',
     )
-    assert runner.next_incomplete(run.run_id) == 1
-    # A fresh repository connection sees the same state (restart survival).
-    reopened = CadMeasurementRunnerRepository(
-        runner._scene_repository if hasattr(runner, '_scene_repository') else type('S', (), {'path': runner.path})(),
-        mrepo,
-    )
-    states = reopened.cell_states(run.run_id)
-    assert states[0].status == 'completed'
-    assert states[0].measurement_id == 'm-1'
-
-
-def test_blocked_quality_marks_retake_never_completed(tmp_path: Path):
-    revision, mrepo, runner = _setup(tmp_path)
-    plan = _plan(revision)
-    runner.save_plan(plan)
-    run = runner.start_run(plan.plan_id)
-    record, dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-bad', 'front_left')
+    assert pending.status == 'quality_pending'
+    assert runner.next_incomplete(run.run_id) == 0
+    _save_report(qrepo, record, dataset)
     event = runner.commit_cell(
         run.run_id,
         0,
         measurement_id=record.measurement_id,
         dataset_id=dataset.dataset_id,
         dataset_sha256=dataset.dataset_sha256,
-        quality_decision='blocked',
+        created_at='2026-09-23T00:02:00+00:00',
+    )
+    assert event.status == 'completed'
+    assert runner.next_incomplete(run.run_id) == 1
+    # A fresh repository connection sees the same state (restart survival).
+    reopened = CadMeasurementRunnerRepository(scene_repository, mrepo, qrepo)
+    states = reopened.cell_states(run.run_id)
+    assert states[0].status == 'completed'
+    assert states[0].measurement_id == 'm-1'
+
+
+def test_blocked_quality_marks_retake_never_completed(tmp_path: Path):
+    _, revision, mrepo, qrepo, runner = _setup(tmp_path)
+    plan = _plan(revision)
+    runner.save_plan(plan)
+    run = runner.start_run(plan.plan_id)
+    record, dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-bad', 'front_left')
+    _save_report(qrepo, record, dataset, retake=True)
+    event = runner.commit_cell(
+        run.run_id,
+        0,
+        measurement_id=record.measurement_id,
+        dataset_id=dataset.dataset_id,
+        dataset_sha256=dataset.dataset_sha256,
         reason='clipping detected',
     )
     assert event.status == 'retake_required'
@@ -191,20 +328,102 @@ def test_blocked_quality_marks_retake_never_completed(tmp_path: Path):
     assert runner.next_incomplete(run.run_id) == 0
     # Retake commit supersedes the failed measurement.
     record2, dataset2 = _save_measurement(mrepo, revision, 'point-mlp', 'm-good', 'front_left')
+    _save_report(qrepo, record2, dataset2)
     retake = runner.commit_cell(
         run.run_id,
         0,
         measurement_id=record2.measurement_id,
         dataset_id=dataset2.dataset_id,
         dataset_sha256=dataset2.dataset_sha256,
-        quality_decision='passed',
     )
     assert retake.status == 'completed'
     assert retake.supersedes_measurement_id == 'm-bad'
 
 
+def test_terminal_cells_reject_further_events(tmp_path: Path):
+    _, revision, mrepo, qrepo, runner = _setup(tmp_path)
+    plan = _plan(revision, allow_skip=True)
+    runner.save_plan(plan)
+    run = runner.start_run(plan.plan_id)
+    record, dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-1', 'front_left')
+    _save_report(qrepo, record, dataset)
+    runner.commit_cell(
+        run.run_id,
+        0,
+        measurement_id=record.measurement_id,
+        dataset_id=dataset.dataset_id,
+        dataset_sha256=dataset.dataset_sha256,
+    )
+    with pytest.raises(RunnerError, match='terminal'):
+        runner.mark_cell(run.run_id, 0, 'staged')
+    with pytest.raises(RunnerError, match='terminal'):
+        runner.skip_cell(run.run_id, 0)
+    runner.skip_cell(run.run_id, 1)
+    with pytest.raises(RunnerError, match='terminal'):
+        runner.commit_cell(
+            run.run_id,
+            1,
+            measurement_id=record.measurement_id,
+            dataset_id=dataset.dataset_id,
+            dataset_sha256=dataset.dataset_sha256,
+        )
+
+
+def test_commit_rejects_wrong_binding_and_disposition(tmp_path: Path):
+    _, revision, mrepo, qrepo, runner = _setup(tmp_path)
+    plan = _plan(revision)
+    runner.save_plan(plan)
+    run = runner.start_run(plan.plan_id)
+    # Wrong channel role for cell 0 (front_left).
+    wrong, wrong_dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-wrong', 'front_right')
+    with pytest.raises(RunnerError, match='does not bind the planned cell'):
+        runner.commit_cell(
+            run.run_id,
+            0,
+            measurement_id=wrong.measurement_id,
+            dataset_id=wrong_dataset.dataset_id,
+            dataset_sha256=wrong_dataset.dataset_sha256,
+        )
+    # Excluded-from-normal-use evidence cannot complete a cell (#509/#853).
+    record, dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-excl', 'front_left')
+    qrepo.save_disposition(
+        build_measurement_disposition(
+            document_id=revision.document_id,
+            measurement_id=record.measurement_id,
+            disposition='excluded_from_normal_use',
+            reason='calibration-sweep residue',
+        )
+    )
+    with pytest.raises(RunnerError, match='not eligible'):
+        runner.commit_cell(
+            run.run_id,
+            0,
+            measurement_id=record.measurement_id,
+            dataset_id=dataset.dataset_id,
+            dataset_sha256=dataset.dataset_sha256,
+        )
+
+
+def test_runner_events_require_aware_timestamps(tmp_path: Path):
+    _, revision, mrepo, qrepo, runner = _setup(tmp_path)
+    plan = _plan(revision)
+    runner.save_plan(plan)
+    run = runner.start_run(plan.plan_id)
+    record, dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-1', 'front_left')
+    _save_report(qrepo, record, dataset)
+    with pytest.raises(ValueError, match='timezone-aware'):
+        runner.commit_cell(
+            run.run_id,
+            0,
+            measurement_id=record.measurement_id,
+            dataset_id=dataset.dataset_id,
+            dataset_sha256=dataset.dataset_sha256,
+            created_at='2026-09-23T00:01:00',
+        )
+
+
 def test_skip_requires_plan_permission(tmp_path: Path):
-    revision, _, runner = _setup(tmp_path)
+    _, revision, _, _, runner = _setup(tmp_path)
     plan = _plan(revision)
     runner.save_plan(plan)
     run = runner.start_run(plan.plan_id)
@@ -219,11 +438,11 @@ def test_skip_requires_plan_permission(tmp_path: Path):
 
 
 def test_commit_rejects_unknown_measurement(tmp_path: Path):
-    revision, mrepo, runner = _setup(tmp_path)
+    _, revision, mrepo, _, runner = _setup(tmp_path)
     plan = _plan(revision)
     runner.save_plan(plan)
     run = runner.start_run(plan.plan_id)
-    with pytest.raises(RunnerError, match='not persisted'):
+    with pytest.raises(RunnerError, match='does not exist'):
         runner.commit_cell(
             run.run_id,
             0,
@@ -234,7 +453,7 @@ def test_commit_rejects_unknown_measurement(tmp_path: Path):
 
 
 def test_guided_step_describes_exact_cell(tmp_path: Path):
-    revision, _, runner = _setup(tmp_path)
+    _, revision, _, _, _ = _setup(tmp_path)
     plan = _plan(revision)
     step = guided_step(plan, 2)
     assert step.channel_role == 'front_right'
@@ -246,18 +465,18 @@ def test_guided_step_describes_exact_cell(tmp_path: Path):
 
 
 def test_progress_counts_states_not_percentage(tmp_path: Path):
-    revision, mrepo, runner = _setup(tmp_path)
+    _, revision, mrepo, qrepo, runner = _setup(tmp_path)
     plan = _plan(revision)
     runner.save_plan(plan)
     run = runner.start_run(plan.plan_id)
     record, dataset = _save_measurement(mrepo, revision, 'point-mlp', 'm-1', 'front_left')
+    _save_report(qrepo, record, dataset)
     runner.commit_cell(
         run.run_id,
         0,
         measurement_id=record.measurement_id,
         dataset_id=dataset.dataset_id,
         dataset_sha256=dataset.dataset_sha256,
-        quality_decision='passed',
     )
     runner.mark_cell(run.run_id, 1, 'staged')
     progress = runner_progress(plan, runner.cell_states(run.run_id))

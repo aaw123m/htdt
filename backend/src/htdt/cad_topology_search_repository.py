@@ -16,7 +16,10 @@ from .cad_topology_search import (
     build_topology_placement_search_spec,
     declared_base_constraint_set,
     generate_topology_placement_candidates,
+
 )
+
+from .cad_schema import require_native_tables
 
 
 class TopologyPlacementComparisonRef(BaseModel):
@@ -86,82 +89,7 @@ class CadTopologySearchRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_topology_spaces (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    topology_search_id TEXT NOT NULL UNIQUE,
-                    topology_search_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    baseline_revision_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(baseline_revision_id)
-                        REFERENCES scene_revisions(revision_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_topology_space_document_seq
-                    ON cad_topology_spaces(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_topology_space_options (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    topology_search_id TEXT NOT NULL,
-                    option_id TEXT NOT NULL,
-                    template_variant_id TEXT NOT NULL,
-                    UNIQUE(topology_search_id, option_id),
-                    FOREIGN KEY(topology_search_id)
-                        REFERENCES cad_topology_spaces(topology_search_id),
-                    FOREIGN KEY(template_variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_topology_search_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    search_id TEXT NOT NULL UNIQUE,
-                    search_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    baseline_revision_id TEXT NOT NULL,
-                    template_variant_id TEXT NOT NULL,
-                    topology_search_id TEXT NOT NULL,
-                    topology_option_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(baseline_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(template_variant_id)
-                        REFERENCES cad_system_variants(variant_id),
-                    FOREIGN KEY(topology_search_id)
-                        REFERENCES cad_topology_spaces(topology_search_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_topology_search_document_seq
-                    ON cad_topology_search_specs(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_topology_placement_candidates (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    candidate_id TEXT NOT NULL UNIQUE,
-                    candidate_sha256 TEXT NOT NULL UNIQUE,
-                    search_id TEXT NOT NULL,
-                    candidate_set_sha256 TEXT NOT NULL,
-                    feasible_index INTEGER NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(search_id)
-                        REFERENCES cad_topology_search_specs(search_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_topology_candidate_search_feasible
-                    ON cad_topology_placement_candidates(
-                        search_id, feasible_index ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_topology_candidate_variants (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    candidate_id TEXT NOT NULL UNIQUE,
-                    variant_id TEXT NOT NULL UNIQUE,
-                    FOREIGN KEY(candidate_id)
-                        REFERENCES cad_topology_placement_candidates(candidate_id),
-                    FOREIGN KEY(variant_id)
-                        REFERENCES cad_system_variants(variant_id)
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_topology_spaces', 'cad_topology_space_options', 'cad_topology_search_specs', 'cad_topology_placement_candidates', 'cad_topology_candidate_variants')
 
     def save_topology_spec(self, spec: TopologySearchSpec) -> None:
         spec = TopologySearchSpec.model_validate(spec.model_dump(mode='python'))

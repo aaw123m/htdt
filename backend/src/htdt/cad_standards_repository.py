@@ -7,7 +7,10 @@ import sqlite3
 
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import SceneDocument
-from .cad_schema import check_native_schema_compatibility
+from .cad_schema import (
+    check_native_schema_compatibility,
+    require_native_tables,
+)
 from .cad_standards import (
     StandardsEvaluation,
     StandardsProfile,
@@ -81,69 +84,7 @@ class CadStandardsRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_standards_source_authorities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    authority_id TEXT NOT NULL UNIQUE,
-                    authority_version TEXT NOT NULL,
-                    semantic_hash_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS cad_standards_profiles (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    profile_id TEXT NOT NULL,
-                    profile_version TEXT NOT NULL,
-                    profile_semantic_hash TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE(profile_id, profile_version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_standards_profile_id_seq
-                    ON cad_standards_profiles(profile_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_standards_observation_authorities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    authority_id TEXT NOT NULL UNIQUE,
-                    semantic_hash_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    system_variant_id TEXT,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_standards_observation_scene_seq
-                    ON cad_standards_observation_authorities(
-                        scene_revision_id, seq ASC
-                    );
-
-                CREATE TABLE IF NOT EXISTS cad_standards_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    system_variant_id TEXT,
-                    profile_id TEXT NOT NULL,
-                    profile_version TEXT NOT NULL,
-                    profile_semantic_hash TEXT NOT NULL,
-                    evaluation_sha256 TEXT NOT NULL UNIQUE,
-                    reevaluation_of_id TEXT,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id),
-                    FOREIGN KEY(profile_id, profile_version)
-                        REFERENCES cad_standards_profiles(profile_id, profile_version),
-                    FOREIGN KEY(reevaluation_of_id)
-                        REFERENCES cad_standards_evaluations(evaluation_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_standards_evaluation_document_seq
-                    ON cad_standards_evaluations(document_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_standards_evaluation_scene_seq
-                    ON cad_standards_evaluations(scene_revision_id, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_standards_source_authorities', 'cad_standards_profiles', 'cad_standards_observation_authorities', 'cad_standards_evaluations')
 
     def save_source_authority(
         self,

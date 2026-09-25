@@ -15,7 +15,10 @@ from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
 from .cad_acoustic_treatment import AcousticTreatmentPlacement
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
 
@@ -467,26 +470,7 @@ class CadAcousticTreatmentComparisonRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_treatment_comparisons (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    comparison_id TEXT NOT NULL UNIQUE,
-                    comparison_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(scene_revision_id)
-                        REFERENCES scene_revisions(revision_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_treatment_comparison_scene_seq
-                    ON cad_acoustic_treatment_comparisons(
-                        scene_revision_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_acoustic_treatment_comparisons')
 
     def _validate(self, spec: TreatmentDesignComparisonSpec) -> None:
         revision = self.scene_repository.get(spec.baseline_scene_revision_id)

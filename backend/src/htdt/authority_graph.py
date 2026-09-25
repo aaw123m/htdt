@@ -105,6 +105,10 @@ class AuthorityNode(BaseModel):
     deep_link: WorkspaceDeepLink | None = None
     stale: bool = False
     stale_reasons: tuple[str, ...] = ()
+    # Lineage attribute, not a lifecycle: an intentionally off-mainline
+    # revision keeps this detail while its lifecycle follows the explicit
+    # head authority (#747).
+    detached: bool = False
 
     @model_validator(mode='after')
     def valid_node(self) -> 'AuthorityNode':
@@ -471,12 +475,22 @@ class AuthorityInspector:
 
 def scene_revision_authority_source(
     revisions: Iterable[Any],
+    *,
+    head_by_document: Mapping[str, str | None] | None = None,
 ) -> 'StaticAuthoritySource':
     """Map persisted :class:`~htdt.cad_repository.SceneRevision` records.
 
     Produces one node per revision plus SUPERSEDES edges to parents and
     BINDS_TO edges to the owning document — the exact lineage the graph
     explorer shows for scene history.
+
+    Lifecycle follows the **explicit head authority**
+    (``scene_document_heads``), never the ``detached`` lineage flag
+    (#747): the revision that equals the document's head is CURRENT,
+    every other resolvable revision is HISTORICAL, and a document with no
+    resolvable head yields UNKNOWN nodes rather than invented CURRENT
+    status. ``detached`` stays a node attribute describing intentional
+    off-head lineage.
     """
 
     contributions: list[AuthorityNode | AuthorityEdge] = []
@@ -485,6 +499,7 @@ def scene_revision_authority_source(
     material: list[Any] = list(revisions)
     for rev in material:
         revision_ids.add(rev.revision_id)
+    heads = head_by_document or {}
     for rev in material:
         doc_id = rev.document_id
         if doc_id not in seen_documents:
@@ -502,11 +517,13 @@ def scene_revision_authority_source(
                     ),
                 )
             )
-        lifecycle = (
-            AuthorityLifecycle.HISTORICAL
-            if getattr(rev, 'detached', False)
-            else AuthorityLifecycle.CURRENT
-        )
+        head_id = heads.get(doc_id)
+        if head_id is None:
+            lifecycle = AuthorityLifecycle.UNKNOWN
+        elif rev.revision_id == head_id:
+            lifecycle = AuthorityLifecycle.CURRENT
+        else:
+            lifecycle = AuthorityLifecycle.HISTORICAL
         contributions.append(
             AuthorityNode(
                 node_id=f'room:scene_revision:{rev.revision_id}',
@@ -517,6 +534,7 @@ def scene_revision_authority_source(
                 authority_id=rev.revision_id,
                 authority_hash=rev.content_hash,
                 created_at_utc=rev.created_at_utc,
+                detached=bool(getattr(rev, 'detached', False)),
                 deep_link=WorkspaceDeepLink(
                     WorkspaceId.ROOM, section='history', entity_id=rev.revision_id
                 ),

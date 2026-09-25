@@ -4,8 +4,8 @@ The store's authority is ``document_id``-keyed (``cad_repository`` and the
 other repositories all scope project data by document). This module adds the
 project lifecycle layer on top:
 
-- a small ``project_registry`` mapping ``project_id`` ↔ ``document_id`` with
-  an ``active``/``archived`` status — archiving is the default retirement
+- the canonical ``htdt_project_documents`` registry mapping
+  ``project_id`` ↔ ``document_id`` with an ``active``/``archived`` state — archiving is the default retirement
   path and destroys nothing;
 - ``plan_project_deletion`` producing a ``ProjectDeletionPlan`` preview:
   per-authority row counts and byte estimates, shared-vs-local managed
@@ -34,6 +34,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .cad_schema import ensure_native_schema, require_native_tables
 from .native_backup import DATABASE_NAME
 
 
@@ -164,30 +165,6 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_REGISTRY_DDL = '''
-CREATE TABLE IF NOT EXISTS project_registry (
-    project_id TEXT PRIMARY KEY,
-    document_id TEXT NOT NULL UNIQUE,
-    display_name TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
-    cloned_from_project_id TEXT,
-    created_at_utc TEXT NOT NULL,
-    updated_at_utc TEXT NOT NULL,
-    archived_at_utc TEXT
-);
-CREATE TABLE IF NOT EXISTS project_tombstones (
-    tombstone_id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    document_id TEXT NOT NULL,
-    display_name TEXT NOT NULL,
-    deleted_at_utc TEXT NOT NULL,
-    removed_rows INTEGER NOT NULL,
-    estimated_bytes INTEGER NOT NULL,
-    authorities_json TEXT NOT NULL
-);
-'''
-
-
 def _table_names(connection: sqlite3.Connection) -> set[str]:
     return {
         str(row[0])
@@ -218,8 +195,13 @@ class ProjectLibrary:
     def __init__(self, database_path: Path | str) -> None:
         self.path = Path(database_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as connection, connection:
-            connection.executescript(_REGISTRY_DDL)
+        # This class owns opening/creating the data dir's database, so it —
+        # not a repository — invokes the migration authority (#302/#767).
+        ensure_native_schema(self.path)
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection, 'htdt_project_documents', 'htdt_project_tombstones'
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
@@ -233,7 +215,7 @@ class ProjectLibrary:
             project_id=str(row['project_id']),
             document_id=str(row['document_id']),
             display_name=str(row['display_name']),
-            status=str(row['status']),
+            status='archived' if row['archived'] else 'active',
             cloned_from_project_id=(
                 None
                 if row['cloned_from_project_id'] is None
@@ -255,35 +237,67 @@ class ProjectLibrary:
         *,
         project_id: str | None = None,
         cloned_from_project_id: str | None = None,
+        connection: sqlite3.Connection | None = None,
     ) -> ProjectRecord:
-        """Idempotently register one document as a managed project."""
+        """Idempotently register one document as a managed project.
 
-        now = _utc_now()
-        with closing(self._connect()) as connection, connection:
-            existing = connection.execute(
-                'SELECT * FROM project_registry WHERE document_id=?',
-                (document_id,),
-            ).fetchone()
-            if existing is not None:
-                return self._row_to_record(existing)
-            record = (
-                project_id or uuid4().hex,
+        ``connection`` (#864): when supplied, the insert runs inside the
+        caller's transaction — the caller owns BEGIN/COMMIT/ROLLBACK so the
+        registration commits atomically with sibling stores sharing the same
+        SQLite file (e.g. template-instantiated project creation).
+        """
+
+        if connection is not None:
+            return self._register_in_connection(
+                connection,
                 document_id,
-                display_name or document_id,
-                'active',
-                cloned_from_project_id,
-                now,
-                now,
-                None,
+                display_name,
+                project_id=project_id,
+                cloned_from_project_id=cloned_from_project_id,
             )
-            connection.execute(
-                'INSERT INTO project_registry('
-                'project_id, document_id, display_name, status, '
-                'cloned_from_project_id, created_at_utc, updated_at_utc, '
-                'archived_at_utc'
-                ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                record,
+        with closing(self._connect()) as connection, connection:
+            return self._register_in_connection(
+                connection,
+                document_id,
+                display_name,
+                project_id=project_id,
+                cloned_from_project_id=cloned_from_project_id,
             )
+
+    def _register_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        document_id: str,
+        display_name: str,
+        *,
+        project_id: str | None = None,
+        cloned_from_project_id: str | None = None,
+    ) -> ProjectRecord:
+        now = _utc_now()
+        existing = connection.execute(
+            'SELECT * FROM htdt_project_documents WHERE document_id=?',
+            (document_id,),
+        ).fetchone()
+        if existing is not None:
+            return self._row_to_record(existing)
+        record = (
+            project_id or uuid4().hex,
+            document_id,
+            display_name or document_id,
+            cloned_from_project_id,
+            now,
+            now,
+            0,
+            None,
+        )
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, '
+            'cloned_from_project_id, created_at_utc, updated_at_utc, '
+            'archived, archived_at_utc'
+            ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            record,
+        )
         return ProjectRecord(
             project_id=record[0],
             document_id=document_id,
@@ -318,7 +332,7 @@ class ProjectLibrary:
     def get_project(self, project_id: str) -> ProjectRecord:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT * FROM project_registry WHERE project_id=?',
+                'SELECT * FROM htdt_project_documents WHERE project_id=?',
                 (project_id,),
             ).fetchone()
         if row is None:
@@ -328,7 +342,7 @@ class ProjectLibrary:
     def find_by_document(self, document_id: str) -> ProjectRecord | None:
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT * FROM project_registry WHERE document_id=?',
+                'SELECT * FROM htdt_project_documents WHERE document_id=?',
                 (document_id,),
             ).fetchone()
         return None if row is None else self._row_to_record(row)
@@ -338,10 +352,10 @@ class ProjectLibrary:
     ) -> tuple[ProjectRecord, ...]:
         """Active projects by default; archived ones stay hidden (#611)."""
 
-        sql = 'SELECT * FROM project_registry'
+        sql = 'SELECT * FROM htdt_project_documents'
         args: tuple[object, ...] = ()
         if not include_archived:
-            sql += " WHERE status='active'"
+            sql += " WHERE archived=0"
         sql += ' ORDER BY created_at_utc, project_id'
         with closing(self._connect()) as connection:
             return tuple(
@@ -355,7 +369,7 @@ class ProjectLibrary:
         now = _utc_now()
         with closing(self._connect()) as connection, connection:
             cursor = connection.execute(
-                "UPDATE project_registry SET status='archived', "
+                'UPDATE htdt_project_documents SET archived=1, '
                 'archived_at_utc=?, updated_at_utc=? WHERE project_id=?',
                 (now, now, project_id),
             )
@@ -367,7 +381,7 @@ class ProjectLibrary:
         now = _utc_now()
         with closing(self._connect()) as connection, connection:
             cursor = connection.execute(
-                "UPDATE project_registry SET status='active', "
+                'UPDATE htdt_project_documents SET archived=0, '
                 'archived_at_utc=NULL, updated_at_utc=? WHERE project_id=?',
                 (now, project_id),
             )
@@ -392,8 +406,10 @@ class ProjectLibrary:
         """
 
         tables = _table_names(connection) - {
-            'project_registry',
-            'project_tombstones',
+            'htdt_project_documents',
+            'htdt_project_tombstones',
+            'htdt_project_imports',
+            'htdt_legacy_imports',
             'capture_ingestion_lineages',
             'native_schema_metadata',
             'native_schema_migrations',
@@ -588,7 +604,7 @@ class ProjectLibrary:
 
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT * FROM project_registry WHERE project_id=?',
+                'SELECT * FROM htdt_project_documents WHERE project_id=?',
                 (project_id,),
             ).fetchone()
             if row is None:
@@ -613,7 +629,7 @@ class ProjectLibrary:
                 connection, record.document_id
             )
             descendants = connection.execute(
-                'SELECT COUNT(*) FROM project_registry '
+                'SELECT COUNT(*) FROM htdt_project_documents '
                 'WHERE cloned_from_project_id=?',
                 (project_id,),
             ).fetchone()[0]
@@ -712,11 +728,11 @@ class ProjectLibrary:
                 # the separate GC — they are shared dedup anchors, not
                 # project data.
                 connection.execute(
-                    'DELETE FROM project_registry WHERE project_id=?',
+                    'DELETE FROM htdt_project_documents WHERE project_id=?',
                     (project_id,),
                 )
                 connection.execute(
-                    'INSERT INTO project_tombstones('
+                    'INSERT INTO htdt_project_tombstones('
                     'tombstone_id, project_id, document_id, display_name, '
                     'deleted_at_utc, removed_rows, estimated_bytes, '
                     'authorities_json'
@@ -737,8 +753,8 @@ class ProjectLibrary:
                 )
                 # Bound tombstone retention.
                 connection.execute(
-                    'DELETE FROM project_tombstones WHERE tombstone_id NOT IN ('
-                    '  SELECT tombstone_id FROM project_tombstones '
+                    'DELETE FROM htdt_project_tombstones WHERE tombstone_id NOT IN ('
+                    '  SELECT tombstone_id FROM htdt_project_tombstones '
                     '  ORDER BY deleted_at_utc DESC, tombstone_id DESC LIMIT ?'
                     ')',
                     (KEEP_PROJECT_TOMBSTONES,),
@@ -760,7 +776,7 @@ class ProjectLibrary:
 
         with closing(self._connect()) as connection:
             row = connection.execute(
-                'SELECT * FROM project_tombstones WHERE project_id=? '
+                'SELECT * FROM htdt_project_tombstones WHERE project_id=? '
                 'ORDER BY deleted_at_utc DESC LIMIT 1',
                 (project_id,),
             ).fetchone()
@@ -778,7 +794,7 @@ class ProjectLibrary:
     def list_tombstones(self) -> tuple[ProjectTombstone, ...]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
-                'SELECT * FROM project_tombstones '
+                'SELECT * FROM htdt_project_tombstones '
                 'ORDER BY deleted_at_utc DESC, tombstone_id DESC'
             ).fetchall()
         return tuple(
