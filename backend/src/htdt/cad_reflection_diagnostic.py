@@ -412,27 +412,233 @@ def first_reflection_zones(
     return tuple(results)
 
 
+EtcZeroSemantics = Literal[
+    'absolute_time_zero',
+    'relative_first_peak',
+    'uncalibrated',
+]
+TimingReference = Literal[
+    'common_timebase',
+    'loopback_calibrated',
+    'unrelated',
+]
+EtcMatchingMode = Literal['absolute_delay', 'relative_to_direct']
+
+
+class ReflectionMeasuredTimingEvidence(BaseModel):
+    """Bound timing authority for measured ETC peaks (#950).
+
+    A measured ETC peak is only a candidate for an *absolute* predicted
+    delay when the measurement can prove a compatible source-time base;
+    without this evidence, absolute matching fails closed.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    measurement_id: str = Field(min_length=1)
+    measurement_artifact_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    ir_artifact_id: str | None = Field(default=None, min_length=1)
+    ir_artifact_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    acquisition_context_id: str | None = Field(default=None, min_length=1)
+    acquisition_context_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    measurement_quality_report_id: str | None = Field(
+        default=None, min_length=1
+    )
+    measurement_quality_report_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    timing_reference: TimingReference
+    common_source_timebase: bool
+    etc_zero_semantics: EtcZeroSemantics
+    # Delay correction already applied to the reported ETC axis (e.g. a
+    # measured loopback latency subtraction); documented, not re-applied.
+    applied_delay_correction_s: float = 0.0
+
+    @model_validator(mode='after')
+    def validate_evidence(self) -> 'ReflectionMeasuredTimingEvidence':
+        if (self.ir_artifact_id is None) != (self.ir_artifact_sha256 is None):
+            raise ValueError('IR artifact id/hash must be supplied together')
+        if (self.acquisition_context_id is None) != (
+            self.acquisition_context_sha256 is None
+        ):
+            raise ValueError(
+                'acquisition context id/hash must be supplied together'
+            )
+        if (self.measurement_quality_report_id is None) != (
+            self.measurement_quality_report_sha256 is None
+        ):
+            raise ValueError(
+                'measurement quality report id/hash must be supplied together'
+            )
+        if not math.isfinite(float(self.applied_delay_correction_s)):
+            raise ValueError('applied delay correction must be finite')
+        if self.common_source_timebase and (
+            self.timing_reference == 'unrelated'
+        ):
+            raise ValueError(
+                'unrelated clocks cannot claim a common source timebase'
+            )
+        return self
+
+
+def measured_timing_supports_absolute(
+    evidence: ReflectionMeasuredTimingEvidence,
+) -> bool:
+    """Absolute delay matching requires a compatible source-time base."""
+    return (
+        evidence.common_source_timebase
+        and evidence.timing_reference
+        in ('common_timebase', 'loopback_calibrated')
+        and evidence.etc_zero_semantics == 'absolute_time_zero'
+    )
+
+
 class EtcPeakMatch(BaseModel):
-    """Measured-ETC peak matched to a path delay — or labelled otherwise."""
+    """One measured-ETC peak's labelled verdict (#950).
+
+    A unique coincidence is only ever a *timing-compatible candidate* — the
+    verdict never claims the physical cause is that path.
+    """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     etc_peak_index: int = Field(ge=0)
-    measured_delay_s: float = Field(ge=0.0)
-    verdict: Literal['match', 'ambiguous', 'unsupported']
-    matched_path_id: str | None = None
+    measured_delay_s: float
+    verdict: Literal[
+        'timing_compatible_candidate',
+        'ambiguous_candidate',
+        'unsupported',
+    ]
+    candidate_path_id: str | None = None
     detail: str | None = None
+
+    @field_validator('measured_delay_s')
+    @classmethod
+    def finite_delay(cls, value: float) -> float:
+        if not math.isfinite(float(value)):
+            raise ValueError('measured delay must be finite')
+        return float(value)
 
     @model_validator(mode='after')
     def validate_match(self) -> 'EtcPeakMatch':
-        if self.verdict == 'match':
-            if self.matched_path_id is None:
-                raise ValueError('a matched ETC peak requires its path id')
-        elif self.matched_path_id is not None:
-            raise ValueError('non-match verdicts cannot claim a path id')
-        if self.verdict != 'match' and not self.detail:
-            raise ValueError('ambiguous/unsupported verdicts require detail')
+        if self.verdict == 'timing_compatible_candidate':
+            if self.candidate_path_id is None:
+                raise ValueError(
+                    'a timing-compatible ETC candidate requires its path id'
+                )
+        elif self.candidate_path_id is not None:
+            raise ValueError('non-candidate verdicts cannot claim a path id')
+        if self.verdict != 'timing_compatible_candidate' and not self.detail:
+            raise ValueError(
+                'ambiguous/unsupported verdicts require detail'
+            )
         return self
+
+
+class EtcPeakMatchReport(BaseModel):
+    """Persisted ETC match record: mode, tolerance and authorities (#950)."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    report_id: str = Field(pattern=r'^etc-peak-match-report:[0-9a-f]{64}$')
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    request_id: str = Field(min_length=1)
+    request_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    matching_mode: EtcMatchingMode
+    tolerance_s: float = Field(gt=0.0)
+    measured_timing_evidence_id: str | None = Field(
+        default=None, min_length=1
+    )
+    measured_timing_evidence_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    direct_peak_index: int | None = Field(default=None, ge=0)
+    matches: tuple[EtcPeakMatch, ...]
+
+    @model_validator(mode='after')
+    def validate_report(self) -> 'EtcPeakMatchReport':
+        if (self.measured_timing_evidence_id is None) != (
+            self.measured_timing_evidence_sha256 is None
+        ):
+            raise ValueError(
+                'timing evidence id/hash must be supplied together'
+            )
+        if self.matching_mode == 'relative_to_direct' and (
+            self.direct_peak_index is None
+        ):
+            raise ValueError(
+                'relative matching requires the direct peak index'
+            )
+        expected = _digest(self.semantic_payload())
+        if self.semantic_sha256 != expected:
+            raise ValueError('ETC match report semantic hash mismatch')
+        if self.report_id != f'etc-peak-match-report:{expected}':
+            raise ValueError('ETC match report id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode='json',
+            exclude={'report_id', 'semantic_sha256'},
+        )
+
+
+def _unsupported_report(
+    request: ReflectionDiagnosticRequest,
+    etc_peak_delays_s: tuple[float, ...],
+    *,
+    matching_mode: EtcMatchingMode,
+    tolerance_s: float,
+    measured_timing: ReflectionMeasuredTimingEvidence | None,
+    direct_peak_index: int | None,
+    detail: str,
+) -> EtcPeakMatchReport:
+    """Fail-closed report: every measured peak is unsupported (#950)."""
+    matches = tuple(
+        EtcPeakMatch(
+            etc_peak_index=index,
+            measured_delay_s=float(measured),
+            verdict='unsupported',
+            detail=detail,
+        )
+        for index, measured in enumerate(etc_peak_delays_s)
+    )
+    evidence_id = (
+        measured_timing.measurement_id if measured_timing is not None else None
+    )
+    evidence_hash = (
+        _digest(measured_timing.model_dump(mode='json'))
+        if measured_timing is not None
+        else None
+    )
+    payload = {
+        'request_id': request.request_id,
+        'request_semantic_sha256': request.semantic_sha256,
+        'matching_mode': matching_mode,
+        'tolerance_s': tolerance_s,
+        'measured_timing_evidence_id': evidence_id,
+        'measured_timing_evidence_sha256': evidence_hash,
+        'direct_peak_index': direct_peak_index,
+        'matches': [item.model_dump(mode='json') for item in matches],
+    }
+    digest = _digest(payload)
+    return EtcPeakMatchReport(
+        request_id=request.request_id,
+        request_semantic_sha256=request.semantic_sha256,
+        matching_mode=matching_mode,
+        tolerance_s=tolerance_s,
+        measured_timing_evidence_id=evidence_id,
+        measured_timing_evidence_sha256=evidence_hash,
+        direct_peak_index=direct_peak_index,
+        matches=matches,
+        report_id=f'etc-peak-match-report:{digest}',
+        semantic_sha256=digest,
+    )
 
 
 def match_etc_peaks(
@@ -441,42 +647,145 @@ def match_etc_peaks(
     etc_peak_delays_s: tuple[float, ...],
     *,
     tolerance_s: float = 0.002,
-) -> tuple[EtcPeakMatch, ...]:
+    matching_mode: EtcMatchingMode = 'absolute_delay',
+    measured_timing: ReflectionMeasuredTimingEvidence | None = None,
+    direct_peak_index: int | None = None,
+) -> EtcPeakMatchReport:
     """Match measured ETC peaks against deterministic path delays.
 
-    Each measured peak gets exactly one verdict: `match` (a unique path
-    within tolerance), `ambiguous` (two or more paths inside tolerance —
-    no silent pick) or `unsupported` (no deterministic path explains it).
+    Two modes (#950):
+
+    - ``absolute_delay`` compares measured peak delays to absolute
+      ``propagation_delay_s`` and requires bound timing evidence with a
+      compatible source-time base — otherwise every peak is ``unsupported``.
+    - ``relative_to_direct`` compares measured (peak - direct peak) delays
+      to predicted (path - direct) delays; it needs the measurement to
+      prove both peaks come from one record, and the direct peak index.
+
+    Verdicts never claim a unique physical cause: a single candidate is a
+    ``timing_compatible_candidate``, multiple are ``ambiguous_candidate``,
+    none are ``unsupported``.
     """
     if tolerance_s <= 0.0:
         raise ValueError('ETC match tolerance must be positive')
+    for measured in etc_peak_delays_s:
+        if float(measured) < 0.0 or not math.isfinite(float(measured)):
+            raise ValueError('ETC peak delays must be finite non-negative')
+
+    eligible_paths = tuple(
+        path
+        for path in paths
+        if path.source_entity_id == request.source_entity_id
+        and path.receiver_id == request.receiver_id
+    )
+
+    evidence_hash = (
+        _digest(measured_timing.model_dump(mode='json'))
+        if measured_timing is not None
+        else None
+    )
+    evidence_id = (
+        measured_timing.measurement_id
+        if measured_timing is not None
+        else None
+    )
+
+    if matching_mode == 'absolute_delay':
+        if measured_timing is None:
+            return _unsupported_report(
+                request,
+                etc_peak_delays_s,
+                matching_mode=matching_mode,
+                tolerance_s=tolerance_s,
+                measured_timing=None,
+                direct_peak_index=direct_peak_index,
+                detail='no measured timing authority bound to the ETC peaks',
+            )
+        if not measured_timing_supports_absolute(measured_timing):
+            return _unsupported_report(
+                request,
+                etc_peak_delays_s,
+                matching_mode=matching_mode,
+                tolerance_s=tolerance_s,
+                measured_timing=measured_timing,
+                direct_peak_index=direct_peak_index,
+                detail=(
+                    'measured timing cannot establish absolute delay '
+                    '(common timebase + absolute ETC zero required)'
+                ),
+            )
+        reference = {path.path_id: float(path.propagation_delay_s) for path in eligible_paths}
+        measured_reference = dict(
+            enumerate(float(v) for v in etc_peak_delays_s)
+        )
+    else:
+        if measured_timing is None:
+            return _unsupported_report(
+                request,
+                etc_peak_delays_s,
+                matching_mode=matching_mode,
+                tolerance_s=tolerance_s,
+                measured_timing=None,
+                direct_peak_index=direct_peak_index,
+                detail='no measured timing authority bound to the ETC peaks',
+            )
+        if direct_peak_index is None or not (
+            0 <= direct_peak_index < len(etc_peak_delays_s)
+        ):
+            raise ValueError(
+                'relative matching requires a valid direct peak index'
+            )
+        direct_path = next(
+            (
+                path
+                for path in eligible_paths
+                if path.path_id == request.direct_path_id
+            ),
+            None,
+        )
+        if direct_path is None:
+            return _unsupported_report(
+                request,
+                etc_peak_delays_s,
+                matching_mode=matching_mode,
+                tolerance_s=tolerance_s,
+                measured_timing=measured_timing,
+                direct_peak_index=direct_peak_index,
+                detail='the pinned direct path is absent from the path set',
+            )
+        reference = {
+            path.path_id: float(path.propagation_delay_s)
+            - float(direct_path.propagation_delay_s)
+            for path in eligible_paths
+        }
+        measured_reference = {
+            index: float(measured) - float(etc_peak_delays_s[direct_peak_index])
+            for index, measured in enumerate(etc_peak_delays_s)
+        }
+
     matches: list[EtcPeakMatch] = []
-    for index, measured in enumerate(etc_peak_delays_s):
-        if float(measured) < 0.0:
-            raise ValueError('ETC peak delays must be non-negative')
+    for index in range(len(etc_peak_delays_s)):
+        measured_value = measured_reference[index]
         candidates = [
             path
-            for path in paths
-            if path.source_entity_id == request.source_entity_id
-            and path.receiver_id == request.receiver_id
-            and abs(float(path.propagation_delay_s) - float(measured))
-            <= tolerance_s
+            for path in eligible_paths
+            if abs(reference[path.path_id] - measured_value) <= tolerance_s
         ]
         if len(candidates) == 1:
             matches.append(
                 EtcPeakMatch(
                     etc_peak_index=index,
-                    measured_delay_s=float(measured),
-                    verdict='match',
-                    matched_path_id=candidates[0].path_id,
+                    measured_delay_s=float(etc_peak_delays_s[index]),
+                    verdict='timing_compatible_candidate',
+                    candidate_path_id=candidates[0].path_id,
                 )
             )
         elif len(candidates) > 1:
             matches.append(
                 EtcPeakMatch(
                     etc_peak_index=index,
-                    measured_delay_s=float(measured),
-                    verdict='ambiguous',
+                    measured_delay_s=float(etc_peak_delays_s[index]),
+                    verdict='ambiguous_candidate',
                     detail=(
                         'multiple deterministic paths within tolerance: '
                         + ','.join(sorted(p.path_id for p in candidates))
@@ -487,9 +796,31 @@ def match_etc_peaks(
             matches.append(
                 EtcPeakMatch(
                     etc_peak_index=index,
-                    measured_delay_s=float(measured),
+                    measured_delay_s=float(etc_peak_delays_s[index]),
                     verdict='unsupported',
                     detail='no deterministic path explains this peak',
                 )
             )
-    return tuple(matches)
+    payload = {
+        'request_id': request.request_id,
+        'request_semantic_sha256': request.semantic_sha256,
+        'matching_mode': matching_mode,
+        'tolerance_s': tolerance_s,
+        'measured_timing_evidence_id': evidence_id,
+        'measured_timing_evidence_sha256': evidence_hash,
+        'direct_peak_index': direct_peak_index,
+        'matches': [item.model_dump(mode='json') for item in matches],
+    }
+    digest = _digest(payload)
+    return EtcPeakMatchReport(
+        request_id=request.request_id,
+        request_semantic_sha256=request.semantic_sha256,
+        matching_mode=matching_mode,
+        tolerance_s=tolerance_s,
+        measured_timing_evidence_id=evidence_id,
+        measured_timing_evidence_sha256=evidence_hash,
+        direct_peak_index=direct_peak_index,
+        matches=tuple(matches),
+        report_id=f'etc-peak-match-report:{digest}',
+        semantic_sha256=digest,
+    )

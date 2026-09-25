@@ -163,13 +163,90 @@ def test_probe_reports_exact_vs_snapped() -> None:
         field, Position3(x_m=1.0, y_m=1.0, z_m=0.0), 'pressure_magnitude_pa'
     )
     assert exact.sample_state == 'exact'
+    # An off-grid read in exact_samples mode is the nearest node — never
+    # silently labelled 'interpolated' (#951).
     snapped = probe_field(
         field,
         Position3(x_m=1.02, y_m=1.0, z_m=0.0),
         'pressure_magnitude_pa',
     )
-    assert snapped.sample_state == 'interpolated'
+    assert snapped.sample_state == 'nearest_sample'
     assert snapped.nearest_sample_index == exact.nearest_sample_index
+    assert snapped.sampled_position.x_m == pytest.approx(1.0)
+    assert snapped.requested_position.x_m == pytest.approx(1.02)
+    assert snapped.distance_m == pytest.approx(0.02)
+
+
+def test_probe_trilinear_interpolation() -> None:
+    # mode n_x=1 over Lx=4: p = cos(pi x / 4) — between x=1 and x=2 the true
+    # trilinear blend differs from the nearest node value.
+    field = build_rectangular_mode_field(
+        request=_request(),
+        room_size_m=(4.0, 3.0, 2.0),
+        mode_indices=(1, 0, 0),
+        axes=_axes(),
+        amplitude_pa=1.0,
+        valid_frequency_domain=DOMAIN,
+    )
+    probed = probe_field(
+        field,
+        Position3(x_m=1.5, y_m=0.0, z_m=0.0),
+        'pressure_magnitude_pa',
+        interpolation='trilinear',
+    )
+    assert probed.sample_state == 'interpolated'
+    assert probed.sampled_position.x_m == pytest.approx(1.5)
+    nearest = probe_field(
+        field,
+        Position3(x_m=1.5, y_m=0.0, z_m=0.0),
+        'pressure_magnitude_pa',
+    )
+    assert nearest.sample_state == 'nearest_sample'
+    assert probed.value != pytest.approx(nearest.value)
+    cos1, cos2 = math.cos(math.pi / 4), math.cos(math.pi / 2)
+    assert probed.value == pytest.approx(abs(0.5 * (cos1 + cos2)))
+    # Phase is derived from the interpolated complex parts.
+    phase = probe_field(
+        field,
+        Position3(x_m=1.5, y_m=0.0, z_m=0.0),
+        'phase_deg',
+        interpolation='trilinear',
+    )
+    assert phase.value == pytest.approx(0.0, abs=1e-9)
+
+
+def test_probe_fails_closed_outside_domain() -> None:
+    field = _field()
+    with pytest.raises(ValueError, match='outside the sampled field domain'):
+        probe_field(
+            field,
+            Position3(x_m=9.0, y_m=0.0, z_m=0.0),
+            'pressure_magnitude_pa',
+            interpolation='trilinear',
+        )
+    with pytest.raises(ValueError, match='outside the sampled field domain'):
+        probe_field(
+            field,
+            Position3(x_m=9.0, y_m=0.0, z_m=0.0),
+            'pressure_magnitude_pa',
+        )
+
+
+def test_energy_density_is_not_a_field_quantity() -> None:
+    # #952: a dimensionless pressure proxy must never be labeled J/m3.
+    field = _field()
+    with pytest.raises(ValueError, match='unsupported quantity'):
+        extract_field_slice(
+            field,
+            FieldPlaneRequest(axis_plane='xy', coordinate_m=0.0),
+            'energy_density',
+        )
+    with pytest.raises(ValueError, match='unsupported quantity'):
+        probe_field(
+            field,
+            Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+            'energy_density',
+        )
 
 
 def test_complex_pressure_is_not_a_scalar_view() -> None:

@@ -12,10 +12,12 @@ from htdt.cad_geometric_acoustics_adapter import (
     SourceDirectivityContribution,
 )
 from htdt.cad_reflection_diagnostic import (
+    ReflectionMeasuredTimingEvidence,
     build_interference_hypothesis,
     build_reflection_diagnostic_request,
     first_reflection_zones,
     match_etc_peaks,
+    measured_timing_supports_absolute,
     mirror_source_across_plane,
     preview_reflection_geometry,
 )
@@ -236,6 +238,25 @@ def test_first_reflection_zones_group_per_surface() -> None:
     assert zones[0].centroid.y_m == pytest.approx(2.0)
 
 
+def _timing_evidence(**overrides) -> ReflectionMeasuredTimingEvidence:
+    kwargs = dict(
+        measurement_id='measurement:etc-1',
+        measurement_artifact_sha256=_hash('etc-peaks'),
+        ir_artifact_id='ir:measured-1',
+        ir_artifact_sha256=_hash('ir'),
+        acquisition_context_id='acq-ctx-1',
+        acquisition_context_sha256=_hash('acq'),
+        measurement_quality_report_id='mq-report-1',
+        measurement_quality_report_sha256=_hash('mq'),
+        timing_reference='loopback_calibrated',
+        common_source_timebase=True,
+        etc_zero_semantics='absolute_time_zero',
+        applied_delay_correction_s=0.001,
+    )
+    kwargs.update(overrides)
+    return ReflectionMeasuredTimingEvidence(**kwargs)
+
+
 def test_etc_match_unique_ambiguous_unsupported() -> None:
     direct, reflection, request = _pair(direct_len=5.0, reflection_len=7.0)
     # second reflection at nearly the same delay
@@ -251,10 +272,85 @@ def test_etc_match_unique_ambiguous_unsupported() -> None:
         7.0 / 343.0,                 # matches two reflections -> ambiguous
         0.1,                         # unsupported
     )
-    matches = match_etc_peaks(
-        request, (direct, reflection, reflection2), peaks
+    report = match_etc_peaks(
+        request,
+        (direct, reflection, reflection2),
+        peaks,
+        measured_timing=_timing_evidence(),
     )
-    assert matches[0].verdict == 'match'
-    assert matches[0].matched_path_id == direct.path_id
-    assert matches[1].verdict == 'ambiguous'
+    assert report.matching_mode == 'absolute_delay'
+    assert report.measured_timing_evidence_id == 'measurement:etc-1'
+    matches = report.matches
+    assert matches[0].verdict == 'timing_compatible_candidate'
+    assert matches[0].candidate_path_id == direct.path_id
+    assert matches[1].verdict == 'ambiguous_candidate'
     assert matches[2].verdict == 'unsupported'
+
+
+def test_etc_match_fails_closed_without_timing_authority() -> None:
+    direct, reflection, request = _pair(direct_len=5.0, reflection_len=7.0)
+    peaks = (5.0 / 343.0, 7.0 / 343.0)
+    report = match_etc_peaks(request, (direct, reflection), peaks)
+    assert all(m.verdict == 'unsupported' for m in report.matches)
+    assert report.measured_timing_evidence_id is None
+
+    # A shifted/relative ETC zero cannot support absolute matching either.
+    uncalibrated = _timing_evidence(
+        etc_zero_semantics='relative_first_peak',
+        common_source_timebase=False,
+        timing_reference='unrelated',
+    )
+    assert not measured_timing_supports_absolute(uncalibrated)
+    report = match_etc_peaks(
+        request, (direct, reflection), peaks, measured_timing=uncalibrated
+    )
+    assert all(m.verdict == 'unsupported' for m in report.matches)
+    assert report.measured_timing_evidence_id == 'measurement:etc-1'
+
+
+def test_etc_match_relative_to_direct_mode() -> None:
+    direct, reflection, request = _pair(direct_len=5.0, reflection_len=7.0)
+    # Both measured peaks share a common shifted zero (e.g. loopback offset);
+    # relative matching cancels it while absolute matching would not.
+    shift = 0.01
+    peaks = (
+        5.0 / 343.0 + shift,
+        7.0 / 343.0 + shift,
+        0.1 + shift,
+    )
+    report = match_etc_peaks(
+        request,
+        (direct, reflection),
+        peaks,
+        matching_mode='relative_to_direct',
+        measured_timing=_timing_evidence(
+            timing_reference='unrelated',
+            common_source_timebase=False,
+            etc_zero_semantics='relative_first_peak',
+        ),
+        direct_peak_index=0,
+    )
+    assert report.matches[0].verdict == 'timing_compatible_candidate'
+    assert report.matches[0].candidate_path_id == direct.path_id
+    assert report.matches[1].verdict == 'timing_compatible_candidate'
+    assert report.matches[1].candidate_path_id == reflection.path_id
+    assert report.matches[2].verdict == 'unsupported'
+
+    # Absolute matching on the same shifted record fails closed per-peak.
+    absolute = match_etc_peaks(
+        request,
+        (direct, reflection),
+        peaks,
+        measured_timing=_timing_evidence(),
+    )
+    assert all(m.verdict == 'unsupported' for m in absolute.matches)
+
+    # A missing direct peak index is a hard failure, not a silent fallback.
+    with pytest.raises(ValueError, match='direct peak index'):
+        match_etc_peaks(
+            request,
+            (direct, reflection),
+            peaks,
+            matching_mode='relative_to_direct',
+            measured_timing=_timing_evidence(),
+        )

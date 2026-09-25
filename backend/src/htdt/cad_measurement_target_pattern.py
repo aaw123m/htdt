@@ -499,6 +499,26 @@ class CadTargetPatternRepository:
                 ),
             )
 
+    def list_patterns(
+        self,
+        document_id: str,
+    ) -> tuple[MeasurementTargetPattern, ...]:
+        """All persisted patterns of one project, oldest first."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_measurement_target_patterns
+                WHERE document_id=?
+                ORDER BY created_at_utc, pattern_id
+                """,
+                (document_id,),
+            ).fetchall()
+        return tuple(
+            MeasurementTargetPattern.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
     def get_pattern(self, pattern_id: str) -> MeasurementTargetPattern | None:
         with self._connect() as connection:
             row = connection.execute(

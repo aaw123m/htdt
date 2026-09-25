@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+import math
 from math import atan2, isfinite, log10, pi
 from typing import Any, Literal
 
@@ -33,7 +34,6 @@ FieldQuantity = Literal[
     'pressure_magnitude_pa',
     'spl_db',
     'phase_deg',
-    'energy_density',
 ]
 FieldRepresentation = Literal['complex_pressure', 'magnitude_only']
 AxisPlane = Literal['xy', 'xz', 'yz']
@@ -440,7 +440,7 @@ def _quantity_value(
         return complex(
             result.pressure_real[flat_index], result.pressure_imag[flat_index]
         )
-    if quantity in ('pressure_magnitude_pa', 'spl_db', 'phase_deg', 'energy_density'):
+    if quantity in ('pressure_magnitude_pa', 'spl_db', 'phase_deg'):
         if result.is_complex:
             magnitude = abs(
                 complex(
@@ -456,23 +456,21 @@ def _quantity_value(
             if magnitude <= 0.0:
                 return -400.0
             return 20.0 * log10(magnitude / result.pressure_reference_pa)
-        if quantity == 'phase_deg':
-            return atan2(
-                result.pressure_imag[flat_index],
-                result.pressure_real[flat_index],
-            ) * 180.0 / pi
-        return magnitude * magnitude / (
-            2.0 * result.pressure_reference_pa * result.pressure_reference_pa
-        )
+        return atan2(
+            result.pressure_imag[flat_index],
+            result.pressure_real[flat_index],
+        ) * 180.0 / pi
     raise ValueError(f'unsupported quantity: {quantity}')
 
 
+# Physical acoustic energy density needs density, sound speed and particle
+# velocity authorities this contract does not carry (#952); a dimensionless
+# pressure proxy must never be mislabeled as J/m3, so the quantity is absent.
 _QUANTITY_UNIT: dict[FieldQuantity, str] = {
     'complex_pressure': 'Pa',
     'pressure_magnitude_pa': 'Pa',
     'spl_db': 'dB SPL',
     'phase_deg': 'deg',
-    'energy_density': 'J/m3*relative',
 }
 
 
@@ -495,7 +493,7 @@ def extract_field_slice(
     if quantity == 'complex_pressure':
         raise ValueError(
             'complex_pressure needs a two-component view; scalar slice '
-            'quantities are magnitude, SPL, phase and energy density'
+            'quantities are magnitude, SPL and phase'
         )
     if quantity == 'phase_deg' and not result.is_complex:
         raise ValueError('phase view requires complex pressure authority')
@@ -566,13 +564,49 @@ class FieldProbeValue(BaseModel):
     quantity: FieldQuantity
     unit: str = Field(min_length=1)
     value: float
-    sample_state: Literal['exact', 'interpolated']
+    # 'exact': grid-node sample. 'interpolated': true trilinear blend of the
+    # 8 bounding samples. 'nearest_sample': the nearest node was returned —
+    # no interpolation ever happened (#951).
+    sample_state: Literal['exact', 'interpolated', 'nearest_sample']
+    requested_position: Position3
+    sampled_position: Position3
+    distance_m: float = Field(ge=0.0)
     nearest_sample_index: tuple[int, int, int]
 
-    @field_validator('value')
+    @field_validator('value', 'distance_m')
     @classmethod
     def finite_value(cls, value: float) -> float:
         return _finite(value, field_name='probe value')
+
+
+def _probe_complex_at(result: SpatialFieldResult, flat_index: int) -> complex:
+    if result.is_complex:
+        return complex(
+            result.pressure_real[flat_index], result.pressure_imag[flat_index]
+        )
+    return complex(result.pressure_magnitude_pa[flat_index], 0.0)
+
+
+def _quantity_from_complex(
+    value: complex,
+    magnitude_only: float | None,
+    quantity: FieldQuantity,
+    result: SpatialFieldResult,
+) -> float:
+    """Derive the scalar quantity AFTER any interpolation (#951).
+
+    Complex probes interpolate real/imag components and derive magnitude,
+    SPL and phase from the interpolated pressure — wrapped phase is never
+    interpolated directly.
+    """
+    magnitude = abs(value) if result.is_complex else float(magnitude_only)
+    if quantity == 'pressure_magnitude_pa':
+        return magnitude
+    if quantity == 'spl_db':
+        if magnitude <= 0.0:
+            return -400.0
+        return 20.0 * log10(magnitude / result.pressure_reference_pa)
+    return atan2(value.imag, value.real) * 180.0 / pi
 
 
 def probe_field(
@@ -580,12 +614,14 @@ def probe_field(
     position: Position3,
     quantity: FieldQuantity,
     *,
+    interpolation: FieldInterpolation = 'exact_samples',
     snap_tolerance_m: float = 1e-9,
 ) -> FieldProbeValue:
-    """Nearest-sample probe; explicit exact/interpolated state.
+    """Probe the field at an arbitrary position with explicit semantics.
 
-    ``snap_tolerance_m`` is a display-level position tolerance; reported state
-    distinguishes a true grid-node sample from a snapped display position.
+    ``exact_samples`` returns the nearest node unchanged and reports
+    ``nearest_sample``; ``trilinear`` performs true trilinear interpolation
+    over the 8 bounding samples. Off-domain positions fail closed.
     """
     supported, reason = result.supports_quantity(quantity)
     if not supported:
@@ -593,11 +629,23 @@ def probe_field(
     if quantity == 'complex_pressure':
         raise ValueError(
             'complex_pressure needs a two-component view; scalar probe '
-            'quantities are magnitude, SPL, phase and energy density'
+            'quantities are magnitude, SPL and phase'
         )
 
-    coords = (position.x_m, position.y_m, position.z_m)
-    indices: list[int] = []
+    coords = (float(position.x_m), float(position.y_m), float(position.z_m))
+    # Fail closed outside the sampled domain on any axis.
+    for axis, coordinate in zip(result.axes, coords):
+        lo = axis.coordinate(0)
+        hi = axis.coordinate(axis.count - 1)
+        if coordinate < lo - snap_tolerance_m or (
+            coordinate > hi + snap_tolerance_m
+        ):
+            raise ValueError(
+                'probe position lies outside the sampled field domain'
+            )
+
+    # Nearest node (always computed — it is the reported fallback/state).
+    nearest: list[int] = []
     exact = True
     for axis, coordinate in zip(result.axes, coords):
         best = 0
@@ -609,17 +657,103 @@ def probe_field(
                 best_distance = distance
         if best_distance > snap_tolerance_m:
             exact = False
-        indices.append(best)
-    flat = _index(result, indices[0], indices[1], indices[2])
-    value = _quantity_value(result, flat, quantity)
+        nearest.append(best)
+    nearest_flat = _index(result, nearest[0], nearest[1], nearest[2])
+    sampled_position = Position3(
+        x_m=result.axes[0].coordinate(nearest[0]),
+        y_m=result.axes[1].coordinate(nearest[1]),
+        z_m=result.axes[2].coordinate(nearest[2]),
+    )
+    distance_m = math.sqrt(
+        sum(
+            (coordinate - sampled)
+            ** 2
+            for coordinate, sampled in zip(
+                coords,
+                (
+                    float(sampled_position.x_m),
+                    float(sampled_position.y_m),
+                    float(sampled_position.z_m),
+                ),
+            )
+        )
+    )
+
+    if exact or interpolation == 'exact_samples':
+        value = _quantity_value(result, nearest_flat, quantity)
+        return FieldProbeValue(
+            result_semantic_sha256=result.semantic_sha256,
+            position=position,
+            quantity=quantity,
+            unit=_QUANTITY_UNIT[quantity],
+            value=value,
+            sample_state='exact' if exact else 'nearest_sample',
+            requested_position=position,
+            sampled_position=sampled_position,
+            distance_m=distance_m,
+            nearest_sample_index=(nearest[0], nearest[1], nearest[2]),
+        )
+
+    # True trilinear interpolation over the 8 bounding nodes.
+    lower: list[int] = []
+    upper: list[int] = []
+    fraction: list[float] = []
+    for axis, coordinate, node in zip(result.axes, coords, nearest):
+        node_coordinate = axis.coordinate(node)
+        if abs(coordinate - node_coordinate) <= snap_tolerance_m:
+            lower.append(node)
+            upper.append(node)
+            fraction.append(0.0)
+            continue
+        if axis.count < 2:
+            raise ValueError(
+                'cannot interpolate along a single-sample axis'
+            )
+        if coordinate < node_coordinate:
+            lo_index, hi_index = node - 1, node
+        else:
+            lo_index, hi_index = node, min(node + 1, axis.count - 1)
+        lo_coordinate = axis.coordinate(lo_index)
+        hi_coordinate = axis.coordinate(hi_index)
+        lower.append(lo_index)
+        upper.append(hi_index)
+        fraction.append(
+            (coordinate - lo_coordinate) / (hi_coordinate - lo_coordinate)
+        )
+
+    complex_sum = 0j
+    magnitude_sum = 0.0
+    for dx in (0, 1):
+        for dy in (0, 1):
+            for dz in (0, 1):
+                weight = (
+                    (fraction[0] if dx else 1.0 - fraction[0])
+                    * (fraction[1] if dy else 1.0 - fraction[1])
+                    * (fraction[2] if dz else 1.0 - fraction[2])
+                )
+                flat = _index(
+                    result,
+                    upper[0] if dx else lower[0],
+                    upper[1] if dy else lower[1],
+                    upper[2] if dz else lower[2],
+                )
+                sample = _probe_complex_at(result, flat)
+                complex_sum += weight * sample
+                magnitude_sum += weight * abs(sample)
+    value = _quantity_from_complex(
+        complex_sum, magnitude_sum, quantity, result
+    )
     return FieldProbeValue(
         result_semantic_sha256=result.semantic_sha256,
         position=position,
         quantity=quantity,
         unit=_QUANTITY_UNIT[quantity],
         value=value,
-        sample_state='exact' if exact else 'interpolated',
-        nearest_sample_index=(indices[0], indices[1], indices[2]),
+        sample_state='interpolated',
+        requested_position=position,
+        sampled_position=position,
+        distance_m=distance_m,
+        nearest_sample_index=(nearest[0], nearest[1], nearest[2]),
     )
 
 
