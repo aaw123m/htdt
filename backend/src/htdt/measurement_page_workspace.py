@@ -77,6 +77,11 @@ from .scientific_plot_style import (
     show_plot_state,
     trace_pen,
 )
+from .user_facing_error import (
+    log_operation_error,
+    operation_error_message,
+    to_user_facing_error,
+)
 from .ui_theme import (
     DARK_THEME,
     SemanticState,
@@ -426,6 +431,7 @@ class MeasurementPageWorkspace(QWidget):
         self.context_label.setText("測定未選択")
         root.addWidget(self.context_label)
 
+        self._last_operation_error_detail: str | None = None
         self.notice = QLabel(self)
         self.notice.setObjectName("measurementWorkspaceNotice")
         self.notice.setWordWrap(True)
@@ -488,7 +494,7 @@ class MeasurementPageWorkspace(QWidget):
             )
             self.controller.stage_rew_text(raw, file_path.name)
         except Exception as exc:
-            self._set_notice(f"読み込みに失敗しました · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("読み込みに失敗しました", exc)
             return
         self._set_notice(
             "読み込みました。次に「割り当て」で測定点と入力役割を確認してください。",
@@ -521,15 +527,14 @@ class MeasurementPageWorkspace(QWidget):
                     )
                 )
             except Exception as exc:
-                self._set_notice(
-                    f"読み込みに失敗しました · {path} · {exc}",
-                    SemanticState.ERROR,
+                self._operation_error_notice(
+                    f"読み込みに失敗しました · {file_path.name}", exc
                 )
                 return
         try:
             items = self.controller.stage_rew_text_files(files)
         except Exception as exc:
-            self._set_notice(f"読み込みに失敗しました · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("読み込みに失敗しました", exc)
             return
         self._set_notice(
             f"{len(items)} 件を読み込みました。「割り当て」で項目の意味付けと保存を行ってください。",
@@ -571,7 +576,7 @@ class MeasurementPageWorkspace(QWidget):
                 kind=kind,
             )
         except Exception as exc:
-            self._set_notice(f"添付に失敗しました · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("添付に失敗しました", exc)
             return
         self._set_notice(
             "添付を項目に紐付けました。保存時に測定の証拠として登録されます。",
@@ -594,7 +599,7 @@ class MeasurementPageWorkspace(QWidget):
                 item_id, str(combo.itemData(value))
             )
         except Exception as exc:
-            self._set_notice(f"解決方法を変更できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("解決方法を変更できませんでした", exc)
 
     def _batch_table_row(self, item_id: str) -> int:
         for row in range(self.batch_table.rowCount()):
@@ -810,7 +815,7 @@ class MeasurementPageWorkspace(QWidget):
         try:
             self.controller.stage_rew_snapshot(value)  # type: ignore[arg-type]
         except Exception as exc:
-            self._set_notice(f"REW測定の確認に失敗しました · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("REW測定の確認に失敗しました", exc)
             return
         self._set_notice(
             "読み込みました。次に「割り当て」で測定点と入力役割を確認してください。",
@@ -1117,9 +1122,15 @@ class MeasurementPageWorkspace(QWidget):
         try:
             targets = self.controller.assignment_targets()
             speakers = self.controller.source_speakers()
-        except Exception:
+        except Exception as exc:
             targets = ()
             speakers = ()
+            self._operation_error_notice(
+                "割り当て対象を読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
 
         for target in targets:
             self.target_combo.addItem(target.name, target.entity_id)
@@ -1146,8 +1157,14 @@ class MeasurementPageWorkspace(QWidget):
         self.acquisition_revision_combo.clear()
         try:
             revisions = self.controller.revision_options()
-        except Exception:
+        except Exception as exc:
             revisions = ()
+            self._operation_error_notice(
+                "履歴候補を読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
         for revision in revisions:
             self.acquisition_revision_combo.addItem(
                 revision.created_at_utc, revision.revision_id
@@ -1172,8 +1189,14 @@ class MeasurementPageWorkspace(QWidget):
             profiles = self.controller.quality_repository.list_routing_profiles(
                 document_id=self.controller.document_id
             )
-        except Exception:
+        except Exception as exc:
             profiles = ()
+            self._operation_error_notice(
+                "ルーティングプロファイルを読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
         for profile in profiles:
             self.routing_profile_combo.addItem(
                 f"{profile.profile_name} · {profile.created_at_utc}",
@@ -1189,8 +1212,14 @@ class MeasurementPageWorkspace(QWidget):
         self.acquisition_preset_combo.addItem("（プリセットなし）", None)
         try:
             contexts = self.controller.acquisition_contexts()
-        except Exception:
+        except Exception as exc:
             contexts = ()
+            self._operation_error_notice(
+                "プリセットを読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
         for context in contexts:
             self.acquisition_preset_combo.addItem(
                 f"{context.source_kind} · {context.created_at_utc}",
@@ -1290,9 +1319,11 @@ class MeasurementPageWorkspace(QWidget):
         try:
             self.controller.select_pending_revision(revision_id)
         except Exception as exc:
-            self._set_notice(
-                f"取得時の配置を切り替えられませんでした · {exc}",
-                SemanticState.WARNING,
+            self._operation_error_notice(
+                "取得時の配置を切り替えられませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
             )
 
     def _apply_acquisition_preset(self) -> None:
@@ -1516,7 +1547,7 @@ class MeasurementPageWorkspace(QWidget):
                 on_divergence=on_divergence,  # type: ignore[arg-type]
             )
         except Exception as exc:
-            self._set_notice(f"測定を保存できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("測定を保存できませんでした", exc)
             return
         retake_source_id = self._retake_source_id
         self._retake_source_id = None
@@ -1530,9 +1561,12 @@ class MeasurementPageWorkspace(QWidget):
                     reason="user-initiated retake from the measurement quality page",
                 )
             except Exception as exc:
+                # Partial commit: the measurement persisted; the retake
+                # lineage did not. Keep the exact mutation outcome (#903).
                 self._set_notice(
                     "測定は保存されましたが、再測定の系譜を記録できませんでした"
-                    f"（保存時と同じ測定点・役割・音源が必要です） · {exc}",
+                    "（保存時と同じ測定点・役割・音源が必要です）"
+                    f" · {operation_error_message(exc)}",
                     SemanticState.WARNING,
                 )
                 self.refresh()
@@ -1570,7 +1604,7 @@ class MeasurementPageWorkspace(QWidget):
                 self.controller.set_batch_item_assignment(str(ref), assignment)
                 outcomes = self.controller.commit_batch([str(ref)])
         except Exception as exc:
-            self._set_notice(f"バッチを保存できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("バッチを保存できませんでした", exc)
             return
         committed = sum(1 for o in outcomes if o.outcome == "committed")
         reused = sum(1 for o in outcomes if o.outcome == "reused")
@@ -1661,7 +1695,7 @@ class MeasurementPageWorkspace(QWidget):
         try:
             self.controller.correct_assignment(measurement_id, corrected, reason)
         except Exception as exc:
-            self._set_notice(f"訂正を記録できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("訂正を記録できませんでした", exc)
             return
         self._correction_target_id = None
         self._set_notice(
@@ -1845,7 +1879,11 @@ class MeasurementPageWorkspace(QWidget):
                 target.entity_id: target.name
                 for target in self.controller.assignment_targets()
             }
-        except Exception:
+        except Exception as exc:
+            log_operation_error(
+                to_user_facing_error(exc, title="対象名を読み込めませんでした"),
+                exc,
+            )
             return {}
 
     def _campaign_speaker_labels(self) -> dict[str, str]:
@@ -2224,7 +2262,7 @@ class MeasurementPageWorkspace(QWidget):
                 purposes=self._selected_campaign_purposes(),
             )
         except Exception as exc:
-            self._set_notice(f"計画を作成できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("計画を作成できませんでした", exc)
             return
         self._set_notice(
             f"{len(plan.cells)} セルの計画を作成しました。「実行を開始 / 再開」で開始します。",
@@ -2257,7 +2295,11 @@ class MeasurementPageWorkspace(QWidget):
             step = self.controller.runner_guided_step(
                 self._campaign_run_id, int(cell_index)
             )
-        except Exception:
+        except Exception as exc:
+            log_operation_error(
+                to_user_facing_error(exc, title="計画ステップを読み込めませんでした"),
+                exc,
+            )
             return
         if step is None:
             return
@@ -2300,7 +2342,7 @@ class MeasurementPageWorkspace(QWidget):
                 self._campaign_run_id, cell_index, measurement_id
             )
         except Exception as exc:
-            self._set_notice(f"セルへ登録できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("セルへ登録できませんでした", exc)
             return
         self._set_notice("計画セルに測定を登録しました。", SemanticState.SUCCESS)
         self._refresh_campaign()
@@ -2313,7 +2355,7 @@ class MeasurementPageWorkspace(QWidget):
         try:
             self.controller.runner_skip_cell(self._campaign_run_id, cell_index)
         except Exception as exc:
-            self._set_notice(f"スキップできませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("スキップできませんでした", exc)
             return
         self._refresh_campaign()
 
@@ -2870,8 +2912,14 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_target_combo.addItem("オーバーレイなし", None)
         try:
             curves = self.controller.target_curves()
-        except Exception:
+        except Exception as exc:
             curves = ()
+            self._operation_error_notice(
+                "ターゲットカーブを読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
         for plan_id, curve in curves:
             self.quality_target_combo.addItem(
                 f"{plan_id} · {curve.normalization.method}", curve
@@ -2881,10 +2929,20 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_target_combo.blockSignals(False)
 
     def _refresh_spatial(self, row: MeasurementView) -> None:
+        # #903: a failed load must read differently from "no context".
         try:
             self._spatial_context = self.controller.spatial_context(row.measurement_id)
-        except Exception:
+        except Exception as exc:
             self._spatial_context = None
+            self.spatial_summary.setText("空間コンテキストを読み込めませんでした")
+            self.spatial_fallback_label.setText("")
+            log_operation_error(
+                to_user_facing_error(
+                    exc, title="空間コンテキストを読み込めませんでした"
+                ),
+                exc,
+            )
+            return
         context = self._spatial_context
         if context is None or context.bound_revision is None:
             self.spatial_summary.setText("この測定の部屋コンテキストはありません")
@@ -3000,7 +3058,7 @@ class MeasurementPageWorkspace(QWidget):
                 row.measurement_id, disposition, reason.strip()
             )
         except Exception as exc:
-            self._set_notice(f"状態を記録できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("状態を記録できませんでした", exc)
             return
         self._set_notice("測定の状態を記録しました", SemanticState.SUCCESS)
         self.refresh()
@@ -3041,7 +3099,7 @@ class MeasurementPageWorkspace(QWidget):
                 raw_bytes=raw,
             )
         except Exception as exc:
-            self._set_notice(f"添付に失敗しました · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("添付に失敗しました", exc)
             return
         self._set_notice("ソース添付を保存しました", SemanticState.SUCCESS)
         self.refresh()
@@ -3650,7 +3708,7 @@ class MeasurementPageWorkspace(QWidget):
                 excluded_bands=self._exclusion_bands(),
             )
         except Exception as exc:
-            self._set_notice(f"比較できませんでした · {exc}", SemanticState.ERROR)
+            self._operation_error_notice("比較できませんでした", exc)
             return
         self._last_comparison = saved
         self.comparison_state_label.setText("保存済み比較")
@@ -3798,6 +3856,28 @@ class MeasurementPageWorkspace(QWidget):
         self.notice.setText(message)
         self.notice.setVisible(bool(message))
         set_semantic_state(self.notice, state)
+
+    def _operation_error_notice(
+        self,
+        title: str,
+        exc: BaseException,
+        *,
+        effect: str | None = '変更は保存されていません',
+        severity: SemanticState = SemanticState.ERROR,
+    ) -> None:
+        """#903: notice = actionable mapped message; raw detail stays in the
+        diagnostics path (``last_operation_error_detail`` + log)."""
+        error = to_user_facing_error(
+            exc, title=title, effect=effect, severity=severity
+        )
+        self._last_operation_error_detail = error.technical_detail
+        log_operation_error(error, exc)
+        self._set_notice(error.notice_text(), error.severity)
+
+    @property
+    def last_operation_error_detail(self) -> str | None:
+        """Technical detail of the last operation failure (diagnostics path)."""
+        return self._last_operation_error_detail
 
     @staticmethod
     def _pending_token(pending: PendingMeasurementImport) -> str:

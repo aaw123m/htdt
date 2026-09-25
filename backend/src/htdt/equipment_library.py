@@ -74,6 +74,7 @@ from .cad_source_response import (
     build_source_response,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .user_facing_error import operation_error_message
 
 _EVIDENCE_KINDS: tuple[tuple[str, EquipmentEvidenceKind], ...] = (
     ("ユーザー入力", "user_defined"),
@@ -792,7 +793,11 @@ class EquipmentLibraryDialog(QDialog):
         try:
             definition = fn()
         except ValueError as exc:
-            QMessageBox.warning(self, "機器定義", str(exc))
+            QMessageBox.warning(
+                self,
+                "機器定義",
+                f"保存できませんでした · {operation_error_message(exc)}",
+            )
             return
         self.refresh_definitions()
         self.definitionsChanged.emit()
@@ -843,7 +848,11 @@ class EquipmentLibraryDialog(QDialog):
                 adapter_id=adapters[0].adapter_id,
             )
         except (ValueError, OSError) as exc:
-            QMessageBox.warning(self, "指向性インポート", str(exc))
+            QMessageBox.warning(
+                self,
+                "指向性インポート",
+                f"インポートできませんでした · {operation_error_message(exc)}",
+            )
             return
         QMessageBox.information(self, "指向性インポート", message)
 

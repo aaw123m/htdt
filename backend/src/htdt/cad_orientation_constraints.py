@@ -39,6 +39,20 @@ BodyCollisionAuthority = Literal[
     'exact_body_geometry', 'bounding_envelope', 'envelope_unverified'
 ]
 
+# Orthographic drawing views (#893): top is the plan (XY) projection,
+# front the XZ elevation, side the YZ elevation.
+ViewPlane = Literal['top', 'front', 'side']
+ViewOutlineBasis = Literal['exact_body_geometry', 'bounding_envelope']
+#: An implicitly-closed ring of (horizontal, vertical) view coordinates in
+#: meters — the closing vertex is not repeated.
+ViewOutlineRing = tuple[tuple[float, float], ...]
+
+_VIEW_PLANE_AXES: dict[str, tuple[int, int]] = {
+    'top': (0, 1),
+    'front': (0, 2),
+    'side': (1, 2),
+}
+
 
 def _local_z_is_world_up(entity: SceneEntity) -> bool:
     """True when the entity-local +Z axis maps to world +Z (upright pose).
@@ -107,19 +121,28 @@ def entity_exact_body_footprint(entity: SceneEntity) -> BaseGeometry | None:
     return polygon
 
 
-def _mesh_asset_world_footprint(entity: SceneEntity, mesh) -> BaseGeometry | None:
-    """Concave world XY footprint derived from the resolved mesh triangles.
+def _mesh_view_projection(
+    entity: SceneEntity,
+    mesh,
+    axis_h: int,
+    axis_v: int,
+) -> BaseGeometry | None:
+    """Union of the resolved mesh triangles projected onto one view plane.
 
     Each source triangle is transformed by the mesh's local scale/offset,
-    rotated by the entity orientation, projected to XY, and unioned — so
-    non-convex bodies (L-shapes, recliners, equipment cut-outs) contribute
-    their true silhouette instead of the size_m envelope rectangle. The
-    body must be upright: a tilted mesh widens its true XY projection.
+    rotated by the entity orientation, projected onto the (axis_h, axis_v)
+    world-coordinate pair, and unioned — so non-convex bodies (L-shapes,
+    recliners, equipment cut-outs) contribute their true silhouette
+    instead of the size_m envelope rectangle. The body must be upright:
+    a tilted mesh widens its true projection.
     """
 
     matrix = quaternion_to_matrix3(entity.orientation)
-    px = float(entity.position.x_m)
-    py = float(entity.position.y_m)
+    position = (
+        float(entity.position.x_m),
+        float(entity.position.y_m),
+        float(entity.position.z_m),
+    )
     scale = float(mesh.uniform_scale)
     offset = mesh.local_offset_m
     projected: list[Polygon] = []
@@ -132,10 +155,12 @@ def _mesh_asset_world_footprint(entity: SceneEntity, mesh) -> BaseGeometry | Non
                 float(vertex.y_m) * scale + offset.y_m,
                 float(vertex.z_m) * scale + offset.z_m,
             )
-            coords.append((
-                px + sum(matrix[0][column] * local[column] for column in range(3)),
-                py + sum(matrix[1][column] * local[column] for column in range(3)),
-            ))
+            world = tuple(
+                position[row]
+                + sum(matrix[row][column] * local[column] for column in range(3))
+                for row in range(3)
+            )
+            coords.append((world[axis_h], world[axis_v]))
         if coords[0] != coords[1] and coords[1] != coords[2] and coords[0] != coords[2]:
             projected.append(Polygon(coords))
     if not projected:
@@ -144,6 +169,12 @@ def _mesh_asset_world_footprint(entity: SceneEntity, mesh) -> BaseGeometry | Non
     if footprint.is_empty or not footprint.is_valid:
         return None
     return footprint
+
+
+def _mesh_asset_world_footprint(entity: SceneEntity, mesh) -> BaseGeometry | None:
+    """Concave world XY footprint derived from the resolved mesh triangles."""
+
+    return _mesh_view_projection(entity, mesh, 0, 1)
 
 
 def entity_collision_geometry_authority(entity: SceneEntity) -> BodyCollisionAuthority:
@@ -207,6 +238,175 @@ def entity_horizontal_footprint(entity: SceneEntity) -> BaseGeometry:
                 )
                 points.append((world_x, world_y))
     return MultiPoint(points).convex_hull
+
+
+def _geometry_rings(
+    geometry: BaseGeometry,
+) -> tuple[ViewOutlineRing, ...]:
+    """Open exterior rings for a (possibly multi-) polygonal silhouette."""
+
+    if geometry.is_empty:
+        return ()
+    if geometry.geom_type == 'Polygon':
+        polygons = (geometry,)
+    elif geometry.geom_type == 'MultiPolygon':
+        polygons = tuple(geometry.geoms)
+    else:
+        return ()
+    rings: list[ViewOutlineRing] = []
+    for polygon in polygons:
+        if polygon.is_empty or polygon.area <= _EPS:
+            continue
+        rings.append(
+            tuple(
+                (float(h), float(v))
+                for h, v in polygon.exterior.coords[:-1]
+            )
+        )
+    return tuple(rings)
+
+
+def _envelope_view_rings(
+    entity: SceneEntity,
+    axis_h: int,
+    axis_v: int,
+) -> tuple[ViewOutlineRing, ...]:
+    """Convex hull of the oriented size_m envelope on one view plane."""
+
+    assert entity.size_m is not None
+    hx = float(entity.size_m.x_m) * 0.5
+    hy = float(entity.size_m.y_m) * 0.5
+    hz = float(entity.size_m.z_m) * 0.5
+    matrix = quaternion_to_matrix3(entity.orientation)
+    position = (
+        float(entity.position.x_m),
+        float(entity.position.y_m),
+        float(entity.position.z_m),
+    )
+    points: list[tuple[float, float]] = []
+    for x in (-hx, hx):
+        for y in (-hy, hy):
+            for z in (-hz, hz):
+                local = (x, y, z)
+                world = tuple(
+                    position[row]
+                    + sum(
+                        matrix[row][column] * local[column]
+                        for column in range(3)
+                    )
+                    for row in range(3)
+                )
+                points.append((world[axis_h], world[axis_v]))
+    return _geometry_rings(MultiPoint(points).convex_hull)
+
+
+def _rect_ring(
+    h_min: float,
+    v_min: float,
+    h_max: float,
+    v_max: float,
+) -> ViewOutlineRing:
+    return (
+        (h_min, v_min),
+        (h_max, v_min),
+        (h_max, v_max),
+        (h_min, v_max),
+    )
+
+
+def _exact_view_silhouette(
+    entity: SceneEntity,
+    view: ViewPlane,
+    axis_h: int,
+    axis_v: int,
+) -> tuple[ViewOutlineRing, ...] | None:
+    """Exact projected silhouette of the authored body, or ``None``.
+
+    The top view defers to :func:`entity_exact_body_footprint`. Front/side
+    views get exact outlines only while the body is upright: an upright
+    extrusion (cylinder / extruded_polygon) projects to the rectangle
+    spanning its footprint's horizontal extent and the size_m z extent,
+    and an upright resolved mesh projects each of its triangles. Tilted
+    or unresolved bodies return ``None`` so the caller draws the
+    bounding-envelope hull instead.
+    """
+
+    if view == 'top':
+        footprint = entity_exact_body_footprint(entity)
+        if footprint is None:
+            return None
+        rings = _geometry_rings(footprint)
+        return rings if rings else None
+    body = entity.body_geometry
+    if (
+        entity.size_m is None
+        or body is None
+        or body.kind == 'box'
+        or not _local_z_is_world_up(entity)
+    ):
+        return None
+    hz = float(entity.size_m.z_m) * 0.5
+    v_min = float(entity.position.z_m) - hz
+    v_max = float(entity.position.z_m) + hz
+    position_h = (
+        float(entity.position.x_m)
+        if axis_h == 0
+        else float(entity.position.y_m)
+    )
+    if body.kind == 'cylinder':
+        assert body.radius_m is not None
+        radius = float(body.radius_m)
+        return (
+            _rect_ring(position_h - radius, v_min,
+                       position_h + radius, v_max),
+        )
+    if body.kind == 'extruded_polygon':
+        footprint = entity_exact_body_footprint(entity)
+        if footprint is None:
+            return None
+        horizontal = [
+            coord[axis_h]
+            for ring in _geometry_rings(footprint)
+            for coord in ring
+        ]
+        if not horizontal:
+            return None
+        return (
+            _rect_ring(min(horizontal), v_min, max(horizontal), v_max),
+        )
+    if body.kind == 'mesh_asset':
+        mesh = body.mesh
+        if mesh is None or len(mesh.triangles) > _MESH_FOOTPRINT_TRIANGLE_LIMIT:
+            return None
+        projected = _mesh_view_projection(entity, mesh, axis_h, axis_v)
+        if projected is None:
+            return None
+        rings = _geometry_rings(projected)
+        return rings if rings else None
+    return None
+
+
+def entity_view_outline(
+    entity: SceneEntity,
+    view: ViewPlane,
+) -> tuple[tuple[ViewOutlineRing, ...], ViewOutlineBasis] | None:
+    """The entity's projected body outline on one orthographic view (#893).
+
+    Returns ``(rings, basis)``: rings are implicitly-closed polygon rings
+    in view coordinates (horizontal, vertical) meters; basis is
+    ``'exact_body_geometry'`` when the rings are the authored body's true
+    projected silhouette or ``'bounding_envelope'`` when only the size_m
+    envelope hull could be proven. ``None`` when the entity has no
+    spatial extent — a point entity draws no outline.
+    """
+
+    if entity.size_m is None:
+        return None
+    axis_h, axis_v = _VIEW_PLANE_AXES[view]
+    exact = _exact_view_silhouette(entity, view, axis_h, axis_v)
+    if exact is not None:
+        return exact, 'exact_body_geometry'
+    return (_envelope_view_rings(entity, axis_h, axis_v), 'bounding_envelope')
 
 
 def _region(vertices) -> BaseGeometry:

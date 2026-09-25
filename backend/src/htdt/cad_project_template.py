@@ -596,6 +596,11 @@ class ProjectTemplateInstantiation(BaseModel):
     template_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     #: Baseline refs that did not resolve at instantiation time (#795).
     unresolved_refs: tuple[TemplateAuthorityRef, ...] = ()
+    #: The template's measurement-workflow intent carried forward as a
+    #: typed *pending* pattern (#898): no project-bound MeasurementPlan is
+    #: fabricated while room/listener/topology authority does not exist —
+    #: it is materialized explicitly later.
+    pending_measurement_spec: TemplateMeasurementSpec | None = None
     created_at_utc: str = Field(min_length=1)
     instantiation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -606,7 +611,7 @@ class ProjectTemplateInstantiation(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'instantiation_id': self.instantiation_id,
             'document_id': self.document_id,
             'project_id': self.project_id,
@@ -618,6 +623,12 @@ class ProjectTemplateInstantiation(BaseModel):
             ],
             'created_at_utc': self.created_at_utc,
         }
+        # Omitted when absent so pre-#898 instantiation hashes stay stable.
+        if self.pending_measurement_spec is not None:
+            payload['pending_measurement_spec'] = (
+                self.pending_measurement_spec.model_dump(mode='json')
+            )
+        return payload
 
 
 class ResolvedTargetRef(BaseModel):
@@ -668,6 +679,7 @@ def create_project_from_template(
     created_at_utc: str,
     standards_repository=None,
     instantiation_repository=None,
+    design_brief_repository=None,
 ) -> tuple[str, ProjectTemplateInstantiation]:
     """Create a project through the canonical project lifecycle (#795).
 
@@ -677,6 +689,14 @@ def create_project_from_template(
     Baseline refs resolve against the standards repository and unresolved
     ones land on the instantiation record; the scene seeds intent only
     (no entities — layout materialization is an explicit later action).
+
+    #898: when ``design_brief_repository`` is supplied alongside a
+    persisting ``instantiation_repository``, the template's
+    ``design_brief`` defaults materialize into a fresh project-bound
+    :class:`ProjectDesignBrief` (never overwriting an existing brief), and
+    ``pending_measurement_spec`` carries the template's measurement
+    intent forward as a typed pending pattern until a project-bound
+    MeasurementPlan can exist.
     """
 
     document_id = document_id or str(uuid4())
@@ -697,6 +717,7 @@ def create_project_from_template(
             'template_version': template.version,
             'template_sha256': template.template_sha256,
             'unresolved_refs': unresolved,
+            'pending_measurement_spec': template.measurement_spec,
             'created_at_utc': created_at_utc,
         }
         provisional = ProjectTemplateInstantiation.model_construct(
@@ -711,7 +732,7 @@ def create_project_from_template(
         # #864: provenance is not optional on the persisted path — a missing
         # repository means an explicit non-persisting preview/test call and
         # nothing is written (no half-created project may appear in the
-        # Project Library).
+        # Project Library, and no project-bound design brief either).
         return document_id, _instantiation(None)
 
     shared_store = (
@@ -745,6 +766,10 @@ def create_project_from_template(
             raise
         finally:
             connection.close()
+        _materialize_template_brief(
+            design_brief_repository, template, document_id, instantiation,
+            created_at_utc=created_at_utc,
+        )
         return document_id, instantiation
 
     # Separate stores: staged writes with a rollback journal — on failure,
@@ -763,7 +788,38 @@ def create_project_from_template(
             project_id=record.project_id if registry_created else None,
         )
         raise
+    _materialize_template_brief(
+        design_brief_repository, template, document_id, instantiation,
+        created_at_utc=created_at_utc,
+    )
     return document_id, instantiation
+
+
+def _materialize_template_brief(
+    design_brief_repository,
+    template: ProjectTemplate,
+    document_id: str,
+    instantiation: ProjectTemplateInstantiation,
+    *,
+    created_at_utc: str,
+) -> None:
+    """Materialize the template's design-brief defaults into the project.
+
+    Runs after the project lands — a brief write failure never orphans a
+    half-created project, and NOT_CONFIGURED remains a valid state. A
+    document that already has a brief is never overwritten (#898).
+    """
+    if design_brief_repository is None:
+        return
+    from .project_setup_intent import materialize_template_brief
+
+    materialize_template_brief(
+        design_brief_repository,
+        template,
+        document_id=document_id,
+        instantiation=instantiation,
+        created_at_utc=created_at_utc,
+    )
 
 
 def _rollback_template_creation(
