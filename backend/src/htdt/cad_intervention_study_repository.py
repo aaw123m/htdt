@@ -9,11 +9,176 @@ from typing import Literal
 
 from .cad_intervention_study import (
     InterventionAlternative,
+    InterventionAuthorityRef,
     InterventionStudySpec,
 )
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema, require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
+
+
+# Typed authority kind -> (table, id column, semantic sha column). Every
+# entry stores immutable rows whose semantic digest column pins the exact
+# persisted authority (#960); resolution is existence + hash equality.
+_AUTHORITY_TABLES: dict[str, tuple[str, str, str]] = {
+    'adaptive_plan': ('cad_adaptive_plans', 'plan_id', 'adaptive_sha256'),
+    'applied_settings': ('cad_applied_settings', 'applied_id', 'applied_sha256'),
+    'acoustic_prediction_request': (
+        'cad_acoustic_prediction_requests',
+        'request_id',
+        'request_semantic_sha256',
+    ),
+    'acoustic_scene_snapshot': (
+        'cad_acoustic_scene_snapshots',
+        'snapshot_id',
+        'semantic_sha256',
+    ),
+    'acoustic_solver_result': (
+        'cad_acoustic_solver_results',
+        'result_id',
+        'semantic_sha256',
+    ),
+    'acoustic_treatment_definition': (
+        'cad_acoustic_treatment_definitions',
+        'definition_id',
+        'definition_sha256',
+    ),
+    'acoustic_treatment_placement': (
+        'cad_acoustic_treatment_placements',
+        'instance_id',
+        'placement_sha256',
+    ),
+    'calibration_export': (
+        'cad_calibration_exports',
+        'export_id',
+        'exported_settings_semantic_sha256',
+    ),
+    'calibration_plan': (
+        'cad_calibration_plans',
+        'plan_id',
+        'plan_semantic_sha256',
+    ),
+    'coverage_evaluation': (
+        'cad_coverage_evaluations',
+        'evaluation_id',
+        'evaluation_sha256',
+    ),
+    'direct_level_evaluation': (
+        'cad_direct_level_evaluations',
+        'evaluation_id',
+        'evaluation_sha256',
+    ),
+    'extended_search_spec': (
+        'cad_extended_search_specs',
+        'extended_search_id',
+        'extended_search_sha256',
+    ),
+    'joint_candidate': ('cad_joint_candidates', 'candidate_id', 'candidate_sha256'),
+    'joint_candidate_evaluation': (
+        'cad_joint_candidate_evaluations',
+        'evaluation_binding_id',
+        'evaluation_binding_sha256',
+    ),
+    'joint_candidate_selection': (
+        'cad_joint_candidate_selections',
+        'selection_id',
+        'selection_sha256',
+    ),
+    'joint_optimization_spec': (
+        'cad_joint_optimization_specs',
+        'spec_id',
+        'semantic_sha256',
+    ),
+    'model_validation': (
+        'cad_model_validations',
+        'validation_id',
+        'validation_sha256',
+    ),
+    'objective_evaluation': (
+        'cad_objective_evaluations',
+        'evaluation_id',
+        'evaluation_sha256',
+    ),
+    'pareto_set': ('cad_pareto_sets', 'pareto_set_id', 'pareto_sha256'),
+    'prediction_result': ('cad_prediction_results', 'prediction_id', 'result_sha256'),
+    'roomsim_batch_spec': (
+        'cad_roomsim_batch_specs',
+        'batch_run_id',
+        'batch_spec_sha256',
+    ),
+    'search_spec': ('cad_search_specs', 'search_spec_id', 'search_spec_sha256'),
+    'system_variant': ('cad_system_variants', 'variant_id', 'variant_sha256'),
+    'topology_candidate': (
+        'cad_topology_placement_candidates',
+        'candidate_id',
+        'candidate_sha256',
+    ),
+    'topology_search_spec': (
+        'cad_topology_search_specs',
+        'search_id',
+        'search_sha256',
+    ),
+    'treatment_boundary_composition': (
+        'cad_treatment_boundary_compositions',
+        'composition_id',
+        'composition_hash_sha256',
+    ),
+    'treatment_boundary_overlay': (
+        'cad_treatment_boundary_overlays',
+        'overlay_id',
+        'overlay_hash_sha256',
+    ),
+    'treatment_comparison': (
+        'cad_acoustic_treatment_comparisons',
+        'comparison_id',
+        'comparison_sha256',
+    ),
+    'treatment_evidence_authority': (
+        'cad_treatment_evidence_authorities',
+        'evidence_id',
+        'evidence_sha256',
+    ),
+    'validation_campaign': (
+        'cad_validation_campaigns',
+        'campaign_id',
+        'campaign_sha256',
+    ),
+}
+
+# Finding source kind -> the one legal authority kind it may bind.
+_FINDING_SOURCE_KINDS: dict[str, str] = {
+    'prediction_result': 'prediction_result',
+    'coverage_evaluation': 'coverage_evaluation',
+    'direct_level_evaluation': 'direct_level_evaluation',
+    'measurement': 'measurement',
+}
+
+# Measurement-scoped seals that may pin a 'measurement' authority: the
+# cad_measurements row itself carries no semantic sha, so the pinned digest
+# must be one of its sealed artifacts (dataset / disposition / quality
+# report / observation / lineage).
+_MEASUREMENT_SEAL_QUERIES = (
+    (
+        'SELECT 1 FROM cad_frequency_responses '
+        'WHERE measurement_id = ? AND dataset_sha256 = ?'
+    ),
+    (
+        'SELECT 1 FROM cad_measurement_dispositions '
+        'WHERE measurement_id = ? AND disposition_sha256 = ?'
+    ),
+    (
+        'SELECT 1 FROM cad_measurement_quality_reports '
+        'WHERE measurement_id = ? AND report_sha256 = ?'
+    ),
+    (
+        'SELECT 1 FROM cad_measurement_observations '
+        'WHERE measurement_id = ? AND observation_sha256 = ?'
+    ),
+    (
+        'SELECT 1 FROM cad_measurement_lineage '
+        'WHERE measurement_id = ? AND lineage_sha256 = ?'
+    ),
+)
 
 
 class CadInterventionStudyRepository:
@@ -67,6 +232,141 @@ class CadInterventionStudyRepository:
                 'cad_intervention_alternatives',
             )
 
+    def _resolve_authority_ref(
+        self,
+        connection: sqlite3.Connection,
+        ref: InterventionAuthorityRef,
+        *,
+        purpose: str,
+    ) -> None:
+        """Resolve a typed authority pin against its canonical table.
+
+        Unknown kinds and absent/mismatched digests fail closed — a
+        caller-supplied id is never trusted (#960).
+        """
+        if ref.authority_kind == 'measurement':
+            if self._measurement_ref_resolves(connection, ref):
+                return
+            raise ValueError(
+                f'{purpose} authority measurement/{ref.authority_id} is not '
+                'registered for replay'
+            )
+        table = _AUTHORITY_TABLES.get(ref.authority_kind)
+        if table is None:
+            raise ValueError(
+                f'{purpose} authority kind {ref.authority_kind!r} has no '
+                'registered resolver'
+            )
+        name, id_col, sha_col = table
+        row = connection.execute(
+            f'SELECT 1 FROM {name} WHERE {id_col} = ? AND {sha_col} = ?',
+            (ref.authority_id, ref.authority_sha256),
+        ).fetchone()
+        if row is None:
+            raise ValueError(
+                f'{purpose} authority {ref.authority_kind}/'
+                f'{ref.authority_id} is not registered for replay'
+            )
+
+    def _measurement_ref_resolves(
+        self,
+        connection: sqlite3.Connection,
+        ref: InterventionAuthorityRef,
+    ) -> bool:
+        row = connection.execute(
+            'SELECT 1 FROM cad_measurements WHERE measurement_id = ?',
+            (ref.authority_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        return any(
+            connection.execute(
+                sql, (ref.authority_id, ref.authority_sha256)
+            ).fetchone()
+            is not None
+            for sql in _MEASUREMENT_SEAL_QUERIES
+        )
+
+    def _resolve_untyped_authority(
+        self,
+        connection: sqlite3.Connection,
+        authority_id: str,
+        authority_sha256: str,
+        *,
+        purpose: str,
+    ) -> None:
+        """Resolve a legacy id+sha pair against every registered table."""
+        for name, id_col, sha_col in _AUTHORITY_TABLES.values():
+            row = connection.execute(
+                f'SELECT 1 FROM {name} WHERE {id_col} = ? AND {sha_col} = ?',
+                (authority_id, authority_sha256),
+            ).fetchone()
+            if row is not None:
+                return
+        if self._measurement_ref_resolves(
+            connection,
+            InterventionAuthorityRef(
+                authority_kind='measurement',
+                authority_id=authority_id,
+                authority_sha256=authority_sha256,
+            ),
+        ):
+            return
+        raise ValueError(
+            f'{purpose} authority {authority_id} is not registered for replay'
+        )
+
+    def _require_spec_dependencies(
+        self, spec: InterventionStudySpec
+    ) -> None:
+        """Resolve every authority the spec is caller-allowed to pin (#960)."""
+        finding = spec.finding
+        kind = _FINDING_SOURCE_KINDS.get(finding.source_kind)
+        with closing(self._connect()) as connection:
+            if kind is not None:
+                self._resolve_authority_ref(
+                    connection,
+                    InterventionAuthorityRef(
+                        authority_kind=kind,
+                        authority_id=finding.source_authority_id or '',
+                        authority_sha256=(
+                            finding.source_authority_sha256 or '0' * 64
+                        ),
+                    ),
+                    purpose='finding source',
+                )
+            if (
+                spec.treatment_capability_authority_id is not None
+                and spec.treatment_capability_authority_sha256 is not None
+            ):
+                self._resolve_untyped_authority(
+                    connection,
+                    spec.treatment_capability_authority_id,
+                    spec.treatment_capability_authority_sha256,
+                    purpose='treatment capability',
+                )
+
+    def _require_alternative_dependencies(
+        self, alternative: InterventionAlternative
+    ) -> None:
+        """Resolve generated/evidence/metric-producer authority pins (#960)."""
+        with closing(self._connect()) as connection:
+            for ref in alternative.generated_authorities:
+                self._resolve_authority_ref(
+                    connection, ref, purpose='generated'
+                )
+            for ref in alternative.evidence_authorities:
+                self._resolve_authority_ref(
+                    connection, ref, purpose='evidence'
+                )
+            for metric in alternative.metrics:
+                if metric.producer is not None:
+                    self._resolve_authority_ref(
+                        connection,
+                        metric.producer,
+                        purpose='metric producer',
+                    )
+
 
     def _require_scene_revision(
         self, spec: InterventionStudySpec
@@ -97,6 +397,7 @@ class CadInterventionStudyRepository:
 
     def save_spec(self, spec: InterventionStudySpec) -> InterventionStudySpec:
         self._require_scene_revision(spec)
+        self._require_spec_dependencies(spec)
         payload = spec.model_dump(mode='json')
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
@@ -176,6 +477,7 @@ class CadInterventionStudyRepository:
                 'persisted intervention study spec authority mismatch'
             )
         self._require_scene_revision(spec)
+        self._require_spec_dependencies(spec)
         return spec
 
     def save_alternative(
@@ -187,6 +489,7 @@ class CadInterventionStudyRepository:
                 'intervention alternative study spec is not registered '
                 'for replay'
             )
+        self._require_alternative_dependencies(alternative)
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
                 'SELECT payload_json FROM cad_intervention_alternatives '
@@ -243,6 +546,9 @@ class CadInterventionStudyRepository:
                 raise ValueError(
                     'persisted intervention alternative authority mismatch'
                 )
+            # Re-resolve every pinned authority on read: stale or tampered
+            # dependencies fail closed rather than being trusted (#960).
+            self._require_alternative_dependencies(alternative)
             results.append(alternative)
         return results
 

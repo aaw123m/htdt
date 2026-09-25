@@ -26,6 +26,8 @@ from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
 from .comparison_context_strip import ComparisonContextStrip
 from .developer_mode import developer_mode_enabled
+from .intervention_planner import InterventionPlanner
+from .intervention_planner_panel import InterventionPlannerPanel
 from .joint_optimization_context import JointOptimizationContext
 from .joint_optimization_panel import JointOptimizationPanel
 from .optimization_search_domain import SearchDomainPreview
@@ -52,13 +54,21 @@ from .system_expansion_widgets import (
 )
 
 
-OPTIMIZATION_PAGE_IDS = ("setup", "candidates", "comparison", "robustness", "validation")
+OPTIMIZATION_PAGE_IDS = (
+    "setup",
+    "candidates",
+    "comparison",
+    "interventions",
+    "robustness",
+    "validation",
+)
 _OPTIMIZATION_PAGE_ALIASES = {
     "objectives": "comparison",
     "measurement-plan": "validation",
     "topology-comparison": "comparison",
     "variant-robustness": "robustness",
     "variant-measurement": "validation",
+    "intervention-planner": "interventions",
 }
 
 
@@ -198,6 +208,11 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.controller.statusChanged.connect(self._set_status)
         self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
         self._on_navigate = on_navigate
+        self._joint_context = JointOptimizationContext(
+            repository,
+            document_id,
+            objective_repository=self.controller.objective_repository,
+        )
         self._system_variant_robustness_variant_id: str | None = None
 
         self._optimization_stack = QStackedWidget()
@@ -245,6 +260,7 @@ class OptimizationWorkflowWorkspace(QWidget):
             "setup": self._build_setup_page(),
             "candidates": self._build_candidates_page(self.viewport_widget),
             "comparison": self._build_comparison_page(),
+            "interventions": self._build_interventions_page(),
             "robustness": self._build_robustness_page(
                 self.robustness_viewport_widget
             ),
@@ -343,6 +359,8 @@ class OptimizationWorkflowWorkspace(QWidget):
         if page_id == "comparison" and hasattr(self, "system_expansion_compare_panel"):
             self.system_expansion_compare_panel.refresh()
             self.standards_comparison_panel.refresh()
+        if page_id == "interventions" and hasattr(self, "intervention_planner_panel"):
+            self.intervention_planner_panel.refresh()
         if page_id == "validation":
             if hasattr(self, "system_expansion_measurement_panel"):
                 self.system_expansion_measurement_panel.refresh()
@@ -389,6 +407,8 @@ class OptimizationWorkflowWorkspace(QWidget):
             and self._system_variant_robustness_variant_id is not None
         ):
             self.system_expansion_robustness_panel.refresh()
+        if hasattr(self, "intervention_planner_panel"):
+            self.intervention_planner_panel.refresh()
 
     def _render_scene(self, reset_camera: bool = False) -> None:
         self.viewport_widget.render_document(
@@ -622,11 +642,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         )
 
         self.joint_optimization_panel = JointOptimizationPanel(
-            JointOptimizationContext(
-                self.controller.repository,
-                self.controller.document_id,
-                objective_repository=self.controller.objective_repository,
-            ),
+            self._joint_context,
             on_status=self._set_status,
         )
         layout.addWidget(
@@ -638,6 +654,32 @@ class OptimizationWorkflowWorkspace(QWidget):
             )
         )
         layout.addStretch(1)
+        return _scroll_page(body)
+
+    def _build_interventions_page(self) -> QWidget:
+        body = QWidget()
+        set_surface_role(body, SurfaceRole.BASE)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 8, 12)
+        layout.setSpacing(12)
+        layout.addWidget(
+            _heading(
+                "介入プランナー",
+                "課題領域(finding)から介入スタディを作成し、介入案を独立した"
+                "観測量で比較します。適用はtypedなproposal authority経由のみ。"
+                "確認済みの効果は測定ワークスペースの検証で確定します。",
+            )
+        )
+        self.intervention_planner_panel = InterventionPlannerPanel(
+            InterventionPlanner(self._joint_context),
+            self.system_expansion,
+            on_status=self._set_status,
+            on_navigate=self._on_navigate,
+        )
+        self.intervention_planner_panel.applied.connect(
+            self._system_variant_applied
+        )
+        layout.addWidget(self.intervention_planner_panel, 1)
         return _scroll_page(body)
 
     def _build_candidates_page(self, viewport_widget: QWidget) -> QWidget:
