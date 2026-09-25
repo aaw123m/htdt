@@ -1319,6 +1319,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('quality', 'get_observation'),
     ),
     _ReplayProbe(
+        'measurement_excitation_asset',
+        'cad_excitation_assets',
+        ('excitation_asset_id',),
+        _get('quality', 'get_excitation_asset'),
+    ),
+    _ReplayProbe(
+        'measurement_stimulus_profile',
+        'cad_stimulus_profiles',
+        ('stimulus_profile_id',),
+        _get('quality', 'get_stimulus_profile'),
+    ),
+    _ReplayProbe(
         'measurement_timing_reference',
         'cad_timing_references',
         ('timing_reference_id',),
