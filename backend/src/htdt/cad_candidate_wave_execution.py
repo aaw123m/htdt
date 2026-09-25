@@ -1277,10 +1277,11 @@ class PffdtdCandidateWaveExecutor:
             raise CandidateWaveExecutionError(
                 'treatment overlay lifecycle does not match composition'
             )
-        coverage = overlay.treatment_coverage.host_surface_fraction
-        if coverage is None or not math.isclose(
-            float(coverage), 1.0, rel_tol=0.0, abs_tol=1.0e-12
-        ):
+        # #976: full-surface replacement is authorized by the derived
+        # footprint only — a caller-supplied fraction scalar is never
+        # solver authority.
+        footprint = overlay.derived_footprint
+        if footprint is None or not footprint.covers_entire_surface:
             raise CandidateWaveExecutionError(
                 'UNSUPPORTED partial-surface treatment: a partial overlay '
                 'never silently replaces the entire host surface'
