@@ -231,26 +231,82 @@ class CadLibraryUpgradeRepository:
             if self._table_exists(
                 connection, 'cad_installed_equipment_instances'
             ):
-                needle = f'%{definition_sha256}%'
-                for row in connection.execute(
-                    """
-                    SELECT instance_id, document_id, payload_json
-                    FROM cad_installed_equipment_instances
-                    WHERE payload_json LIKE ? ORDER BY seq ASC
-                    """,
-                    (needle,),
+                # #819: only the *in-effect* exact resolution counts — the
+                # latest binding when present, else the instance's own
+                # definition_ref. External observed identity or a superseded
+                # binding carrying the same hash is never an adoption.
+                current_ref_sha: dict[str, str] = {}
+                if self._table_exists(
+                    connection, 'cad_installed_definition_bindings'
                 ):
-                    if definition_sha256 not in row['payload_json']:
+                    for row in connection.execute(
+                        """
+                        SELECT instance_id, equipment_definition_sha256
+                        FROM cad_installed_definition_bindings b1
+                        WHERE b1.seq = (
+                            SELECT MAX(b2.seq)
+                            FROM cad_installed_definition_bindings b2
+                            WHERE b2.instance_id = b1.instance_id
+                        )
+                        """
+                    ):
+                        current_ref_sha[row['instance_id']] = (
+                            row['equipment_definition_sha256']
+                        )
+                bound_ids = {
+                    instance_id
+                    for instance_id, sha in current_ref_sha.items()
+                    if sha == definition_sha256
+                }
+                needle = f'%{definition_sha256}%'
+                candidate_rows = list(
+                    connection.execute(
+                        """
+                        SELECT instance_id, document_id, payload_json
+                        FROM cad_installed_equipment_instances
+                        WHERE payload_json LIKE ? ORDER BY seq ASC
+                        """,
+                        (needle,),
+                    )
+                )
+                if bound_ids:
+                    marks = ','.join('?' * len(bound_ids))
+                    candidate_rows += list(
+                        connection.execute(
+                            f"""
+                            SELECT instance_id, document_id, payload_json
+                            FROM cad_installed_equipment_instances
+                            WHERE instance_id IN ({marks})
+                            ORDER BY seq ASC
+                            """,
+                            tuple(bound_ids),
+                        )
+                    )
+                seen: set[str] = set()
+                for row in candidate_rows:
+                    if row['instance_id'] in seen:
+                        continue
+                    seen.add(row['instance_id'])
+                    instance = InstalledEquipmentInstance.model_validate_json(
+                        row['payload_json']
+                    )
+                    in_effect = current_ref_sha.get(instance.instance_id)
+                    if in_effect is None:
+                        in_effect = (
+                            None
+                            if instance.definition_ref is None
+                            else (
+                                instance.definition_ref
+                                .equipment_definition_sha256
+                            )
+                        )
+                    if in_effect != definition_sha256:
                         continue
                     usages.append(
                         EquipmentDefinitionUsage(
                             binding_kind='installed_instance',
                             authority_id=row['instance_id'],
-                            authority_sha256=(
-                                InstalledEquipmentInstance.model_validate_json(
-                                    row['payload_json']
-                                ).semantic_sha256
-                            ),
+                            authority_sha256=instance.semantic_sha256,
                             document_id=row['document_id'],
                         )
                     )

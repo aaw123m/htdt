@@ -488,7 +488,9 @@ class _RepositoryChain:
                 CadInstalledEquipmentRepository,
             )
 
-            return CadInstalledEquipmentRepository(scene)
+            return CadInstalledEquipmentRepository(
+                scene, self.repo('equipment')
+            )
         if name == 'upgrades':
             from .cad_library_upgrade_repository import (
                 CadLibraryUpgradeRepository,
