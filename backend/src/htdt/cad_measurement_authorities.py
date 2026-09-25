@@ -1023,14 +1023,15 @@ class CadRoutingProfile(BaseModel):
 
     routing_profile_id: str = Field(min_length=1)
     profile_name: str = Field(min_length=1, default='routing')
-    # #858: explicit project/topology scope. The speaker ids inside
+    # #848/#858: explicit project/topology scope. The speaker ids inside
     # entries only have meaning inside one SceneDocument; ``document_id``
     # binds the project and the optional ``scene_revision_id`` pins the
     # exact immutable revision the map was verified under. Both join the
     # sealed identity only when present — legacy unscoped profiles keep
-    # their hash but can never prove same-project scope.
-    document_id: str | None = None
-    scene_revision_id: str | None = None
+    # their hash; the repository refuses to persist a new profile without
+    # them.
+    document_id: str | None = Field(default=None, min_length=1)
+    scene_revision_id: str | None = Field(default=None, min_length=1)
     entries: tuple[CadChannelMapEntry, ...] = Field(min_length=1)
     created_at_utc: str = Field(min_length=1)
     provenance_json: str = '{}'
@@ -1066,8 +1067,9 @@ class CadRoutingProfile(BaseModel):
             'created_at_utc': self.created_at_utc,
             'provenance_json': self.provenance_json,
         }
-        # Optional post-#858 scope identity joins the seal only when
-        # present — profiles persisted unscoped keep their hash.
+        # Optional scope identity joins the seal only when present
+        # (additive convention) — profiles persisted unscoped keep
+        # their hash.
         if self.document_id is not None:
             payload['document_id'] = self.document_id
         if self.scene_revision_id is not None:
@@ -1197,6 +1199,143 @@ WiringCheckKind = Literal[
 
 WiringCheckResult = Literal['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE']
 
+
+# ---------------------------------------------------------------------------
+# Typed electrical-load observation evidence (#857)
+
+
+LoadQuantityKind = Literal['dcr', 'impedance_magnitude']
+LoadTestCondition = Literal['dc', 'frequency']
+
+
+class CadElectricalLoadObservation(BaseModel):
+    """Typed quantitative load observation for a wiring ``load`` check.
+
+    A DC resistance (DCR) reading and a frequency-dependent impedance
+    magnitude are different quantities — ``quantity_kind`` keeps them apart
+    so a DCR probe result can never be reported as an impedance curve.
+    ``expected_min_ohm``/``expected_max_ohm`` carry the expected range the
+    PASS/FAIL interpretation is derived from; ``expected_source`` names the
+    authority for that range (datasheet, nominal spec, as-built record).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    observation_id: str = Field(min_length=1)
+    quantity_kind: LoadQuantityKind
+    value_ohm: float = Field(gt=0)
+    test_condition: LoadTestCondition
+    test_frequency_hz: float | None = Field(default=None, gt=0)
+    test_point: str | None = Field(default=None, min_length=1)
+    instrument_label: str | None = Field(default=None, min_length=1)
+    instrument_ref: str | None = Field(default=None, min_length=1)
+    uncertainty_ohm: float | None = Field(default=None, ge=0)
+    expected_min_ohm: float | None = Field(default=None, gt=0)
+    expected_max_ohm: float | None = Field(default=None, gt=0)
+    expected_source: str | None = Field(default=None, min_length=1)
+    measured_at_utc: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_observation(self) -> 'CadElectricalLoadObservation':
+        if not isfinite(self.value_ohm):
+            raise ValueError('load observation value must be finite')
+        if self.test_condition == 'dc':
+            if self.test_frequency_hz is not None:
+                raise ValueError(
+                    'a DC load observation carries no test frequency'
+                )
+        elif self.test_frequency_hz is None:
+            raise ValueError(
+                'a frequency-domain load observation requires '
+                'test_frequency_hz'
+            )
+        if self.quantity_kind == 'dcr' and self.test_condition != 'dc':
+            raise ValueError(
+                'a DCR observation is a DC measurement, not a '
+                'frequency-dependent impedance'
+            )
+        if (
+            self.quantity_kind == 'impedance_magnitude'
+            and self.test_condition != 'frequency'
+        ):
+            raise ValueError(
+                'an impedance magnitude observation requires a '
+                'frequency-domain test condition'
+            )
+        if (self.expected_min_ohm is None) != (self.expected_max_ohm is None):
+            raise ValueError('expected load range requires both bounds')
+        if (
+            self.expected_min_ohm is not None
+            and self.expected_max_ohm is not None
+            and self.expected_max_ohm <= self.expected_min_ohm
+        ):
+            raise ValueError('expected load range is invalid')
+        if self.uncertainty_ohm is not None and not isfinite(
+            self.uncertainty_ohm
+        ):
+            raise ValueError('load uncertainty must be finite')
+        _require_iso8601(
+            self.measured_at_utc, 'load observation measured_at_utc'
+        )
+        return self
+
+
+def derive_load_result(
+    observation: CadElectricalLoadObservation,
+) -> WiringCheckResult:
+    """Deterministic interpretation of a load observation.
+
+    A quantitative PASS/FAIL is reproduced from the measured value and the
+    expected range, never trusted from the caller; without an expected range
+    the observation is kept as evidence but stays UNKNOWN.
+    """
+    if (
+        observation.expected_min_ohm is None
+        or observation.expected_max_ohm is None
+    ):
+        return 'UNKNOWN'
+    return (
+        'PASS'
+        if observation.expected_min_ohm
+        <= observation.value_ohm
+        <= observation.expected_max_ohm
+        else 'FAIL'
+    )
+
+
+def build_electrical_load_observation(
+    *,
+    quantity_kind: LoadQuantityKind,
+    value_ohm: float,
+    test_condition: LoadTestCondition,
+    measured_at_utc: str,
+    observation_id: str | None = None,
+    test_frequency_hz: float | None = None,
+    test_point: str | None = None,
+    instrument_label: str | None = None,
+    instrument_ref: str | None = None,
+    uncertainty_ohm: float | None = None,
+    expected_min_ohm: float | None = None,
+    expected_max_ohm: float | None = None,
+    expected_source: str | None = None,
+) -> CadElectricalLoadObservation:
+    """Assemble a typed electrical-load observation record."""
+    return CadElectricalLoadObservation(
+        observation_id=observation_id or str(uuid4()),
+        quantity_kind=quantity_kind,
+        value_ohm=float(value_ohm),
+        test_condition=test_condition,
+        test_frequency_hz=test_frequency_hz,
+        test_point=test_point,
+        instrument_label=instrument_label,
+        instrument_ref=instrument_ref,
+        uncertainty_ohm=uncertainty_ohm,
+        expected_min_ohm=expected_min_ohm,
+        expected_max_ohm=expected_max_ohm,
+        expected_source=expected_source,
+        measured_at_utc=measured_at_utc,
+    )
+
 # Applied polarity-compensation token: each occurrence of this token in a
 # check's ``applied_compensation`` list is one intended signal-polarity
 # inversion (e.g. a DSP/AVR polarity control). Composition is explicit —
@@ -1230,6 +1369,15 @@ class CadWiringVerificationCheck(BaseModel):
     observed_speaker_ids: tuple[str, ...] = ()
     applied_compensation: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
+    # #848/#857: exact typed bindings. ``routing_profile_ref`` pins the
+    # #473 RoutingProfile a routing check resolved against;
+    # ``load_observation`` is the quantitative evidence a ``load`` check
+    # derives its result from; ``scene_revision_id`` pins the exact
+    # as-built baseline the speaker refs were verified in. All are optional
+    # so checks persisted before this authority existed keep their hash.
+    routing_profile_ref: CadRoutingProfileBinding | None = None
+    load_observation: CadElectricalLoadObservation | None = None
+    scene_revision_id: str | None = Field(default=None, min_length=1)
     measured_at_utc: str = Field(min_length=1)
     operator: str | None = None
     result: WiringCheckResult
@@ -1258,12 +1406,16 @@ class CadWiringVerificationCheck(BaseModel):
             self.reason and self.reason.strip()
         ):
             raise ValueError('wiring check FAIL/UNKNOWN requires a reason')
+        if self.load_observation is not None and self.check_kind != 'load':
+            raise ValueError(
+                'a load observation is only valid on a load wiring check'
+            )
         if self.check_sha256 != _hash(self.identity_payload()):
             raise ValueError('wiring verification check hash mismatch')
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'check_id': self.check_id,
             'document_id': self.document_id,
             'check_kind': self.check_kind,
@@ -1282,6 +1434,19 @@ class CadWiringVerificationCheck(BaseModel):
             'notes': list(self.notes),
             'provenance_json': self.provenance_json,
         }
+        # Optional exact bindings join identity only when present (additive
+        # convention) so checks persisted before #848/#857 keep their hash.
+        if self.routing_profile_ref is not None:
+            payload['routing_profile_ref'] = (
+                self.routing_profile_ref.model_dump(mode='json')
+            )
+        if self.load_observation is not None:
+            payload['load_observation'] = self.load_observation.model_dump(
+                mode='json'
+            )
+        if self.scene_revision_id is not None:
+            payload['scene_revision_id'] = self.scene_revision_id
+        return payload
 
 
 def build_wiring_check(
@@ -1299,6 +1464,9 @@ def build_wiring_check(
     observed_speaker_ids: Sequence[str] = (),
     applied_compensation: Sequence[str] = (),
     evidence_refs: Sequence[str] = (),
+    routing_profile_ref: CadRoutingProfileBinding | None = None,
+    load_observation: CadElectricalLoadObservation | None = None,
+    scene_revision_id: str | None = None,
     operator: str | None = None,
     reason: str | None = None,
     notes: Sequence[str] = (),
@@ -1317,6 +1485,9 @@ def build_wiring_check(
         'observed_speaker_ids': tuple(observed_speaker_ids),
         'applied_compensation': tuple(applied_compensation),
         'evidence_refs': tuple(evidence_refs),
+        'routing_profile_ref': routing_profile_ref,
+        'load_observation': load_observation,
+        'scene_revision_id': scene_revision_id,
         'measured_at_utc': measured_at_utc,
         'operator': operator,
         'result': result,
@@ -1388,6 +1559,7 @@ __all__ = [
     'CadAcousticLevelCalibration',
     'CadChannelMapEntry',
     'CadDatasetLevelReference',
+    'CadElectricalLoadObservation',
     'CadMeasurementTimingReference',
     'CadRoutingProfile',
     'CadRoutingProfileBinding',
@@ -1395,6 +1567,8 @@ __all__ = [
     'CadWiringVerificationCheck',
     'LevelCalibrationMethod',
     'LevelCalibrationScope',
+    'LoadQuantityKind',
+    'LoadTestCondition',
     'MeasurementLevelReferenceKind',
     'RoutingVerification',
     'TimingCorrectionApplicationState',
@@ -1408,6 +1582,7 @@ __all__ = [
     'absolute_spl_evidence_gaps',
     'build_acoustic_level_calibration',
     'build_dataset_level_reference',
+    'build_electrical_load_observation',
     'build_routing_profile',
     'build_timing_reference',
     'build_wiring_check',
@@ -1418,9 +1593,10 @@ __all__ = [
     'correction_application_state',
     'correction_requires_application',
     'correction_sign_convention',
+    'derive_load_result',
     'latest_wiring_checks',
     'net_polarity_state',
-    'routing_profile_binding',
+    'routing_profile',
     'routing_profile_staleness',
     'timing_clocks_shared',
     'timing_corrections_unambiguous',
