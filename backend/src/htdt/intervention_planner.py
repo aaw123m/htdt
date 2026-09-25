@@ -17,6 +17,7 @@ from .cad_intervention_study import (
     EvidenceState,
     GuardrailDomain,
     InterventionAlternative,
+    InterventionAuthorityRef,
     InterventionFamily,
     InterventionFinding,
     InterventionMetric,
@@ -108,9 +109,10 @@ class InterventionPlanner:
         dsp_parameters: Sequence[str] = (),
         treatment_item_ids: Sequence[str] = (),
         topology_changes: Sequence[str] = (),
-        generated_authority_ids: Sequence[str] = (),
+        generated_authorities: Sequence[InterventionAuthorityRef] = (),
+        evidence_authorities: Sequence[InterventionAuthorityRef] = (),
         regressions: Sequence[str] = (),
-        apply_instructions: str | None = None,
+        application_note: str | None = None,
     ) -> InterventionAlternative:
         """Record one evaluated counterfactual against a persisted spec."""
         alternative = build_intervention_alternative(
@@ -126,9 +128,10 @@ class InterventionPlanner:
             evidence_state=evidence_state,
             fidelity_label=fidelity_label,
             metrics=metrics,
-            generated_authority_ids=generated_authority_ids,
+            generated_authorities=generated_authorities,
+            evidence_authorities=evidence_authorities,
             regressions=regressions,
-            apply_instructions=apply_instructions,
+            application_note=application_note,
         )
         return self.repository.save_alternative(alternative)
 
