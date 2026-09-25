@@ -24,7 +24,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -33,6 +33,9 @@ from .cad_equipment import FrequencyDomain
 from .cad_video_geometry import AngleRange
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from hashlib import sha256
+
+if TYPE_CHECKING:
+    from .cad_repository import SceneRepository
 
 
 TransferCapabilityTier = Literal[
@@ -105,11 +108,20 @@ class AcousticScreenTransferAuthority(BaseModel):
     transfer_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
     screen_entity_id: str = Field(min_length=1)
+    #: Project the screen binding was authored under. ``None`` declares an
+    #: unscoped/reusable product definition; a project-local transfer always
+    #: pins the exact document so a colliding local entity id in another
+    #: project cannot satisfy the binding by string match alone.
+    document_id: str | None = Field(default=None, min_length=1)
     label: str = Field(min_length=1)
     capability_tier: TransferCapabilityTier
     transfer_samples: tuple[TransferSample, ...] = ()
     valid_frequency_domain: FrequencyDomain | None = None
     valid_incidence_angle_deg: AngleRange | None = None
+    #: Exact measured dataset/source-artifact authority a MEASURED_DATASET
+    #: claim resolves to — a free-text provenance label is not measured
+    #: evidence authority.
+    measured_dataset_ref: ExactExternalAuthorityRef | None = None
     measurement_condition: str = ''
     provenance: str = Field(min_length=1)
     notes: str = ''
@@ -154,10 +166,70 @@ class AcousticScreenTransferAuthority(BaseModel):
                 f'capability tier {self.capability_tier} requires an incidence '
                 'angle on every sample'
             )
+        if self.capability_tier == 'MEASURED_DATASET' and (
+            self.measured_dataset_ref is None
+        ):
+            raise ValueError(
+                'MEASURED_DATASET tier requires an exact measured dataset '
+                'authority reference — a free-text provenance label is not '
+                'measured evidence; use a lower capability tier instead'
+            )
         if self.transfer_samples and self.valid_frequency_domain is None:
             raise ValueError(
                 'sampled transfer evidence requires an explicit valid '
                 'frequency domain'
+            )
+        if self.capability_tier in (
+            'FREQUENCY_AND_ANGLE',
+            'COMPLEX',
+            'MEASURED_DATASET',
+        ) and self.valid_incidence_angle_deg is None:
+            raise ValueError(
+                f'capability tier {self.capability_tier} requires an explicit '
+                'valid incidence-angle domain'
+            )
+        # Evidence can never claim more than the declared valid domains: every
+        # sample must sit inside the declared frequency domain, and every
+        # declared incidence angle inside the declared angle range.
+        if self.valid_frequency_domain is not None:
+            outside = [
+                sample.frequency_hz
+                for sample in self.transfer_samples
+                if not (
+                    self.valid_frequency_domain.minimum_hz
+                    <= sample.frequency_hz
+                    <= self.valid_frequency_domain.maximum_hz
+                )
+            ]
+            if outside:
+                raise ValueError(
+                    'transfer samples lie outside the declared valid '
+                    f'frequency domain: {outside}'
+                )
+        if self.valid_incidence_angle_deg is not None:
+            outside_angles = [
+                sample.incidence_angle_deg
+                for sample in self.transfer_samples
+                if sample.incidence_angle_deg is not None
+                and not (
+                    self.valid_incidence_angle_deg.minimum_deg
+                    <= sample.incidence_angle_deg
+                    <= self.valid_incidence_angle_deg.maximum_deg
+                )
+            ]
+            if outside_angles:
+                raise ValueError(
+                    'transfer samples lie outside the declared valid '
+                    f'incidence-angle domain: {outside_angles}'
+                )
+        sample_points = [
+            (sample.frequency_hz, sample.incidence_angle_deg)
+            for sample in self.transfer_samples
+        ]
+        if len(sample_points) != len(set(sample_points)):
+            raise ValueError(
+                'duplicate frequency/incidence-angle samples are not valid '
+                'evidence'
             )
         if self.semantic_sha256 != _hash(self.identity_payload()):
             raise ValueError('screen transfer semantic hash mismatch')
@@ -189,6 +261,12 @@ class AcousticScreenTransferAuthority(BaseModel):
             payload['valid_incidence_angle_deg'] = (
                 self.valid_incidence_angle_deg.model_dump(mode='json')
             )
+        if self.measured_dataset_ref is not None:
+            payload['measured_dataset_ref'] = (
+                self.measured_dataset_ref.model_dump(mode='json')
+            )
+        if self.document_id is not None:
+            payload['document_id'] = self.document_id
         return payload
 
     def authority_ref(self) -> ExactExternalAuthorityRef:
@@ -208,10 +286,12 @@ def build_screen_transfer(
     transfer_samples: tuple[TransferSample, ...] = (),
     valid_frequency_domain: FrequencyDomain | None = None,
     valid_incidence_angle_deg: AngleRange | None = None,
+    measured_dataset_ref: ExactExternalAuthorityRef | None = None,
     measurement_condition: str = '',
     notes: str = '',
     authority_version: str = '1',
     transfer_id: str | None = None,
+    document_id: str | None = None,
     created_at_utc: str | None = None,
 ) -> AcousticScreenTransferAuthority:
     """Assemble a sealed screen-transfer authority."""
@@ -220,11 +300,13 @@ def build_screen_transfer(
         'transfer_id': transfer_id or f'{_TRANSFER_PREFIX}{uuid4()}',
         'authority_version': authority_version,
         'screen_entity_id': screen_entity_id,
+        'document_id': document_id,
         'label': label,
         'capability_tier': capability_tier,
         'transfer_samples': transfer_samples,
         'valid_frequency_domain': valid_frequency_domain,
         'valid_incidence_angle_deg': valid_incidence_angle_deg,
+        'measured_dataset_ref': measured_dataset_ref,
         'measurement_condition': measurement_condition,
         'provenance': provenance,
         'notes': notes,
@@ -252,8 +334,13 @@ class CadScreenTransferRepository:
     lives on ``ScreenGeometryBinding.screen_transfer_ref``; this table is
     the product-level current choice per document)."""
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(
+        self,
+        path: Path | str,
+        scene_repository: 'SceneRepository | None' = None,
+    ) -> None:
         self.path = Path(path)
+        self.scene_repository = scene_repository
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
@@ -288,17 +375,30 @@ class CadScreenTransferRepository:
         self,
         transfer: AcousticScreenTransferAuthority,
     ) -> None:
+        """Persist an immutable transfer authority: same id + byte-identical
+        payload is an idempotent no-op; a different payload under an existing
+        id is a collision — a revised authority needs a new identity."""
+        payload_json = transfer.model_dump_json()
         with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_screen_transfers'
+                ' WHERE transfer_id=?',
+                (transfer.transfer_id,),
+            ).fetchone()
+            if row is not None:
+                if row['payload_json'] == payload_json:
+                    return
+                raise ValueError(
+                    f'screen transfer id collision with different payload: '
+                    f'{transfer.transfer_id}'
+                )
             connection.execute(
                 'INSERT INTO cad_screen_transfers'
-                '(transfer_id, screen_entity_id, payload_json) VALUES(?,?,?)'
-                ' ON CONFLICT(transfer_id) DO UPDATE SET'
-                ' screen_entity_id=excluded.screen_entity_id,'
-                ' payload_json=excluded.payload_json',
+                '(transfer_id, screen_entity_id, payload_json) VALUES(?,?,?)',
                 (
                     transfer.transfer_id,
                     transfer.screen_entity_id,
-                    transfer.model_dump_json(),
+                    payload_json,
                 ),
             )
 
@@ -339,6 +439,53 @@ class CadScreenTransferRepository:
         document_id: str,
         transfer: AcousticScreenTransferAuthority,
     ) -> None:
+        """Record the transfer choice for one screen in one document.
+
+        The transfer must be persisted with an identical semantic hash, and
+        a project-bound transfer may only serve the document it was authored
+        for. When a ``SceneRepository`` is wired the document must exist and
+        the named screen entity must be present with kind ``screen``.
+        """
+        persisted = self.get_transfer(transfer.transfer_id)
+        if persisted is None:
+            raise ValueError(
+                f'selected screen transfer is not persisted: '
+                f'{transfer.transfer_id}'
+            )
+        if persisted.semantic_sha256 != transfer.semantic_sha256:
+            raise ValueError(
+                f'selected screen transfer hash does not match the persisted '
+                f'authority: {transfer.transfer_id}'
+            )
+        if transfer.document_id is not None and transfer.document_id != (
+            document_id
+        ):
+            raise ValueError(
+                f'screen transfer {transfer.transfer_id} was authored for '
+                f'document {transfer.document_id}, not {document_id}'
+            )
+        if self.scene_repository is not None:
+            revision = self.scene_repository.current_head(document_id)
+            if revision is None:
+                raise ValueError(f'document does not exist: {document_id}')
+            screen = next(
+                (
+                    entity
+                    for entity in revision.document.entities
+                    if entity.entity_id == transfer.screen_entity_id
+                ),
+                None,
+            )
+            if screen is None:
+                raise ValueError(
+                    f'screen entity {transfer.screen_entity_id} does not '
+                    f'exist in document {document_id}'
+                )
+            if screen.kind != 'screen':
+                raise ValueError(
+                    f'entity {transfer.screen_entity_id} in document '
+                    f'{document_id} is not a screen (kind={screen.kind})'
+                )
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 'INSERT INTO cad_screen_transfer_selections'
