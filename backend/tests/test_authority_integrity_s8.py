@@ -301,18 +301,32 @@ def _seat_point_scene(tmp_path: Path):
         y_m=seat.position.y_m,
         z_m=seat.position.z_m + seat.acoustic_reference_offset_m.z_m,
     )
-    document = base_revision.document.model_copy(
+    # The seat must pre-exist in the creation revision's parent — the
+    # lineage contract resolves the source seat at the source revision,
+    # never at the revision that created the point.
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document,
+        parent_revision_id=base_revision.revision_id,
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity('point-seat-derived', seat_position),
             )
         }
     )
     revision = scene_repository.save(
         document,
-        parent_revision_id=base_revision.revision_id,
+        parent_revision_id=source_revision.revision_id,
     ).revision
     return scene_repository, revision, quality_repository, seat_position
 
@@ -384,10 +398,27 @@ def test_target_lineage_rejects_mismatched_point_position(tmp_path):
 
 
 def test_target_lineage_rejects_non_seat_source(tmp_path):
-    _, revision, _, quality_repository = _f1_repositories(tmp_path)
+    scene_repository, base_revision, _, quality_repository = (
+        _f1_repositories(tmp_path)
+    )
+    # The point is created in a child revision so the source (parent)
+    # revision resolves 'speaker-fl' — a speaker, never a seat.
+    document = base_revision.document.model_copy(
+        update={
+            'entities': (
+                *base_revision.document.entities,
+                _point_entity(
+                    'point-child', Position3(x_m=1.0, y_m=1.0, z_m=1.0)
+                ),
+            )
+        }
+    )
+    revision = scene_repository.save(
+        document, parent_revision_id=base_revision.revision_id
+    ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
-        measurement_point_id='point-mlp',
+        measurement_point_id='point-child',
         source_seat_id='speaker-fl',  # a speaker, never a seat
         creation_revision_id=revision.revision_id,
         initial_position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
@@ -422,11 +453,21 @@ def test_target_lineage_rejects_seat_without_acoustic_reference(tmp_path):
         position=Position3(x_m=1.0, y_m=1.0, z_m=0.4),
         size_m=Size3(x_m=0.6, y_m=0.5, z_m=0.5),
     )
-    document = base_revision.document.model_copy(
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 bare_seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document, parent_revision_id=base_revision.revision_id
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity(
                     'point-bare', Position3(x_m=1.0, y_m=1.0, z_m=0.4)
                 ),
@@ -434,7 +475,7 @@ def test_target_lineage_rejects_seat_without_acoustic_reference(tmp_path):
         }
     )
     revision = scene_repository.save(
-        document, parent_revision_id=base_revision.revision_id
+        document, parent_revision_id=source_revision.revision_id
     ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
@@ -462,17 +503,27 @@ def test_target_lineage_pose_path_roundtrip(tmp_path):
     pose_repository = CadListenerPoseRepository(quality_repository.path)
     pose_repository.save_pose(pose)
     position = pose_acoustic_reference_position(seat, pose)
-    document = base_revision.document.model_copy(
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document, parent_revision_id=base_revision.revision_id
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity('point-pose', position),
             )
         }
     )
     revision = scene_repository.save(
-        document, parent_revision_id=base_revision.revision_id
+        document, parent_revision_id=source_revision.revision_id
     ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
@@ -501,17 +552,27 @@ def test_target_lineage_rejects_unresolvable_pose_ref(tmp_path):
     # The ref names a pose that was never persisted.
     ref = pose.authority_ref()
     position = Position3(x_m=3.0, y_m=2.6, z_m=1.1)
-    document = base_revision.document.model_copy(
+    source_document = base_revision.document.model_copy(
         update={
             'entities': (
                 *base_revision.document.entities,
                 seat,
+            )
+        }
+    )
+    source_revision = scene_repository.save(
+        source_document, parent_revision_id=base_revision.revision_id
+    ).revision
+    document = source_revision.document.model_copy(
+        update={
+            'entities': (
+                *source_revision.document.entities,
                 _point_entity('point-pose', position),
             )
         }
     )
     revision = scene_repository.save(
-        document, parent_revision_id=base_revision.revision_id
+        document, parent_revision_id=source_revision.revision_id
     ).revision
     lineage = build_measurement_target_lineage(
         document_id=DOCUMENT_ID,
