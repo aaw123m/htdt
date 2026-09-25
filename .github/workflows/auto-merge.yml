@@ -2,14 +2,17 @@ name: Auto-merge
 
 # Merges pull requests once all their checks pass. A PR is eligible when it
 # carries the `automerge` label or is authored by the Devin integration bot.
-# The workflow re-evaluates eligibility on every PR event and every completed
-# check suite / commit status, and merges eligible+green PRs with a squash
-# merge, deleting the head branch afterwards. `workflow_dispatch` allows a
-# manual sweep of all open PRs.
+# The workflow re-evaluates eligibility on every PR event, every completed
+# check suite / commit status, and every push to main — each merge pushes to
+# main, which fires the sweep again so queued green PRs merge back-to-back
+# instead of waiting a full CI cycle between hops. `workflow_dispatch`
+# allows a manual sweep of all open PRs.
 
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize, labeled, unlabeled]
+  push:
+    branches: [main]
   # check_suite.completed does not fire for suites produced by GitHub Actions
   # itself; workflow_run.completed on the CI workflows is the reliable signal.
   workflow_run:
@@ -76,10 +79,52 @@ jobs:
               || echo "PR #$pr_number: merge failed (see log above)"
           }
 
+          sweep() {
+            # One API call covers the whole sweep: eligibility (bot author or
+            # automerge label) and every check rollup are folded into the PR
+            # list response instead of two calls per open PR.
+            local prs
+            prs=$(gh pr list --repo "$REPO" --state open --limit 100 \
+              --json number,author,labels,isDraft,state,statusCheckRollup) || {
+              echo "could not list PRs, skipping sweep"
+              return 0
+            }
+
+            local verdicts
+            verdicts=$(printf '%s' "$prs" | jq -r --arg bot "$BOT_LOGIN" '
+              def ctxname: (.name // .context // "");
+              def passing:
+                ( ((.status // "") == "COMPLETED") and
+                  ((.conclusion // "") | . == "SUCCESS" or . == "SKIPPED" or . == "NEUTRAL") )
+                or ((.state // "") == "SUCCESS");
+              .[]
+              | select(.isDraft == false and .state == "OPEN")
+              | select(.author.login == $bot or ([.labels[].name] | index("automerge")))
+              | ([.statusCheckRollup[]? | select(ctxname != "merge") | select(passing | not) | ctxname]) as $blockers
+              | if ($blockers | length) == 0
+                then "MERGE \(.number)"
+                else "WAIT \(.number) \($blockers | join(","))"
+                end
+            ') || { echo "could not evaluate check rollups, skipping sweep"; return 0; }
+
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              case "$line" in
+                MERGE\ *)
+                  local pr_number="${line#MERGE }"
+                  echo "PR #$pr_number: all checks green, squash merging"
+                  gh pr merge "$pr_number" --repo "$REPO" --squash --delete-branch \
+                    || echo "PR #$pr_number: merge failed (see log above)"
+                  ;;
+                WAIT\ *)
+                  echo "PR ${line#WAIT }: waiting on checks"
+                  ;;
+              esac
+            done <<< "$verdicts"
+          }
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             merge_if_green "${{ github.event.pull_request.number }}"
           else
-            for pr_number in $(gh pr list --repo "$REPO" --state open --limit 100 --json number --jq '.[].number'); do
-              merge_if_green "$pr_number"
-            done
+            sweep
           fi
