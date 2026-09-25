@@ -10,7 +10,10 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant import EntityLifecycleBinding, SystemVariant
 from .cad_system_variant_repository import (
     CadSystemVariantRepository,
@@ -340,25 +343,7 @@ class CadSystemVariantLifecycleRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_system_variant_as_built (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    record_id TEXT NOT NULL UNIQUE,
-                    record_sha256 TEXT NOT NULL UNIQUE,
-                    application_id TEXT NOT NULL UNIQUE,
-                    variant_id TEXT NOT NULL,
-                    as_built_revision_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_system_variant_as_built_revision
-                    ON cad_system_variant_as_built(
-                        as_built_revision_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_system_variant_as_built')
 
     def _validate(
         self,

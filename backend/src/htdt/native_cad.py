@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import zipfile
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
@@ -10,12 +11,12 @@ from PySide6.QtWidgets import QApplication
 from .build_info import version_string
 from .cad_composition import CadEditorWindow
 from .cad_repository import SceneRepository
-from .cad_scene import F1_DOCUMENT_ID
 from .cad_synthetic_demo import seed_synthetic_optimization_demo
 from .constraint_editor import ConstraintEditorWindow
 from .default_document import log_default_document_classification
 from .measurement_editor import MeasurementEditorWindow
 from .measurement_workspace import MeasurementWorkspaceWindow
+from .legacy_data import inspect_legacy_store, migrate_legacy_data
 from .native_backup import create_backup, restore_backup
 from .native_diagnostics import (
     NativeDiagnostics,
@@ -40,6 +41,8 @@ from .launch_intents import (
 )
 from .native_editor import default_data_dir
 from .optimization_workspace import OptimizationWorkspaceWindow
+from .project_bundle import import_project_bundle
+from .project_library_repository import ProjectLibraryRepository
 from .prediction_workspace import PredictionWorkspaceWindow
 from .runtime_instance import SingleInstanceGuard, read_lock_metadata
 from .theater_workflow import TheaterWorkflowWindow
@@ -66,10 +69,16 @@ __all__ = [
 ]
 
 
-def build_workflow_shell(repository: SceneRepository, document_id: str) -> WorkflowShellWindow:
+def build_workflow_shell(
+    repository: SceneRepository,
+    document_id: str,
+    project_library: ProjectLibraryRepository | None = None,
+) -> WorkflowShellWindow:
     """Build the integrated workflow application while preserving the public API."""
 
-    return build_workflow_application(repository, document_id)
+    return build_workflow_application(
+        repository, document_id, project_library=project_library
+    )
 
 
 def _packaged_application_icon() -> Path | None:
@@ -111,10 +120,11 @@ def _route_launch_intent(
         intent.path,
     )
     if intent.kind == 'open_project':
-        QMessageBox.information(
-            window,
-            "HTDT project",
-            f"Opened {describe_launch_intent(intent)}.",
+        _route_open_project_intent(
+            intent,
+            window=window,
+            repository=repository,
+            diagnostics=diagnostics,
         )
         return
     if intent.kind == 'preview_capture':
@@ -158,9 +168,86 @@ def _route_launch_intent(
     )
 
 
+def _route_open_project_intent(
+    intent: HTDTLaunchIntent,
+    *,
+    window,
+    repository: SceneRepository,
+    diagnostics: NativeDiagnostics,
+) -> None:
+    """Dispatch an ``open_project`` intent by file content, not extension.
+
+    ``.htdtproject`` is overloaded (#736): a ZIP member is a #488 portable
+    project bundle and is imported through the bundle authority before any
+    project switch; a small JSON ``htdt-project-ref`` descriptor names a
+    project that already lives in this data root. Neither path may report
+    "opened" without an import/switch actually happening.
+    """
+
+    from PySide6.QtWidgets import QMessageBox
+
+    path = Path(intent.path)
+    application = getattr(window, 'workflow_application', None)
+
+    if path.is_file() and zipfile.is_zipfile(path):
+        try:
+            result = import_project_bundle(repository, path)
+        except Exception as exc:
+            diagnostics.logger.warning(
+                'project bundle import failed for %s: %s', path, exc
+            )
+            QMessageBox.warning(
+                window,
+                "HTDT project",
+                f"Could not import {describe_launch_intent(intent)}:\n{exc}",
+            )
+            return
+        diagnostics.logger.info(
+            'project bundle imported: %s -> document %s (mode=%s)',
+            path,
+            result.document_id,
+            result.import_mode,
+        )
+        if application is not None:
+            application._open_project(result.document_id)
+        QMessageBox.information(
+            window,
+            "HTDT project",
+            f"Imported {describe_launch_intent(intent)}.",
+        )
+        return
+
+    document_id = intent.document_id
+    if document_id and application is not None:
+        if application.project_library.get_by_document_id(document_id) is None:
+            QMessageBox.warning(
+                window,
+                "HTDT project",
+                f"Project {document_id} is not in this data root — it "
+                "was not opened.",
+            )
+            return
+        application._open_project(document_id)
+        QMessageBox.information(
+            window,
+            "HTDT project",
+            f"Opened {describe_launch_intent(intent)}.",
+        )
+        return
+
+    QMessageBox.information(
+        window,
+        "HTDT project",
+        f"Opened {describe_launch_intent(intent)}.",
+    )
+
+
 def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     """GUI startup boundary: failures leave a durable record and a visible reason."""
 
+    # #739: set before the try so failure paths can complete the record
+    # only when this attempt got far enough to create one.
+    launch_record = None
     try:
         app = QApplication([sys.argv[0]])
         app.setApplicationVersion(version_string())
@@ -168,6 +255,110 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if icon_path is not None:
             app.setWindowIcon(QIcon(str(icon_path)))
         apply_dark_theme(app)
+        # #739: Recovery Launch — decide from concrete previous-session
+        # evidence and bounded launch history BEFORE repeating risky
+        # initialization. The launch record is written up front so a
+        # crash in this attempt counts as a failed launch next time.
+        from .startup_recovery import (
+            classify_startup_failure,
+            complete_launch,
+            decide_launch,
+            load_recovery_metadata,
+            record_launch,
+        )
+        from .support_diagnostics import previous_session_unexpected_end
+        from datetime import datetime, timezone
+
+        unclean = previous_session_unexpected_end(args.data_dir)
+        recovery_metadata = load_recovery_metadata(args.data_dir)
+        # The runtime.json marker is only produced by an installed
+        # single-instance forwarder; the launch records are the durable
+        # unclean evidence this build itself guarantees — a previous
+        # record never completed clean means that session died.
+        last_record = (
+            recovery_metadata.records[-1]
+            if recovery_metadata.records
+            else None
+        )
+        last_failure = recovery_metadata.last_failure_class(
+            version_string()
+        )
+        launch_decision = decide_launch(
+            unclean_previous_session=(
+                unclean.unexpected_end
+                or (
+                    last_record is not None
+                    and last_record.clean_exit is not True
+                )
+            ),
+            metadata=recovery_metadata,
+            build_id=version_string(),
+            renderer_failure_detected=(
+                last_failure == 'renderer_initialization'
+            ),
+        )
+        safe_mode_policy = None
+        if launch_decision.mode != 'normal':
+            from PySide6.QtWidgets import QMessageBox
+
+            diagnostics.logger.warning(
+                "recovery launch offered: %s",
+                '; '.join(launch_decision.reasons),
+            )
+            normal_button = QMessageBox.ButtonRole.AcceptRole
+            box = QMessageBox(
+                QMessageBox.Icon.Warning,
+                "HTDT recovered from an unexpected session",
+                "HTDT recovered from an unexpected previous session.\n\n"
+                + "\n".join(
+                    f"- {reason}" for reason in launch_decision.reasons
+                )
+                + (
+                    "\n\nThe previous failure looks data-related — "
+                    "consider Verify data or restoring a backup."
+                    if launch_decision.restore_recommended
+                    else "\n\nThis does not look like project-data "
+                    "corruption; restoring a backup is not the first "
+                    "recovery step."
+                ),
+            )
+            open_normal = box.addButton("Open normally", normal_button)
+            safe_mode = box.addButton(
+                "Open in Safe Mode",
+                QMessageBox.ButtonRole.DestructiveRole,
+            )
+            diagnostics_button = box.addButton(
+                "Open diagnostics",
+                QMessageBox.ButtonRole.ActionRole,
+            )
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is safe_mode:
+                safe_mode_policy = launch_decision.safe_mode_policy
+                diagnostics.logger.info(
+                    "safe mode selected: project authority stays read-only"
+                )
+            elif clicked is diagnostics_button:
+                QMessageBox.information(
+                    None,
+                    "HTDT diagnostics",
+                    f"Diagnostics are stored at:\n{diagnostics.log_path}\n\n"
+                    "Use Support > Package Diagnostics for a support "
+                    "bundle.",
+                )
+                safe_mode_policy = launch_decision.safe_mode_policy
+            else:
+                diagnostics.logger.info("recovery launch: opening normally")
+        launch_record = record_launch(
+            args.data_dir,
+            build_id=version_string(),
+            launch_mode=(
+                'safe_mode'
+                if safe_mode_policy is not None
+                else launch_decision.mode
+            ),
+            started_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
         # #606: run the explicit upgrade lifecycle before any repository
         # opens the store — preflight, mandatory recovery copy, migration,
         # verification and an operational journal entry.
@@ -206,17 +397,49 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         diagnostics.logger.info("root composition: %s", composition)
         # #612: launch intents passed on the command line (e.g. a Windows
         # file-association launch) may name the project to open.
-        initial_intents = [
-            build_launch_intent(path, source='file_association')
-            for path in getattr(args, 'open_paths', None) or ()
-        ]
+        # Safe Mode (#739) does not auto-open them: repeating the same
+        # auto-open is exactly the risky initialization being escaped.
+        initial_intents = (
+            []
+            if safe_mode_policy is not None
+            else [
+                build_launch_intent(path, source='file_association')
+                for path in getattr(args, 'open_paths', None) or ()
+            ]
+        )
         for intent in initial_intents:
             if intent.kind == 'open_project' and intent.document_id:
                 args.document_id = intent.document_id
+        # #598: detect the retired browser authority in the same data root.
+        # Read-only; legacy data outside the canonical store is warned in
+        # diagnostics and in Settings > Data Management rather than migrated
+        # implicitly.
+        legacy_report = inspect_legacy_store(args.data_dir)
+        if legacy_report.state in {'populated', 'unreadable'}:
+            diagnostics.logger.warning(
+                'legacy browser data detected (state=%s counts=%s): '
+                'htdt.sqlite3 is retired and no longer backed up; run '
+                '`htdt-native --migrate-legacy-data` to migrate and archive it',
+                legacy_report.state,
+                legacy_report.table_counts,
+            )
+        else:
+            diagnostics.logger.info(
+                'legacy browser store state: %s', legacy_report.state
+            )
+        # #450: resolve the project to open through the library — most recent
+        # project wins, existing documents migrate in as named projects, and
+        # an explicit --document-id still binds (and registers) directly.
+        project_library = ProjectLibraryRepository(repository)
+        project_entry = project_library.resolve_startup_document(
+            args.document_id
+        )
         window = (
-            OptimizationWorkspaceWindow(repository, args.document_id)
+            OptimizationWorkspaceWindow(repository, project_entry.document_id)
             if args.legacy_ui
-            else build_workflow_shell(repository, args.document_id)
+            else build_workflow_shell(
+                repository, project_entry.document_id, project_library
+            )
         )
         window.show()
 
@@ -250,6 +473,11 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
         exit_code = int(app.exec())
+        # #739: the session reached a clean close — the launch record is
+        # completed so it no longer counts as failed-startup evidence.
+        complete_launch(
+            args.data_dir, launch_record.launch_id, clean=True
+        )
         # #617: a clean close with changed managed data earns a validated
         # rotating generation. Failures are logged, never fatal to exit.
         try:
@@ -262,6 +490,13 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
         return exit_code
     except IncompatibleNewerSchemaError as exc:
+        if launch_record is not None:
+            complete_launch(
+                args.data_dir,
+                launch_record.launch_id,
+                clean=False,
+                failure_class='schema_incompatibility',
+            )
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDT data is newer than this build",
@@ -271,6 +506,13 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         )
         return 1
     except NativeUpgradeError as exc:
+        if launch_record is not None:
+            complete_launch(
+                args.data_dir,
+                launch_record.launch_id,
+                clean=False,
+                failure_class='migration_failure',
+            )
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDT could not update your data",
@@ -280,6 +522,16 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         )
         return 1
     except Exception as exc:
+        if launch_record is not None:
+            try:
+                complete_launch(
+                    args.data_dir,
+                    launch_record.launch_id,
+                    clean=False,
+                    failure_class=classify_startup_failure(exc),
+                )
+            except Exception:
+                pass
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDT did not start",
@@ -300,7 +552,9 @@ def main(argv: list[str] | None = None) -> int:
     # root that is unavailable fails closed rather than silently reopening
     # the default location.
     parser.add_argument("--data-dir", type=Path, default=None)
-    parser.add_argument("--document-id", default=F1_DOCUMENT_ID)
+    # #450: the project library owns the default document; --document-id is
+    # now an explicit-override path only, not the happy path.
+    parser.add_argument("--document-id", default=None)
     # #612: files passed positionally are document-open intents — the Windows
     # file associations invoke `HTDT.exe "%1"` which lands here.
     parser.add_argument(
@@ -342,6 +596,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="seed an explicitly synthetic O10-O80 development demo and exit",
     )
+    maintenance.add_argument(
+        "--migrate-legacy-data",
+        action="store_true",
+        help=(
+            "migrate the retired browser store (htdt.sqlite3) into native "
+            "projects, archive it, and exit"
+        ),
+    )
     # Reports the display version ("<version>+g<sha>[.dirty]") so a packaged
     # binary identifies the exact source build it was produced from. This is
     # the same version recorded in installer AppVersion and backup manifests.
@@ -375,6 +637,8 @@ def main(argv: list[str] | None = None) -> int:
         launch_mode = "automatic-backup"
     elif args.seed_synthetic_demo:
         launch_mode = "seed-synthetic-demo"
+    elif args.migrate_legacy_data:
+        launch_mode = "migrate-legacy-data"
     else:
         launch_mode = "gui"
     maintenance_request = launch_mode != "gui"
@@ -458,6 +722,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"adaptive-extended={result.adaptive_extended_plan_id}"
             )
             print("synthetic demo is development-only and does not unlock owned-room recommendation")
+            return 0
+        if args.migrate_legacy_data:
+            repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
+            result = migrate_legacy_data(
+                args.data_dir,
+                project_library=ProjectLibraryRepository(repository),
+            )
+            print(f"legacy migration: {result.model_dump_json()}")
             return 0
 
         return _run_gui(args, diagnostics)

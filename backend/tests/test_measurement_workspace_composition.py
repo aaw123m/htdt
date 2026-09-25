@@ -33,6 +33,7 @@ def _commit(controller, entity: str, evidence: str, role: str, raw: bytes):
             measurement_entity_id=entity,
             evidence_type=evidence,
             channel_role=role,
+            source_speaker_ids=("speaker-fl",),
         )
     )
 

@@ -20,7 +20,10 @@ from .cad_model_validation import CadModelValidationRecord
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_robustness_repository import CadRobustnessRepository
 from .cad_roomsim_repository import CadRoomSimRepository
-from .cad_schema import check_native_schema_compatibility
+from .cad_schema import (
+    check_native_schema_compatibility,
+    require_native_tables,
+)
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .optimization_robustness import RobustnessSpec
@@ -98,44 +101,7 @@ class CadRobustnessValidationRepository:
     def _initialize(self) -> None:
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_robustness_validation_cases (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    case_id TEXT NOT NULL UNIQUE,
-                    robustness_spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    axis_id TEXT NOT NULL,
-                    direction TEXT NOT NULL,
-                    case_sha256 TEXT NOT NULL UNIQUE,
-                    preregistration_status TEXT NOT NULL,
-                    preregistered_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(robustness_spec_id)
-                        REFERENCES cad_robustness_specs(robustness_spec_id)
-                        ON DELETE RESTRICT
-                );
-                CREATE INDEX IF NOT EXISTS idx_o90e_case_spec_seq
-                    ON cad_robustness_validation_cases(robustness_spec_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_robustness_validation_decisions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    decision_id TEXT NOT NULL UNIQUE,
-                    robustness_spec_id TEXT NOT NULL,
-                    candidate_id TEXT NOT NULL,
-                    production_gate TEXT NOT NULL,
-                    support_state TEXT NOT NULL,
-                    decision_sha256 TEXT NOT NULL UNIQUE,
-                    decided_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY(robustness_spec_id)
-                        REFERENCES cad_robustness_specs(robustness_spec_id)
-                        ON DELETE RESTRICT
-                );
-                CREATE INDEX IF NOT EXISTS idx_o90e_decision_spec_seq
-                    ON cad_robustness_validation_decisions(robustness_spec_id, seq ASC);
-                '''
-            )
+            require_native_tables(connection, 'cad_robustness_validation_cases', 'cad_robustness_validation_decisions')
 
     @staticmethod
     def _aware_timestamp(value: str) -> datetime | None:

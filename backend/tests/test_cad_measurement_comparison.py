@@ -402,3 +402,282 @@ def test_pre_identity_payload_fails_closed_on_read(tmp_path: Path) -> None:
         repository.get_comparison(saved.comparison_id)
     with pytest.raises(ValueError):
         repository.list_comparisons(revision.document_id)
+
+
+# ---------------------------------------------------------------------
+# #852 comparison semantic integrity
+
+
+def _quality_repository(measurement_repository: CadMeasurementRepository):
+    from htdt.cad_measurement_quality_repository import (
+        CadMeasurementQualityRepository,
+    )
+
+    return CadMeasurementQualityRepository(measurement_repository)
+
+
+def _level_calibration(
+    quality_repository,
+    measurement_ids,
+    *,
+    method='acoustic_calibrator',
+    session_id='sess-fixture',
+):
+    from htdt.cad_measurement_authorities import build_acoustic_level_calibration
+    from htdt.cad_measurement_quality import build_acquisition_context
+
+    # #850/#859: absolute SPL requires a scope that provably covers the
+    # bound measurements' acquisition — one persisted session context lets
+    # a single session-scoped calibration authorize every dataset it lists.
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=tuple(measurement_ids),
+            acquisition_session_id=session_id,
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        )
+    )
+    calibration = build_acoustic_level_calibration(
+        method=method,
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        reference_level_db_spl=94.0,
+        reference_frequency_hz=1000.0,
+        validity_scope='session',
+        acquisition_session_id=session_id,
+    )
+    quality_repository.save_level_calibration(calibration)
+    return calibration
+
+
+def _bind_level_reference(
+    quality_repository,
+    dataset: CadFrequencyResponseDataset,
+    kind: str,
+    calibration=None,
+) -> None:
+    from htdt.cad_measurement_authorities import build_dataset_level_reference
+    from htdt.cad_measurement_quality import build_acquisition_context
+
+    if kind == 'absolute_spl' and calibration is not None:
+        # An instrument-scoped calibration only applies to acquisitions on
+        # the same input path — persist a covering context (#850/#859).
+        quality_repository.save_acquisition_context(
+            build_acquisition_context(
+                source_kind='native',
+                subject_measurement_ids=(dataset.measurement_id,),
+                input_path_identity=calibration.input_path_identity,
+            )
+        )
+    quality_repository.save_dataset_level_reference(
+        build_dataset_level_reference(
+            measurement_id=dataset.measurement_id,
+            dataset_id=dataset.dataset_id,
+            dataset_sha256=dataset.dataset_sha256,
+            level_reference_kind=kind,
+            calibration_id=(
+                None if calibration is None else calibration.calibration_id
+            ),
+            calibration_sha256=(
+                None if calibration is None else calibration.calibration_sha256
+            ),
+        )
+    )
+
+
+def _workflow_controller(
+    revision, scene_repository, measurement_repository, quality_repository
+):
+    from htdt.measurement_workflow import MeasurementWorkflowController
+
+    return MeasurementWorkflowController(
+        scene_repository,
+        revision.document_id,
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+    )
+
+
+def test_comparison_semantics_absolute_levels_comparable(tmp_path: Path) -> None:
+    revision, repository = _repositories(tmp_path)
+    quality_repository = _quality_repository(repository)
+    _, dataset_a = _save_dataset(repository, revision, 'a')
+    _, dataset_b = _save_dataset(
+        repository, revision, 'b', levels=(69.0, 70.0, 68.0, 71.0)
+    )
+    calibration = _level_calibration(
+        quality_repository,
+        (dataset_a.measurement_id, dataset_b.measurement_id),
+    )
+    _bind_level_reference(
+        quality_repository, dataset_a, 'absolute_spl', calibration
+    )
+    _bind_level_reference(
+        quality_repository, dataset_b, 'absolute_spl', calibration
+    )
+
+    controller = _workflow_controller(
+        revision, repository.scene_repository, repository, quality_repository
+    )
+    semantics = controller.comparison_semantics(
+        dataset_a.dataset_id, dataset_b.dataset_id
+    )
+
+    assert semantics is not None
+    assert semantics.level_compatibility == 'absolute_level_comparable'
+    assert semantics.absolute_level == 'available'
+    assert semantics.normalized_shape == 'available'
+    assert 'level_reference' not in semantics.mismatches
+    assert semantics.label_a.startswith('MLP')
+    assert 'front_left' in semantics.label_a
+    assert 'measured' in semantics.label_b
+
+
+def test_comparison_semantics_absolute_vs_relative_never_upgrades(
+    tmp_path: Path,
+) -> None:
+    revision, repository = _repositories(tmp_path)
+    quality_repository = _quality_repository(repository)
+    _, dataset_a = _save_dataset(repository, revision, 'a')
+    _, dataset_b = _save_dataset(
+        repository, revision, 'b', levels=(69.0, 70.0, 68.0, 71.0)
+    )
+    calibration = _level_calibration(
+        quality_repository,
+        (dataset_a.measurement_id, dataset_b.measurement_id),
+    )
+    _bind_level_reference(
+        quality_repository, dataset_a, 'absolute_spl', calibration
+    )
+    _bind_level_reference(quality_repository, dataset_b, 'relative')
+
+    controller = _workflow_controller(
+        revision, repository.scene_repository, repository, quality_repository
+    )
+
+    # Without an explicit reference band the pair is diagnostic-only.
+    semantics = controller.comparison_semantics(
+        dataset_a.dataset_id, dataset_b.dataset_id
+    )
+    assert semantics is not None
+    assert semantics.level_compatibility == 'diagnostic_only'
+    assert semantics.absolute_level == 'unavailable'
+    assert semantics.normalized_shape == 'unavailable'
+    assert 'level_reference' in semantics.mismatches
+
+    # Explicit reference-band normalization permits shape — never absolute.
+    normalized = controller.comparison_semantics(
+        dataset_a.dataset_id,
+        dataset_b.dataset_id,
+        reference_band_hz=(40.0, 80.0),
+    )
+    assert normalized is not None
+    assert normalized.level_compatibility == 'normalized_shape_comparable'
+    assert normalized.normalized_shape == 'available'
+    assert normalized.absolute_level == 'unavailable'
+
+
+def test_comparison_semantics_mismatch_axes_cover_routing_and_context(
+    tmp_path: Path,
+) -> None:
+    revision, repository = _repositories(tmp_path)
+    quality_repository = _quality_repository(repository)
+    _, dataset_a = _save_dataset(repository, revision, 'a')
+    record_b = measurement_record_for_revision(
+        revision,
+        'point-mlp',
+        measurement_id='b',
+        evidence_type='predicted',
+        channel_role='front_right',
+        source_speaker_ids=('speaker-fr',),
+        radiation_scope='bass_managed',
+        routing_evidence='inferred',
+        imported_at='2026-09-19T00:00:00+00:00',
+        source_kind='unknown',
+        external_source_id='rew-b',
+    )
+    raw_b = declared_fr_raw(
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=(69.0, 70.0, 68.0, 71.0),
+        phase_status='absent',
+    )
+    dataset_b = CadFrequencyResponseDataset(
+        dataset_id='dataset-b',
+        measurement_id='b',
+        frequency_hz=(20.0, 40.0, 80.0, 160.0),
+        level_db=(69.0, 70.0, 68.0, 71.0),
+        phase_status='absent',
+        source_sha256=sha256(raw_b).hexdigest(),
+        importer_version=HTDT_DECLARED_IMPORTER_VERSION,
+    )
+    repository.save(record_b, dataset_b, raw_filename='b.txt', raw_bytes=raw_b)
+    _bind_level_reference(quality_repository, dataset_a, 'spl_uncalibrated')
+    _bind_level_reference(quality_repository, dataset_b, 'relative')
+
+    controller = _workflow_controller(
+        revision, repository.scene_repository, repository, quality_repository
+    )
+    codes = controller.comparison_mismatches(
+        dataset_a.dataset_id, dataset_b.dataset_id
+    )
+
+    assert 'evidence_type' in codes
+    assert 'channel_role' in codes
+    assert 'source_speakers' in codes
+    assert 'radiation_scope' in codes
+    assert 'level_reference' in codes
+    # Same scene revision and target — those axes stay quiet.
+    assert 'scene_revision' not in codes
+    assert 'target' not in codes
+
+
+def test_compare_datasets_persists_semantics_for_history(tmp_path: Path) -> None:
+    revision, repository = _repositories(tmp_path)
+    quality_repository = _quality_repository(repository)
+    _, dataset_a = _save_dataset(repository, revision, 'a')
+    _, dataset_b = _save_dataset(
+        repository, revision, 'b', levels=(69.0, 70.0, 68.0, 71.0)
+    )
+    calibration = _level_calibration(
+        quality_repository,
+        (dataset_a.measurement_id, dataset_b.measurement_id),
+    )
+    _bind_level_reference(
+        quality_repository, dataset_a, 'absolute_spl', calibration
+    )
+    _bind_level_reference(
+        quality_repository, dataset_b, 'absolute_spl', calibration
+    )
+
+    controller = _workflow_controller(
+        revision, repository.scene_repository, repository, quality_repository
+    )
+    saved = controller.compare_datasets(
+        dataset_a.dataset_id,
+        dataset_b.dataset_id,
+        low_hz=20.0,
+        high_hz=160.0,
+    )
+
+    assert saved.level_compatibility == 'absolute_level_comparable'
+    assert saved.label_a is not None and 'front_left' in saved.label_a
+    assert saved.semantics_json is not None
+    from htdt.cad_comparison_semantics import ComparisonSemantics
+
+    persisted = ComparisonSemantics.model_validate_json(saved.semantics_json)
+    assert persisted.level_compatibility == 'absolute_level_comparable'
+    assert persisted.side_a.dataset_id == dataset_a.dataset_id
+    assert persisted.side_b.calibration_sha256 == calibration.calibration_sha256
+
+    # History reopens the same record with the same semantic decisions.
+    (reopened,) = controller.saved_comparisons()
+    assert reopened == saved
+    assert reopened.level_compatibility == 'absolute_level_comparable'
+
+    # Mutating the persisted semantics invalidates the comparison seal:
+    # the stored hash no longer covers the payload and reads fail closed.
+    tampered = saved.model_copy(update={'level_compatibility': 'diagnostic_only'})
+    _rewrite_comparison_row(repository.path, tampered)
+    with pytest.raises(ValueError):
+        repository.get_comparison(saved.comparison_id)

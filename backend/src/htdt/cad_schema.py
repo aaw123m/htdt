@@ -8,13 +8,17 @@ from pathlib import Path
 import sqlite3
 from typing import Literal
 
+from .cad_schema_ddl import (
+    NATIVE_BASELINE_DDL,
+    NATIVE_COLUMN_ENSURES,
+)
 from .content_blobs import CONTENT_BLOB_DDL
 
 
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 5
+NATIVE_SCHEMA_VERSION = 8
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -885,12 +889,160 @@ def _migrate_4_to_5(connection: sqlite3.Connection) -> None:
         backfill_scene_document_heads(connection)
 
 
+def _ensure_column(
+    connection: sqlite3.Connection,
+    table: str,
+    column: str,
+    column_ddl: str,
+) -> None:
+    """Append ``column`` to ``table`` when an older build lacked it.
+
+    Idempotent counterpart of the lazy ``ALTER TABLE ... ADD COLUMN`` calls
+    repositories used to run at open. The canonical CREATE statements in
+    :data:`NATIVE_BASELINE_DDL` already include the column; this converges
+    tables that were created before it existed.
+    """
+
+    columns = {
+        str(row[1])
+        for row in connection.execute(f'PRAGMA table_info({table})')
+    }
+    if column not in columns:
+        connection.execute(f'ALTER TABLE {table} ADD COLUMN {column_ddl}')
+
+
+def _migrate_5_to_6(connection: sqlite3.Connection) -> None:
+    # Centralize the complete persistent schema contract (#302): every table,
+    # index and column the native database may contain is declared once in
+    # cad_schema_ddl and applied here, so two builds reporting the same
+    # schema version always understand the same on-disk contract.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+    tables = _table_names(connection)
+    for table, column, column_ddl in NATIVE_COLUMN_ENSURES:
+        if table in tables:
+            _ensure_column(connection, table, column, column_ddl)
+    if 'scene_revisions' in tables:
+        ensure_scene_revision_lineage_columns(connection)
+        backfill_scene_document_heads(connection)
+    # Domain modules whose persisted tables must be converged from older
+    # lazy-DDL shapes (table rebuilds that depend on parsing persisted
+    # payloads, ordering constraints around foreign-key rewrites, or data
+    # backfills no plain CREATE can express). The imports stay deferred and
+    # literal — these domain modules import cad_schema so module scope would
+    # cycle, and PyInstaller's static analysis cannot follow string imports.
+    # The same functions are re-verified idempotently by the owning
+    # repository's ``_initialize`` so every supported open path converges
+    # the same way.
+    from . import cad_adaptive_extended_repository
+    from . import capture_connected_space
+    from . import capture_inbox
+    from . import capture_ingestion_transaction
+    from . import capture_semantic_promotion
+
+    # The domain convergence helpers read rows by column name; give the
+    # migration connection the same Row factory repositories open with.
+    previous_factory = connection.row_factory
+    connection.row_factory = sqlite3.Row
+    try:
+        capture_ingestion_transaction.run_capture_schema_convergence(connection)
+        capture_inbox.run_capture_inbox_schema_convergence(connection)
+        capture_connected_space.run_connected_space_schema_convergence(connection)
+        capture_semantic_promotion.run_semantic_promotion_schema_convergence(
+            connection
+        )
+        cad_adaptive_extended_repository.run_adaptive_extended_schema_convergence(
+            connection
+        )
+    finally:
+        connection.row_factory = previous_factory
+
+
+def _migrate_6_to_7(connection: sqlite3.Connection) -> None:
+    # Converge the project-identity authorities (#764): pre-merge
+    # ``project_registry``/``project_tombstones`` lifecycle tables fold into
+    # the canonical ``htdt_project_*`` store so one table owns project
+    # identity, archive state, and clone lineage. Also installs every
+    # repository-local CREATE moved under baseline ownership (#767).
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+    tables = _table_names(connection)
+    for table, column, column_ddl in NATIVE_COLUMN_ENSURES:
+        if table in tables:
+            _ensure_column(connection, table, column, column_ddl)
+    if 'project_registry' in tables:
+        connection.execute(
+            '''
+            INSERT INTO htdt_project_documents(
+                project_id, document_id, display_name, description,
+                created_at_utc, updated_at_utc, archived, archived_at_utc,
+                cloned_from_project_id
+            )
+            SELECT r.project_id, r.document_id, r.display_name, NULL,
+                   r.created_at_utc, r.updated_at_utc,
+                   CASE r.status WHEN 'archived' THEN 1 ELSE 0 END,
+                   r.archived_at_utc, r.cloned_from_project_id
+            FROM project_registry r
+            WHERE NOT EXISTS (
+                SELECT 1 FROM htdt_project_documents d
+                WHERE d.project_id = r.project_id
+                   OR d.document_id = r.document_id
+            )
+            '''
+        )
+        connection.execute('DROP TABLE project_registry')
+    if 'project_tombstones' in tables:
+        connection.execute(
+            '''
+            INSERT OR IGNORE INTO htdt_project_tombstones
+            SELECT * FROM project_tombstones
+            '''
+        )
+        connection.execute('DROP TABLE project_tombstones')
+    connection.execute(
+        'UPDATE htdt_project_documents SET updated_at_utc=created_at_utc '
+        'WHERE updated_at_utc IS NULL'
+    )
+
+
+def _migrate_7_to_8(connection: sqlite3.Connection) -> None:
+    # Install the validation-corpus manifest/benchmark-spec tables (#773)
+    # and the data acquisition registry tables (#779). All are new
+    # append-only authorities; the idempotent baseline creates them.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def require_native_tables(
+    connection: sqlite3.Connection,
+    *tables: str,
+) -> None:
+    """Fail closed when a repository faces an unmigrated schema.
+
+    Repositories verify — never evolve — the persistent contract (#302):
+    ``ensure_native_schema`` runs before any repository opens, so a missing
+    table means the migration authority was bypassed or the database is
+    corrupted, not that the repository should create it.
+    """
+
+    present = _table_names(connection)
+    missing = [table for table in tables if table not in present]
+    if missing:
+        raise NativeSchemaError(
+            'native database is missing schema tables owned by the '
+            'migration authority: ' + ', '.join(missing)
+        )
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
     3: _migrate_2_to_3,
     4: _migrate_3_to_4,
     5: _migrate_4_to_5,
+    6: _migrate_5_to_6,
+    7: _migrate_6_to_7,
+    8: _migrate_7_to_8,
 }
 
 

@@ -12,6 +12,7 @@ from .cad_design_checkpoint import (
     ProjectDesignCheckpoint,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 def _utc_now() -> str:
@@ -43,45 +44,14 @@ class CadDesignCheckpointRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_constraint_snapshots (
-                    snapshot_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    constraint_sha256 TEXT NOT NULL,
-                    snapshot_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_design_checkpoints (
-                    checkpoint_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    checkpoint_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_checkpoint_restores (
-                    restore_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    checkpoint_id TEXT NOT NULL,
-                    restore_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_constraint_snapshots',
+                'cad_design_checkpoints',
+                'cad_checkpoint_restores',
             )
 
-    # ------------------------------------------------------------------
-    # Constraint workspace snapshots
 
     def save_snapshot(self, snapshot: ConstraintWorkspaceSnapshot) -> None:
         if self.get_snapshot(snapshot.snapshot_id) is not None:
@@ -201,34 +171,55 @@ class CadDesignCheckpointRepository:
     # Restore records
 
     def save_restore(self, restore: CheckpointRestoreRecord) -> None:
-        if self.get_restore(restore.restore_id) is not None:
+        with closing(self._connect()) as connection, connection:
+            self.save_restore_in_transaction(connection, restore)
+
+    def save_restore_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        restore: CheckpointRestoreRecord,
+    ) -> None:
+        """Append one restore record inside the caller's transaction.
+
+        The caller owns BEGIN/COMMIT/ROLLBACK — checkpoint restore uses this
+        to commit the record in the same boundary as the design-state
+        mutation it documents, so a current-state change can never exist
+        without its audit row.
+        """
+        if connection.execute(
+            'SELECT 1 FROM cad_checkpoint_restores WHERE restore_id=?',
+            (restore.restore_id,),
+        ).fetchone() is not None:
             raise DesignCheckpointConflictError(
                 'CheckpointRestoreRecord ids are append-only'
             )
-        checkpoint = self.get_checkpoint(restore.checkpoint_id)
-        if checkpoint is None:
+        row = connection.execute(
+            'SELECT checkpoint_sha256, document_id'
+            ' FROM cad_design_checkpoints WHERE checkpoint_id=?',
+            (restore.checkpoint_id,),
+        ).fetchone()
+        if row is None:
             raise ValueError('restore record requires a persisted checkpoint')
-        if checkpoint.checkpoint_sha256 != restore.checkpoint_sha256:
+        if row['checkpoint_sha256'] != restore.checkpoint_sha256:
             raise ValueError('restore record is bound to a different checkpoint')
-        if checkpoint.document_id != restore.document_id:
+        if row['document_id'] != restore.document_id:
             raise ValueError('restore record document does not match checkpoint')
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                INSERT INTO cad_checkpoint_restores (
-                    restore_id, document_id, checkpoint_id,
-                    restore_sha256, created_at_utc, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    restore.restore_id,
-                    restore.document_id,
-                    restore.checkpoint_id,
-                    restore.restore_sha256,
-                    restore.created_at_utc,
-                    restore.model_dump_json(),
-                ),
-            )
+        connection.execute(
+            """
+            INSERT INTO cad_checkpoint_restores (
+                restore_id, document_id, checkpoint_id,
+                restore_sha256, created_at_utc, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                restore.restore_id,
+                restore.document_id,
+                restore.checkpoint_id,
+                restore.restore_sha256,
+                restore.created_at_utc,
+                restore.model_dump_json(),
+            ),
+        )
 
     def get_restore(self, restore_id: str) -> CheckpointRestoreRecord | None:
         with closing(self._connect()) as connection:

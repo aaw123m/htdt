@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .managed_assets import MANAGED_ASSETS_DIRNAME, sha256_file
 from .native_backup import DATABASE_NAME, recover_interrupted_restore
+from .persisted_data import relocation_carried_components
 from .runtime_instance import SingleInstanceGuard
 
 
@@ -233,7 +234,21 @@ def plan_data_relocation(
     asset_count, asset_bytes = _tree_stats(
         source_dir / MANAGED_ASSETS_DIRNAME
     )
-    total = database_bytes + asset_bytes
+    # Root-tied registry components (preferences, history, recovery
+    # generations, ...) are carried too — account for their bytes so the
+    # preflight free-space estimate is not silently optimistic (#769).
+    carried_bytes = 0
+    for component in relocation_carried_components():
+        carried = source_dir / component.path
+        if component.is_directory:
+            _count, carried = _tree_stats(carried)
+            carried_bytes += carried
+        elif carried.is_file():
+            try:
+                carried_bytes += carried.stat().st_size
+            except OSError:
+                pass
+    total = database_bytes + asset_bytes + carried_bytes
 
     free: int | None = None
     probe = (
@@ -415,6 +430,21 @@ def execute_data_relocation(
             for candidate in live_assets.iterdir():
                 if candidate.is_file():
                     shutil.copy2(candidate, staged_assets / candidate.name)
+
+        # Registry-carried root components: preferences, library metadata,
+        # operational history/state, upgrade journal + recovery generations
+        # and diagnostics move with the managed root so nothing root-tied
+        # silently resets at the new location (#769). Transient components
+        # (runtime.json, instance locks) are never copied.
+        for component in relocation_carried_components():
+            source_path = source_dir / component.path
+            staged_path = staged / component.path
+            if component.is_directory:
+                if source_path.is_dir():
+                    shutil.copytree(source_path, staged_path)
+            elif source_path.is_file():
+                staged_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, staged_path)
 
         # ---- verify phase -----------------------------------------------
         _verify_staged_root(staged)

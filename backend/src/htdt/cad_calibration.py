@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_measurement_effective import CadEffectiveMeasurementResolver
 from .cad_measurement_models import (
     CadFrequencyResponseDataset,
     CadMeasurementComparison,
@@ -1355,17 +1356,21 @@ def build_verification_measurement_completion(
     routing = set(verification.routing)
     evidence: list[CadVerificationMeasurementEvidence] = []
     reasons: list[str] = []
+    effective = CadEffectiveMeasurementResolver(
+        measurement_repository, quality_repository
+    )
     for measurement_id in ordered_ids:
         if measurement_id in verification.before_measurement_ids:
             raise ValueError(
                 'before measurements cannot satisfy verification after evidence'
             )
-        measurement = measurement_repository.get_measurement(measurement_id)
-        if measurement is None:
-            raise ValueError(
-                'verification completion references unknown Measurement: '
-                f'{measurement_id}'
-            )
+        # Lifecycle gate (#509/#844): excluded/misassigned/test/duplicate
+        # evidence cannot complete a verification, and the preregistered
+        # point/routing match is decided on the effective corrected binding.
+        resolved = effective.require_normal_use(
+            measurement_id, purpose='calibration verification evidence'
+        )
+        measurement = resolved.measurement
         if (
             measurement.document_id != verification.document_id
             or measurement.scene_revision_id != verification.scene_revision_id
@@ -1374,12 +1379,12 @@ def build_verification_measurement_completion(
             raise ValueError('verification evidence exact SceneRevision binding mismatch')
         if measurement.evidence_type != 'measured':
             raise ValueError('verification evidence must be a measured capture')
-        point_position = points.get(measurement.measurement_entity_id)
+        point_position = points.get(resolved.measurement_entity_id)
         if point_position is None or point_position != measurement.measurement_position:
             raise ValueError(
                 'verification evidence does not match a preregistered measurement point'
             )
-        if measurement.channel_role not in routing:
+        if resolved.channel_role not in routing:
             raise ValueError('verification evidence does not match preregistered routing')
         if measurement.captured_at is None:
             raise ValueError('verification evidence requires an explicit capture timestamp')

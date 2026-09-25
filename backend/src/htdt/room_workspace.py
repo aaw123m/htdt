@@ -53,6 +53,7 @@ from .cad_constraint_authoring import (
 from .cad_constraints import evaluate_cad_constraints
 from .cad_constraint_policy import blocking_candidate_violations
 from .cad_constraint_repository import CadConstraintRepository
+from .cad_display_labels import revision_display_label
 from .cad_repository import SceneRevision
 from .cad_scene_history import diff_scene_documents, diff_summary_lines
 from .cad_measure import format_measure_result
@@ -349,7 +350,9 @@ class RoomWorkspaceController:
         self.video_workspace_repository = CadVideoWorkspaceRepository(repository.path)
         self.video_workspace: VideoGeometryWorkspace | None = None
         self.video_geometry_repository = CadVideoGeometryRepository(repository)
-        self.screen_transfer_repository = CadScreenTransferRepository(repository.path)
+        self.screen_transfer_repository = CadScreenTransferRepository(
+            repository.path, repository
+        )
         self.variant_repository = CadSystemVariantRepository(repository)
         self.material_repository = CadAcousticMaterialRepository(repository.path)
         self.treatment_repository = CadAcousticTreatmentRepository(
@@ -1094,19 +1097,21 @@ class RoomWorkspaceController:
 
     @property
     def authoring_constraints(self):
-        """The persisted authoring-constraint set (lazy, fail-soft read)."""
+        """The persisted authoring-constraint set (lazy read, fail-closed).
+
+        Corrupt authority raises — it is a retained integrity problem, never
+        reinterpreted as an empty set that a later edit would overwrite
+        (#843).
+        """
 
         if self._constraint_state is None:
             record = self.repository.authoring_constraints(self.document_id)
             if record is None:
                 self._constraint_state = AuthoringConstraintSet()
             else:
-                try:
-                    self._constraint_state = AuthoringConstraintSet.model_validate(
-                        record.payload
-                    )
-                except (TypeError, ValueError):
-                    self._constraint_state = AuthoringConstraintSet()
+                self._constraint_state = AuthoringConstraintSet.model_validate(
+                    record.payload
+                )
         return self._constraint_state
 
     def _save_authoring_constraints(self) -> None:
@@ -1115,18 +1120,49 @@ class RoomWorkspaceController:
         self.repository.save_authoring_constraints(
             self.document_id,
             self._constraint_state.model_dump(mode='json'),
+            scene_revision_id=self.working.source_revision_id,
+        )
+
+    def _apply_constraint_state(self, state) -> None:
+        """Swap the in-memory set and persist one versioned revision."""
+
+        self._constraint_state = state
+        self._save_authoring_constraints()
+        self._sync_recovery()
+
+    def update_authoring_constraints(
+        self,
+        new_state,
+        *,
+        presentation: CommandPresentation | None = None,
+    ) -> bool:
+        """Commit a constraint-set change as its own Undo step (#843).
+
+        The command carries no entity edit: Undo restores the previous
+        constraint set and nothing else.
+        """
+
+        before = self.authoring_constraints
+        if new_state == before:
+            return False
+        return self.working.apply_entity_set_edit(
+            apply_side=lambda: self._apply_constraint_state(new_state),
+            revert_side=lambda: self._apply_constraint_state(before),
+            presentation=presentation
+            or CommandPresentation(action='edit', detail='拘束'),
         )
 
     def add_authoring_constraint(self, constraint: AuthoringConstraint) -> None:
         constraints = list(self.authoring_constraints.constraints)
         constraints.append(constraint)
-        self._constraint_state = self.authoring_constraints.model_copy(
-            update={
-                'constraints': tuple(constraints),
-                'solve_version': self.authoring_constraints.solve_version + 1,
-            }
+        self.update_authoring_constraints(
+            self.authoring_constraints.model_copy(
+                update={
+                    'constraints': tuple(constraints),
+                    'solve_version': self.authoring_constraints.solve_version + 1,
+                }
+            )
         )
-        self._save_authoring_constraints()
 
     def remove_authoring_constraints_for(self, entity_ids: set[str]) -> int:
         """Remove constraints involving the given entities. Returns count."""
@@ -1139,13 +1175,14 @@ class RoomWorkspaceController:
         removed = len(self.authoring_constraints.constraints) - len(keep)
         if removed <= 0:
             return 0
-        self._constraint_state = self.authoring_constraints.model_copy(
-            update={
-                'constraints': keep,
-                'solve_version': self.authoring_constraints.solve_version + 1,
-            }
+        self.update_authoring_constraints(
+            self.authoring_constraints.model_copy(
+                update={
+                    'constraints': keep,
+                    'solve_version': self.authoring_constraints.solve_version + 1,
+                }
+            )
         )
-        self._save_authoring_constraints()
         return removed
 
     def pop_constraint_notes(self) -> tuple[str, ...]:
@@ -1209,23 +1246,24 @@ class RoomWorkspaceController:
             replaced_before.append(current)
             replaced_after.append(after)
             notes.append(f'拘束により「{current.name}」を調整しました')
-        if replaced_before:
+        if updates or changed_constraints:
+            new_state = state.model_copy(
+                update={
+                    'constraints': tuple(constraints),
+                    'solve_version': state.solve_version + 1,
+                }
+            )
+            # One Undo unit: entity propagation and the constraint-state
+            # mutation commit together (#843).
             self.working.apply_entity_set_edit(
                 replaced_before=tuple(replaced_before),
                 replaced_after=tuple(replaced_after),
                 presentation=CommandPresentation(
                     action='transform', detail='拘束による追従'
                 ),
+                apply_side=lambda: self._apply_constraint_state(new_state),
+                revert_side=lambda: self._apply_constraint_state(state),
             )
-        if updates or changed_constraints:
-            self._constraint_state = state.model_copy(
-                update={
-                    'constraints': tuple(constraints),
-                    'solve_version': state.solve_version + 1,
-                }
-            )
-            self._save_authoring_constraints()
-            self._sync_recovery()
         return tuple(notes)
 
     def mark_broken_constraints(self) -> tuple[str, ...]:
@@ -1253,13 +1291,14 @@ class RoomWorkspaceController:
                 broken_labels.append(constraint.label or constraint.constraint_id)
                 changed = True
         if changed:
-            self._constraint_state = state.model_copy(
-                update={
-                    'constraints': tuple(constraints),
-                    'solve_version': state.solve_version + 1,
-                }
+            self.update_authoring_constraints(
+                state.model_copy(
+                    update={
+                        'constraints': tuple(constraints),
+                        'solve_version': state.solve_version + 1,
+                    }
+                )
             )
-            self._save_authoring_constraints()
         return tuple(broken_labels)
 
     def guide_render_items(self) -> tuple[GuideRenderItem, ...]:
@@ -3304,7 +3343,9 @@ class RoomWorkspace(QWidget):
         self.setObjectName("roomWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
         self.controller = RoomWorkspaceController(repository, document_id)
-        self.listener_pose_repository = CadListenerPoseRepository(repository.path)
+        self.listener_pose_repository = CadListenerPoseRepository(
+            repository.path, repository
+        )
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
         self.geometry_input = None
@@ -4334,10 +4375,11 @@ class RoomWorkspace(QWidget):
             for constraint in state.constraints
             if constraint.constraint_id != constraint_id
         )
-        self.controller._constraint_state = state.model_copy(
-            update={"constraints": keep, "solve_version": state.solve_version + 1}
+        self.controller.update_authoring_constraints(
+            state.model_copy(
+                update={"constraints": keep, "solve_version": state.solve_version + 1}
+            )
         )
-        self.controller._save_authoring_constraints()
         self._refresh_underlay_ui()
         self._set_status("拘束を解除しました")
 
@@ -4346,10 +4388,11 @@ class RoomWorkspace(QWidget):
         keep = tuple(c for c in state.constraints if not c.broken)
         removed = len(state.constraints) - len(keep)
         if removed:
-            self.controller._constraint_state = state.model_copy(
-                update={"constraints": keep, "solve_version": state.solve_version + 1}
+            self.controller.update_authoring_constraints(
+                state.model_copy(
+                    update={"constraints": keep, "solve_version": state.solve_version + 1}
+                )
             )
-            self.controller._save_authoring_constraints()
         self._refresh_underlay_ui()
         self._set_status(f"破損した拘束を{removed}件削除しました")
 
@@ -5017,6 +5060,7 @@ class RoomWorkspace(QWidget):
         try:
             transfer = build_screen_transfer(
                 screen_entity_id=screen_id,
+                document_id=self.controller.document_id,
                 label=str(values['label']),
                 capability_tier=values['capability_tier'],
                 provenance=str(values['provenance']),
@@ -5075,6 +5119,7 @@ class RoomWorkspace(QWidget):
             return
         pose = listener_pose_for_seat(
             seat,
+            document_id=self.controller.document_id,
             label=label.strip(),
             eye_reference_offset_local_m=Offset3(
                 x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value())
@@ -5340,7 +5385,11 @@ class RoomWorkspace(QWidget):
         )
         self.history_panel.show_detail(
             f"リビジョン数: {len(revisions)} · HEAD: "
-            f"{head.revision_id[:12] if head else '—'}"
+            + (
+                revision_display_label(head, labels)
+                if head is not None
+                else '—'
+            )
         )
 
     def _history_preview(self, revision_id: object) -> None:
@@ -5354,13 +5403,9 @@ class RoomWorkspace(QWidget):
         if revision is None or not callable(render):
             return
         label_map = self.controller.revision_labels()
-        label = label_map.get(revision.revision_id)
-        label_text = None
-        if label is not None:
-            label_text = label.label or revision.revision_id[:12]
         render(
             revision.document,
-            label=label_text or revision.revision_id[:12],
+            label=revision_display_label(revision, label_map),
         )
 
     def _history_label(self, revision_id: object, label: object, note: object) -> None:
@@ -5383,7 +5428,11 @@ class RoomWorkspace(QWidget):
             return
         diff = diff_scene_documents(revision.document, head.document)
         lines = diff_summary_lines(diff, head.document)
-        prefix = f"過去版 → 現在の差分 ({revision.revision_id[:12]} → HEAD):\n"
+        labels = self.controller.revision_labels()
+        prefix = (
+            "過去版 → 現在の差分 ("
+            f"{revision_display_label(revision, labels)} → HEAD):\n"
+        )
         self.history_panel.show_detail(prefix + "\n".join(lines))
 
     def _history_restore(self, revision_id: object) -> None:
@@ -5398,8 +5447,10 @@ class RoomWorkspace(QWidget):
         self._history_preview(None)
         self._refresh(reset_camera=True)
         self._sync_history_panel()
+        labels = self.controller.revision_labels()
         self._set_status(
-            f"履歴版を新しい先頭版として復元しました: {revision.revision_id[:12]}"
+            "履歴版を新しい先頭版として復元しました: "
+            f"{revision_display_label(revision, labels)}"
         )
 
     def _measure_state_changed(self) -> None:

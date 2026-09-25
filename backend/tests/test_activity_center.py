@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from htdt.activity_center import (
@@ -10,6 +12,7 @@ from htdt.activity_center import (
     NavigationPolicy,
     OperationClass,
     OperationProgress,
+    OperationRetryRequest,
     OperationState,
     OperationTransitionError,
     ProgressKind,
@@ -86,6 +89,7 @@ def test_commit_point_blocks_cancel() -> None:
     op_id = _submit(
         center,
         cancellability=Cancellability.CANCEL_UNTIL_COMMIT,
+        cancel_callback=lambda: None,
     )
     center.mark_running(op_id)
     center.mark_commit_point(op_id)
@@ -147,9 +151,59 @@ def test_retry_creates_new_attempt() -> None:
         center.retry(plain)
 
 
+def test_retry_gets_fresh_cancel_wiring() -> None:
+    """#738: retry must recreate executor wiring, not copy a cleared one."""
+
+    center = ActivityCenter()
+    cancelled: list[str] = []
+    op_id = _submit(
+        center,
+        cancellability=Cancellability.CANCELLABLE,
+        cancel_callback=lambda: cancelled.append('first'),
+        retry_policy=RetryPolicy.SAFE_NEW_ATTEMPT,
+    )
+    center.mark_running(op_id)
+    center.fail(op_id, error_summary='boom')
+
+    # Without a retry factory the new attempt cannot honestly advertise
+    # cancellability: the old callback was cleared at terminal transition.
+    attempt2 = center.retry(op_id)
+    assert center.require(attempt2).cancellability == (
+        Cancellability.NOT_CANCELLABLE
+    )
+    assert center.request_cancel(attempt2) is False
+
+    attempt3 = center.retry(
+        op_id,
+        retry_factory=lambda previous: OperationRetryRequest(
+            domain_payload={'attempt': previous.attempt + 1},
+            cancel_callback=lambda: cancelled.append('retried'),
+        ),
+    )
+    retry_op = center.require(attempt3)
+    assert retry_op.cancellability == Cancellability.CANCELLABLE
+    center.mark_running(attempt3)
+    assert center.request_cancel(attempt3) is True
+    assert cancelled == ['retried']
+
+
+def test_cancellable_submit_requires_live_callback() -> None:
+    """#738: a cancellable op with no delivery path is rejected up front."""
+
+    center = ActivityCenter()
+    with pytest.raises(OperationTransitionError):
+        _submit(center, cancellability=Cancellability.CANCELLABLE)
+    with pytest.raises(OperationTransitionError):
+        _submit(center, cancellability=Cancellability.CANCEL_UNTIL_COMMIT)
+
+
 def test_prepare_shutdown_accounts_for_active() -> None:
     center = ActivityCenter()
-    cancellable = _submit(center, cancellability=Cancellability.CANCELLABLE)
+    cancellable = _submit(
+        center,
+        cancellability=Cancellability.CANCELLABLE,
+        cancel_callback=lambda: None,
+    )
     center.mark_running(cancellable)
     stuck = _submit(center)
     center.mark_running(stuck)
@@ -157,7 +211,12 @@ def test_prepare_shutdown_accounts_for_active() -> None:
     report = center.prepare_shutdown()
     assert {op.operation_id for op in report.active_at_exit} == {cancellable, stuck}
     assert report.cancellation_requested == (cancellable,)
-    assert report.detached_lingering == (cancellable,)
+    # Every op still active at teardown is lingering — including the
+    # non-cancellable one that no request could ever stop (#738).
+    lingering = {op.operation_id: op for op in report.detached_lingering}
+    assert set(lingering) == {cancellable, stuck}
+    assert lingering[cancellable].state == OperationState.CANCELLATION_REQUESTED
+    assert lingering[stuck].cancellability == Cancellability.NOT_CANCELLABLE
 
 
 def test_progress_model_honest() -> None:
@@ -178,6 +237,52 @@ def test_progress_model_honest() -> None:
         kind=ProgressKind.ITEMS, done_units=50, total_units=200
     )
     assert items.known_fraction() == 0.25
+
+
+def test_post_completion_transitions_dedupe_history(tmp_path: Path) -> None:
+    """#738: completed -> historical/stale updates one history row."""
+
+    center = ActivityCenter()
+    op_id = _submit(center, input_authority_refs=('scene-rev:9',))
+    center.mark_running(op_id)
+    center.complete(op_id, result_summary='200 candidates')
+    finished_at = center.require(op_id).finished_at
+
+    center.note_authorities_changed({'scene-rev:9'})
+    historical = center.require(op_id)
+    assert historical.state == OperationState.COMPLETED_FOR_HISTORICAL_INPUT
+    assert historical.finished_at == finished_at
+    assert [op.operation_id for op in center.recent(50)] == [op_id]
+
+    # Persistence round-trip keeps one record per attempt.
+    path = tmp_path / 'history.json'
+    center.persist_history(path)
+    persisted = list(ActivityCenter.load_history(path))
+    assert [op.operation_id for op in persisted] == [op_id]
+    assert persisted[0].state == (
+        OperationState.COMPLETED_FOR_HISTORICAL_INPUT
+    )
+
+
+def test_active_snapshot_persisted_for_crash_diagnostics(tmp_path) -> None:
+    """#738: last-known active ops persist so recovery can name them."""
+
+    center = ActivityCenter()
+    running = _submit(center, title='REW import', project_ref='demo')
+    center.mark_running(running)
+    done = _submit(center)
+    center.mark_running(done)
+    center.complete(done)
+
+    path = tmp_path / 'activity_history.json'
+    center.persist_history(path)
+
+    active = ActivityCenter.load_active_operations(path)
+    assert [op.operation_id for op in active] == [running]
+    assert active[0].state == OperationState.RUNNING
+    assert ActivityCenter.load_active_operations(
+        tmp_path / 'missing.json'
+    ) == ()
 
 
 def test_history_persist_load_roundtrip(tmp_path) -> None:

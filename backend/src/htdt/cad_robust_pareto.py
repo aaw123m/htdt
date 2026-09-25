@@ -10,7 +10,10 @@ from typing import Any, Literal, Mapping, Protocol, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_objective_models import CadObjectiveEvaluation
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .optimization_robustness import RobustnessEvaluation, RobustnessSpec
 from .optimization_robustness_multidimensional import (
     RobustParetoSelection,
@@ -396,23 +399,7 @@ class CadO90RobustParetoRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_o90_robust_pareto_evaluations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evaluation_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    search_spec_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_o90_robust_pareto_search_seq
-                    ON cad_o90_robust_pareto_evaluations(
-                        search_spec_id,
-                        seq ASC
-                    );
-                """
-            )
+            require_native_tables(connection, 'cad_o90_robust_pareto_evaluations')
 
     def _resolve(
         self,

@@ -15,7 +15,10 @@ from .cad_validation_campaign import (
     CadValidationCampaignRegistration,
     build_validation_campaign_registration,
     exact_campaign_registration,
+
 )
+
+from .cad_schema import require_native_tables
 
 
 def _utc_now() -> str:
@@ -62,36 +65,7 @@ class CadValidationCampaignRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_validation_campaigns (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    model_id TEXT NOT NULL,
-                    model_version TEXT NOT NULL,
-                    candidate_set_sha256 TEXT NOT NULL,
-                    campaign_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    FOREIGN KEY(search_spec_id) REFERENCES cad_search_specs(search_spec_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_validation_campaign_search_seq
-                    ON cad_validation_campaigns(search_spec_id, seq ASC);
-                CREATE TABLE IF NOT EXISTS cad_validation_campaign_registrations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    registration_id TEXT NOT NULL UNIQUE,
-                    registration_sha256 TEXT NOT NULL UNIQUE,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    campaign_sha256 TEXT NOT NULL,
-                    registered_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_validation_campaign_registrations_campaign
-                    ON cad_validation_campaign_registrations(campaign_id);
-                '''
-            )
+            require_native_tables(connection, 'cad_validation_campaigns', 'cad_validation_campaign_registrations')
 
     def _regenerated_candidate_ids(
         self,

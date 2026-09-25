@@ -7,6 +7,7 @@ import sqlite3
 
 from .cad_design_comparison import DesignComparisonSet
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class DesignComparisonConflictError(ValueError):
@@ -33,20 +34,12 @@ class CadDesignComparisonRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_design_comparison_sets (
-                    set_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    revision INTEGER NOT NULL,
-                    supersedes_set_id TEXT,
-                    set_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_design_comparison_sets',
             )
+
 
     def save_set(self, comparison_set: DesignComparisonSet) -> None:
         if self.get_set(comparison_set.set_id) is not None:

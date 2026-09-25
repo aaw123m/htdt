@@ -15,6 +15,7 @@ from pathlib import Path
 from .cad_calibration_repository import CadCalibrationRepository
 from .cad_calibration_workflow import CadAppliedSettingsRecord
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class CadAppliedSettingsRepository:
@@ -31,26 +32,12 @@ class CadAppliedSettingsRepository:
         return connection
 
     def _initialize(self) -> None:
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_applied_settings (
-                    applied_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    calibration_plan_id TEXT NOT NULL,
-                    applied_sha256 TEXT NOT NULL,
-                    applied_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_applied_settings',
             )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_applied_settings_plan
-                ON cad_applied_settings(calibration_plan_id)
-                """
-            )
+
 
     def save_applied(
         self,

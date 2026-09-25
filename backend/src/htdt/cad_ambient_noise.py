@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
+from .cad_schema import require_native_tables
 
 
 EquipmentState = Literal['on', 'off', 'unknown']
@@ -600,63 +601,7 @@ class CadAmbientNoiseRepository:
 
     def _initialize(self) -> None:
         with self._connect() as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_ambient_conditions (
-                    condition_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    condition_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_ambient_profiles (
-                    profile_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    condition_id TEXT NOT NULL,
-                    profile_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_ambient_criteria (
-                    criterion_id TEXT PRIMARY KEY,
-                    criterion_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_ambient_evaluations (
-                    evaluation_id TEXT PRIMARY KEY,
-                    profile_id TEXT NOT NULL,
-                    criterion_id TEXT NOT NULL,
-                    verdict TEXT NOT NULL,
-                    evaluation_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_ambient_comparisons (
-                    comparison_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    comparison_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
+            require_native_tables(connection, 'cad_ambient_conditions', 'cad_ambient_profiles', 'cad_ambient_criteria', 'cad_ambient_evaluations', 'cad_ambient_comparisons')
 
     def _save_model(self, table: str, key: str, payload_json: str, columns: tuple[str, ...], values: tuple) -> None:
         all_columns = (*columns, 'payload_json')

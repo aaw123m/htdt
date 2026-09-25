@@ -64,7 +64,9 @@ def _assignment(**overrides) -> MeasurementAssignment:
         channel_role="front_left",
         source_speaker_ids=("speaker-fl",),
         radiation_scope="single",
-        routing_evidence="verified",
+        # #858: 'verified' now requires a resolvable verified profile;
+        # commits without one carry honest 'manual' evidence.
+        routing_evidence="manual",
     )
     values.update(overrides)
     return MeasurementAssignment(**values)

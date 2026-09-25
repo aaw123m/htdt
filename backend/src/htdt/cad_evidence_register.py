@@ -42,8 +42,10 @@ from .cad_assumption_decision import (
     active_assumption_decisions,
 )
 from .cad_construction_assembly import element_evidence
+from .cad_measurement_disposition import MEASUREMENT_ELIGIBLE_DISPOSITIONS
 from .cad_measurement_quality import gate_measurement_claim
 from .cad_scene import is_unassigned_speaker_role
+from .capture_inbox import capture_inbox_item_project_id
 from .workflow_navigation import (
     ApplicationDestinationId,
     DestinationId,
@@ -471,8 +473,44 @@ class ProjectEvidenceGapRegister:
         """
 
         context = context or EvidenceGapContext()
-        decisions = self._active_decisions(document_id, context)
+        decisions, assumption_issue = self._active_decisions(
+            document_id, context
+        )
         gaps: list[ProjectEvidenceGap] = []
+        if assumption_issue is not None:
+            # #869 G: a corrupt assumption record must surface as an
+            # explicit integrity gap, not silently attest or take down the
+            # register. The corrupt attestation is withheld; every other
+            # domain still derives normally.
+            gaps.append(
+                _gap(
+                    document_id=document_id,
+                    domain='commissioning',
+                    classification='unverified',
+                    subject=EvidenceGapSubjectRef(
+                        kind='document', ref_id=document_id
+                    ),
+                    summary='仮定判定の記録が整合しません。',
+                    limitation=(
+                        '破損した仮定レコードは証明として適用されません。'
+                        '記録を点検してください。'
+                    ),
+                    affected_capabilities=('prediction', 'calibration'),
+                    resolutions=(
+                        _resolution(
+                            'assumptions.review',
+                            '仮定判定を確認',
+                            WorkspaceId.MEASUREMENT,
+                            'import',
+                        ),
+                    ),
+                    source_refs=(
+                        EvidenceGapSubjectRef(
+                            kind='document', ref_id=document_id
+                        ),
+                    ),
+                )
+            )
         gaps.extend(self._room_gaps(document_id, decisions))
         gaps.extend(self._equipment_gaps(document_id, decisions))
         gaps.extend(self._measurement_gaps(document_id, decisions))
@@ -519,19 +557,31 @@ class ProjectEvidenceGapRegister:
         self,
         document_id: str,
         context: EvidenceGapContext,
-    ) -> tuple[tuple[AssumptionDecision, EvidenceGapContext], ...]:
+    ) -> tuple[
+        tuple[tuple[AssumptionDecision, EvidenceGapContext], ...],
+        str | None,
+    ]:
+        """(applicable scoped decisions, integrity issue or None).
+
+        #869 G: a malformed/corrupt assumption store must not make the
+        whole register unavailable — the issue text is returned so the
+        caller can surface it as an explicit gap while derivation
+        continues without the corrupt attestation.
+        """
+
         if self._assumption_source is None:
-            return ()
+            return (), None
         as_of_utc = context.as_of_utc or _utc_now_iso()
-        active = active_assumption_decisions(
-            tuple(self._assumption_source.list_decisions(document_id)),
-            as_of_utc=as_of_utc,
-        )
+        try:
+            stored = tuple(self._assumption_source.list_decisions(document_id))
+            active = active_assumption_decisions(stored, as_of_utc=as_of_utc)
+        except ValueError as exc:
+            return (), str(exc)
         return tuple(
             (decision, context)
             for decision in active
             if _scope_applies(decision, context)
-        )
+        ), None
 
     def _attestation(
         self,
@@ -781,7 +831,21 @@ class ProjectEvidenceGapRegister:
             return []
         gaps: list[ProjectEvidenceGap] = []
         measurements = tuple(self._measurement_source.list_measurements(document_id))
-        if not measurements:
+        # #867: lifecycle eligibility, not row presence — measurements
+        # dispositioned misassigned/excluded/test_only/duplicate_import
+        # stay inspectable history but are not current evidence; they can
+        # neither produce repair-the-evidence gaps nor satisfy
+        # "measurement evidence exists".
+        eligible: list[tuple[Any, Any]] = []
+        for measurement in measurements:
+            lifecycle = self._measurement_lifecycle(measurement.measurement_id)
+            if (
+                lifecycle is not None
+                and lifecycle[0] not in MEASUREMENT_ELIGIBLE_DISPOSITIONS
+            ):
+                continue
+            eligible.append((measurement, lifecycle))
+        if not eligible:
             attest = self._attestation(
                 decisions,
                 subject_kind='document',
@@ -809,7 +873,24 @@ class ProjectEvidenceGapRegister:
                 )
             )
             return gaps
-        for measurement in measurements:
+        for measurement, lifecycle in eligible:
+            corrected = (
+                lifecycle is not None and lifecycle[0] == 'corrected'
+            )
+            correction_id = lifecycle[1] if lifecycle is not None else None
+            correction_refs: tuple[EvidenceGapSubjectRef, ...] = ()
+            if corrected and correction_id is not None:
+                # #867 C: a corrected measurement keeps its exact
+                # acquisition/dataset evidence; the correction record is
+                # named alongside so assignment/pose caveats stay attached
+                # to the gap instead of being silently rewritten.
+                correction_refs = (
+                    EvidenceGapSubjectRef(
+                        kind='measurement_correction',
+                        ref_id=correction_id,
+                        label='補正記録',
+                    ),
+                )
             subject = EvidenceGapSubjectRef(
                 kind='measurement',
                 ref_id=measurement.measurement_id,
@@ -840,6 +921,7 @@ class ProjectEvidenceGapRegister:
                                 WorkspaceId.MEASUREMENT, 'import',
                             ),
                         ),
+                        source_refs=correction_refs,
                         attestations=attest,
                     )
                 )
@@ -871,6 +953,7 @@ class ProjectEvidenceGapRegister:
                                 WorkspaceId.MEASUREMENT, 'quality',
                             ),
                         ),
+                        source_refs=correction_refs,
                         attestations=attest,
                     )
                 )
@@ -898,10 +981,35 @@ class ProjectEvidenceGapRegister:
                                 WorkspaceId.MEASUREMENT, 'quality',
                             ),
                         ),
+                        source_refs=correction_refs,
                         attestations=attest,
                     )
                 )
         return gaps
+
+    def _measurement_lifecycle(
+        self, measurement_id: str
+    ) -> tuple[str, str | None] | None:
+        """(disposition, correction_id) or None when no source knows.
+
+        Uses the canonical #509 ``latest_disposition`` contract wherever a
+        source exposes it; a measurement with no recorded disposition is
+        normally eligible (``active``). Sources without the lookup keep
+        legacy behavior — storage presence only.
+        """
+
+        for source in (self._quality_source, self._measurement_source):
+            lookup = getattr(source, 'latest_disposition', None)
+            if lookup is None:
+                continue
+            record = lookup(measurement_id)
+            if record is None:
+                return 'active', None
+            return (
+                getattr(record, 'disposition', 'active'),
+                getattr(record, 'correction_id', None),
+            )
+        return None
 
     def _prediction_gaps(
         self,
@@ -1023,14 +1131,20 @@ class ProjectEvidenceGapRegister:
             return []
         gaps: list[ProjectEvidenceGap] = []
         for item in self._inbox_source.list_items():
-            # Canonical Capture Inbox scoping (#798): an item belongs to a
-            # project only through its assigned ``scope`` (a document id).
-            # ``capture-inbox-unassigned`` and foreign scopes never project
-            # into this project's register.
-            if getattr(item, 'scope', None) != document_id:
+            # Canonical Capture Inbox scoping (#798/#737): an item belongs
+            # to a project only through its assigned ``scope`` (a document
+            # id). ``capture-inbox-unassigned`` and foreign scopes never
+            # project into this project's register.
+            if capture_inbox_item_project_id(item) != document_id:
                 continue
             item_id = getattr(item, 'inbox_item_id', None) or getattr(item, 'id', '')
             if not item_id:
+                continue
+            # #867: the canonical #589 disposition lifecycle decides whether
+            # the item is a *current* unresolved gap — row presence is not
+            # evidence of pending work.
+            disposition = getattr(item, 'disposition', 'pending') or 'pending'
+            if disposition in ('promoted', 'rejected', 'superseded'):
                 continue
             subject = EvidenceGapSubjectRef(
                 kind='capture_inbox_item', ref_id=str(item_id),
@@ -1042,14 +1156,33 @@ class ProjectEvidenceGapRegister:
                 subject_ref_id=str(item_id),
                 classification='unresolved_dependency',
             )
+            if disposition == 'partially_promoted':
+                remaining = self._inbox_remaining_kinds(item)
+                summary = '一部のキャプチャ権威がまだ昇格していません。'
+                limitation = (
+                    '未昇格の権威があります'
+                    + (f'（{", ".join(remaining)}）' if remaining else '')
+                    + '。昇格済みの部分のみ証拠として使えます。'
+                )
+            elif disposition == 'deferred':
+                # Deferred is a documented park, not a fresh blocker —
+                # lower prominence until work resumes.
+                summary = '取り込みが保留されています。'
+                limitation = (
+                    '保留中の取り込みは証拠として使えません。'
+                    '必要になった時点で処理を再開してください。'
+                )
+            else:
+                summary = '取り込み待ちのキャプチャがあります。'
+                limitation = '未処理の取り込みは証拠として使えません。'
             gaps.append(
                 _gap(
                     document_id=document_id,
                     domain='measurement',
                     classification='unresolved_dependency',
                     subject=subject,
-                    summary='取り込み待ちのキャプチャがあります。',
-                    limitation='未処理の取り込みは証拠として使えません。',
+                    summary=summary,
+                    limitation=limitation,
                     affected_capabilities=('measurement',),
                     resolutions=(
                         _resolution(
@@ -1061,6 +1194,29 @@ class ProjectEvidenceGapRegister:
                 )
             )
         return gaps
+
+    def _inbox_remaining_kinds(self, item) -> tuple[str, ...]:
+        """Authority kinds still un-promoted for a partial item (#867).
+
+        Derived from the source's inspection when it exposes one; an
+        uninspectable source returns ``()`` and the gap stays generic —
+        the register never fabricates kind names.
+        """
+
+        inspect = getattr(self._inbox_source, 'inspect', None)
+        lineage = getattr(item, 'lineage_digest', None)
+        if inspect is None or lineage is None:
+            return ()
+        try:
+            inspection = inspect(lineage)
+        except Exception:
+            return ()
+        if inspection is None:
+            return ()
+        available = set(getattr(inspection, 'available_authority_kinds', ()))
+        promoted = set(getattr(inspection, 'promoted_authority_kinds', ()))
+        blocked = set(getattr(inspection, 'blocked_authority_kinds', ()))
+        return tuple(sorted((available - promoted) | blocked))
 
 
 __all__ = [

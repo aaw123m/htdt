@@ -18,11 +18,18 @@ from .cad_measurement_quality import (
     gate_measurement_claim,
     measurement_sha256,
 )
+from .cad_measurement_effective import (
+    CadEffectiveMeasurementResolver,
+    EffectiveMeasurementEvidence,
+)
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 from .cad_system_variant_lifecycle import (
     CadSystemVariantLifecycleRepository,
     SystemVariantAsBuiltRecord,
@@ -661,10 +668,21 @@ def _resolve_evidence(
     measurement_repository: CadMeasurementRepository,
     quality_repository: CadMeasurementQualityRepository,
     measurement_id: str,
-) -> tuple[CadMeasurementRecord, CadFrequencyResponseDataset, CadMeasurementQualityReport]:
-    measurement = measurement_repository.get_measurement(measurement_id)
-    if measurement is None:
-        raise ValueError(f'measurement evidence does not exist: {measurement_id}')
+) -> tuple[
+    EffectiveMeasurementEvidence,
+    CadMeasurementRecord,
+    CadFrequencyResponseDataset,
+    CadMeasurementQualityReport,
+]:
+    # Lifecycle gate (#509/#844): excluded/misassigned/test/duplicate
+    # evidence cannot promote a SystemVariant to measured, and the target
+    # match below runs on the effective corrected binding.
+    evidence = CadEffectiveMeasurementResolver(
+        measurement_repository, quality_repository
+    ).require_normal_use(
+        measurement_id, purpose='system variant measured evidence'
+    )
+    measurement = evidence.measurement
     dataset = measurement_repository.dataset_for_measurement(measurement_id)
     if dataset is None:
         raise ValueError(f'measurement dataset does not exist: {measurement_id}')
@@ -675,7 +693,7 @@ def _resolve_evidence(
         raise ValueError('measurement quality report measurement hash mismatch')
     if report.dataset_sha256 != dataset_sha256(dataset):
         raise ValueError('measurement quality report dataset hash mismatch')
-    return measurement, dataset, report
+    return evidence, measurement, dataset, report
 
 
 def _match_target(
@@ -683,6 +701,7 @@ def _match_target(
     campaign: SystemVariantMeasurementCampaign,
     registration: SystemVariantMeasurementCampaignRegistration,
     target: SystemVariantMeasurementTarget,
+    evidence: EffectiveMeasurementEvidence,
     measurement: CadMeasurementRecord,
     dataset: CadFrequencyResponseDataset,
     report: CadMeasurementQualityReport,
@@ -695,13 +714,13 @@ def _match_target(
         raise ValueError('measurement evidence binds wrong AsBuilt SceneRevision')
     if measurement.evidence_type != 'measured':
         raise ValueError('variant campaign requires measured evidence')
-    if measurement.measurement_entity_id != target.measurement_point_entity_id:
+    if evidence.measurement_entity_id != target.measurement_point_entity_id:
         raise ValueError('measurement evidence binds wrong measurement point entity')
     if measurement.measurement_position != target.measurement_position:
         raise ValueError('measurement evidence binds wrong measurement point position')
-    if measurement.channel_role != target.channel_role:
+    if evidence.channel_role != target.channel_role:
         raise ValueError('measurement evidence binds wrong channel role')
-    if tuple(sorted(measurement.source_speaker_ids)) != target.source_entity_ids:
+    if tuple(sorted(evidence.source_speaker_ids)) != target.source_entity_ids:
         raise ValueError('measurement evidence binds wrong source entity role')
     if measurement.captured_at is None:
         raise ValueError('variant campaign requires explicit capture timestamp')
@@ -812,7 +831,7 @@ def complete_system_variant_measurement_plan(
             if measurement_id in used:
                 raise ValueError('measurement cannot satisfy multiple target slots')
             used.add(measurement_id)
-            measurement, dataset, report = _resolve_evidence(
+            effective, measurement, dataset, report = _resolve_evidence(
                 measurement_repository=measurement_repository,
                 quality_repository=quality_repository,
                 measurement_id=measurement_id,
@@ -822,6 +841,7 @@ def complete_system_variant_measurement_plan(
                     campaign=campaign,
                     registration=registration,
                     target=target,
+                    evidence=effective,
                     measurement=measurement,
                     dataset=dataset,
                     report=report,
@@ -1007,6 +1027,9 @@ class CadSystemVariantMeasurementCampaignRepository:
         self.measurement_repository = measurement_repository
         self.quality_repository = quality_repository
         self.measured_lifecycle_repository = measured_lifecycle_repository
+        self._effective = CadEffectiveMeasurementResolver(
+            measurement_repository, quality_repository
+        )
         self.path = Path(scene_repository.path)
         for name, repository in (
             ('variant', variant_repository),
@@ -1032,55 +1055,7 @@ class CadSystemVariantMeasurementCampaignRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_id TEXT NOT NULL UNIQUE,
-                    plan_sha256 TEXT NOT NULL UNIQUE,
-                    variant_id TEXT NOT NULL,
-                    as_built_record_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_campaigns (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    campaign_sha256 TEXT NOT NULL UNIQUE,
-                    variant_id TEXT NOT NULL,
-                    as_built_record_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_campaign_registrations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    registration_id TEXT NOT NULL UNIQUE,
-                    registration_sha256 TEXT NOT NULL UNIQUE,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    campaign_sha256 TEXT NOT NULL,
-                    registered_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_plan_completions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    completion_id TEXT NOT NULL UNIQUE,
-                    completion_sha256 TEXT NOT NULL UNIQUE,
-                    plan_id TEXT NOT NULL,
-                    campaign_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS cad_system_variant_measurement_campaign_completions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    completion_id TEXT NOT NULL UNIQUE,
-                    completion_sha256 TEXT NOT NULL UNIQUE,
-                    campaign_id TEXT NOT NULL UNIQUE,
-                    measured_record_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                """
-            )
+            require_native_tables(connection, 'cad_system_variant_measurement_plans', 'cad_system_variant_measurement_campaigns', 'cad_system_variant_measurement_campaign_registrations', 'cad_system_variant_measurement_plan_completions', 'cad_system_variant_measurement_campaign_completions')
 
     def _validate_plan(
         self,
@@ -1211,16 +1186,25 @@ class CadSystemVariantMeasurementCampaignRepository:
             ),
         ).fetchall()
         for row in rows:
+            # Qualifying evidence must currently be eligible (#509/#844) and
+            # matches the targets on its effective corrected binding.
+            try:
+                evidence = self._effective.require_normal_use(
+                    str(row['measurement_id']),
+                    purpose='system variant campaign evidence',
+                )
+            except ValueError:
+                continue
             position = Position3.model_validate(
                 json.loads(row['measurement_position_json'])
             )
-            source_ids = tuple(sorted(json.loads(row['source_speaker_ids_json'])))
+            source_ids = tuple(sorted(evidence.source_speaker_ids))
             for target in targets:
                 if (
-                    row['measurement_entity_id']
+                    evidence.measurement_entity_id
                     == target.measurement_point_entity_id
                     and position == target.measurement_position
-                    and row['channel_role'] == target.channel_role
+                    and evidence.channel_role == target.channel_role
                     and source_ids == target.source_entity_ids
                 ):
                     return str(row['measurement_id'])

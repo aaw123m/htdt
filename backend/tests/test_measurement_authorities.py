@@ -4,10 +4,16 @@ from __future__ import annotations
 from hashlib import sha256
 from pathlib import Path
 import json
+import sqlite3
 
 import pytest
 from pydantic import ValidationError
 
+from htdt.cad_listener_pose import (
+    CadListenerPoseRepository,
+    listener_pose_for_seat,
+    pose_acoustic_reference_position,
+)
 from htdt.cad_measurement_authorities import (
     POLARITY_INVERSION_TOKEN,
     build_acoustic_level_calibration,
@@ -15,11 +21,21 @@ from htdt.cad_measurement_authorities import (
     build_routing_profile,
     build_timing_reference,
     build_wiring_check,
+    calibration_applies_to,
+    calibration_authorizes_absolute_spl,
     calibration_supports_absolute_spl,
+    correction_already_applied,
+    correction_application_state,
+    correction_requires_application,
+    correction_sign_convention,
     latest_wiring_checks,
     net_polarity_state,
+    routing_profile_binding,
     routing_profile_staleness,
     timing_clocks_shared,
+    timing_corrections_unambiguous,
+    timing_reference_authorizes_common_timing,
+    timing_reference_scope_is_applicable,
     timing_reference_supports_common_timing,
 )
 from htdt.cad_measurement_ir import (
@@ -52,10 +68,12 @@ from htdt.cad_scene import (
     Position3,
     SceneEntity,
     Size3,
+    acoustic_reference_position,
     make_f1_scene,
 )
 from htdt.cad_measurement_targets import (
     MeasurementTargetError,
+    build_measurement_target_lineage,
     derive_measurement_point_document,
     measurement_target_drift,
 )
@@ -136,7 +154,8 @@ def _scene_with_seat(document):
 
 
 def test_timing_reference_roundtrip(tmp_path):
-    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, _ = _save_measurement(measurement_repository, revision, 'm-1')
     reference = build_timing_reference(
         method='loopback',
         reference_channel='output-2',
@@ -148,6 +167,8 @@ def test_timing_reference_roundtrip(tmp_path):
             {'correction_kind': 'loopback_path', 'value_s': 0.0012},
         ),
         validity_scope='session',
+        acquisition_session_id='sess-1',
+        subject_measurement_ids=(record.measurement_id,),
     )
     quality_repository.save_timing_reference(reference)
     loaded = quality_repository.get_timing_reference(reference.timing_reference_id)
@@ -223,6 +244,8 @@ def test_level_calibration_roundtrip(tmp_path):
     calibration = build_acoustic_level_calibration(
         method='acoustic_calibrator',
         instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        input_path_identity='umik-1:usb-in:ch0:gain-unity',
         reference_level_db_spl=94.0,
         reference_frequency_hz=1000.0,
         calibrated_at_utc='2026-09-20T00:00:00+00:00',
@@ -241,9 +264,56 @@ def test_manufacturer_sensitivity_is_not_absolute_spl():
         assert not calibration_supports_absolute_spl(
             build_acoustic_level_calibration(method=method)
         )
+    # A bare method enum authorizes nothing — each capable method must
+    # carry its minimum evidence set, and the builder refuses records
+    # that lack it (#827/#850).
     for method in ('acoustic_calibrator', 'rew_spl_session', 'reference_meter_transfer'):
-        assert calibration_supports_absolute_spl(
+        with pytest.raises(ValueError):
             build_acoustic_level_calibration(method=method)
+    # The build-time minimum alone is still not complete evidence: input
+    # chain, result/session record and applicability scope are missing.
+    for method, kwargs in (
+        (
+            'acoustic_calibrator',
+            {
+                'reference_level_db_spl': 94.0,
+                'reference_frequency_hz': 1000.0,
+            },
+        ),
+        ('rew_spl_session', {'acquisition_session_id': 'sess-1'}),
+        ('reference_meter_transfer', {'instrument_identity': 'sc-05 sn-1234'}),
+    ):
+        assert not calibration_supports_absolute_spl(
+            build_acoustic_level_calibration(method=method, **kwargs)
+        )
+    complete = {
+        'acoustic_calibrator': dict(
+            instrument_identity='sc-05 sn-1234',
+            instrument_profile='cal-session-2026-09-20',
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            reference_level_db_spl=94.0,
+            reference_frequency_hz=1000.0,
+            validity_scope='instrument',
+        ),
+        'rew_spl_session': dict(
+            instrument_profile='rew-spl-2026-09-20',
+            acquisition_session_id='sess-1',
+            input_device_label='focusrite-scarlett',
+            reference_level_db_spl=83.0,
+            validity_scope='session',
+        ),
+        'reference_meter_transfer': dict(
+            instrument_identity='b&k-2250 sn-8001',
+            instrument_profile='transfer-2026-09-20',
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            input_device_label='focusrite-scarlett',
+            reference_level_db_spl=94.0,
+            validity_scope='instrument',
+        ),
+    }
+    for method, evidence in complete.items():
+        assert calibration_supports_absolute_spl(
+            build_acoustic_level_calibration(method=method, **evidence)
         )
 
 
@@ -252,9 +322,23 @@ def test_dataset_level_reference_binding(tmp_path):
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
     calibration = build_acoustic_level_calibration(
         method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        reference_level_db_spl=94.0,
+        reference_frequency_hz=1000.0,
         calibrated_at_utc='2026-09-20T00:00:00+00:00',
+        validity_scope='measurement',
+        subject_measurement_id=record.measurement_id,
     )
     quality_repository.save_level_calibration(calibration)
+    # The exact acquisition context covering the dataset's measurement is
+    # required before the calibration's applicability is verifiable (#827).
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(record.measurement_id,),
+        )
+    )
 
     reference = build_dataset_level_reference(
         measurement_id=record.measurement_id,
@@ -287,6 +371,128 @@ def test_absolute_spl_requires_supporting_calibration(tmp_path):
         quality_repository.save_dataset_level_reference(reference)
 
 
+def _complete_spl_calibration(**overrides):
+    kwargs = dict(
+        method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        reference_level_db_spl=94.0,
+        reference_frequency_hz=1000.0,
+        calibrated_at_utc='2026-09-20T00:00:00+00:00',
+        validity_scope='instrument',
+    )
+    kwargs.update(overrides)
+    return build_acoustic_level_calibration(**kwargs)
+
+
+def _absolute_spl_reference(record, dataset, calibration):
+    return build_dataset_level_reference(
+        measurement_id=record.measurement_id,
+        dataset_id=dataset.dataset_id,
+        dataset_sha256=dataset.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+
+
+def test_absolute_spl_rejects_incomplete_calibration_evidence(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    # A calibrator record that passes the build-time minimum but lacks the
+    # input-chain identity and a declared applicability scope documents
+    # evidence gaps, not an authorized absolute SPL claim (#827).
+    partial = _complete_spl_calibration(
+        instrument_identity=None,
+        input_device_label=None,
+        input_channel=None,
+        input_path_identity=None,
+        validity_scope='unknown',
+    )
+    quality_repository.save_level_calibration(partial)
+    with pytest.raises(ValueError, match='missing evidence'):
+        quality_repository.save_dataset_level_reference(
+            _absolute_spl_reference(record, dataset, partial)
+        )
+
+
+def test_absolute_spl_requires_covering_acquisition_context(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    calibration = _complete_spl_calibration()
+    quality_repository.save_level_calibration(calibration)
+    # Only a context covering a *different* measurement exists — the
+    # instrument-scoped calibration's applicability to THIS dataset's
+    # acquisition can never be proven (#827/#859).
+    other, _ = _save_measurement(measurement_repository, revision, 'm-2')
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(other.measurement_id,),
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        )
+    )
+    with pytest.raises(ValueError, match='does not cover'):
+        quality_repository.save_dataset_level_reference(
+            _absolute_spl_reference(record, dataset, calibration)
+        )
+
+
+def test_absolute_spl_rejects_inapplicable_calibration(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    # The calibration was taken on a different microphone chain than the
+    # acquisition context used for this dataset.
+    calibration = _complete_spl_calibration(
+        instrument_identity='other-mic sn-9999',
+    )
+    quality_repository.save_level_calibration(calibration)
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(record.measurement_id,),
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            microphone=CadMicrophoneCapture(
+                model='UMIK-1',
+                serial='sc-05 sn-1234',
+                connection='focusrite-scarlett',
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match='does not apply'):
+        quality_repository.save_dataset_level_reference(
+            _absolute_spl_reference(record, dataset, calibration)
+        )
+
+
+def test_absolute_spl_accepted_when_calibration_applies(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
+    calibration = _complete_spl_calibration(
+        input_device_label='focusrite-scarlett',
+    )
+    quality_repository.save_level_calibration(calibration)
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(record.measurement_id,),
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+            microphone=CadMicrophoneCapture(
+                model='UMIK-1',
+                serial='sc-05 sn-1234',
+                connection='focusrite-scarlett',
+            ),
+        )
+    )
+    reference = _absolute_spl_reference(record, dataset, calibration)
+    quality_repository.save_dataset_level_reference(reference)
+    assert (
+        quality_repository.get_dataset_level_reference(dataset.dataset_id)
+        == reference
+    )
+
+
 def test_non_absolute_level_reference_forbids_calibration(tmp_path):
     revision, measurement_repository, quality_repository = _repositories(tmp_path)
     record, dataset = _save_measurement(measurement_repository, revision, 'm-1')
@@ -317,9 +523,10 @@ def test_non_absolute_level_reference_forbids_calibration(tmp_path):
 
 
 def _profile(**kwargs):
-    return build_routing_profile(
-        profile_name='main-theater',
-        entries=(
+    kwargs.setdefault('document_id', 'fixture-f1')
+    kwargs.setdefault(
+        'entries',
+        (
             {
                 'output_device_label': 'EXCL: DENON-AVR (WASAPI)',
                 'rew_channel_label': 'C:FL',
@@ -343,13 +550,16 @@ def _profile(**kwargs):
                 'avr_configuration_id': 'avr-xt32-movie',
             },
         ),
+    )
+    return build_routing_profile(
+        profile_name='main-theater',
         **kwargs,
     )
 
 
 def test_routing_profile_roundtrip(tmp_path):
-    _, _, quality_repository = _repositories(tmp_path)
-    profile = _profile()
+    revision, _, quality_repository = _repositories(tmp_path)
+    profile = _profile(scene_revision_id=revision.revision_id)
     quality_repository.save_routing_profile(profile)
     assert quality_repository.get_routing_profile(profile.routing_profile_id) == profile
     listed = quality_repository.list_routing_profiles()
@@ -417,7 +627,7 @@ def test_assignment_resolves_routing_profile(tmp_path):
         quality_repository=quality_repository,
         rew_client=object(),  # no REW available; engine_session stays absent
     )
-    profile = _profile()
+    profile = _profile(scene_revision_id=revision.revision_id)
     quality_repository.save_routing_profile(profile)
 
     raw = b'freq level\n20.0 70.0\n40.0 71.0\n80.0 69.0\n'
@@ -460,6 +670,10 @@ def _wiring_check(revision=None, **kwargs):
         'scene_revision_sha256',
         revision.content_hash if revision is not None else '0' * 64,
     )
+    # #848: a PASS claim needs resolvable evidence or an explicit manual
+    # attestation naming what was verified.
+    if kwargs['result'] == 'PASS':
+        kwargs.setdefault('evidence_refs', ('manual:dcr-probe-verified',))
     document_id = (
         revision.document_id if revision is not None else 'fixture-f1'
     )
@@ -1091,3 +1305,764 @@ def test_revision_options_newest_first(tmp_path):
     options = controller.revision_options()
     assert options[0].revision_id == second.revision_id
     assert options[-1].revision_id == first.revision_id
+
+
+# ---------------------------------------------------------------------------
+# #849/#860 timing-reference scope identity + correction state
+
+
+def test_timing_scope_measurement_is_exact(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    m1, _ = _save_measurement(measurement_repository, revision, 'm-1')
+    m2, _ = _save_measurement(measurement_repository, revision, 'm-2')
+    reference = build_timing_reference(
+        method='loopback',
+        validity_scope='measurement',
+        subject_measurement_ids=(m1.measurement_id,),
+    )
+    quality_repository.save_timing_reference(reference)
+    assert timing_reference_scope_is_applicable(
+        reference, subject_measurement_ids=(m1.measurement_id,)
+    )
+    assert not timing_reference_scope_is_applicable(
+        reference, subject_measurement_ids=(m2.measurement_id,)
+    )
+    assert not timing_reference_scope_is_applicable(
+        reference,
+        subject_measurement_ids=(m1.measurement_id, m2.measurement_id),
+    )
+    assert timing_reference_authorizes_common_timing(
+        reference, subject_measurement_ids=(m1.measurement_id,)
+    )
+    assert not timing_reference_authorizes_common_timing(
+        reference, subject_measurement_ids=(m2.measurement_id,)
+    )
+    context = build_acquisition_context(
+        source_kind='native',
+        subject_measurement_ids=(m2.measurement_id,),
+        timing_reference_sha256=reference.timing_reference_sha256,
+    )
+    with pytest.raises(ValueError, match='validity scope'):
+        quality_repository.save_acquisition_context(context)
+
+
+def test_timing_scope_measurement_is_exactly_one(tmp_path):
+    revision, measurement_repository, _ = _repositories(tmp_path)
+    m1, _ = _save_measurement(measurement_repository, revision, 'm-1')
+    m2, _ = _save_measurement(measurement_repository, revision, 'm-2')
+    with pytest.raises(ValueError, match='exactly one subject'):
+        build_timing_reference(
+            method='loopback',
+            validity_scope='measurement',
+            subject_measurement_ids=(m1.measurement_id, m2.measurement_id),
+        )
+
+
+def test_timing_scope_session_membership(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    m1, _ = _save_measurement(measurement_repository, revision, 'm-1')
+    m2, _ = _save_measurement(measurement_repository, revision, 'm-2')
+    reference = build_timing_reference(
+        method='loopback',
+        validity_scope='session',
+        acquisition_session_id='sess-1',
+        subject_measurement_ids=(m1.measurement_id,),
+    )
+    quality_repository.save_timing_reference(reference)
+    assert timing_reference_scope_is_applicable(
+        reference,
+        subject_measurement_ids=(m1.measurement_id,),
+        acquisition_session_id='sess-1',
+    )
+    # A subject outside the member manifest is out of scope.
+    assert not timing_reference_scope_is_applicable(
+        reference,
+        subject_measurement_ids=(m2.measurement_id,),
+        acquisition_session_id='sess-1',
+    )
+    # A context declaring a different session cannot reuse it.
+    assert not timing_reference_scope_is_applicable(
+        reference,
+        subject_measurement_ids=(m1.measurement_id,),
+        acquisition_session_id='sess-2',
+    )
+
+
+def test_timing_scope_persistent_requires_signal_path():
+    reference = build_timing_reference(
+        method='loopback',
+        validity_scope='persistent',
+        signal_path_identity='umik-usb:48k:ch0',
+        sample_rate_hz=48000,
+    )
+    assert timing_reference_scope_is_applicable(
+        reference,
+        subject_measurement_ids=('m-1',),
+        signal_path_identity='umik-usb:48k:ch0',
+        sample_rate_hz=48000,
+    )
+    assert not timing_reference_scope_is_applicable(
+        reference,
+        subject_measurement_ids=('m-1',),
+        signal_path_identity='motu:96k:ch0',
+        sample_rate_hz=96000,
+    )
+    # Declared sample-rate constraint enforced when both sides record it.
+    assert not timing_reference_scope_is_applicable(
+        reference,
+        subject_measurement_ids=('m-1',),
+        signal_path_identity='umik-usb:48k:ch0',
+        sample_rate_hz=96000,
+    )
+
+
+def test_timing_scope_unknown_never_authorizes(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, _ = _save_measurement(measurement_repository, revision, 'm-1')
+    # An unscoped reference stays readable legacy evidence and still binds.
+    reference = build_timing_reference(method='acoustic_reference')
+    quality_repository.save_timing_reference(reference)
+    context = build_acquisition_context(
+        source_kind='native',
+        subject_measurement_ids=(record.measurement_id,),
+        timing_reference_sha256=reference.timing_reference_sha256,
+    )
+    quality_repository.save_acquisition_context(context)
+    assert not timing_reference_scope_is_applicable(
+        reference, subject_measurement_ids=(record.measurement_id,)
+    )
+    assert not timing_reference_authorizes_common_timing(
+        reference, subject_measurement_ids=(record.measurement_id,)
+    )
+
+
+def test_timing_scope_subject_must_resolve(tmp_path):
+    _, _, quality_repository = _repositories(tmp_path)
+    reference = build_timing_reference(
+        method='loopback',
+        validity_scope='measurement',
+        subject_measurement_ids=('m-missing',),
+    )
+    with pytest.raises(ValueError, match='scope subject measurement'):
+        quality_repository.save_timing_reference(reference)
+
+
+def test_delay_correction_state_is_typed_and_unambiguous():
+    pending = build_timing_reference(
+        method='loopback',
+        delay_corrections=(
+            {
+                'correction_kind': 'loopback_path',
+                'value_s': 0.001,
+                'sign_convention': 'subtract_from_arrival',
+                'application_state': 'metadata_only',
+            },
+        ),
+    )
+    correction = pending.delay_corrections[0]
+    assert correction_requires_application(correction)
+    assert not correction_already_applied(correction)
+    assert correction_application_state(correction) == 'metadata_only'
+    assert correction_sign_convention(correction) == 'subtract_from_arrival'
+    assert timing_corrections_unambiguous(pending)
+
+    applied = build_timing_reference(
+        method='loopback',
+        delay_corrections=(
+            {
+                'correction_kind': 'output_buffer',
+                'value_s': 0.002,
+                'sign_convention': 'producer_shifted',
+                'application_state': 'producer_applied',
+            },
+        ),
+    )
+    assert correction_already_applied(applied.delay_corrections[0])
+    assert timing_corrections_unambiguous(applied)
+
+    # An absent state is ambiguous and blocks strong arrival claims —
+    # never risk applying the same value twice.
+    legacy = build_timing_reference(
+        method='loopback',
+        delay_corrections=(
+            {'correction_kind': 'loopback_path', 'value_s': 0.001},
+        ),
+    )
+    legacy_correction = legacy.delay_corrections[0]
+    assert correction_application_state(legacy_correction) == 'unknown'
+    assert not correction_requires_application(legacy_correction)
+    assert not correction_already_applied(legacy_correction)
+    assert not timing_corrections_unambiguous(legacy)
+    # Optional state keys join the sealed payload only when present —
+    # references persisted before they existed keep their exact hash.
+    assert set(
+        legacy.identity_payload()['delay_corrections'][0]
+    ) == {'correction_kind', 'value_s', 'provenance'}
+
+
+# ---------------------------------------------------------------------------
+# #850/#859 level-calibration applicability
+
+
+def test_calibration_applies_only_to_declared_subject(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    m1, d1 = _save_measurement(measurement_repository, revision, 'm-1')
+    m2, d2 = _save_measurement(measurement_repository, revision, 'm-2')
+    calibration = build_acoustic_level_calibration(
+        method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        reference_level_db_spl=94.0,
+        reference_frequency_hz=1000.0,
+        validity_scope='measurement',
+        subject_measurement_id=m1.measurement_id,
+    )
+    quality_repository.save_level_calibration(calibration)
+    assert calibration_applies_to(
+        calibration, measurement_id=m1.measurement_id
+    )
+    assert not calibration_applies_to(
+        calibration, measurement_id=m2.measurement_id
+    )
+    assert calibration_authorizes_absolute_spl(
+        calibration, measurement_id=m1.measurement_id
+    )
+    reference = build_dataset_level_reference(
+        measurement_id=m1.measurement_id,
+        dataset_id=d1.dataset_id,
+        dataset_sha256=d1.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+    quality_repository.save_dataset_level_reference(reference)
+    # The same sealed calibration cannot bind a different measurement.
+    foreign = build_dataset_level_reference(
+        measurement_id=m2.measurement_id,
+        dataset_id=d2.dataset_id,
+        dataset_sha256=d2.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+    with pytest.raises(ValueError, match='does not cover'):
+        quality_repository.save_dataset_level_reference(foreign)
+
+
+def test_calibration_session_scope_uses_context_session(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    m1, d1 = _save_measurement(measurement_repository, revision, 'm-1')
+    m2, d2 = _save_measurement(measurement_repository, revision, 'm-2')
+    calibration = build_acoustic_level_calibration(
+        method='rew_spl_session',
+        instrument_profile='rew-spl-2026-09-20',
+        input_device_label='focusrite-scarlett',
+        reference_level_db_spl=83.0,
+        validity_scope='session',
+        acquisition_session_id='sess-1',
+    )
+    quality_repository.save_level_calibration(calibration)
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(m1.measurement_id,),
+            acquisition_session_id='sess-1',
+        )
+    )
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(m2.measurement_id,),
+            acquisition_session_id='sess-2',
+        )
+    )
+    reference = build_dataset_level_reference(
+        measurement_id=m1.measurement_id,
+        dataset_id=d1.dataset_id,
+        dataset_sha256=d1.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+    quality_repository.save_dataset_level_reference(reference)
+    foreign = build_dataset_level_reference(
+        measurement_id=m2.measurement_id,
+        dataset_id=d2.dataset_id,
+        dataset_sha256=d2.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+    with pytest.raises(ValueError, match='does not cover'):
+        quality_repository.save_dataset_level_reference(foreign)
+
+
+def test_calibration_instrument_scope_uses_input_path(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    m1, d1 = _save_measurement(measurement_repository, revision, 'm-1')
+    calibration = build_acoustic_level_calibration(
+        method='reference_meter_transfer',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='transfer-2026-09-20',
+        input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        input_device_label='focusrite-scarlett',
+        reference_level_db_spl=94.0,
+        validity_scope='instrument',
+    )
+    quality_repository.save_level_calibration(calibration)
+    # No context proves the input chain → applicability cannot be proven.
+    reference = build_dataset_level_reference(
+        measurement_id=m1.measurement_id,
+        dataset_id=d1.dataset_id,
+        dataset_sha256=d1.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+    with pytest.raises(ValueError, match='does not cover'):
+        quality_repository.save_dataset_level_reference(reference)
+    quality_repository.save_acquisition_context(
+        build_acquisition_context(
+            source_kind='native',
+            subject_measurement_ids=(m1.measurement_id,),
+            input_path_identity='umik-1:usb-in:ch0:gain-unity',
+        )
+    )
+    quality_repository.save_dataset_level_reference(reference)
+
+
+def test_calibration_unknown_scope_stays_uncalibrated(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    m1, d1 = _save_measurement(measurement_repository, revision, 'm-1')
+    calibration = build_acoustic_level_calibration(
+        method='acoustic_calibrator',
+        instrument_identity='sc-05 sn-1234',
+        instrument_profile='cal-session-2026-09-20',
+        reference_level_db_spl=94.0,
+        reference_frequency_hz=1000.0,
+    )
+    quality_repository.save_level_calibration(calibration)
+    reference = build_dataset_level_reference(
+        measurement_id=m1.measurement_id,
+        dataset_id=d1.dataset_id,
+        dataset_sha256=d1.dataset_sha256,
+        level_reference_kind='absolute_spl',
+        calibration_id=calibration.calibration_id,
+        calibration_sha256=calibration.calibration_sha256,
+    )
+    with pytest.raises(ValueError, match='applicability scope'):
+        quality_repository.save_dataset_level_reference(reference)
+
+
+def test_calibration_method_requires_its_evidence():
+    with pytest.raises(ValueError, match='reference level'):
+        build_acoustic_level_calibration(method='acoustic_calibrator')
+    with pytest.raises(ValueError, match='acquisition session id'):
+        build_acoustic_level_calibration(method='rew_spl_session')
+    with pytest.raises(ValueError, match='instrument identity'):
+        build_acoustic_level_calibration(method='reference_meter_transfer')
+    with pytest.raises(ValueError, match='acquisition session id'):
+        build_acoustic_level_calibration(
+            method='acoustic_calibrator',
+            reference_level_db_spl=94.0,
+            reference_frequency_hz=1000.0,
+            validity_scope='session',
+        )
+
+
+# ---------------------------------------------------------------------------
+# #847 seat→measurement-point derivation lineage validation
+
+
+def _revision_with_seat_and_point(scene_repository):
+    revision = scene_repository.current_head('fixture-f1')
+    revision = scene_repository.save(
+        _scene_with_seat(revision.document),
+        parent_revision_id=revision.revision_id,
+    ).revision
+    derived = derive_measurement_point_document(
+        revision.document,
+        source_seat_id='seat-1',
+        measurement_point_id='point-sofa',
+    )
+    revision = scene_repository.save(
+        derived, parent_revision_id=revision.revision_id
+    ).revision
+    position = acoustic_reference_position(
+        revision.document.entity('point-sofa')
+    )
+    return revision, position
+
+
+def test_save_target_lineage_rejects_foreign_revision(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    scene_repository = measurement_repository.scene_repository
+    revision, position = _revision_with_seat_and_point(scene_repository)
+    foreign = scene_repository.save(
+        make_f1_scene().model_copy(update={'document_id': 'fixture-f2'}),
+        parent_revision_id=None,
+    ).revision
+    lineage = build_measurement_target_lineage(
+        document_id='fixture-f1',
+        measurement_point_id='point-sofa',
+        source_seat_id='seat-1',
+        creation_revision_id=foreign.revision_id,
+        initial_position=position,
+    )
+    with pytest.raises(ValueError, match='different document'):
+        quality_repository.save_target_lineage(lineage)
+    lineage = build_measurement_target_lineage(
+        document_id='fixture-f1',
+        measurement_point_id='point-sofa',
+        source_seat_id='seat-1',
+        creation_revision_id='rev-missing',
+        initial_position=position,
+    )
+    with pytest.raises(ValueError, match='unknown creation revision'):
+        quality_repository.save_target_lineage(lineage)
+
+
+def test_save_target_lineage_rejects_bad_entities(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    scene_repository = measurement_repository.scene_repository
+    revision, position = _revision_with_seat_and_point(scene_repository)
+    base = dict(
+        document_id='fixture-f1',
+        measurement_point_id='point-sofa',
+        source_seat_id='seat-1',
+        creation_revision_id=revision.revision_id,
+        initial_position=position,
+    )
+    with pytest.raises(ValueError, match='unknown source seat'):
+        quality_repository.save_target_lineage(
+            build_measurement_target_lineage(
+                **{**base, 'source_seat_id': 'seat-9'}
+            )
+        )
+    with pytest.raises(ValueError, match='is not a seat'):
+        quality_repository.save_target_lineage(
+            build_measurement_target_lineage(
+                **{**base, 'source_seat_id': 'speaker-fl'}
+            )
+        )
+    with pytest.raises(ValueError, match='unknown measurement point'):
+        quality_repository.save_target_lineage(
+            build_measurement_target_lineage(
+                **{**base, 'measurement_point_id': 'point-x'}
+            )
+        )
+    with pytest.raises(ValueError, match='does not match'):
+        quality_repository.save_target_lineage(
+            build_measurement_target_lineage(
+                **{
+                    **base,
+                    'initial_position': Position3(
+                        x_m=0.0, y_m=0.0, z_m=0.0
+                    ),
+                }
+            )
+        )
+    quality_repository.save_target_lineage(
+        build_measurement_target_lineage(**base)
+    )
+    assert (
+        quality_repository.get_target_lineage('point-sofa').source_seat_id
+        == 'seat-1'
+    )
+
+
+def test_target_lineage_survives_current_head_drift(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    scene_repository = measurement_repository.scene_repository
+    revision, position = _revision_with_seat_and_point(scene_repository)
+    lineage = build_measurement_target_lineage(
+        document_id='fixture-f1',
+        measurement_point_id='point-sofa',
+        source_seat_id='seat-1',
+        creation_revision_id=revision.revision_id,
+        initial_position=position,
+    )
+    quality_repository.save_target_lineage(lineage)
+    # Move the seat at head — the pinned-revision lineage still validates.
+    moved = revision.document.model_copy(
+        update={
+            'entities': tuple(
+                entity.model_copy(
+                    update={'position': Position3(x_m=9.0, y_m=9.0, z_m=0.5)}
+                )
+                if entity.entity_id == 'seat-1'
+                else entity
+                for entity in revision.document.entities
+            )
+        }
+    )
+    scene_repository.save(moved, parent_revision_id=revision.revision_id)
+    assert (
+        quality_repository.get_target_lineage('point-sofa') == lineage
+    )
+    listed = quality_repository.list_target_lineages('fixture-f1')
+    assert lineage in listed
+
+
+def test_target_lineage_tampered_columns_fail_on_read(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    scene_repository = measurement_repository.scene_repository
+    revision, position = _revision_with_seat_and_point(scene_repository)
+    lineage = build_measurement_target_lineage(
+        document_id='fixture-f1',
+        measurement_point_id='point-sofa',
+        source_seat_id='seat-1',
+        creation_revision_id=revision.revision_id,
+        initial_position=position,
+    )
+    quality_repository.save_target_lineage(lineage)
+    with sqlite3.connect(quality_repository.path) as connection:
+        connection.execute(
+            'UPDATE cad_measurement_target_lineages SET document_id=? '
+            'WHERE target_lineage_id=?',
+            ('tampered-doc', lineage.target_lineage_id),
+        )
+    # The tampered row is still reachable by point id and must fail closed.
+    with pytest.raises(ValueError, match='disagrees with its payload'):
+        quality_repository.get_target_lineage('point-sofa')
+    # Under its tampered document listing it likewise fails closed.
+    with pytest.raises(ValueError, match='disagrees with its payload'):
+        quality_repository.list_target_lineages('tampered-doc')
+
+
+def test_target_lineage_pose_derived_position(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    scene_repository = measurement_repository.scene_repository
+    head = scene_repository.current_head('fixture-f1')
+    revision = scene_repository.save(
+        _scene_with_seat(head.document),
+        parent_revision_id=head.revision_id,
+    ).revision
+    seat = revision.document.entity('seat-1')
+    pose = listener_pose_for_seat(
+        seat,
+        label='listening',
+        eye_reference_offset_local_m=Offset3(x_m=0.0, y_m=0.0, z_m=0.1),
+        head_center_offset_local_m=Offset3(x_m=0.0, y_m=0.0, z_m=0.5),
+        provenance='test',
+    )
+    CadListenerPoseRepository(quality_repository.path).save_pose(pose)
+    derived = derive_measurement_point_document(
+        revision.document,
+        source_seat_id='seat-1',
+        measurement_point_id='point-sofa',
+        listener_pose=pose,
+    )
+    revision = scene_repository.save(
+        derived, parent_revision_id=revision.revision_id
+    ).revision
+    seat = revision.document.entity('seat-1')
+    lineage = build_measurement_target_lineage(
+        document_id='fixture-f1',
+        measurement_point_id='point-sofa',
+        source_seat_id='seat-1',
+        source_pose_ref=pose.authority_ref(),
+        creation_revision_id=revision.revision_id,
+        initial_position=pose_acoustic_reference_position(seat, pose),
+    )
+    quality_repository.save_target_lineage(lineage)
+    assert quality_repository.get_target_lineage('point-sofa') == lineage
+
+
+# ---------------------------------------------------------------------------
+# #858 routing-profile document scope + context binding + verified claims
+
+
+def test_routing_profile_document_scope_validates_speakers(tmp_path):
+    _, _, quality_repository = _repositories(tmp_path)
+    quality_repository.save_routing_profile(_profile())
+    with pytest.raises(ValueError, match='unknown document'):
+        quality_repository.save_routing_profile(
+            _profile(document_id='fixture-missing')
+        )
+    with pytest.raises(ValueError, match='missing from the bound scene'):
+        quality_repository.save_routing_profile(
+            _profile(entries=(
+                {
+                    'output_device_label': 'dev',
+                    'rew_channel_label': 'C:XX',
+                    'hardware_channel_index': 9,
+                    'observed_speaker_ids': ('speaker-ghost',),
+                },
+            ))
+        )
+    with pytest.raises(ValueError, match='not a speaker entity'):
+        quality_repository.save_routing_profile(
+            _profile(entries=(
+                {
+                    'output_device_label': 'dev',
+                    'rew_channel_label': 'C:XX',
+                    'hardware_channel_index': 9,
+                    'observed_speaker_ids': ('point-mlp',),
+                },
+            ))
+        )
+
+
+def test_routing_profile_list_filters_document(tmp_path):
+    _, _, quality_repository = _repositories(tmp_path)
+    scene_repository2 = SceneRepository(tmp_path / 'cad2.sqlite3')
+    scene_repository2.save(
+        make_f1_scene().model_copy(update={'document_id': 'fixture-f2'}),
+        parent_revision_id=None,
+    )
+    profile_f1 = _profile()
+    profile_f2 = _profile(document_id='fixture-f2')
+    quality_repository.save_routing_profile(profile_f1)
+    CadMeasurementQualityRepository(
+        CadMeasurementRepository(scene_repository2)
+    ).save_routing_profile(profile_f2)
+    listed = quality_repository.list_routing_profiles(document_id='fixture-f1')
+    assert listed == (profile_f1,)
+
+
+def test_acquisition_context_binds_routing_profile(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, _ = _save_measurement(measurement_repository, revision, 'm-1')
+    profile = _profile()
+    quality_repository.save_routing_profile(profile)
+    context = build_acquisition_context(
+        source_kind='native',
+        subject_measurement_ids=(record.measurement_id,),
+        routing_profile=routing_profile_binding(profile),
+    )
+    quality_repository.save_acquisition_context(context)
+    loaded = quality_repository.get_acquisition_context(
+        context.acquisition_context_id
+    )
+    assert loaded.routing_profile.routing_profile_id == profile.routing_profile_id
+
+    tampered = build_acquisition_context(
+        source_kind='native',
+        subject_measurement_ids=(record.measurement_id,),
+        routing_profile=routing_profile_binding(profile).model_copy(
+            update={'routing_profile_sha256': '0' * 64}
+        ),
+    )
+    with pytest.raises(ValueError, match='unknown routing profile'):
+        quality_repository.save_acquisition_context(tampered)
+
+
+def test_context_rejects_foreign_document_routing_profile(tmp_path):
+    revision, measurement_repository, quality_repository = _repositories(tmp_path)
+    record, _ = _save_measurement(measurement_repository, revision, 'm-1')
+    foreign = _profile(
+        document_id='fixture-f2',
+        routing_profile_id='foreign-profile',
+    )
+    # Insert the foreign-scoped profile directly: save-time validation would
+    # reject it (fixture-f2 is unknown in this store), but a persisted row
+    # that resolves must still be rejected by the context's document check.
+    with sqlite3.connect(quality_repository.path) as connection:
+        connection.execute(
+            'INSERT INTO cad_routing_profiles('
+            'routing_profile_id, routing_profile_sha256, profile_name, '
+            'payload_json, created_at_utc) VALUES (?, ?, ?, ?, ?)',
+            (
+                foreign.routing_profile_id,
+                foreign.routing_profile_sha256,
+                foreign.profile_name,
+                foreign.model_dump_json(),
+                foreign.created_at_utc,
+            ),
+        )
+    foreign_context = build_acquisition_context(
+        source_kind='native',
+        subject_measurement_ids=(record.measurement_id,),
+        routing_profile=routing_profile_binding(foreign),
+    )
+    with pytest.raises(ValueError, match='different document'):
+        quality_repository.save_acquisition_context(foreign_context)
+
+
+def test_verified_routing_claim_requires_authority(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    controller = MeasurementWorkflowController(
+        measurement_repository.scene_repository,
+        'fixture-f1',
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+        rew_client=object(),
+    )
+    controller.stage_rew_text(b'20 70\n40 71\n80 69\n', 'fl.txt')
+    with pytest.raises(MeasurementWorkflowError):
+        controller.commit_pending(
+            MeasurementAssignment(
+                measurement_entity_id='point-mlp',
+                channel_role='front_left',
+                routing_evidence='verified',
+            )
+        )
+    with pytest.raises(MeasurementWorkflowError):
+        controller.commit_pending(
+            MeasurementAssignment(
+                measurement_entity_id='point-mlp',
+                channel_role='front_left',
+                routing_evidence='verified',
+                routing_profile_id='profile-missing',
+            )
+        )
+
+
+def test_verified_claim_requires_verified_entry(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    profile = _profile(entries=(
+        {
+            'output_device_label': 'dev',
+            'rew_channel_label': 'C:FL',
+            'hardware_channel_index': 0,
+            'logical_role': 'front_left',
+            'expected_speaker_ids': ('speaker-fl',),
+            'observed_speaker_ids': ('speaker-fl',),
+            'verification': 'unverified',
+        },
+    ))
+    quality_repository.save_routing_profile(profile)
+    controller = MeasurementWorkflowController(
+        measurement_repository.scene_repository,
+        'fixture-f1',
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+        rew_client=object(),
+    )
+    controller.stage_rew_text(b'20 70\n40 71\n80 69\n', 'fl.txt')
+    with pytest.raises(MeasurementWorkflowError):
+        controller.commit_pending(
+            MeasurementAssignment(
+                measurement_entity_id='point-mlp',
+                channel_role='front_left',
+                routing_evidence='verified',
+                routing_profile_id=profile.routing_profile_id,
+            )
+        )
+
+
+def test_assignment_speakers_must_match_verified_entry(tmp_path):
+    _, measurement_repository, quality_repository = _repositories(tmp_path)
+    profile = _profile()
+    quality_repository.save_routing_profile(profile)
+    controller = MeasurementWorkflowController(
+        measurement_repository.scene_repository,
+        'fixture-f1',
+        measurement_repository=measurement_repository,
+        quality_repository=quality_repository,
+        rew_client=object(),
+    )
+    controller.stage_rew_text(b'20 70\n40 71\n80 69\n', 'fl.txt')
+    # The bound verified entry observed speaker-fl only — the assignment
+    # cannot claim a diverging speaker set under the same authority.
+    with pytest.raises(MeasurementWorkflowError):
+        controller.commit_pending(
+            MeasurementAssignment(
+                measurement_entity_id='point-mlp',
+                channel_role='front_left',
+                routing_evidence='verified',
+                routing_profile_id=profile.routing_profile_id,
+                source_speaker_ids=('speaker-fl', 'speaker-fr'),
+            )
+        )

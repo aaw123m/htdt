@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Iterable, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -52,7 +52,13 @@ from .native_diagnostics import (
     build_identity,
     diagnostics_dir,
 )
-from .runtime_instance import read_lock_metadata, read_runtime_info
+from .runtime_instance import (
+    LOCK_FILENAME,
+    _lock_first_byte,
+    _unlock_first_byte,
+    read_lock_metadata,
+    read_runtime_info,
+)
 
 
 SUPPORT_SCHEMA_VERSION = 1
@@ -196,50 +202,178 @@ class HealthReport(BaseModel):
         return HealthStatus.ATTENTION
 
 
-def _check_database(data_dir: Path) -> HealthCheckResult:
+def _check_database(data_dir: Path) -> list[HealthCheckResult]:
+    """Two distinct storage findings (#749): openability and integrity.
+
+    ``storage.database_openable`` says the file can be opened read-only;
+    ``storage.sqlite_quick_check`` reports SQLite structural integrity and
+    only passes on the canonical ``ok`` result row — a successful query
+    with diagnostic rows is never a PASS.
+    """
+
     path = Path(data_dir) / DATABASE_NAME
     if not path.exists():
-        return HealthCheckResult(
-            check_id='storage.database',
+        absent = HealthCheckResult(
+            check_id='storage.database_openable',
             category=HealthCategory.APP_STORAGE,
             status=HealthStatus.NOT_APPLICABLE,
             summary='project database not created yet',
             detail=str(path),
         )
+        return [
+            absent,
+            absent.model_copy(
+                update={'check_id': 'storage.sqlite_quick_check'}
+            ),
+        ]
     try:
-        with sqlite3.connect(f'file:{path.as_posix()}?mode=ro', uri=True) as conn:
-            conn.execute('PRAGMA quick_check(1)').fetchall()
+        with sqlite3.connect(
+            f'file:{path.as_posix()}?mode=ro', uri=True
+        ) as conn:
+            rows = [
+                str(row[0])
+                for row in conn.execute('PRAGMA quick_check(1)')
+            ]
     except sqlite3.Error as exc:
-        return HealthCheckResult(
-            check_id='storage.database',
+        openable = HealthCheckResult(
+            check_id='storage.database_openable',
             category=HealthCategory.APP_STORAGE,
             status=HealthStatus.FAIL,
             summary='project database failed to open',
             detail=str(exc),
         )
-    return HealthCheckResult(
-        check_id='storage.database',
-        category=HealthCategory.APP_STORAGE,
-        status=HealthStatus.PASS,
-        summary='project database opens read-only',
-        detail=str(path),
-    )
-
-
-def _check_lock(data_dir: Path) -> HealthCheckResult:
-    holder = read_lock_metadata(Path(data_dir))
-    if holder is None:
-        status, summary = HealthStatus.PASS, 'data directory lock is free'
+        return [
+            openable,
+            HealthCheckResult(
+                check_id='storage.sqlite_quick_check',
+                category=HealthCategory.APP_STORAGE,
+                status=HealthStatus.FAIL,
+                summary='sqlite integrity could not be evaluated',
+                detail=str(exc),
+            ),
+        ]
+    results = [
+        HealthCheckResult(
+            check_id='storage.database_openable',
+            category=HealthCategory.APP_STORAGE,
+            status=HealthStatus.PASS,
+            summary='project database opens read-only',
+            detail=str(path),
+        )
+    ]
+    if rows == ['ok']:
+        results.append(
+            HealthCheckResult(
+                check_id='storage.sqlite_quick_check',
+                category=HealthCategory.APP_STORAGE,
+                status=HealthStatus.PASS,
+                summary='sqlite quick_check reports ok',
+            )
+        )
     else:
+        results.append(
+            HealthCheckResult(
+                check_id='storage.sqlite_quick_check',
+                category=HealthCategory.APP_STORAGE,
+                status=HealthStatus.FAIL,
+                summary='sqlite quick_check reported integrity problems',
+                detail='; '.join(rows) if rows else 'no result row',
+            )
+        )
+    return results
+
+
+def _probe_lock_state(lock_path: Path) -> Literal['free', 'held', 'unknown']:
+    """Probe the real OS byte-range lock authority for the data directory.
+
+    Advisory owner metadata past byte 0 is never consulted here — only an
+    actual non-blocking lock attempt answers whether another process holds
+    the authoritative lock (#749). The file is never created by a probe.
+    """
+
+    try:
+        fd = os.open(lock_path, os.O_RDWR)
+    except FileNotFoundError:
+        return 'free'
+    except OSError:
+        return 'unknown'
+    try:
+        with os.fdopen(fd, 'r+b', buffering=0) as file:
+            try:
+                _lock_first_byte(file)
+            except OSError:
+                return 'held'
+            try:
+                _unlock_first_byte(file)
+            except OSError:
+                pass
+            return 'free'
+    except OSError:
+        return 'unknown'
+
+
+def _check_lock(data_dir: Path, *, owns_lock: bool = False) -> HealthCheckResult:
+    """Classify data-directory lock state by real ownership evidence.
+
+    ``owns_lock`` is the caller's SingleInstanceGuard state for THIS
+    process: its own expected lock is PASS, not ATTENTION. When the
+    current process does not own the lock the actual byte range is
+    probed — foreign-held is ATTENTION, free-with-stale-metadata is PASS
+    with the leftover owner recorded as crash evidence, never as a live
+    holder (#749).
+    """
+
+    holder = read_lock_metadata(Path(data_dir))
+    if owns_lock:
+        return HealthCheckResult(
+            check_id='storage.data_dir_lock',
+            category=HealthCategory.APP_STORAGE,
+            status=HealthStatus.PASS,
+            summary='data directory lock held by this instance (expected)',
+            detail=(
+                f'owner pid {holder.get("pid")}' if holder else None
+            ),
+        )
+    probe = _probe_lock_state(Path(data_dir) / LOCK_FILENAME)
+    if probe == 'held':
+        if holder:
+            owner = (
+                f'pid {holder.get("pid")} on {holder.get("host")}'
+            )
+        else:
+            owner = 'another process'
         status, summary = (
             HealthStatus.ATTENTION,
-            f'data directory held by pid {holder.get("pid")}',
+            f'data directory lock held by {owner}',
+        )
+        detail = None
+    elif probe == 'free':
+        if holder:
+            status, summary, detail = (
+                HealthStatus.PASS,
+                'data directory lock is free',
+                'stale owner metadata remains from pid '
+                f'{holder.get("pid")} (previous session ended without'
+                ' cleanup)',
+            )
+        else:
+            status, summary, detail = (
+                HealthStatus.PASS,
+                'data directory lock is free',
+                None,
+            )
+    else:
+        status, summary, detail = (
+            HealthStatus.UNKNOWN,
+            'data directory lock state could not be probed',
+            None,
         )
     return HealthCheckResult(
         check_id='storage.data_dir_lock',
         category=HealthCategory.APP_STORAGE,
         status=status,
         summary=summary,
+        detail=detail,
     )
 
 
@@ -289,6 +423,7 @@ def run_health_checks(
     integrity_runner: Callable[[Path], HealthCheckResult] | None = None,
     integration_probes: Iterable[Callable[[Path], HealthCheckResult]] = (),
     min_free_mb: int = 512,
+    owns_lock: bool = False,
 ) -> HealthReport:
     """Run bounded, non-mutating health checks.
 
@@ -296,11 +431,14 @@ def run_health_checks(
     ``audit_native_authority_graph``) in without duplicating its validator;
     ``integration_probes`` supplies REW (#599), Capture receiver (#593),
     solver/provider and GPU checks, each classified independently.
+    ``owns_lock`` tells the lock check whether THIS process currently owns
+    the data-directory lock — pass the live SingleInstanceGuard state so
+    diagnostics opened inside a healthy run never flag their own lock.
     """
 
     results: list[HealthCheckResult] = [
-        _check_database(data_dir),
-        _check_lock(data_dir),
+        *_check_database(data_dir),
+        _check_lock(data_dir, owns_lock=owns_lock),
         _check_disk_space(data_dir, min_free_mb=min_free_mb),
         _check_assets_root(data_dir),
     ]
@@ -503,101 +641,152 @@ class DiagnosticPackageBuilder:
         skipped: list[str] = []
         written = 0
 
+        # Per-member outcomes, recorded verbatim in manifest.json (#749):
+        # byte truncation is only ever applied to plain-text logs (tail
+        # kept, newest events retained); structured JSON is reduced
+        # semantically or skipped whole, never byte-cut.
+        members: dict[str, dict[str, Any]] = {}
+
+        def _fits(data: bytes) -> bool:
+            return len(data) <= plan.byte_budget - written
+
+        def _write_log(name: str, data: bytes) -> None:
+            nonlocal written
+            remaining = plan.byte_budget - written
+            if remaining <= 0:
+                members[name] = {
+                    'status': 'skipped',
+                    'original_bytes': len(data),
+                    'included_bytes': 0,
+                }
+                skipped.append(name)
+                return
+            if len(data) > remaining:
+                kept = data[-remaining:]
+                archive.writestr(name, kept)
+                written += len(kept)
+                members[name] = {
+                    'status': 'truncated',
+                    'original_bytes': len(data),
+                    'included_bytes': len(kept),
+                }
+            else:
+                archive.writestr(name, data)
+                written += len(data)
+                members[name] = {
+                    'status': 'complete',
+                    'original_bytes': len(data),
+                    'included_bytes': len(data),
+                }
+            included.append(name)
+
+        def _write_json(name: str, payload: Any) -> None:
+            """Write structured JSON or skip it — never byte-cut (#749).
+
+            List payloads degrade semantically (most recent entries kept,
+            still valid JSON); everything else is skipped whole when it
+            does not fit the remaining payload budget.
+            """
+            nonlocal written
+            data = json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, default=str
+            ).encode('utf-8')
+            if _fits(data):
+                archive.writestr(name, data)
+                written += len(data)
+                members[name] = {
+                    'status': 'complete',
+                    'original_bytes': len(data),
+                    'included_bytes': len(data),
+                }
+                included.append(name)
+                return
+            if isinstance(payload, list):
+                # binary-search the largest tail that still fits
+                lo, hi = 0, len(payload)
+                best: bytes | None = None
+                best_records = -1
+                while lo <= hi:
+                    mid = (lo + hi) // 2
+                    candidate = json.dumps(
+                        payload[len(payload) - mid :] if mid else [],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    ).encode('utf-8')
+                    if _fits(candidate):
+                        best, best_records = candidate, mid
+                        lo = mid + 1
+                    else:
+                        hi = mid - 1
+                if best is not None and best_records > 0:
+                    archive.writestr(name, best)
+                    written += len(best)
+                    members[name] = {
+                        'status': 'truncated',
+                        'original_bytes': len(data),
+                        'included_bytes': len(best),
+                        'original_records': len(payload),
+                        'included_records': best_records,
+                    }
+                    included.append(name)
+                    return
+            members[name] = {
+                'status': 'skipped',
+                'original_bytes': len(data),
+                'included_bytes': 0,
+            }
+            skipped.append(name)
+
         with zipfile.ZipFile(
             destination, 'w', compression=zipfile.ZIP_DEFLATED
         ) as archive:
-            def _write(name: str, data: bytes) -> bool:
-                nonlocal written
-                remaining = plan.byte_budget - written
-                if remaining <= 0:
-                    skipped.append(name)
-                    return False
-                if len(data) > remaining:
-                    data = data[:remaining]
-                archive.writestr(name, data)
-                written += len(data)
-                included.append(name)
-                return True
-
             if PackageCategory.LOGS in plan.categories and diag_dir.exists():
                 for log_file in sorted(diag_dir.glob(f'{LOG_FILENAME}*')):
                     try:
-                        _write(f'logs/{log_file.name}', log_file.read_bytes())
+                        _write_log(
+                            f'logs/{log_file.name}', log_file.read_bytes()
+                        )
                     except OSError:
+                        members[f'logs/{log_file.name}'] = {
+                            'status': 'skipped',
+                            'reason': 'unreadable',
+                        }
                         skipped.append(f'logs/{log_file.name}')
 
             identity = build_identity()
             if PackageCategory.BUILD_IDENTITY in plan.categories:
-                _write(
+                _write_json(
                     'build_identity.json',
-                    json.dumps(
-                        {
-                            'version': identity.version,
-                            'python': identity.python,
-                            'platform': identity.platform,
-                            'frozen': identity.frozen,
-                            'qt': identity.qt,
-                        },
-                        sort_keys=True,
-                    ).encode('utf-8'),
+                    {
+                        'version': identity.version,
+                        'python': identity.python,
+                        'platform': identity.platform,
+                        'frozen': identity.frozen,
+                        'qt': identity.qt,
+                    },
                 )
             if PackageCategory.SCHEMA_SUMMARY in plan.categories:
-                _write(
+                _write_json(
                     'schema_summary.json',
-                    json.dumps(
-                        {'schema_version': _schema_version(), 'app_version': __version__},
-                        sort_keys=True,
-                    ).encode('utf-8'),
+                    {'schema_version': _schema_version(), 'app_version': __version__},
                 )
             if PackageCategory.HEALTH_RESULTS in plan.categories and self.health_report:
-                _write(
+                _write_json(
                     'health_checks.json',
-                    json.dumps(
-                        self.health_report.model_dump(mode='json'),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ).encode('utf-8'),
+                    self.health_report.model_dump(mode='json'),
                 )
             if PackageCategory.OPERATION_FAILURES in plan.categories:
-                _write(
+                _write_json(
                     'operation_failures.json',
-                    json.dumps(
-                        list(self.operation_failures),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        default=str,
-                    ).encode('utf-8'),
+                    list(self.operation_failures),
                 )
             if PackageCategory.CAPABILITY_INVENTORY in plan.categories:
-                _write(
-                    'capability_inventory.json',
-                    json.dumps(
-                        self.capability_inventory,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        default=str,
-                    ).encode('utf-8'),
-                )
+                _write_json('capability_inventory.json', self.capability_inventory)
             if PackageCategory.PREFERENCES_SUMMARY in plan.categories:
-                _write(
-                    'preferences_summary.json',
-                    json.dumps(
-                        self._sanitized_preferences(),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        default=str,
-                    ).encode('utf-8'),
-                )
+                _write_json('preferences_summary.json', self._sanitized_preferences())
             if plan.include_project_ids and self.project_ids:
-                _write(
-                    'project_ids.json',
-                    json.dumps(
-                        self.project_ids,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        default=str,
-                    ).encode('utf-8'),
-                )
+                _write_json('project_ids.json', self.project_ids)
 
             manifest = {
                 'package': PACKAGE_PREFIX,
@@ -609,13 +798,23 @@ class DiagnosticPackageBuilder:
                 'not_a_project_export': True,
                 'included_files': included,
                 'skipped_files': skipped,
+                'members': members,
                 'bytes': written,
+                'byte_budget': plan.byte_budget,
+                # The budget bounds member payload bytes, not the final
+                # archive: ZIP container overhead and manifest.json sit
+                # outside it. ``archive_bytes`` (filled post-close) is the
+                # authoritative produced size (#749).
+                'budget_scope': 'member_payload_bytes',
             }
-            archive.writestr('manifest.json', json.dumps(manifest, indent=2))
+            archive.writestr(
+                'manifest.json', json.dumps(manifest, indent=2)
+            )
 
+        archive_bytes = destination.stat().st_size
         return PackageResult(
             path=destination,
-            bytes_written=written,
+            bytes_written=archive_bytes,
             included=tuple(included),
             skipped=tuple(skipped),
             manifest_name='manifest.json',

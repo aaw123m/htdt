@@ -21,7 +21,7 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import ensure_native_schema, require_native_tables
 
 
 SEAT_PRIORITY_SCHEMA_VERSION = 1
@@ -229,22 +229,12 @@ class CadSeatPriorityProfileRepository:
         return connection
 
     def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_seat_priority_profiles (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    profile_id TEXT NOT NULL UNIQUE,
-                    profile_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_seat_priority_document
-                    ON cad_seat_priority_profiles(document_id, seq ASC);
-                """
+        with closing(self._connect()) as connection:
+            require_native_tables(
+                connection,
+                'cad_seat_priority_profiles',
             )
+
 
     def _validate(self, profile: SeatPriorityProfile) -> SeatPriorityProfile:
         profile = SeatPriorityProfile.model_validate(

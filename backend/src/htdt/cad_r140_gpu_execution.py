@@ -20,7 +20,10 @@ from .cad_multifidelity_execution import (
 )
 from .cad_r140_executor import ResourceAdmissionError, ResourceQuantity
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema
+from .cad_schema import (
+    ensure_native_schema,
+    require_native_tables,
+)
 
 
 R140_GPU_SCHEMA_VERSION = 1
@@ -1244,22 +1247,7 @@ class CadR140GpuAuthorityRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_r140_gpu_authorities (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    authority_kind TEXT NOT NULL,
-                    authority_id TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(authority_kind, authority_id),
-                    UNIQUE(authority_kind, semantic_sha256)
-                );
-                CREATE INDEX IF NOT EXISTS idx_r140_gpu_authority_kind_seq
-                    ON cad_r140_gpu_authorities(authority_kind, seq ASC);
-                """
-            )
+            require_native_tables(connection, 'cad_r140_gpu_authorities')
 
     def _save(
         self,

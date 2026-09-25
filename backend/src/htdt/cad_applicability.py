@@ -30,6 +30,7 @@ from .cad_validation_metrics import (
     _canonical_sha256,
 )
 from .comparison import FrequencyResponse
+from .cad_schema import ensure_native_schema, require_native_tables
 
 
 APPLICABILITY_EVALUATOR_VERSION = '1'
@@ -202,6 +203,8 @@ class CadApplicabilityAttestationRepository:
 
     def __init__(self, path) -> None:
         self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_native_schema(self.path)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -212,22 +215,7 @@ class CadApplicabilityAttestationRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_applicability_attestations (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    attestation_id TEXT NOT NULL UNIQUE,
-                    attestation_sha256 TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    search_spec_id TEXT NOT NULL,
-                    code TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    attested_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_applicability_attestations_spec
-                    ON cad_applicability_attestations(search_spec_id, seq ASC);
-                '''
-            )
+            require_native_tables(connection, 'cad_applicability_attestations')
 
     def save(
         self,
@@ -610,9 +598,38 @@ def _evaluate_routing(
             source_id=plan.plan_id,
             source_sha256=plan_sha256,
         ))
+    def _strong_routing(measurement: Any) -> bool:
+        """Verified routing requires an exact #473 profile pin (#848).
+
+        The coarse ``routing_evidence`` enum alone never satisfies the
+        strong-routing capability: the record must also pin a persisted
+        RoutingProfile by id + semantic hash in its provenance, so a bare
+        'verified' label cannot masquerade as a resolved authority.
+        """
+        if (
+            getattr(measurement, 'evidence_type', None) != 'measured'
+            or getattr(measurement, 'routing_evidence', None) != 'verified'
+        ):
+            return False
+        try:
+            provenance = json.loads(
+                getattr(measurement, 'provenance_json', '') or '{}'
+            )
+        except (ValueError, TypeError):
+            return False
+        profile = provenance.get('routing_profile')
+        if not isinstance(profile, dict):
+            return False
+        profile_id = profile.get('routing_profile_id')
+        profile_sha256 = profile.get('routing_profile_sha256')
+        return (
+            isinstance(profile_id, str)
+            and isinstance(profile_sha256, str)
+            and len(profile_sha256) == 64
+        )
+
     passed = all(
-        getattr(measurement, 'evidence_type', None) == 'measured'
-        and getattr(measurement, 'routing_evidence', None) == 'verified'
+        _strong_routing(measurement)
         for measurement in context.measurements
     )
     subject = {

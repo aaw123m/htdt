@@ -122,7 +122,31 @@ def _resolve_frontend_path(frontend_root: Path, path: str) -> Path | None:
     return candidate
 
 
+# #598: the legacy browser API writes ``htdt.sqlite3`` + ``assets/`` — a second
+# data authority beside the native ``cad-scenes.sqlite3``.
+# Retired: the installed product launches ``htdt.native_cad`` and never this
+# app; this app survives only for tests/development against an explicitly
+# isolated data root. Pointing it at the default data directory requires the
+# HTDT_LEGACY_API opt-in so an everyday launch cannot silently recreate the
+# legacy store in the live root.
+LEGACY_API_ENV_VAR = 'HTDT_LEGACY_API'
+LEGACY_API_DISABLED_DETAIL = (
+    'The legacy browser API is retired and development-only. Its store '
+    '(htdt.sqlite3 + assets/) is no longer the data authority; the native '
+    'application (htdt.native_cad) owns cad-scenes.sqlite3. '
+    'To exercise the legacy API for development, pass an explicit isolated '
+    'data directory (e.g. `python -m htdt --data-dir <dir>`) or set '
+    f'{LEGACY_API_ENV_VAR}=1 in the environment.'
+)
+
+
+class LegacyApiDisabledError(RuntimeError):
+    """Raised when the legacy API would touch the default data directory."""
+
+
 def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = None) -> FastAPI:
+    if data_dir is None and os.environ.get(LEGACY_API_ENV_VAR) != '1':
+        raise LegacyApiDisabledError(LEGACY_API_DISABLED_DETAIL)
     store = Store(data_dir or _default_data_dir())
     rew = rew_client or RewApiClient(os.environ.get('HTDT_REW_API_URL', DEFAULT_REW_API_URL))
     app = FastAPI(title='Home Theater Digital Twin', version=__version__, docs_url='/api/docs', redoc_url=None, openapi_url='/api/openapi.json')
@@ -650,4 +674,5 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
     return app
 
 
-app = create_app()
+# No module-level app instance: creating one eagerly would initialise the
+# legacy store on import. ``htdt.server`` builds the ASGI app instead.

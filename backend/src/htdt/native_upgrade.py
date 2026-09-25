@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -63,16 +64,60 @@ _LOGGER = logging.getLogger('htdt.native')
 
 UPGRADE_RECOVERY_DIRNAME = 'upgrade-recovery'
 UPGRADE_JOURNAL_NAME = 'upgrade-events.jsonl'
+# Durable quarantine marker (#750): written BEFORE the migration mutates
+# the live database and only cleared by a successful post-migration
+# verification, so a committed-but-unverified generation can never be
+# mistaken for a clean current-schema startup after a restart.
+UPGRADE_STATE_FILENAME = '.native-upgrade-state.json'
 # Bounded retention for pre-upgrade generations: pruning only ever runs after
 # a *new* migration has verified, so the last known-good upgrade snapshot is
 # never removed to make room for an unproven one.
 KEEP_UPGRADE_SNAPSHOTS = 3
 SNAPSHOT_PREFIX = 'pre-upgrade'
 UPGRADE_EVENT_SCHEMA_VERSION = 1
+UPGRADE_STATE_SCHEMA_VERSION = 1
 
 
 class NativeUpgradeError(RuntimeError):
     """The native data upgrade lifecycle could not complete safely."""
+
+
+class NativeUpgradeQuarantineError(NativeUpgradeError):
+    """The live generation committed but never verified (#750).
+
+    Raised instead of a silent ``no_upgrade`` when the durable upgrade
+    marker shows the current-schema database is the product of a
+    migration whose verification failed (or never ran). Normal project
+    editing must stay blocked until verification passes or the pre-upgrade
+    recovery copy is restored.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        recovery_snapshot_ref: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.recovery_snapshot_ref = recovery_snapshot_ref
+
+    @property
+    def recovery_choices(self) -> tuple[str, ...]:
+        """Explicit choices a recovery surface may offer (#750)."""
+
+        return (
+            'retry_verification',
+            'restore_recovery_copy',
+            'open_diagnostics',
+        )
+
+
+class NativeUpgradeVerificationError(NativeUpgradeError):
+    """A bounded verification stage failed after migration commit."""
+
+    def __init__(self, stage: str, message: str) -> None:
+        super().__init__(message)
+        self.stage = stage
 
 
 class IncompatibleNewerSchemaError(NativeUpgradeError):
@@ -259,6 +304,7 @@ class UpgradeEvent(BaseModel):
     recovery_snapshot_ref: str | None = None
     verification_state: Literal[
         'not_required',
+        'not_attempted',
         'pending',
         'verified',
         'failed',
@@ -271,6 +317,22 @@ class UpgradeEvent(BaseModel):
         'blocked',
     ]
     failure_summary: str | None = None
+    #: Whether the migration transaction actually committed (#750).
+    migration_commit_state: Literal[
+        'not_attempted',
+        'committed',
+        'rolled_back',
+        'not_applicable',
+    ] = 'not_applicable'
+    #: What the live database is after this event (#750).
+    live_generation_state: Literal[
+        'unchanged',
+        'migrated_unverified',
+        'migrated_verified',
+        'unknown',
+    ] = 'unknown'
+    #: Which bounded verification stage failed, when one did.
+    verification_failure_stage: str | None = None
 
     @property
     def upgraded(self) -> bool:
@@ -362,6 +424,83 @@ def prune_upgrade_snapshots(data_dir: Path, *, keep: int = KEEP_UPGRADE_SNAPSHOT
             _LOGGER.warning('could not remove old upgrade snapshot %s', stale)
 
 
+def upgrade_state_path(data_dir: Path) -> Path:
+    return Path(data_dir) / UPGRADE_STATE_FILENAME
+
+
+class UpgradeStateRecord(BaseModel):
+    """Durable upgrade-transaction marker (#750).
+
+    Persisted BEFORE any migration mutation and updated at each commit
+    boundary. Its presence with an unresolved state is the authoritative
+    quarantine signal a current-schema startup must honor — a mere
+    journal event is historical metadata, not a gate.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    state: Literal[
+        'migrating',
+        'committed_pending_verification',
+        'verified',
+        'failed_before_commit',
+        'failed_after_commit',
+    ]
+    upgrade_id: str = Field(min_length=1)
+    from_schema: int = Field(ge=0)
+    to_schema: int = Field(ge=0)
+    schema_version: Literal[1] = UPGRADE_STATE_SCHEMA_VERSION
+    recovery_snapshot_ref: str | None = None
+    failure_stage: str | None = None
+    failure_summary: str | None = None
+    started_at_utc: str = Field(min_length=1)
+    updated_at_utc: str = Field(min_length=1)
+
+
+#: States in which the live generation may be committed-but-unverified.
+QUARANTINED_UPGRADE_STATES: frozenset[str] = frozenset(
+    {
+        'migrating',
+        'committed_pending_verification',
+        'failed_after_commit',
+    }
+)
+
+
+def write_upgrade_state(
+    data_dir: Path, record: UpgradeStateRecord
+) -> Path:
+    """Atomically persist the durable upgrade marker in the data dir."""
+
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = upgrade_state_path(data_dir)
+    temp = path.with_name(f'.{path.name}.{uuid4().hex}.tmp')
+    temp.write_text(
+        record.model_dump_json(), encoding='utf-8'
+    )
+    os.replace(temp, path)
+    return path
+
+
+def read_upgrade_state(data_dir: Path) -> UpgradeStateRecord | None:
+    """Read the durable upgrade marker; None when absent or unreadable."""
+
+    path = upgrade_state_path(Path(data_dir))
+    try:
+        return UpgradeStateRecord.model_validate_json(
+            path.read_text(encoding='utf-8')
+        )
+    except (OSError, ValueError):
+        return None
+
+
+def clear_upgrade_state(data_dir: Path) -> None:
+    """Clear the quarantine marker — only after verification passes."""
+
+    upgrade_state_path(Path(data_dir)).unlink(missing_ok=True)
+
+
 def _verify_upgraded_database(database_path: Path, expected_version: int) -> None:
     """Post-migration verification on the live database.
 
@@ -376,26 +515,30 @@ def _verify_upgraded_database(database_path: Path, expected_version: int) -> Non
     ) as connection:
         integrity = connection.execute('PRAGMA integrity_check').fetchall()
         if integrity != [('ok',)]:
-            raise NativeUpgradeError(
-                f'post-migration SQLite integrity check failed: {integrity!r}'
+            raise NativeUpgradeVerificationError(
+                'sqlite_integrity',
+                f'post-migration SQLite integrity check failed: {integrity!r}',
             )
         foreign_keys = connection.execute('PRAGMA foreign_key_check').fetchall()
         if foreign_keys:
-            raise NativeUpgradeError(
-                f'post-migration foreign-key check failed: {foreign_keys!r}'
+            raise NativeUpgradeVerificationError(
+                'foreign_key',
+                f'post-migration foreign-key check failed: {foreign_keys!r}',
             )
     stored = read_native_schema_version(database_path)
     if stored != expected_version:
-        raise NativeUpgradeError(
-            f'post-migration schema version is v{stored}, expected v{expected_version}'
+        raise NativeUpgradeVerificationError(
+            'schema_version',
+            f'post-migration schema version is v{stored}, expected v{expected_version}',
         )
     try:
         from .cad_repository import SceneRepository
 
         SceneRepository(database_path)
     except (NativeSchemaError, sqlite3.DatabaseError) as exc:
-        raise NativeUpgradeError(
-            f'post-migration repository openability check failed: {exc}'
+        raise NativeUpgradeVerificationError(
+            'repository_open',
+            f'post-migration repository openability check failed: {exc}',
         ) from exc
 
     # Bounded semantic level: replay the #426 authority audit on a throwaway
@@ -427,8 +570,9 @@ def _verify_upgraded_database(database_path: Path, expected_version: int) -> Non
         try:
             assert_native_authority_graph(probe_path)
         except Exception as exc:
-            raise NativeUpgradeError(
-                f'post-migration semantic audit failed: {exc}'
+            raise NativeUpgradeVerificationError(
+                'semantic_audit',
+                f'post-migration semantic audit failed: {exc}',
             ) from exc
     finally:
         shutil.rmtree(probe_dir, ignore_errors=True)
@@ -460,6 +604,14 @@ def execute_native_upgrade(
         )
 
     if plan.compatibility == 'current':
+        marker = read_upgrade_state(data_dir)
+        if (
+            marker is not None
+            and marker.state in QUARANTINED_UPGRADE_STATES
+        ):
+            return _resolve_quarantined_generation(
+                data_dir, plan, marker, keep_snapshots=keep_snapshots
+            )
         return UpgradeEvent(
             upgrade_id=uuid4().hex,
             from_build=plan.from_build_display,
@@ -471,6 +623,7 @@ def execute_native_upgrade(
             completed_at_utc=_utc_now(),
             verification_state='not_required',
             outcome='no_upgrade',
+            live_generation_state='unchanged',
         )
 
     started = _utc_now()
@@ -548,14 +701,87 @@ def execute_native_upgrade(
             completed_at_utc=_utc_now(),
             verification_state='not_required',
             outcome='fresh_install',
+            migration_commit_state='committed',
+            live_generation_state='migrated_verified',
         )
         _append_upgrade_event(data_dir, event)
         return event
 
+    # Durable marker BEFORE the migration mutates the live database: any
+    # crash or failure after this point leaves a quarantinable record the
+    # next startup must honor (#750).
+    state_record = UpgradeStateRecord(
+        state='migrating',
+        upgrade_id=event_common['upgrade_id'],
+        from_schema=plan.current_schema_version,
+        to_schema=plan.target_schema_version,
+        recovery_snapshot_ref=(
+            str(snapshot_path) if snapshot_path is not None else None
+        ),
+        started_at_utc=started,
+        updated_at_utc=_utc_now(),
+    )
+    write_upgrade_state(data_dir, state_record)
+
     try:
         ensure_native_schema(plan.database_path)
+    except Exception as exc:
+        # The migration transaction rolled back: the live database is
+        # unchanged, so this failure does not quarantine the generation.
+        state_record = state_record.model_copy(update={
+            'state': 'failed_before_commit',
+            'failure_stage': 'migration',
+            'failure_summary': str(exc)[:500],
+            'updated_at_utc': _utc_now(),
+        })
+        write_upgrade_state(data_dir, state_record)
+        event = UpgradeEvent(
+            **event_common,
+            completed_at_utc=_utc_now(),
+            recovery_snapshot_ref=(
+                str(snapshot_path) if snapshot_path is not None else None
+            ),
+            verification_state='not_attempted',
+            outcome='failed',
+            failure_summary=str(exc)[:500],
+            migration_commit_state='rolled_back',
+            live_generation_state='unchanged',
+            verification_failure_stage='migration',
+        )
+        _append_upgrade_event(data_dir, event)
+        recovery = (
+            'The update did not modify the live database, and a verified '
+            f'recovery copy is at {snapshot_path} — restore it with the '
+            'older HTDT build to return to the previous format.'
+            if snapshot_path is not None
+            else 'The update did not modify the live database.'
+        )
+        raise NativeUpgradeError(
+            f'HTDT could not update your data from format '
+            f'{plan.current_schema_version} to {plan.target_schema_version}: '
+            f'{exc}\n\n{recovery}'
+        ) from exc
+
+    # The migration transaction committed. Persist the pending-verification
+    # state BEFORE running verification so a crash mid-verify still leaves
+    # the quarantine marker on disk.
+    state_record = state_record.model_copy(update={
+        'state': 'committed_pending_verification',
+        'updated_at_utc': _utc_now(),
+    })
+    write_upgrade_state(data_dir, state_record)
+
+    try:
         _verify_upgraded_database(plan.database_path, plan.target_schema_version)
     except Exception as exc:
+        stage = getattr(exc, 'stage', None) or 'verification'
+        state_record = state_record.model_copy(update={
+            'state': 'failed_after_commit',
+            'failure_stage': stage,
+            'failure_summary': str(exc)[:500],
+            'updated_at_utc': _utc_now(),
+        })
+        write_upgrade_state(data_dir, state_record)
         event = UpgradeEvent(
             **event_common,
             completed_at_utc=_utc_now(),
@@ -565,27 +791,36 @@ def execute_native_upgrade(
             verification_state='failed',
             outcome='failed',
             failure_summary=str(exc)[:500],
+            migration_commit_state='committed',
+            live_generation_state='migrated_unverified',
+            verification_failure_stage=stage,
         )
         _append_upgrade_event(data_dir, event)
-        recovery = (
-            'Your data was not modified by the failed step, and a verified '
-            f'recovery copy is at {snapshot_path} — restore it with the older '
-            'HTDT build to return to the previous format.'
+        snapshot_hint = (
+            'A verified recovery copy of the previous format is at '
+            f'{snapshot_path}.'
             if snapshot_path is not None
             else 'No recovery copy could be created; see the diagnostic log.'
         )
-        raise NativeUpgradeError(
-            f'HTDT could not update your data from format '
-            f'{plan.current_schema_version} to {plan.target_schema_version}: '
-            f'{exc}\n\n{recovery}'
+        raise NativeUpgradeQuarantineError(
+            'The data format update committed, but verification failed. '
+            'HTDT will not open this generation for normal editing until it '
+            'is verified or the recovery copy is restored. '
+            f'{snapshot_hint}\n\nCause: {exc}',
+            recovery_snapshot_ref=(
+                str(snapshot_path) if snapshot_path is not None else None
+            ),
         ) from exc
 
+    clear_upgrade_state(data_dir)
     event = UpgradeEvent(
         **event_common,
         completed_at_utc=_utc_now(),
         recovery_snapshot_ref=str(snapshot_path) if snapshot_path is not None else None,
         verification_state='verified',
         outcome='completed',
+        migration_commit_state='committed',
+        live_generation_state='migrated_verified',
     )
     _append_upgrade_event(data_dir, event)
     # Only a fully verified migration may trim retained recovery
@@ -601,17 +836,111 @@ def execute_native_upgrade(
     return event
 
 
+def _resolve_quarantined_generation(
+    data_dir: Path,
+    plan: NativeUpgradePlan,
+    marker: UpgradeStateRecord,
+    *,
+    keep_snapshots: int = KEEP_UPGRADE_SNAPSHOTS,
+) -> UpgradeEvent:
+    """Resolve a migrated-but-unverified live generation (#750).
+
+    Post-migration verification is deterministic and read-only, so the
+    safe retry is to rerun it: either it clears the quarantine or the
+    failure is re-persisted and normal editing stays blocked. Restore of
+    the pre-upgrade recovery copy is offered separately through the
+    canonical Restore workflow.
+    """
+
+    event_common = {
+        'upgrade_id': marker.upgrade_id,
+        'from_build': None,
+        'to_build': plan.to_build_display,
+        'from_schema': marker.from_schema,
+        'to_schema': marker.to_schema,
+        'compatibility': str(plan.compatibility),
+        'started_at_utc': _utc_now(),
+    }
+    try:
+        _verify_upgraded_database(plan.database_path, plan.target_schema_version)
+    except Exception as exc:
+        stage = getattr(exc, 'stage', None) or 'verification'
+        write_upgrade_state(
+            data_dir,
+            marker.model_copy(update={
+                'state': 'failed_after_commit',
+                'failure_stage': stage,
+                'failure_summary': str(exc)[:500],
+                'updated_at_utc': _utc_now(),
+            }),
+        )
+        event = UpgradeEvent(
+            **event_common,
+            completed_at_utc=_utc_now(),
+            recovery_snapshot_ref=marker.recovery_snapshot_ref,
+            verification_state='failed',
+            outcome='failed',
+            failure_summary=str(exc)[:500],
+            migration_commit_state='committed',
+            live_generation_state='migrated_unverified',
+            verification_failure_stage=stage,
+        )
+        _append_upgrade_event(data_dir, event)
+        snapshot_hint = (
+            'A verified recovery copy of the previous format is at '
+            f'{marker.recovery_snapshot_ref}.'
+            if marker.recovery_snapshot_ref is not None
+            else 'No recovery copy is recorded; see the diagnostic log.'
+        )
+        raise NativeUpgradeQuarantineError(
+            'The data format update committed, but verification failed. '
+            'HTDT will not open this generation for normal editing until it '
+            'is verified or the recovery copy is restored. '
+            f'{snapshot_hint}\n\nCause: {exc}',
+            recovery_snapshot_ref=marker.recovery_snapshot_ref,
+        ) from exc
+
+    clear_upgrade_state(data_dir)
+    event = UpgradeEvent(
+        **event_common,
+        completed_at_utc=_utc_now(),
+        recovery_snapshot_ref=marker.recovery_snapshot_ref,
+        verification_state='verified',
+        outcome='completed',
+        migration_commit_state='committed',
+        live_generation_state='migrated_verified',
+    )
+    _append_upgrade_event(data_dir, event)
+    # Re-verification earned the right to prune retained recovery
+    # generations, same gate as a first-pass verified migration.
+    if marker.recovery_snapshot_ref is not None:
+        prune_upgrade_snapshots(data_dir, keep=keep_snapshots)
+    _LOGGER.info(
+        'previously quarantined generation re-verified: schema v%s',
+        plan.target_schema_version,
+    )
+    return event
+
+
 __all__ = [
     'IncompatibleNewerSchemaError',
     'InsufficientUpgradeSpaceError',
     'NativeUpgradeError',
     'NativeUpgradePlan',
+    'NativeUpgradeQuarantineError',
+    'NativeUpgradeVerificationError',
+    'QUARANTINED_UPGRADE_STATES',
     'UpgradeEvent',
+    'UpgradeStateRecord',
+    'clear_upgrade_state',
     'execute_native_upgrade',
     'list_upgrade_events',
     'newer_schema_guidance',
     'plan_native_upgrade',
     'prune_upgrade_snapshots',
+    'read_upgrade_state',
     'upgrade_journal_path',
     'upgrade_snapshot_dir',
+    'upgrade_state_path',
+    'write_upgrade_state',
 ]

@@ -19,7 +19,7 @@ Contract:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from typing import Any, Literal
@@ -119,6 +119,13 @@ class AssumptionDecision(BaseModel):
             raise ValueError('custom scope requires custom_scope_label')
         if self.decision_scope != 'custom' and self.custom_scope_label is not None:
             raise ValueError('custom_scope_label is only valid for custom scope')
+        _validate_instant(self.created_at_utc, 'created_at_utc')
+        if self.expires_at_utc is not None:
+            _validate_instant(self.expires_at_utc, 'expires_at_utc')
+            if _parse_instant(self.expires_at_utc) < _parse_instant(
+                self.created_at_utc
+            ):
+                raise ValueError('expires_at_utc is before created_at_utc')
         if self.decision_sha256 != _hash(self.semantic_payload()):
             raise ValueError('AssumptionDecision hash mismatch')
         return self
@@ -203,6 +210,21 @@ def build_assumption_decision(
     )
 
 
+def _validate_instant(value: str, field: str) -> None:
+    """Enforce strict, explicitly-UTC ISO 8601 persisted timestamps (#869).
+
+    Lexical quirks (naive strings, partial dates, non-UTC offsets) are
+    rejected so they can never rewrite decision semantics silently.
+    """
+
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'{field} is not a valid ISO 8601 instant') from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ValueError(f'{field} must carry an explicit UTC offset')
+
+
 def _parse_instant(value: str) -> datetime:
     """Normalize a persisted UTC timestamp into a comparable instant.
 
@@ -215,6 +237,63 @@ def _parse_instant(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+class AssumptionDecisionIntegrityError(ValueError):
+    """Persisted assumption lineage is corrupt (fork, cycle, dangling ref)."""
+
+
+def assumption_lineage_issues(
+    decisions: tuple[AssumptionDecision, ...],
+) -> tuple[str, ...]:
+    """Detect topology violations in an assumption decision set (#869).
+
+    Supersession is a single-head lineage within one subject: a fork, a
+    cycle, a dangling predecessor, or a cross-subject edge makes the
+    recorded history untrustworthy and must fail closed.
+    """
+
+    issues: list[str] = []
+    by_id = {item.decision_id: item for item in decisions}
+    successors: dict[str, list[str]] = {}
+    for item in decisions:
+        predecessor = item.supersedes_decision_id
+        if predecessor is None:
+            continue
+        successors.setdefault(predecessor, []).append(item.decision_id)
+        target = by_id.get(predecessor)
+        if predecessor == item.decision_id:
+            issues.append(f'decision {item.decision_id} supersedes itself')
+        elif target is None:
+            issues.append(
+                f'decision {item.decision_id} supersedes missing '
+                f'predecessor {predecessor}'
+            )
+        elif target.subject != item.subject:
+            issues.append(
+                f'decision {item.decision_id} supersedes a decision on a '
+                'different subject'
+            )
+    for predecessor_id, children in successors.items():
+        if len(children) > 1:
+            issues.append(
+                f'decision {predecessor_id} has multiple successors '
+                f'({len(children)}): forked lineage'
+            )
+    for item in decisions:
+        seen: set[str] = set()
+        cursor: AssumptionDecision | None = item
+        while cursor is not None and cursor.supersedes_decision_id is not None:
+            predecessor_id = cursor.supersedes_decision_id
+            if predecessor_id in seen:
+                issues.append(
+                    f'decision {item.decision_id} reaches a supersession '
+                    'cycle'
+                )
+                break
+            seen.add(predecessor_id)
+            cursor = by_id.get(predecessor_id)
+    return tuple(issues)
 
 
 def active_assumption_decisions(
@@ -230,6 +309,11 @@ def active_assumption_decisions(
     ``as_of_utc`` is already inactive.
     """
 
+    issues = assumption_lineage_issues(decisions)
+    if issues:
+        raise AssumptionDecisionIntegrityError(
+            'assumption decision lineage is corrupt: ' + '; '.join(issues)
+        )
     superseded = {
         item.supersedes_decision_id
         for item in decisions
@@ -256,6 +340,8 @@ __all__ = [
     'AssumptionDecision',
     'AssumptionScope',
     'AssumptionSubjectRef',
+    'AssumptionDecisionIntegrityError',
     'active_assumption_decisions',
+    'assumption_lineage_issues',
     'build_assumption_decision',
 ]
