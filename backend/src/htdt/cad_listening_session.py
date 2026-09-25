@@ -122,6 +122,18 @@ class AbxAnalysisSpec(BaseModel):
     null_success_probability: float = 0.5
     significance_alpha: float | None = Field(default=None, gt=0.0, lt=1.0)
 
+    @model_validator(mode='after')
+    def validate_analysis(self) -> 'AbxAnalysisSpec':
+        # exact_binomial_two_sided_v1 is defined only for the symmetric
+        # guessing null: the 2*min(lower, upper) two-sided shortcut is not a
+        # valid two-sided p for any other null probability (#955).
+        if self.null_success_probability != 0.5:
+            raise ValueError(
+                'exact_binomial_two_sided_v1 requires null_success_probability '
+                '0.5; a different null needs a different preregistered method'
+            )
+        return self
+
 
 class ListeningSessionSpec(BaseModel):
     """Preregistered immutable blind-listening session design.
@@ -216,6 +228,18 @@ def build_listening_session_spec(**kwargs: Any) -> ListeningSessionSpec:
         semantic_sha256=digest,
         **kwargs,
     )
+
+
+class StimulusPreflightFinding(BaseModel):
+    """Cue-leakage check result for blinded stimulus parity."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    check: str = Field(min_length=1)
+    # UNKNOWN means the required verification was not performed — it never
+    # counts as a pass (#954).
+    state: Literal['PASS', 'FAIL', 'UNKNOWN']
+    detail: str | None = None
 
 
 class TrialAssignment(BaseModel):
@@ -359,12 +383,23 @@ class SubjectiveListeningResult(BaseModel):
     planned_scored_trials: int = Field(gt=0)
     aborted: bool
     inferential_state: Literal[
-        'fixed_n_evaluable', 'fixed_n_not_reached', 'descriptive_only'
+        'fixed_n_evaluable',
+        'fixed_n_not_reached',
+        'non_inferential',
+        'descriptive_only',
     ]
     correct_count: int | None = None
     exact_binomial_p: float | None = None
     preference_counts: tuple[int, int, int] | None = None
     analysis_method: str = Field(min_length=1)
+    # Preregistered analysis parameters are persisted on the result so replay
+    # uses the pinned null/alpha, not defaults (#955).
+    null_success_probability: float | None = None
+    significance_alpha: float | None = None
+    # The bound stimulus-parity preflight authority (#954); persisted so the
+    # inferential claim is auditable.
+    stimulus_preflight_state: Literal['PASS', 'FAIL', 'MISSING'] | None = None
+    stimulus_preflight: tuple[StimulusPreflightFinding, ...] | None = None
     assignments: tuple[TrialAssignment, ...] = ()
     blinded_labels_preserved: Literal[True] = True
 
@@ -381,9 +416,19 @@ class SubjectiveListeningResult(BaseModel):
                 raise ValueError('fixed_n_evaluable only applies to ABX')
             if self.correct_count is None or self.exact_binomial_p is None:
                 raise ValueError('evaluable ABX requires correctness + p')
+            if self.null_success_probability is None:
+                raise ValueError(
+                    'evaluable ABX must persist the preregistered null probability'
+                )
+            if self.stimulus_preflight_state != 'PASS':
+                raise ValueError(
+                    'fixed_n_evaluable requires a passing bound stimulus '
+                    'preflight'
+                )
             expected_p = exact_binomial_two_sided_p(
                 self.correct_count,
                 self.completed_scored_trials,
+                self.null_success_probability,
             )
             if abs(self.exact_binomial_p - expected_p) > 1e-12:
                 raise ValueError('reported p-value does not match exact binomial')
@@ -391,6 +436,21 @@ class SubjectiveListeningResult(BaseModel):
             if self.exact_binomial_p is not None:
                 raise ValueError(
                     'non-evaluable sessions must not report a fixed-N p-value'
+                )
+        if self.inferential_state == 'non_inferential' and (
+            self.stimulus_preflight_state == 'PASS'
+        ):
+            raise ValueError(
+                'a passing preflight cannot produce a non-inferential result'
+            )
+        if self.protocol == 'abx_discrimination':
+            if self.null_success_probability is None:
+                raise ValueError(
+                    'ABX results persist the preregistered null probability'
+                )
+            if self.stimulus_preflight_state is None:
+                raise ValueError(
+                    'ABX results must record the bound preflight state'
                 )
         if self.protocol == 'ab_preference':
             if self.preference_counts is None:
@@ -449,10 +509,26 @@ def blinded_trial_view(
 
 
 class BlindListeningSession:
-    """Runtime session: committed sequence, append-only trials, late reveal."""
+    """Runtime session: committed sequence, append-only trials, late reveal.
 
-    def __init__(self, spec: ListeningSessionSpec) -> None:
+    The stimulus-parity preflight authority is bound before the first scored
+    trial (#954): a session without a passing bound preflight can still run
+    (diagnostic use), but its result is 'non_inferential' — it never
+    receives the fixed-N claim.
+    """
+
+    def __init__(
+        self,
+        spec: ListeningSessionSpec,
+        *,
+        stimulus_preflight: tuple[StimulusPreflightFinding, ...] | None = None,
+    ) -> None:
         self.spec = spec
+        self._stimulus_preflight = (
+            tuple(stimulus_preflight)
+            if stimulus_preflight is not None
+            else None
+        )
         self._assignments = generate_assignment_sequence(spec)
         self.randomization_commitment_sha256 = randomization_commitment_sha256(
             spec, self._assignments
@@ -464,6 +540,26 @@ class BlindListeningSession:
     @property
     def closed(self) -> bool:
         return self._closed
+
+    @property
+    def stimulus_preflight(
+        self,
+    ) -> tuple[StimulusPreflightFinding, ...] | None:
+        return self._stimulus_preflight
+
+    @property
+    def preflight_state(self) -> Literal['PASS', 'FAIL', 'MISSING']:
+        return _preflight_state(self.spec, self._stimulus_preflight)
+
+    @property
+    def readiness(self) -> Literal['ready', 'blocked', 'compromised']:
+        """UI-facing lifecycle state for the bound preflight (#954)."""
+        state = self.preflight_state
+        if state == 'MISSING':
+            return 'blocked'
+        if state == 'FAIL':
+            return 'compromised'
+        return 'ready'
 
     def trial_view(self, trial_index: int) -> BlindedTrialView:
         with self._lock:
@@ -518,10 +614,24 @@ class BlindListeningSession:
             completed = len(scored)
             planned = self.spec.planned_scored_trials
             aborted = completed != planned
+            preflight_state = self.preflight_state
+            preflight_findings = (
+                [item.model_dump(mode='json') for item in self._stimulus_preflight]
+                if self._stimulus_preflight is not None
+                else None
+            )
             if self.spec.protocol == 'abx_discrimination':
                 correct = sum(1 for record in scored if record.correct)
                 if aborted:
                     inferential_state = 'fixed_n_not_reached'
+                    p_value = None
+                elif (
+                    preflight_state != 'PASS'
+                    or self.readiness != 'ready'
+                ):
+                    # A failed/missing/incomplete preflight never yields a
+                    # fixed-N inferential claim (#954).
+                    inferential_state = 'non_inferential'
                     p_value = None
                 else:
                     inferential_state = 'fixed_n_evaluable'
@@ -544,6 +654,12 @@ class BlindListeningSession:
                     'exact_binomial_p': p_value,
                     'preference_counts': None,
                     'analysis_method': ABX_ANALYSIS_METHOD,
+                    'null_success_probability': (
+                        self.spec.analysis.null_success_probability
+                    ),
+                    'significance_alpha': self.spec.analysis.significance_alpha,
+                    'stimulus_preflight_state': preflight_state,
+                    'stimulus_preflight': preflight_findings,
                     'assignments': [
                         item.model_dump(mode='json')
                         for item in self._assignments
@@ -572,6 +688,10 @@ class BlindListeningSession:
                     'exact_binomial_p': None,
                     'preference_counts': list(counts),
                     'analysis_method': PREFERENCE_ANALYSIS_METHOD,
+                    'null_success_probability': None,
+                    'significance_alpha': None,
+                    'stimulus_preflight_state': preflight_state,
+                    'stimulus_preflight': preflight_findings,
                     'assignments': [
                         item.model_dump(mode='json')
                         for item in self._assignments
@@ -592,6 +712,12 @@ class BlindListeningSession:
                     correct_count=correct,
                     exact_binomial_p=p_value,
                     analysis_method=ABX_ANALYSIS_METHOD,
+                    null_success_probability=(
+                        self.spec.analysis.null_success_probability
+                    ),
+                    significance_alpha=self.spec.analysis.significance_alpha,
+                    stimulus_preflight_state=preflight_state,
+                    stimulus_preflight=self._stimulus_preflight,
                     assignments=self._assignments,
                     result_id=f'listening-result:{digest}',
                     semantic_sha256=digest,
@@ -607,20 +733,52 @@ class BlindListeningSession:
                 inferential_state='descriptive_only',
                 preference_counts=counts,
                 analysis_method=PREFERENCE_ANALYSIS_METHOD,
+                stimulus_preflight_state=preflight_state,
+                stimulus_preflight=self._stimulus_preflight,
                 assignments=self._assignments,
                 result_id=f'listening-result:{digest}',
                 semantic_sha256=digest,
             )
 
 
-class StimulusPreflightFinding(BaseModel):
-    """Cue-leakage check result for blinded stimulus parity."""
+# Identity-cue checks every blinded session must pass, plus the level-policy
+# check selected by the session's own policy (#954).
+_CUE_CHECKS = (
+    'output_format_match',
+    'excerpt_bounds_match',
+    'clipping_free',
+    'seamless_switch',
+)
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
 
-    check: str = Field(min_length=1)
-    state: Literal['PASS', 'FAIL']
-    detail: str | None = None
+def _required_preflight_checks(
+    spec: ListeningSessionSpec,
+) -> frozenset[str]:
+    """Checks a session must see PASS to bind a passing preflight (#954)."""
+    if spec.level_policy.kind == 'rms_matched_window':
+        # RMS level matching over the declared window must be numerically
+        # verified, not assumed.
+        level_checks = ('rms_level_match',)
+    elif spec.level_policy.kind == 'preserve_physical_level':
+        # The level difference itself is the tested presentation.
+        level_checks = ('level_difference_is_tested',)
+    else:
+        # declared_method requires a documented method authority.
+        level_checks = ('declared_method_authority',)
+    return frozenset(_CUE_CHECKS + level_checks)
+
+
+def _preflight_state(
+    spec: ListeningSessionSpec,
+    findings: tuple[StimulusPreflightFinding, ...] | None,
+) -> Literal['PASS', 'FAIL', 'MISSING']:
+    if findings is None:
+        return 'MISSING'
+    by_check = {item.check: item.state for item in findings}
+    for check in _required_preflight_checks(spec):
+        if by_check.get(check) != 'PASS':
+            return 'FAIL'
+    return 'PASS'
 
 
 def stimulus_parity_preflight(
@@ -634,8 +792,20 @@ def stimulus_parity_preflight(
     clipped_a: bool,
     clipped_b: bool,
     seamless_switch_supported: bool,
+    rms_level_match_verified: bool | None = None,
+    physical_level_is_tested_difference: bool | None = None,
+    declared_method_authority: bool | None = None,
 ) -> tuple[StimulusPreflightFinding, ...]:
-    """Check the session alternatives for non-acoustic identity cues."""
+    """Check the session alternatives for non-acoustic identity cues.
+
+    Level-policy checks are emitted as UNKNOWN when the caller did not
+    perform the corresponding verification — never silently skipped (#954).
+    """
+    def _tri(value: bool | None) -> Literal['PASS', 'FAIL', 'UNKNOWN']:
+        if value is None:
+            return 'UNKNOWN'
+        return 'PASS' if value else 'FAIL'
+
     findings = [
         StimulusPreflightFinding(
             check='output_format_match',
@@ -677,6 +847,45 @@ def stimulus_parity_preflight(
                 None
                 if seamless_switch_supported
                 else 'switch latency/gap may reveal identity; mark the session'
+            ),
+        ),
+        StimulusPreflightFinding(
+            check='rms_level_match',
+            state=_tri(rms_level_match_verified),
+            detail=(
+                'rms level match numerically verified over the declared window'
+                if rms_level_match_verified
+                else (
+                    'rms level match FAILED over the declared window'
+                    if rms_level_match_verified is False
+                    else 'rms level match not verified'
+                )
+            ),
+        ),
+        StimulusPreflightFinding(
+            check='level_difference_is_tested',
+            state=_tri(physical_level_is_tested_difference),
+            detail=(
+                'level difference is the tested presentation'
+                if physical_level_is_tested_difference
+                else (
+                    'level difference between alternatives is an unintended cue'
+                    if physical_level_is_tested_difference is False
+                    else 'physical-level difference semantics not declared'
+                )
+            ),
+        ),
+        StimulusPreflightFinding(
+            check='declared_method_authority',
+            state=_tri(declared_method_authority),
+            detail=(
+                'level-matching method authority present'
+                if declared_method_authority
+                else (
+                    'level-matching method authority absent'
+                    if declared_method_authority is False
+                    else 'level-matching method authority not supplied'
+                )
             ),
         ),
     ]

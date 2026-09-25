@@ -134,11 +134,32 @@ def test_blinded_view_hides_assignment_until_close() -> None:
         session.trial_view(1)
 
 
+def _passing_preflight(
+    *,
+    rms_level_match_verified: bool = True,
+) -> tuple:
+    return stimulus_parity_preflight(
+        sample_rate_hz_a=48000,
+        sample_rate_hz_b=48000,
+        channel_count_a=1,
+        channel_count_b=1,
+        excerpt_bounds_a_s=(1.0, 5.0),
+        excerpt_bounds_b_s=(1.0, 5.0),
+        clipped_a=False,
+        clipped_b=False,
+        seamless_switch_supported=True,
+        rms_level_match_verified=rms_level_match_verified,
+    )
+
+
 def test_abx_full_completion_gives_exact_binomial() -> None:
     spec = _abx_spec(planned_scored_trials=4, planned_training_trials=0,
                      randomization=RandomizationCommitment(
                          committed_seed=42, sequence_length=4))
-    session = BlindListeningSession(spec)
+    session = BlindListeningSession(
+        spec, stimulus_preflight=_passing_preflight()
+    )
+    assert session.readiness == 'ready'
     for index in range(4):
         view = session.trial_view(index)
         assert view.trial_index == index
@@ -151,11 +172,50 @@ def test_abx_full_completion_gives_exact_binomial() -> None:
     assert result.exact_binomial_p is not None
     assert result.result_id.startswith('listening-result:')
     assert result.assignments
-    # p matches the exact computation over the recorded sequence
+    # The pinned analysis parameters and the bound preflight persist (#954,
+    # #955) so the claim replays exactly.
+    assert result.null_success_probability == 0.5
+    assert result.stimulus_preflight_state == 'PASS'
+    assert result.stimulus_preflight
     expected = exact_binomial_two_sided_p(
         result.correct_count, result.completed_scored_trials, 0.5
     )
     assert result.exact_binomial_p == expected
+
+
+def test_missing_or_failed_preflight_blocks_fixed_n_inference() -> None:
+    spec = _abx_spec(planned_scored_trials=4, planned_training_trials=0,
+                     randomization=RandomizationCommitment(
+                         committed_seed=42, sequence_length=4))
+    for session in (
+        BlindListeningSession(spec),
+        BlindListeningSession(
+            spec,
+            stimulus_preflight=stimulus_parity_preflight(
+                sample_rate_hz_a=48000,
+                sample_rate_hz_b=48000,
+                channel_count_a=1,
+                channel_count_b=1,
+                excerpt_bounds_a_s=(1.0, 5.0),
+                excerpt_bounds_b_s=(1.0, 5.0),
+                clipped_a=False,
+                clipped_b=False,
+                seamless_switch_supported=True,
+                rms_level_match_verified=False,
+            ),
+        ),
+    ):
+        assert session.readiness in ('blocked', 'compromised')
+        for index in range(4):
+            session.trial_view(index)
+            session.commit_response(
+                'a', committed_at_utc='2026-01-01T00:00:00Z'
+            )
+        result = session.close()
+        assert result.inferential_state == 'non_inferential'
+        assert result.exact_binomial_p is None
+        assert result.correct_count is not None
+        assert result.stimulus_preflight_state in ('MISSING', 'FAIL')
 
 
 def test_aborted_session_loses_fixed_n_inference() -> None:
@@ -221,8 +281,26 @@ def test_stimulus_parity_flags_cues() -> None:
         clipped_a=False,
         clipped_b=False,
         seamless_switch_supported=True,
+        rms_level_match_verified=True,
+        physical_level_is_tested_difference=True,
+        declared_method_authority=True,
     )
     assert all(item.state == 'PASS' for item in findings)
+    # Unverified level checks are UNKNOWN — never a silent pass (#954).
+    findings = stimulus_parity_preflight(
+        sample_rate_hz_a=48000,
+        sample_rate_hz_b=48000,
+        channel_count_a=1,
+        channel_count_b=1,
+        excerpt_bounds_a_s=(1.0, 5.0),
+        excerpt_bounds_b_s=(1.0, 5.0),
+        clipped_a=False,
+        clipped_b=False,
+        seamless_switch_supported=True,
+    )
+    by_check = {item.check: item.state for item in findings}
+    assert by_check['output_format_match'] == 'PASS'
+    assert by_check['rms_level_match'] == 'UNKNOWN'
     findings = stimulus_parity_preflight(
         sample_rate_hz_a=48000,
         sample_rate_hz_b=44100,
@@ -233,8 +311,19 @@ def test_stimulus_parity_flags_cues() -> None:
         clipped_a=True,
         clipped_b=False,
         seamless_switch_supported=False,
+        rms_level_match_verified=False,
     )
-    assert all(item.state == 'FAIL' for item in findings)
+    by_check = {item.check: item.state for item in findings}
+    assert by_check['output_format_match'] == 'FAIL'
+    assert by_check['excerpt_bounds_match'] == 'FAIL'
+    assert by_check['clipping_free'] == 'FAIL'
+    assert by_check['seamless_switch'] == 'FAIL'
+    assert by_check['rms_level_match'] == 'FAIL'
+
+
+def test_abx_null_probability_is_pinned_to_symmetric_null() -> None:
+    with pytest.raises(ValueError, match='null_success_probability'):
+        AbxAnalysisSpec(null_success_probability=0.6)
 
 
 def test_currency_follows_pinned_authorities() -> None:
