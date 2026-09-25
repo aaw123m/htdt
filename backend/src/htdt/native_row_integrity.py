@@ -531,6 +531,51 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #817/#818: profile authorities — document_id on profile rows is row
+    # scope (the model has no document field), so it is not bound; every
+    # other duplicated column is a genuine payload field duplicate.
+    'cad_bass_management_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('lifecycle', 'lifecycle'),
+        ),
+        (),
+    ),
+    'cad_bass_management_selections': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('selected_at_utc', 'selected_at_utc'),
+        ),
+        (),
+    ),
+    'cad_video_presentation_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+        ),
+        (),
+    ),
+    'cad_video_presentation_selections': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('screen_entity_id', 'screen_entity_id'),
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('selected_at_utc', 'selected_at_utc'),
+        ),
+        (),
+    ),
 }
 
 
@@ -604,6 +649,8 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_coverage_evaluations',
     'cad_coverage_scenarios',
     'cad_current_topologies',
+    'cad_data_source_registry',
+    'cad_dataset_reviews',
     'cad_deterministic_ga_execution_inputs',
     'cad_deterministic_path_artifacts',
     'cad_direct_level_evaluations',
@@ -626,6 +673,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_hybrid_prediction_provider_objectives',
     'cad_hybrid_prediction_providers',
     'cad_hybrid_stitching_policies',
+    'cad_importer_declarations',
     'cad_installation_contexts',
     'cad_installed_definition_bindings',
     'cad_installed_device_observations',
@@ -674,6 +722,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_r140_execution_tasks',
     'cad_r140_gpu_authorities',
     'cad_r140_resource_estimates',
+    'cad_raw_source_records',
     'cad_robustness_evaluations',
     'cad_robustness_specs',
     'cad_robustness_validation_cases',
@@ -681,6 +730,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_roomsim_batch_specs',
     'cad_roomsim_candidate_attempts',
     'cad_routing_profiles',
+    'cad_source_review_decisions',
     'cad_speaker_electrical_loads',
     'cad_speaker_impedances',
     'cad_standards_evaluations',
@@ -706,8 +756,11 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_treatment_boundary_overlays',
     'cad_treatment_evidence_authorities',
     'cad_upgrade_adoptions',
+    'cad_upstream_version_candidates',
+    'cad_validation_benchmark_specs',
     'cad_validation_campaign_registrations',
     'cad_validation_campaigns',
+    'cad_validation_corpus_entries',
     'cad_video_geometry_evaluations',
     'cad_video_geometry_workspaces',
     'cad_wave_excitation_evidence_authorities',
