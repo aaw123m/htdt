@@ -87,7 +87,9 @@ class CadR110SourceRepository:
         self.source_response_repository = (
             source_response_repository
             if source_response_repository is not None
-            else CadSourceResponseRepository(scene_repository.path)
+            else CadSourceResponseRepository(
+                scene_repository.path, self.equipment_repository
+            )
         )
         self.path = Path(scene_repository.path)
         ensure_native_schema(self.path)

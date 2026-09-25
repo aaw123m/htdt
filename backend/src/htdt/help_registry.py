@@ -266,6 +266,7 @@ class HelpRegistry:
         self,
         *,
         command_ids: Iterable[str] | None = None,
+        command_reason_codes: Iterable[str] | None = None,
         required_locales: Iterable[PresentationLocale] = (
             PresentationLocale.JAPANESE,
             PresentationLocale.ENGLISH,
@@ -278,6 +279,9 @@ class HelpRegistry:
           when provided);
         * deep-link workspace ids resolve;
         * production topics carry every required locale;
+        * catalog-owned ``command.`` reason-code bindings refer to codes the
+          availability catalog actually emits (when ``command_reason_codes``
+          is provided) — a typo'd binding is a CI error;
         * glossary terms reference real topics.
         """
 
@@ -285,6 +289,9 @@ class HelpRegistry:
         warnings: list[str] = []
         known_commands = (
             set(command_ids) if command_ids is not None else None
+        )
+        known_reason_codes = (
+            set(command_reason_codes) if command_reason_codes is not None else None
         )
         required = tuple(required_locales)
         for topic in self._topics.values():
@@ -304,6 +311,13 @@ class HelpRegistry:
                     errors.append(
                         f'topic {topic.topic_id!r} has invalid deep link {link!r}'
                     )
+            if known_reason_codes is not None:
+                for code in topic.reason_codes:
+                    if code.startswith('command.') and code not in known_reason_codes:
+                        errors.append(
+                            f'topic {topic.topic_id!r} binds catalog-owned reason '
+                            f'code {code!r} that no availability emitter declares'
+                        )
             missing = [l.value for l in required if l not in topic.content]
             if missing:
                 errors.append(
@@ -630,6 +644,10 @@ def build_help_registry() -> HelpRegistry:
                 'prediction.unavailable.source_model_missing',
                 'prediction.unavailable.geometry_unsupported',
                 'prediction.unavailable.provider_not_ready',
+                'prediction.run.running',
+                'prediction.run.requires_saved_layout',
+                'prediction.run.receiver_required',
+                'prediction.run.requires_saved_scene_and_receiver',
             ),
             deep_links=(WorkspaceDeepLink(WorkspaceId.ROOM, section='placement'),),
             related_topics=('workflow.prediction_optimize', 'concept.evidence_vs_assumption'),
@@ -686,6 +704,29 @@ def build_help_registry() -> HelpRegistry:
             ),
             en_sections=(
                 ('Limit', 'Revisions from different projects or coordinate spaces cannot be compared spatially.'),
+            ),
+        ),
+        _topic(
+            'trouble.command_unavailable',
+            '操作が利用できない理由',
+            'Why a command is unavailable',
+            '無効なコマンドは安定な理由コードを持ち、ここからその意味を確認できます。',
+            'Disabled commands carry a stable reason code; this topic explains what it means.',
+            keywords=('unavailable', 'disabled', '利用不可', '無効', 'なぜ', 'コマンド', 'why'),
+            reason_codes=(
+                'command.blocked.data_mutation_frozen',
+                'command.blocked.navigation_handler_unavailable',
+                'command.blocked.unavailable_in_context',
+                'measurement.import.workspace_unbound',
+                'prediction.run.workspace_unbound',
+                'optimization.compare.workspace_unbound',
+            ),
+            related_topics=('trouble.prediction_unavailable',),
+            ja_sections=(
+                ('理由コード', 'コマンドが無効な理由は表示文ではなくコードで識別されます。データ管理操作の進行中や対象ワークスペース未接続などが主な原因です。'),
+            ),
+            en_sections=(
+                ('Reason codes', 'A disabled command is identified by a stable code, not its rendered text — for example a data operation in progress or an unbound workspace.'),
             ),
         ),
         _topic(

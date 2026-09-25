@@ -542,6 +542,9 @@ class CadAcousticLevelCalibration(BaseModel):
     sensitivity_v_per_pa: float | None = Field(default=None, gt=0.0)
     reference_level_db_spl: float | None = None
     reference_frequency_hz: float | None = Field(default=None, gt=0.0)
+    #: Calibration uncertainty retained separately from the calibrated value
+    #: — absence means UNKNOWN, never silently zero uncertainty.
+    uncertainty_db: float | None = Field(default=None, ge=0.0)
     calibrated_at_utc: str = Field(min_length=1)
     validity_scope: LevelCalibrationScope = 'unknown'
     # #850/#859: enforceable applicability identity. ``measurement`` scope
@@ -563,6 +566,7 @@ class CadAcousticLevelCalibration(BaseModel):
             ('reference_level_db_spl', self.reference_level_db_spl),
             ('reference_frequency_hz', self.reference_frequency_hz),
             ('sensitivity_v_per_pa', self.sensitivity_v_per_pa),
+            ('uncertainty_db', self.uncertainty_db),
         ):
             if value is not None and not isfinite(float(value)):
                 raise ValueError(f'{label} must be finite')
@@ -586,14 +590,17 @@ class CadAcousticLevelCalibration(BaseModel):
             'validity_scope': self.validity_scope,
             'provenance_json': self.provenance_json,
         }
-        # Optional post-#850/#859 applicability identity joins the seal
-        # only when present — records persisted before keep their hash.
+        # Optional fields join the identity only when present — the additive
+        # convention that keeps existing authority hashes stable. The
+        # post-#850/#859 applicability fields and ``uncertainty_db`` alike.
         if self.subject_measurement_id is not None:
             payload['subject_measurement_id'] = self.subject_measurement_id
         if self.acquisition_session_id is not None:
             payload['acquisition_session_id'] = self.acquisition_session_id
         if self.input_path_identity is not None:
             payload['input_path_identity'] = self.input_path_identity
+        if self.uncertainty_db is not None:
+            payload['uncertainty_db'] = self.uncertainty_db
         return payload
 
 
@@ -602,16 +609,93 @@ _LEVEL_METHODS_WITH_ABSOLUTE_SPL = frozenset(
 )
 
 
+def absolute_spl_evidence_gaps(
+    calibration: CadAcousticLevelCalibration,
+) -> tuple[str, ...]:
+    """The method-specific evidence missing for an absolute dB-SPL claim.
+
+    A method capable of absolute SPL must carry its minimum evidence set —
+    a bare method enum authorizes nothing:
+
+    * ``acoustic_calibrator``: reference level + reference frequency;
+      measured input-chain/microphone identity; derived scale/sensitivity
+      or the exact producer session it came from; an applicability scope.
+    * ``rew_spl_session``: the exact producer session/profile record;
+      input path/device/channel context; the calibration result or
+      derived scale; an applicability scope.
+    * ``reference_meter_transfer``: the exact reference-meter identity;
+      the target input chain; the observed transfer/calibration result;
+      the transfer method/session record; an applicability scope.
+
+    ``manufacturer_sensitivity``, ``imported``, ``manual`` and ``unknown``
+    are never absolute-SPL authorities on their own — they may be stored
+    as calibration-related information without authorizing absolute SPL.
+    """
+
+    if calibration.method not in _LEVEL_METHODS_WITH_ABSOLUTE_SPL:
+        return ('method cannot authorize absolute SPL',)
+    gaps: list[str] = []
+    has_input_chain = any(
+        (
+            calibration.instrument_identity,
+            calibration.input_device_label,
+            calibration.input_channel,
+            calibration.input_path_identity,
+        )
+    )
+    has_session_record = (
+        bool(calibration.instrument_profile)
+        or bool(calibration.acquisition_session_id)
+        or calibration.provenance_json not in ('', '{}')
+    )
+    if calibration.method == 'acoustic_calibrator':
+        if calibration.reference_level_db_spl is None:
+            gaps.append('calibrator reference level')
+        if calibration.reference_frequency_hz is None:
+            gaps.append('calibrator reference frequency')
+        if not has_input_chain:
+            gaps.append('measured input chain/microphone identity')
+        if calibration.sensitivity_v_per_pa is None and not has_session_record:
+            gaps.append('derived scale or exact producer session')
+    elif calibration.method == 'rew_spl_session':
+        if not has_session_record:
+            gaps.append('exact producer session record')
+        if not has_input_chain:
+            gaps.append('input path/device/channel context')
+        if (
+            calibration.sensitivity_v_per_pa is None
+            and calibration.reference_level_db_spl is None
+        ):
+            gaps.append('calibration result/scale semantics')
+    elif calibration.method == 'reference_meter_transfer':
+        if calibration.instrument_identity is None:
+            gaps.append('reference meter/instrument authority')
+        if not any(
+            (calibration.input_device_label, calibration.input_channel)
+        ):
+            gaps.append('target input-chain identity')
+        if (
+            calibration.reference_level_db_spl is None
+            and calibration.sensitivity_v_per_pa is None
+        ):
+            gaps.append('observed transfer/calibration result')
+        if not has_session_record:
+            gaps.append('transfer method/session record')
+    if calibration.validity_scope == 'unknown':
+        gaps.append('applicability scope')
+    return tuple(gaps)
+
+
 def calibration_supports_absolute_spl(
     calibration: CadAcousticLevelCalibration,
 ) -> bool:
     """Whether this calibration can authorize an absolute dB-SPL claim.
 
-    ``manufacturer_sensitivity``, ``imported``, ``manual`` and ``unknown``
-    methods are never SPL authorities on their own.
+    Evaluates the complete authority — method alone never authorizes SPL;
+    missing required method evidence leaves the capability unsupported.
     """
 
-    return calibration.method in _LEVEL_METHODS_WITH_ABSOLUTE_SPL
+    return not absolute_spl_evidence_gaps(calibration)
 
 
 def calibration_applies_to(
@@ -741,6 +825,7 @@ def build_acoustic_level_calibration(
     sensitivity_v_per_pa: float | None = None,
     reference_level_db_spl: float | None = None,
     reference_frequency_hz: float | None = None,
+    uncertainty_db: float | None = None,
     calibrated_at_utc: str | None = None,
     validity_scope: LevelCalibrationScope = 'unknown',
     subject_measurement_id: str | None = None,
@@ -760,6 +845,7 @@ def build_acoustic_level_calibration(
         'sensitivity_v_per_pa': sensitivity_v_per_pa,
         'reference_level_db_spl': reference_level_db_spl,
         'reference_frequency_hz': reference_frequency_hz,
+        'uncertainty_db': uncertainty_db,
         'calibrated_at_utc': calibrated_at_utc or _utc_now(),
         'validity_scope': validity_scope,
         'subject_measurement_id': subject_measurement_id,
@@ -1493,6 +1579,7 @@ __all__ = [
     'TimingT0Convention',
     'WiringCheckKind',
     'WiringCheckResult',
+    'absolute_spl_evidence_gaps',
     'build_acoustic_level_calibration',
     'build_dataset_level_reference',
     'build_electrical_load_observation',
