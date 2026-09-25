@@ -11,6 +11,7 @@ from htdt.cad_model_calibration import (
     CalibrationObjectiveSpec,
     CalibrationOptimizerSpec,
     CalibrationParameterDefinition,
+    CalibrationResidualEvaluation,
     evaluate_holdout_discipline,
     freeze_calibrated_model,
     run_model_calibration,
@@ -348,3 +349,188 @@ def test_log_grid_replay_is_deterministic() -> None:
     second = run_model_calibration(spec, AnyEvaluator())
     assert first.fitted_values == second.fitted_values
     assert first.result_id == second.result_id
+    assert first.result_id == second.result_id
+
+
+def test_complete_grid_reports_grid_complete_and_full_accounting() -> None:
+    spec = _spec(parameters=(_fitted_param('alpha', 0.0, 1.0),))
+
+    class CountingEvaluator:
+        def __init__(self):
+            self.calls = 0
+
+        def evaluate(self, values):
+            self.calls += 1
+            return (values['alpha'] - 0.5,)
+
+    evaluator = CountingEvaluator()
+    result = run_model_calibration(spec, evaluator)
+    # 64-point grid over [0, 1] evaluated exhaustively.
+    assert result.termination_state == 'grid_complete'
+    assert result.planned_grid_points == 64
+    assert result.search_evaluations == 64
+    assert result.skipped_grid_points == 0
+    # Interior optimum: sensitivity probes reuse grid residuals.
+    assert result.diagnostic_evaluations == 0
+    assert result.evaluations_used == evaluator.calls
+    assert result.budget_scope == 'search_grid'
+
+
+def test_truncated_grid_reports_budget_truncated() -> None:
+    spec = _spec(
+        parameters=(
+            _fitted_param('a', 0.0, 1.0),
+            _fitted_param('b', 0.0, 1.0),
+        ),
+        optimizer=CalibrationOptimizerSpec(max_evaluations=10),
+    )
+
+    class FlatEvaluator:
+        def evaluate(self, values):
+            return (0.0,)
+
+    result = run_model_calibration(spec, FlatEvaluator())
+    # ceil(sqrt(10)) = 4 -> planned 16-point grid, budget cuts it at 10.
+    assert result.planned_grid_points == 16
+    assert result.search_evaluations == 10
+    assert result.skipped_grid_points == 6
+    assert result.termination_state == 'budget_truncated'
+
+
+def test_sensitivity_calls_are_counted_when_not_cached() -> None:
+    spec = _spec(
+        parameters=(_fitted_param('alpha', 0.0, 1.0),),
+        optimizer=CalibrationOptimizerSpec(max_evaluations=1),
+    )
+
+    class CountingEvaluator:
+        def __init__(self):
+            self.calls = 0
+
+        def evaluate(self, values):
+            self.calls += 1
+            return (values['alpha'],)
+
+    evaluator = CountingEvaluator()
+    result = run_model_calibration(spec, evaluator)
+    # Single-point grid: plus/minus probes land on the bounds, off-grid.
+    assert result.search_evaluations == 1
+    assert result.diagnostic_evaluations == 2
+    assert result.evaluations_used == 3
+    assert evaluator.calls == 3
+    assert result.termination_state == 'grid_complete'
+
+
+def test_deterministic_seed_is_a_reserved_no_op() -> None:
+    base = _spec(optimizer=CalibrationOptimizerSpec(max_evaluations=8))
+    seeded = _spec(
+        optimizer=CalibrationOptimizerSpec(
+            max_evaluations=8, deterministic_seed=1234
+        )
+    )
+    assert base.spec_id == seeded.spec_id
+    assert base.semantic_sha256 == seeded.semantic_sha256
+
+
+def test_per_octave_weighting_changes_residual_norm() -> None:
+    frequencies = (20.0, 21.0, 40.0, 80.0, 160.0)
+    ids = tuple(f's{i}' for i in range(len(frequencies)))
+
+    class DetailedEvaluator:
+        def evaluate(self, values):
+            raise AssertionError('engine must use evaluate_detailed')
+
+        def evaluate_detailed(self, values):
+            return CalibrationResidualEvaluation(
+                residuals=(1.0,) * len(frequencies),
+                sample_ids=ids,
+                frequency_hz=frequencies,
+            )
+
+    objective = CalibrationObjectiveSpec(
+        observable='transfer_magnitude_db',
+        frequency_domain=FrequencyDomain(
+            minimum_hz=20.0, maximum_hz=200.0
+        ),
+        weighting='per_octave',
+    )
+    spec = _spec(objective=objective)
+    result = run_model_calibration(spec, DetailedEvaluator())
+    # octave 0 ([20, 40)) holds two of five samples -> weights halve its energy
+    assert result.weighting_applied == 'per-octave-v1'
+    assert result.residual_basis_kind == 'declared'
+    assert result.residual_basis_sha256 is not None
+    # weights (0.5, 0.5, 1, 1, 1): energy 0.5+0.5+1+1+1 = 4
+    assert result.training_residual_norm == pytest.approx(2.0)
+
+    uniform_spec = _spec()
+    uniform = run_model_calibration(uniform_spec, DetailedEvaluator())
+    assert uniform.weighting_applied == 'uniform-v1'
+    assert uniform.training_residual_norm == pytest.approx(math.sqrt(5.0))
+
+
+def test_per_octave_rejects_anonymous_residual_basis() -> None:
+    objective = CalibrationObjectiveSpec(
+        observable='transfer_magnitude_db',
+        frequency_domain=FrequencyDomain(
+            minimum_hz=20.0, maximum_hz=200.0
+        ),
+        weighting='per_octave',
+    )
+    spec = _spec(objective=objective)
+
+    class BareEvaluator:
+        def evaluate(self, values):
+            return (0.5, 0.5)
+
+    with pytest.raises(ValueError, match='frequency coordinates'):
+        run_model_calibration(spec, BareEvaluator())
+
+
+def test_out_of_domain_residual_frequency_rejected() -> None:
+    class OutOfDomainEvaluator:
+        def evaluate(self, values):
+            return (0.0, 0.0)
+
+        def evaluate_detailed(self, values):
+            return CalibrationResidualEvaluation(
+                residuals=(0.0, 0.0),
+                frequency_hz=(20.0, 500.0),
+            )
+
+    with pytest.raises(ValueError, match='outside the declared'):
+        run_model_calibration(_spec(), OutOfDomainEvaluator())
+
+
+def test_evaluator_claimed_weights_must_match_objective() -> None:
+    class DishonestEvaluator:
+        def evaluate(self, values):
+            return (1.0, 1.0)
+
+        def evaluate_detailed(self, values):
+            return CalibrationResidualEvaluation(
+                residuals=(1.0, 1.0),
+                applied_weights=(1.0, 0.5),
+            )
+
+    with pytest.raises(ValueError, match='do not match the preregistered'):
+        run_model_calibration(_spec(), DishonestEvaluator())
+
+
+def test_unstable_residual_basis_fails_closed() -> None:
+    spec = _spec(
+        parameters=(_fitted_param('alpha', 0.0, 1.0),),
+        optimizer=CalibrationOptimizerSpec(max_evaluations=1),
+    )
+
+    class DriftingEvaluator:
+        def __init__(self):
+            self.calls = 0
+
+        def evaluate(self, values):
+            self.calls += 1
+            # second call (a sensitivity probe) returns a longer vector
+            return (0.1,) * (1 + self.calls)
+
+    with pytest.raises(ValueError, match='basis changed'):
+        run_model_calibration(spec, DriftingEvaluator())

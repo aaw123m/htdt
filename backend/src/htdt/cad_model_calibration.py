@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
-from math import exp, isfinite, log, sqrt
+from math import ceil, exp, floor, isfinite, log, log2, sqrt
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -161,7 +161,12 @@ class CalibrationOptimizerSpec(BaseModel):
     transform_convention: Literal[
         'r180-parameter-transform-natural-log-v1'
     ] = PARAMETER_TRANSFORM_CONVENTION
+    #: Search-grid budget only — diagnostic/sensitivity evaluator calls are
+    #: accounted separately on the result and do not consume this cap.
     max_evaluations: int = Field(gt=0)
+    #: Reserved for future stochastic optimizers. deterministic_grid_search_v1
+    #: never consumes it; it is excluded from the spec's semantic identity so
+    #: two specs differing only in seed hash identically (#1034).
     deterministic_seed: int = Field(ge=0, default=0)
 
 
@@ -221,7 +226,14 @@ class AcousticModelCalibrationSpec(BaseModel):
     def semantic_payload(self) -> dict[str, Any]:
         return self.model_dump(
             mode='json',
-            exclude={'spec_id', 'semantic_sha256'},
+            exclude={
+                'spec_id': True,
+                'semantic_sha256': True,
+                # ``deterministic_seed`` is a reserved no-op for the v1
+                # deterministic grid optimizer, so it is deliberately excluded
+                # from the preregistered semantic identity (#1034).
+                'optimizer': {'deterministic_seed'},
+            },
         )
 
     @property
@@ -243,11 +255,62 @@ def build_model_calibration_spec(**kwargs: Any) -> AcousticModelCalibrationSpec:
     )
 
 
+class CalibrationResidualEvaluation(BaseModel):
+    """Typed residual basis returned by a detailed evaluator (#1035).
+
+    ``residuals`` are UNWEIGHTED canonical residuals — the engine applies the
+    preregistered objective weighting itself. ``sample_ids`` / ``frequency_hz``
+    give each residual a verifiable identity/coordinate; ``applied_weights``
+    is the energy weighting the evaluator claims to have applied — the engine
+    verifies it against the preregistered objective rather than trusting it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    residuals: tuple[float, ...] = Field(min_length=1)
+    sample_ids: tuple[str, ...] | None = None
+    frequency_hz: tuple[float, ...] | None = None
+    applied_weights: tuple[float, ...] | None = None
+
+    @model_validator(mode='after')
+    def valid_evaluation(self) -> 'CalibrationResidualEvaluation':
+        count = len(self.residuals)
+        if any(not isfinite(float(value)) for value in self.residuals):
+            raise ValueError('residual values must be finite')
+        for name in ('sample_ids', 'frequency_hz', 'applied_weights'):
+            value = getattr(self, name)
+            if value is not None and len(value) != count:
+                raise ValueError(f'{name} must match the residual basis length')
+        if self.sample_ids is not None:
+            if any(not str(item) for item in self.sample_ids):
+                raise ValueError('sample ids must be non-empty')
+            if len(set(self.sample_ids)) != count:
+                raise ValueError('sample ids must be unique')
+        if self.frequency_hz is not None and any(
+            not isfinite(float(f)) or float(f) <= 0.0
+            for f in self.frequency_hz
+        ):
+            raise ValueError('residual frequencies must be positive and finite')
+        if self.applied_weights is not None and any(
+            not isfinite(float(w)) or float(w) < 0.0
+            for w in self.applied_weights
+        ):
+            raise ValueError('applied weights must be nonnegative and finite')
+        return self
+
+
 class CalibrationEvaluationPort(Protocol):
     """Deterministic objective evaluator the bounded optimizer drives.
 
-    ``evaluate`` returns the per-sample weighted residual vector in the
-    declared observable/band; ``residual_norm`` defaults to the L2 norm.
+    ``evaluate`` returns the per-sample residual vector in the declared
+    observable/band over an anonymous basis; the engine requires every call —
+    search and sensitivity probes alike — to share one basis length.
+
+    Implementations may additionally provide ``evaluate_detailed`` returning a
+    :class:`CalibrationResidualEvaluation` (or an equivalent mapping) with
+    typed sample identity, frequency coordinates and claimed energy weights;
+    the engine then verifies domain membership, a stable ordered sample basis
+    and the preregistered weighting exactly.
     """
 
     def evaluate(
@@ -257,7 +320,21 @@ class CalibrationEvaluationPort(Protocol):
         ...
 
 
-TerminationState = Literal['converged', 'budget_exhausted']
+#: 'converged' is intentionally absent: the deterministic v1 grid search
+#: declares no convergence criterion, so a run either evaluated its whole
+#: planned grid ('grid_complete') or stopped at the search budget
+#: ('budget_truncated'). (#1034)
+TerminationState = Literal['grid_complete', 'budget_truncated']
+
+#: ``max_evaluations`` bounds the search grid only; post-fit sensitivity /
+#: diagnostic evaluator calls are counted separately and never silently
+#: bypass resource accounting. (#1034)
+EVALUATION_BUDGET_SCOPE = 'search_grid'
+
+OBJECTIVE_WEIGHTING_ALGORITHMS = {
+    'uniform': 'uniform-v1',
+    'per_octave': 'per-octave-v1',
+}
 
 
 class ParameterSensitivityEvidence(BaseModel):
@@ -303,7 +380,25 @@ class AcousticModelCalibrationResult(BaseModel):
     training_residual_norm: float = Field(ge=0.0)
     training_sample_count: int = Field(gt=0)
     termination_state: TerminationState
+    #: Total evaluator invocations — search grid plus every diagnostic /
+    #: sensitivity probe; never just the search loop count. (#1034)
     evaluations_used: int = Field(gt=0)
+    #: Which calls ``max_evaluations`` caps: the deterministic search grid
+    #: only. Diagnostics are reported, never silently uncapped. (#1034)
+    budget_scope: Literal['search_grid'] = EVALUATION_BUDGET_SCOPE
+    planned_grid_points: int = Field(ge=1)
+    search_evaluations: int = Field(ge=1)
+    #: Planned grid points never evaluated because the budget cut the search.
+    skipped_grid_points: int = Field(ge=0)
+    #: Post-fit sensitivity/diagnostic evaluator invocations (cache misses
+    #: only — reused grid residuals are not recomputed). (#1034)
+    diagnostic_evaluations: int = Field(ge=0)
+    #: Provenance of the residual basis the objective actually used. (#1035)
+    residual_basis_kind: Literal['declared', 'anonymous']
+    residual_basis_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    weighting_applied: str = Field(min_length=1)
     # Whether the sensitivity derivative is d(residual)/d(physical x) or
     # d(residual)/d(transformed z). Search coordinates are transformed;
     # reported sensitivity is the physical-parameter derivative.
@@ -339,6 +434,23 @@ class AcousticModelCalibrationResult(BaseModel):
             raise ValueError('calibrated model hash mismatch')
         if self.calibrated_model_id != f'calibrated-model:{expected_model}':
             raise ValueError('calibrated model id mismatch')
+        if self.evaluations_used != (
+            self.search_evaluations + self.diagnostic_evaluations
+        ):
+            raise ValueError(
+                'evaluations_used must equal search + diagnostic calls'
+            )
+        if self.skipped_grid_points != (
+            self.planned_grid_points - self.search_evaluations
+        ):
+            raise ValueError(
+                'skipped grid points must equal planned minus evaluated points'
+            )
+        if (
+            self.residual_basis_kind == 'declared'
+            and self.residual_basis_sha256 is None
+        ):
+            raise ValueError('a declared residual basis requires its hash')
         expected = _digest(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('calibration result semantic hash mismatch')
@@ -702,6 +814,43 @@ def _grid_points(
     )
 
 
+def _planned_grid_size(count: int, per_parameter_count: int) -> int:
+    size = 1
+    for _ in range(count):
+        size *= per_parameter_count
+    return size
+
+
+def _objective_energy_weights(
+    spec: AcousticModelCalibrationSpec,
+    frequency_hz: Sequence[float] | None,
+    sample_count: int,
+) -> tuple[float, ...]:
+    """Versioned per-sample energy weights for the preregistered objective.
+
+    ``uniform-v1`` weights every residual sample equally.
+    ``per-octave-v1`` divides each sample's energy weight by the number of
+    samples in its octave band (octave index ``floor(log2(f / f_min))`` with
+    ``f_min`` the declared domain minimum), so every octave contributes equal
+    residual energy regardless of the sampling density inside it.
+    """
+    if spec.objective.weighting == 'uniform':
+        return (1.0,) * sample_count
+    if frequency_hz is None:
+        raise ValueError(
+            'per_octave weighting requires residual frequency coordinates; '
+            'an evaluator returning a bare residual tuple cannot satisfy it'
+        )
+    reference = spec.objective.frequency_domain.minimum_hz
+    octaves = [
+        floor(log2(float(frequency) / reference)) for frequency in frequency_hz
+    ]
+    populations: dict[int, int] = {}
+    for octave in octaves:
+        populations[octave] = populations.get(octave, 0) + 1
+    return tuple(1.0 / populations[octave] for octave in octaves)
+
+
 def run_model_calibration(
     spec: AcousticModelCalibrationSpec,
     evaluator: CalibrationEvaluationPort,
@@ -715,8 +864,14 @@ def run_model_calibration(
     """
     fitted = spec.fitted_parameters
     count = len(fitted)
-    per_parameter = max(1, int(spec.optimizer.max_evaluations ** (1.0 / count)))
+    # The grid uses the largest per-parameter density whose full plan is
+    # honest under the budget: when the planned product exceeds the budget the
+    # run stops at the cap and reports 'budget_truncated' (#1034).
+    per_parameter = max(
+        1, int(ceil(spec.optimizer.max_evaluations ** (1.0 / count)))
+    )
     grids = [_grid_points(parameter, per_parameter) for parameter in fitted]
+    planned_grid_points = _planned_grid_size(count, per_parameter)
 
     base_values = {
         item.parameter_id: float(item.fixed_value)
@@ -724,28 +879,131 @@ def run_model_calibration(
         if item.role == 'fixed'
     }
 
-    evaluations = 0
+    # --- typed residual-basis verification (#1035) -------------------------
+    # The evaluator's residual vector is the objective's canonical basis; it
+    # must be stable (same ordered identity) for every call the engine makes,
+    # search or sensitivity probe. A detailed evaluator declares its basis
+    # (ordered sample ids / frequency coordinates); an anonymous one is still
+    # bound to a fixed length.
+    detailed_evaluator = getattr(evaluator, 'evaluate_detailed', None)
+    declared_basis: tuple | None = None
+    basis_kind: Literal['declared', 'anonymous'] = 'anonymous'
+    basis_frequency_hz: tuple[float, ...] | None = None
+    basis_sample_ids: tuple[str, ...] | None = None
+
+    def _invoke_evaluator(
+        values: dict[str, float],
+    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        """Call the evaluator once; return (raw, objective-weighted) residuals."""
+        nonlocal declared_basis, basis_kind
+        nonlocal basis_frequency_hz, basis_sample_ids
+        frequency_hz: tuple[float, ...] | None = None
+        sample_ids: tuple[str, ...] | None = None
+        applied_weights: tuple[float, ...] | None = None
+        if detailed_evaluator is not None:
+            detailed = detailed_evaluator(values)
+            if not isinstance(detailed, CalibrationResidualEvaluation):
+                detailed = CalibrationResidualEvaluation.model_validate(
+                    detailed
+                )
+            basis_kind = 'declared'
+            raw = tuple(float(v) for v in detailed.residuals)
+            sample_ids = detailed.sample_ids
+            frequency_hz = detailed.frequency_hz
+            applied_weights = detailed.applied_weights
+            if frequency_hz is not None and any(
+                not spec.objective.frequency_domain.contains(f)
+                for f in frequency_hz
+            ):
+                raise ValueError(
+                    'residual sample frequency outside the declared '
+                    'objective frequency domain'
+                )
+        else:
+            raw = tuple(float(v) for v in evaluator.evaluate(values))
+        if not raw:
+            raise ValueError('calibration evaluator returned no residuals')
+        basis = (
+            'declared' if detailed_evaluator is not None else 'anonymous',
+            len(raw),
+            sample_ids,
+            frequency_hz,
+        )
+        if declared_basis is None:
+            declared_basis = basis
+            basis_frequency_hz = frequency_hz
+            basis_sample_ids = sample_ids
+        elif basis != declared_basis:
+            raise ValueError(
+                'residual sample basis changed between evaluations; the '
+                'engine refuses to compare across differing bases'
+            )
+        weights = _objective_energy_weights(
+            spec, frequency_hz, len(raw)
+        )
+        if applied_weights is not None and (
+            len(applied_weights) != len(weights)
+            or any(
+                abs(float(got) - float(expected)) > 1e-9
+                for got, expected in zip(applied_weights, weights)
+            )
+        ):
+            raise ValueError(
+                'evaluator-applied weights do not match the preregistered '
+                'objective weighting'
+            )
+        weighted = tuple(
+            residual * sqrt(weight) for residual, weight in zip(raw, weights)
+        )
+        return raw, weighted
+
+    # Residual cache keyed by the full parameter assignment: diagnostic probes
+    # that coincide with evaluated grid points reuse their residuals instead
+    # of issuing an untracked duplicate evaluator call (#1034).
+    residual_cache: dict[
+        tuple[tuple[str, float], ...],
+        tuple[tuple[float, ...], tuple[float, ...]],
+    ] = {}
+    search_evaluations = 0
+    diagnostic_evaluations = 0
+
+    def _evaluate_point(
+        values: dict[str, float],
+        *,
+        purpose: Literal['search', 'diagnostic'],
+    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
+        nonlocal search_evaluations, diagnostic_evaluations
+        key = tuple(sorted(
+            (name, float(value)) for name, value in values.items()
+        ))
+        if key not in residual_cache:
+            residual_cache[key] = _invoke_evaluator(values)
+            if purpose == 'search':
+                search_evaluations += 1
+            else:
+                diagnostic_evaluations += 1
+        return residual_cache[key]
+
     best_norm: float | None = None
     best_values: dict[str, float] | None = None
     best_residuals: tuple[float, ...] | None = None
     evaluated_grid: list[tuple[dict[str, float], tuple[float, ...]]] = []
 
     def visit(prefix: dict[str, float], index: int) -> None:
-        nonlocal evaluations, best_norm, best_values, best_residuals
+        nonlocal best_norm, best_values, best_residuals
         if index == count:
             values = {**base_values, **prefix}
-            residuals = tuple(float(v) for v in evaluator.evaluate(values))
-            evaluations += 1
-            evaluated_grid.append((dict(prefix), residuals))
-            norm = sqrt(sum(r * r for r in residuals))
+            _, weighted = _evaluate_point(values, purpose='search')
+            evaluated_grid.append((dict(prefix), weighted))
+            norm = sqrt(sum(r * r for r in weighted))
             if best_norm is None or norm < best_norm:
                 best_norm = norm
                 best_values = dict(prefix)
-                best_residuals = residuals
+                best_residuals = weighted
             return
         parameter = fitted[index]
         for value in grids[index]:
-            if evaluations >= spec.optimizer.max_evaluations:
+            if search_evaluations >= spec.optimizer.max_evaluations:
                 return
             visit({**prefix, parameter.parameter_id: value}, index + 1)
 
@@ -754,15 +1012,22 @@ def run_model_calibration(
         raise ValueError('calibration produced no evaluations')
 
     termination: TerminationState = (
-        'converged'
-        if evaluations < spec.optimizer.max_evaluations
-        else 'budget_exhausted'
+        'grid_complete'
+        if search_evaluations >= planned_grid_points
+        else 'budget_truncated'
+    )
+    skipped_grid_points = planned_grid_points - min(
+        search_evaluations, planned_grid_points
     )
 
     # Local sensitivity: central finite difference of the residual vector
     # along each fitted parameter in *physical* units (the declared transform
     # only shapes the search grid; reported derivatives are d/dx, not d/dz),
     # using the grid step as the probe distance.
+    # Probes that fall on evaluated grid points reuse cached residuals rather
+    # than paying a second evaluator call (#1034); every actual call is
+    # counted under diagnostic_evaluations and must satisfy the same residual
+    # basis as the search (#1035).
     sensitivity: list[ParameterSensitivityEvidence] = []
     sensitivity_columns: dict[str, list[float]] = {}
     for index, parameter in enumerate(fitted):
@@ -791,8 +1056,17 @@ def run_model_calibration(
                 )
             )
             continue
-        residuals_plus = evaluator.evaluate({**base_values, **plus})
-        residuals_minus = evaluator.evaluate({**base_values, **minus})
+        _, residuals_plus = _evaluate_point(
+            {**base_values, **plus}, purpose='diagnostic'
+        )
+        _, residuals_minus = _evaluate_point(
+            {**base_values, **minus}, purpose='diagnostic'
+        )
+        if len(residuals_plus) != len(residuals_minus):
+            raise ValueError(
+                'sensitivity residual vectors differ in length; refusing to '
+                'truncate a difference over mismatched bases'
+            )
         column = [
             (float(p) - float(m)) / delta
             for p, m in zip(residuals_plus, residuals_minus)
@@ -902,42 +1176,65 @@ def run_model_calibration(
             ],
         }
     )
-    payload = {
+    evaluations_used = search_evaluations + diagnostic_evaluations
+    residual_basis_sha256: str | None = None
+    if basis_kind == 'declared':
+        residual_basis_sha256 = _digest(
+            {
+                'kind': 'calibration-residual-basis',
+                'observable': spec.objective.observable,
+                'frequency_domain': spec.objective.frequency_domain.model_dump(
+                    mode='json'
+                ),
+                'weighting_applied': OBJECTIVE_WEIGHTING_ALGORITHMS[
+                    spec.objective.weighting
+                ],
+                'sample_ids': list(basis_sample_ids)
+                if basis_sample_ids is not None
+                else None,
+                'frequency_hz': list(basis_frequency_hz)
+                if basis_frequency_hz is not None
+                else None,
+            }
+        )
+    weighting_applied = OBJECTIVE_WEIGHTING_ALGORITHMS[
+        spec.objective.weighting
+    ]
+
+    result_kwargs = {
         'schema_version': MODEL_CALIBRATION_SCHEMA_VERSION,
         'authority_version': MODEL_CALIBRATION_RESULT_AUTHORITY_VERSION,
         'spec_id': spec.spec_id,
         'spec_semantic_sha256': spec.semantic_sha256,
-        'fitted_values': [[name, value] for name, value in fitted_values],
+        'fitted_values': fitted_values,
         'calibrated_model_id': f'calibrated-model:{model_digest}',
         'calibrated_model_sha256': model_digest,
         'training_residual_norm': best_norm,
         'training_sample_count': len(best_residuals),
         'termination_state': termination,
-        'evaluations_used': evaluations,
+        'evaluations_used': evaluations_used,
+        'budget_scope': EVALUATION_BUDGET_SCOPE,
+        'planned_grid_points': planned_grid_points,
+        'search_evaluations': search_evaluations,
+        'skipped_grid_points': skipped_grid_points,
+        'diagnostic_evaluations': diagnostic_evaluations,
+        'residual_basis_kind': basis_kind,
+        'residual_basis_sha256': residual_basis_sha256,
+        'weighting_applied': weighting_applied,
         'sensitivity_parameterization': 'physical_parameter',
-        'sensitivity': [
-            item.model_dump(mode='json') for item in sensitivity_final
-        ],
-        'correlation_groups': [
-            item.model_dump(mode='json') for item in groups
-        ],
+        'sensitivity': tuple(sensitivity_final),
+        'correlation_groups': tuple(groups),
         'identifiability_verdict': verdict,
     }
-    digest = _digest(payload)
+    digest = _digest(
+        AcousticModelCalibrationResult.model_construct(
+            **result_kwargs,
+            result_id='model-calibration-result:' + '0' * 64,
+            semantic_sha256='0' * 64,
+        ).semantic_payload()
+    )
     return AcousticModelCalibrationResult(
-        spec_id=spec.spec_id,
-        spec_semantic_sha256=spec.semantic_sha256,
-        fitted_values=fitted_values,
-        calibrated_model_id=f'calibrated-model:{model_digest}',
-        calibrated_model_sha256=model_digest,
-        training_residual_norm=best_norm,
-        training_sample_count=len(best_residuals),
-        termination_state=termination,
-        evaluations_used=evaluations,
-        sensitivity_parameterization='physical_parameter',
-        sensitivity=tuple(sensitivity_final),
-        correlation_groups=tuple(groups),
-        identifiability_verdict=verdict,
+        **result_kwargs,
         result_id=f'model-calibration-result:{digest}',
         semantic_sha256=digest,
     )
