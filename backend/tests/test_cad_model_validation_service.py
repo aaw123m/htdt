@@ -117,6 +117,13 @@ class _Measurements:
             document_id=self.document_id,
             scene_revision_id=revision_id,
             routing_evidence='verified',
+            # #848: 'verified' routing requires the exact profile pin.
+            provenance_json=json.dumps({
+                'routing_profile': {
+                    'routing_profile_id': 'profile:fixture',
+                    'routing_profile_sha256': 'ab' * 32,
+                }
+            }, separators=(',', ':')),
         )
         response = json.loads(_response_payload(offset))
         self.datasets[measurement_id] = SimpleNamespace(
