@@ -8,7 +8,6 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_measurement_repository import CadMeasurementRepository
-from .cad_objective_models import CadObjectiveInputRef
 from .cad_prediction_provider import PredictionProviderBinding
 from .cad_repository import SceneRepository
 from .cad_search_repository import CadSearchRepository
@@ -191,10 +190,3 @@ def complete_measurement_plan(plan: CadMeasurementPlan, measurement_repository: 
         supersedes_plan_sha256=plan.plan_sha256,
         plan_sha256=_hash(payload),
     )
-
-
-def measured_input_refs(plan: CadMeasurementPlan) -> tuple[CadObjectiveInputRef, ...]:
-    if plan.status != 'measured':
-        raise ValueError('measurement plan is not completed')
-    return tuple(CadObjectiveInputRef(evidence_class='measured', source_kind='cad_measurement',
-        source_id=measurement_id) for measurement_id in plan.measurement_ids)

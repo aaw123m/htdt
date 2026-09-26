@@ -31,8 +31,8 @@ Scene保存、Undo/Redo、測定、予測、Pareto計算などのdomain authorit
   - `Ctrl+K` palette
   - disabled reason表示
   - `CommandShortcutBinder`
-- `backend/src/htdt/native_command_adapter.py`
-  - 現行native windowの既存method/actionへdelegateするadapter
+- `backend/src/htdt/workflow_application.py`
+  - 現行native shellでcommandを既存workspace/authorityへ接続するbinding層
   - save / undo / redo / room draw / speaker add / REW import / prediction / candidate compare
 
 ## 初期command
@@ -102,7 +102,7 @@ deep-link handler自体が未接続の場合、navigation commandはpaletteに�
 ## command追加方法
 
 1. `default_command_definitions()` にstable ID、日本語表示名、context、keywords、必要ならshortcut/deep-linkを追加する。
-2. metadataを先に登録し、実行処理が存在するworkspaceのmount/activate時に `registry.bind()` で既存authorityへ接続する。legacy単一windowでは `native_command_adapter.py` の `bindings` を利用できる。
+2. metadataを先に登録し、実行処理が存在するworkspaceのmount/activate時に `registry.bind()` で既存authorityへ接続する。
 3. availabilityは既存actionの `isEnabled()`、既存precondition method、repositoryのread-only state等を参照する。domain判定をcommand側へ再実装しない。
 4. disabled時は短い日本語理由を返す。
 5. scene/document shortcutを追加する場合は `ShortcutBehavior.FOCUS_SAFE` を使う。

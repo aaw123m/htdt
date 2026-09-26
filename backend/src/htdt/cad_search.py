@@ -385,15 +385,6 @@ def search_spec_current_working(
     return current_constraint_hash == spec.constraint_workspace_hash
 
 
-def require_search_spec_current(
-    spec: CadSearchSpec,
-    current_revision: SceneRevision,
-    current_constraint_set: CadConstraintSet,
-) -> None:
-    if not search_spec_current(spec, current_revision, current_constraint_set):
-        raise ValueError('SearchSpec is stale for the current scene revision or constraint workspace')
-
-
 def candidate_preview_document(document: SceneDocument, candidate: CadCandidate) -> SceneDocument:
     """Return a non-authoritative candidate preview without mutating WorkingDocument."""
 

@@ -147,12 +147,6 @@ def room_geometry_fingerprint(document: SceneDocument) -> str:
     )
 
 
-def authority_fingerprint(kind: MissionDependencyKind, value: str) -> str:
-    """Fingerprint an externally-supplied authority reference verbatim."""
-
-    return _hash_parts(f'htdt.capture.mission-dep.{kind}.v1', value)
-
-
 class MissionTaskDependencyRef(BaseModel):
     """One bounded baseline dependency a mission task pins at issue time."""
 

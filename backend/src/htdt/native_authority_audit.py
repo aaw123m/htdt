@@ -1406,7 +1406,7 @@ def _verify_holdout_record(
     return record
 
 
-def _verify_calibration_evidence_event(
+def _verify_calibration_evidence_event_links(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     """Evidence-ledger rows resolve their freeze/holdout-record links."""
@@ -1901,7 +1901,7 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'calibration_evidence_event',
         'cad_calibration_evidence_events',
         ('record_id', 'freeze_id'),
-        _verify_calibration_evidence_event,
+        _verify_calibration_evidence_event_links,
     ),
     _ReplayProbe(
         'system_variant_as_built',

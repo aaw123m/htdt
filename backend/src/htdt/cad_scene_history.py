@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .cad_scene import SceneDocument, SceneEntity, scene_content_hash
+from .cad_scene import SceneDocument, scene_content_hash
 
 
 # Display order and Japanese labels mirror room_workspace.KIND_LABELS so the
@@ -179,13 +179,4 @@ def summarize_revision(document: SceneDocument) -> RevisionSummary:
         has_room=document.room is not None,
         wall_count=len(document.wall_topology.walls) if document.wall_topology else 0,
         content_hash=scene_content_hash(document),
-    )
-
-
-def entity_sort_index(document: SceneDocument, entity: SceneEntity) -> int:
-    """Helper used by panels that need a stable per-entity ordering key."""
-
-    return next(
-        (index for index, item in enumerate(document.entities) if item.entity_id == entity.entity_id),
-        -1,
     )
