@@ -162,12 +162,22 @@ class CadModelCalibrationRepository:
     def get_spec(
         self, spec_id: str
     ) -> AcousticModelCalibrationSpec | None:
-        payload = self._select(
-            'cad_calibration_specs', 'spec_id', spec_id
-        )
-        if payload is None:
+        row = self._select_row('cad_calibration_specs', 'spec_id', spec_id)
+        if row is None:
             return None
-        return AcousticModelCalibrationSpec.model_validate_json(payload)
+        spec = AcousticModelCalibrationSpec.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['spec_id'] != spec.spec_id
+            or row['semantic_sha256'] != spec.semantic_sha256
+            or row['baseline_snapshot_sha256'] != spec.baseline_snapshot_sha256
+            or row['solver_id'] != spec.solver_id
+        ):
+            raise ValueError(
+                'persisted calibration spec row disagrees with its payload'
+            )
+        return spec
 
     # -- results -------------------------------------------------------
 
@@ -200,12 +210,24 @@ class CadModelCalibrationRepository:
     def get_result(
         self, result_id: str
     ) -> AcousticModelCalibrationResult | None:
-        payload = self._select(
+        row = self._select_row(
             'cad_calibration_results', 'result_id', result_id
         )
-        if payload is None:
+        if row is None:
             return None
-        return AcousticModelCalibrationResult.model_validate_json(payload)
+        result = AcousticModelCalibrationResult.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['result_id'] != result.result_id
+            or row['semantic_sha256'] != result.semantic_sha256
+            or row['spec_id'] != result.spec_id
+            or row['calibrated_model_sha256'] != result.calibrated_model_sha256
+        ):
+            raise ValueError(
+                'persisted calibration result row disagrees with its payload'
+            )
+        return result
 
     # -- materialized calibrated models --------------------------------
 
@@ -240,14 +262,26 @@ class CadModelCalibrationRepository:
     def get_model(
         self, materialized_model_id: str
     ) -> CalibratedAcousticModel | None:
-        payload = self._select(
+        row = self._select_row(
             'cad_calibration_models',
             'materialized_model_id',
             materialized_model_id,
         )
-        if payload is None:
+        if row is None:
             return None
-        return CalibratedAcousticModel.model_validate_json(payload)
+        model = CalibratedAcousticModel.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['materialized_model_id'] != model.materialized_model_id
+            or row['semantic_sha256'] != model.semantic_sha256
+            or row['calibration_result_id'] != model.calibration_result_id
+            or row['baseline_snapshot_sha256'] != model.baseline_snapshot_sha256
+        ):
+            raise ValueError(
+                'persisted calibrated model row disagrees with its payload'
+            )
+        return model
 
     # -- freezes --------------------------------------------------------
 
@@ -280,12 +314,45 @@ class CadModelCalibrationRepository:
     def get_freeze(
         self, freeze_id: str
     ) -> CalibratedModelFreeze | None:
-        payload = self._select(
+        row = self._select_row(
             'cad_calibration_freezes', 'freeze_id', freeze_id
         )
-        if payload is None:
+        if row is None:
             return None
-        return CalibratedModelFreeze.model_validate_json(payload)
+        freeze = CalibratedModelFreeze.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['freeze_id'] != freeze.freeze_id
+            or row['semantic_sha256'] != freeze.semantic_sha256
+            or row['calibration_result_id'] != freeze.calibration_result_id
+            or row['calibrated_model_sha256'] != freeze.calibrated_model_sha256
+        ):
+            raise ValueError(
+                'persisted calibration freeze row disagrees with its payload'
+            )
+        return freeze
+
+    def get_holdout_record(
+        self, record_id: str
+    ) -> HoldoutDisciplineRecord | None:
+        row = self._select_row(
+            'cad_calibration_holdout_records', 'record_id', record_id
+        )
+        if row is None:
+            return None
+        record = HoldoutDisciplineRecord.model_validate_json(
+            row['payload_json']
+        )
+        if (
+            row['record_id'] != record.record_id
+            or row['semantic_sha256'] != record.semantic_sha256
+            or row['freeze_id'] != record.freeze_id
+        ):
+            raise ValueError(
+                'persisted holdout record row disagrees with its payload'
+            )
+        return record
 
     # -- evidence-consumption history ------------------------------------
 
@@ -382,12 +449,17 @@ class CadModelCalibrationRepository:
     # -- internals ------------------------------------------------------
 
     def _select(self, table: str, column: str, key: str) -> str | None:
+        row = self._select_row(table, column, key)
+        return None if row is None else row['payload_json']
+
+    def _select_row(
+        self, table: str, column: str, key: str
+    ) -> sqlite3.Row | None:
         with closing(self._connect()) as connection:
-            row = connection.execute(
-                f'SELECT payload_json FROM {table} WHERE {column} = ?',
+            return connection.execute(
+                f'SELECT * FROM {table} WHERE {column} = ?',
                 (key,),
             ).fetchone()
-        return None if row is None else row['payload_json']
 
     def _insert_once(
         self,
