@@ -31,7 +31,7 @@ from htdt.cad_acoustic_treatment_repository import CadAcousticTreatmentRepositor
 from htdt.cad_candidate_wave_execution import (
     CandidateWaveExecutionError,
 )
-from htdt.cad_scene import Position3
+from htdt.cad_scene import Position3, Quaternion4
 from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.r120_geometry_compiler import (
     ExactExternalAuthorityRef,
@@ -183,36 +183,41 @@ def _treated_fixture(tmp_path: Path, *, impedance: float | None):
     treatment_repository.save_evidence(evidence)
     definition = treatment_repository.save_definition(definition)
 
-    # Attach the treatment to the fixture's rigid companion surface: the one
-    # whose base boundary physics resolves to a rigid_zero_normal_velocity
-    # payload.
-    rigid_item = None
+    # Attach the treatment to the fixture's planar wall surface: the x=4
+    # impedance wall is the only single-plane semantic surface in this
+    # fixture (the rigid shell spans five walls and cannot host a derived
+    # footprint). The panel covers the entire 4x4m wall — the wave executor
+    # rejects partial-surface treatment overlays.
+    host_item = None
     for surface in fixture['snapshot'].surface_boundary_configuration:
         payload = store.read_payload(surface.boundary_physics_authority)
         if (
             isinstance(payload, dict)
-            and payload.get('model') == 'rigid_zero_normal_velocity'
+            and payload.get('model') == 'specific_impedance_table'
         ):
-            rigid_item = surface
+            host_item = surface
             break
-    assert rigid_item is not None
+    assert host_item is not None
     base_binding = SurfaceBoundaryAuthorityBinding(
-        source_surface_id=rigid_item.source_surface_id,
-        material_authority=rigid_item.material_authority,
-        boundary_physics_authority=rigid_item.boundary_physics_authority,
+        source_surface_id=host_item.source_surface_id,
+        material_authority=host_item.material_authority,
+        boundary_physics_authority=host_item.boundary_physics_authority,
     )
 
+    # Panel normal (local +Z) rotated onto world +X so the rectangle lies in
+    # the x=4 wall plane: a +90deg rotation about world +Y.
     placement = build_treatment_placement(
         definition=definition,
         revision=fixture['revision'],
         instance_id='treatment-instance-1',
-        position=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+        position=Position3(x_m=4.0, y_m=2.0, z_m=2.0),
+        orientation=Quaternion4(w=0.5 ** 0.5, x=0.0, y=0.5 ** 0.5, z=0.0),
         coverage=TreatmentCoverage(
-            width_m=1.0,
-            height_m=1.0,
+            width_m=4.0,
+            height_m=4.0,
             host_surface_fraction=1.0,
         ),
-        host_surface_id=rigid_item.source_surface_id,
+        host_surface_id=host_item.source_surface_id,
     )
     treatment_repository.save_placement(placement)
     evaluation = treatment_repository.evaluate_placement_surface_binding(
@@ -321,7 +326,7 @@ def _treated_fixture(tmp_path: Path, *, impedance: float | None):
     fixture['treatment_result'] = result
     fixture['overlay_repository'] = overlay_repository
     fixture['treatment_repository'] = treatment_repository
-    fixture['rigid_surface_id'] = rigid_item.source_surface_id
+    fixture['host_surface_id'] = host_item.source_surface_id
     return fixture
 
 
@@ -343,7 +348,7 @@ def test_wave_treatment_composition_compiles_to_impedance_boundary(
     ]
     assert len(treated) == 1
     binding = treated[0]
-    assert binding.source_surface_id == fixture['rigid_surface_id']
+    assert binding.source_surface_id == fixture['host_surface_id']
     composition = fixture['treatment_result'].composition_request
     assert binding.boundary_physics_authority == (
         composition.as_external_authority_ref()
@@ -425,34 +430,39 @@ def test_wave_treatment_unsupported_model_fails_closed(
             acoustic_model=None,
         )
     )
-    rigid_item = None
+    # Mount on the planar x=4 impedance wall — the only single-plane
+    # semantic surface in this fixture — so the footprint derives and the
+    # compile reaches the acoustic-model check. Full-wall coverage: the
+    # wave executor rejects partial-surface overlays.
+    host_item = None
     for surface in fixture['snapshot'].surface_boundary_configuration:
         payload = fixture['store'].read_payload(
             surface.boundary_physics_authority
         )
         if (
             isinstance(payload, dict)
-            and payload.get('model') == 'rigid_zero_normal_velocity'
+            and payload.get('model') == 'specific_impedance_table'
         ):
-            rigid_item = surface
+            host_item = surface
             break
-    assert rigid_item is not None
+    assert host_item is not None
     base_binding = SurfaceBoundaryAuthorityBinding(
-        source_surface_id=rigid_item.source_surface_id,
-        material_authority=rigid_item.material_authority,
-        boundary_physics_authority=rigid_item.boundary_physics_authority,
+        source_surface_id=host_item.source_surface_id,
+        material_authority=host_item.material_authority,
+        boundary_physics_authority=host_item.boundary_physics_authority,
     )
     placement = build_treatment_placement(
         definition=definition,
         revision=fixture['revision'],
         instance_id='treatment-instance-1',
-        position=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+        position=Position3(x_m=4.0, y_m=2.0, z_m=2.0),
+        orientation=Quaternion4(w=0.5 ** 0.5, x=0.0, y=0.5 ** 0.5, z=0.0),
         coverage=TreatmentCoverage(
-            width_m=1.0,
-            height_m=1.0,
+            width_m=4.0,
+            height_m=4.0,
             host_surface_fraction=1.0,
         ),
-        host_surface_id=rigid_item.source_surface_id,
+        host_surface_id=host_item.source_surface_id,
     )
     treatment_repository.save_placement(placement)
     evaluation = treatment_repository.evaluate_placement_surface_binding(
