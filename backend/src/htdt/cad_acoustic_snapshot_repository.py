@@ -577,6 +577,13 @@ class CadAcousticSnapshotRepository:
             compiled=compiled,
         )
 
+        screen_entity_ids = tuple(
+            sorted(
+                entity.entity_id
+                for entity in revision.document.entities
+                if entity.kind == 'screen'
+            )
+        )
         expected_schema_version = _snapshot_schema_version(
             compiled=compiled,
             treatment_bindings=snapshot.treatment_boundary_bindings,
@@ -604,6 +611,7 @@ class CadAcousticSnapshotRepository:
             geometric_acoustics_topology_preflight_ref=(
                 snapshot.geometric_acoustics_topology_preflight_ref
             ),
+            screen_transfer_ready=not screen_entity_ids,
         )
         if snapshot.readiness != expected_readiness:
             raise ValueError(
@@ -620,6 +628,8 @@ class CadAcousticSnapshotRepository:
             requested_frequency_domain=snapshot.requested_frequency_domain,
             treatment_bindings=snapshot.treatment_boundary_bindings,
             wave_excitation_bindings=snapshot.wave_source_excitation_bindings,
+            screen_entity_ids=screen_entity_ids,
+            screen_transfer_bindings=snapshot.screen_transfer_bindings,
         )
         if snapshot.unresolved_conditions != expected_unresolved:
             raise ValueError(

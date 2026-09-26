@@ -28,6 +28,7 @@ from .cad_scene import (
     Quaternion4,
     acoustic_reference_position,
 )
+from .cad_screen_transfer import AcousticScreenTransferAuthority
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_wave_excitation import WaveSourceExcitationBinding
 from .r120_geometry_compiler import (
@@ -360,6 +361,20 @@ class TreatmentBoundarySnapshotBinding(BaseModel):
         return self
 
 
+class ScreenTransferSnapshotBinding(BaseModel):
+    """Exact screen-transfer authority bound into the snapshot (#940).
+
+    No thin-interface solver model applies the transfer yet, so a screen's
+    presence is a typed readiness gap rather than silent omission — the exact
+    authority ref keeps the bound evidence inside the snapshot identity.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    screen_entity_id: str = Field(min_length=1)
+    screen_transfer_ref: ExactExternalAuthorityRef
+
+
 class ObservableReadiness(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -442,6 +457,10 @@ class AcousticSceneSnapshot(BaseModel):
     )
     treatment_boundary_bindings: tuple[TreatmentBoundarySnapshotBinding, ...] = ()
     wave_source_excitation_bindings: tuple[WaveSourceExcitationBinding, ...] = ()
+    # #940: exact screen-transfer authorities bound into the snapshot. No
+    # thin-interface solver model consumes them yet; the bindings pin which
+    # authority was consulted while the screen effect stays unmodelled.
+    screen_transfer_bindings: tuple[ScreenTransferSnapshotBinding, ...] = ()
 
     sources: tuple[AcousticSceneSourceBinding, ...]
     receivers: tuple[AcousticReceiverBinding, ...]
@@ -555,6 +574,13 @@ class AcousticSceneSnapshot(BaseModel):
             raise ValueError('requested observables must be unique')
         if len(self.unresolved_conditions) != len(set(self.unresolved_conditions)):
             raise ValueError('snapshot unresolved conditions must be unique')
+        screen_binding_entities = [
+            item.screen_entity_id for item in self.screen_transfer_bindings
+        ]
+        if len(screen_binding_entities) != len(set(screen_binding_entities)):
+            raise ValueError(
+                'screen transfer bindings must be unique per screen entity'
+            )
         expected_boundary_hash = _digest(
             [
                 item.model_dump(mode='json')
@@ -581,6 +607,8 @@ class AcousticSceneSnapshot(BaseModel):
             payload.pop('geometric_acoustics_topology_preflight_ref', None)
         if self.operating_state_ref is None:
             payload.pop('operating_state_ref', None)
+        if not self.screen_transfer_bindings:
+            payload.pop('screen_transfer_bindings', None)
         if self.schema_version == 1:
             payload.pop('treatment_boundary_bindings', None)
             readiness = payload.get('readiness')
@@ -777,6 +805,7 @@ def _observable_readiness(
     snapshot_frequency_domain_ready: bool = True,
     source_directivity_domain_ready: bool = True,
     wave_excitation_domain_ready: bool = True,
+    screen_transfer_ready: bool = True,
 ) -> ObservableReadiness:
     wave_reasons: list[str] = []
     if not geometry_ready:
@@ -795,6 +824,8 @@ def _observable_readiness(
         wave_reasons.append(
             'requested_frequency_outside_snapshot_valid_domain'
         )
+    if not screen_transfer_ready:
+        wave_reasons.append('screen_transfer_not_integrated')
 
     ga_reasons: list[str] = []
     if not geometry_ready:
@@ -815,12 +846,15 @@ def _observable_readiness(
         ga_reasons.append(
             'requested_frequency_outside_snapshot_valid_domain'
         )
+    if not screen_transfer_ready:
+        ga_reasons.append('screen_transfer_not_integrated')
 
     if observable == 'deterministic_paths':
         path_reasons = [
             reason
             for reason in ga_reasons
             if reason != 'environment_not_ready'
+            and reason != 'screen_transfer_not_integrated'
             and reason not in _FREQUENCY_DOMAIN_REASONS
         ]
         return ObservableReadiness(
@@ -904,6 +938,7 @@ def _derive_readiness(
     valid_frequency_domain: FrequencyDomain | None,
     schema_version: int,
     geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None = None,
+    screen_transfer_ready: bool = True,
 ) -> AcousticSceneReadiness:
     geometry_ready = compiled.readiness.geometry_compiled
     geometric_geometry_ready = (
@@ -1042,6 +1077,7 @@ def _derive_readiness(
                 source_directivity_domain_ready
             ),
             wave_excitation_domain_ready=wave_excitation_domain_ready,
+            screen_transfer_ready=screen_transfer_ready,
         )
         for observable in requested_observables
     )
@@ -1072,8 +1108,18 @@ def _derive_unresolved_conditions(
     requested_frequency_domain: FrequencyDomain,
     treatment_bindings: tuple[TreatmentBoundarySnapshotBinding, ...],
     wave_excitation_bindings: tuple[WaveSourceExcitationBinding, ...],
+    screen_entity_ids: tuple[str, ...] = (),
+    screen_transfer_bindings: tuple[ScreenTransferSnapshotBinding, ...] = (),
 ) -> tuple[str, ...]:
     unresolved = list(compiled.unresolved_conditions)
+    bound_screens = {
+        item.screen_entity_id for item in screen_transfer_bindings
+    }
+    for entity_id in screen_entity_ids:
+        if entity_id in bound_screens:
+            unresolved.append(f'screen_transfer_not_integrated:{entity_id}')
+        else:
+            unresolved.append(f'screen_transfer_unbound:{entity_id}')
     if not sources:
         unresolved.append('source_authority_missing')
     externally_resolved_wave_sources = {
@@ -1378,6 +1424,7 @@ def build_acoustic_scene_snapshot(
     wave_source_excitation_bindings: tuple[WaveSourceExcitationBinding, ...] = (),
     geometric_acoustics_topology_preflight_ref: ExactExternalAuthorityRef | None = None,
     operating_state: 'RoomOperatingState | None' = None,
+    screen_transfer_authorities: tuple[AcousticScreenTransferAuthority, ...] = (),
 ) -> AcousticSceneSnapshot:
     compiled_geometry = R120CompiledGeometry.model_validate(
         compiled_geometry.model_dump(mode='python')
@@ -1490,6 +1537,57 @@ def build_acoustic_scene_snapshot(
     ):
         raise ValueError('R110 source SceneRevision mismatch')
 
+    screen_entity_ids = tuple(
+        sorted(
+            entity.entity_id
+            for entity in scene_revision.document.entities
+            if entity.kind == 'screen'
+        )
+    )
+    screen_authorities = tuple(
+        sorted(
+            (
+                AcousticScreenTransferAuthority.model_validate(
+                    item.model_dump(mode='python')
+                )
+                for item in screen_transfer_authorities
+            ),
+            key=lambda item: item.screen_entity_id,
+        )
+    )
+    authority_screen_ids = [
+        item.screen_entity_id for item in screen_authorities
+    ]
+    if len(authority_screen_ids) != len(set(authority_screen_ids)):
+        raise ValueError(
+            'screen transfer authorities must be unique per screen entity'
+        )
+    screen_entity_id_set = set(screen_entity_ids)
+    for authority in screen_authorities:
+        if authority.screen_entity_id not in screen_entity_id_set:
+            raise ValueError(
+                'screen transfer authority references an entity that is not '
+                f'a screen in this scene: {authority.screen_entity_id}'
+            )
+        if (
+            authority.document_id is not None
+            and authority.document_id != scene_revision.document_id
+        ):
+            raise ValueError(
+                'screen transfer authority document binding mismatch'
+            )
+    authority_by_screen = {
+        item.screen_entity_id: item for item in screen_authorities
+    }
+    screen_transfer_bindings = tuple(
+        ScreenTransferSnapshotBinding(
+            screen_entity_id=entity_id,
+            screen_transfer_ref=authority_by_screen[entity_id].authority_ref(),
+        )
+        for entity_id in screen_entity_ids
+        if entity_id in authority_by_screen
+    )
+
     requested_observables = _unique(requested_observables)
     if not requested_observables:
         raise ValueError('snapshot must request at least one observable')
@@ -1547,6 +1645,7 @@ def build_acoustic_scene_snapshot(
         geometric_acoustics_topology_preflight_ref=(
             geometric_acoustics_topology_preflight_ref
         ),
+        screen_transfer_ready=not screen_entity_ids,
     )
 
     unresolved = _derive_unresolved_conditions(
@@ -1559,6 +1658,8 @@ def build_acoustic_scene_snapshot(
         requested_frequency_domain=requested_frequency_domain,
         treatment_bindings=treatment_bindings,
         wave_excitation_bindings=wave_excitation_bindings,
+        screen_entity_ids=screen_entity_ids,
+        screen_transfer_bindings=screen_transfer_bindings,
     )
 
     if snapshot_schema_version == 1:
@@ -1642,6 +1743,8 @@ def build_acoustic_scene_snapshot(
         core['treatment_boundary_bindings'] = treatment_bindings
     if snapshot_schema_version >= 3:
         core['wave_source_excitation_bindings'] = wave_excitation_bindings
+    if screen_transfer_bindings:
+        core['screen_transfer_bindings'] = screen_transfer_bindings
     semantic_payload = {
         key: (
             value.model_dump(mode='json')
