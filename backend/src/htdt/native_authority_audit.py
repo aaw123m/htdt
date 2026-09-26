@@ -3111,6 +3111,74 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
     ),
+    'cad_signal_paths': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_signal_path_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_lighting_scenes': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_lighting_scene_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_tactile_actuator_definitions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_tactile_processing_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_tactile_profile_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_usable_output_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_usable_output_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_photometric_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_photometric_profile_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_screen_optical_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_screen_optical_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_color_target_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_color_target_selections': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_color_measurement_sets': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_ambient_reflectance_profiles': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
     'cad_visual_qa_verdicts': (
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',

@@ -1963,6 +1963,74 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_assumption_decisions_document ON assumption_decisions(document_id)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_signal_paths ( document_id TEXT NOT NULL, path_id TEXT NOT NULL, version TEXT NOT NULL, path_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, path_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_signal_path_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, path_id TEXT NOT NULL, version TEXT NOT NULL, path_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lighting_scenes ( document_id TEXT NOT NULL, scene_id TEXT NOT NULL, version TEXT NOT NULL, scene_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, scene_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lighting_scene_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, scene_id TEXT NOT NULL, version TEXT NOT NULL, scene_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tactile_actuator_definitions ( document_id TEXT NOT NULL, definition_id TEXT NOT NULL, version TEXT NOT NULL, definition_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, definition_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tactile_processing_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tactile_profile_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_usable_output_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, equipment_definition_id TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_usable_output_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, equipment_definition_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_photometric_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_photometric_profile_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_screen_optical_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_screen_optical_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, screen_entity_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_color_target_profiles ( document_id TEXT NOT NULL, target_id TEXT NOT NULL, version TEXT NOT NULL, target_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, target_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_color_target_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, target_id TEXT NOT NULL, version TEXT NOT NULL, target_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_color_measurement_sets ( document_id TEXT NOT NULL, measurement_set_id TEXT NOT NULL, surface_entity_id TEXT NOT NULL, measurement_set_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, measurement_set_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ambient_reflectance_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2313,5 +2381,22 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'scene_recovery_snapshots',
     'scene_revisions',
     'seating_layout_specs',
+    'cad_signal_paths',
+    'cad_signal_path_selections',
+    'cad_lighting_scenes',
+    'cad_lighting_scene_selections',
+    'cad_tactile_actuator_definitions',
+    'cad_tactile_processing_profiles',
+    'cad_tactile_profile_selections',
+    'cad_usable_output_profiles',
+    'cad_usable_output_selections',
+    'cad_photometric_profiles',
+    'cad_photometric_profile_selections',
+    'cad_screen_optical_profiles',
+    'cad_screen_optical_selections',
+    'cad_color_target_profiles',
+    'cad_color_target_selections',
+    'cad_color_measurement_sets',
+    'cad_ambient_reflectance_profiles',
     'template_instantiations',
 )
