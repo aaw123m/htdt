@@ -89,6 +89,15 @@ class OverviewWorkspace(QWidget):
         self.variant_layout.setSpacing(8)
         cards_layout.addWidget(self.variant_host)
 
+        # Result Trust lines (#740): compact_text projections of the latest
+        # prediction/measurement/validation evidence, inside the same scroll
+        # region so they never push the primary action off-screen.
+        self.trust_host = QWidget(cards_host)
+        self.trust_layout = QVBoxLayout(self.trust_host)
+        self.trust_layout.setContentsMargins(0, 0, 0, 0)
+        self.trust_layout.setSpacing(8)
+        cards_layout.addWidget(self.trust_host)
+
         self.notice_host = QWidget(cards_host)
         self.notice_layout = QVBoxLayout(self.notice_host)
         self.notice_layout.setContentsMargins(0, 0, 0, 0)
@@ -113,6 +122,16 @@ class OverviewWorkspace(QWidget):
 
         for state in view.variant_states:
             self._add_variant_state(state)
+
+        if getattr(view, 'trust_lines', ()):
+            header = QLabel("\u4fe1\u983c\u6027", self.trust_host)
+            set_typography_role(header, TypographyRole.SECTION_TITLE)
+            self.trust_layout.addWidget(header)
+            for line in view.trust_lines:
+                label = QLabel(line, self.trust_host)
+                label.setWordWrap(True)
+                set_typography_role(label, TypographyRole.SECONDARY)
+                self.trust_layout.addWidget(label)
 
         # Notices are grouped by lifecycle area so a room blocker and a
         # measurement warning each sit under their own domain header (#443).
@@ -205,7 +224,7 @@ class OverviewWorkspace(QWidget):
         self.variant_layout.addWidget(card)
 
     def _clear_notices(self) -> None:
-        for host in (self.notice_layout, self.variant_layout):
+        for host in (self.notice_layout, self.variant_layout, self.trust_layout):
             while host.count():
                 item = host.takeAt(0)
                 widget = item.widget()

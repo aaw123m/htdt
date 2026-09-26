@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
 from htdt.navigation_target import (
@@ -408,6 +409,65 @@ def test_workflow_shell_layout_profiles_do_not_clip_context_navigation() -> None
             max(button.geometry().right() for button in buttons)
             < window.context_bar._context_container.width()
         )
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_compact_rail_uses_glyph_buttons_with_full_label_tooltips() -> None:
+    app = _app()
+    window = WorkflowShellWindow(_registrations(_simple_factory))
+    window.show()
+    app.processEvents()
+
+    rail = window.rail
+    expanded_labels = rail.labels
+    assert len(expanded_labels) > 0
+
+    window.resize(800, 600)  # below the 1120 compact threshold
+    app.processEvents()
+    assert rail.is_compact
+    assert rail.width() == rail.COMPACT_WIDTH
+    for button, label in zip(rail._buttons.values(), expanded_labels):
+        assert button.text() == label[:1]
+        assert button.toolTip() == label
+    assert rail.settings_button.toolTip() == "設定"
+    headers = rail._section_headers
+    assert headers and all(not header.isVisible() for header in headers)
+
+    window.resize(1400, 900)  # back above the threshold
+    app.processEvents()
+    assert not rail.is_compact
+    for button, label in zip(rail._buttons.values(), expanded_labels):
+        assert button.text() == label
+        assert button.toolTip() == ""
+    assert all(header.isVisible() for header in headers)
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_rail_destinations_scroll_instead_of_clipping_when_short() -> None:
+    app = _app()
+    window = WorkflowShellWindow(_registrations(_simple_factory))
+    window.show()
+    app.processEvents()
+
+    rail = window.rail
+    window.resize(1400, 220)  # far shorter than the destination column
+    app.processEvents()
+
+    scroll = rail._scroll
+    host = scroll.widget()
+    assert host.sizeHint().height() > scroll.viewport().height()
+    assert (
+        scroll.verticalScrollBarPolicy()
+        == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    )
+    # Every destination remains mounted and reachable via the scroll area.
+    assert len(rail._buttons) == len(rail.labels)
 
     window.close()
     window.deleteLater()

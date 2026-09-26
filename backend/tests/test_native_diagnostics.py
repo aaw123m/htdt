@@ -223,7 +223,7 @@ class _FakeProjectLibraryRepository:
 
 class _FakeWindow:
     def __init__(
-        self, repository, document_id: str, project_library=None
+        self, repository, document_id: str, project_library=None, **_kwargs
     ) -> None:
         self.repository = repository
         self.document_id = document_id

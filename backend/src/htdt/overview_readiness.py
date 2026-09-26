@@ -15,6 +15,12 @@ from .cad_prediction_models import CadPredictionResult
 from .cad_repository import SceneRevision
 from .cad_scene import duplicated_speaker_roles, is_unassigned_speaker_role
 from .cad_search_models import CadSearchSpec
+from .result_trust import ResultTrustSummary
+from .result_trust_adapters import (
+    trust_for_measurement,
+    trust_for_prediction,
+    trust_for_validation,
+)
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
 
@@ -162,6 +168,9 @@ class OverviewReadinessViewModel:
     optimization_ready: bool
     variant_states: tuple[OverviewVariantState, ...] = ()
     recent_activity: tuple[OverviewActivityItem, ...] = ()
+    # Result Trust compact_text lines for the latest prediction/measurement/
+    # validation evidence (#740) — additive presentation, never a gate.
+    trust_lines: tuple[str, ...] = ()
 
 
 class SceneReadSource(Protocol):
@@ -664,7 +673,66 @@ class OverviewReadinessService:
             optimization_ready=optimization_ready,
             variant_states=variant_states,
             recent_activity=self._recent_activity(document_id),
+            trust_lines=self._trust_lines(
+                current_predictions or completed_predictions,
+                measurements,
+                validation,
+            ),
         )
+
+    def _trust_lines(
+        self,
+        predictions: tuple[CadPredictionResult, ...],
+        measurements: tuple[CadMeasurementRecord, ...],
+        validation: CadModelValidationRecord | None,
+    ) -> tuple[str, ...]:
+        """Result Trust projections for the latest evidence (#740).
+
+        Trust is an additive read-only presentation layer: a projection that
+        cannot be resolved (e.g. a read source without revision lookup) is
+        omitted, never fatal to the Overview.
+        """
+        lines: list[str] = []
+        prediction_trust: ResultTrustSummary | None = None
+        if predictions:
+            prediction = predictions[0]
+            try:
+                bound_validation = (
+                    validation
+                    if validation is not None
+                    and validation.model_id == prediction.model_id
+                    and validation.model_version == prediction.model_version
+                    else None
+                )
+                prediction_trust = trust_for_prediction(
+                    prediction,
+                    scene_repository=self._scene_source,  # type: ignore[arg-type]
+                    validation=bound_validation,
+                )
+                lines.append(prediction_trust.compact_text('最新の予測'))
+            except Exception:
+                prediction_trust = None
+        if measurements:
+            try:
+                lines.append(
+                    trust_for_measurement(
+                        measurements[-1],
+                        scene_repository=self._scene_source,  # type: ignore[arg-type]
+                    ).compact_text('最新の測定')
+                )
+            except Exception:
+                pass
+        if validation is not None:
+            try:
+                lines.append(
+                    trust_for_validation(
+                        validation,
+                        underlying=prediction_trust,
+                    ).compact_text('検証')
+                )
+            except Exception:
+                pass
+        return tuple(lines)
 
     def _recent_activity(self, document_id: str) -> tuple[OverviewActivityItem, ...]:
         if self._activity_source is None:
