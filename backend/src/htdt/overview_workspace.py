@@ -18,6 +18,7 @@ from .overview_readiness import (
     OverviewAction,
     OverviewNotice,
     OverviewReadinessService,
+    OverviewSecondaryDomain,
     OverviewVariantState,
 )
 from .ui_theme import (
@@ -98,6 +99,19 @@ class OverviewWorkspace(QWidget):
         self.trust_layout.setSpacing(8)
         cards_layout.addWidget(self.trust_host)
 
+        # Tier-C secondary domains live here — a status strip on the
+        # project hub, not new primary workspaces (#887). Kept inside the
+        # same scroll region so the primary action stays reachable (#1086).
+        self.domain_header = QLabel("プロジェクト領域", cards_host)
+        set_typography_role(self.domain_header, TypographyRole.SECTION_TITLE)
+        cards_layout.addWidget(self.domain_header)
+
+        self.domain_host = QWidget(cards_host)
+        self.domain_layout = QVBoxLayout(self.domain_host)
+        self.domain_layout.setContentsMargins(0, 0, 0, 0)
+        self.domain_layout.setSpacing(8)
+        cards_layout.addWidget(self.domain_host)
+
         self.notice_host = QWidget(cards_host)
         self.notice_layout = QVBoxLayout(self.notice_host)
         self.notice_layout.setContentsMargins(0, 0, 0, 0)
@@ -132,6 +146,9 @@ class OverviewWorkspace(QWidget):
                 label.setWordWrap(True)
                 set_typography_role(label, TypographyRole.SECONDARY)
                 self.trust_layout.addWidget(label)
+        for domain in view.secondary_domains:
+            self._add_secondary_domain(domain)
+        self.domain_header.setVisible(bool(view.secondary_domains))
 
         # Notices are grouped by lifecycle area so a room blocker and a
         # measurement warning each sit under their own domain header (#443).
@@ -223,8 +240,37 @@ class OverviewWorkspace(QWidget):
 
         self.variant_layout.addWidget(card)
 
+    def _add_secondary_domain(self, domain: OverviewSecondaryDomain) -> None:
+        """One card per tier-C secondary domain (#887, text-labeled)."""
+        card = QFrame(self.domain_host)
+        set_surface_role(card, SurfaceRole.RAISED)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
+
+        body = QVBoxLayout()
+        title = QLabel(f"{domain.title} · {domain.state_label}", card)
+        set_typography_role(title, TypographyRole.SECTION_TITLE)
+        body.addWidget(title)
+        detail = QLabel(domain.detail, card)
+        set_typography_role(detail, TypographyRole.SECONDARY)
+        detail.setWordWrap(True)
+        body.addWidget(detail)
+        layout.addLayout(body, 1)
+
+        if domain.action is not None:
+            button = QPushButton(domain.action.label, card)
+            button.setObjectName(f"overviewDomainAction:{domain.action.action_id}")
+            button.setProperty("deeplink", domain.action.target.as_uri())
+            button.clicked.connect(
+                lambda checked=False, target=domain.action.target: self.navigate(target)
+            )
+            layout.addWidget(button)
+
+        self.domain_layout.addWidget(card)
+
     def _clear_notices(self) -> None:
-        for host in (self.notice_layout, self.variant_layout, self.trust_layout):
+        for host in (self.notice_layout, self.variant_layout, self.trust_layout, self.domain_layout):
             while host.count():
                 item = host.takeAt(0)
                 widget = item.widget()
