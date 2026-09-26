@@ -530,7 +530,7 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
-    CREATE TABLE IF NOT EXISTS cad_prediction_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, prediction_id TEXT NOT NULL UNIQUE, run_id TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, constraint_workspace_hash TEXT, model_id TEXT NOT NULL, model_version TEXT NOT NULL, result_kind TEXT NOT NULL, geometry_compatibility TEXT NOT NULL, parameters_json TEXT NOT NULL, input_snapshot_json TEXT NOT NULL, input_hash TEXT NOT NULL, submitted_at_utc TEXT NOT NULL, completed_at_utc TEXT NOT NULL, status TEXT NOT NULL, assumptions_json TEXT NOT NULL, warnings_json TEXT NOT NULL, modes_json TEXT NOT NULL, reflections_json TEXT NOT NULL, result_sha256 TEXT, FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id) )
+    CREATE TABLE IF NOT EXISTS cad_prediction_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, prediction_id TEXT NOT NULL UNIQUE, run_id TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, constraint_workspace_hash TEXT, model_id TEXT NOT NULL, model_version TEXT NOT NULL, result_kind TEXT NOT NULL, geometry_compatibility TEXT NOT NULL, parameters_json TEXT NOT NULL, input_snapshot_json TEXT NOT NULL, input_hash TEXT NOT NULL, submitted_at_utc TEXT NOT NULL, completed_at_utc TEXT NOT NULL, status TEXT NOT NULL, assumptions_json TEXT NOT NULL, warnings_json TEXT NOT NULL, modes_json TEXT NOT NULL, reflections_json TEXT NOT NULL, provider_response_json TEXT, result_sha256 TEXT, FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id) )
     """
     ,
     """
@@ -1535,6 +1535,7 @@ NATIVE_COLUMN_ENSURES: tuple[tuple[str, str, str], ...] = (
     ('cad_objective_evaluations', 'candidate_set_sha256', 'candidate_set_sha256 TEXT'),
     ('cad_objective_evaluations', 'input_authorities_json', 'input_authorities_json TEXT'),
     ('cad_prediction_results', 'result_sha256', 'result_sha256 TEXT'),
+    ('cad_prediction_results', 'provider_response_json', 'provider_response_json TEXT'),
     ('htdt_project_documents', 'updated_at_utc', 'updated_at_utc TEXT'),
     ('htdt_project_documents', 'archived_at_utc', 'archived_at_utc TEXT'),
 )

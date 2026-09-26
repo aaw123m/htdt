@@ -14,6 +14,14 @@ from .cad_predictions import (
     analyze_native_rectangular_geometry,
     rectangular_geometry_model_input,
 )
+from .cad_provider_response import (
+    HYBRID_RESPONSE_MODEL_ID,
+    HYBRID_RESPONSE_MODEL_VERSION,
+    PROVIDER_RESPONSE_MODEL_ID,
+    PROVIDER_RESPONSE_MODEL_VERSION,
+    replay_provider_response_request,
+    replay_provider_response_run,
+)
 from .cad_repository import SceneRevision
 from .cad_system_variant import SystemVariant
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -300,6 +308,29 @@ PredictionInputReplay = Callable[
     RectangularGeometryRequestIdentity,
 ]
 
+def _replay_provider_request(
+    revision: SceneRevision,
+    parameters_json: str,
+    input_snapshot_json: str,
+) -> RectangularGeometryRequestIdentity:
+    """Adapter exposing the provider-lane input replayer on the shared
+    request-identity shape (#938)."""
+
+    identity = replay_provider_response_request(
+        revision,
+        parameters_json,
+        input_snapshot_json,
+    )
+    return RectangularGeometryRequestIdentity(
+        model_id=identity.model_id,
+        model_version=identity.model_version,
+        parameters_json=identity.parameters_json,
+        input_snapshot_json=identity.input_snapshot_json,
+        input_hash=identity.input_hash,
+        geometry_compatibility=identity.geometry_compatibility,
+    )
+
+
 # Versioned prediction-model authority registry. Each persisted
 # (model_id, model_version) pair needs an explicit replayer that reruns the
 # pinned canonical request compilation against the exact SceneRevision.
@@ -311,6 +342,14 @@ PREDICTION_INPUT_AUTHORITIES: dict[tuple[str, str], PredictionInputReplay] = {
         RECTANGULAR_GEOMETRY_MODEL_ID,
         RECTANGULAR_GEOMETRY_MODEL_VERSION,
     ): _replay_rectangular_geometry_request,
+    (
+        PROVIDER_RESPONSE_MODEL_ID,
+        PROVIDER_RESPONSE_MODEL_VERSION,
+    ): _replay_provider_request,
+    (
+        HYBRID_RESPONSE_MODEL_ID,
+        HYBRID_RESPONSE_MODEL_VERSION,
+    ): _replay_provider_request,
 }
 
 
@@ -406,6 +445,14 @@ PREDICTION_OUTPUT_AUTHORITIES: dict[tuple[str, str], PredictionOutputReplay] = {
         RECTANGULAR_GEOMETRY_MODEL_ID,
         RECTANGULAR_GEOMETRY_MODEL_VERSION,
     ): _replay_rectangular_geometry_run,
+    (
+        PROVIDER_RESPONSE_MODEL_ID,
+        PROVIDER_RESPONSE_MODEL_VERSION,
+    ): replay_provider_response_run,
+    (
+        HYBRID_RESPONSE_MODEL_ID,
+        HYBRID_RESPONSE_MODEL_VERSION,
+    ): replay_provider_response_run,
 }
 
 

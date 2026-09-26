@@ -1194,6 +1194,33 @@ class CadHybridPredictionProviderRepository:
             HybridPredictionProvider.model_validate_json(row['payload_json'])
         )
 
+    def list_providers(
+        self,
+        document_id: str,
+    ) -> tuple[HybridPredictionProvider, ...]:
+        """All persisted R170B providers bound to one document (#938)."""
+
+        if not document_id:
+            raise ValueError('document_id must not be empty')
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_hybrid_prediction_providers '
+                'ORDER BY rowid ASC',
+            ).fetchall()
+        providers = tuple(
+            self._validate(
+                HybridPredictionProvider.model_validate_json(
+                    row['payload_json']
+                )
+            )
+            for row in rows
+        )
+        return tuple(
+            provider
+            for provider in providers
+            if provider.base_current_authority.document_id == document_id
+        )
+
     def _validate_binding(
         self,
         binding: HybridPredictionProviderBinding,

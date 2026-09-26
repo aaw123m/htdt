@@ -28,6 +28,9 @@ from .cad_room_operating_state import (
     RoomOperatingState,
     compile_operating_state_consumption,
 )
+from .cad_hybrid_prediction_provider import (
+    HybridPredictionProvider,
+)
 from .cad_prediction_provider import (
     LowBandPredictionProvider,
     PredictionProviderResolution,
@@ -44,6 +47,7 @@ from .r120_geometry_compiler import ExactExternalAuthorityRef
 RECTANGULAR_MODEL_KEY = 'rectangular'
 WAVE_MODEL_KEY_PREFIX = 'low-band-wave:'
 HYBRID_MODEL_KEY = 'hybrid'
+HYBRID_MODEL_KEY_PREFIX = 'hybrid:'
 
 PredictionOptionState = Literal['READY', 'BLOCKED', 'UNSUPPORTED']
 
@@ -86,7 +90,13 @@ def provider_model_key(provider_id: str) -> str:
     return f'{WAVE_MODEL_KEY_PREFIX}{provider_id}'
 
 
-def provider_evidence_label(provider: LowBandPredictionProvider) -> str:
+def hybrid_model_key(provider_id: str) -> str:
+    return f'{HYBRID_MODEL_KEY_PREFIX}{provider_id}'
+
+
+def provider_evidence_label(
+    provider: 'LowBandPredictionProvider | HybridPredictionProvider',
+) -> str:
     return _EVIDENCE_LABELS.get(
         (provider.evidence_state, provider.evidence_scope),
         f'{provider.evidence_state}/{provider.evidence_scope}',
@@ -276,10 +286,67 @@ def _provider_option(
         state=state,
         reasons=tuple(reasons),
         detail=band,
-        runnable=False,
+        # #938: a READY provider lane is runnable — the run consumes the
+        # exact stored authority output for the selected receiver.
+        runnable=state == 'READY',
         provider_id=provider.provider_id,
         provider_sha256=provider.semantic_sha256,
         stale_state=resolution.stale_state,
+        evidence_label=evidence,
+        solver_label=f'{provider.adapter_id} v{provider.adapter_version}',
+    )
+
+
+def _hybrid_option(
+    provider: HybridPredictionProvider,
+    revision: SceneRevision,
+    receiver_entity_id: str,
+    *,
+    max_mode_hz: float,
+) -> RoomPredictionModelOption:
+    evidence = provider_evidence_label(provider)
+    authority = provider.base_current_authority
+    reasons: list[str] = []
+    if authority.scene_revision_id != revision.revision_id:
+        reasons.append('providerの基となったSceneRevisionではありません')
+    elif authority.scene_content_hash != revision.content_hash:
+        reasons.append('Scene内容がprovider作成後に変更されました')
+    if authority.document_id != revision.document_id:
+        reasons.append('providerが別のドキュメントに属します')
+    stale_state: Literal['CURRENT', 'STALE'] = (
+        'STALE' if reasons else 'CURRENT'
+    )
+    if (
+        provider.receiver_identity.receiver_binding.entity_id
+        != receiver_entity_id
+    ):
+        reasons.append('選択した受音点はこのproviderの受音点集合に含まれません')
+    capability = provider.capability(_PRODUCT_OBSERVABLE)
+    if capability.state != 'READY':
+        reasons.append(
+            capability.reason or '周波数応答observableがprovider外です'
+        )
+    domain = provider.valid_frequency_domain
+    if float(max_mode_hz) > float(domain.maximum_hz):
+        reasons.append(
+            f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
+            f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) を超えます'
+        )
+    state: PredictionOptionState = 'BLOCKED' if reasons else 'READY'
+    band = (
+        f'帯域 {domain.minimum_hz:g}–{domain.maximum_hz:g} Hz · '
+        f'hybrid ({provider.blend_law}) · {evidence}'
+    )
+    return RoomPredictionModelOption(
+        model_key=hybrid_model_key(provider.provider_id),
+        label='hybrid prediction',
+        state=state,
+        reasons=tuple(reasons),
+        detail=band,
+        runnable=state == 'READY',
+        provider_id=provider.provider_id,
+        provider_sha256=provider.semantic_sha256,
+        stale_state=stale_state,
         evidence_label=evidence,
         solver_label=f'{provider.adapter_id} v{provider.adapter_version}',
     )
@@ -290,6 +357,7 @@ def resolve_room_prediction_options(
     receiver_entity_id: str,
     *,
     providers: Sequence[LowBandPredictionProvider] = (),
+    hybrid_providers: Sequence[HybridPredictionProvider] = (),
     environment_profile: AcousticEnvironmentProfile | None = None,
     max_mode_hz: float = 300.0,
     include_wave_placeholder: bool = True,
@@ -326,6 +394,17 @@ def resolve_room_prediction_options(
                 max_mode_hz=max_mode_hz,
             )
         )
+    # #938: the hybrid lane enumerates the persisted R170B catalog — it is
+    # permanently UNSUPPORTED only when no provider exists at all.
+    for provider in sorted(hybrid_providers, key=lambda item: item.provider_id):
+        options.append(
+            _hybrid_option(
+                provider,
+                revision,
+                receiver_entity_id,
+                max_mode_hz=max_mode_hz,
+            )
+        )
     if include_wave_placeholder and not providers:
         options.append(
             RoomPredictionModelOption(
@@ -339,16 +418,17 @@ def resolve_room_prediction_options(
                 detail='wave lane capabilityは登録済みproviderで有効になります',
             )
         )
-    if include_hybrid_placeholder:
+    if include_hybrid_placeholder and not hybrid_providers:
         options.append(
             RoomPredictionModelOption(
                 model_key=HYBRID_MODEL_KEY,
                 label='hybrid prediction',
                 state='UNSUPPORTED',
                 reasons=(
-                    'hybrid predictionはこの画面では未対応です '
-                    '(幾何音響+低域waveの合成capabilityがありません)',
+                    'このドキュメントにはhybrid prediction providerが登録されていません '
+                    '(R170B provider authorityが必要です)',
                 ),
+                detail='hybrid lane capabilityは登録済みproviderで有効になります',
             )
         )
     return tuple(options)

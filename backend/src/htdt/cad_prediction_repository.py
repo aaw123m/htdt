@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 
 from .cad_prediction_models import (
+    CadPredictedProviderResponse,
     CadPredictionResult,
     CadPredictedReflection,
     CadPredictedRoomMode,
@@ -180,8 +181,9 @@ class CadPredictionRepository:
                 constraint_workspace_hash, model_id, model_version, result_kind,
                 geometry_compatibility, parameters_json, input_snapshot_json, input_hash,
                 submitted_at_utc, completed_at_utc, status, assumptions_json,
-                warnings_json, modes_json, reflections_json, result_sha256
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                warnings_json, modes_json, reflections_json, provider_response_json,
+                result_sha256
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 result.prediction_id,
@@ -205,6 +207,13 @@ class CadPredictionRepository:
                 canonical_prediction_json([mode.model_dump(mode='json') for mode in result.modes]),
                 canonical_prediction_json(
                     [reflection.model_dump(mode='json') for reflection in result.reflections]
+                ),
+                (
+                    None
+                    if result.provider_response is None
+                    else canonical_prediction_json(
+                        result.provider_response.model_dump(mode='json')
+                    )
                 ),
                 result.result_sha256,
             ),
@@ -248,6 +257,11 @@ class CadPredictionRepository:
         reflections = tuple(
             CadPredictedReflection.model_validate(item) for item in json.loads(row['reflections_json'])
         )
+        provider_response = None
+        if 'provider_response_json' in row.keys() and row['provider_response_json']:
+            provider_response = CadPredictedProviderResponse.model_validate(
+                json.loads(row['provider_response_json'])
+            )
         result = CadPredictionResult(
             prediction_id=row['prediction_id'],
             run_id=row['run_id'],
@@ -269,6 +283,7 @@ class CadPredictionRepository:
             warnings=tuple(json.loads(row['warnings_json'])),
             modes=modes,
             reflections=reflections,
+            provider_response=provider_response,
             result_sha256=row['result_sha256'],
         )
         # Reads are authoritative: a stored row must still replay to the
