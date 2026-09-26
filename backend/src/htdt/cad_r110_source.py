@@ -17,6 +17,7 @@ from .cad_equipment import (
     FrequencyDomain,
     InterpolationMethod,
     EquipmentDefinition,
+    RadialDomain,
     SensitivityReference,
 )
 from .cad_equipment_binding import EquipmentBindingSemantics
@@ -56,6 +57,13 @@ R110SourceCapabilityName = Literal[
 R110CapabilityDecision = Literal['SUPPORTED', 'UNSUPPORTED', 'BLOCKED']
 R110FrequencyDomainAuthority = Literal[
     'directivity_dataset',
+    'equipment_definition',
+    'unavailable',
+]
+# #964: the radial/far-field validity domain can only be declared by the
+# equipment-level directivity capability today; datasets carry no measured
+# radius authority.
+R110RadialDomainAuthority = Literal[
     'equipment_definition',
     'unavailable',
 ]
@@ -200,6 +208,12 @@ class R110CompiledSourceModel(BaseModel):
     directivity_dataset_kind: DirectivityDatasetKind | None = None
     valid_frequency_domain: FrequencyDomain | None = None
     frequency_domain_authority: R110FrequencyDomainAuthority
+    # #964: declared radial/far-field validity domain propagated from the
+    # equipment directivity capability; ``None`` + 'unavailable' authority
+    # means no radial applicability was ever declared. Absent on models
+    # persisted before the domain existed.
+    valid_radial_domain: RadialDomain | None = None
+    radial_domain_authority: R110RadialDomainAuthority | None = None
     coherent_phase_available: bool
     phase_reference: str | None = Field(default=None, min_length=1)
     electrical_sensitivity_reference: SensitivityReference | None = None
@@ -371,6 +385,8 @@ class R110CompiledSourceModel(BaseModel):
             'source_response_authority_version',
             'source_response_authority_sha256',
             'source_response_capability_tier',
+            'valid_radial_domain',
+            'radial_domain_authority',
         ):
             if payload.get(key) is None:
                 payload.pop(key, None)
@@ -613,6 +629,14 @@ def compile_r110_source_model(
     else:
         frequency_domain = None
         frequency_domain_authority = 'unavailable'
+
+    # #964: propagate the declared radial/far-field validity domain verbatim;
+    # a missing declaration stays 'unavailable' rather than implying every
+    # distance is in-domain.
+    radial_domain = capability.radial_domain
+    radial_domain_authority: R110RadialDomainAuthority = (
+        'equipment_definition' if radial_domain is not None else 'unavailable'
+    )
 
     approximations: list[R110ApproximationMetadata] = []
     reasons: list[str] = []
@@ -870,6 +894,7 @@ def compile_r110_source_model(
             None if frequency_domain is None else frequency_domain.model_dump(mode='json')
         ),
         'frequency_domain_authority': frequency_domain_authority,
+
         'coherent_phase_available': complex_data,
         'phase_reference': phase_reference,
         'electrical_sensitivity_reference': (
@@ -897,6 +922,13 @@ def compile_r110_source_model(
         ],
         'unsupported_reasons': list(dict.fromkeys(reasons)),
     }
+
+    # #964: the radial-domain fields join the sealed payload only when the
+    # equipment authority declares a domain — absent keys keep byte-exact
+    # identity for models persisted before the domain existed.
+    if radial_domain is not None:
+        payload['valid_radial_domain'] = radial_domain.model_dump(mode='json')
+        payload['radial_domain_authority'] = radial_domain_authority
 
     if source_response is not None:
         payload['source_response_authority_id'] = source_response.response_id

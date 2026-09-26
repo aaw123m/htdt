@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from .cad_listener_pose import ListenerPoseAuthority
 
-from .cad_equipment import EquipmentDefinition, FrequencyDomain
+from .cad_equipment import EquipmentDefinition, FrequencyDomain, RadialDomain
 from .cad_listener_pose import resolve_listener_receiver
 from .cad_repository import SceneRevision
 from .cad_seat_priority import SeatPriorityProfile
@@ -157,6 +157,19 @@ class DistanceLevelAuthority(BaseModel):
     equation: Literal[
         'level_at_r=level_at_ref+20*log10(ref_distance_m/r_m)'
     ] = 'level_at_r=level_at_ref+20*log10(ref_distance_m/r_m)'
+    # #964: declared radial/far-field validity domain of the point-source
+    # decay model. ``None`` keeps the pre-existing unbounded claim for
+    # authority compatibility — it is not evidence that every distance is
+    # valid.
+    radial_domain: RadialDomain | None = None
+
+
+def _distance_authority_payload(authority: DistanceLevelAuthority) -> dict:
+    """Digest-stable dump: ``radial_domain`` is emitted only when declared."""
+    payload = authority.model_dump(mode='json')
+    if authority.radial_domain is None:
+        payload.pop('radial_domain', None)
+    return payload
 
 
 class InputNormalizationAuthority(BaseModel):
@@ -248,7 +261,9 @@ class PlaybackExcitationScenario(BaseModel):
             'receiver_population': self.receiver_population.model_dump(mode='json'),
             'aggregation_semantics': self.aggregation_semantics,
             'level_semantics': self.level_semantics,
-            'distance_authority': self.distance_authority.model_dump(mode='json'),
+            'distance_authority': _distance_authority_payload(
+                self.distance_authority
+            ),
             'input_normalization_authority': (
                 self.input_normalization_authority.model_dump(mode='json')
             ),
@@ -276,6 +291,7 @@ def build_playback_excitation_scenario(
     receiver_population: SeatPopulation,
     max_compression_db: float | None = None,
     max_distortion_percent: float | None = None,
+    radial_domain: RadialDomain | None = None,
 ) -> PlaybackExcitationScenario:
     identity = {
         'schema_version': DIRECT_LEVEL_SCHEMA_VERSION,
@@ -292,7 +308,9 @@ def build_playback_excitation_scenario(
         'receiver_population': receiver_population.model_dump(mode='json'),
         'aggregation_semantics': 'single_channel_no_coherent_sum',
         'level_semantics': 'direct_equipment_derived_no_room_gain_no_reflections',
-        'distance_authority': DistanceLevelAuthority().model_dump(mode='json'),
+        'distance_authority': _distance_authority_payload(
+            DistanceLevelAuthority(radial_domain=radial_domain)
+        ),
         'input_normalization_authority': (
             InputNormalizationAuthority().model_dump(mode='json')
         ),
@@ -317,6 +335,7 @@ def build_playback_excitation_scenario(
         receiver_population=receiver_population,
         max_compression_db=max_compression_db,
         max_distortion_percent=max_distortion_percent,
+        distance_authority=DistanceLevelAuthority(radial_domain=radial_domain),
         scenario_id=_semantic_id('playback', digest),
         scenario_sha256=digest,
     )
@@ -1131,6 +1150,29 @@ def evaluate_direct_level(
                 SeatDirectLevelResult(
                     seat_entity_id=seat_id,
                     receiver_position_m=receiver,
+                    direct_level=_unsupported(reason, 'dB SPL'),
+                    target_margin=_unsupported(reason, 'dB'),
+                    continuous_headroom=_unsupported(reason, 'dB'),
+                    peak_headroom=_unsupported(reason, 'dB'),
+                )
+            )
+            continue
+
+        # #964: the spherical-decay transfer is only claimed inside the
+        # declared radial/far-field domain — a seat outside it gets an
+        # explicit unsupported verdict, never an extrapolated false-precision
+        # level.
+        radial_domain = scenario.distance_authority.radial_domain
+        if radial_domain is not None and not radial_domain.contains(distance_m):
+            reason = (
+                'seat distance lies outside the declared radial validity '
+                'domain of the distance authority'
+            )
+            seat_results.append(
+                SeatDirectLevelResult(
+                    seat_entity_id=seat_id,
+                    receiver_position_m=receiver,
+                    distance_m=distance_m,
                     direct_level=_unsupported(reason, 'dB SPL'),
                     target_margin=_unsupported(reason, 'dB'),
                     continuous_headroom=_unsupported(reason, 'dB'),

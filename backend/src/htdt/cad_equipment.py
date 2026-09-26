@@ -136,6 +136,43 @@ class AngleDomain(BaseModel):
         return self.minimum_deg <= value <= self.maximum_deg
 
 
+class RadialDomain(BaseModel):
+    """Radial source-to-receiver distance domain (metres).
+
+    ``maximum_m=None`` declares an open-ended far field: the claim is valid
+    from ``minimum_m`` outward with no upper bound.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    minimum_m: float = Field(gt=0.0)
+    maximum_m: float | None = Field(default=None, gt=0.0)
+
+    @field_validator('minimum_m', 'maximum_m')
+    @classmethod
+    def finite_distance(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        return _finite(value, field_name='distance')
+
+    @model_validator(mode='after')
+    def valid_range(self) -> 'RadialDomain':
+        if (
+            self.maximum_m is not None
+            and self.maximum_m <= self.minimum_m
+        ):
+            raise ValueError(
+                'radial domain maximum must exceed minimum'
+            )
+        return self
+
+    def contains(self, distance_m: float) -> bool:
+        value = _finite(distance_m, field_name='distance_m')
+        if value < self.minimum_m:
+            return False
+        return self.maximum_m is None or value <= self.maximum_m
+
+
 class DirectivityDomain(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -167,6 +204,11 @@ class DirectivityCapability(BaseModel):
     )
     valid_domain: DirectivityDomain | None = None
     interpolation: InterpolationProvenance | None = None
+    # #964: declared radial/far-field validity domain of the directivity
+    # evidence — the source-to-receiver distances at which the balloon may
+    # be consumed as exact. ``None`` means no radial applicability was
+    # declared, not that every distance is valid.
+    radial_domain: RadialDomain | None = None
     coherent_phase: bool = False
     phase_reference: str | None = Field(default=None, min_length=1)
     analytic_model: str | None = Field(default=None, min_length=1)
@@ -180,6 +222,7 @@ class DirectivityCapability(BaseModel):
                 self.data_asset_sha256 is not None,
                 self.valid_domain is not None,
                 self.interpolation is not None,
+                self.radial_domain is not None,
                 self.coherent_phase,
                 self.phase_reference is not None,
                 self.analytic_model is not None,
@@ -412,6 +455,19 @@ class EquipmentUncertainty(BaseModel):
         return self
 
 
+def _directivity_payload(directivity: DirectivityCapability) -> dict[str, Any]:
+    """JSON payload of the capability with digest-stable optional fields.
+
+    ``radial_domain`` was added after the authority shipped; capabilities
+    persisted without it must keep their original identity digests, so the
+    key is emitted only when the domain is declared (#964).
+    """
+    payload = directivity.model_dump(mode='json')
+    if directivity.radial_domain is None:
+        payload.pop('radial_domain', None)
+    return payload
+
+
 class EquipmentDefinition(BaseModel):
     """Immutable/versioned O100C physical and acoustic source definition."""
 
@@ -511,7 +567,7 @@ class EquipmentDefinition(BaseModel):
                 if self.spl_capability is None
                 else self.spl_capability.model_dump(mode='json')
             ),
-            'directivity': self.directivity.model_dump(mode='json'),
+            'directivity': _directivity_payload(self.directivity),
             'uncertainty': [
                 item.model_dump(mode='json')
                 for item in self.uncertainty
@@ -572,7 +628,7 @@ def build_equipment_definition(
             if spl_capability is None
             else spl_capability.model_dump(mode='json')
         ),
-        'directivity': directivity.model_dump(mode='json'),
+        'directivity': _directivity_payload(directivity),
         'uncertainty': [
             item.model_dump(mode='json')
             for item in uncertainty_items
