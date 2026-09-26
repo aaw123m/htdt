@@ -21,6 +21,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
+
 
 VisualQAFixtureId = Literal['vq_small', 'vq_dense', 'vq_edge']
 PageSize = Literal['a4', 'a3']
@@ -231,27 +233,18 @@ class VisualQARepository:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_visual_qa_verdicts',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_visual_qa_verdicts (
-                    verdict_id TEXT PRIMARY KEY,
-                    fixture_id TEXT NOT NULL,
-                    passed INTEGER NOT NULL,
-                    error_count INTEGER NOT NULL,
-                    warning_count INTEGER NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
 
     def save_verdict(self, verdict: VisualQAVerdict) -> VisualQAVerdict:
         with closing(self._connect()) as connection, connection:

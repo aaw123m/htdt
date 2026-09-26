@@ -7,6 +7,7 @@ import sqlite3
 
 from .cad_repository import SceneRepository
 from .cad_room_operating_state import RoomOperatingState
+from .cad_schema import require_native_tables
 
 
 class OperatingStateConflictError(ValueError):
@@ -33,30 +34,10 @@ class CadRoomOperatingStateRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_room_operating_states (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    state_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(state_id, version)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_room_operating_state_doc
-                ON cad_room_operating_states(document_id, seq ASC)
-                """
-            )
+            require_native_tables(connection, 'cad_room_operating_states')
 
     def save_state(self, state: RoomOperatingState) -> None:
         if self.get_state(state.state_id, state.version) is not None:

@@ -1525,6 +1525,444 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_video_presentation_selections ( selection_seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, screen_entity_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, selected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
+
+# Repository-local CREATE statements moved under baseline ownership (#767).
+    """
+    CREATE TABLE IF NOT EXISTS cad_environment_profiles ( authority_id TEXT PRIMARY KEY, semantic_hash_sha256 TEXT NOT NULL, label TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_environment_selections ( document_id TEXT PRIMARY KEY, authority_id TEXT NOT NULL, semantic_hash_sha256 TEXT NOT NULL, updated_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_analysis_studies ( study_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, study_kind TEXT NOT NULL, study_sha256 TEXT NOT NULL, supersedes_study_id TEXT, duplicated_from_study_id TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_cable_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, kind TEXT NOT NULL, total_length_m REAL NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(run_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tolerance_profiles ( profile_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, name TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_commissioning_plans ( plan_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, tolerance_profile_id TEXT NOT NULL, plan_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_commissioning_runs ( run_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, run_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, FOREIGN KEY (plan_id) REFERENCES cad_commissioning_plans (plan_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_design_briefs ( brief_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, brief_sha256 TEXT NOT NULL, supersedes_brief_id TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS design_decisions ( decision_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, decision_scope TEXT NOT NULL, selected_ref_id TEXT NOT NULL, supersedes_decision_id TEXT, created_at_utc TEXT NOT NULL, decision_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_target_bindings ( binding_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, binding_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_capability_snapshots ( snapshot_id TEXT PRIMARY KEY, binding_sha256 TEXT NOT NULL, snapshot_sha256 TEXT NOT NULL UNIQUE, probed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_observed_device_states ( observation_id TEXT PRIMARY KEY, binding_sha256 TEXT NOT NULL, observation_sha256 TEXT NOT NULL UNIQUE, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_proposed_device_actions ( action_id TEXT PRIMARY KEY, binding_sha256 TEXT NOT NULL, action_sha256 TEXT NOT NULL UNIQUE, planned_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_action_acks ( ack_id TEXT PRIMARY KEY, action_sha256 TEXT NOT NULL, ack_sha256 TEXT NOT NULL UNIQUE, acked_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_subjects ( subject_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, target_json TEXT NOT NULL, attribute TEXT NOT NULL, subject_sha256 TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_observations ( observation_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, source TEXT NOT NULL, source_ref TEXT, captured_at_utc TEXT, observation_sha256 TEXT, payload_json TEXT NOT NULL, FOREIGN KEY (subject_id) REFERENCES cad_evidence_subjects (subject_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reconciliation_decisions ( decision_id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, document_id TEXT NOT NULL, outcome TEXT NOT NULL, decision_sha256 TEXT NOT NULL, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, FOREIGN KEY (subject_id) REFERENCES cad_evidence_subjects (subject_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_acoustic_target_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, profile_version TEXT NOT NULL, document_id TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(profile_id, profile_version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_isolation_assemblies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assembly_id TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_isolation_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_isolation_estimates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, estimate_id TEXT NOT NULL, scenario_id TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_isolation_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rack_definitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rack_id TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rack_layouts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, layout_id TEXT NOT NULL, rack_id TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_project_boms ( seq INTEGER PRIMARY KEY AUTOINCREMENT, bom_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(bom_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_drawing_set_specs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spec_id TEXT NOT NULL, spec_version TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(spec_id, spec_version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_installation_drawing_sets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, drawing_set_id TEXT NOT NULL, document_id TEXT, installation_output_sha256 TEXT NOT NULL, spec_sha256 TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_field_labels ( seq INTEGER PRIMARY KEY AUTOINCREMENT, label_id TEXT NOT NULL, project_id TEXT NOT NULL, target_id TEXT NOT NULL, generation INTEGER NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(target_id, generation) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_field_label_sheets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, sheet_id TEXT NOT NULL, project_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_field_evidence ( evidence_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, kind TEXT NOT NULL, asset_sha256 TEXT, evidence_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_field_evidence_targets ( evidence_id TEXT NOT NULL, target_kind TEXT NOT NULL, revision_id TEXT, entity_id TEXT, ref_id TEXT, FOREIGN KEY (evidence_id) REFERENCES cad_field_evidence (evidence_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_installation_datums ( seq INTEGER PRIMARY KEY AUTOINCREMENT, datum_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(datum_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_material_definitions ( material_id TEXT PRIMARY KEY, document_id TEXT, material_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_material_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, material_id TEXT NOT NULL, version TEXT NOT NULL, quantity TEXT NOT NULL, evidence_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE (material_id, version, quantity) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_excitation_assets ( excitation_asset_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, sha256 TEXT NOT NULL, excitation_sha256 TEXT NOT NULL UNIQUE, byte_length INTEGER NOT NULL, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_stimulus_profiles ( stimulus_profile_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, stimulus_profile_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_specs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spec_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, baseline_snapshot_sha256 TEXT NOT NULL, solver_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, result_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, spec_id TEXT NOT NULL, calibrated_model_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_models ( seq INTEGER PRIMARY KEY AUTOINCREMENT, materialized_model_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, calibration_result_id TEXT NOT NULL, baseline_snapshot_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_freezes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, freeze_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, calibration_result_id TEXT NOT NULL, calibrated_model_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_holdout_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, freeze_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_evidence_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL, campaign_sha256 TEXT NOT NULL, consumption_kind TEXT NOT NULL, freeze_id TEXT, record_id TEXT UNIQUE, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_level_conditions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, condition_id TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, condition_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE (condition_id, scene_revision_id, condition_sha256) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reference_playback_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT, semantic_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE (profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS authoring_constraint_revisions ( constraint_revision_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, supersedes_id TEXT, scene_revision_id TEXT, payload_json TEXT NOT NULL, constraint_revision_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_room_operating_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, state_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, name TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(state_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_speaker_definitions ( speaker_id TEXT PRIMARY KEY, document_id TEXT, speaker_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_speaker_datasets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, dataset_id TEXT NOT NULL UNIQUE, speaker_id TEXT NOT NULL, version TEXT NOT NULL, kind TEXT NOT NULL, dataset_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE (speaker_id, version, kind) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_target_curve_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_plan_target_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_version TEXT NOT NULL, binding_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, bound_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_external_dependencies ( dependency_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, kind TEXT NOT NULL, authority_ref TEXT NOT NULL, dependency_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dependency_resolution_events ( event_id TEXT PRIMARY KEY, dependency_id TEXT NOT NULL, document_id TEXT NOT NULL, outcome TEXT NOT NULL, resolved_sha256 TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, FOREIGN KEY (dependency_id) REFERENCES cad_external_dependencies (dependency_id) )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_analysis_studies_document ON cad_analysis_studies (document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cable_run_doc ON cad_cable_runs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_commissioning_runs_plan ON cad_commissioning_runs (plan_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_design_briefs_document ON cad_design_briefs (document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_design_decisions_document ON design_decisions(document_id)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_evidence_observations_subject ON cad_evidence_observations (subject_id)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_reconciliation_subject ON cad_reconciliation_decisions (subject_id, decided_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_acoustic_target_profile_doc ON cad_acoustic_target_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_isolation_assembly_doc ON cad_isolation_assemblies(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_isolation_scenario_doc ON cad_isolation_scenarios(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_isolation_estimate_doc ON cad_isolation_estimates(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_isolation_measurement_doc ON cad_isolation_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rack_definition_doc ON cad_rack_definitions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rack_layout_doc ON cad_rack_layouts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_project_bom_doc ON cad_project_boms(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_drawing_set_spec_doc ON cad_drawing_set_specs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_installation_drawing_set_doc ON cad_installation_drawing_sets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_field_label_project ON cad_field_labels(project_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_field_label_sheet_project ON cad_field_label_sheets(project_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_field_evidence_targets ON cad_field_evidence_targets (target_kind, revision_id, entity_id)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_field_evidence_document ON cad_field_evidence (document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_installation_datum_doc ON cad_installation_datums(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_excitation_assets_document ON cad_excitation_assets(document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimulus_profiles_document ON cad_stimulus_profiles(document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calibration_evidence_campaign ON cad_calibration_evidence_events(campaign_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_acr_document_created ON authoring_constraint_revisions(document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_room_operating_state_doc ON cad_room_operating_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_target_profile_doc ON cad_target_curve_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_plan_target_binding_plan ON cad_plan_target_bindings(plan_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_plan_target_binding_profile ON cad_plan_target_bindings(profile_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_external_dependencies_ref ON cad_external_dependencies (document_id, kind, authority_ref)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cad_resolution_events_dependency ON cad_dependency_resolution_events (dependency_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_acoustic_materials ( material_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_surface_material_assignments ( document_id TEXT NOT NULL, source_surface_id TEXT NOT NULL, material_id TEXT NOT NULL, material_sha256 TEXT NOT NULL, PRIMARY KEY (document_id, source_surface_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_acoustic_source_poses ( observation_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, source_entity_id TEXT NOT NULL, verdict TEXT NOT NULL, observed_at_utc TEXT NOT NULL, semantic_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_compute_benchmarks ( benchmark_id TEXT PRIMARY KEY, case_name TEXT NOT NULL, spec_digest TEXT NOT NULL, hardware_profile_id TEXT NOT NULL, backend TEXT NOT NULL, solver_identity TEXT NOT NULL, runtime_s REAL NOT NULL, peak_memory_mb REAL NOT NULL, output_size_mb REAL NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_field_sessions ( session_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, task_kind TEXT NOT NULL, state TEXT NOT NULL, issued_at_utc TEXT NOT NULL, semantic_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_field_evidence_records ( record_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, kind TEXT NOT NULL, review_state TEXT NOT NULL, captured_at_utc TEXT NOT NULL, semantic_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_listener_poses ( pose_id TEXT PRIMARY KEY, seat_entity_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_listener_pose_selections ( document_id TEXT NOT NULL, seat_entity_id TEXT NOT NULL, pose_id TEXT NOT NULL, pose_sha256 TEXT NOT NULL, PRIMARY KEY (document_id, seat_entity_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_pose_observations ( observation_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, measurement_ref TEXT, planned_target_ref TEXT, method TEXT NOT NULL, observed_at_utc TEXT NOT NULL, semantic_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_planned_observed_deltas ( delta_id TEXT PRIMARY KEY, observation_id TEXT NOT NULL, classification TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS project_templates ( template_id TEXT NOT NULL, version TEXT NOT NULL, kind TEXT NOT NULL, template_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (template_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS template_instantiations ( instantiation_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, template_id TEXT NOT NULL, template_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, instantiation_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_review_notes ( note_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref TEXT NOT NULL, resolution TEXT NOT NULL, created_at_utc TEXT NOT NULL, semantic_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_screen_transfers ( transfer_id TEXT PRIMARY KEY, screen_entity_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_screen_transfer_selections ( document_id TEXT NOT NULL, screen_entity_id TEXT NOT NULL, transfer_id TEXT NOT NULL, transfer_sha256 TEXT NOT NULL, PRIMARY KEY (document_id, screen_entity_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_site_spaces ( space_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, kind TEXT NOT NULL, authority_version TEXT NOT NULL, semantic_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_site_relationships ( relationship_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, kind TEXT NOT NULL, space_a_id TEXT NOT NULL, space_b_id TEXT NOT NULL, semantic_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_responses ( response_id TEXT PRIMARY KEY, equipment_definition_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_response_selections ( document_id TEXT NOT NULL, equipment_definition_id TEXT NOT NULL, response_id TEXT NOT NULL, response_sha256 TEXT NOT NULL, PRIMARY KEY (document_id, equipment_definition_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_validation_cases ( evidence_id TEXT PRIMARY KEY, case_id TEXT NOT NULL, provider_id TEXT NOT NULL, provider_version TEXT NOT NULL, geometry_class TEXT NOT NULL, source_class TEXT NOT NULL, observable TEXT NOT NULL, evidence_level TEXT NOT NULL, verdict TEXT NOT NULL, is_holdout INTEGER NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_visual_qa_verdicts ( verdict_id TEXT PRIMARY KEY, fixture_id TEXT NOT NULL, passed INTEGER NOT NULL, error_count INTEGER NOT NULL, warning_count INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS project_action_items ( action_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, status TEXT NOT NULL, priority TEXT NOT NULL, created_at_utc TEXT NOT NULL, updated_at_utc TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0, action_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_project_action_items_document ON project_action_items(document_id)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS assumption_decisions ( decision_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, attested_classification TEXT NOT NULL, supersedes_decision_id TEXT, created_at_utc TEXT NOT NULL, decision_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_assumption_decisions_document ON assumption_decisions(document_id)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -1542,21 +1980,27 @@ NATIVE_COLUMN_ENSURES: tuple[tuple[str, str, str], ...] = (
     ('cad_prediction_results', 'provider_response_json', 'provider_response_json TEXT'),
     ('htdt_project_documents', 'updated_at_utc', 'updated_at_utc TEXT'),
     ('htdt_project_documents', 'archived_at_utc', 'archived_at_utc TEXT'),
+    ('cad_evidence_subjects', 'subject_sha256', 'subject_sha256 TEXT'),
+    ('cad_evidence_observations', 'observation_sha256', 'observation_sha256 TEXT'),
 )
 
 # Every persistent table the migration authority owns. Used by the schema
 # invariant tests and by diagnostics that must enumerate the contract.
 NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
+    'assumption_decisions',
+    'authoring_constraint_revisions',
     'authoring_constraint_sets',
     'cad_acoustic_level_calibrations',
+    'cad_acoustic_materials',
     'cad_acoustic_prediction_requests',
     'cad_acoustic_scene_snapshots',
     'cad_acoustic_solver_adapters',
     'cad_acoustic_solver_dispatch_bindings',
     'cad_acoustic_solver_results',
+    'cad_acoustic_source_poses',
+    'cad_acoustic_target_profiles',
     'cad_acoustic_treatment_comparisons',
     'cad_acoustic_treatment_definitions',
-    'cad_treatment_comparison_outcomes',
     'cad_acoustic_treatment_placements',
     'cad_acoustic_wave_excitations',
     'cad_acquisition_contexts',
@@ -1570,65 +2014,84 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_ambient_profiles',
     'cad_amplifier_electrical_limits',
     'cad_amplifier_output_capabilities',
+    'cad_analysis_studies',
     'cad_applicability_attestations',
+    'cad_applied_preset_states',
+    'cad_applied_settings',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
     'cad_bass_management_profiles',
     'cad_bass_management_selections',
+    'cad_cable_runs',
+    'cad_calibration_evidence_events',
     'cad_calibration_exports',
+    'cad_calibration_freezes',
+    'cad_calibration_holdout_records',
     'cad_calibration_lifecycle_events',
+    'cad_calibration_models',
     'cad_calibration_plans',
+    'cad_calibration_results',
+    'cad_calibration_specs',
     'cad_calibration_verification_completions',
     'cad_calibration_verification_plans',
     'cad_calibration_verification_registrations',
-    'cad_applied_settings',
-    'cad_constraint_snapshots',
-    'cad_design_checkpoints',
     'cad_checkpoint_restores',
-    'cad_design_comparison_sets',
-    'cad_cost_records',
-    'cad_cost_evaluations',
-    'cad_prediction_matrix_specs',
-    'cad_prediction_matrix_result_sets',
-    'cad_prediction_matrix_runs',
-    'cad_intervention_study_specs',
-    'cad_intervention_alternatives',
-    'cad_operating_presets',
-    'cad_applied_preset_states',
-    'cad_preset_measurement_bindings',
-    'cad_project_notes',
-    'cad_health_baselines',
-    'cad_health_check_plans',
-    'cad_health_check_runs',
-    'cad_seat_priority_profiles',
+    'cad_commissioning_plans',
+    'cad_commissioning_runs',
+    'cad_compute_benchmarks',
+    'cad_constraint_snapshots',
     'cad_constraint_workspaces',
-    'htdt_content_blobs',
+    'cad_cost_evaluations',
+    'cad_cost_records',
     'cad_coverage_evaluations',
     'cad_coverage_scenarios',
     'cad_current_topologies',
     'cad_data_source_registry',
     'cad_dataset_level_references',
     'cad_dataset_reviews',
+    'cad_dependency_resolution_events',
+    'cad_design_briefs',
+    'cad_design_checkpoints',
+    'cad_design_comparison_sets',
     'cad_deterministic_ga_execution_inputs',
     'cad_deterministic_path_artifacts',
+    'cad_device_action_acks',
+    'cad_device_capability_snapshots',
+    'cad_device_target_bindings',
     'cad_direct_level_evaluations',
     'cad_direct_level_scenarios',
     'cad_direct_view_evaluations',
     'cad_direct_view_specifications',
     'cad_directivity_datasets',
     'cad_directivity_source_assets',
+    'cad_drawing_set_specs',
+    'cad_environment_profiles',
+    'cad_environment_selections',
     'cad_equipment_binding_semantics',
     'cad_equipment_definitions',
     'cad_equipment_evidence_authorities',
     'cad_equipment_upgrades',
+    'cad_evidence_observations',
+    'cad_evidence_subjects',
+    'cad_excitation_assets',
     'cad_extended_model_capabilities',
     'cad_extended_parameter_evidence',
     'cad_extended_search_specs',
+    'cad_external_dependencies',
+    'cad_field_evidence',
+    'cad_field_evidence_records',
+    'cad_field_evidence_targets',
     'cad_field_explorer_sessions',
+    'cad_field_label_sheets',
+    'cad_field_labels',
+    'cad_field_sessions',
     'cad_frequency_resolved_evaluations',
     'cad_frequency_responses',
     'cad_gain_structure_evaluations',
     'cad_gain_structure_scenarios',
+    'cad_health_baselines',
+    'cad_health_check_plans',
+    'cad_health_check_runs',
     'cad_hybrid_acoustic_results',
     'cad_hybrid_prediction_provider_bindings',
     'cad_hybrid_prediction_provider_objectives',
@@ -1637,18 +2100,30 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_importer_declarations',
     'cad_impulse_responses',
     'cad_installation_contexts',
+    'cad_installation_datums',
+    'cad_installation_drawing_sets',
     'cad_installed_definition_bindings',
     'cad_installed_device_observations',
     'cad_installed_equipment_instances',
     'cad_installed_equipment_replacements',
+    'cad_intervention_alternatives',
+    'cad_intervention_study_specs',
     'cad_ir_analysis_results',
     'cad_ir_analysis_specs',
+    'cad_isolation_assemblies',
+    'cad_isolation_estimates',
+    'cad_isolation_measurements',
+    'cad_isolation_scenarios',
     'cad_joint_candidate_evaluations',
     'cad_joint_candidate_selections',
     'cad_joint_candidates',
     'cad_joint_optimization_specs',
     'cad_layout_profiles',
     'cad_line_level_stages',
+    'cad_listener_pose_selections',
+    'cad_listener_poses',
+    'cad_material_definitions',
+    'cad_material_evidence',
     'cad_materialized_pattern_points',
     'cad_measurement_assets',
     'cad_measurement_attachments',
@@ -1658,6 +2133,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_measurement_lineage',
     'cad_measurement_observations',
     'cad_measurement_plans',
+    'cad_measurement_pose_observations',
     'cad_measurement_quality_reports',
     'cad_measurement_runner_events',
     'cad_measurement_runner_plans',
@@ -1674,14 +2150,25 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_multifidelity_stage_results',
     'cad_o90_robust_pareto_evaluations',
     'cad_objective_evaluations',
+    'cad_observed_device_states',
+    'cad_operating_presets',
     'cad_pareto_sets',
     'cad_perturbation_samples',
+    'cad_plan_target_bindings',
+    'cad_planned_observed_deltas',
     'cad_playback_chain_evaluations',
     'cad_playback_chain_scenarios',
+    'cad_playback_level_conditions',
+    'cad_prediction_matrix_result_sets',
+    'cad_prediction_matrix_runs',
+    'cad_prediction_matrix_specs',
     'cad_prediction_provider_bindings',
     'cad_prediction_provider_objectives',
     'cad_prediction_providers',
     'cad_prediction_results',
+    'cad_preset_measurement_bindings',
+    'cad_project_boms',
+    'cad_project_notes',
     'cad_projector_spec_evidence',
     'cad_projector_spec_source_assets',
     'cad_projector_specifications',
@@ -1690,6 +2177,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_proposal_robust_pareto_evaluations',
     'cad_proposal_robustness_evaluations',
     'cad_proposal_robustness_specs',
+    'cad_proposed_device_actions',
     'cad_quality_calibration_files',
     'cad_r110_compiled_source_models',
     'cad_r120_compile_inputs',
@@ -1703,23 +2191,40 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_r140_execution_tasks',
     'cad_r140_gpu_authorities',
     'cad_r140_resource_estimates',
+    'cad_rack_definitions',
+    'cad_rack_layouts',
     'cad_raw_mesh_repair_bundles',
     'cad_raw_source_records',
+    'cad_reconciliation_decisions',
+    'cad_reference_playback_profiles',
+    'cad_review_notes',
     'cad_robustness_evaluations',
     'cad_robustness_specs',
     'cad_robustness_validation_cases',
     'cad_robustness_validation_decisions',
+    'cad_room_operating_states',
     'cad_roomsim_batch_specs',
     'cad_roomsim_candidate_attempts',
     'cad_routing_profiles',
+    'cad_screen_transfer_selections',
+    'cad_screen_transfers',
     'cad_search_specs',
+    'cad_seat_priority_profiles',
+    'cad_site_relationships',
+    'cad_site_spaces',
+    'cad_source_response_selections',
+    'cad_source_responses',
     'cad_source_review_decisions',
+    'cad_speaker_datasets',
+    'cad_speaker_definitions',
     'cad_speaker_electrical_loads',
     'cad_speaker_impedances',
     'cad_standards_evaluations',
     'cad_standards_observation_authorities',
     'cad_standards_profiles',
     'cad_standards_source_authorities',
+    'cad_stimulus_profiles',
+    'cad_surface_material_assignments',
     'cad_system_variant_applications',
     'cad_system_variant_as_built',
     'cad_system_variant_measured',
@@ -1729,7 +2234,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_system_variant_measurement_plan_completions',
     'cad_system_variant_measurement_plans',
     'cad_system_variants',
+    'cad_target_curve_profiles',
     'cad_timing_references',
+    'cad_tolerance_profiles',
     'cad_topology_candidate_variants',
     'cad_topology_comparison_bundles',
     'cad_topology_comparison_evaluations',
@@ -1741,17 +2248,20 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_topology_spaces',
     'cad_treatment_boundary_compositions',
     'cad_treatment_boundary_overlays',
+    'cad_treatment_comparison_outcomes',
     'cad_treatment_evidence_authorities',
     'cad_upgrade_adoptions',
     'cad_upstream_version_candidates',
     'cad_validation_benchmark_specs',
     'cad_validation_campaign_registrations',
     'cad_validation_campaigns',
+    'cad_validation_cases',
     'cad_validation_corpus_entries',
     'cad_video_geometry_evaluations',
     'cad_video_geometry_workspaces',
     'cad_video_presentation_profiles',
     'cad_video_presentation_selections',
+    'cad_visual_qa_verdicts',
     'cad_wave_excitation_evidence_authorities',
     'cad_wave_excitation_source_assets',
     'cad_wave_source_excitation_bindings',
@@ -1780,11 +2290,13 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'capture_roomplan_records',
     'capture_semantic_promotions',
     'capture_source_evidence',
+    'design_decisions',
     'editor_camera_states',
     'editor_named_views',
     'editor_view_states',
     'field_return_contributions',
     'floor_plan_underlays',
+    'htdt_content_blobs',
     'htdt_legacy_imports',
     'htdt_project_documents',
     'htdt_project_imports',
@@ -1793,10 +2305,13 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'native_schema_metadata',
     'native_schema_migrations',
     'physical_space_models',
+    'project_action_items',
+    'project_templates',
     'r150_path_frequency_response_artifacts',
     'r160_numerical_hybrid_responses',
     'scene_document_heads',
     'scene_recovery_snapshots',
     'scene_revisions',
     'seating_layout_specs',
+    'template_instantiations',
 )

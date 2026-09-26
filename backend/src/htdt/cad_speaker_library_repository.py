@@ -6,6 +6,7 @@ from contextlib import closing
 import sqlite3
 
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_speaker_library import (
     BUILTIN_SPEAKER_LIBRARY,
     SpeakerDataset,
@@ -36,36 +37,10 @@ class CadSpeakerLibraryRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_speaker_definitions (
-                    speaker_id TEXT PRIMARY KEY,
-                    document_id TEXT,
-                    speaker_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_speaker_datasets (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    dataset_id TEXT NOT NULL UNIQUE,
-                    speaker_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    dataset_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE (speaker_id, version, kind)
-                )
-                """
-            )
-
-    # ------------------------------------------------------------------
-    # Definitions
+            require_native_tables(connection, 'cad_speaker_definitions', 'cad_speaker_datasets')
 
     def save_speaker(self, speaker: SpeakerDefinition) -> None:
         if self.get_speaker(speaker.speaker_id) is not None:

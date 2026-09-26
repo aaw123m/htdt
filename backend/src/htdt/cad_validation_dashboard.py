@@ -28,6 +28,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
+
 
 CaseVerdict = Literal['pass', 'fail', 'not_applicable']
 
@@ -376,33 +378,18 @@ class ValidationEvidenceRepository:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_validation_cases',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_validation_cases (
-                    evidence_id TEXT PRIMARY KEY,
-                    case_id TEXT NOT NULL,
-                    provider_id TEXT NOT NULL,
-                    provider_version TEXT NOT NULL,
-                    geometry_class TEXT NOT NULL,
-                    source_class TEXT NOT NULL,
-                    observable TEXT NOT NULL,
-                    evidence_level TEXT NOT NULL,
-                    verdict TEXT NOT NULL,
-                    is_holdout INTEGER NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
 
     def save_case(
         self, evidence_id: str, case: ValidationCaseRecord

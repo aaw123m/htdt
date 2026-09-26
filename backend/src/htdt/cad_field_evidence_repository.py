@@ -25,6 +25,7 @@ from .cad_field_evidence import (
     FieldEvidenceRecord,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -66,45 +67,10 @@ class CadFieldEvidenceRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_field_evidence (
-                    evidence_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    asset_sha256 TEXT,
-                    evidence_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_field_evidence_targets (
-                    evidence_id TEXT NOT NULL,
-                    target_kind TEXT NOT NULL,
-                    revision_id TEXT,
-                    entity_id TEXT,
-                    ref_id TEXT,
-                    FOREIGN KEY (evidence_id)
-                        REFERENCES cad_field_evidence (evidence_id)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_field_evidence_targets
-                ON cad_field_evidence_targets (target_kind, revision_id, entity_id)
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_field_evidence_document
-                ON cad_field_evidence (document_id, created_at_utc)
-                """
-            )
+            require_native_tables(connection, 'cad_field_evidence', 'cad_field_evidence_targets')
 
     def store_asset(self, content: bytes) -> str:
         """Store a binary payload in the content-addressed blob store."""

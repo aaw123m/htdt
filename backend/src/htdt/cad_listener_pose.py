@@ -28,6 +28,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
 from .cad_scene import (
     Offset3,
     Position3,
@@ -451,35 +452,19 @@ class CadListenerPoseRepository:
     ) -> None:
         self.path = Path(path)
         self.scene_repository = scene_repository
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_listener_poses',
+                'cad_listener_pose_selections',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_listener_poses (
-                    pose_id TEXT PRIMARY KEY,
-                    seat_entity_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_listener_pose_selections (
-                    document_id TEXT NOT NULL,
-                    seat_entity_id TEXT NOT NULL,
-                    pose_id TEXT NOT NULL,
-                    pose_sha256 TEXT NOT NULL,
-                    PRIMARY KEY (document_id, seat_entity_id)
-                )
-                """
-            )
 
     def save_pose(self, pose: ListenerPoseAuthority) -> None:
         """Persist an immutable pose authority: same id + byte-identical

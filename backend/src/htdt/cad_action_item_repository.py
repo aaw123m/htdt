@@ -31,6 +31,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Literal
 
+from .cad_schema import require_native_tables
 from .cad_action_item import (
     ActionSpatialAnchor,
     ActionSubjectRef,
@@ -71,31 +72,16 @@ class CadActionItemRepository:
         if ref_resolver is None:
             ref_resolver = CanonicalAuthorityRefResolver(scene_repository)
         self.ref_resolver = ref_resolver
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'project_action_items',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS project_action_items (
-                action_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                priority TEXT NOT NULL,
-                created_at_utc TEXT NOT NULL,
-                updated_at_utc TEXT NOT NULL,
-                archived INTEGER NOT NULL DEFAULT 0,
-                action_sha256 TEXT NOT NULL,
-                payload_json TEXT NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_project_action_items_document
-            ON project_action_items(document_id)
-            """
-        )
         return connection
 
     # -- canonical ref validation (#866) -----------------------------------

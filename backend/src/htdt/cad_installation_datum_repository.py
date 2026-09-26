@@ -7,6 +7,7 @@ import sqlite3
 
 from .cad_installation_datum import InstallationDatum
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class InstallationDatumConflictError(ValueError):
@@ -35,29 +36,10 @@ class CadInstallationDatumRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_installation_datums (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    datum_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(datum_id, version)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_installation_datum_doc
-                ON cad_installation_datums(document_id, seq ASC)
-                """
-            )
+            require_native_tables(connection, 'cad_installation_datums')
 
     def save_datum(self, datum: InstallationDatum) -> None:
         if self.get_datum(datum.datum_id, datum.version) is not None:

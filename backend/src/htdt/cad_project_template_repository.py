@@ -13,6 +13,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from .cad_schema import require_native_tables
 from .cad_project_template import (
     ProjectTemplate,
     ProjectTemplateInstantiation,
@@ -25,46 +26,24 @@ class ProjectTemplateConflictError(ValueError):
     """A template id+version already exists with different content."""
 
 
-_TEMPLATES_DDL = """
-CREATE TABLE IF NOT EXISTS project_templates (
-    template_id TEXT NOT NULL,
-    version TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    template_sha256 TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    PRIMARY KEY (template_id, version)
-)
-"""
-
-_INSTANTIATIONS_DDL = """
-CREATE TABLE IF NOT EXISTS template_instantiations (
-    instantiation_id TEXT PRIMARY KEY,
-    document_id TEXT NOT NULL,
-    template_id TEXT NOT NULL,
-    template_sha256 TEXT NOT NULL,
-    created_at_utc TEXT NOT NULL,
-    instantiation_sha256 TEXT NOT NULL,
-    payload_json TEXT NOT NULL
-)
-"""
-
-
 class CadProjectTemplateRepository:
     """SQLite store for user templates; built-ins live in code."""
 
     def __init__(self, scene_repository) -> None:
         self.path = Path(scene_repository.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(
+                connection,
+                'project_templates',
+                'template_instantiations',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
-        self._ensure_schema(connection)
         return connection
-
-    @staticmethod
-    def _ensure_schema(connection: sqlite3.Connection) -> None:
-        connection.execute(_TEMPLATES_DDL)
-        connection.execute(_INSTANTIATIONS_DDL)
 
     def save_template(self, template: ProjectTemplate) -> ProjectTemplate:
         if template.kind == 'builtin':
@@ -148,7 +127,13 @@ class CadProjectTemplateRepository:
         """
 
         if connection is not None:
-            self._ensure_schema(connection)
+            # #767: verify the migrated contract inside the
+            # caller transaction, never converge it.
+            require_native_tables(
+                connection,
+                'project_templates',
+                'template_instantiations',
+            )
             return self._save_instantiation_in_transaction(
                 connection, instantiation
             )

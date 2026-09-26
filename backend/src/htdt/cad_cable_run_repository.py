@@ -7,6 +7,7 @@ import sqlite3
 
 from .cad_cable_run import CableRun
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class CableRunConflictError(ValueError):
@@ -33,31 +34,10 @@ class CadCableRunRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_cable_runs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    scene_content_hash TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    total_length_m REAL NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    UNIQUE(run_id, version)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cable_run_doc
-                ON cad_cable_runs(document_id, seq ASC)
-                """
-            )
+            require_native_tables(connection, 'cad_cable_runs')
 
     def save_run(self, run: CableRun) -> None:
         if self.get_run(run.run_id, run.version) is not None:

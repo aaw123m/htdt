@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from .cad_playback_level import PlaybackLevelCondition, ReferencePlaybackProfile
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .cad_measurement_quality_repository import CadMeasurementQualityRepository
@@ -65,38 +66,10 @@ class CadPlaybackLevelRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_playback_level_conditions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    condition_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    condition_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE (condition_id, scene_revision_id, condition_sha256)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_reference_playback_profiles (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    profile_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE (profile_id, version)
-                )
-                """
-            )
-
-    # ------------------------------------------------------------------
-    # Reference profiles
+            require_native_tables(connection, 'cad_playback_level_conditions', 'cad_reference_playback_profiles')
 
     def save_profile(self, profile: ReferencePlaybackProfile) -> None:
         if self.get_profile(profile.profile_id, profile.version) is not None:

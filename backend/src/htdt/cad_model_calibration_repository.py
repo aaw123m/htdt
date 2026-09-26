@@ -22,6 +22,7 @@ from .cad_model_calibration import (
     evaluate_holdout_discipline,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -48,92 +49,18 @@ class CadModelCalibrationRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_calibration_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    spec_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    baseline_snapshot_sha256 TEXT NOT NULL,
-                    solver_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                )
-                """
+            require_native_tables(
+                connection,
+                'cad_calibration_specs',
+                'cad_calibration_results',
+                'cad_calibration_models',
+                'cad_calibration_freezes',
+                'cad_calibration_holdout_records',
+                'cad_calibration_evidence_events',
             )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_calibration_results (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    result_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    spec_id TEXT NOT NULL,
-                    calibrated_model_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_calibration_models (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    materialized_model_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    calibration_result_id TEXT NOT NULL,
-                    baseline_snapshot_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_calibration_freezes (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    freeze_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    calibration_result_id TEXT NOT NULL,
-                    calibrated_model_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_calibration_holdout_records (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    record_id TEXT NOT NULL UNIQUE,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    freeze_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    recorded_at_utc TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_calibration_evidence_events (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    campaign_id TEXT NOT NULL,
-                    campaign_sha256 TEXT NOT NULL,
-                    consumption_kind TEXT NOT NULL,
-                    freeze_id TEXT,
-                    record_id TEXT UNIQUE,
-                    recorded_at_utc TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_calibration_evidence_campaign
-                ON cad_calibration_evidence_events(campaign_id, seq ASC)
-                """
-            )
-
-    # -- specs ---------------------------------------------------------
 
     def save_spec(self, spec: AcousticModelCalibrationSpec) -> None:
         self._insert_once(

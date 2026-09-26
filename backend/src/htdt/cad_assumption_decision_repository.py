@@ -16,6 +16,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .cad_schema import require_native_tables
 from .cad_assumption_decision import (
     AssumptionDecision,
     AssumptionDecisionIntegrityError,
@@ -72,6 +73,12 @@ class CadAssumptionDecisionRepository:
         if ref_resolver is None:
             ref_resolver = CanonicalAuthorityRefResolver(scene_repository)
         self.ref_resolver = ref_resolver
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'assumption_decisions',
+            )
 
     def _resolve_refs(self, decision: AssumptionDecision) -> None:
         resolver = self.ref_resolver
@@ -114,27 +121,6 @@ class CadAssumptionDecisionRepository:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS assumption_decisions (
-                decision_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                subject_kind TEXT NOT NULL,
-                subject_ref_id TEXT NOT NULL,
-                attested_classification TEXT NOT NULL,
-                supersedes_decision_id TEXT,
-                created_at_utc TEXT NOT NULL,
-                decision_sha256 TEXT NOT NULL,
-                payload_json TEXT NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_assumption_decisions_document
-            ON assumption_decisions(document_id)
-            """
-        )
         return connection
 
     def save_decision(self, decision: AssumptionDecision) -> AssumptionDecision:

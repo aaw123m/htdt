@@ -17,7 +17,6 @@ from .cad_body_mesh import (
 )
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
 from .cad_schema import (
-    backfill_scene_document_heads,
     ensure_native_schema,
     require_native_tables,
 )
@@ -264,9 +263,6 @@ class SceneRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            # Reconstruct explicit heads for databases written before the
-            # head authority existed; a no-op once every document has one.
-            backfill_scene_document_heads(connection)
             require_native_tables(
                 connection,
                 'scene_revisions',
@@ -278,27 +274,7 @@ class SceneRepository:
                 'floor_plan_underlays',
                 'seating_layout_specs',
                 'authoring_constraint_sets',
-            )
-            # Immutable versioned authoring-constraint authority (#843): every
-            # constraint edit appends a sealed revision bound to the scene
-            # revision it was authored under; the singleton payload row only
-            # points at the current head.
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS authoring_constraint_revisions (
-                    constraint_revision_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    supersedes_id TEXT,
-                    scene_revision_id TEXT,
-                    payload_json TEXT NOT NULL,
-                    constraint_revision_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                )
-                '''
-            )
-            connection.execute(
-                'CREATE INDEX IF NOT EXISTS idx_acr_document_created '
-                'ON authoring_constraint_revisions(document_id, created_at_utc)'
+                'authoring_constraint_revisions',
             )
 
     def current_head(self, document_id: str) -> SceneRevision | None:

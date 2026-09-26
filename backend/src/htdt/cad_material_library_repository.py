@@ -11,6 +11,7 @@ from .cad_material_library import (
     MaterialDefinition,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class MaterialLibraryConflictError(ValueError):
@@ -36,36 +37,10 @@ class CadMaterialLibraryRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_material_definitions (
-                    material_id TEXT PRIMARY KEY,
-                    document_id TEXT,
-                    material_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_material_evidence (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    evidence_id TEXT NOT NULL UNIQUE,
-                    material_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    quantity TEXT NOT NULL,
-                    evidence_sha256 TEXT NOT NULL UNIQUE,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    UNIQUE (material_id, version, quantity)
-                )
-                """
-            )
-
-    # ------------------------------------------------------------------
-    # Definitions
+            require_native_tables(connection, 'cad_material_definitions', 'cad_material_evidence')
 
     def save_material(self, material: MaterialDefinition) -> None:
         if self.get_material(material.material_id) is not None:

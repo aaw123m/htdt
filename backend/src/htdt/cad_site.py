@@ -28,6 +28,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -336,40 +337,19 @@ class SiteRepository:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_site_spaces',
+                'cad_site_relationships',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_site_spaces (
-                    space_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    authority_version TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_site_relationships (
-                    relationship_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    space_a_id TEXT NOT NULL,
-                    space_b_id TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
 
     def save_space(self, space: SiteSpace) -> SiteSpace:
         """Append a space version; conflicting same-id content fails."""

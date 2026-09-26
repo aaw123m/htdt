@@ -29,6 +29,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
 from .cad_equipment import FrequencyDomain
 from .cad_video_geometry import AngleRange
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -341,35 +342,19 @@ class CadScreenTransferRepository:
     ) -> None:
         self.path = Path(path)
         self.scene_repository = scene_repository
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_screen_transfers',
+                'cad_screen_transfer_selections',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_screen_transfers (
-                    transfer_id TEXT PRIMARY KEY,
-                    screen_entity_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_screen_transfer_selections (
-                    document_id TEXT NOT NULL,
-                    screen_entity_id TEXT NOT NULL,
-                    transfer_id TEXT NOT NULL,
-                    transfer_sha256 TEXT NOT NULL,
-                    PRIMARY KEY (document_id, screen_entity_id)
-                )
-                """
-            )
 
     def save_transfer(
         self,
