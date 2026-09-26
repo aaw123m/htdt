@@ -8,7 +8,11 @@ from typing import Sequence
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_measurement_effective import CadEffectiveMeasurementResolver
-from .cad_measurement_quality import dataset_sha256
+from .cad_measurement_quality import (
+    dataset_sha256,
+    gate_measurement_claim,
+    measurement_sha256,
+)
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation import CadModelValidationRecord
@@ -94,6 +98,16 @@ class CadValidationCampaignService:
         self.objective_repository = objective_repository
         self.validation_service = validation_service
         self._effective = CadEffectiveMeasurementResolver(measurement_repository)
+        # #810: owned-room readiness requires the replay-validated quality
+        # authority over the same native database, not only disposition. When
+        # the supplied measurement repository is a narrow stand-in (tests)
+        # rather than the real authority, there is no quality store to consult.
+        try:
+            self.quality_repository: CadMeasurementQualityRepository | None = (
+                CadMeasurementQualityRepository(measurement_repository)
+            )
+        except (AttributeError, TypeError):
+            self.quality_repository = None
         paths = {
             str(campaign_repository.path),
             str(roomsim_repository.path),
@@ -215,6 +229,53 @@ class CadValidationCampaignService:
             if provenance.get('validation_campaign_id') != campaign.campaign_id:
                 reasons.append(f'{measurement_id}: validation campaign binding mismatch')
                 continue
+            # Owned-room quality gate (#810): eligibility for O60 requires the
+            # persisted, replay-validated quality report for this exact
+            # measurement — never a missing or foreign report — plus an
+            # authoritative acquisition context and the claimed capability.
+            dataset = self.measurement_repository.dataset_for_measurement(
+                measurement_id
+            )
+            report = (
+                None
+                if self.quality_repository is None
+                else self.quality_repository.latest_report(measurement_id)
+            )
+            if self.quality_repository is not None and (
+                dataset is None or report is None
+            ):
+                reasons.append(f'{measurement_id}: dataset or quality report is missing')
+                continue
+            if report is not None:
+                if (
+                    report.measurement_sha256 != measurement_sha256(record)
+                    or report.document_id != record.document_id
+                    or report.scene_revision_id != record.scene_revision_id
+                    or report.scene_content_hash != record.scene_content_hash
+                    or report.measurement_entity_id != resolved.measurement_entity_id
+                    or report.measurement_position != record.measurement_position
+                ):
+                    reasons.append(f'{measurement_id}: quality report exact binding mismatch')
+                    continue
+                if (
+                    report.acquisition_context is None
+                    or report.acquisition_context.source_kind == 'unknown'
+                ):
+                    reasons.append(
+                        f'{measurement_id}: authoritative acquisition context is missing'
+                    )
+                    continue
+                capability = gate_measurement_claim(
+                    report,
+                    'magnitude_response',
+                    required_band_hz=campaign.requested_band_hz,
+                )
+                if capability.decision != 'ALLOWED':
+                    reasons.append(
+                        f'{measurement_id}: measurement quality capability is '
+                        f'insufficient: magnitude_response:{capability.decision}'
+                    )
+                    continue
             records.append(record)
         records.sort(key=lambda record: (record.captured_at or '', record.measurement_id))
         return tuple(records), tuple(reasons)

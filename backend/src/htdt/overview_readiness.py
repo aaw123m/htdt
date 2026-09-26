@@ -112,6 +112,7 @@ OverviewVariantStage = Literal[
     'as_built',
     'campaign_preregistered',
     'measured_unvalidated',
+    'measured_validated',
 ]
 
 
@@ -135,6 +136,7 @@ _VARIANT_STAGE_LABELS: dict[str, str] = {
     'as_built': '設置済み',
     'campaign_preregistered': '測定キャンペーン登録済み',
     'measured_unvalidated': '実測済み・未検証',
+    'measured_validated': '実測済み・検証済み',
 }
 
 
@@ -261,7 +263,8 @@ def _variant_stage(lifecycle, measurement) -> OverviewVariantStage:
 
     ``applied`` means an application exists without an as-built record;
     ``measured_unvalidated`` means campaign measurement completed while
-    O60/R180 validation is still pending.
+    O60/R180 validation is still pending; ``measured_validated`` means the
+    canonical validation authority resolved it (#812).
     """
     state = getattr(lifecycle, 'state', 'proposed')
     if state == 'current':
@@ -277,6 +280,10 @@ def _variant_stage(lifecycle, measurement) -> OverviewVariantStage:
         if mstate in ('campaign_preregistered', 'evidence_incomplete'):
             return 'campaign_preregistered'
         return 'as_built'
+    if getattr(measurement, 'validated', False) or getattr(
+        lifecycle, 'validated', False
+    ):
+        return 'measured_validated'
     return 'measured_unvalidated'
 
 

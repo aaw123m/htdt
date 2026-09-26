@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
@@ -1160,3 +1162,224 @@ def test_measurement_plan_and_campaign_require_prior_lifecycle(
             variant.variant_id,
             purpose="campaign without plans",
         )
+
+
+def _seed_o60_validation_authority(
+    scene: SceneRepository,
+    *,
+    document_id: str,
+    scene_revision_id: str,
+    scene_content_hash: str,
+    search_spec_sha256: str = "aa" * 32,
+) -> None:
+    """Persist the canonical O60 authority pair the workflow gate replays."""
+    connection = sqlite3.connect(scene.path)
+    try:
+        connection.execute(
+            "INSERT INTO cad_search_specs ("
+            "search_spec_id, document_id, scene_revision_id, scene_content_hash,"
+            " constraint_workspace_hash, payload_json, search_spec_sha256,"
+            " created_at_utc) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "spec-1",
+                document_id,
+                scene_revision_id,
+                scene_content_hash,
+                "dd" * 32,
+                json.dumps(
+                    {
+                        "search_spec_id": "spec-1",
+                        "search_spec_sha256": search_spec_sha256,
+                        "document_id": document_id,
+                        "scene_revision_id": scene_revision_id,
+                        "scene_content_hash": scene_content_hash,
+                    }
+                ),
+                search_spec_sha256,
+                "2030-01-01T00:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO cad_model_validations ("
+            "validation_id, document_id, search_spec_id, model_id,"
+            " model_version, recommendation_gate, validation_sha256,"
+            " payload_json, created_at_utc) VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                "validation-1",
+                document_id,
+                "spec-1",
+                "rew-roomsim",
+                "fixture-1",
+                "eligible",
+                "ee" * 32,
+                json.dumps(
+                    {
+                        "validation_id": "validation-1",
+                        "document_id": document_id,
+                        "search_spec_id": "spec-1",
+                        "search_spec_sha256": search_spec_sha256,
+                        "evidence_scope": "owned_room",
+                        "recommendation_gate": "eligible",
+                    }
+                ),
+                "2030-01-01T00:00:10+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _seed_r180_validation_authority(
+    scene: SceneRepository,
+    *,
+    document_id: str,
+    baseline_revision_id: str,
+    variant: "SystemVariant",
+    plan_semantic_sha256: str = "bb" * 32,
+) -> None:
+    """Persist a terminal R180 'validated' lifecycle event bound to variant."""
+    connection = sqlite3.connect(scene.path)
+    try:
+        connection.execute(
+            "INSERT INTO cad_calibration_plans ("
+            "plan_id, document_id, scene_revision_id, system_variant_id,"
+            " source_measurement_id, source_dataset_id, quality_report_id,"
+            " plan_semantic_sha256, support_state, created_at_utc,"
+            " payload_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "calibration-plan-1",
+                document_id,
+                baseline_revision_id,
+                variant.variant_id,
+                "m-fixture",
+                "dataset-fixture",
+                "report-fixture",
+                plan_semantic_sha256,
+                "supported",
+                "2030-01-01T00:00:00+00:00",
+                json.dumps(
+                    {
+                        "plan_id": "calibration-plan-1",
+                        "plan_semantic_sha256": plan_semantic_sha256,
+                        "document_id": document_id,
+                        "system_variant_id": variant.variant_id,
+                        "system_variant_sha256": variant.variant_sha256,
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO cad_calibration_lifecycle_events ("
+            "event_id, plan_id, state, event_semantic_sha256, created_at_utc,"
+            " payload_json) VALUES (?,?,?,?,?,?)",
+            (
+                "calibration-event-1",
+                "calibration-plan-1",
+                "validated",
+                "cc" * 32,
+                "2030-01-01T00:01:00+00:00",
+                json.dumps(
+                    {
+                        "event_id": "calibration-event-1",
+                        "state": "validated",
+                        "calibration_plan_id": "calibration-plan-1",
+                        "calibration_plan_semantic_sha256": plan_semantic_sha256,
+                    }
+                ),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _measured_campaign_state(service, variant, baseline):
+    """Monkeypatch the campaign authorities to a completed measured state."""
+    campaign = SimpleNamespace(campaign_id="campaign-1")
+    completion = SimpleNamespace(measured_record_id="measured-1")
+    measured = SimpleNamespace(
+        record_id="measured-1",
+        as_built_revision_id=baseline.revision_id,
+        as_built_content_hash=baseline.content_hash,
+    )
+    return (
+        ("_application", lambda _vid: SimpleNamespace(applied_revision_id=baseline.revision_id)),
+        ("_as_built", lambda _vid: object()),
+        ("_plans", lambda _vid: (object(),)),
+        ("_campaigns", lambda _vid: (campaign,)),
+        ("_plan_completions", lambda _cid: (object(),)),
+        ("_campaign_completion", lambda cid: completion if cid == "campaign-1" else None),
+        ("_measured_records", lambda _vid: (measured,)),
+    )
+
+
+def test_o60_validation_authority_resolves_measured_variant_as_validated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """#812: canonical owned-room O60 evidence resolves the measured variant."""
+    scene, baseline, _repository, variant, service = _fixture(tmp_path)
+    _seed_o60_validation_authority(
+        scene,
+        document_id=DOCUMENT_ID,
+        scene_revision_id=baseline.revision_id,
+        scene_content_hash=baseline.content_hash,
+    )
+    for name, stub in _measured_campaign_state(service, variant, baseline):
+        monkeypatch.setattr(service, name, stub)
+
+    view = service.measurement(variant.variant_id)
+    assert view.state == "validated"
+    assert view.state_label == "実測済み・検証済み"
+    assert view.measured is True
+    assert view.validated is True
+    assert view.validation_label == "検証済み"
+
+    lifecycle = service.lifecycle(variant.variant_id)
+    assert lifecycle.state == "measured"
+    assert lifecycle.validated is True
+    assert lifecycle.validation_label == "検証済み"
+
+
+def test_r180_validation_authority_resolves_measured_variant_as_validated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """#812: a terminal R180 'validated' event bound to the variant resolves."""
+    scene, baseline, _repository, variant, service = _fixture(tmp_path)
+    _seed_r180_validation_authority(
+        scene,
+        document_id=DOCUMENT_ID,
+        baseline_revision_id=baseline.revision_id,
+        variant=variant,
+    )
+    for name, stub in _measured_campaign_state(service, variant, baseline):
+        monkeypatch.setattr(service, name, stub)
+
+    view = service.measurement(variant.variant_id)
+    assert view.state == "validated"
+    assert view.validated is True
+    assert service.lifecycle(variant.variant_id).validated is True
+
+
+def test_measured_variant_without_canonical_validation_stays_pending(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """#812: an O60 record bound to a different scene revision never validates."""
+    scene, baseline, _repository, variant, service = _fixture(tmp_path)
+    _seed_o60_validation_authority(
+        scene,
+        document_id=DOCUMENT_ID,
+        scene_revision_id=baseline.revision_id,
+        scene_content_hash="ff" * 32,  # stale: does not match the as-built hash
+    )
+    for name, stub in _measured_campaign_state(service, variant, baseline):
+        monkeypatch.setattr(service, name, stub)
+
+    view = service.measurement(variant.variant_id)
+    assert view.state == "validation_pending"
+    assert view.validated is False
+    assert view.validation_label == "検証保留"
+    assert service.lifecycle(variant.variant_id).validated is False

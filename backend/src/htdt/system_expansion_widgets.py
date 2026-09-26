@@ -1520,6 +1520,7 @@ class SystemExpansionMeasurementPanel(QFrame):
                 "campaign_preregistered",
                 "evidence_incomplete",
                 "validation_pending",
+                "validated",
             }
         )
         for target in self.service.pending_measurement_targets(variant_id):
