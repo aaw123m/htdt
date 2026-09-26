@@ -156,15 +156,18 @@ _SURFACE_CLASS_ITEMS: tuple[tuple[str, SemanticSurfaceClass | None], ...] = (
 )
 
 # Bounded repair operations offered to the operator, in application order.
-# Fill-hole / surgery / reconstruction stay unsupported by design (#762 §3):
-# the dialog only exposes the deterministic (A) and bounded (B) classes.
+# Collapsing operations (consolidation, weld) run before face cleanup so a
+# weld can never leave degenerate triangles behind (the repair contract
+# requires remove_degenerate_faces after any collapsing op); unreferenced
+# vertices are swept last. Fill-hole / surgery / reconstruction stay
+# unsupported by design (#762 §3).
 _REPAIR_CHECKBOXES: tuple[tuple[str, str, str], ...] = (
     ('exact_duplicate_vertex_consolidation', 'A', '完全一致する頂点を統合'),
-    ('remove_unreferenced_vertices', 'A', '未参照頂点を削除'),
+    ('tolerance_vertex_weld', 'B', '許容誤差内の頂点を溶接'),
+    ('correct_consistent_winding', 'B', '面の巻き方向を統一'),
     ('remove_exact_duplicate_faces', 'A', '完全一致する重複面を削除'),
     ('remove_degenerate_faces', 'A', '面積ゼロの退化面を削除'),
-    ('correct_consistent_winding', 'B', '面の巻き方向を統一'),
-    ('tolerance_vertex_weld', 'B', '許容誤差内の頂点を溶接'),
+    ('remove_unreferenced_vertices', 'A', '未参照頂点を削除'),
 )
 
 _READINESS_STATE_LABELS = {
@@ -459,15 +462,25 @@ class GeometryImportDialog(QDialog):
             self.use_repaired.setEnabled(False)
             self.use_repaired.setChecked(False)
             return
-        plan = make_raw_mesh_repair_plan(
-            self.mesh,
-            self.diagnostics,
-            operations=operations,
-            requested_by='explicit_user_selected',
-            request_reason='guided import dialog repair preview (#762)',
-        )
-        repaired = apply_raw_mesh_repair(self.mesh, self.diagnostics, plan)
-        diagnostic = diagnose_repaired_raw_mesh(self.mesh, repaired)
+        try:
+            plan = make_raw_mesh_repair_plan(
+                self.mesh,
+                self.diagnostics,
+                operations=operations,
+                requested_by='explicit_user_selected',
+                request_reason='guided import dialog repair preview (#762)',
+            )
+            repaired = apply_raw_mesh_repair(self.mesh, self.diagnostics, plan)
+            diagnostic = diagnose_repaired_raw_mesh(self.mesh, repaired)
+        except (ValueError, KeyError) as exc:
+            self._repaired_mesh = None
+            self._repaired_diagnostic = None
+            self.use_repaired.setEnabled(False)
+            self.use_repaired.setChecked(False)
+            self.repair_result.setText(f'修復プレビューに失敗しました: {exc}')
+            set_semantic_state(self.repair_result, SemanticState.ERROR)
+            return
+        set_semantic_state(self.repair_result, None)
         self._repaired_mesh = repaired
         self._repaired_diagnostic = diagnostic
         self.use_repaired.setEnabled(True)

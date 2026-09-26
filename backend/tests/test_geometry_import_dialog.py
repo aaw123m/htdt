@@ -195,6 +195,35 @@ def test_dialog_room_destination_surface_assignment(tmp_path: Path) -> None:
     assert request.surface_assignments[0].semantic_class == 'room_boundary'
 
 
+def test_dialog_repair_preview_weld_then_degenerate_cleanup(tmp_path: Path) -> None:
+    """Weld is a collapsing op: degenerate-face cleanup must run after it.
+
+    Regression test — a fixed checkbox order that applied
+    remove_degenerate_faces before tolerance_vertex_weld always violated
+    the repair contract ('repair plan left degenerate triangle indices')
+    and the failure propagated out of the slot silently.
+    """
+    _app()
+    fixture = Path(__file__).parent / 'fixtures' / 'imperfect_room.obj'
+    dialog = GeometryImportDialog(fixture)
+    for check in dialog.repair_checks.values():
+        check.setChecked(True)
+    dialog._preview_repair()
+    assert dialog.use_repaired.isEnabled()
+    assert dialog._repaired_mesh is not None
+    assert '失敗' not in dialog.repair_result.text()
+
+
+def test_dialog_repair_preview_failure_is_reported(tmp_path: Path) -> None:
+    _app()
+    obj = _write(tmp_path, 'room.obj', _TETRA_OBJ)
+    dialog = GeometryImportDialog(obj)
+    # No repair ops selected → refused without raising.
+    dialog._preview_repair()
+    assert '選択してください' in dialog.repair_result.text()
+    assert not dialog.use_repaired.isEnabled()
+
+
 def test_dialog_rejects_unparseable_source(tmp_path: Path) -> None:
     _app()
     bad = _write(tmp_path, 'bad.obj', b'not a mesh\n')
