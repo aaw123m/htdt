@@ -74,6 +74,8 @@ from .cad_source_response import (
     build_source_response,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .ingress import read_file_bounded
+from .limits import MAX_ATTACHMENT_BYTES
 from .user_facing_error import operation_error_message
 
 _EVIDENCE_KINDS: tuple[tuple[str, EquipmentEvidenceKind], ...] = (
@@ -570,7 +572,11 @@ class EquipmentLibraryService:
             for item in self.supported_directivity_adapters()
             if item.adapter_id == adapter_id
         )
-        raw = Path(file_path).read_bytes()
+        raw = read_file_bounded(
+            Path(file_path),
+            MAX_ATTACHMENT_BYTES,
+            label='directivity source file',
+        )
         directivity = _capability_from_source(
             raw,
             adapter_id=adapter.adapter_id,
@@ -761,7 +767,11 @@ class EquipmentLibraryDialog(QDialog):
         if not selected:
             return
         path = Path(selected)
-        self._source_bytes = path.read_bytes()
+        self._source_bytes = read_file_bounded(
+            path,
+            MAX_ATTACHMENT_BYTES,
+            label='source file',
+        )
         self.source_file_label.setText(
             f"{path.name} (sha256 {sha256(self._source_bytes).hexdigest()[:12]}…)"
         )

@@ -113,22 +113,57 @@ def _create_pre_migration_backup(
     return archive_path
 
 
+# Rollback archives are app-written but live in the data directory where a
+# local process could swap them; bound what the restore materializes.
+_MAX_ROLLBACK_MEMBERS = 4096
+_MAX_ROLLBACK_EXPANDED_BYTES = 64 * 1024 * 1024 * 1024
+_MAX_ROLLBACK_MANIFEST_BYTES = 1024 * 1024
+
+
 def _validate_archive_member(member: zipfile.ZipInfo) -> None:
     member_path = Path(member.filename)
     if member_path.is_absolute() or '..' in member_path.parts:
         raise MigrationOpenError('Unsafe path in pre-migration backup')
 
 
+def _read_manifest_bounded(archive: zipfile.ZipFile, bound: int) -> bytes:
+    """Stream manifest.json capped at ``bound`` bytes of actual output.
+
+    ``archive.read`` materializes the member's real decompressed size,
+    which a forged header understates; a bounded stream keeps a swapped
+    archive from forcing an unbounded allocation.
+    """
+
+    try:
+        member = archive.open('manifest.json', 'r')
+    except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError) as exc:
+        raise MigrationOpenError('Unreadable manifest in pre-migration backup') from exc
+    with member:
+        data = member.read(bound + 1)
+    if len(data) > bound:
+        raise MigrationOpenError('Pre-migration backup manifest is too large')
+    return data
+
+
 def _restore_pre_migration_backup(root: Path, archive_path: Path, expected_version: int) -> None:
     with tempfile.TemporaryDirectory(dir=root) as staging_name:
         staging = Path(staging_name)
         with zipfile.ZipFile(archive_path, 'r') as archive:
-            for member in archive.infolist():
+            members = archive.infolist()
+            if len(members) > _MAX_ROLLBACK_MEMBERS:
+                raise MigrationOpenError('Pre-migration backup has too many members')
+            declared_total = 0
+            for member in members:
                 _validate_archive_member(member)
+                declared_total += member.file_size
+                if declared_total > _MAX_ROLLBACK_EXPANDED_BYTES:
+                    raise MigrationOpenError('Pre-migration backup exceeds the expanded-size bound')
             names = set(archive.namelist())
             if 'manifest.json' not in names or 'htdt.sqlite3' not in names:
                 raise MigrationOpenError('Pre-migration backup is incomplete')
-            manifest = json.loads(archive.read('manifest.json'))
+            manifest = json.loads(
+                _read_manifest_bounded(archive, _MAX_ROLLBACK_MANIFEST_BYTES)
+            )
             if int(manifest.get('schema_version', -1)) != expected_version:
                 raise MigrationOpenError('Pre-migration backup schema does not match rollback target')
             archive.extractall(staging)

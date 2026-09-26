@@ -100,8 +100,23 @@ def _hash(payload: dict[str, Any]) -> str:
     return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
-def load_camilladsp_config(source_bytes: bytes) -> dict[str, Any]:
+#: CamillaDSP configs are small hand-written files; a hard input bound keeps
+#: YAML alias expansion and parser work proportional to honest sources.
+MAX_CAMILLADSP_CONFIG_BYTES = 8 * 1024 * 1024
+
+
+def load_camilladsp_config(
+    source_bytes: bytes,
+    *,
+    max_bytes: int = MAX_CAMILLADSP_CONFIG_BYTES,
+) -> dict[str, Any]:
     """Parse a CamillaDSP config — JSON first, YAML otherwise."""
+    if len(source_bytes) > max_bytes:
+        raise CamillaDSPError(
+            'config_too_large',
+            f'CamillaDSP config is {len(source_bytes)} bytes '
+            f'(limit {max_bytes})',
+        )
     text = source_bytes.decode('utf-8-sig', errors='replace')
     try:
         parsed = json.loads(text)
@@ -119,6 +134,16 @@ def load_camilladsp_config(source_bytes: bytes) -> dict[str, Any]:
             raise CamillaDSPError(
                 'malformed_config', str(error)
             ) from error
+        except RecursionError as error:
+            raise CamillaDSPError(
+                'malformed_config',
+                'YAML nesting exceeds the parser depth limit',
+            ) from error
+    except RecursionError as error:
+        raise CamillaDSPError(
+            'malformed_config',
+            'JSON nesting exceeds the parser depth limit',
+        ) from error
     if not isinstance(parsed, dict):
         raise CamillaDSPError(
             'malformed_config', 'CamillaDSP config must be a mapping'

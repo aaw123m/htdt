@@ -678,6 +678,50 @@ def _validate_bundle_members(archive: zipfile.ZipFile) -> set[str]:
     return names
 
 
+def _read_member_bounded(
+    archive: zipfile.ZipFile, name: str, bound: int
+) -> bytes:
+    """Stream one member, capped at ``bound`` bytes of *actual* output.
+
+    ``archive.read(name)`` materializes the member's real decompressed
+    size, which a forged header understates — the preflight bounds in
+    ``_validate_bundle_members`` only inspect declared values. Reading the
+    stream with a cap keeps allocation finite regardless of what the
+    header claims.
+    """
+    try:
+        member = archive.open(name, 'r')
+    except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError) as exc:
+        raise BundleManifestInvalidError(
+            f'unreadable bundle member: {name}'
+        ) from exc
+    chunks = []
+    remaining = bound + 1
+    with member:
+        while remaining > 0:
+            try:
+                chunk = member.read(min(1 << 20, remaining))
+            except (
+                zipfile.BadZipFile,
+                OSError,
+                RuntimeError,
+                NotImplementedError,
+            ) as exc:
+                raise BundleManifestInvalidError(
+                    f'unreadable bundle member: {name}'
+                ) from exc
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    data = b''.join(chunks)
+    if len(data) > bound:
+        raise BundleManifestInvalidError(
+            f'bundle member exceeds the read bound: {name}'
+        )
+    return data
+
+
 def import_project_bundle(
     repository: SceneRepository,
     source: Path,
@@ -705,7 +749,11 @@ def import_project_bundle(
     with archive:
         members = _validate_bundle_members(archive)
         manifest = ProjectBundleManifest.model_validate(
-            json.loads(archive.read('manifest.json'))
+            json.loads(
+                _read_member_bounded(
+                    archive, 'manifest.json', _MAX_BUNDLE_MEMBER_BYTES
+                )
+            )
         )
         if manifest.schema != BUNDLE_SCHEMA:
             raise BundleManifestInvalidError(
@@ -729,7 +777,9 @@ def import_project_bundle(
                 raise BundleManifestInvalidError(
                     f'manifest lists missing table payload: {member}'
                 )
-            body = archive.read(member)
+            body = _read_member_bounded(
+                archive, member, _MAX_BUNDLE_MEMBER_BYTES
+            )
             if hashlib.sha256(body).hexdigest() != summary.rows_sha256:
                 raise BundleManifestInvalidError(
                     f'table payload hash mismatch: {summary.table}'
@@ -760,7 +810,9 @@ def import_project_bundle(
                 raise BundleManifestInvalidError(
                     f'bundle contains unmanifested asset: {digest}'
                 )
-            raw = archive.read(member)
+            raw = _read_member_bounded(
+                archive, member, _MAX_BUNDLE_MEMBER_BYTES
+            )
             if (
                 len(raw) != entry.size_bytes
                 or hashlib.sha256(raw).hexdigest() != digest
