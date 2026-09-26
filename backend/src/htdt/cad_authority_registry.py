@@ -127,6 +127,7 @@ def build_canonical_authority_registry(
     target_profile_repository=None,
     standards_repository=None,
     video_geometry_repository=None,
+    feature_authority_repository=None,
     extra_adapters=(),
 ) -> CanonicalAuthorityRegistry:
     """Wire every persisted authority kind into one registry.
@@ -369,6 +370,18 @@ def build_canonical_authority_registry(
         return repo(
             'presets',
             lambda: CadOperatingPresetRepository(scene_repository),
+        )
+
+    def feature_authorities():
+        if feature_authority_repository is not None:
+            return feature_authority_repository
+        from .cad_feature_authority_repository import (
+            CadFeatureAuthorityRepository,
+        )
+
+        return repo(
+            'feature_authorities',
+            lambda: CadFeatureAuthorityRepository(scene_repository),
         )
 
     registry = CanonicalAuthorityRegistry()
@@ -1025,6 +1038,52 @@ def build_canonical_authority_registry(
         'SceneRepository',
         named_view_resolve,
     )
+
+    # --- Feature-authority batch (#886) ----------------------------------
+    # Each kind resolves through the append-only feature store: project-
+    # bound records satisfy only their own document; unbound (library)
+    # records satisfy any document.
+
+    def _feature_resolve(
+        kind: str,
+    ) -> Callable[[str, str], CanonicalAuthority | None]:
+        def _resolve(ref_id: str, document_id: str):
+            resolved = feature_authorities().resolve(
+                kind, ref_id, document_id
+            )
+            if resolved is None:
+                return None
+            owner_document_id, semantic_sha256 = resolved
+            return CanonicalAuthority(
+                kind=kind,
+                ref_id=ref_id,
+                document_id=owner_document_id,
+                semantic_sha256=semantic_sha256,
+            )
+
+        return _resolve
+
+    for feature_kind, feature_scope in (
+        ('acoustic_target_profile', 'project'),
+        ('isolation_assembly', 'contextual'),
+        ('isolation_scenario', 'project'),
+        ('isolation_estimate', 'project'),
+        ('isolation_measurement', 'project'),
+        ('rack_definition', 'contextual'),
+        ('rack_layout', 'project'),
+        ('project_bom', 'project'),
+        ('drawing_set_spec', 'project'),
+        ('installation_drawing_set', 'project'),
+        ('field_label', 'project'),
+        ('label_sheet', 'project'),
+    ):
+        register(
+            feature_kind,
+            feature_scope,
+            True,
+            'CadFeatureAuthorityRepository',
+            _feature_resolve(feature_kind),
+        )
 
     for adapter in extra_adapters:
         registry.register(adapter)
