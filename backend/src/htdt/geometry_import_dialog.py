@@ -48,6 +48,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from .ingress import read_file_bounded
+from .limits import MAX_ATTACHMENT_BYTES
 from .mesh_import_authority import format_declared_source_unit
 from .raw_mesh import (
     RawVisualMesh,
@@ -232,7 +234,12 @@ class GeometryImportDialog(QDialog):
         self._path = Path(file_path)
         self._entity_target = entity_target
         self.mesh: RawVisualMesh = import_raw_visual_mesh(
-            self._path.read_bytes(), source_name=self._path.name
+            read_file_bounded(
+                self._path,
+                MAX_ATTACHMENT_BYTES,
+                label='geometry source file',
+            ),
+            source_name=self._path.name,
         )
         self.diagnostics = diagnose_raw_visual_mesh(self.mesh)
         self.health: MeshHealthSummary = build_mesh_health_summary(

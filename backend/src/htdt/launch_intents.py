@@ -286,6 +286,8 @@ def drain_launch_intents(data_dir: Path) -> tuple[QueuedLaunchIntent, ...]:
         if not candidate.is_file() or candidate.suffix != '.json':
             continue
         try:
+            if candidate.stat().st_size > MAX_INTENT_DESCRIPTOR_BYTES:
+                raise ValueError('launch intent exceeds the descriptor bound')
             intent = HTDTLaunchIntent.model_validate_json(
                 candidate.read_text(encoding='utf-8')
             )
