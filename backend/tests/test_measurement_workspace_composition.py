@@ -11,6 +11,11 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_f1_scene
 from htdt.measurement_page_workspace import MeasurementPageWorkspace
 from htdt.measurement_workflow import MeasurementAssignment, MeasurementWorkflowController
+from htdt.workflow_navigation import (
+    CANONICAL_WORKSPACE_CONTEXTS,
+    WorkspaceId,
+    normalize_workspace_context,
+)
 
 
 def _app() -> QApplication:
@@ -36,6 +41,32 @@ def _commit(controller, entity: str, evidence: str, role: str, raw: bytes):
             source_speaker_ids=("speaker-fl",),
         )
     )
+
+
+def test_every_declared_context_selects_a_real_page(tmp_path: Path) -> None:
+    """#786: a visible context tab must never raise unknown measurement context."""
+    app = _app()
+    _, workspace = _workspace(tmp_path)
+    try:
+        for context in CANONICAL_WORKSPACE_CONTEXTS[WorkspaceId.MEASUREMENT]:
+            workspace.set_context(context.context_id)
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
+
+
+def test_legacy_calibration_context_normalizes_to_campaign(tmp_path: Path) -> None:
+    """#786: stale 'calibration' deep links land on a real page (campaign)."""
+    assert normalize_workspace_context(WorkspaceId.MEASUREMENT, "calibration") == "campaign"
+    app = _app()
+    _, workspace = _workspace(tmp_path)
+    try:
+        workspace.set_context("campaign")
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
 
 
 def test_persistent_context_tracks_selection(tmp_path: Path) -> None:

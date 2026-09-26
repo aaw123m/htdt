@@ -415,6 +415,13 @@ class _BatchEntry:
     committed: bool
     # (filename, kind, raw bytes, note) staged until the item is committed.
     attachments: list[tuple[str, str, bytes, str | None]]
+    # Commit resume state (#801): normalization and the acquisition context
+    # are built once per entry so a retry after a mid-commit failure resumes
+    # the same logical item instead of registering duplicates.
+    commit_payload: (
+        tuple[CadMeasurementRecord, CadFrequencyResponseDataset, str, bytes] | None
+    ) = None
+    commit_context: CadAcquisitionContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2153,9 +2160,22 @@ class MeasurementWorkflowController:
         entry.attachments.append((filename, kind, bytes(raw_bytes), note))
 
     def _install_staged_attachments(self, entry: _BatchEntry) -> None:
+        """Persist staged attachments, skipping ones already installed (#801).
+
+        Identical (filename, kind, sha256) attachments are deduplicated so a
+        retry after a partial install does not register them twice.
+        """
         if entry.committed_measurement_id is None:
             return
+        installed = {
+            (attachment.filename, attachment.kind, attachment.sha256)
+            for attachment in self.measurement_repository.list_attachments(
+                entry.committed_measurement_id
+            )
+        }
         for filename, kind, raw_bytes, note in entry.attachments:
+            if (filename, kind, sha256(raw_bytes).hexdigest()) in installed:
+                continue
             self.measurement_repository.save_attachment(
                 measurement_id=entry.committed_measurement_id,
                 kind=kind,
@@ -2195,7 +2215,7 @@ class MeasurementWorkflowController:
                 )
                 continue
             pending = entry.pending
-            if pending is None or entry.error is not None:
+            if pending is None:
                 # A staged parse failure stays visible as a failure rather
                 # than a silent skip — the item never committed anything.
                 outcomes.append(
@@ -2207,6 +2227,9 @@ class MeasurementWorkflowController:
                     )
                 )
                 continue
+            # A commit-phase error is transient state on a retryable item —
+            # clearing it lets the resumable save path re-attempt (#801).
+            entry.error = None
             if (
                 current.revision_id != pending.scene_revision_id
                 or current.content_hash != pending.scene_content_hash
@@ -2229,8 +2252,20 @@ class MeasurementWorkflowController:
                 and entry.duplicate_of_measurement_id is not None
             ):
                 entry.committed_measurement_id = entry.duplicate_of_measurement_id
+                try:
+                    self._install_staged_attachments(entry)
+                except Exception as exc:
+                    entry.error = str(exc)
+                    outcomes.append(
+                        BatchCommitOutcome(
+                            item=self._batch_item_view(entry),
+                            outcome='failed',
+                            measurement_id=None,
+                            error=entry.error,
+                        )
+                    )
+                    continue
                 entry.committed = True
-                self._install_staged_attachments(entry)
                 outcomes.append(
                     BatchCommitOutcome(
                         item=self._batch_item_view(entry),
@@ -2256,16 +2291,17 @@ class MeasurementWorkflowController:
                     raise MeasurementWorkflowError(
                         "読み込み時の部屋データを確認できません。再読み込みしてください"
                     )
-                record, dataset, raw_filename, raw_bytes = self._normalize_for_commit(
-                    pending, entry.assignment, revision
+                if entry.commit_payload is None:
+                    entry.commit_payload = self._normalize_for_commit(
+                        pending, entry.assignment, revision
+                    )
+                record, dataset, raw_filename, raw_bytes = entry.commit_payload
+                entry.committed_measurement_id = record.measurement_id
+                self._save_measurement_for_commit(
+                    record, dataset, raw_filename, raw_bytes
                 )
-                self.measurement_repository.save(
-                    record,
-                    dataset,
-                    raw_filename=raw_filename,
-                    raw_bytes=raw_bytes,
-                )
-                self._save_acquisition_context(entry.assignment, record)
+                self._save_acquisition_context_for_commit(entry)
+                self._install_staged_attachments(entry)
             except Exception as exc:
                 entry.error = str(exc)
                 outcomes.append(
@@ -2277,9 +2313,7 @@ class MeasurementWorkflowController:
                     )
                 )
                 continue
-            entry.committed_measurement_id = record.measurement_id
             entry.committed = True
-            self._install_staged_attachments(entry)
             outcomes.append(
                 BatchCommitOutcome(
                     item=self._batch_item_view(entry),
@@ -2289,6 +2323,67 @@ class MeasurementWorkflowController:
                 )
             )
         return tuple(outcomes)
+
+    def _save_measurement_for_commit(
+        self,
+        record: CadMeasurementRecord,
+        dataset: CadFrequencyResponseDataset,
+        raw_filename: str,
+        raw_bytes: bytes,
+    ) -> None:
+        """Persist, or accept the identical already-persisted row on resume (#801).
+
+        The batch entry pins its normalized payload across attempts, so an
+        'already exists' hit for the same identity is the second half of an
+        interrupted commit — resume, never a duplicate. A mismatch under the
+        same id is a genuine conflict and fails closed.
+        """
+        try:
+            self.measurement_repository.save(
+                record,
+                dataset,
+                raw_filename=raw_filename,
+                raw_bytes=raw_bytes,
+            )
+            return
+        except ValueError as exc:
+            if 'already exists' not in str(exc):
+                raise
+        existing = self.measurement_repository.get_measurement(record.measurement_id)
+        existing_dataset = self.measurement_repository.get_dataset(dataset.dataset_id)
+        if existing != record or existing_dataset != dataset:
+            raise MeasurementWorkflowError(
+                '同一IDの保存済み測定が内容と一致しません: '
+                f'{record.measurement_id}'
+            )
+
+    def _save_acquisition_context_for_commit(self, entry: _BatchEntry) -> None:
+        """Persist the entry's cached acquisition context, resuming on retry (#801)."""
+        assignment = entry.assignment
+        if assignment is None or assignment.acquisition is None:
+            return
+        if entry.commit_context is None:
+            if entry.commit_payload is None:
+                raise MeasurementWorkflowError('コミット対象の測定が確定していません')
+            entry.commit_context = self._build_acquisition_context(
+                assignment, entry.commit_payload[0]
+            )
+        context = entry.commit_context
+        if context is None:
+            return
+        try:
+            self.quality_repository.save_acquisition_context(context)
+        except ValueError as exc:
+            if 'already exists' not in str(exc):
+                raise
+            existing = self.quality_repository.get_acquisition_context(
+                context.acquisition_context_id
+            )
+            if existing != context:
+                raise MeasurementWorkflowError(
+                    '同一IDの取得コンテキストが内容と一致しません: '
+                    f'{context.acquisition_context_id}'
+                ) from exc
 
     def _normalize_for_commit(
         self,
@@ -2355,11 +2450,20 @@ class MeasurementWorkflowController:
         record: CadMeasurementRecord,
     ) -> None:
         """Persist the declared acquisition context bound to the saved measurement."""
+        context = self._build_acquisition_context(assignment, record)
+        if context is not None:
+            self.quality_repository.save_acquisition_context(context)
+
+    def _build_acquisition_context(
+        self,
+        assignment: MeasurementAssignment,
+        record: CadMeasurementRecord,
+    ) -> CadAcquisitionContext | None:
         if assignment.acquisition is None:
-            return
+            return None
         # The persisted acquisition context is the authority; its subject
         # list names the measurement just saved (#471).
-        context = build_acquisition_context(
+        return build_acquisition_context(
             source_kind=assignment.acquisition.source_kind,
             subject_measurement_ids=(record.measurement_id,),
             timing_reference_valid=assignment.acquisition.timing_reference_valid,
@@ -2378,7 +2482,6 @@ class MeasurementWorkflowController:
             routing_profile=self._routing_context_binding(assignment),
             notes=assignment.acquisition.notes,
         )
-        self.quality_repository.save_acquisition_context(context)
 
     def _routing_context_binding(
         self, assignment: MeasurementAssignment

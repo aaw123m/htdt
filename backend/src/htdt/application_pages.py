@@ -17,9 +17,14 @@ from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
+    QMessageBox,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -207,23 +212,67 @@ class ProjectLibraryPage(QWidget):
             self.project_open_requested.emit(project_id)
 
 
+_INBOX_LINEAGE_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+
+_INBOX_GATE_LABELS = {
+    "bundle_validation": "バンドル検証",
+    "dependency_state": "依存関係",
+    "alignment_state": "整列状態",
+    "evidence_conflict_state": "証拠競合",
+}
+_INBOX_DISPOSITION_LABELS = {
+    "pending": "保留中",
+    "deferred": "延期",
+    "partially_promoted": "一部昇格",
+    "promoted": "昇格済",
+    "rejected": "却下",
+    "superseded": "置換済",
+}
+_INBOX_PROMOTABILITY_LABELS = {
+    "promotable": "昇格可能",
+    "partially_promotable": "一部昇格可能",
+    "blocked": "昇格不可",
+    "complete": "昇格完了",
+}
+
+
 class CaptureInboxPage(QWidget):
-    """Capture Inbox: uningested capture deliveries awaiting triage."""
+    """Capture Inbox: staged deliveries awaiting review (#770).
+
+    The listing stays compact; selecting a row opens the exact item and
+    project context (identity, scope, gate facets, promotability) in a
+    detail pane so review, defer/reject, and scope assignment never operate
+    on a bare list row.
+    """
 
     def __init__(
         self,
         list_items: Callable[[], tuple],
         on_navigate: Callable[[WorkspaceDeepLink], bool],
+        *,
+        inspect_item: Callable[[str], object] | None = None,
+        defer_item: Callable[[str, str], object] | None = None,
+        reject_item: Callable[[str, str], object] | None = None,
+        resume_item: Callable[[str], object] | None = None,
+        list_projects: Callable[[], tuple] | None = None,
+        assign_scope: Callable[[str, str], object] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._list_items = list_items
         self._on_navigate = on_navigate
+        self._inspect_item = inspect_item
+        self._defer_item = defer_item
+        self._reject_item = reject_item
+        self._resume_item = resume_item
+        self._list_projects = list_projects
+        self._assign_scope = assign_scope
         layout = _page_layout(
             self,
             "取り込み",
-            "取得済みのCapture配送です。昇格・紐付けは測定ワークスペースで行います。",
+            "取得済みのCapture配送です。項目を選ぶと内容と判断材料を確認できます。",
         )
+        splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
             ("スコープ", "シリーズ", "分類", "状態", "到着数")
@@ -232,15 +281,220 @@ class CaptureInboxPage(QWidget):
             0, QHeaderView.ResizeMode.Stretch
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        layout.addWidget(self.table, 1)
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.table.itemSelectionChanged.connect(self._sync_detail)
+        splitter.addWidget(self.table)
+
+        detail_panel = QWidget()
+        detail_layout = QVBoxLayout(detail_panel)
+        detail_layout.setContentsMargins(0, 4, 0, 0)
+        self.detail = QLabel("一覧から項目を選択すると詳細を表示します。")
+        self.detail.setWordWrap(True)
+        self.detail.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        set_typography_role(self.detail, TypographyRole.SECONDARY)
+        detail_layout.addWidget(self.detail, 1)
+        actions = QHBoxLayout()
+        self.defer_button = QPushButton("延期…")
+        self.defer_button.clicked.connect(lambda: self._dispose("defer"))
+        actions.addWidget(self.defer_button)
+        self.reject_button = QPushButton("却下…")
+        self.reject_button.clicked.connect(lambda: self._dispose("reject"))
+        actions.addWidget(self.reject_button)
+        self.resume_button = QPushButton("再開")
+        self.resume_button.clicked.connect(lambda: self._dispose("resume"))
+        actions.addWidget(self.resume_button)
+        self.scope_combo = QComboBox()
+        actions.addWidget(QLabel("プロジェクト:"))
+        actions.addWidget(self.scope_combo, 1)
+        self.scope_button = QPushButton("割り当て")
+        self.scope_button.clicked.connect(self._apply_scope)
+        actions.addWidget(self.scope_button)
         link = QPushButton("測定ワークスペースを開く")
         link.clicked.connect(
             lambda: self._on_navigate(
                 WorkspaceDeepLink(WorkspaceId.MEASUREMENT, "import")
             )
         )
-        layout.addWidget(link)
+        actions.addWidget(link)
+        detail_layout.addLayout(actions)
+        splitter.addWidget(detail_panel)
+        splitter.setStretchFactor(0, 1)
+        layout.addWidget(splitter, 1)
         self.refresh()
+
+    def _selected_row_data(self) -> tuple[str, str] | None:
+        items = self.table.selectedItems()
+        for item in items:
+            if item.column() != 0:
+                continue
+            item_id = item.data(Qt.ItemDataRole.UserRole)
+            digest = item.data(_INBOX_LINEAGE_ROLE)
+            if item_id and digest:
+                return str(item_id), str(digest)
+        return None
+
+    def _selected_digest(self) -> str | None:
+        data = self._selected_row_data()
+        return data[1] if data else None
+
+    def _sync_detail(self) -> None:
+        digest = self._selected_digest()
+        if digest is None:
+            self.detail.setText("一覧から項目を選択すると詳細を表示します。")
+            self._sync_actions(None)
+            return
+        inspection = (
+            self._inspect_item(digest) if self._inspect_item is not None else None
+        )
+        if inspection is None:
+            self.detail.setText(f"項目を確認できません: {digest[:12]}…")
+            self._sync_actions(None)
+            return
+        self._populate_detail(inspection)
+        self._sync_actions(inspection.item.disposition)
+
+    def _populate_detail(self, inspection) -> None:
+        item = inspection.item
+        flags = (
+            "・".join(item.classification_flags)
+            if item.classification_flags
+            else item.primary_classification
+        )
+        scope = (
+            "（未割り当て）"
+            if item.scope == "capture-inbox-unassigned"
+            else item.scope
+        )
+        lines = [
+            f"スコープ: {scope}",
+            f"項目: {item.inbox_item_id.split(':', 1)[-1][:16]}…"
+            f" / 系列 {item.capture_series_id} / リビジョン {item.capture_revision_id}",
+            f"分類: {item.primary_classification}（{flags}）",
+            f"到着: {item.arrival_source} ×{item.arrival_count}（{item.first_arrived_at_utc}）",
+            "ゲート: "
+            + " / ".join(
+                f"{_INBOX_GATE_LABELS[key]}={getattr(item, key)}"
+                + (
+                    f"（{getattr(item, key[:-5] + '_detail')}）"
+                    if getattr(item, key[:-5] + '_detail', '')
+                    else ""
+                )
+                for key in _INBOX_GATE_LABELS
+            ),
+            f"昇格可能性: {_INBOX_PROMOTABILITY_LABELS.get(inspection.promotability, inspection.promotability)}"
+            + (
+                f"（昇格対象: {'・'.join(inspection.available_authority_kinds) or 'なし'}）"
+            ),
+            (
+                "昇格済: "
+                + ("・".join(inspection.promoted_authority_kinds) or "なし")
+                + " / 不可: "
+                + ("・".join(inspection.blocked_authority_kinds) or "なし")
+            ),
+            f"内容: 証拠{inspection.source_evidence_count} / "
+            f"間取り{inspection.roomplan_record_count} / "
+            f"メッシュ{inspection.raw_mesh_count} / "
+            f"権威{inspection.authority_record_count}",
+            f"状態: {_INBOX_DISPOSITION_LABELS.get(item.disposition, item.disposition)}"
+            + (f" — {item.disposition_reason}" if item.disposition_reason else ""),
+        ]
+        if item.operator_notes:
+            lines.append(f"メモ: {item.operator_notes}")
+        self.detail.setText("\n".join(lines))
+        self._populate_scope_combo(item.scope)
+
+    def _populate_scope_combo(self, current_scope: str) -> None:
+        self.scope_combo.clear()
+        self.scope_combo.addItem("（未割り当て）", "capture-inbox-unassigned")
+        if self._list_projects is None:
+            return
+        current_index = 0
+        for entry in self._list_projects():
+            label = getattr(entry, "display_name", "") or getattr(
+                entry, "project_id", ""
+            )
+            document_id = getattr(entry, "document_id", "")
+            if not document_id:
+                continue
+            self.scope_combo.addItem(label, document_id)
+            if document_id == current_scope:
+                current_index = self.scope_combo.count() - 1
+        self.scope_combo.setCurrentIndex(current_index)
+
+    def _sync_actions(self, disposition: str | None) -> None:
+        self.defer_button.setEnabled(
+            self._defer_item is not None and disposition == "pending"
+        )
+        self.reject_button.setEnabled(
+            self._reject_item is not None
+            and disposition in ("pending", "deferred")
+        )
+        self.resume_button.setEnabled(
+            self._resume_item is not None
+            and disposition in ("deferred", "rejected")
+        )
+        self.scope_button.setEnabled(
+            self._assign_scope is not None
+            and disposition in ("pending", "deferred")
+        )
+
+    def _dispose(self, action: str) -> None:
+        digest = self._selected_digest()
+        if digest is None:
+            return
+        handler = {
+            "defer": self._defer_item,
+            "reject": self._reject_item,
+            "resume": self._resume_item,
+        }[action]
+        if handler is None:
+            return
+        reason = ""
+        if action in ("defer", "reject"):
+            title = {"defer": "延期", "reject": "却下"}[action]
+            reason, ok = QInputDialog.getText(
+                self, title, f"{title}の理由を入力してください。"
+            )
+            if not ok or not reason.strip():
+                return
+            reason = reason.strip()
+        try:
+            handler(digest, reason) if reason else handler(digest)
+        except Exception as exc:
+            QMessageBox.warning(self, "取り込み", str(exc))
+            return
+        self._refresh_keep_selection()
+
+    def _apply_scope(self) -> None:
+        digest = self._selected_digest()
+        scope = self.scope_combo.currentData()
+        if digest is None or not scope or self._assign_scope is None:
+            return
+        try:
+            self._assign_scope(digest, str(scope))
+        except Exception as exc:
+            QMessageBox.warning(self, "取り込み", str(exc))
+            return
+        self._refresh_keep_selection()
+
+    def _refresh_keep_selection(self) -> None:
+        selected = self._selected_row_data()
+        self.refresh()
+        if selected is None:
+            return
+        for row in range(self.table.rowCount()):
+            cell = self.table.item(row, 0)
+            if (
+                cell is not None
+                and cell.data(Qt.ItemDataRole.UserRole) == selected[0]
+            ):
+                self.table.selectRow(row)
+                break
+        self._sync_detail()
 
     def refresh(self) -> None:
         items = self._list_items()
@@ -260,7 +514,9 @@ class CaptureInboxPage(QWidget):
                 cell = QTableWidgetItem(str(value))
                 if column == 0:
                     cell.setData(Qt.ItemDataRole.UserRole, item.inbox_item_id)
+                    cell.setData(_INBOX_LINEAGE_ROLE, item.lineage_digest)
                 self.table.setItem(row, column, cell)
+        self._sync_detail()
 
 
 class ActivityPage(QWidget):

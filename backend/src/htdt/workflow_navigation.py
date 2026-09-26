@@ -186,7 +186,6 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("campaign", "キャンペーン"),
         WorkspaceContext("quality", "品質"),
         WorkspaceContext("comparison", "比較"),
-        WorkspaceContext("calibration", "キャリブレーション"),
     ),
     WorkspaceId.OPTIMIZATION: (
         WorkspaceContext("setup", "探索設定"),
@@ -201,6 +200,10 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
 WORKSPACE_CONTEXT_ALIASES: dict[WorkspaceId, dict[str, str]] = {
     WorkspaceId.ROOM: {
         "system-proposal": "placement",
+    },
+    WorkspaceId.MEASUREMENT: {
+        # No dedicated calibration surface; calibration runs as a campaign purpose.
+        "calibration": "campaign",
     },
     WorkspaceId.OPTIMIZATION: {
         "objectives": "comparison",

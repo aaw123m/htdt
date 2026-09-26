@@ -33,6 +33,7 @@ from htdt.measurement_analysis import (
     trace_label,
 )
 from htdt.measurement_workflow import (
+    AcquisitionCapture,
     AssignmentCorrection,
     MeasurementAssignment,
     MeasurementWorkflowController,
@@ -162,6 +163,120 @@ def test_batch_item_failure_is_isolated_and_reported(tmp_path: Path) -> None:
     controller.discard_batch_committed()
     remaining = {item.filename for item in controller.batch_items()}
     assert "good.txt" not in remaining
+
+
+def test_batch_commit_resumes_one_logical_item_after_mid_commit_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#801: measurement + AcquisitionContext + staged attachments commit as
+    one idempotent logical item — retrying after a mid-commit failure resumes
+    the same identities instead of registering duplicates."""
+    scene_repository, revision = _saved_f1(tmp_path)
+    controller, measurement_repository, quality_repository = _controller(
+        scene_repository, revision.document_id
+    )
+    (item,) = controller.stage_rew_text_files(
+        [(b"20 70\n40 71\n80 69\n", "seat.txt")]
+    )
+    controller.set_batch_item_assignment(
+        item.item_id,
+        _assignment(acquisition=AcquisitionCapture(source_kind="manual")),
+    )
+    controller.attach_to_batch_item(
+        item.item_id,
+        filename="mic-cal.txt",
+        raw_bytes=b"cal-bytes",
+        kind="calibration",
+    )
+
+    # The measurement row lands, then the acquisition-context save fails.
+    real_save_context = quality_repository.save_acquisition_context
+    state = {"fail": True}
+
+    def flaky_save(context):
+        if state["fail"]:
+            raise RuntimeError("simulated store outage")
+        return real_save_context(context)
+
+    monkeypatch.setattr(
+        quality_repository, "save_acquisition_context", flaky_save
+    )
+    (first,) = controller.commit_batch()
+    assert first.outcome == "failed"
+    measurements = measurement_repository.list_measurements(revision.document_id)
+    assert len(measurements) == 1
+    measurement_id = measurements[0].measurement_id
+    assert measurement_repository.list_attachments(measurement_id) == ()
+
+    state["fail"] = False
+    (second,) = controller.commit_batch()
+    assert second.outcome == "committed"
+    assert second.measurement_id == measurement_id
+    # No duplicate measurement, exactly one context bound to it, attachments installed.
+    assert len(measurement_repository.list_measurements(revision.document_id)) == 1
+    contexts = quality_repository.list_acquisition_contexts()
+    assert len(contexts) == 1
+    assert tuple(contexts[0].subject_measurement_ids) == (measurement_id,)
+    attachments = measurement_repository.list_attachments(measurement_id)
+    assert [(a.filename, a.kind) for a in attachments] == [("mic-cal.txt", "calibration")]
+
+    (third,) = controller.commit_batch()
+    assert third.outcome == "already_committed"
+    assert len(measurement_repository.list_attachments(measurement_id)) == 1
+
+
+def test_batch_commit_attachment_failure_does_not_abort_siblings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#801: a staged-attachment failure fails only its item; the rest of the
+    batch still commits and the failed item resumes cleanly on retry."""
+    scene_repository, revision = _saved_f1(tmp_path)
+    controller, measurement_repository, _ = _controller(
+        scene_repository, revision.document_id
+    )
+    items = controller.stage_rew_text_files(
+        [
+            (b"20 70\n40 71\n80 69\n", "seat-a.txt"),
+            (b"20 60\n40 62\n80 61\n", "seat-b.txt"),
+        ]
+    )
+    by_name = {i.filename: i for i in items}
+    controller.apply_batch_assignment(_assignment())
+    controller.attach_to_batch_item(
+        by_name["seat-a.txt"].item_id,
+        filename="note.txt",
+        raw_bytes=b"note-bytes",
+        kind="notes",
+    )
+
+    real_save_attachment = measurement_repository.save_attachment
+    state = {"fail": True}
+
+    def flaky_attachment(**kwargs):
+        if state["fail"]:
+            raise RuntimeError("simulated attachment store outage")
+        return real_save_attachment(**kwargs)
+
+    monkeypatch.setattr(
+        measurement_repository, "save_attachment", flaky_attachment
+    )
+    outcomes = controller.commit_batch()
+    by_outcome = {o.item.filename: o for o in outcomes}
+    assert by_outcome["seat-a.txt"].outcome == "failed"
+    assert by_outcome["seat-b.txt"].outcome == "committed"
+    assert len(measurement_repository.list_measurements(revision.document_id)) == 2
+
+    state["fail"] = False
+    (retry,) = controller.commit_batch([by_name["seat-a.txt"].item_id])
+    assert retry.outcome == "committed"
+    measurement_id = retry.measurement_id
+    assert measurement_id is not None
+    attachments = measurement_repository.list_attachments(measurement_id)
+    assert [(a.filename, a.kind) for a in attachments] == [("note.txt", "notes")]
+
+    (again,) = controller.commit_batch([by_name["seat-a.txt"].item_id])
+    assert again.outcome == "already_committed"
+    assert len(measurement_repository.list_attachments(measurement_id)) == 1
 
 
 def test_source_attachments_roundtrip_through_backup_authority(tmp_path: Path) -> None:
