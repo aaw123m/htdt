@@ -435,6 +435,7 @@ def _video_request(specification):
         ),
         seats=(
             SeatGeometryBinding(
+                geometry_source='manual',
                 entity_id='seat-front',
                 row_id='row-front',
                 eye_reference_offset_local_m=Offset3(z_m=0.65),

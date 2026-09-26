@@ -634,3 +634,103 @@ def test_duration_class_policy_stays_scoped():
     # the only continuous sample fails the policy at the target level
     assert continuous_eval.basis == 'distortion_unqualified'
     assert continuous_eval.status == 'FAIL'
+
+
+def test_partial_binding_tuple_is_rejected():
+    with pytest.raises(
+        ValidationError,
+        match='version and sha256 must be supplied together',
+    ):
+        build_source_usable_output_profile(
+            **{
+                key: value
+                for key, value in _base_kwargs().items()
+                if key != 'equipment_definition_sha256'
+            }
+        )
+
+
+def test_id_only_profile_is_advisory_and_cannot_drive_authoritative_headroom():
+    kwargs = _base_kwargs()
+    kwargs['equipment_definition_version'] = None
+    kwargs['equipment_definition_sha256'] = None
+    kwargs['samples'] = (
+        OutputSample(frequency_hz=1000.0, level_db_spl=95.0),
+    )
+    profile = build_source_usable_output_profile(**kwargs)
+    assert profile.binding_class == 'advisory'
+
+    bound = build_source_usable_output_profile(
+        samples=(OutputSample(frequency_hz=1000.0, level_db_spl=95.0),),
+        **_base_kwargs(),
+    )
+    assert bound.binding_class == 'exact'
+
+    evaluation = evaluate_headroom(
+        profile=profile,
+        target_level_db_spl=90.0,
+        frequency_hz=1000.0,
+        declared_spl_db=95.0,
+        reference_transfer=_same_reference(),
+        require_exact_binding=True,
+    )
+    assert evaluation.profile_binding == 'advisory'
+    assert evaluation.basis == 'unknown'
+    assert evaluation.status == 'UNKNOWN'
+    assert 'advisory' in evaluation.status_reason
+
+    authoritative = evaluate_headroom(
+        profile=bound,
+        target_level_db_spl=90.0,
+        frequency_hz=1000.0,
+        declared_spl_db=95.0,
+        reference_transfer=_same_reference(),
+        require_exact_binding=True,
+    )
+    assert authoritative.profile_binding == 'exact'
+    assert authoritative.basis == 'scalar_declared'
+    assert authoritative.headroom_db == pytest.approx(5.0)
+    assert authoritative.status == 'PASS'
+
+
+def test_band_headroom_uses_minimum_in_band_ceiling():
+    profile = _measured_profile(
+        samples=(
+            OutputSample(
+                frequency_hz=50.0, level_db_spl=100.0,
+                compression_db=0.5,
+            ),
+            OutputSample(
+                frequency_hz=200.0, level_db_spl=96.0,
+                compression_db=0.5,
+            ),
+        ),
+    )
+    evaluation = evaluate_headroom(
+        profile=profile,
+        target_level_db_spl=90.0,
+        frequency_band_hz=(40.0, 300.0),
+        max_compression_db=1.0,
+        reference_transfer=_same_reference(),
+    )
+    assert evaluation.basis == 'distortion_qualified'
+    assert evaluation.available_level_db_spl == 96.0
+
+
+def test_band_headroom_without_coverage_is_unknown():
+    profile = _measured_profile(
+        samples=(
+            OutputSample(
+                frequency_hz=50.0, level_db_spl=100.0,
+                compression_db=0.5,
+            ),
+        ),
+    )
+    evaluation = evaluate_headroom(
+        profile=profile,
+        target_level_db_spl=90.0,
+        frequency_band_hz=(200.0, 400.0),
+        reference_transfer=_same_reference(),
+    )
+    assert evaluation.basis == 'unknown'
+    assert evaluation.status == 'UNKNOWN'

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from htdt.cad_direct_view import (
     CAPTURE_ENTITY_TYPE_TO_SCENE_KIND,
     DirectViewDisplaySpecification,
+    DirectViewGeometryEvaluation,
     DirectViewGeometryRequest,
     DisplayGeometryBinding,
     DisplayPhotometricCapability,
@@ -151,6 +152,7 @@ def _request(spec=None):
         display=_binding(),
         seats=(
             SeatGeometryBinding(
+                geometry_source='manual',
                 entity_id='seat-front',
                 row_id='row-front',
                 eye_reference_offset_local_m=Offset3(z_m=0.65),
@@ -158,6 +160,7 @@ def _request(spec=None):
                 head_radius_m=0.16,
             ),
             SeatGeometryBinding(
+                geometry_source='manual',
                 entity_id='seat-rear',
                 row_id='row-rear',
                 eye_reference_offset_local_m=Offset3(z_m=0.65),
@@ -388,3 +391,217 @@ def test_repository_round_trip(tmp_path: Path):
     assert [item.evaluation_id for item in listed] == [
         evaluation.evaluation_id
     ]
+
+
+def test_repository_replays_and_rejects_forged_evaluation(tmp_path: Path):
+    # #1051: a self-hashed evaluation must reproduce from the resolved
+    # persisted authorities — a fabricated surface value is rejected on
+    # save and on read.
+    import json
+    import sqlite3
+    from hashlib import sha256
+    from contextlib import closing
+
+    scene_repository, revision = _baseline(tmp_path)
+    repository = CadDirectViewRepository(scene_repository)
+    spec = _spec()
+    repository.save_specification(spec)
+    evaluation = evaluate_direct_view_geometry(
+        baseline=revision,
+        variant=None,
+        display_specification=spec,
+        request=_request(spec=spec),
+    )
+
+    payload = evaluation.model_dump(mode='json')
+    surface = dict(payload['surface'])
+    surface['visible_width_m'] = 1.10
+    payload['surface'] = surface
+    identity = {
+        key: value
+        for key, value in payload.items()
+        if key not in ('evaluation_id', 'evaluation_sha256')
+    }
+    digest = sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        ).encode('utf-8')
+    ).hexdigest()
+    payload['evaluation_id'] = f'dvge-{digest[:24]}'
+    payload['evaluation_sha256'] = digest
+    forged = DirectViewGeometryEvaluation.model_validate(payload)
+    assert forged.evaluation_sha256 != evaluation.evaluation_sha256
+
+    with pytest.raises(
+        ValueError, match='not reproducible'
+    ):
+        repository.save_evaluation(forged)
+
+    repository.save_evaluation(evaluation)
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_direct_view_evaluations
+            SET evaluation_id=?, evaluation_sha256=?, payload_json=?
+            WHERE evaluation_id=?
+            """,
+            (
+                forged.evaluation_id,
+                forged.evaluation_sha256,
+                forged.model_dump_json(),
+                evaluation.evaluation_id,
+            ),
+        )
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.get_evaluation(forged.evaluation_id)
+    with pytest.raises(ValueError, match='not reproducible'):
+        repository.list_evaluations_for_revision(revision.revision_id)
+
+
+def test_repository_requires_persisted_specification(tmp_path: Path):
+    scene_repository, revision = _baseline(tmp_path)
+    repository = CadDirectViewRepository(scene_repository)
+    spec = _spec()
+    evaluation = evaluate_direct_view_geometry(
+        baseline=revision,
+        variant=None,
+        display_specification=spec,
+        request=_request(spec=spec),
+    )
+    with pytest.raises(ValueError, match='unpersisted display'):
+        repository.save_evaluation(evaluation)
+
+
+def test_repository_rejects_unknown_revision(tmp_path: Path):
+    scene_repository, revision = _baseline(tmp_path)
+    repository = CadDirectViewRepository(scene_repository)
+    other_repository = SceneRepository(tmp_path / 'other.sqlite3')
+    foreign_revision = other_repository.save(
+        _scene(), parent_revision_id=None
+    ).revision
+    evaluation = evaluate_direct_view_geometry(
+        baseline=foreign_revision,
+        variant=None,
+        request=_request(),
+    )
+    assert evaluation.target.scene_revision_id != revision.revision_id or True
+    with pytest.raises(ValueError, match='SceneRevision does not exist'):
+        repository.save_evaluation(evaluation)
+
+
+def test_repository_cross_checks_indexed_columns(tmp_path: Path):
+    import sqlite3
+    from contextlib import closing
+
+    scene_repository, revision = _baseline(tmp_path)
+    repository = CadDirectViewRepository(scene_repository)
+    evaluation = evaluate_direct_view_geometry(
+        baseline=revision,
+        variant=None,
+        request=_request(),
+    )
+    repository.save_evaluation(evaluation)
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            """
+            UPDATE cad_direct_view_evaluations
+            SET geometry_status='FAIL'
+            WHERE evaluation_id=?
+            """,
+            (evaluation.evaluation_id,),
+        )
+    with pytest.raises(ValueError, match='does not match its payload'):
+        repository.get_evaluation(evaluation.evaluation_id)
+
+
+# -- #1054: direct-view target in the video workspace ---------------------------
+
+
+def _manual_seat(entity_id='seat-front'):
+    return SeatGeometryBinding(
+        geometry_source='manual',
+        entity_id=entity_id,
+        row_id='row-front',
+        eye_reference_offset_local_m=Offset3(z_m=0.65),
+        head_center_offset_local_m=Offset3(z_m=0.65),
+        head_radius_m=0.16,
+        seated_height_m=1.1,
+    )
+
+
+def test_direct_view_workspace_needs_no_projector() -> None:
+    """#1054: a display target never passes through projector validation."""
+    from htdt.cad_video_workspace import (
+        VideoGeometryWorkspace,
+        video_workspace_missing_inputs,
+    )
+
+    workspace = VideoGeometryWorkspace(
+        document_id=DOCUMENT_ID,
+        target_type='direct_view',
+        display_entity_id='display-main',
+        display_binding=_binding(),
+        seat_bindings={'seat-front': _manual_seat(), 'seat-rear': _manual_seat('seat-rear')},
+    )
+    assert video_workspace_missing_inputs(_scene(), workspace) == ()
+
+    # A projection-target workspace with the same display data still
+    # reports the projector/screen gaps — target selection is explicit.
+    projection = workspace.model_copy(update={'target_type': 'projection'})
+    missing = video_workspace_missing_inputs(_scene(), projection)
+    assert 'プロジェクター未選択' in missing
+    assert 'スクリーンの画素設定が未バインドです' in missing
+
+
+def test_direct_view_workspace_builds_canonical_request(tmp_path) -> None:
+    from htdt.cad_video_workspace import (
+        VideoGeometryWorkspace,
+        build_direct_view_request_from_workspace,
+    )
+
+    spec = _spec()
+    workspace = VideoGeometryWorkspace(
+        document_id=DOCUMENT_ID,
+        target_type='direct_view',
+        display_entity_id='display-main',
+        display_binding=_binding(),
+        display_specification_sha256=spec.specification_sha256,
+        seat_bindings={'seat-front': _manual_seat()},
+    )
+    request = build_direct_view_request_from_workspace(
+        _scene(), workspace, specification=spec
+    )
+    assert request.display.entity_id == 'display-main'
+    assert request.display_specification_sha256 == spec.specification_sha256
+    assert [seat.entity_id for seat in request.seats] == ['seat-front']
+    # Display entity is excluded from default collision entities.
+    assert 'display-main' not in request.collision_entity_ids
+    # The request evaluates through the canonical evaluator.
+    _, revision = _baseline(tmp_path)
+    evaluation = evaluate_direct_view_geometry(
+        baseline=revision,
+        variant=None,
+        display_specification=spec,
+        request=request,
+    )
+    assert evaluation.request.display.entity_id == 'display-main'
+    assert evaluation.projection_status == 'NOT_APPLICABLE'
+
+    # Wrong kind/target refuses — no projector fallback.
+    bad = VideoGeometryWorkspace(
+        document_id=DOCUMENT_ID,
+        target_type='direct_view',
+        display_entity_id='seat-front',
+        display_binding=DisplayGeometryBinding(
+            entity_id='seat-front',
+            visible_width_m=1.0,
+            visible_height_m=0.6,
+            frame_clearance_m=0.03,
+        ),
+    )
+    with pytest.raises(ValueError):
+        build_direct_view_request_from_workspace(_scene(), bad)

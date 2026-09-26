@@ -11,6 +11,10 @@ from htdt.cad_equipment import (
     build_equipment_definition,
 )
 from htdt.cad_equipment_evidence import build_equipment_manual_evidence
+from htdt.cad_equipment_instance import build_installed_equipment_instance
+from htdt.cad_equipment_instance_repository import (
+    CadInstalledEquipmentRepository,
+)
 from htdt.cad_equipment_repository import CadEquipmentRepository
 from htdt.cad_installation_cost import (
     BudgetConstraint,
@@ -460,6 +464,10 @@ def test_cost_repository_replays_canonical_inputs(tmp_path: Path) -> None:
             for key, value in payload.items()
             if key not in {'evaluation_id', 'evaluation_sha256'}
         }
+        # baseline_equipment_sha256s is excluded from identity when absent
+        # (legacy payloads) — mirror the model's exclusion rule (#1058).
+        if identity.get('baseline_equipment_sha256s') is None:
+            identity.pop('baseline_equipment_sha256s', None)
         digest = _cost_digest(identity)
         return VariantCostEvaluation.model_validate(
             {
@@ -501,6 +509,229 @@ def test_cost_repository_replays_canonical_inputs(tmp_path: Path) -> None:
         )
     with pytest.raises(ValueError, match='does not reproduce'):
         repository.get_evaluation(lying_eval.evaluation_id)
+
+
+def test_removed_equipment_resolves_baseline_instance(
+    tmp_path: Path,
+) -> None:
+    """#1058: removal lines resolve the baseline installed identity."""
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    repository = CadInstallationCostRepository(scene_repository)
+    existing = _equipment('owned-speaker', 'b' * 64)
+    added = _equipment('new-speaker', 'c' * 64)
+    _persist_pair(equipment_repository, existing, added)
+
+    variant = build_system_variant(
+        baseline=revision,
+        name='remove front left',
+        role_bindings=(
+            ChannelRoleBinding(role_id='FL', display_name='Front Left'),
+            ChannelRoleBinding(role_id='SL', display_name='Surround Left'),
+        ),
+        proposed_entities=(),
+        remove_entity_ids=('speaker-fl',),
+        equipment_bindings=(),
+        created_at_utc=NOW,
+    )
+    variant_repository.save_variant(variant)
+
+    instance_repository = CadInstalledEquipmentRepository(
+        scene_repository,
+        equipment_repository,
+    )
+    instance = instance_repository.save_instance(
+        build_installed_equipment_instance(
+            instance_id='inst-fl-001',
+            document_id=DOCUMENT_ID,
+            equipment_class='speaker',
+            equipment_definition=existing,
+            user_label='FL speaker',
+            scene_entity_id='speaker-fl',
+            installed_at_utc=NOW,
+            provenance=(_provenance('owned-speaker', 'b' * 64),),
+            created_at_utc=NOW,
+        )
+    )
+
+    record = _record(added, amount=120000.0)
+    evaluation = evaluate_variant_installation_cost(
+        revision=revision,
+        variant=variant,
+        scenario=_scenario(),
+        cost_records=(record,),
+        baseline_equipment=instance_repository.list_instances(DOCUMENT_ID),
+    )
+    by_kind = {}
+    for item in evaluation.line_items:
+        by_kind.setdefault(item.item_kind, []).append(item)
+    removed = by_kind['equipment_removed']
+    assert len(removed) == 1
+    assert removed[0].entity_id == 'speaker-fl'
+    assert removed[0].state == 'not_priced_by_scope'
+    assert removed[0].equipment_definition_sha256 == existing.semantic_sha256
+    assert evaluation.baseline_equipment_sha256s == (instance.semantic_sha256,)
+    assert evaluation.unknown_item_ids == ()
+
+    # Repository save/read replays the same baseline resolution.
+    saved = repository.save_evaluation(evaluation)
+    assert repository.get_evaluation(saved.evaluation_id) == saved
+
+    # Without the baseline inventory the removal is an explicit UNKNOWN
+    # line — never silently omitted (#1058).
+    unresolved = evaluate_variant_installation_cost(
+        revision=revision,
+        variant=variant,
+        scenario=_scenario(),
+        cost_records=(record,),
+    )
+    removal = next(
+        item
+        for item in unresolved.line_items
+        if item.item_kind == 'equipment_removed'
+    )
+    assert removal.state == 'unknown_price'
+    assert removal.equipment_definition_sha256 is None
+    assert removal.item_id in unresolved.unknown_item_ids
+    assert unresolved.baseline_equipment_sha256s is None
+
+    # A declared inventory that does not cover the entity is still UNKNOWN.
+    unresolved = evaluate_variant_installation_cost(
+        revision=revision,
+        variant=variant,
+        scenario=_scenario(),
+        cost_records=(record,),
+        baseline_equipment=(),
+    )
+    removal = next(
+        item
+        for item in unresolved.line_items
+        if item.item_kind == 'equipment_removed'
+    )
+    assert removal.state == 'unknown_price'
+    assert unresolved.baseline_equipment_sha256s == ()
+
+
+def test_replacement_reports_before_and_after_identities(
+    tmp_path: Path,
+) -> None:
+    """#1058: a replace diff reports the before identity as removed."""
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    repository = CadInstallationCostRepository(scene_repository)
+    before = _equipment('old-speaker', 'd' * 64)
+    after = _equipment('new-speaker', 'c' * 64)
+    _persist_pair(equipment_repository, before, after)
+
+    # A proposed entity with an existing entity_id is a replace diff.
+    moved = _speaker('speaker-fl', 'FL').model_copy(
+        update={'position': Position3(x_m=2.0, y_m=1.0, z_m=1.0)}
+    )
+    variant = build_system_variant(
+        baseline=revision,
+        name='replace front left',
+        role_bindings=(
+            ChannelRoleBinding(role_id='FL', display_name='Front Left'),
+            ChannelRoleBinding(role_id='SL', display_name='Surround Left'),
+        ),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='fl-spec',
+                entity=moved,
+                role_binding_id='FL',
+            ),
+        ),
+        equipment_bindings=(
+            _binding('speaker-fl', after),
+        ),
+        created_at_utc=NOW,
+    )
+    variant_repository.save_variant(variant)
+
+    instance_repository = CadInstalledEquipmentRepository(
+        scene_repository,
+        equipment_repository,
+    )
+    instance = instance_repository.save_instance(
+        build_installed_equipment_instance(
+            instance_id='inst-fl-001',
+            document_id=DOCUMENT_ID,
+            equipment_class='speaker',
+            equipment_definition=before,
+            user_label='FL speaker',
+            scene_entity_id='speaker-fl',
+            installed_at_utc=NOW,
+            provenance=(_provenance('old-speaker', 'd' * 64),),
+            created_at_utc=NOW,
+        )
+    )
+
+    record = repository.save_record(
+        _record(after, amount=50000.0), document_id=DOCUMENT_ID
+    )
+    evaluation = evaluate_variant_installation_cost(
+        revision=revision,
+        variant=variant,
+        scenario=_scenario(),
+        cost_records=(record,),
+        baseline_equipment=instance_repository.list_instances(DOCUMENT_ID),
+    )
+    acquisition = next(
+        item
+        for item in evaluation.line_items
+        if item.item_kind == 'equipment_acquisition'
+    )
+    assert acquisition.equipment_definition_sha256 == after.semantic_sha256
+    removal = next(
+        item
+        for item in evaluation.line_items
+        if item.item_kind == 'equipment_removed'
+    )
+    assert removal.equipment_definition_sha256 == before.semantic_sha256
+    assert removal.state == 'not_priced_by_scope'
+    assert evaluation.baseline_equipment_sha256s == (instance.semantic_sha256,)
+    saved = repository.save_evaluation(evaluation)
+    assert repository.get_evaluation(saved.evaluation_id) == saved
+
+    # Retaining the same exact equipment across a replace emits no removal.
+    retained = build_system_variant(
+        baseline=revision,
+        name='reposition front left',
+        role_bindings=(
+            ChannelRoleBinding(role_id='FL', display_name='Front Left'),
+            ChannelRoleBinding(role_id='SL', display_name='Surround Left'),
+        ),
+        proposed_entities=(
+            ProposedEntitySpec(
+                spec_id='fl-spec',
+                entity=moved,
+                role_binding_id='FL',
+            ),
+        ),
+        equipment_bindings=(
+            _binding('speaker-fl', before),
+        ),
+        created_at_utc=NOW,
+    )
+    evaluation = evaluate_variant_installation_cost(
+        revision=revision,
+        variant=retained,
+        scenario=_scenario(),
+        cost_records=(),
+        baseline_equipment=instance_repository.list_instances(DOCUMENT_ID),
+    )
+    assert not any(
+        item.item_kind == 'equipment_removed'
+        for item in evaluation.line_items
+    )
 
 
 def test_cost_record_rejects_unpersisted_equipment_binding(

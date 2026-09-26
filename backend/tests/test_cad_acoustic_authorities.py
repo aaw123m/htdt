@@ -549,6 +549,7 @@ def test_legacy_acoustically_transparent_flag_is_quarantined_not_identity() -> (
         specification_sha256='b' * 64,
     )
     seat = SeatGeometryBinding(
+        geometry_source='manual',
         entity_id='seat-1',
         row_id='row-1',
         eye_reference_offset_local_m=Offset3(x_m=0.0, y_m=0.0, z_m=1.15),

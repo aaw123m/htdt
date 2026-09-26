@@ -709,7 +709,14 @@ def _v1_request_payload(screen_dict: dict) -> dict:
         'projector_specification_version': '1',
         'projector_specification_sha256': 'b' * 64,
         'screen': screen_dict,
-        'seats': [seat.model_dump(mode='json')],
+        'seats': [
+            {
+                key: value
+                for key, value in seat.model_dump(mode='json').items()
+                # Pre-#1056 payloads never carried the authority marker.
+                if key not in ('geometry_source', 'pose_ref')
+            }
+        ],
         'policy': policy.model_dump(mode='json'),
         'collision_entity_ids': [],
     }

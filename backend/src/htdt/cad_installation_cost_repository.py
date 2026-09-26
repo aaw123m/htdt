@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
+from .cad_equipment_instance import InstalledEquipmentInstance
+from .cad_equipment_instance_repository import (
+    CadInstalledEquipmentRepository,
+)
 from .cad_installation_cost import (
     CostRecord,
     VariantCostEvaluation,
@@ -220,11 +224,41 @@ class CadInstallationCostRepository:
                 )
             records.append(self._validated_record(row, connection))
 
+        # Resolve the pinned baseline installed-equipment inventory the
+        # evaluation consumed (#1058). ``None`` marks a legacy evaluation
+        # persisted before baseline resolution existed; replay feeds the
+        # unresolved scope so the persisted line set reproduces exactly.
+        baseline_equipment: tuple[InstalledEquipmentInstance, ...] | None = (
+            None
+        )
+        if evaluation.baseline_equipment_sha256s is not None:
+            instance_repository = CadInstalledEquipmentRepository(
+                self.scene_repository
+            )
+            available = {
+                instance.semantic_sha256: instance
+                for instance in instance_repository.list_instances(
+                    evaluation.document_id,
+                    include_removed=True,
+                )
+            }
+            resolved = []
+            for instance_sha256 in evaluation.baseline_equipment_sha256s:
+                instance = available.get(instance_sha256)
+                if instance is None:
+                    raise ValueError(
+                        'cost evaluation references an unresolved baseline '
+                        'equipment instance'
+                    )
+                resolved.append(instance)
+            baseline_equipment = tuple(resolved)
+
         replayed = evaluate_variant_installation_cost(
             revision=revision,
             variant=variant,
             scenario=evaluation.scenario,
             cost_records=tuple(records),
+            baseline_equipment=baseline_equipment,
         )
         if replayed != evaluation:
             raise ValueError(
