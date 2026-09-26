@@ -2926,6 +2926,66 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'link/junction table — referential integrity enforced by replay of both endpoint authorities',
     ),
+    'cad_acoustic_target_profiles': (
+        'STRUCTURAL_ONLY',
+        'acoustic target profile payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_isolation_assemblies': (
+        'STRUCTURAL_ONLY',
+        'isolation assembly payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_isolation_scenarios': (
+        'STRUCTURAL_ONLY',
+        'isolation scenario payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_isolation_estimates': (
+        'STRUCTURAL_ONLY',
+        'isolation estimate payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_isolation_measurements': (
+        'STRUCTURAL_ONLY',
+        'isolation measurement payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_rack_definitions': (
+        'STRUCTURAL_ONLY',
+        'rack definition payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_rack_layouts': (
+        'STRUCTURAL_ONLY',
+        'rack layout payload authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_project_boms': (
+        'STRUCTURAL_ONLY',
+        'project BOM payload authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_drawing_set_specs': (
+        'STRUCTURAL_ONLY',
+        'drawing-set spec payload authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_installation_drawing_sets': (
+        'STRUCTURAL_ONLY',
+        'installation drawing-set payload authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'cad_field_labels': (
+        'STRUCTURAL_ONLY',
+        'field label payload authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
+    'cad_field_label_sheets': (
+        'STRUCTURAL_ONLY',
+        'label sheet payload authority; canonical replay path pending — '
+        'strongest verification is schema + payload parse',
+    ),
 
 }
 
