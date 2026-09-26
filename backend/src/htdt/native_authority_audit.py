@@ -567,6 +567,12 @@ class _RepositoryChain:
             from .project_lifecycle import ProjectLibrary
 
             return ProjectLibrary(self.db_path)
+        if name == 'field_explorer':
+            from .cad_field_explorer_repository import (
+                CadFieldExplorerRepository,
+            )
+
+            return CadFieldExplorerRepository(scene)
         raise KeyError(name)
 
 
@@ -1900,6 +1906,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'htdt_project_tombstones',
         ('tombstone_id', 'project_id'),
         _verify_project_tombstone,
+    ),
+    _ReplayProbe(
+        'field_explorer_session',
+        'cad_field_explorer_sessions',
+        ('session_id',),
+        _get('field_explorer', 'get'),
     ),
 )
 

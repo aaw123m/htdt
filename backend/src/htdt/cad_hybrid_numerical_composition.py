@@ -38,6 +38,7 @@ from .cad_schema import (
     require_native_tables,
 )
 from .cad_wave_excitation import AcousticWaveExcitationAuthority
+from .cad_wave_source_model import WaveSourceModelCompatibility
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -307,6 +308,14 @@ class NumericalHybridCompositionSpec(BaseModel):
         min_length=1
     )
 
+    # R130 source-model compatibility (#966): the evaluated authority
+    # stating whether the excitation's monopole collapse represents the
+    # recorded source model. Absent on specs predating the contract —
+    # excluded from the identity hash when None so legacy payloads still
+    # revalidate — and the composed artifact then records
+    # source_model_state='unverified' instead of an implicit claim.
+    wave_source_model: WaveSourceModelCompatibility | None = None
+
     source_entity_id: str = Field(min_length=1)
     receiver_id: str = Field(min_length=1)
     exact_frequency_grid_hz: tuple[float, ...] = Field(min_length=2)
@@ -366,6 +375,18 @@ class NumericalHybridCompositionSpec(BaseModel):
         ref_keys = tuple(_ref_key(item) for item in self.r150_response_refs)
         if ref_keys != tuple(sorted(set(ref_keys))):
             raise ValueError('R160 R150 response refs must be unique/canonically sorted')
+        if self.wave_source_model is not None:
+            model = self.wave_source_model
+            if model.excitation_semantic_sha256 != (
+                self.wave_excitation_ref.semantic_hash_sha256
+            ) or model.excitation_id != self.wave_excitation_ref.authority_id:
+                raise ValueError(
+                    'R160 wave source model does not pin the spec excitation'
+                )
+            if model.source_entity_id != self.source_entity_id:
+                raise ValueError(
+                    'R160 wave source model source entity mismatch'
+                )
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('R160 numerical composition spec semantic hash mismatch')
@@ -377,10 +398,13 @@ class NumericalHybridCompositionSpec(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'composition_spec_id', 'semantic_sha256'},
         )
+        if payload.get('wave_source_model') is None:
+            payload.pop('wave_source_model')
+        return payload
 
     def as_external_ref(self) -> ExactExternalAuthorityRef:
         return ExactExternalAuthorityRef(
@@ -583,6 +607,17 @@ class NumericalHybridResponseArtifact(BaseModel):
     unsupported_reasons: tuple[str, ...] = ()
     samples: tuple[NumericalHybridResponseSample, ...] = ()
 
+    # R130 source-model evaluation carried through to the artifact (#966):
+    # 'unverified' is the honest non-claim when the composition spec did
+    # not bind a WaveSourceModelCompatibility authority.
+    wave_source_model: WaveSourceModelCompatibility | None = None
+    source_model_state: Literal[
+        'compatible',
+        'compatible_with_limitations',
+        'unverified',
+        'unsupported',
+    ]
+
     @model_validator(mode='after')
     def contract(self) -> 'NumericalHybridResponseArtifact':
         if self.composition_spec.r130_result != self.exact_r130_result:
@@ -624,6 +659,29 @@ class NumericalHybridResponseArtifact(BaseModel):
         else:
             if not self.failure_codes or not self.unsupported_reasons or self.samples:
                 raise ValueError('unsupported R160 output requires failure codes/reasons and no samples')
+        if self.wave_source_model is None:
+            if self.source_model_state != 'unverified':
+                raise ValueError(
+                    'R160 output without a wave source model must record '
+                    "source_model_state='unverified'"
+                )
+        else:
+            if self.wave_source_model != self.composition_spec.wave_source_model:
+                raise ValueError(
+                    'R160 output wave source model does not match the spec'
+                )
+            if self.source_model_state != (
+                self.wave_source_model.compatibility_state
+            ):
+                raise ValueError(
+                    'R160 output source_model_state does not match its '
+                    'wave source model evaluation'
+                )
+            if self.source_model_state == 'unsupported':
+                raise ValueError(
+                    'R160 output cannot mark a source-model-unsupported '
+                    'composition as produced'
+                )
         expected = _semantic_hash(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('R160 numerical hybrid semantic hash mismatch')
@@ -802,6 +860,7 @@ def build_numerical_hybrid_composition_spec(
     normalization_authority: HybridConventionNormalizationAuthority | None = None,
     reconciliation_method: str = 'exact_bin_identity_v1',
     frequency_tolerance_hz: float = 0.0,
+    wave_source_model: WaveSourceModelCompatibility | None = None,
 ) -> NumericalHybridCompositionSpec:
     result = AcousticSolverResultEnvelope.model_validate(
         r130_result.model_dump(mode='python')
@@ -812,6 +871,31 @@ def build_numerical_hybrid_composition_spec(
     excitation = AcousticWaveExcitationAuthority.model_validate(
         wave_excitation.model_dump(mode='python')
     )
+    if wave_source_model is not None:
+        wave_source_model = WaveSourceModelCompatibility.model_validate(
+            wave_source_model.model_dump(mode='python')
+        )
+        if (
+            wave_source_model.binding_semantic_sha256
+            != candidate.wave_excitation_binding_sha256
+            or wave_source_model.binding_id
+            != candidate.wave_excitation_binding_id
+        ):
+            raise ValueError(
+                'R160 wave source model does not pin the candidate input\'s '
+                'exact excitation binding'
+            )
+        if (
+            wave_source_model.excitation_id != excitation.excitation_id
+            or wave_source_model.excitation_semantic_sha256
+            != excitation.semantic_sha256
+        ):
+            raise ValueError(
+                'R160 wave source model does not pin the exact wave '
+                'excitation authority'
+            )
+        if wave_source_model.source_entity_id != candidate.source_entity_id:
+            raise ValueError('R160 wave source model source identity mismatch')
     responses = tuple(
         DeterministicPathFrequencyResponseArtifact.model_validate(
             item.model_dump(mode='python')
@@ -951,6 +1035,10 @@ def build_numerical_hybrid_composition_spec(
         'r150_response_refs': [
             item.model_dump(mode='json') for item in response_refs
         ],
+    }
+    if wave_source_model is not None:
+        core['wave_source_model'] = wave_source_model.model_dump(mode='json')
+    core.update({
         'source_entity_id': candidate.source_entity_id,
         'receiver_id': receiver_id,
         'exact_frequency_grid_hz': list(grid),
@@ -968,7 +1056,7 @@ def build_numerical_hybrid_composition_spec(
         'transition_start_hz': float(transition_start_hz),
         'transition_end_hz': float(transition_end_hz),
         'weight_law': 'linear_frequency_complementary_v1',
-    }
+    })
     digest = _semantic_hash(core)
     return NumericalHybridCompositionSpec(
         composition_spec_id=f'r160-numerical-composition-spec:{digest}',
@@ -1167,6 +1255,7 @@ def compose_numerical_hybrid_response(
         normalization_authority=normalization,
         reconciliation_method=spec.grid_reconciliation.reconciliation_method,
         frequency_tolerance_hz=spec.grid_reconciliation.tolerance_hz,
+        wave_source_model=spec.wave_source_model,
     )
     if expected_spec != spec:
         raise ValueError('R160 numerical composition spec is stale for exact inputs')
@@ -1202,9 +1291,33 @@ def compose_numerical_hybrid_response(
         'transition_start_hz': spec.transition_start_hz,
         'transition_end_hz': spec.transition_end_hz,
         'weight_law': spec.weight_law,
+        'source_model_state': (
+            'unverified'
+            if spec.wave_source_model is None
+            else spec.wave_source_model.compatibility_state
+        ),
+        'wave_source_model': (
+            None
+            if spec.wave_source_model is None
+            else spec.wave_source_model.model_dump(mode='json')
+        ),
     }
 
-    if aggregate.capability_state != 'COMPLEX_SUPPORTED':
+    if (
+        spec.wave_source_model is not None
+        and spec.wave_source_model.collapse_state == 'collapse_unsupported'
+    ):
+        core = {
+            **base,
+            'capability_state': 'UNSUPPORTED',
+            'failure_codes': [HybridNumericalFailureCode.INPUT_CAPABILITY_MISMATCH],
+            'unsupported_reasons': [
+                'R130 wave source model collapse is falsified: '
+                + '; '.join(spec.wave_source_model.reasons)
+            ],
+            'samples': [],
+        }
+    elif aggregate.capability_state != 'COMPLEX_SUPPORTED':
         core = {
             **base,
             'capability_state': 'UNSUPPORTED',

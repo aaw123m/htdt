@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from .cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard, PredictionJobToken
 from .cad_prediction_models import CadPredictionResult, canonical_prediction_json
 from .cad_prediction_repository import CadPredictionRepository
+from .field_explorer_panel import FieldExplorerPanel
 from .prediction_matrix_service import PredictionMatrixService
 from .cad_prediction_request import rectangular_geometry_request_identity
 from .cad_predictions import analyze_native_rectangular_geometry
@@ -58,6 +59,8 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.prediction_cancel_button: QPushButton | None = None
         self.prediction_reflection_checkbox: QCheckBox | None = None
         self.prediction_scalar_button: QPushButton | None = None
+        self.field_explorer_panel: FieldExplorerPanel | None = None
+        self.field_explorer_dock: QDockWidget | None = None
         self._prediction_actor_names: set[str] = set()
         # Parentless until self is a QObject; reparented right after super().
         self._prediction_pool = NativeWorkerPool()
@@ -67,6 +70,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self._prediction_pool.setParent(self)
         self.setWindowTitle('Home Theater Digital Twin — 予測CAD')
         self._create_prediction_dock()
+        self._create_field_explorer_dock()
         self._refresh_prediction_receivers()
         self._refresh_prediction_results()
 
@@ -126,8 +130,9 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.prediction_scalar_button = QPushButton('音場 heatmap / slice / volume')
         self.prediction_scalar_button.setEnabled(False)
         self.prediction_scalar_button.setToolTip(
-            'scalar fieldを出力する検証済みmodel resultが存在するときだけ有効になります'
+            'exact矩形modelのmode resultを持つrun選択時に有効になります'
         )
+        self.prediction_scalar_button.clicked.connect(self._open_field_explorer)
         layout.addWidget(self.prediction_scalar_button)
 
         self.prediction_tree = QTreeWidget()
@@ -504,6 +509,44 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self._refresh_prediction_metadata()
         self._render_prediction_overlay()
 
+    def _create_field_explorer_dock(self) -> None:
+        dock = QDockWidget('音場Explorer', self)
+        dock.setObjectName('field_explorer_dock')
+        self.field_explorer_panel = FieldExplorerPanel(
+            self.repository,
+            self.prediction_repository,
+            self.document_id,
+        )
+        dock.setWidget(self.field_explorer_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self._unify_right_context_docks(dock)
+        self.field_explorer_dock = dock
+
+    def _explorable_prediction_results(
+        self,
+    ) -> tuple[CadPredictionResult, ...] | None:
+        results = self._selected_prediction_results()
+        modes = next(
+            (
+                item
+                for item in results
+                if item.result_kind == 'geometry_modes'
+                and item.geometry_compatibility == 'exact_for_model_geometry'
+            ),
+            None,
+        )
+        return results if modes is not None else None
+
+    def _open_field_explorer(self) -> None:
+        if self.field_explorer_panel is None or self.field_explorer_dock is None:
+            return
+        run_id = self.prediction_selected_run_id
+        if run_id is None:
+            return
+        if self.field_explorer_panel.open_for_run(run_id):
+            self.field_explorer_dock.show()
+            self.field_explorer_dock.raise_()
+
     def _prediction_tree_selected(self) -> None:
         if self.prediction_tree is None:
             return
@@ -529,6 +572,10 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         current_hash = None if self.working is None else scene_content_hash(self.working.committed_document)
         historical = current_hash != first.scene_content_hash
         state = '過去入力の予測 · 現在sceneには重ねない' if historical else '現在sceneと入力版が一致'
+        if self.prediction_scalar_button is not None:
+            self.prediction_scalar_button.setEnabled(
+                self._explorable_prediction_results() is not None
+            )
         compatibility = {
             'exact_for_model_geometry': 'exact_for_model_geometry',
             'rectangular_approximation': 'rectangular_approximation',

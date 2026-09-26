@@ -952,6 +952,7 @@ def build_rectangular_mode_field(
     axes: tuple[RegularGridAxis, RegularGridAxis, RegularGridAxis],
     amplitude_pa: float,
     valid_frequency_domain: FrequencyDomain,
+    absolute_pressure_reference: bool = True,
 ) -> SpatialFieldResult:
     """Analytical rigid rectangular-room pressure mode fixture.
 
@@ -985,7 +986,7 @@ def build_rectangular_mode_field(
         representation='complex_pressure',
         pressure_real=tuple(real),
         pressure_imag=tuple(imag),
-        absolute_pressure_reference=True,
+        absolute_pressure_reference=absolute_pressure_reference,
         phasor_convention='exp(+i*omega*t)',
         valid_frequency_domain=valid_frequency_domain,
     )

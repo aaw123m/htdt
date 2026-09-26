@@ -18,7 +18,7 @@ from .content_blobs import CONTENT_BLOB_DDL
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 8
+NATIVE_SCHEMA_VERSION = 9
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1013,6 +1013,13 @@ def _migrate_7_to_8(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_8_to_9(connection: sqlite3.Connection) -> None:
+    # Install the field explorer session table (#953): a new append-only
+    # authority the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 def require_native_tables(
     connection: sqlite3.Connection,
     *tables: str,
@@ -1043,6 +1050,7 @@ _MIGRATIONS = {
     6: _migrate_5_to_6,
     7: _migrate_6_to_7,
     8: _migrate_7_to_8,
+    9: _migrate_8_to_9,
 }
 
 

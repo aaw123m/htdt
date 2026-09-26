@@ -147,6 +147,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_field_explorer_sessions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, prediction_run_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_extended_model_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, model_id TEXT NOT NULL, model_version TEXT NOT NULL, evidence_scope TEXT NOT NULL, capability_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
     """
     ,
@@ -1619,6 +1623,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_extended_model_capabilities',
     'cad_extended_parameter_evidence',
     'cad_extended_search_specs',
+    'cad_field_explorer_sessions',
     'cad_frequency_resolved_evaluations',
     'cad_frequency_responses',
     'cad_gain_structure_evaluations',
