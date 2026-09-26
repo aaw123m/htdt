@@ -236,17 +236,19 @@ def validate_update(
         )
         connection.commit()
 
-    # 3. Run the NEW installer over the same install root and AppId, then
-    # install it again into a clean root: the updated tree must equal a
-    # clean NEW install exactly (issue #811 B).
+    # 3. Install NEW into a clean reference root, then run it again over
+    # the same install root and AppId: the updated tree must equal a clean
+    # NEW install exactly (issue #811 B). The in-place update runs last so
+    # the HKCU file associations point at the updated install — the same
+    # end state a real user is left in.
+    clean_root = work_dir / "clean-new-install"
+    _install(new_installer, clean_root)
+    new_payload = _file_manifest(clean_root / "HTDT")
+
     _install(new_installer, install_root)
     post_manifest = _file_manifest(app_root)
     if not executable.is_file():
         raise RuntimeError("NEW install removed the application executable")
-
-    clean_root = work_dir / "clean-new-install"
-    _install(new_installer, clean_root)
-    new_payload = _file_manifest(clean_root / "HTDT")
 
     lingering = sorted(set(post_manifest) - set(new_payload))
     if lingering:
@@ -289,6 +291,13 @@ def validate_update(
         raise RuntimeError("user sentinel row lost across the update")
     if sentinel.read_text(encoding="utf-8") != sentinel_text:
         raise RuntimeError("user sentinel file lost across the update")
+    # The sentinel row already proved arbitrary user content survives the
+    # update; the lane's probe table is not a managed authority table, so it
+    # must not linger into --backup, whose authority audit fails closed on
+    # unclassified persistent tables.
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE update_sentinel")
+        connection.commit()
     backup = work_dir / "post-update.htdt-backup"
     _run(executable, "--data-dir", data_root, "--backup", backup)
     if not backup.is_file() or backup.stat().st_size <= 0:
