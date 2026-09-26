@@ -795,7 +795,40 @@ class ZipSource:
         )
         if info.file_size > bound:
             raise CaptureBundleError(f"file exceeds limit: {path}")
-        data = self.zf.read(info)
+        # The central-directory sizes above are declared by the archive and
+        # can lie: zf.read(info) would materialize the member's *actual*
+        # decompressed stream, which is bounded only by compress_size
+        # (~1032:1 deflate amplification). Stream instead and stop at the
+        # bound + 1 so a lying member can never allocate past the limit.
+        chunks = []
+        remaining = bound + 1
+        try:
+            member = self.zf.open(info, "r")
+        except (
+            zipfile.BadZipFile,
+            OSError,
+            RuntimeError,
+            NotImplementedError,
+        ) as exc:
+            raise CaptureBundleError(f"unreadable archive member: {path}") from exc
+        with member:
+            while remaining > 0:
+                try:
+                    chunk = member.read(min(1 << 20, remaining))
+                except (
+                    zipfile.BadZipFile,
+                    OSError,
+                    RuntimeError,
+                    NotImplementedError,
+                ) as exc:
+                    raise CaptureBundleError(
+                        f"unreadable archive member: {path}"
+                    ) from exc
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+        data = b"".join(chunks)
         if len(data) != info.file_size:
             raise CaptureBundleError(f"expanded length mismatch: {path}")
         if len(data) > bound:
