@@ -20,6 +20,11 @@ from typing import Literal, Sequence
 from .cad_calibration import CadCalibrationPlan
 from .cad_calibration_repository import CadCalibrationRepository
 from .cad_extended_search_repository import CadExtendedSearchRepository
+from .cad_joint_execution import (
+    JointExecutionResult,
+    assess_joint_spec_staleness,
+    run_joint_execution,
+)
 from .cad_joint_optimization import (
     JointDspVariable,
     JointEvaluatorIdentity,
@@ -617,4 +622,93 @@ class JointOptimizationContext:
         )
         self.joint_repository.save_spec(spec)
         return spec
+
+    # ------------------------------------------------------------------
+    # Spec execution (#945): the same exact baseline authorities the spec
+    # was authored against drive the bounded canonical execution pass.
+    # ------------------------------------------------------------------
+
+    def assess_spec_staleness(
+        self,
+        spec_id: str,
+    ) -> tuple[str, ...]:
+        """Typed staleness between a persisted spec and the live baseline.
+
+        An unresolved baseline reports ``('baseline_unresolved',)`` so the UI
+        can gate execution without conflating missing authorities with
+        authority drift.
+        """
+
+        spec = self.joint_repository.get_spec(spec_id)
+        if spec is None:
+            raise ValueError(
+                'joint optimization spec is not persisted: ' + spec_id
+            )
+        baseline = self.resolve_baseline()
+        if baseline is None:
+            return ('baseline_unresolved',)
+        return assess_joint_spec_staleness(
+            spec=spec,
+            baseline=baseline.scene_revision,
+            base_variant=baseline.base_variant,
+            base_plan=(
+                baseline.calibration_plan
+                if spec.dsp_authority is not None
+                else None
+            ),
+        )
+
+    def execute_spec(
+        self,
+        spec_id: str,
+        *,
+        created_at_utc: str | None = None,
+        is_cancelled=None,
+        on_progress=None,
+    ) -> JointExecutionResult:
+        """Run one persisted spec end to end inside its immutable budget.
+
+        The baseline is re-resolved at call time, so authority drift fails
+        closed inside ``run_joint_execution`` before any candidate is
+        persisted. No numeric evaluator is injected: eligible candidates
+        receive the canonical unsupported objective vector — execution
+        materializes exact SystemVariant/CalibrationPlan candidates and
+        persists every binding without fabricating prediction numbers.
+        """
+
+        spec = self.joint_repository.get_spec(spec_id)
+        if spec is None:
+            raise ValueError(
+                'joint optimization spec is not persisted: ' + spec_id
+            )
+        baseline = self.resolve_baseline()
+        if baseline is None:
+            raise ValueError(
+                'joint execution requires a resolved baseline: current '
+                'SceneRevision, base SystemVariant, and physical search spec'
+            )
+        return run_joint_execution(
+            repository=self.joint_repository,
+            spec=spec,
+            baseline=baseline.scene_revision,
+            base_variant=baseline.base_variant,
+            system_variant_repository=self.variant_repository,
+            calibration_repository=self.calibration_repository,
+            base_plan=(
+                baseline.calibration_plan
+                if spec.dsp_authority is not None
+                else None
+            ),
+            quality_report=(
+                baseline.quality_report
+                if spec.dsp_authority is not None
+                else None
+            ),
+            created_at_utc=(
+                created_at_utc
+                or datetime.now(timezone.utc).isoformat(timespec='seconds')
+            ),
+            is_cancelled=is_cancelled,
+            on_progress=on_progress,
+        )
 

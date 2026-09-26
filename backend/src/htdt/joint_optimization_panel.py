@@ -1,11 +1,14 @@
-"""Optimize > 配置 + DSP panel (#524).
+"""Optimize > 配置 + DSP panel (#524 spec authoring, #945 execution).
 
 Thin widget over :class:`JointOptimizationContext`: it resolves the exact
 baseline authorities itself (no typed ids/hashes), gates DSP variables by
-measurement/device capability, shows the candidate-count preflight, and
-saves canonical ``JointOptimizationSpec`` records. Creating a spec mutates
-neither the room nor device settings — apply/export stays with the existing
-SystemVariant / CalibrationPlan lifecycle (#452).
+measurement/device capability, shows the candidate-count preflight, saves
+canonical ``JointOptimizationSpec`` records, and executes a selected spec
+through the bounded canonical execution pass — materialized
+SystemVariant/CalibrationPlan candidates and persisted evaluation
+bindings included. Execution mutates neither the room nor device settings —
+apply/export stays with the existing SystemVariant / CalibrationPlan
+lifecycle (#452).
 """
 
 from __future__ import annotations
@@ -122,14 +125,28 @@ class JointOptimizationPanel(QWidget):
         self.create_button = QPushButton('ジョイント最適化仕様を保存', self)
         self.create_button.clicked.connect(self._create_spec)
         actions.addWidget(self.create_button)
+        self.execute_button = QPushButton('選択した仕様を実行', self)
+        self.execute_button.setEnabled(False)
+        self.execute_button.setToolTip(
+            '保存済みの仕様を選択すると実行できます。'
+        )
+        self.execute_button.clicked.connect(self._execute_selected)
+        actions.addWidget(self.execute_button)
         actions.addStretch(1)
         layout.addLayout(actions)
 
         self.spec_tree = QTreeWidget(self)
-        self.spec_tree.setColumnCount(4)
-        self.spec_tree.setHeaderLabels(('仕様', 'モード', 'DSP変数', '候補上限'))
+        self.spec_tree.setColumnCount(5)
+        self.spec_tree.setHeaderLabels(
+            ('仕様', 'モード', 'DSP変数', '候補上限', '状態')
+        )
         self.spec_tree.setRootIsDecorated(False)
+        self.spec_tree.itemSelectionChanged.connect(self._on_spec_selection)
         layout.addWidget(self.spec_tree)
+
+        self.execution_label = QLabel()
+        self.execution_label.setWordWrap(True)
+        layout.addWidget(self.execution_label)
 
         self.refresh()
 
@@ -147,6 +164,7 @@ class JointOptimizationPanel(QWidget):
             self.create_button.setEnabled(False)
             self.preflight_label.setText('')
             self._refresh_saved_specs()
+            self._refresh_execution_state()
             return
 
         plan = baseline.calibration_plan
@@ -184,6 +202,7 @@ class JointOptimizationPanel(QWidget):
         self._build_dsp_rows(options)
         self._refresh_preflight()
         self._refresh_saved_specs()
+        self._refresh_execution_state()
 
     def _build_dsp_rows(self, options) -> None:
         while self.dsp_layout.count():
@@ -351,7 +370,76 @@ class JointOptimizationPanel(QWidget):
             )
         self._refresh_saved_specs()
 
+    def _selected_spec_id(self) -> str | None:
+        items = self.spec_tree.selectedItems()
+        if not items:
+            return None
+        return items[0].data(0, Qt.ItemDataRole.UserRole)
+
+    def _spec_staleness(self, spec_id: str) -> tuple[str, ...]:
+        try:
+            return self.context.assess_spec_staleness(spec_id)
+        except Exception:
+            return ('assessment_failed',)
+
+    def _on_spec_selection(self) -> None:
+        self._refresh_execution_state()
+
+    def _refresh_execution_state(self) -> None:
+        spec_id = self._selected_spec_id()
+        if spec_id is None:
+            self.execute_button.setEnabled(False)
+            self.execute_button.setToolTip(
+                '保存済みの仕様を選択すると実行できます。'
+            )
+            return
+        reasons = self._spec_staleness(spec_id)
+        if reasons:
+            self.execute_button.setEnabled(False)
+            self.execute_button.setToolTip(
+                'ベースラインが変わったため実行できません: '
+                + ', '.join(reasons)
+            )
+            return
+        self.execute_button.setEnabled(True)
+        self.execute_button.setToolTip(
+            'この仕様を候補上限内で実行し、候補と評価を永続化します。'
+        )
+
+    def _execute_selected(self) -> None:
+        spec_id = self._selected_spec_id()
+        if spec_id is None:
+            return
+        self.execute_button.setEnabled(False)
+        try:
+            result = self.context.execute_spec(spec_id)
+        except Exception as exc:
+            if self._on_status is not None:
+                self._on_status(f'ジョイント最適化を実行できません: {exc}')
+            self._refresh_execution_state()
+            return
+        finally:
+            self._refresh_saved_specs()
+        pareto = len(result.pareto_candidate_ids)
+        summary = (
+            '実行完了: 候補 '
+            f'{result.candidates_generated} 生成 / '
+            f'{result.candidates_reused} 再利用 / '
+            f'{result.candidates_blocked} ブロック、評価 '
+            f'{result.evaluations_recorded} 件'
+            f'、Pareto前線 {pareto} 件'
+        )
+        if result.budget_limited:
+            summary += '（候補上限で打ち切り）'
+        if result.cancelled:
+            summary += '（キャンセル済み — 部分結果は保持）'
+        self.execution_label.setText(summary)
+        if self._on_status is not None:
+            self._on_status(f'ジョイント最適化を実行しました: {summary}')
+        self._refresh_execution_state()
+
     def _refresh_saved_specs(self) -> None:
+        selected = self._selected_spec_id()
         self.spec_tree.clear()
         try:
             specs = self.context.list_specs()
@@ -360,14 +448,26 @@ class JointOptimizationPanel(QWidget):
         for spec in specs:
             dsp_count = len(spec.dsp_variables)
             mode = 'joint' if spec.dsp_variables else 'placement_only'
+            reasons = self._spec_staleness(spec.spec_id)
+            candidates = len(
+                self.context.joint_repository.list_candidates(spec.spec_id)
+            )
+            state = (
+                'stale: ' + ', '.join(reasons)
+                if reasons
+                else f'{candidates} 候補'
+            )
             item = QTreeWidgetItem(
                 (
                     saved_label(spec.created_at_utc),
                     mode,
                     str(dsp_count),
                     str(spec.candidate_budget),
+                    state,
                 )
             )
             item.setData(0, Qt.ItemDataRole.UserRole, spec.spec_id)
             item.setToolTip(0, spec.spec_id)
             self.spec_tree.addTopLevelItem(item)
+            if selected is not None and spec.spec_id == selected:
+                item.setSelected(True)

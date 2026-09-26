@@ -159,3 +159,146 @@ def test_create_spec_fails_closed_without_robustness_or_objectives(
             dsp_variables=(),
             candidate_budget=8,
         )
+
+
+def test_execute_spec_runs_persisted_spec_end_to_end(tmp_path: Path) -> None:
+    """#945: the native context executes a saved spec, not just authors it."""
+    fixture = _fixture(tmp_path)
+    context = _context(fixture, tmp_path)
+    baseline = context.resolve_baseline()
+    spec = context.create_spec(
+        baseline=baseline,
+        mode='placement_only',
+        dsp_variables=(),
+        candidate_budget=8,
+    )
+
+    result = context.execute_spec(spec.spec_id)
+
+    assert result.parent_spec_id == spec.spec_id
+    assert result.parent_spec_sha256 == spec.semantic_sha256
+    # x_m grid {1.0, 2.0} over the fixture speaker axis.
+    assert result.decision_vectors_total == 2
+    assert result.candidates_generated == 2
+    assert result.evaluations_recorded == 2
+    assert not result.cancelled
+
+    candidates = context.joint_repository.list_candidates(spec.spec_id)
+    assert len(candidates) == 2
+    assert all(
+        item.candidate_class == 'position_only' for item in candidates
+    )
+    evaluations = context.joint_repository.list_evaluations(spec.spec_id)
+    assert len(evaluations) == 2
+    # No evaluator is wired in the native lane: the canonical unsupported
+    # vector is persisted instead of fabricated prediction numbers.
+    assert all(
+        metric.state == 'unsupported'
+        for evaluation in evaluations
+        for metric in evaluation.objective_vector.metrics
+    )
+
+
+def test_execute_spec_materializes_dsp_candidate_plans(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    context = _context(fixture, tmp_path)
+    baseline = context.resolve_baseline()
+    dsp = (
+        JointDspVariable(
+            variable_id='dsp:FL:gain_db',
+            channel_id='FL',
+            parameter='gain_db',
+            minimum=0.0,
+            maximum=1.0,
+            step=0.5,
+            required_measurement_claim='magnitude_response',
+            required_band_hz=(20.0, 20000.0),
+        ),
+    )
+    spec = context.create_spec(
+        baseline=baseline,
+        mode='joint',
+        dsp_variables=dsp,
+        candidate_budget=8,
+    )
+
+    result = context.execute_spec(spec.spec_id)
+
+    # x_m {1.0, 2.0} x gain {0.0, 0.5, 1.0} = 6 joint candidates.
+    assert result.decision_vectors_total == 6
+    candidates = context.joint_repository.list_candidates(spec.spec_id)
+    assert len(candidates) == result.candidates_generated + result.candidates_reused
+    assert all(item.candidate_class == 'joint' for item in candidates)
+    plan_ids = {
+        item.calibration_candidate.plan_id
+        for item in candidates
+        if item.calibration_candidate is not None
+    }
+    assert len(plan_ids) == len(candidates)
+    assert fixture.base_plan.plan_id not in plan_ids
+
+
+def test_execute_spec_rerun_reuses_persisted_candidates(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    context = _context(fixture, tmp_path)
+    baseline = context.resolve_baseline()
+    spec = context.create_spec(
+        baseline=baseline,
+        mode='placement_only',
+        dsp_variables=(),
+        candidate_budget=8,
+    )
+
+    first = context.execute_spec(spec.spec_id)
+    second = context.execute_spec(spec.spec_id)
+
+    assert first.candidates_generated == 2
+    assert second.candidates_generated == 0
+    assert second.candidates_reused == 2
+
+
+def test_execute_spec_fails_closed_on_stale_baseline(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    context = _context(fixture, tmp_path)
+    baseline = context.resolve_baseline()
+    spec = context.create_spec(
+        baseline=baseline,
+        mode='placement_only',
+        dsp_variables=(),
+        candidate_budget=8,
+    )
+
+    moved = fixture.revision.document.model_copy(
+        update={
+            'room': fixture.revision.document.room.model_copy(
+                update={'width_m': 7.0}
+            )
+        }
+    )
+    fixture.scene_repository.save(
+        moved, parent_revision_id=fixture.revision.revision_id
+    )
+
+    assert context.assess_spec_staleness(spec.spec_id) != ()
+    with pytest.raises(ValueError):
+        context.execute_spec(spec.spec_id)
+    assert context.joint_repository.list_candidates(spec.spec_id) == ()
+
+
+def test_assess_spec_staleness_tracks_authority_drift(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    context = _context(fixture, tmp_path)
+    baseline = context.resolve_baseline()
+    spec = context.create_spec(
+        baseline=baseline,
+        mode='placement_only',
+        dsp_variables=(),
+        candidate_budget=8,
+    )
+
+    assert context.assess_spec_staleness(spec.spec_id) == ()
+
+    with pytest.raises(ValueError, match='not persisted'):
+        context.assess_spec_staleness('joint-spec-missing')
+    with pytest.raises(ValueError, match='not persisted'):
+        context.execute_spec('joint-spec-missing')

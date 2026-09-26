@@ -31,6 +31,7 @@ from .cad_joint_optimization import (
     joint_pareto_front,
     physical_variables_from_authority,
     require_joint_decision_materialization,
+    unsupported_joint_objective_vector,
 )
 from .cad_measurement_quality import CadMeasurementQualityReport
 from .cad_repository import SceneRepository, SceneRevision
@@ -858,10 +859,22 @@ class CadJointOptimizationRepository:
             evaluation.evaluator.evaluator_id
         )
         if evaluator is None:
-            raise ValueError(
-                'joint evaluation evaluator is not registered for replay: '
-                f'{evaluation.evaluator.evaluator_id}'
-            )
+            # A metric set that is entirely state='unsupported' carries no
+            # caller-supplied numbers to distrust: its content is determined
+            # exactly by the already-replayed spec objective definitions, so
+            # the canonical unsupported vector replays deterministically
+            # without a numeric evaluator. Any value-bearing claim still
+            # requires the pinned evaluator to reproduce it.
+            if evaluation.objective_vector != (
+                unsupported_joint_objective_vector(
+                    spec=spec, candidate=candidate
+                )
+            ):
+                raise ValueError(
+                    'joint evaluation evaluator is not registered for replay: '
+                    f'{evaluation.evaluator.evaluator_id}'
+                )
+            return
         derived = evaluator(context)
         if not isinstance(derived, ObjectiveVector):
             raise ValueError(
