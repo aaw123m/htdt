@@ -12,6 +12,7 @@ from htdt.cad_scene import (
     render_delta_to_domain,
     rotate_orientation_world,
     rotate_position_world,
+    scene_content_hash,
 )
 
 
@@ -323,3 +324,24 @@ def test_entity_set_edit_is_one_atomic_undo() -> None:
     assert restored.entity('speaker-fr') == removed
     assert restored.entity('speaker-fl') == moved
     assert all(entity.entity_id != 'speaker-sur' for entity in restored.entities)
+
+
+def test_entity_set_edit_undo_restores_entity_order() -> None:
+    original = make_f1_scene()
+    working = WorkingDocument(original)
+    # 'speaker-c' sits mid-list: an append-at-end revert would corrupt order.
+    removed = original.entity('speaker-c')
+    added = original.entity('point-mlp').model_copy(
+        update={'entity_id': 'point-mlp-2', 'name': 'MLP2'}
+    )
+    assert working.apply_entity_set_edit(
+        removed=(removed,),
+        added=(added,),
+    )
+    assert working.committed_document != original
+    assert working.undo()
+    assert working.committed_document == original
+    assert scene_content_hash(working.committed_document) == scene_content_hash(original)
+    assert working.redo()
+    assert working.undo()
+    assert working.committed_document == original

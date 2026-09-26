@@ -95,7 +95,7 @@ def test_unit_scale_table() -> None:
 
 def test_axis_matrix_maps_y_up_forward_z_source() -> None:
     # A Y-up / Z-forward right-handed source: +Z_src (forward) → HTDT +Y,
-    # +Y_src (up) → HTDT +Z, +X_src → HTDT +X? right = up × fwd = Y×Z = X → +X.
+    # +Y_src (up) → HTDT +Z; right = forward × up = Z×Y = −X (glTF-style).
     matrix = mesh_import_axis_matrix('y+', 'z+', 'right')
     assert matrix is not None
     # Source point (0, 1, 0) (up) → (0, 0, 1)
@@ -107,6 +107,41 @@ def test_axis_matrix_maps_y_up_forward_z_source() -> None:
     # Unresolved conventions produce no matrix (coordinates pass through).
     assert mesh_import_axis_matrix('unknown', 'z+', 'right') is None
     assert mesh_import_axis_matrix('z+', 'z+', 'right') is None  # degenerate
+
+
+def _apply(matrix, v):
+    return tuple(
+        sum(matrix[r][c] * x for c, x in enumerate(v)) for r in range(3)
+    )
+
+
+def test_axis_matrix_preserves_handedness() -> None:
+    """A right-handed source must map by rotation, never reflection.
+
+    Regression: the previous build used up × forward, which mirrors every
+    right-handed source (det = -1) — including an HTDT-identical convention,
+    which must reduce to the identity.
+    """
+
+    # Source convention identical to HTDT (Z up, Y forward, right-handed)
+    # is the identity transform, not a mirror.
+    identity = mesh_import_axis_matrix('z+', 'y+', 'right')
+    assert identity is not None
+    assert _apply(identity, (0.3, -0.7, 1.2)) == pytest.approx((0.3, -0.7, 1.2))
+
+    # glTF-style right-handed Y-up/Z-forward: the source's right axis is -X,
+    # so +X_src → HTDT -X and +Z_src (forward) → HTDT +Y.
+    matrix = mesh_import_axis_matrix('y+', 'z+', 'right')
+    assert matrix is not None
+    assert _apply(matrix, (1.0, 0.0, 0.0)) == pytest.approx((-1.0, 0.0, 0.0))
+    assert _apply(matrix, (0.0, 0.0, 1.0)) == pytest.approx((0.0, 1.0, 0.0))
+
+    # A left-handed source with the same declared axes keeps +X on +X
+    # (e.g. Unity: +X right, +Y up, +Z forward, left-handed).
+    left = mesh_import_axis_matrix('y+', 'z+', 'left')
+    assert left is not None
+    assert _apply(left, (1.0, 0.0, 0.0)) == pytest.approx((1.0, 0.0, 0.0))
+    assert _apply(left, (0.0, 0.0, 1.0)) == pytest.approx((0.0, 1.0, 0.0))
 
 
 def test_import_mm_obj_normalizes_to_meters() -> None:
