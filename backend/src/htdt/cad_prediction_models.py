@@ -10,11 +10,21 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_scene import Position3
 
 
-PredictionResultKind = Literal['geometry_modes', 'geometry_reflections', 'scalar_field']
+PredictionResultKind = Literal[
+    'geometry_modes',
+    'geometry_reflections',
+    'scalar_field',
+    # #938: a provider lane run persists the exact stored R170A/R170B
+    # frequency response — never a re-simulated payload.
+    'provider_frequency_response',
+]
 PredictionGeometryCompatibility = Literal[
     'exact_for_model_geometry',
     'rectangular_approximation',
     'unsupported',
+    # #938: provider-lane results bind persisted solver evidence; room
+    # geometry compatibility belongs to the provider's own pinned snapshot.
+    'persisted_provider_evidence',
 ]
 PredictionRunStatus = Literal['completed']
 PredictionModeClass = Literal['axial', 'tangential', 'oblique']
@@ -92,6 +102,42 @@ class CadPredictedReflection(BaseModel):
         return self
 
 
+class CadPredictedProviderResponse(BaseModel):
+    """Persisted R170A/R170B provider frequency response for one receiver (#938).
+
+    The provider lane never re-simulates: this payload is the exact stored
+    output of the provider authority embedded in the run's input snapshot,
+    rebound to the receiver entity the run was requested for.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    provider_id: str = Field(min_length=1)
+    provider_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    provider_adapter_id: str = Field(min_length=1)
+    provider_adapter_version: str = Field(min_length=1)
+    provider_evidence_state: str = Field(min_length=1)
+    provider_evidence_scope: str = Field(min_length=1)
+    receiver_entity_id: str = Field(min_length=1)
+    frequency_hz: tuple[float, ...] = Field(min_length=2)
+    level_db: tuple[float, ...] = Field(min_length=2)
+
+    @model_validator(mode='after')
+    def valid_response(self) -> 'CadPredictedProviderResponse':
+        if len(self.frequency_hz) != len(self.level_db):
+            raise ValueError('provider response arrays must share one length')
+        if any(
+            not isfinite(float(value)) or float(value) <= 0.0
+            for value in self.frequency_hz
+        ):
+            raise ValueError('provider response frequencies must be positive finite')
+        if any(
+            not isfinite(float(value)) for value in self.level_db
+        ):
+            raise ValueError('provider response levels must be finite')
+        return self
+
+
 class CadPredictionResult(BaseModel):
     """Immutable model output bound to one exact native SceneRevision and model input."""
 
@@ -120,6 +166,7 @@ class CadPredictionResult(BaseModel):
 
     modes: tuple[CadPredictedRoomMode, ...] = ()
     reflections: tuple[CadPredictedReflection, ...] = ()
+    provider_response: CadPredictedProviderResponse | None = None
 
     result_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -154,6 +201,11 @@ class CadPredictionResult(BaseModel):
             'warnings': list(self.warnings),
             'modes': [item.model_dump(mode='json') for item in self.modes],
             'reflections': [item.model_dump(mode='json') for item in self.reflections],
+            'provider_response': (
+                None
+                if self.provider_response is None
+                else self.provider_response.model_dump(mode='json')
+            ),
         }
 
     @model_validator(mode='after')
@@ -180,7 +232,22 @@ class CadPredictionResult(BaseModel):
             raise ValueError('geometry_reflections result must not contain modes')
         if self.result_kind == 'scalar_field' and (self.modes or self.reflections):
             raise ValueError('scalar_field payload is stored separately from geometry payloads')
-        if self.geometry_compatibility == 'unsupported' and (self.modes or self.reflections):
+        if self.result_kind == 'provider_frequency_response':
+            if self.provider_response is None:
+                raise ValueError(
+                    'provider_frequency_response result requires a provider payload'
+                )
+            if self.modes or self.reflections:
+                raise ValueError(
+                    'provider_frequency_response must not contain geometry payloads'
+                )
+        elif self.provider_response is not None:
+            raise ValueError(
+                'geometry result kinds must not carry a provider response'
+            )
+        if self.geometry_compatibility == 'unsupported' and (
+            self.modes or self.reflections or self.provider_response is not None
+        ):
             raise ValueError('unsupported model geometry must not publish prediction payloads')
         if self.result_sha256 != prediction_result_sha256(self.result_identity_payload()):
             raise ValueError('result_sha256 does not match the canonical result identity payload')

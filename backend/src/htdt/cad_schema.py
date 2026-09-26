@@ -317,6 +317,7 @@ _LEGACY_TABLE_SIGNATURES = {
             ('warnings_json', 'TEXT', 1, None, 0),
             ('modes_json', 'TEXT', 1, None, 0),
             ('reflections_json', 'TEXT', 1, None, 0),
+            ('provider_response_json', 'TEXT', 0, None, 0),
             ('result_sha256', 'TEXT', 0, None, 0),
         ),
         foreign_keys=frozenset({
@@ -328,7 +329,7 @@ _LEGACY_TABLE_SIGNATURES = {
         # Output identity is appended lazily by
         # CadPredictionRepository._initialize: a pre-versioning database may
         # lack the column but must match exactly when it is present.
-        optional_columns=frozenset({'result_sha256'}),
+        optional_columns=frozenset({'result_sha256', 'provider_response_json'}),
     ),
     'cad_roomsim_batch_specs': _LegacyTableSignature(
         columns=(

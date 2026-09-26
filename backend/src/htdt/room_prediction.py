@@ -36,10 +36,22 @@ from .cad_acoustic_environment import (
 from .cad_constraint_repository import CadConstraintRepository
 from .cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard, PredictionJobToken
 from .cad_prediction_models import CadPredictionResult
+from .cad_hybrid_prediction_provider import (
+    CadHybridPredictionProviderRepository,
+    HybridPredictionProvider,
+)
 from .cad_prediction_provider import (
     CadPredictionProviderRepository,
     LowBandPredictionProvider,
     PredictionProviderResolution,
+)
+from .cad_provider_response import (
+    HYBRID_RESPONSE_MODEL_ID,
+    PROVIDER_RESPONSE_MODEL_ID,
+    ProviderResponseRequestIdentity,
+    analyze_provider_frequency_response,
+    embedded_run_provider,
+    provider_response_request_identity,
 )
 from .cad_listener_pose import (
     CadListenerPoseRepository,
@@ -73,14 +85,21 @@ from .cad_search_models import constraint_workspace_snapshot
 from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .room_prediction_options import (
+    HYBRID_MODEL_KEY,
+    HYBRID_MODEL_KEY_PREFIX,
     RECTANGULAR_MODEL_KEY,
+    WAVE_MODEL_KEY_PREFIX,
     RoomPredictionModelOption,
+    _provider_resolution,
     resolve_room_prediction_options,
 )
 from .room_prediction_target import RoomPredictionTarget
 from .prediction_interpretation import (
+    PredictionAuthorityRef,
+    PredictionCapabilityItem,
     PredictionFinding,
     PredictionInterpretation,
+    ProviderEvidence,
     interpret_prediction_results,
 )
 from .room_workspace import RoomWorkspaceController
@@ -102,7 +121,7 @@ class RoomPredictionRunSpec:
     max_mode_hz: float
     sound_speed_m_s: float
     constraint_workspace_hash: str
-    identity: RectangularGeometryRequestIdentity
+    identity: RectangularGeometryRequestIdentity | ProviderResponseRequestIdentity
     token: PredictionJobToken
     environment_profile: ExactExternalAuthorityRef | None = None
     listener_pose: ListenerPoseAuthority | None = None
@@ -112,6 +131,9 @@ class RoomPredictionRunSpec:
     #: supplies the source/receiver set and the request identity carries
     #: the exact variant id/hash — the variant is never applied to run.
     system_variant: SystemVariant | None = None
+    #: #938 provider lane: the exact persisted R170A/R170B authority whose
+    #: stored output this run consumes. ``None`` marks the rectangular lane.
+    provider: 'LowBandPredictionProvider | HybridPredictionProvider | None' = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +169,7 @@ class RoomPredictionController(QObject):
         listener_pose_repository: CadListenerPoseRepository | None = None,
         operating_state_repository: CadRoomOperatingStateRepository | None = None,
         variant_repository: CadSystemVariantRepository | None = None,
+        hybrid_provider_repository: CadHybridPredictionProviderRepository | None = None,
     ) -> None:
         super().__init__(parent)
         self.scene_repository = scene_repository
@@ -160,6 +183,8 @@ class RoomPredictionController(QObject):
             else CadAcousticEnvironmentRepository(scene_repository.path)
         )
         self.provider_repository = provider_repository
+        # #938: R170B providers supply the hybrid prediction lane options.
+        self.hybrid_provider_repository = hybrid_provider_repository
         # #939: seat receivers resolve through the selected exact
         # ListenerPoseAuthority when one exists; legacy seat offset remains
         # only as the explicitly labelled fallback.
@@ -365,6 +390,11 @@ class RoomPredictionController(QObject):
             return ()
         return self.provider_repository.list_providers(self.document_id)
 
+    def available_hybrid_providers(self) -> tuple[HybridPredictionProvider, ...]:
+        if self.hybrid_provider_repository is None:
+            return ()
+        return self.hybrid_provider_repository.list_providers(self.document_id)
+
     def prediction_options(
         self,
         receiver_entity_id: str,
@@ -425,6 +455,7 @@ class RoomPredictionController(QObject):
             option_revision,
             receiver_entity_id,
             providers=self.available_providers(),
+            hybrid_providers=self.available_hybrid_providers(),
             environment_profile=environment,
             max_mode_hz=max_mode_hz,
             listener_pose=self._selected_pose(entity.entity_id),
@@ -537,10 +568,96 @@ class RoomPredictionController(QObject):
             return None
         return provider, _provider_resolution(provider, scene_revision)
 
+    def _provider_by_id(
+        self,
+        provider_id: str,
+    ) -> 'LowBandPredictionProvider | HybridPredictionProvider | None':
+        for provider in (
+            *self.available_providers(),
+            *self.available_hybrid_providers(),
+        ):
+            if provider.provider_id == provider_id:
+                return provider
+        return None
+
+    def _prepare_provider_run(
+        self,
+        receiver_entity_id: str,
+        *,
+        model_key: str,
+        max_mode_hz: float,
+        allow_source_receiver: bool = False,
+        system_variant_id: str | None = None,
+    ) -> RoomPredictionRunSpec:
+        """Prepare one provider-lane run (#938).
+
+        Provider evidence is pinned to the baseline SceneRevision: a selected
+        proposal has no provider evidence to consume, so the lane refuses
+        instead of silently predicting the baseline while a variant is shown.
+        """
+        variant = self._resolve_prediction_variant(system_variant_id)
+        if variant is not None:
+            raise ValueError(
+                'provider lane はベースのSceneRevisionに固定されています '
+                '(提案variantにはprovider evidenceがありません)'
+            )
+        revision = self._saved_target(
+            receiver_entity_id,
+            allow_source_receiver=allow_source_receiver,
+        )
+        options = {
+            option.model_key: option
+            for option in resolve_room_prediction_options(
+                revision,
+                receiver_entity_id,
+                providers=self.available_providers(),
+                hybrid_providers=self.available_hybrid_providers(),
+                max_mode_hz=max_mode_hz,
+            )
+        }
+        option = options.get(model_key)
+        if option is None or option.state != 'READY' or not option.runnable:
+            raise ValueError(
+                '選択したprediction laneはこのSceneRevisionでは実行できません'
+            )
+        provider = (
+            None
+            if option.provider_id is None
+            else self._provider_by_id(option.provider_id)
+        )
+        if provider is None:
+            raise ValueError('provider authorityが見つかりません')
+        identity = provider_response_request_identity(
+            provider,
+            revision,
+            receiver_entity_id,
+            max_mode_hz=max_mode_hz,
+        )
+        constraint_hash = self._constraint_hash()
+        token = self.job_guard.submit(
+            revision,
+            model_id=identity.model_id,
+            model_version=identity.model_version,
+            parameters_json=identity.parameters_json,
+            input_hash=identity.input_hash,
+            constraint_workspace_hash=constraint_hash,
+        )
+        return RoomPredictionRunSpec(
+            revision=revision,
+            receiver_entity_id=receiver_entity_id,
+            max_mode_hz=float(max_mode_hz),
+            sound_speed_m_s=0.0,
+            constraint_workspace_hash=constraint_hash,
+            identity=identity,
+            token=token,
+            provider=provider,
+        )
+
     def prepare_run(
         self,
         receiver_entity_id: str,
         *,
+        model_key: str = RECTANGULAR_MODEL_KEY,
         max_mode_hz: float = 300.0,
         sound_speed_m_s: float | None = None,
         environment_profile_id: str | None = None,
@@ -549,6 +666,14 @@ class RoomPredictionController(QObject):
         allow_source_receiver: bool = False,
         system_variant_id: str | None = None,
     ) -> RoomPredictionRunSpec:
+        if model_key != RECTANGULAR_MODEL_KEY:
+            return self._prepare_provider_run(
+                receiver_entity_id,
+                model_key=model_key,
+                max_mode_hz=max_mode_hz,
+                allow_source_receiver=allow_source_receiver,
+                system_variant_id=system_variant_id,
+            )
         variant = self._resolve_prediction_variant(system_variant_id)
         revision = self._saved_target(
             receiver_entity_id,
@@ -630,6 +755,14 @@ class RoomPredictionController(QObject):
     ) -> tuple[CadPredictionResult, ...] | None:
         if cancel_event.is_set():
             return None
+        if spec.provider is not None:
+            return analyze_provider_frequency_response(
+                spec.provider,
+                spec.revision,
+                spec.receiver_entity_id,
+                max_mode_hz=spec.max_mode_hz,
+                constraint_workspace_hash=spec.constraint_workspace_hash,
+            )
         return analyze_native_rectangular_geometry(
             spec.revision,
             spec.receiver_entity_id,
@@ -668,16 +801,53 @@ class RoomPredictionController(QObject):
             option = options.get(model_key)
             if option is None:
                 message = "選択した予測モデルはこの画面では利用できません"
-            elif option.state == 'READY':
-                message = (
-                    "このlaneは計算実行ではなく登録済みprovider出力の参照です "
-                    "— providerビューで確認してください"
-                )
-            else:
+            elif option.state != 'READY' or not option.runnable:
                 message = (
                     f"{option.label}: {option.state} · "
                     + " / ".join(option.reasons)
                 )
+            else:
+                # #938: READY provider lanes execute — the run consumes the
+                # exact persisted authority output through the same
+                # guard/pool/persistence path as the rectangular lane.
+                if self.is_busy:
+                    self.stateChanged.emit(
+                        RoomPredictionRunState(True, "予測を実行中です")
+                    )
+                    return False
+                try:
+                    spec = self._prepare_provider_run(
+                        receiver_entity_id,
+                        model_key=model_key,
+                        max_mode_hz=max_mode_hz,
+                        allow_source_receiver=allow_source_receiver,
+                        system_variant_id=system_variant_id,
+                    )
+                except Exception as exc:
+                    self.stateChanged.emit(
+                        RoomPredictionRunState(
+                            False,
+                            f"予測を開始できません · {exc}",
+                            error=True,
+                        )
+                    )
+                    return False
+                self._tokens[spec.token.job_id] = spec.token
+                self._specs[spec.token.job_id] = spec
+                self._current_job_id = spec.token.job_id
+                self.stateChanged.emit(
+                    RoomPredictionRunState(
+                        True,
+                        "登録済みprovider出力を参照しています…",
+                    )
+                )
+                self._pool.start(
+                    spec.token.job_id,
+                    lambda cancel_event: self._operation(spec, cancel_event),
+                    self._task_completed,
+                    on_finished=self._task_thread_finished,
+                )
+                return True
             self.stateChanged.emit(
                 RoomPredictionRunState(False, message, error=True)
             )
@@ -875,6 +1045,15 @@ class RoomPredictionController(QObject):
             and self._constraint_hash() == result.constraint_workspace_hash
         ):
             return False
+        # #938 provider lanes embed the exact provider authority in the
+        # canonical request — staleness against the current revision is
+        # already the binding check; the rectangular-only environment ref
+        # contract does not apply to their parameters.
+        if result.model_id in (
+            PROVIDER_RESPONSE_MODEL_ID,
+            HYBRID_RESPONSE_MODEL_ID,
+        ):
+            return True
         # A run bound to an environment profile is stale once the document's
         # selected profile (or its versioned content) no longer matches (#479).
         bound_ref = rectangular_geometry_environment_profile_ref(result.parameters_json)
@@ -892,12 +1071,83 @@ class RoomPredictionController(QObject):
         """Provider authority behind one run, as ``(provider, resolution)``.
 
         Solver-neutral seam for the #457 provider path: the N70
-        rectangular-geometry lane persists no provider authority, so this
-        returns ``None`` and the interpretation keeps capability gaps explicit
-        instead of inventing provider-backed claims.
+        rectangular-geometry lane persists no provider authority and returns
+        ``None``. #938 provider runs embed the exact authority in the
+        canonical request — the same sealed payload is re-validated here so
+        interpretation binds the run's own evidence, never a mutable
+        repository lookup.
         """
-        del results
-        return None
+        provider = embedded_run_provider(results[0])
+        if provider is None:
+            return None
+        revision = self.scene_repository.get(results[0].scene_revision_id)
+        if revision is None:
+            return (provider, None)
+        if isinstance(provider, LowBandPredictionProvider):
+            return (provider, _provider_resolution(provider, revision))
+        # R170B hybrid authorities carry their current pins under
+        # ``base_current_authority`` and a different provider-ref shape than
+        # the R170A resolution contract — project the evidence directly so
+        # interpretation still binds the exact stored authority (#938).
+        authority = provider.base_current_authority
+        reasons: list[str] = []
+        if authority.scene_revision_id != revision.revision_id:
+            reasons.append('providerの基となったSceneRevisionではありません')
+        elif authority.scene_content_hash != revision.content_hash:
+            reasons.append('Scene内容がprovider作成後に変更されました')
+        if authority.document_id != revision.document_id:
+            reasons.append('providerが別のドキュメントに属します')
+        domain = provider.valid_frequency_domain
+        evidence = ProviderEvidence(
+            provider_id=provider.provider_id,
+            semantic_sha256=provider.semantic_sha256,
+            evidence_state=provider.evidence_state,
+            evidence_scope=provider.evidence_scope,
+            stale_state='STALE' if reasons else 'CURRENT',
+            stale_reasons=tuple(reasons),
+            valid_band_hz=(
+                float(domain.minimum_hz),
+                float(domain.maximum_hz),
+            ),
+            capabilities=tuple(
+                PredictionCapabilityItem(
+                    observable=str(item.observable),
+                    label=str(item.observable),
+                    state=(
+                        str(item.state)
+                        if str(item.state) in ('READY', 'UNSUPPORTED')
+                        else 'UNKNOWN'
+                    ),
+                    reason=item.reason,
+                )
+                for item in provider.observable_capabilities
+            ),
+            authority_refs=(
+                PredictionAuthorityRef(
+                    'prediction_provider',
+                    provider.provider_id,
+                    provider.semantic_sha256,
+                ),
+                PredictionAuthorityRef(
+                    'scene_revision',
+                    str(authority.scene_revision_id),
+                    authority.scene_content_hash,
+                ),
+                PredictionAuthorityRef(
+                    'acoustic_scene_snapshot',
+                    str(authority.acoustic_scene_snapshot_id),
+                    authority.acoustic_scene_snapshot_sha256,
+                ),
+            ),
+            adapter_id=provider.adapter_id,
+            adapter_version=provider.adapter_version,
+            authority_version=provider.authority_version,
+            source_entity_id=provider.source_entity_id,
+            receiver_entity_ids=(
+                provider.receiver_identity.receiver_binding.entity_id,
+            ),
+        )
+        return (evidence, None)
 
     def interpretation_for(
         self,

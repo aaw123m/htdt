@@ -37,6 +37,7 @@ from htdt.cad_prediction_request import rectangular_geometry_request_identity
 from htdt.cad_r110_source import compile_r110_source_model
 from htdt.cad_r110_source_repository import CadR110SourceRepository
 from htdt.cad_repository import SceneRepository
+from htdt.cad_screen_transfer import build_screen_transfer
 from htdt.cad_scene import (
     Direction3,
     Offset3,
@@ -372,28 +373,43 @@ def _speaker(
     )
 
 
-def _scene_document(*, document_id: str = 'acoustic-snapshot-fixture'):
+def _scene_document(
+    *,
+    document_id: str = 'acoustic-snapshot-fixture',
+    include_screen: bool = False,
+):
+    entities = [
+        _speaker('speaker-fl', 'FL', x_m=1.0),
+        _speaker('speaker-fr', 'FR', x_m=4.0),
+        SceneEntity(
+            entity_id='receiver-mlp',
+            kind='measurement_point',
+            name='MLP',
+            position=Position3(x_m=2.5, y_m=3.0, z_m=1.1),
+        ),
+        SceneEntity(
+            entity_id='receiver-rear',
+            kind='measurement_point',
+            name='Rear seat',
+            position=Position3(x_m=2.5, y_m=3.5, z_m=1.1),
+        ),
+    ]
+    if include_screen:
+        entities.append(
+            SceneEntity(
+                entity_id='screen-projection',
+                kind='screen',
+                name='Projection screen',
+                position=Position3(x_m=2.5, y_m=0.5, z_m=1.2),
+                size_m=Size3(x_m=2.0, y_m=1.2, z_m=0.02),
+            )
+        )
     return SceneDocument(
         document_id=document_id,
         schema_version=4,
         room=None,
         r120_semantic_geometry=_semantic_geometry(),
-        entities=(
-            _speaker('speaker-fl', 'FL', x_m=1.0),
-            _speaker('speaker-fr', 'FR', x_m=4.0),
-            SceneEntity(
-                entity_id='receiver-mlp',
-                kind='measurement_point',
-                name='MLP',
-                position=Position3(x_m=2.5, y_m=3.0, z_m=1.1),
-            ),
-            SceneEntity(
-                entity_id='receiver-rear',
-                kind='measurement_point',
-                name='Rear seat',
-                position=Position3(x_m=2.5, y_m=3.5, z_m=1.1),
-            ),
-        ),
+        entities=tuple(entities),
     )
 
 
@@ -414,11 +430,13 @@ def _fixture(
     include_material: bool = True,
     portal_mode: str = 'explicit_none',
     include_environment: bool = True,
+    include_screen: bool = False,
+    screen_transfer_authorities=(),
 ):
     db = tmp_path / 'cad.sqlite3'
     scene_repository = SceneRepository(db)
     revision = scene_repository.save(
-        _scene_document(),
+        _scene_document(include_screen=include_screen),
         parent_revision_id=None,
     ).revision
 
@@ -599,6 +617,7 @@ def _fixture(
             'fixture-valid-frequency-domain',
             'e',
         ),
+        screen_transfer_authorities=screen_transfer_authorities,
     )
 
     return {
@@ -2669,3 +2688,127 @@ def test_persisted_snapshot_index_columns_must_agree_with_payload(
         match='persisted AcousticSceneSnapshot payload identity mismatch',
     ):
         repository.get_snapshot_by_hash(snapshot.semantic_sha256)
+
+
+def _screen_transfer(document_id: str = 'acoustic-snapshot-fixture'):
+    return build_screen_transfer(
+        screen_entity_id='screen-projection',
+        label='Projection screen transfer',
+        capability_tier='AT_CLAIM',
+        provenance='fixture',
+        document_id=document_id,
+    )
+
+
+def _observable_state(snapshot, observable: str):
+    return next(
+        item
+        for item in snapshot.readiness.observable_readiness
+        if item.observable == observable
+    )
+
+
+def test_screen_entity_blocks_field_observables_until_transfer_integrated(
+    tmp_path: Path,
+):
+    fx = _fixture(tmp_path, include_screen=True)
+    snapshot = fx['snapshot']
+
+    magnitude = _observable_state(snapshot, 'magnitude_response')
+    complex_pressure = _observable_state(snapshot, 'complex_pressure')
+    paths = _observable_state(snapshot, 'deterministic_paths')
+    assert magnitude.state == 'BLOCKED'
+    assert complex_pressure.state == 'BLOCKED'
+    assert 'wave:screen_transfer_not_integrated' in magnitude.reasons
+    assert 'geometric:screen_transfer_not_integrated' in magnitude.reasons
+    assert any(
+        'screen_transfer_not_integrated' in reason
+        for reason in complex_pressure.reasons
+    )
+    # The deterministic path set is pure R150 geometry: a screen does not
+    # invalidate path existence, only the response through it (#940).
+    assert paths.state == 'READY'
+    assert 'screen_transfer_unbound:screen-projection' in (
+        snapshot.unresolved_conditions
+    )
+    assert snapshot.screen_transfer_bindings == ()
+
+
+def test_bound_screen_transfer_authority_is_recorded_but_stays_unmodelled(
+    tmp_path: Path,
+):
+    authority = _screen_transfer()
+    fx = _fixture(
+        tmp_path,
+        include_screen=True,
+        screen_transfer_authorities=(authority,),
+    )
+    snapshot = fx['snapshot']
+
+    assert len(snapshot.screen_transfer_bindings) == 1
+    binding = snapshot.screen_transfer_bindings[0]
+    assert binding.screen_entity_id == 'screen-projection'
+    assert binding.screen_transfer_ref == authority.authority_ref()
+    assert 'screen_transfer_not_integrated:screen-projection' in (
+        snapshot.unresolved_conditions
+    )
+    magnitude = _observable_state(snapshot, 'magnitude_response')
+    assert magnitude.state == 'BLOCKED'
+    assert any(
+        'screen_transfer_not_integrated' in reason
+        for reason in magnitude.reasons
+    )
+
+    # The bound authority is part of snapshot identity: swapping it changes
+    # the semantic hash rather than silently re-binding.
+    other = build_screen_transfer(
+        screen_entity_id='screen-projection',
+        label='Different transfer evidence',
+        capability_tier='AT_CLAIM',
+        provenance='fixture',
+        document_id='acoustic-snapshot-fixture',
+    )
+    other_dir = tmp_path / 'other'
+    other_dir.mkdir()
+    fx_other = _fixture(
+        other_dir,
+        include_screen=True,
+        screen_transfer_authorities=(other,),
+    )
+    assert fx_other['snapshot'].semantic_sha256 != snapshot.semantic_sha256
+
+
+def test_screen_transfer_authority_must_reference_a_screen_entity(
+    tmp_path: Path,
+):
+    bad = build_screen_transfer(
+        screen_entity_id='speaker-fl',
+        label='Not a screen',
+        capability_tier='AT_CLAIM',
+        provenance='fixture',
+        document_id='acoustic-snapshot-fixture',
+    )
+    with pytest.raises(
+        ValueError,
+        match='screen transfer authority references an entity',
+    ):
+        _fixture(
+            tmp_path,
+            include_screen=True,
+            screen_transfer_authorities=(bad,),
+        )
+
+
+def test_screen_transfer_authority_document_binding_must_match(
+    tmp_path: Path,
+):
+    wrong_document = _screen_transfer(document_id='other-document')
+    with pytest.raises(
+        ValueError,
+        match='screen transfer authority document binding mismatch',
+    ):
+        _fixture(
+            tmp_path,
+            include_screen=True,
+            screen_transfer_authorities=(wrong_document,),
+        )
