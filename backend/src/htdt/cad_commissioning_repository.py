@@ -27,6 +27,7 @@ from .cad_commissioning import (
     build_commissioning_run,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -82,53 +83,10 @@ class CadCommissioningRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_tolerance_profiles (
-                    profile_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    profile_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_commissioning_plans (
-                    plan_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    scene_revision_id TEXT NOT NULL,
-                    tolerance_profile_id TEXT NOT NULL,
-                    plan_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_commissioning_runs (
-                    run_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    plan_id TEXT NOT NULL,
-                    run_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY (plan_id)
-                        REFERENCES cad_commissioning_plans (plan_id)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_commissioning_runs_plan
-                ON cad_commissioning_runs (plan_id, created_at_utc)
-                """
-            )
+            require_native_tables(connection, 'cad_tolerance_profiles', 'cad_commissioning_plans', 'cad_commissioning_runs')
 
     def save_tolerance_profile(self, profile: ToleranceProfile) -> None:
         if self.get_tolerance_profile(profile.profile_id) is not None:

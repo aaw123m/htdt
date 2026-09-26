@@ -29,6 +29,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
 from .acoustic_benchmark import (
     AcousticMaterial,
     GeometricAcousticBand,
@@ -237,34 +238,19 @@ class CadAcousticMaterialRepository:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_acoustic_materials',
+                'cad_surface_material_assignments',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_materials (
-                    material_id TEXT PRIMARY KEY,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_surface_material_assignments (
-                    document_id TEXT NOT NULL,
-                    source_surface_id TEXT NOT NULL,
-                    material_id TEXT NOT NULL,
-                    material_sha256 TEXT NOT NULL,
-                    PRIMARY KEY (document_id, source_surface_id)
-                )
-                """
-            )
 
     def save_material(self, material: AcousticMaterialAuthority) -> None:
         """Persist an immutable material authority.

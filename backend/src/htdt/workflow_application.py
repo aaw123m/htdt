@@ -31,6 +31,7 @@ from .application_pages import (
     activity_focus,
     inbox_focus,
     list_recent_revisions,
+    projects_focus,
 )
 from .cad_input import (
     CAD_SCENE_COMMAND_IDS,
@@ -1062,7 +1063,7 @@ class WorkflowApplicationComposition:
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
-            focus_target=lambda target: TargetFocusResult(focused=True),
+            focus_target=lambda target: projects_focus(page, target),
         )
 
     def _make_inbox(self) -> WorkspaceMount:
@@ -1122,10 +1123,23 @@ class WorkflowApplicationComposition:
                 else None
             ),
         )
+
+        def focus_target(target: NavigationTarget) -> TargetFocusResult:
+            # #766: report focus only when the requested topic resolved.
+            topic_id = target.primary_id
+            if topic_id is None:
+                return TargetFocusResult(focused=True)
+            if self._open_help_topic(topic_id):
+                return TargetFocusResult(focused=True)
+            return TargetFocusResult(
+                focused=False,
+                message="対象のヘルプトピックは存在しません",
+            )
+
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
-            focus_target=lambda target: TargetFocusResult(focused=True),
+            focus_target=focus_target,
         )
 
     def _open_commissioning_wizard(self) -> None:

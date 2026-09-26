@@ -619,12 +619,21 @@ class ReferenceLibraryPage(QWidget):
                     str(getattr(definition, "version", "")),
                 )
             ):
-                self.table.setItem(row, column, QTableWidgetItem(str(value)))
+                item = QTableWidgetItem(str(value))
+                if column == 1:
+                    item.setData(
+                        Qt.ItemDataRole.UserRole,
+                        getattr(definition, "definition_id", ""),
+                    )
+                self.table.setItem(row, column, item)
 
     def focus_definition(self, definition_id: str) -> TargetFocusResult:
         for row in range(self.table.rowCount()):
             model = self.table.item(row, 1)
-            if model is not None and model.text() == definition_id:
+            if (
+                model is not None
+                and model.data(Qt.ItemDataRole.UserRole) == definition_id
+            ):
                 self.table.selectRow(row)
                 return TargetFocusResult(focused=True)
         return TargetFocusResult(
@@ -690,6 +699,23 @@ class SupportPage(QWidget):
             self._status_labels.append(label)
 
 
+def projects_focus(
+    page: ProjectLibraryPage, target: NavigationTarget
+) -> TargetFocusResult:
+    project_id = target.primary_id
+    if project_id is None:
+        return TargetFocusResult(focused=True)
+    for row in range(page.table.rowCount()):
+        cell = page.table.item(row, 0)
+        if cell is not None and cell.data(Qt.ItemDataRole.UserRole) == project_id:
+            page.table.selectRow(row)
+            return TargetFocusResult(focused=True)
+    return TargetFocusResult(
+        focused=False,
+        message="プロジェクト一覧に該当の項目がありません",
+    )
+
+
 def inbox_focus(page: CaptureInboxPage, target: NavigationTarget) -> TargetFocusResult:
     item_id = target.primary_id
     if item_id is None:
@@ -706,11 +732,12 @@ def inbox_focus(page: CaptureInboxPage, target: NavigationTarget) -> TargetFocus
 
 
 def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusResult:
+    if target.primary_id is None:
+        return TargetFocusResult(focused=True)
     for row in range(page.table.rowCount()):
         cell = page.table.item(row, 2)
         if (
             cell is not None
-            and target.primary_id is not None
             and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
         ):
             page.table.selectRow(row)
@@ -731,5 +758,6 @@ __all__ = [
     "SupportPage",
     "activity_focus",
     "inbox_focus",
+    "projects_focus",
     "list_recent_revisions",
 ]

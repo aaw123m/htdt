@@ -32,6 +32,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
+
 
 ProblemClass = Literal[
     'c_small',
@@ -466,32 +468,18 @@ class ComputeEvidenceRepository:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_compute_benchmarks',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_compute_benchmarks (
-                    benchmark_id TEXT PRIMARY KEY,
-                    case_name TEXT NOT NULL,
-                    spec_digest TEXT NOT NULL,
-                    hardware_profile_id TEXT NOT NULL,
-                    backend TEXT NOT NULL,
-                    solver_identity TEXT NOT NULL,
-                    runtime_s REAL NOT NULL,
-                    peak_memory_mb REAL NOT NULL,
-                    output_size_mb REAL NOT NULL,
-                    recorded_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
 
     def save_record(self, record: BenchmarkRecord) -> BenchmarkRecord:
         with closing(self._connect()) as connection, connection:

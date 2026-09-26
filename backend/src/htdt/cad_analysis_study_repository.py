@@ -24,6 +24,7 @@ from .cad_authority_resolver import (
 )
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -73,27 +74,10 @@ class CadAnalysisStudyRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_analysis_studies (
-                    study_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    study_kind TEXT NOT NULL,
-                    study_sha256 TEXT NOT NULL,
-                    supersedes_study_id TEXT,
-                    duplicated_from_study_id TEXT,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_analysis_studies_document
-                ON cad_analysis_studies (document_id, created_at_utc)
-                """
-            )
+            require_native_tables(connection, 'cad_analysis_studies')
 
     def _resolve_study_authority(self, study: AnalysisStudy) -> None:
         """Resolve every authority the study claims, inside its document."""

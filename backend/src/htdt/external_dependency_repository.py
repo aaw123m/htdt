@@ -20,6 +20,7 @@ from contextlib import closing
 import sqlite3
 
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .external_dependency_resolver import (
     DependencyResolutionContext,
     DependencyResolutionEvent,
@@ -52,47 +53,10 @@ class ExternalDependencyRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_external_dependencies (
-                    dependency_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    authority_ref TEXT NOT NULL,
-                    dependency_sha256 TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_external_dependencies_ref
-                ON cad_external_dependencies (document_id, kind, authority_ref)
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_dependency_resolution_events (
-                    event_id TEXT PRIMARY KEY,
-                    dependency_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    outcome TEXT NOT NULL,
-                    resolved_sha256 TEXT,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY (dependency_id)
-                        REFERENCES cad_external_dependencies (dependency_id)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_resolution_events_dependency
-                ON cad_dependency_resolution_events (dependency_id, created_at_utc)
-                """
-            )
+            require_native_tables(connection, 'cad_external_dependencies', 'cad_dependency_resolution_events')
 
     def save_dependency(
         self, dependency: ExternalAuthorityDependency

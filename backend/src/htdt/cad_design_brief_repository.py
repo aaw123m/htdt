@@ -26,6 +26,7 @@ from .cad_design_brief import (
     current_brief,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -81,25 +82,10 @@ class CadDesignBriefRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_design_briefs (
-                    brief_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    brief_sha256 TEXT NOT NULL,
-                    supersedes_brief_id TEXT,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_design_briefs_document
-                ON cad_design_briefs (document_id, created_at_utc)
-                """
-            )
+            require_native_tables(connection, 'cad_design_briefs')
 
     def save_brief(self, brief: ProjectDesignBrief) -> None:
         for goal in brief.goal_refs:

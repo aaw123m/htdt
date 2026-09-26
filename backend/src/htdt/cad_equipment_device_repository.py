@@ -19,6 +19,7 @@ from .cad_equipment_device import (
     ProposedDeviceAction,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 
 
 class DeviceFrameworkConflictError(ValueError):
@@ -40,64 +41,17 @@ class CadEquipmentDeviceRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_device_target_bindings (
-                    binding_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    binding_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL
-                )
-                """
+            require_native_tables(
+                connection,
+                'cad_device_target_bindings',
+                'cad_device_capability_snapshots',
+                'cad_observed_device_states',
+                'cad_proposed_device_actions',
+                'cad_device_action_acks',
             )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_device_capability_snapshots (
-                    snapshot_id TEXT PRIMARY KEY,
-                    binding_sha256 TEXT NOT NULL,
-                    snapshot_sha256 TEXT NOT NULL UNIQUE,
-                    probed_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_observed_device_states (
-                    observation_id TEXT PRIMARY KEY,
-                    binding_sha256 TEXT NOT NULL,
-                    observation_sha256 TEXT NOT NULL UNIQUE,
-                    observed_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_proposed_device_actions (
-                    action_id TEXT PRIMARY KEY,
-                    binding_sha256 TEXT NOT NULL,
-                    action_sha256 TEXT NOT NULL UNIQUE,
-                    planned_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_device_action_acks (
-                    ack_id TEXT PRIMARY KEY,
-                    action_sha256 TEXT NOT NULL,
-                    ack_sha256 TEXT NOT NULL UNIQUE,
-                    acked_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-
-    # ------------------------------------------------------------------
-    # Bindings
 
     def save_binding(self, binding: DeviceTargetBinding) -> None:
         if self.get_binding(binding.binding_id) is not None:

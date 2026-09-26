@@ -28,6 +28,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_schema import ensure_native_schema, require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -423,41 +424,19 @@ class FieldSessionRepository:
 
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
-        self._ensure_schema()
+        ensure_native_schema(self.path)
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(connection,
+                'cad_field_sessions',
+                'cad_field_evidence_records',
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.path))
         connection.row_factory = sqlite3.Row
         return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_field_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    task_kind TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    issued_at_utc TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_field_evidence_records (
-                    record_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    review_state TEXT NOT NULL,
-                    captured_at_utc TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
 
     def save_session(self, session: FieldSession) -> FieldSession:
         """Persist a session; a same-id conflicting write fails closed."""

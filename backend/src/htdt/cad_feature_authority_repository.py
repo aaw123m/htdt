@@ -44,6 +44,7 @@ from .cad_field_labels import FieldLabel, LabelSheet
 from .cad_project_bom import ProjectBOM
 from .cad_rack_infrastructure import RackDefinition, RackLayout
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_sound_isolation import (
     IsolationAssembly,
     IsolationEstimate,
@@ -114,158 +115,24 @@ class CadFeatureAuthorityRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_acoustic_target_profiles (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    profile_id TEXT NOT NULL,
-                    profile_version TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(profile_id, profile_version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_acoustic_target_profile_doc
-                    ON cad_acoustic_target_profiles(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_isolation_assemblies (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    assembly_id TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_isolation_assembly_doc
-                    ON cad_isolation_assemblies(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_isolation_scenarios (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scenario_id TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_isolation_scenario_doc
-                    ON cad_isolation_scenarios(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_isolation_estimates (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    estimate_id TEXT NOT NULL,
-                    scenario_id TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_isolation_estimate_doc
-                    ON cad_isolation_estimates(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_isolation_measurements (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    measurement_id TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_isolation_measurement_doc
-                    ON cad_isolation_measurements(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_rack_definitions (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    rack_id TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_rack_definition_doc
-                    ON cad_rack_definitions(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_rack_layouts (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    layout_id TEXT NOT NULL,
-                    rack_id TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_rack_layout_doc
-                    ON cad_rack_layouts(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_project_boms (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    bom_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(bom_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_project_bom_doc
-                    ON cad_project_boms(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_drawing_set_specs (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    spec_id TEXT NOT NULL,
-                    spec_version TEXT NOT NULL,
-                    document_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(spec_id, spec_version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_drawing_set_spec_doc
-                    ON cad_drawing_set_specs(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_installation_drawing_sets (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    drawing_set_id TEXT NOT NULL,
-                    document_id TEXT,
-                    installation_output_sha256 TEXT NOT NULL,
-                    spec_sha256 TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_installation_drawing_set_doc
-                    ON cad_installation_drawing_sets(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_field_labels (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    label_id TEXT NOT NULL,
-                    project_id TEXT NOT NULL,
-                    target_id TEXT NOT NULL,
-                    generation INTEGER NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(target_id, generation)
-                );
-                CREATE INDEX IF NOT EXISTS idx_field_label_project
-                    ON cad_field_labels(project_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_field_label_sheets (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sheet_id TEXT NOT NULL,
-                    project_id TEXT,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_field_label_sheet_project
-                    ON cad_field_label_sheets(project_id, seq ASC);
-                """
+            require_native_tables(
+                connection,
+                'cad_acoustic_target_profiles',
+                'cad_isolation_assemblies',
+                'cad_isolation_scenarios',
+                'cad_isolation_estimates',
+                'cad_isolation_measurements',
+                'cad_rack_definitions',
+                'cad_rack_layouts',
+                'cad_project_boms',
+                'cad_drawing_set_specs',
+                'cad_installation_drawing_sets',
+                'cad_field_labels',
+                'cad_field_label_sheets',
             )
-
-    # ------------------------------------------------------------------
-    # Generic append-only helpers
 
     def _insert(
         self,

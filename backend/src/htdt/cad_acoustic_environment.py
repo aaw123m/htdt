@@ -27,7 +27,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_acoustic_snapshot import SnapshotEnvironmentAuthorityRef
-from .cad_schema import ensure_native_schema
+from .cad_schema import ensure_native_schema, require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -444,28 +444,10 @@ class CadAcousticEnvironmentRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_environment_profiles (
-                    authority_id TEXT PRIMARY KEY,
-                    semantic_hash_sha256 TEXT NOT NULL,
-                    label TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE TABLE IF NOT EXISTS cad_environment_selections (
-                    document_id TEXT PRIMARY KEY,
-                    authority_id TEXT NOT NULL,
-                    semantic_hash_sha256 TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL
-                )
-                '''
-            )
+            require_native_tables(connection, 'cad_environment_profiles', 'cad_environment_selections')
 
     @staticmethod
     def _payload(profile: AcousticEnvironmentProfile) -> str:

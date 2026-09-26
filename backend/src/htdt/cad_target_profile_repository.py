@@ -7,6 +7,7 @@ import sqlite3
 
 from .cad_calibration_repository import CadCalibrationRepository
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_target_profile import (
     CadTargetCurveProfile,
     CalibrationPlanTargetBinding,
@@ -47,42 +48,10 @@ class CadTargetProfileRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS cad_target_curve_profiles (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    profile_id TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    semantic_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    created_at_utc TEXT NOT NULL,
-                    UNIQUE(profile_id, version)
-                );
-                CREATE INDEX IF NOT EXISTS idx_target_profile_doc
-                    ON cad_target_curve_profiles(document_id, seq ASC);
-
-                CREATE TABLE IF NOT EXISTS cad_plan_target_bindings (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    binding_id TEXT NOT NULL UNIQUE,
-                    document_id TEXT NOT NULL,
-                    plan_id TEXT NOT NULL,
-                    profile_id TEXT NOT NULL,
-                    profile_version TEXT NOT NULL,
-                    binding_sha256 TEXT NOT NULL UNIQUE,
-                    payload_json TEXT NOT NULL,
-                    bound_at_utc TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_plan_target_binding_plan
-                    ON cad_plan_target_bindings(plan_id, seq ASC);
-                CREATE INDEX IF NOT EXISTS idx_plan_target_binding_profile
-                    ON cad_plan_target_bindings(profile_id, seq ASC);
-                """
-            )
-
-    # ------------------------------------------------------------------
-    # Profiles
+            require_native_tables(connection, 'cad_target_curve_profiles', 'cad_plan_target_bindings')
 
     def save_profile(self, profile: CadTargetCurveProfile) -> None:
         if self.get_profile(profile.profile_id, profile.version) is not None:

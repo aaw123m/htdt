@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox
 
 from htdt.application_preferences import (
@@ -17,7 +18,9 @@ from htdt.application_preferences import (
 from htdt.cad_repository import SceneRepository
 from htdt.overview_readiness import OverviewReadinessService
 from htdt.palette_search import settings_destinations
+from htdt.navigation_target import NavigationTarget, NavigationTargetKind
 from htdt.workflow_application import WorkflowApplicationComposition
+from htdt.workflow_navigation import ApplicationDestinationId
 from htdt.workflow_settings import PreferencesWidget
 
 
@@ -233,4 +236,77 @@ def test_preferences_widget_fails_closed_on_newer_schema_file(
     assert widget._editors["general.language"].isEnabled()
 
     widget.deleteLater()
+    app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# Typed navigation focus (#766)
+
+
+def test_application_focus_targets_resolve_the_requested_authority(
+    tmp_path: Path,
+) -> None:
+    """#766: typed navigation reports focus only when the requested authority
+    actually resolved — PROJECT selects the matching library row, HELP_TOPIC
+    resolves a real topic, and unknown ids report a truthful failure."""
+    app = _app()
+    composition = _composition(tmp_path)
+    router = composition.shell.router
+
+    target = NavigationTarget(
+        kind=NavigationTargetKind.PROJECT,
+        object_ids=(composition.project_entry.project_id,),
+    )
+    result = router.focus_target(ApplicationDestinationId.PROJECTS, target)
+    assert result.focused
+    page = router.mount(ApplicationDestinationId.PROJECTS).widget
+    hit_rows = {
+        row
+        for row in range(page.table.rowCount())
+        if page.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        == composition.project_entry.project_id
+    }
+    assert hit_rows
+    assert hit_rows <= {
+        item.row() for item in page.table.selectedItems()
+    }
+
+    missing = router.focus_target(
+        ApplicationDestinationId.PROJECTS,
+        NavigationTarget(
+            kind=NavigationTargetKind.PROJECT,
+            object_ids=("proj-does-not-exist",),
+        ),
+    )
+    assert not missing.focused
+    assert missing.message
+
+    library = router.focus_target(
+        ApplicationDestinationId.LIBRARY,
+        NavigationTarget(
+            kind=NavigationTargetKind.EQUIPMENT_DEFINITION,
+            object_ids=("def-missing",),
+        ),
+    )
+    assert not library.focused
+    assert library.message
+
+    composition._open_help_topic = lambda topic_id: topic_id == "help.real"
+    resolved = router.focus_target(
+        ApplicationDestinationId.SUPPORT,
+        NavigationTarget(
+            kind=NavigationTargetKind.HELP_TOPIC,
+            object_ids=("help.real",),
+        ),
+    )
+    assert resolved.focused
+    unknown = router.focus_target(
+        ApplicationDestinationId.SUPPORT,
+        NavigationTarget(
+            kind=NavigationTargetKind.HELP_TOPIC,
+            object_ids=("help.missing",),
+        ),
+    )
+    assert not unknown.focused
+    assert unknown.message
     app.processEvents()

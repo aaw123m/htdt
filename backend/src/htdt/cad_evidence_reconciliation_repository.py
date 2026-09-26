@@ -29,6 +29,7 @@ from .cad_evidence_reconciliation import (
     reconcile_subject,
 )
 from .cad_repository import SceneRepository
+from .cad_schema import require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -77,79 +78,10 @@ class CadEvidenceReconciliationRepository:
         return connection
 
     def _initialize(self) -> None:
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_evidence_subjects (
-                    subject_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    subject_kind TEXT NOT NULL,
-                    target_json TEXT NOT NULL,
-                    attribute TEXT NOT NULL,
-                    subject_sha256 TEXT,
-                    payload_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_evidence_observations (
-                    observation_id TEXT PRIMARY KEY,
-                    subject_id TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    source_ref TEXT,
-                    captured_at_utc TEXT,
-                    observation_sha256 TEXT,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY (subject_id)
-                        REFERENCES cad_evidence_subjects (subject_id)
-                )
-                """
-            )
-            # #873: existing databases gain the semantic-hash columns
-            # idempotently; NULL marks a legacy row whose payload predates
-            # immutable input identities.
-            for table, column in (
-                ('cad_evidence_subjects', 'subject_sha256'),
-                ('cad_evidence_observations', 'observation_sha256'),
-            ):
-                columns = {
-                    row['name']
-                    for row in connection.execute(
-                        f'PRAGMA table_info({table})'
-                    ).fetchall()
-                }
-                if column not in columns:
-                    connection.execute(
-                        f'ALTER TABLE {table} ADD COLUMN {column} TEXT'
-                    )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_evidence_observations_subject
-                ON cad_evidence_observations (subject_id)
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cad_reconciliation_decisions (
-                    decision_id TEXT PRIMARY KEY,
-                    subject_id TEXT NOT NULL,
-                    document_id TEXT NOT NULL,
-                    outcome TEXT NOT NULL,
-                    decision_sha256 TEXT NOT NULL,
-                    decided_at_utc TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    FOREIGN KEY (subject_id)
-                        REFERENCES cad_evidence_subjects (subject_id)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_cad_reconciliation_subject
-                ON cad_reconciliation_decisions (subject_id, decided_at_utc)
-                """
-            )
+            require_native_tables(connection, 'cad_evidence_subjects', 'cad_evidence_observations', 'cad_reconciliation_decisions')
 
     def save_subject(self, subject: EvidenceSubject) -> None:
         # #873: new subjects must carry their immutable semantic identity —

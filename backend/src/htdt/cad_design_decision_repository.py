@@ -30,6 +30,7 @@ from .cad_design_decision import (
     DesignDecisionRecord,
     decision_lineage_issues,
 )
+from .cad_schema import require_native_tables
 
 
 class DesignDecisionConflictError(ValueError):
@@ -66,30 +67,15 @@ class CadDesignDecisionRepository:
         if ref_resolver is None:
             ref_resolver = CanonicalAuthorityRefResolver(scene_repository)
         self.ref_resolver = ref_resolver
+        # #767: persistent schema is owned by the migration authority;
+        # repositories verify the migrated contract, never converge it.
+        with closing(self._connect()) as connection:
+            require_native_tables(connection, 'design_decisions')
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS design_decisions (
-                decision_id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                decision_scope TEXT NOT NULL,
-                selected_ref_id TEXT NOT NULL,
-                supersedes_decision_id TEXT,
-                created_at_utc TEXT NOT NULL,
-                decision_sha256 TEXT NOT NULL,
-                payload_json TEXT NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_design_decisions_document
-            ON design_decisions(document_id)
-            """
-        )
+        connection.execute('PRAGMA foreign_keys=ON')
         return connection
 
     def _resolve_refs(self, decision: DesignDecisionRecord) -> None:
