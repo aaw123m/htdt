@@ -712,6 +712,15 @@ class OptimizationWorkflowController(
         self.search_limit_field = QSpinBox()
         self.search_limit_field.setRange(1, 50_000)
         self.search_limit_field.setValue(10_000)
+        # #1090: task-first range presets add sane axis ranges for the
+        # selected entity without touching the low-level numeric form.
+        self.search_preset_combo = QComboBox()
+        for key, label, _axes, _range, _step in self.SEARCH_RANGE_PRESETS:
+            self.search_preset_combo.addItem(label, key)
+        self.search_preset_apply_button = QPushButton("プリセットで軸を追加")
+        self.search_preset_apply_button.clicked.connect(
+            self.apply_search_range_preset
+        )
         self.search_axis_tree = QTreeWidget()
         self.search_axis_tree.setHeaderLabels(["物体", "軸", "最小", "最大", "刻み"])
         self.linked_master_combo = QComboBox()
@@ -749,7 +758,17 @@ class OptimizationWorkflowController(
         self.search_generate_reason_label.hide()
         self.search_candidate_tree = QTreeWidget()
         self.search_candidate_tree.setHeaderLabels(["候補", "番号", "位置"])
+        # #1088: header sorting (番号 column sorts numerically) plus a text
+        # filter so large candidate pages stay triageable.
+        self.search_candidate_tree.setSortingEnabled(True)
+        self.search_candidate_tree.sortItems(1, Qt.SortOrder.AscendingOrder)
         self.search_candidate_tree.itemSelectionChanged.connect(self._search_candidate_selected)
+        self.search_candidate_filter_field = QLineEdit()
+        self.search_candidate_filter_field.setPlaceholderText("番号・位置で絞り込み")
+        self.search_candidate_filter_field.setClearButtonEnabled(True)
+        self.search_candidate_filter_field.textChanged.connect(
+            self._apply_search_candidate_filter
+        )
         self.search_prev_button = QPushButton("前の候補")
         self.search_prev_button.clicked.connect(self.previous_search_page)
         self.search_next_button = QPushButton("次の候補")
@@ -898,8 +917,15 @@ class OptimizationWorkflowController(
         self.extended_candidate_tree.setHeaderLabels(
             ["候補", "元候補", "位置", "音響 yaw", "筐体 yaw"]
         )
+        self.extended_candidate_tree.setSortingEnabled(True)
         self.extended_candidate_tree.itemSelectionChanged.connect(
             self._extended_candidate_selected
+        )
+        self.extended_candidate_filter_field = QLineEdit()
+        self.extended_candidate_filter_field.setPlaceholderText("候補・位置で絞り込み")
+        self.extended_candidate_filter_field.setClearButtonEnabled(True)
+        self.extended_candidate_filter_field.textChanged.connect(
+            self._apply_extended_candidate_filter
         )
         self.extended_prev_button = QPushButton("前の拡張候補")
         self.extended_prev_button.clicked.connect(self.previous_extended_page)
