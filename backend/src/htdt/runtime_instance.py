@@ -6,10 +6,7 @@ import json
 import os
 from pathlib import Path
 import socket
-import time
 from typing import BinaryIO
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 
 APP_ID = 'home-theater-digital-twin'
@@ -200,29 +197,3 @@ def read_runtime_info(root: Path) -> RuntimeInfo | None:
     if not (1 <= port <= 65535) or url != f'http://127.0.0.1:{port}/':
         return None
     return RuntimeInfo(pid=pid, port=port, url=url)
-
-
-def clear_runtime_info(root: Path, pid: int) -> None:
-    info = read_runtime_info(root)
-    if info is not None and info.pid == pid:
-        (root / RUNTIME_FILENAME).unlink(missing_ok=True)
-
-
-def probe_runtime(info: RuntimeInfo, timeout_s: float = 0.5) -> bool:
-    request = Request(f'{info.url}api/health', headers={'Accept': 'application/json'}, method='GET')
-    try:
-        with urlopen(request, timeout=timeout_s) as response:
-            payload = json.loads(response.read().decode('utf-8'))
-    except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
-    return isinstance(payload, dict) and payload.get('app_id') == APP_ID and payload.get('status') == 'ok'
-
-
-def wait_for_runtime(root: Path, timeout_s: float = 10.0) -> RuntimeInfo | None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        info = read_runtime_info(root)
-        if info is not None and probe_runtime(info):
-            return info
-        time.sleep(0.1)
-    return None

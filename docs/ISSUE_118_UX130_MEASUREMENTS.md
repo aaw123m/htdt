@@ -103,9 +103,10 @@ canonical context ID は既存 `workflow_navigation.CANONICAL_WORKSPACE_CONTEXTS
 `MeasurementPageWorkspace.import_rew_text_dialog()` は既存
 `measurements.import_rew` command の実行先として利用できる。
 
-現行 `native_command_adapter` の measurement availability は旧 editor の
-`_saved_measurement_target()` を前提とする legacy adapter なので、新 shell へ実際に
-factory を切り替える integration PR では legacy availability を持ち込まず、
+旧 `native_command_adapter` の measurement availability は旧 editor の
+`_saved_measurement_target()` を前提とする legacy adapter だったため (module自体は
+削除済み)、新 shell へ実際に factory を切り替える integration PR では
+legacy availability を持ち込まず、
 「保存済み SceneRevision が存在するか」を controller 境界で確認する binding に切り替える。
 UX130 workspace 自体は command registry の authority を複製しない。
 

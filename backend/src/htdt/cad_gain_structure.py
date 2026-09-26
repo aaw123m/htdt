@@ -95,10 +95,6 @@ def dbu_to_vrms(value_dbu: float) -> float:
     )
 
 
-def vrms_to_dbu(value_v_rms: float) -> float:
-    return vrms_to_dbv(value_v_rms) - 20.0 * log10(DBU_REFERENCE_V_RMS)
-
-
 def dbfs_to_dbv(value_dbfs: float, full_scale_v_rms: float) -> float:
     """dBFS -> dBV through an evidenced 0 dBFS = full_scale_v_rms mapping."""
     dbfs = _finite(value_dbfs, field_name='dBFS level')

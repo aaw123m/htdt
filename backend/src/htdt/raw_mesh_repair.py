@@ -661,30 +661,6 @@ def repaired_triangle_ids(mesh: RepairedRawMesh) -> tuple[str, ...]:
     return tuple(identifiers)
 
 
-def serialize_raw_mesh_repair_plan(plan: RawMeshRepairPlan) -> str:
-    return _canonical_json(plan.model_dump(mode='json'))
-
-
-def deserialize_raw_mesh_repair_plan(payload: str) -> RawMeshRepairPlan:
-    return RawMeshRepairPlan.model_validate(json.loads(payload))
-
-
-def serialize_repaired_raw_mesh(mesh: RepairedRawMesh) -> str:
-    return _canonical_json(mesh.model_dump(mode='json'))
-
-
-def deserialize_repaired_raw_mesh(payload: str) -> RepairedRawMesh:
-    return RepairedRawMesh.model_validate(json.loads(payload))
-
-
-def serialize_repaired_raw_mesh_diagnostics(result: RepairedRawMeshDiagnosticResult) -> str:
-    return _canonical_json(result.model_dump(mode='json'))
-
-
-def deserialize_repaired_raw_mesh_diagnostics(payload: str) -> RepairedRawMeshDiagnosticResult:
-    return RepairedRawMeshDiagnosticResult.model_validate(json.loads(payload))
-
-
 def serialize_raw_mesh_repair_bundle(bundle: RawMeshRepairBundle) -> str:
     return _canonical_json(bundle.model_dump(mode='json'))
 

@@ -7,10 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .build_info import get_build_info
 
 
-class CompatibilityError(ValueError):
-    """A compatibility artifact could not be evaluated safely."""
-
-
 class ProtocolSupportEntry(BaseModel):
     """Exact version set one product supports for one protocol kind."""
 

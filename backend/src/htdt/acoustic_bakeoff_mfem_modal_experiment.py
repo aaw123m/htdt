@@ -1,29 +1,18 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .acoustic_benchmark import (
+    canonical_benchmark_json as canonical_json,
+    canonical_benchmark_sha256 as semantic_hash,
+)
+
 
 AttemptStatus = Literal['COMPLETED', 'FAILED', 'BLOCKED']
 ExperimentOutcome = Literal['PASS', 'FAIL', 'BLOCKED']
-
-
-def canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def semantic_hash(payload: object) -> str:
-    return sha256(canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class AuthorityBinding(BaseModel):

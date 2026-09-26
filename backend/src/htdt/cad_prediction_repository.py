@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -291,7 +290,3 @@ class CadPredictionRepository:
         # so a coherently rewritten row cannot survive by recomputing hashes.
         self._validate_result(result)
         return result
-
-
-def prediction_timestamp_utc() -> str:
-    return datetime.now(timezone.utc).isoformat()

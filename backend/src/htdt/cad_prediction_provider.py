@@ -1052,20 +1052,6 @@ def build_prediction_provider_binding(
     )
 
 
-def require_binding_current(
-    binding: PredictionProviderBinding,
-    provider: LowBandPredictionProvider,
-    current: ProviderCurrentAuthority,
-) -> None:
-    if binding.provider_ref != provider.ref():
-        raise ValueError('prediction provider binding references another provider')
-    if binding.expected_authority != provider.current_authority:
-        raise ValueError('prediction provider binding exact authority mismatch')
-    for observable in binding.required_observables:
-        provider.require_observable(observable)
-    require_provider_current(provider, current)
-
-
 class CadPredictionProviderRepository:
     """Append-only R170A provider/binding persistence with exact reopen checks."""
 

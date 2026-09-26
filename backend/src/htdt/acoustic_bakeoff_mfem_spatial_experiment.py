@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import math
-from hashlib import sha256
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -11,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .acoustic_bakeoff import BakeoffFixtureEvidence, BakeoffPlatform
 from .acoustic_bakeoff_observation import RawConvergenceLevel, RawObservationSample, evaluate_monotonic_convergence_observable
 from .acoustic_bakeoff_readiness import BakeoffReadinessEvidenceRecord, candidate_semantic_hash
+from .acoustic_benchmark import (
+    canonical_benchmark_json as canonical_json,
+    canonical_benchmark_sha256 as semantic_hash,
+)
 
 CANDIDATE_ID = "mfem-v4.10-d964264"
 FIXTURE_ID = "wave-rectangular-convergence-v1"
@@ -18,11 +20,6 @@ SYSTEM_SCHEMA = "r100b-mfem-rectangular-semidiscrete-system-1"
 ADAPTER_ID = "htdt-r100b-mfem-spatial-refinement"
 ADAPTER_VERSION = "1"
 
-def canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-def semantic_hash(value: object) -> str:
-    return sha256(canonical_json(value).encode()).hexdigest()
 
 class MfemSpatialRefinementPlan(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")

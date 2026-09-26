@@ -5,7 +5,7 @@ from hashlib import sha256
 from itertools import product
 import json
 from math import atan2, cos, degrees, isfinite, log, log10, pi, radians, sin
-from typing import Any, Literal, Protocol, Sequence
+from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -632,18 +632,6 @@ class NormalizedDirectivityJsonV1(BaseModel):
                     'magnitude-only normalized source must not contain phase'
                 )
         return self
-
-
-class DirectivityImportAdapter(Protocol):
-    adapter_id: str
-    adapter_version: str
-
-    def parse(
-        self,
-        source_bytes: bytes,
-        definition: EquipmentDefinition,
-    ) -> DirectivityDataset:
-        ...
 
 
 class NormalizedJsonDirectivityAdapter:

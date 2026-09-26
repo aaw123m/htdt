@@ -159,23 +159,6 @@ def build_hybrid_provider_objective_input(
     )
 
 
-def hybrid_provider_objective_input_ref(
-    provider: HybridPredictionProvider,
-    *,
-    source_entity_id: str,
-    receiver_id: str,
-    low_hz: float,
-    high_hz: float,
-) -> CadObjectiveInputRef:
-    return build_hybrid_provider_objective_input(
-        provider,
-        source_entity_id=source_entity_id,
-        receiver_id=receiver_id,
-        low_hz=low_hz,
-        high_hz=high_hz,
-    ).as_objective_input_ref()
-
-
 def target_objective_evaluation_from_hybrid_provider(
     *,
     revision: SceneRevision,

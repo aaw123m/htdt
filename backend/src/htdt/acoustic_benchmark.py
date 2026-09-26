@@ -63,6 +63,10 @@ def canonical_benchmark_json(payload: object) -> str:
     )
 
 
+def canonical_benchmark_sha256(payload: object) -> str:
+    return sha256(canonical_benchmark_json(payload).encode('utf-8')).hexdigest()
+
+
 class AcousticVertex(BaseModel):
     model_config = ConfigDict(frozen=True)
 
