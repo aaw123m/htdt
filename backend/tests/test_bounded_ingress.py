@@ -338,7 +338,7 @@ def _saved_f1(tmp_path: Path):
     return scene_repository, revision
 
 
-def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     from PySide6.QtWidgets import QApplication
 
     from htdt import measurement_page_workspace
@@ -360,7 +360,7 @@ def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatc
     workspace.import_rew_text_dialog()
     assert controller.pending_import is None
     assert not workspace.notice.isHidden()
-    assert 'too large' in workspace.notice.text()
+    assert 'too large' in caplog.text  # localized notice; the cause lives in the log
 
     small = tmp_path / 'small.txt'
     small.write_bytes(b'20 70\n40 71\n')
