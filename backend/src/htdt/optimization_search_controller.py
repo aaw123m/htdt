@@ -81,6 +81,29 @@ from .native_editor import ROLE
 from .native_worker import WORKER_CANCELLED
 
 
+class CandidateTreeItem(QTreeWidgetItem):
+    """Candidate row that sorts the 番号 column numerically (#1088)."""
+
+    def __lt__(self, other: QTreeWidgetItem) -> bool:
+        tree = self.treeWidget()
+        column = tree.sortColumn() if tree is not None else 0
+        if column == 1:
+            try:
+                return int(self.text(1)) < int(other.text(1))
+            except ValueError:
+                return self.text(1) < other.text(1)
+        return super().__lt__(other)
+
+
+def _candidate_matches_filter(item: QTreeWidgetItem, needle: str) -> bool:
+    if not needle:
+        return True
+    haystack = ' '.join(
+        item.text(column) for column in range(item.columnCount())
+    ).casefold()
+    return needle in haystack
+
+
 def candidate_cloud_points(
     page: CadCandidateSetPage,
     primary_entity_id: str,
@@ -106,6 +129,17 @@ def candidate_cloud_points(
 
 
 class SearchControllerMixin:
+    # Task-first search-range presets (#1090): one click authors the common
+    # axis sets for the selected entity — the low-level min/max/step form
+    # stays available behind the 詳細 block for fine-tuning.
+    # (key, label, axes, half_range_m (None = whole room extent), step_m)
+    SEARCH_RANGE_PRESETS = (
+        ('nudge', '微調整 — 前後・左右 ±0.5 m', ('x', 'y'), 0.5, 0.05),
+        ('wide', '広い調整 — 前後・左右 ±1.0 m', ('x', 'y'), 1.0, 0.10),
+        ('room', '部屋全体 — 左右・前後', ('x', 'y'), None, 0.25),
+        ('height', '高さ — 上下 ±0.25 m', ('z',), 0.25, 0.05),
+    )
+
     @staticmethod
     def _search_distance_field(*, minimum: float = -1000.0, value: float = 0.0) -> QDoubleSpinBox:
         field = QDoubleSpinBox()
@@ -206,8 +240,15 @@ class SearchControllerMixin:
             self.statusBar().showMessage(f'探索軸を追加できません · {exc}')
             return
 
-        for index in range(self.search_axis_tree.topLevelItemCount()):
-            current = self.search_axis_tree.topLevelItem(index)
+        self._upsert_search_axis(item)
+
+    def _upsert_search_axis(self, item: CadSearchAxis) -> None:
+        """Insert or replace the (entity_id, axis) row in the axis tree."""
+        tree = self.search_axis_tree
+        if tree is None:
+            return
+        for index in range(tree.topLevelItemCount()):
+            current = tree.topLevelItem(index)
             payload = current.data(0, ROLE)
             if isinstance(payload, dict) and (
                 payload.get('entity_id'), payload.get('axis')
@@ -216,7 +257,75 @@ class SearchControllerMixin:
                 return
         tree_item = QTreeWidgetItem()
         self._set_axis_tree_item(tree_item, item)
-        self.search_axis_tree.addTopLevelItem(tree_item)
+        tree.addTopLevelItem(tree_item)
+
+    def apply_search_range_preset(self) -> None:
+        """Author the preset's axes for the selected entity in one shot (#1090)."""
+        combo = getattr(self, 'search_preset_combo', None)
+        if (
+            combo is None
+            or self.working is None
+            or self.search_entity_combo is None
+        ):
+            return
+        preset_key = combo.currentData()
+        entity_id = self.search_entity_combo.currentData()
+        preset = next(
+            (entry for entry in self.SEARCH_RANGE_PRESETS if entry[0] == preset_key),
+            None,
+        )
+        if preset is None or entity_id is None:
+            return
+        _key, label, axes, half_range, step = preset
+        try:
+            document = self.working.committed_document
+            entity = document.entity(str(entity_id))
+        except KeyError:
+            self.statusBar().showMessage('可動物体が選択されていません')
+            return
+        room = document.room
+        bounds = (
+            {
+                'x': float(room.width_m),
+                'y': float(room.depth_m),
+                'z': float(room.height_m),
+            }
+            if room is not None
+            else {}
+        )
+        added = 0
+        for axis in axes:
+            position = float(getattr(entity.position, f'{axis}_m'))
+            upper = bounds.get(axis)
+            if half_range is None:
+                low = 0.0
+                high = upper if upper is not None else position + 0.5
+            else:
+                low = max(0.0, position - half_range)
+                high = (
+                    min(upper, position + half_range)
+                    if upper is not None
+                    else position + half_range
+                )
+            high = max(low, high)
+            try:
+                item = CadSearchAxis(
+                    entity_id=str(entity_id),
+                    axis=axis,
+                    min_m=low,
+                    max_m=high,
+                    step_m=step,
+                )
+            except Exception as exc:
+                self.statusBar().showMessage(
+                    f'プリセットを追加できません · {exc}'
+                )
+                return
+            self._upsert_search_axis(item)
+            added += 1
+        self.statusBar().showMessage(
+            f'プリセット「{label}」で探索軸を追加しました · {added}軸'
+        )
 
     def _entity_display_name(self, entity_id: str) -> str:
         if self.working is not None:
@@ -650,8 +759,20 @@ class SearchControllerMixin:
 
         self.search_candidate_page = result
         self.search_preview_candidate_id = None
+        # Selection continuity (#1088): keep the current candidate selected
+        # when it is still on the freshly generated page instead of snapping
+        # back to the first row.
+        previous_id = self.search_selected_candidate_id
         self.search_selected_candidate_id = (
-            result.candidates[0].candidate_id if result.candidates else None
+            previous_id
+            if previous_id is not None
+            and any(
+                candidate.candidate_id == previous_id
+                for candidate in result.candidates
+            )
+            else (
+                result.candidates[0].candidate_id if result.candidates else None
+            )
         )
         self._refresh_search_candidate_tree()
         self._refresh_search_binding_state()
@@ -675,29 +796,49 @@ class SearchControllerMixin:
         selected_item: QTreeWidgetItem | None = None
         with QSignalBlocker(tree):
             tree.clear()
-            if page is None:
-                return
-            for row_number, candidate in enumerate(page.candidates, start=1):
-                position_text = ' · '.join(
-                    f'{self._entity_display_name(entity_id)} '
-                    f'({position["x_m"]:.2f}, {position["y_m"]:.2f}, {position["z_m"]:.2f})'
-                    for entity_id, position in sorted(candidate.positions.items())
-                )
-                item = QTreeWidgetItem(
-                    [
-                        f'候補 {result_number}'
-                        if (result_number := page.offset + row_number) > 0
-                        else f'候補 {row_number}',
-                        str(candidate.feasible_index + 1),
-                        position_text,
-                    ]
-                )
-                item.setData(0, ROLE, candidate.candidate_id)
-                tree.addTopLevelItem(item)
-                if candidate.candidate_id == self.search_selected_candidate_id:
-                    selected_item = item
-            if selected_item is not None:
-                tree.setCurrentItem(selected_item)
+            if page is not None:
+                for row_number, candidate in enumerate(page.candidates, start=1):
+                    position_text = ' · '.join(
+                        f'{self._entity_display_name(entity_id)} '
+                        f'({position["x_m"]:.2f}, {position["y_m"]:.2f}, {position["z_m"]:.2f})'
+                        for entity_id, position in sorted(candidate.positions.items())
+                    )
+                    item = CandidateTreeItem(
+                        [
+                            f'候補 {result_number}'
+                            if (result_number := page.offset + row_number) > 0
+                            else f'候補 {row_number}',
+                            str(candidate.feasible_index + 1),
+                            position_text,
+                        ]
+                    )
+                    item.setData(0, ROLE, candidate.candidate_id)
+                    tree.addTopLevelItem(item)
+                    if candidate.candidate_id == self.search_selected_candidate_id:
+                        selected_item = item
+                if selected_item is not None:
+                    tree.setCurrentItem(selected_item)
+            self._apply_search_candidate_filter()
+
+    def _apply_search_candidate_filter(self, _text: str = '') -> None:
+        """Hide rows not matching the filter text (#1088).
+
+        A hidden row keeps ``search_selected_candidate_id`` — filtering is a
+        view operation, never a deselection, so preview/apply still target
+        the same candidate when the row is filtered back in.
+        """
+        tree = self.search_candidate_tree
+        if tree is None:
+            return
+        field = getattr(self, 'search_candidate_filter_field', None)
+        needle = (
+            field.text().strip().casefold() if field is not None else ''
+        )
+        with QSignalBlocker(tree):
+            for index in range(tree.topLevelItemCount()):
+                item = tree.topLevelItem(index)
+                item.setHidden(not _candidate_matches_filter(item, needle))
+        self._refresh_search_binding_state()
 
     def _search_candidate_selected(self) -> None:
         tree = self.search_candidate_tree
