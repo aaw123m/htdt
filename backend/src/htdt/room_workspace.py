@@ -75,13 +75,21 @@ from .cad_video_geometry import (
     projector_spec_optical_values,
     PROJECTOR_SPEC_EVIDENCED_FIELDS,
 )
+from .cad_direct_view import (
+    DisplayGeometryBinding,
+    build_direct_view_display_specification,
+    evaluate_direct_view_geometry,
+)
+from .cad_direct_view_repository import CadDirectViewRepository
 from .cad_video_geometry_repository import CadVideoGeometryRepository
 from .cad_video_workspace import (
     CadVideoWorkspaceRepository,
     DEFAULT_POLICY,
     VideoGeometryWorkspace,
+    build_direct_view_request_from_workspace,
     build_request_from_workspace,
     default_screen_binding,
+    display_image_center_world,
     screen_image_center_world,
     seat_eye_world,
     video_workspace_missing_inputs,
@@ -111,7 +119,7 @@ from .cad_screen_transfer import (
     build_screen_transfer,
     transfer_capability_label,
 )
-from .cad_equipment import FrequencyDomain
+from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
 from .cad_acoustic_environment import (
     AcousticEnvironmentProfile,
     CadAcousticEnvironmentRepository,
@@ -246,6 +254,7 @@ from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
 from .room_history_panel import RoomHistoryPanel
 from .room_video_panel import (
+    DisplaySpecDialog,
     ProjectorSpecDialog,
     RoomVideoPanel,
     ScreenTransferDialog,
@@ -389,6 +398,9 @@ class RoomWorkspaceController:
             repository.path, repository
         )
         self.variant_repository = CadSystemVariantRepository(repository)
+        self.direct_view_repository = CadDirectViewRepository(
+            repository, self.variant_repository
+        )
         self.material_repository = CadAcousticMaterialRepository(repository.path)
         self.environment_repository = CadAcousticEnvironmentRepository(
             repository.path
@@ -911,14 +923,6 @@ class RoomWorkspaceController:
         missing = video_workspace_missing_inputs(self.committed_document, workspace)
         if missing:
             raise EditStateError("未設定: " + "、".join(missing))
-        specification = self.video_geometry_repository.get_projector_specification_by_hash(
-            workspace.projector_specification_sha256
-        )
-        if specification is None:
-            raise EditStateError("プロジェクター仕様が未保存です")
-        request = build_request_from_workspace(
-            self.committed_document, workspace, specification
-        )
         head = self.repository.current_head(self.document_id)
         if head is None:
             raise EditStateError("シーンを保存してから評価してください")
@@ -934,6 +938,35 @@ class RoomWorkspaceController:
             )
             if variant is None:
                 raise EditStateError("選択したバリアントが見つかりません")
+        if workspace.target_type == 'direct_view':
+            # #1054: a direct-view display target is never routed through the
+            # projector+screen path — no projector spec is required.
+            display_specification = None
+            if workspace.display_specification_sha256 is not None:
+                display_specification = (
+                    self.direct_view_repository.get_specification_by_hash(
+                        workspace.display_specification_sha256
+                    )
+                )
+                if display_specification is None:
+                    raise EditStateError("ディスプレイ仕様が未保存です")
+            request = build_direct_view_request_from_workspace(
+                self.committed_document, workspace, display_specification
+            )
+            return evaluate_direct_view_geometry(
+                baseline=head,
+                variant=variant,
+                display_specification=display_specification,
+                request=request,
+            )
+        specification = self.video_geometry_repository.get_projector_specification_by_hash(
+            workspace.projector_specification_sha256
+        )
+        if specification is None:
+            raise EditStateError("プロジェクター仕様が未保存です")
+        request = build_request_from_workspace(
+            self.committed_document, workspace, specification
+        )
         screen_transfers = None
         if request.screen.screen_transfer_ref is not None:
             screen_transfers = {}
@@ -3700,6 +3733,9 @@ class RoomWorkspace(QWidget):
         self.video_panel.evaluateRequested.connect(self._video_evaluate)
         self.video_panel.viewFromSeatRequested.connect(self._view_from_seat)
         self.video_panel.createSpecRequested.connect(self._video_create_spec)
+        self.video_panel.createDisplaySpecRequested.connect(
+            self._video_create_display_spec
+        )
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
@@ -5081,13 +5117,14 @@ class RoomWorkspace(QWidget):
         workspace = self.controller.video_workspace or VideoGeometryWorkspace(
             document_id=self.controller.document_id
         )
+        target_type = self.video_panel.current_target_type()
         screens = [
             entity
             for entity in self.controller.document.entities
             if entity.kind == "screen"
         ]
         screen_bindings = dict(workspace.screen_bindings)
-        if screens:
+        if screens and target_type == 'projection':
             values = self.video_panel.current_screen_values()
             screen_transfer = self.screen_transfer_repository.selected_transfer(
                 self.controller.document_id, screens[0].entity_id
@@ -5164,11 +5201,35 @@ class RoomWorkspace(QWidget):
                 ],
             }
         )
+        # #1054: a direct-view target binds a display entity + its active
+        # aperture — projector/screen fields stay untouched for switching back.
+        display_binding = workspace.display_binding
+        display_entity_id = self.video_panel.current_display_entity_id()
+        if target_type == 'direct_view' and display_entity_id is not None:
+            display_values = self.video_panel.current_display_values()
+            display_binding = DisplayGeometryBinding(
+                entity_id=display_entity_id,
+                visible_width_m=float(display_values["visible_width_m"]),
+                visible_height_m=float(display_values["visible_height_m"]),
+                image_center_offset_local_m=Offset3(
+                    x_m=float(display_values["image_center_offset_x_m"]),
+                    y_m=0.0,
+                    z_m=float(display_values["image_center_offset_z_m"]),
+                ),
+                frame_clearance_m=float(display_values["frame_clearance_m"]),
+                mounting=display_values["mounting"],
+            )
         return workspace.model_copy(
             update={
+                "target_type": target_type,
                 "projector_entity_id": self.video_panel.current_projector_entity_id(),
                 "projector_specification_sha256": self.video_panel.current_specification_sha256(),
                 "screen_bindings": screen_bindings,
+                "display_entity_id": display_entity_id,
+                "display_specification_sha256": (
+                    self.video_panel.current_display_specification_sha256()
+                ),
+                "display_binding": display_binding,
                 "seat_bindings": seat_bindings,
                 "seat_pose_refs": seat_pose_refs,
                 "policy": policy,
@@ -5436,6 +5497,7 @@ class RoomWorkspace(QWidget):
             seat_names,
             seat_poses,
             screen_transfers,
+            self.controller.direct_view_repository.list_specifications(),
         )
         missing = video_workspace_missing_inputs(
             self.controller.committed_document, workspace
@@ -5456,7 +5518,7 @@ class RoomWorkspace(QWidget):
             return
         self._video_evaluation = evaluation
         self.video_panel.show_evaluation(evaluation)
-        self.video_panel.show_message("評価しました（プロジェクション/視線/衝突）")
+        self.video_panel.show_message("評価しました（映像面/視線/衝突）")
         self._render()
 
     def _video_create_spec(self) -> None:
@@ -5542,6 +5604,64 @@ class RoomWorkspace(QWidget):
             self.video_panel.spec_combo.setCurrentIndex(index)
         self._set_status(f"仕様を登録しました: {specification.specification_id}")
 
+    def _video_create_display_spec(self) -> None:
+        """Register a user-defined direct-view display specification (#1054)."""
+        dialog = DisplaySpecDialog(self)
+        if dialog.exec() != DisplaySpecDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        if not values["specification_id"]:
+            self._set_status("仕様IDを入力してください", error=True)
+            return
+        source_name = str(values["source_name"])
+        source_version = str(values["version"])
+        source_reference = str(values["source_reference"])
+        provenance = (
+            EquipmentDataProvenance(
+                evidence_kind='user_defined',
+                source_name=source_name,
+                source_version=source_version,
+                source_reference=source_reference,
+                source_sha256=sha256(
+                    f"{source_name}|{source_version}|{source_reference}".encode(
+                        'utf-8'
+                    )
+                ).hexdigest(),
+            ),
+        )
+        try:
+            specification = build_direct_view_display_specification(
+                specification_id=str(values["specification_id"]),
+                version=str(values["version"]),
+                manufacturer=None,
+                model=None,
+                user_label=str(values["user_label"]),
+                display_class=str(values["display_class"]),
+                chassis_size_m=Size3(
+                    x_m=float(values["chassis_width_m"]),
+                    y_m=float(values["chassis_depth_m"]),
+                    z_m=float(values["chassis_height_m"]),
+                ),
+                active_image_width_m=float(values["active_image_width_m"]),
+                active_image_height_m=float(values["active_image_height_m"]),
+                provenance=provenance,
+            )
+            self.controller.direct_view_repository.save_specification(
+                specification
+            )
+        except (ValueError, KeyError) as exc:
+            self._set_operation_error(
+                '仕様を登録できませんでした', exc, effect='変更は保存されていません'
+            )
+            return
+        self._sync_video_panel()
+        index = self.video_panel.display_spec_combo.findData(
+            specification.specification_sha256
+        )
+        if index >= 0:
+            self.video_panel.display_spec_combo.setCurrentIndex(index)
+        self._set_status(f"ディスプレイ仕様を登録しました: {specification.specification_id}")
+
     def _view_from_seat(self, seat_id: object) -> None:
         """View-from-seat camera bound to the seat's eye authority (#455)."""
         view_from = getattr(self.viewport, "view_from", None)
@@ -5568,12 +5688,29 @@ class RoomWorkspace(QWidget):
             self._set_operation_error("座席の視点を取得できませんでした", exc)
             return
         target = None
+        if workspace is not None and workspace.target_type == 'direct_view':
+            # #1054: a direct-view target aims at the display image centre.
+            display_entity = None
+            if workspace.display_entity_id is not None:
+                try:
+                    display_entity = self.controller.document.entity(
+                        workspace.display_entity_id
+                    )
+                except KeyError:
+                    display_entity = None
+            if display_entity is not None and workspace.display_binding is not None:
+                try:
+                    target = display_image_center_world(
+                        display_entity, workspace.display_binding
+                    )
+                except ValueError:
+                    target = None
         screens = [
             entity
             for entity in self.controller.document.entities
             if entity.kind == "screen"
         ]
-        if workspace is not None and screens:
+        if target is None and workspace is not None and screens:
             screen_binding = workspace.screen_bindings.get(screens[0].entity_id)
             if screen_binding is not None:
                 target = screen_image_center_world(screens[0], screen_binding)

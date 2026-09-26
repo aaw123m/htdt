@@ -1679,13 +1679,15 @@ class RoomViewport3D(QFrame):
     def render_video_overlay(self, evaluation) -> None:
         """Projector cone + sightline + collision overlays from one evaluation (#455).
 
-        Everything drawn comes from the returned ``VideoGeometryEvaluation`` —
-        no geometry is invented here.
+        Everything drawn comes from the returned ``VideoGeometryEvaluation``
+        (or ``DirectViewGeometryEvaluation``, whose image surface replaces the
+        projector cone — #1054); no geometry is invented here.
         """
 
         if evaluation is None:
             return
-        projection = evaluation.projection
+        projection = getattr(evaluation, 'projection', None)
+        surface = getattr(evaluation, 'surface', None)
         if projection is not None:
             lens = projection.lens_position
             lens_render = domain_to_render(lens)
@@ -1728,11 +1730,39 @@ class RoomViewport3D(QFrame):
                 name="video-lens",
             )
 
-        document = self._document
-        if document is not None and evaluation.request.screen is not None:
-            screen_center = (
-                projection.screen_image_center if projection is not None else None
+        if surface is not None:
+            # Direct view: the active image aperture ring + centre marker take
+            # the place of the projector cone.
+            surface_color = 'gold' if surface.status != 'FAIL' else 'red'
+            corners = [
+                domain_to_render(corner) for corner in surface.image_plane_corners
+            ]
+            ring = np.asarray(corners + [corners[0]], dtype=float)
+            self.plotter.add_mesh(
+                pv.lines_from_points(ring),
+                color=surface_color,
+                line_width=3,
+                pickable=False,
+                name="video-aperture",
             )
+            self.plotter.add_mesh(
+                pv.Sphere(
+                    radius=0.05,
+                    center=domain_to_render(surface.image_center),
+                ),
+                color=surface_color,
+                pickable=False,
+                name="video-display-center",
+            )
+
+        image_center = None
+        if projection is not None:
+            image_center = projection.screen_image_center
+        elif surface is not None:
+            image_center = surface.image_center
+
+        document = self._document
+        if document is not None and image_center is not None:
             for seat_result in evaluation.sightlines:
                 binding = next(
                     (
@@ -1742,7 +1772,7 @@ class RoomViewport3D(QFrame):
                     ),
                     None,
                 )
-                if binding is None or screen_center is None:
+                if binding is None:
                     continue
                 try:
                     seat = document.entity(seat_result.seat_entity_id)
@@ -1761,7 +1791,7 @@ class RoomViewport3D(QFrame):
                     'goldenrod' if seat_result.status == 'UNKNOWN' else 'seagreen'
                 )
                 self.plotter.add_mesh(
-                    pv.Line(eye_render, domain_to_render(screen_center)),
+                    pv.Line(eye_render, domain_to_render(image_center)),
                     color=color,
                     line_width=3 if seat_result.status == 'FAIL' else 2,
                     opacity=0.9,

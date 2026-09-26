@@ -32,6 +32,24 @@ from .cad_screen_transfer import TIER_LABELS
 from .cad_video_workspace import VideoGeometryWorkspace
 from .ui_theme import TypographyRole, set_typography_role
 
+_DISPLAY_CLASS_ITEMS: tuple[tuple[str, str], ...] = (
+    ('lcd', 'LCD'),
+    ('oled', 'OLED'),
+    ('miniled', 'Mini LED'),
+    ('microled', 'Micro LED'),
+    ('other', 'その他'),
+    ('unknown', '不明'),
+)
+
+_DISPLAY_MOUNTING_ITEMS: tuple[tuple[str, str], ...] = (
+    ('unknown', '不明'),
+    ('wall', '壁掛け'),
+    ('stand', 'スタンド'),
+    ('furniture', '家具設置'),
+    ('recessed', '埋め込み'),
+    ('custom', 'カスタム'),
+)
+
 _ENTITY_ROLE = Qt.ItemDataRole.UserRole
 _SPEC_ROLE = Qt.ItemDataRole.UserRole
 _VARIANT_ROLE = Qt.ItemDataRole.UserRole
@@ -207,6 +225,101 @@ class ScreenTransferDialog(QDialog):
         }
 
 
+class DisplaySpecDialog(QDialog):
+    """Manual direct-view display-spec registration — user_defined evidence.
+
+    Same honesty contract as :class:`ProjectorSpecDialog`: only typed values
+    are attested; video/photometric capabilities stay at their unmeasured
+    defaults so spec-conformance never invents luminance/refresh claims.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("ディスプレイ仕様を登録（ユーザー定義）")
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.spec_id = QLineEdit()
+        self.spec_id.setPlaceholderText("例: my-display-model")
+        self.version = QLineEdit("1")
+        self.user_label = QLineEdit()
+        self.user_label.setPlaceholderText("例: リビングのテレビ")
+        self.display_class = QComboBox()
+        for value, label in _DISPLAY_CLASS_ITEMS:
+            self.display_class.addItem(label, value)
+        self.chassis_width = QDoubleSpinBox()
+        self.chassis_width.setRange(0.1, 10.0)
+        self.chassis_width.setDecimals(3)
+        self.chassis_width.setSuffix(' m')
+        self.chassis_depth = QDoubleSpinBox()
+        self.chassis_depth.setRange(0.005, 2.0)
+        self.chassis_depth.setDecimals(3)
+        self.chassis_depth.setValue(0.06)
+        self.chassis_depth.setSuffix(' m')
+        self.chassis_height = QDoubleSpinBox()
+        self.chassis_height.setRange(0.05, 5.0)
+        self.chassis_height.setDecimals(3)
+        self.chassis_height.setSuffix(' m')
+        self.active_width = QDoubleSpinBox()
+        self.active_width.setRange(0.1, 10.0)
+        self.active_width.setDecimals(3)
+        self.active_width.setSuffix(' m')
+        self.active_height = QDoubleSpinBox()
+        self.active_height.setRange(0.05, 5.0)
+        self.active_height.setDecimals(3)
+        self.active_height.setSuffix(' m')
+        self.source_name = QLineEdit()
+        self.source_name.setPlaceholderText("測定者/出典")
+        self.source_reference = QLineEdit()
+        self.source_reference.setPlaceholderText("参照位置（ページ/メモ）")
+        form.addRow("仕様ID", self.spec_id)
+        form.addRow("バージョン", self.version)
+        form.addRow("表示名", self.user_label)
+        form.addRow("ディスプレイ種別", self.display_class)
+        form.addRow("筐体幅", self.chassis_width)
+        form.addRow("筐体奥行", self.chassis_depth)
+        form.addRow("筐体高さ", self.chassis_height)
+        form.addRow("有効画域 幅", self.active_width)
+        form.addRow("有効画域 高さ", self.active_height)
+        form.addRow("出典", self.source_name)
+        form.addRow("参照", self.source_reference)
+        layout.addLayout(form)
+        hint = QLabel(
+            "ユーザー定義の仕様は user_defined 証跡として記録されます — "
+            "メーカー/モデル名は入力できず、輝度・リフレッシュ等の能力は"
+            "測定値がない限り未評価（UNKNOWN）のままです。"
+        )
+        hint.setWordWrap(True)
+        set_typography_role(hint, TypographyRole.SECONDARY)
+        layout.addWidget(hint)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if not self.spec_id.text().strip() or not self.user_label.text().strip():
+            return
+        super().accept()
+
+    def values(self) -> dict[str, object]:
+        return {
+            'specification_id': self.spec_id.text().strip(),
+            'version': self.version.text().strip() or '1',
+            'user_label': self.user_label.text().strip(),
+            'display_class': self.display_class.currentData(),
+            'chassis_width_m': float(self.chassis_width.value()),
+            'chassis_depth_m': float(self.chassis_depth.value()),
+            'chassis_height_m': float(self.chassis_height.value()),
+            'active_image_width_m': float(self.active_width.value()),
+            'active_image_height_m': float(self.active_height.value()),
+            'source_name': self.source_name.text().strip() or 'manual entry',
+            'source_reference': self.source_reference.text().strip() or 'user entry',
+        }
+
+
 class _SpinRow(QWidget):
     """Tiny (label, spinbox) row used per numeric binding field."""
 
@@ -234,6 +347,7 @@ class RoomVideoPanel(QWidget):
     evaluateRequested = Signal(object)  # variant_id or None
     viewFromSeatRequested = Signal(object)  # seat entity id or None
     createSpecRequested = Signal()
+    createDisplaySpecRequested = Signal()
     poseChanged = Signal(str, object)  # (seat entity id, pose_id or None)
     poseSaveRequested = Signal(str)  # seat entity id
     transferChanged = Signal(str, object)  # (screen entity id, transfer_id or None)
@@ -245,9 +359,27 @@ class RoomVideoPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        heading = QLabel("映像ジオメトリ（プロジェクター/スクリーン/視線）")
+        heading = QLabel("映像ジオメトリ（プロジェクター/ディスプレイ/視線）")
         set_typography_role(heading, TypographyRole.SECTION_TITLE)
         layout.addWidget(heading)
+
+        # --- target type (#1054) ----------------------------------------------
+        # A direct-view display is never a fake projector + passive screen:
+        # the workspace target type switches which bindings apply.
+        target_row = QHBoxLayout()
+        target_row.setSpacing(4)
+        target_row.addWidget(QLabel("ターゲット"))
+        self.target_combo = QComboBox()
+        self.target_combo.addItem("プロジェクター＋スクリーン", 'projection')
+        self.target_combo.addItem("ディスプレイ", 'direct_view')
+        target_row.addWidget(self.target_combo, stretch=1)
+        layout.addLayout(target_row)
+
+        self.projection_section = QWidget()
+        projection_layout = QVBoxLayout(self.projection_section)
+        projection_layout.setContentsMargins(0, 0, 0, 0)
+        projection_layout.setSpacing(4)
+        layout.addWidget(self.projection_section)
 
         # --- projector binding -------------------------------------------------
         proj_row = QHBoxLayout()
@@ -255,7 +387,7 @@ class RoomVideoPanel(QWidget):
         proj_row.addWidget(QLabel("プロジェクター"))
         self.projector_combo = QComboBox()
         proj_row.addWidget(self.projector_combo, stretch=1)
-        layout.addLayout(proj_row)
+        projection_layout.addLayout(proj_row)
 
         spec_row = QHBoxLayout()
         spec_row.setSpacing(4)
@@ -264,12 +396,12 @@ class RoomVideoPanel(QWidget):
         spec_row.addWidget(self.spec_combo, stretch=1)
         self.new_spec_button = QPushButton("登録…")
         spec_row.addWidget(self.new_spec_button)
-        layout.addLayout(spec_row)
+        projection_layout.addLayout(spec_row)
 
         # --- screen binding ----------------------------------------------------
         self.screen_heading = QLabel("スクリーン画素（バインド未設定）")
         set_typography_role(self.screen_heading, TypographyRole.SECONDARY)
-        layout.addWidget(self.screen_heading)
+        projection_layout.addWidget(self.screen_heading)
         screen_form = QFormLayout()
         screen_form.setContentsMargins(0, 0, 0, 0)
         self.screen_width = QDoubleSpinBox()
@@ -310,7 +442,75 @@ class RoomVideoPanel(QWidget):
         screen_form.addRow("中心オフセット Z", self.screen_offset_z)
         screen_form.addRow("フレーム余白", self.frame_clearance)
         screen_form.addRow("音響伝達", transfer_row)
-        layout.addLayout(screen_form)
+        projection_layout.addLayout(screen_form)
+
+        # --- direct-view display binding (#1054) -------------------------------
+        # A 'display' scene entity plus its active-aperture binding — never a
+        # projector, never a passive screen, never acoustically transparent.
+        self.display_section = QWidget()
+        display_layout = QVBoxLayout(self.display_section)
+        display_layout.setContentsMargins(0, 0, 0, 0)
+        display_layout.setSpacing(4)
+        layout.addWidget(self.display_section)
+
+        display_row = QHBoxLayout()
+        display_row.setSpacing(4)
+        display_row.addWidget(QLabel("ディスプレイ"))
+        self.display_combo = QComboBox()
+        display_row.addWidget(self.display_combo, stretch=1)
+        display_layout.addLayout(display_row)
+
+        display_spec_row = QHBoxLayout()
+        display_spec_row.setSpacing(4)
+        display_spec_row.addWidget(QLabel("仕様"))
+        self.display_spec_combo = QComboBox()
+        display_spec_row.addWidget(self.display_spec_combo, stretch=1)
+        self.new_display_spec_button = QPushButton("登録…")
+        self.new_display_spec_button.setToolTip(
+            "ディスプレイ仕様権威を新規登録します（ユーザー定義証跡）"
+        )
+        display_spec_row.addWidget(self.new_display_spec_button)
+        display_layout.addLayout(display_spec_row)
+
+        self.display_heading = QLabel("ディスプレイ有効画域（バインド未設定）")
+        set_typography_role(self.display_heading, TypographyRole.SECONDARY)
+        display_layout.addWidget(self.display_heading)
+        display_form = QFormLayout()
+        display_form.setContentsMargins(0, 0, 0, 0)
+        self.display_width = QDoubleSpinBox()
+        self.display_width.setRange(0.1, 10.0)
+        self.display_width.setSingleStep(0.01)
+        self.display_width.setDecimals(3)
+        self.display_width.setSuffix(' m')
+        self.display_height = QDoubleSpinBox()
+        self.display_height.setRange(0.05, 5.0)
+        self.display_height.setSingleStep(0.01)
+        self.display_height.setDecimals(3)
+        self.display_height.setSuffix(' m')
+        self.display_offset_x = QDoubleSpinBox()
+        self.display_offset_x.setRange(-5.0, 5.0)
+        self.display_offset_x.setSingleStep(0.01)
+        self.display_offset_x.setDecimals(3)
+        self.display_offset_x.setSuffix(' m')
+        self.display_offset_z = QDoubleSpinBox()
+        self.display_offset_z.setRange(-5.0, 5.0)
+        self.display_offset_z.setSingleStep(0.01)
+        self.display_offset_z.setDecimals(3)
+        self.display_offset_z.setSuffix(' m')
+        self.display_frame_clearance = QDoubleSpinBox()
+        self.display_frame_clearance.setRange(0.0, 2.0)
+        self.display_frame_clearance.setSingleStep(0.01)
+        self.display_frame_clearance.setSuffix(' m')
+        self.display_mounting = QComboBox()
+        for value, label in _DISPLAY_MOUNTING_ITEMS:
+            self.display_mounting.addItem(label, value)
+        display_form.addRow("有効画域 幅", self.display_width)
+        display_form.addRow("有効画域 高さ", self.display_height)
+        display_form.addRow("中心オフセット X", self.display_offset_x)
+        display_form.addRow("中心オフセット Z", self.display_offset_z)
+        display_form.addRow("フレーム余白", self.display_frame_clearance)
+        display_form.addRow("設置方式", self.display_mounting)
+        display_layout.addLayout(display_form)
 
         # --- seat bindings -----------------------------------------------------
         self.seats_heading = QLabel("座席バインド")
@@ -375,6 +575,8 @@ class RoomVideoPanel(QWidget):
         layout.addLayout(seat_view_row)
 
         self.new_spec_button.clicked.connect(self.createSpecRequested)
+        self.new_display_spec_button.clicked.connect(self.createDisplaySpecRequested)
+        self.target_combo.currentIndexChanged.connect(self._target_changed)
         self.evaluate_button.clicked.connect(
             lambda: self.evaluateRequested.emit(self.variant_combo.currentData())
         )
@@ -390,6 +592,11 @@ class RoomVideoPanel(QWidget):
             self.screen_offset_x,
             self.screen_offset_z,
             self.frame_clearance,
+            self.display_width,
+            self.display_height,
+            self.display_offset_x,
+            self.display_offset_z,
+            self.display_frame_clearance,
             self.sightline_clearance,
             self.max_axis_deviation,
         ):
@@ -402,9 +609,24 @@ class RoomVideoPanel(QWidget):
         )
         self.projector_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
         self.spec_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
+        self.display_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
+        self.display_spec_combo.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
+        self.display_mounting.currentIndexChanged.connect(lambda _i: self.bindingsChanged.emit())
 
         self._syncing = False
         self._screen_entity_id: str | None = None
+        self._apply_target_visibility()
+
+    def _target_changed(self, _index: int) -> None:
+        self._apply_target_visibility()
+        if not self._syncing:
+            self.bindingsChanged.emit()
+
+    def _apply_target_visibility(self) -> None:
+        """Show only the binding section that matches the target type."""
+        direct_view = self.target_combo.currentData() == 'direct_view'
+        self.projection_section.setVisible(not direct_view)
+        self.display_section.setVisible(direct_view)
 
     # -- data-in ----------------------------------------------------------------
 
@@ -417,11 +639,18 @@ class RoomVideoPanel(QWidget):
         seat_names: dict[str, str],
         seat_poses: dict[str, tuple[tuple[tuple[str, str], ...], str | None]] | None = None,
         screen_transfers: tuple[tuple[tuple[str, str], ...], str | None] | None = None,
+        display_specifications: tuple = (),
     ) -> None:
         """Refresh all widgets from authoritative state."""
 
         self._syncing = True
         try:
+            index = self.target_combo.findData(workspace.target_type)
+            self.target_combo.blockSignals(True)
+            self.target_combo.setCurrentIndex(index if index >= 0 else 0)
+            self.target_combo.blockSignals(False)
+            self._apply_target_visibility()
+
             current_projector = self.projector_combo.currentData()
             self.projector_combo.blockSignals(True)
             self.projector_combo.clear()
@@ -447,6 +676,36 @@ class RoomVideoPanel(QWidget):
             index = self.spec_combo.findData(wanted_spec)
             self.spec_combo.setCurrentIndex(index if index >= 0 else 0)
             self.spec_combo.blockSignals(False)
+
+            current_display = self.display_combo.currentData()
+            self.display_combo.blockSignals(True)
+            self.display_combo.clear()
+            self.display_combo.addItem("（未選択）", None)
+            displays = [entity for entity in document.entities if entity.kind == 'display']
+            for entity in displays:
+                self.display_combo.addItem(entity.name, entity.entity_id)
+            wanted_display = workspace.display_entity_id or current_display
+            index = self.display_combo.findData(wanted_display)
+            self.display_combo.setCurrentIndex(index if index >= 0 else 0)
+            self.display_combo.blockSignals(False)
+
+            current_display_spec = self.display_spec_combo.currentData()
+            self.display_spec_combo.blockSignals(True)
+            self.display_spec_combo.clear()
+            self.display_spec_combo.addItem("（未バインド）", None)
+            for spec in display_specifications:
+                label = f"{spec.specification_id} v{spec.version}"
+                if spec.manufacturer or spec.model:
+                    label += f" · {' '.join(v for v in (spec.manufacturer, spec.model) if v)}"
+                elif spec.user_label:
+                    label += f" · {spec.user_label}"
+                self.display_spec_combo.addItem(label, spec.specification_sha256)
+            wanted_display_spec = (
+                workspace.display_specification_sha256 or current_display_spec
+            )
+            index = self.display_spec_combo.findData(wanted_display_spec)
+            self.display_spec_combo.setCurrentIndex(index if index >= 0 else 0)
+            self.display_spec_combo.blockSignals(False)
 
             current_variant = self.variant_combo.currentData()
             self.variant_combo.blockSignals(True)
@@ -474,6 +733,44 @@ class RoomVideoPanel(QWidget):
                     self.screen_offset_z.setValue(binding.image_center_offset_local_m.z_m)
                     self.frame_clearance.setValue(binding.frame_clearance_m)
                 self._screen_entity_id = screen.entity_id
+
+            if displays:
+                display = next(
+                    (
+                        entity
+                        for entity in displays
+                        if entity.entity_id == self.display_combo.currentData()
+                    ),
+                    displays[0],
+                )
+                binding = workspace.display_binding
+                if binding is not None and binding.entity_id == display.entity_id:
+                    self.display_width.setValue(binding.visible_width_m)
+                    self.display_height.setValue(binding.visible_height_m)
+                    self.display_offset_x.setValue(
+                        binding.image_center_offset_local_m.x_m
+                    )
+                    self.display_offset_z.setValue(
+                        binding.image_center_offset_local_m.z_m
+                    )
+                    self.display_frame_clearance.setValue(binding.frame_clearance_m)
+                    index = self.display_mounting.findData(binding.mounting)
+                    self.display_mounting.setCurrentIndex(index if index >= 0 else 0)
+                else:
+                    # Default the aperture to the chassis front face — the user
+                    # edits it down to the real active area; never silently
+                    # bound to a different display's leftover values.
+                    self.display_width.setValue(display.size_m.x_m)
+                    self.display_height.setValue(display.size_m.z_m)
+                    self.display_offset_x.setValue(0.0)
+                    self.display_offset_z.setValue(0.0)
+                    self.display_frame_clearance.setValue(0.0)
+                    self.display_mounting.setCurrentIndex(0)
+                self.display_heading.setText(
+                    f"ディスプレイ有効画域 — {display.name}"
+                )
+            else:
+                self.display_heading.setText("ディスプレイ有効画域（バインド未設定）")
 
             # Rebuild per-seat rows only when seat set changed.
             seat_ids = [entity.entity_id for entity in seats]
@@ -635,8 +932,27 @@ class RoomVideoPanel(QWidget):
 
     # -- data-out -----------------------------------------------------------------
 
+    def current_target_type(self) -> str:
+        return self.target_combo.currentData() or 'projection'
+
     def current_projector_entity_id(self) -> str | None:
         return self.projector_combo.currentData()
+
+    def current_display_entity_id(self) -> str | None:
+        return self.display_combo.currentData()
+
+    def current_display_specification_sha256(self) -> str | None:
+        return self.display_spec_combo.currentData()
+
+    def current_display_values(self) -> dict[str, object]:
+        return {
+            'visible_width_m': float(self.display_width.value()),
+            'visible_height_m': float(self.display_height.value()),
+            'image_center_offset_x_m': float(self.display_offset_x.value()),
+            'image_center_offset_z_m': float(self.display_offset_z.value()),
+            'frame_clearance_m': float(self.display_frame_clearance.value()),
+            'mounting': self.display_mounting.currentData(),
+        }
 
     def current_specification_sha256(self) -> str | None:
         return self.spec_combo.currentData()
@@ -687,7 +1003,30 @@ class RoomVideoPanel(QWidget):
         if evaluation is None:
             return
         rows: list[tuple[str, str]] = []
-        projection = evaluation.projection
+        projection = getattr(evaluation, 'projection', None)
+        surface = getattr(evaluation, 'surface', None)
+        if surface is not None:
+            # Direct-view evaluation (#1054): no projection fields — the
+            # display surface carries containment/conformance instead.
+            rows.extend(
+                [
+                    ('映像面: 総合', status_labels.get(surface.status, surface.status)),
+                    (
+                        '映像面: シャーシ収容',
+                        status_labels.get(
+                            surface.chassis_containment_status,
+                            surface.chassis_containment_status,
+                        ),
+                    ),
+                    (
+                        '映像面: 仕様適合',
+                        status_labels.get(
+                            surface.spec_conformance_status,
+                            surface.spec_conformance_status,
+                        ),
+                    ),
+                ]
+            )
         if projection is not None:
             rows.extend(
                 [
