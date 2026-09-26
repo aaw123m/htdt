@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QInputDialog
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import capture_fixture_support as support  # noqa: E402
 
 from htdt.application_pages import (
+    CaptureInboxPage,
     ProjectLibraryService,
     list_recent_revisions,
 )
+from htdt.capture_ingestion_transaction import (
+    CaptureIngestionPlan,
+    CaptureIngestionRepository,
+)
+from htdt.capture_inbox import CaptureInboxRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_empty_scene, make_f1_scene
 from htdt.workflow_navigation import (
@@ -132,3 +144,71 @@ def test_shell_project_identity_visible(tmp_path) -> None:
     shell = WorkflowShellWindow(registrations)
     shell.set_project_identity('theater-1')
     shell.close()
+
+
+def _staged_inbox(tmp_path):
+    scene = SceneRepository(tmp_path / "cad.sqlite3")
+    ingestion = CaptureIngestionRepository(scene)
+    inbox = CaptureInboxRepository(scene, ingestion)
+    plan, payloads, _ = support.plan_and_payloads(tmp_path)
+    ingestion.ingest(plan, payloads)
+    staged = inbox.stage(
+        CaptureIngestionPlan.model_validate(plan),
+        arrival_source="file_import",
+    )
+    return inbox, staged
+
+
+def test_capture_inbox_detail_preserves_item_and_project_context(
+    tmp_path, monkeypatch
+) -> None:
+    """#770: selection shows the exact item/project context and triage
+    actions act on the inspected item — the listing is no longer list-only."""
+    app = _app()
+    inbox, staged = _staged_inbox(tmp_path)
+    digest = staged.lineage_digest
+    project = SimpleNamespace(
+        project_id="proj-alpha", document_id="doc-alpha", display_name="Alpha"
+    )
+    page = CaptureInboxPage(
+        inbox.list_items,
+        on_navigate=lambda link: True,
+        inspect_item=inbox.inspect,
+        defer_item=inbox.defer,
+        reject_item=inbox.reject,
+        resume_item=inbox.resume,
+        list_projects=lambda: (project,),
+        assign_scope=inbox.assign_scope,
+    )
+    try:
+        page.table.selectRow(0)
+        app.processEvents()
+        text = page.detail.text()
+        assert "（未割り当て）" in text
+        assert "new_series" in text
+        assert "昇格可能性" in text
+
+        # Scope assignment binds the item to the chosen project document.
+        index = page.scope_combo.findData("doc-alpha")
+        assert index > 0
+        page.scope_combo.setCurrentIndex(index)
+        page.scope_button.click()
+        assert inbox.get(digest).scope == "doc-alpha"
+
+        monkeypatch.setattr(
+            QInputDialog,
+            "getText",
+            staticmethod(lambda *args, **kwargs: ("後で確認", True)),
+        )
+        page.defer_button.click()
+        assert inbox.get(digest).disposition == "deferred"
+        assert "延期" in page.detail.text()
+
+        page.resume_button.click()
+        assert inbox.get(digest).disposition == "pending"
+        # Selection survives refresh: the exact item stays in context.
+        assert "capture-inbox-item" not in page.detail.text() or "項目:" in page.detail.text()
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()

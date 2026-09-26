@@ -1051,6 +1051,12 @@ class WorkflowApplicationComposition:
         page = CaptureInboxPage(
             repository.list_items,
             on_navigate=self._navigate_target,
+            inspect_item=repository.inspect,
+            defer_item=repository.defer,
+            reject_item=repository.reject,
+            resume_item=repository.resume,
+            list_projects=self.project_library.list_projects,
+            assign_scope=repository.assign_scope,
         )
         return WorkspaceMount.from_widget(
             page,
