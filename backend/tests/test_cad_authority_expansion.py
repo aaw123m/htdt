@@ -101,6 +101,7 @@ from htdt.cad_scene import (
     SceneDocument,
     SceneEntity,
     Size3,
+    quaternion_from_euler_deg,
 )
 from htdt.cad_speaker_impedance import (
     ImpedanceSample,
@@ -578,6 +579,101 @@ def test_installation_context_evaluation(tmp_path: Path) -> None:
     )
     assert rear.state == 'FAIL'
     assert rear.actual_m == pytest.approx(0.2)
+
+
+def test_installation_context_cabinet_local_clearance(tmp_path: Path) -> None:
+    # #968 — front/rear/side/port clearances are cabinet-local axes: they
+    # rotate with the entity orientation rather than staying world-fixed.
+    yawed = SceneEntity(
+        entity_id='speaker-fl',
+        kind='speaker',
+        name='Front Left',
+        speaker_role='FL',
+        position=Position3(x_m=1.0, y_m=3.0, z_m=1.0),
+        size_m=Size3(x_m=0.20, y_m=0.25, z_m=0.35),
+        # yaw +90 turns the cabinet front (local +Y) toward world -X.
+        orientation=quaternion_from_euler_deg(
+            yaw_deg=90.0, pitch_deg=0.0, roll_deg=0.0
+        ),
+    )
+    scene_repository, revision, _, equipment_repository = _repositories(
+        tmp_path, entities=(yawed,)
+    )
+    definition = _equipment(
+        mounting=MountingMetadata(mounting_modes=('free_standing',)),
+        port=PortMetadata(port_type='front', minimum_clearance_m=0.5),
+        clearance=ClearanceMetadata(front_m=0.5, rear_m=5.0, side_m=1.0),
+    )
+    _save_equipment(equipment_repository, definition)
+    context = build_installation_context(
+        context_id='ctx-yaw',
+        document_id=DOCUMENT_ID,
+        entity_id='speaker-fl',
+        equipment_definition=definition,
+        selected_mounting_mode='free_standing',
+        provenance=(_provenance('install', '9'),),
+        created_at_utc=NOW,
+    )
+    entity = revision.document.entity('speaker-fl')
+    evaluation = evaluate_installation_context(
+        document=revision.document,
+        entity=entity,
+        equipment_definition=definition,
+        context=context,
+    )
+    checks = {check.check: check for check in evaluation.checks}
+    # The yawed cabinet front faces world -X, so the front gap is the
+    # ~0.875 m to the x=0 wall — not the 2.9 m a world-fixed -Y axis would
+    # have reported.
+    assert checks['clearance_front'].state == 'PASS'
+    assert checks['clearance_front'].actual_m == pytest.approx(0.875)
+    assert checks['clearance_rear'].state == 'FAIL'
+    assert checks['clearance_rear'].actual_m == pytest.approx(4.875)
+    # Sides face ±Y in world after the yaw.
+    assert checks['clearance_side'].state == 'PASS'
+    assert checks['clearance_side'].actual_m == pytest.approx(2.9)
+    assert checks['port_clearance'].state == 'PASS'
+    assert checks['port_clearance'].actual_m == pytest.approx(0.875)
+
+    # A cabinet tipped onto its back (roll 90: front face up) leaves no
+    # resolvable horizontal clearance at all — every face check stays
+    # UNKNOWN instead of falling back to a world-axis guess.
+    vertical = _speaker(
+        position=Position3(x_m=1.0, y_m=3.0, z_m=1.0),
+    ).model_copy(
+        update={
+            'orientation': quaternion_from_euler_deg(
+                yaw_deg=0.0, pitch_deg=0.0, roll_deg=90.0
+            ),
+        }
+    )
+    vertical_dir = tmp_path / 'vertical'
+    vertical_dir.mkdir()
+    scene_repository, revision, _, equipment_repository = _repositories(
+        vertical_dir, entities=(vertical,)
+    )
+    _save_equipment(equipment_repository, definition)
+    context = build_installation_context(
+        context_id='ctx-vertical',
+        document_id=DOCUMENT_ID,
+        entity_id='speaker-fl',
+        equipment_definition=definition,
+        selected_mounting_mode='free_standing',
+        provenance=(_provenance('install', 'a'),),
+        created_at_utc=NOW,
+    )
+    entity = revision.document.entity('speaker-fl')
+    evaluation = evaluate_installation_context(
+        document=revision.document,
+        entity=entity,
+        equipment_definition=definition,
+        context=context,
+    )
+    checks = {check.check: check for check in evaluation.checks}
+    assert checks['clearance_front'].state == 'UNKNOWN'
+    assert checks['clearance_rear'].state == 'UNKNOWN'
+    assert checks['clearance_side'].state == 'UNKNOWN'
+    assert checks['port_clearance'].state == 'UNKNOWN'
 
 
 def test_installation_context_via_r110(tmp_path: Path) -> None:
