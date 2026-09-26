@@ -146,9 +146,10 @@ class OverviewWorkspace(QWidget):
                 label.setWordWrap(True)
                 set_typography_role(label, TypographyRole.SECONDARY)
                 self.trust_layout.addWidget(label)
-        for domain in view.secondary_domains:
+        secondary_domains = getattr(view, 'secondary_domains', ())
+        for domain in secondary_domains:
             self._add_secondary_domain(domain)
-        self.domain_header.setVisible(bool(view.secondary_domains))
+        self.domain_header.setVisible(bool(secondary_domains))
 
         # Notices are grouped by lifecycle area so a room blocker and a
         # measurement warning each sit under their own domain header (#443).
