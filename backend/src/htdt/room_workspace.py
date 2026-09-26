@@ -194,8 +194,27 @@ from .cad_scene import (
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
 )
-from .mesh_import_authority import legacy_mesh_import_authority
+from .mesh_import_authority import (
+    MESH_IMPORT_AUTHORITY_VERSION,
+    MeshImportCancelledError,
+    MeshImportOversizeDecision,
+    apply_mesh_import_decision,
+    format_declared_source_unit,
+    import_entity_mesh_asset,
+    legacy_mesh_import_authority,
+    make_mesh_import_authority,
+    mesh_import_scene_transform,
+)
 from .raw_mesh import RawMeshImportError, import_raw_visual_mesh
+from .raw_mesh_repair import RepairedRawMesh, RepairedRawMeshDiagnosticResult
+from .semantic_geometry import (
+    SemanticAcousticGeometry,
+    SemanticCoordinateTransform,
+    SurfaceSemanticAssignment,
+    convert_raw_visual_mesh_to_semantic_geometry,
+    make_semantic_geometry_conversion_request,
+)
+from .geometry_import_dialog import GeometryImportDialog, GeometryImportRequest
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .prediction_interpretation import PredictionSpatialLink
 from .room_underlay import (
@@ -1788,6 +1807,147 @@ class RoomWorkspaceController:
             raise EditStateError("メッシュボディを設定できませんでした")
         self._sync_recovery()
         return self.document.entity(entity_id)
+
+    def attach_mesh_asset_declared(
+        self,
+        entity_id: str,
+        file_path: str | Path,
+        *,
+        source_unit: str | None = None,
+        custom_scale_to_meters: float | None = None,
+        up_axis: str = 'unknown',
+        forward_axis: str = 'unknown',
+        handedness: str = 'unknown',
+        local_anchor: str = 'source_origin',
+        repaired_mesh: RepairedRawMesh | None = None,
+        oversize_decision: MeshImportOversizeDecision = 'cancel',
+    ) -> SceneEntity:
+        """Attach a mesh through the declared-authority path (#669/#762).
+
+        Unlike :meth:`attach_mesh_asset` (which records a legacy
+        assumed-meter authority), every unit/axis/anchor term is an explicit
+        operator declaration. An optional bounded-repair preview replaces the
+        parsed geometry; an oversized result is resolved by the operator's
+        ``oversize_decision`` rather than silently adopted.
+        """
+
+        if not self.can_edit:
+            raise EditStateError("現在の状態ではメッシュを設定できません")
+        if self.view_state.is_locked(entity_id):
+            raise EditStateError("ロック中のオブジェクトは編集できません")
+        entity = self.document.entity(entity_id)
+        if entity.size_m is None:
+            raise EditStateError("メッシュボディは物理オブジェクトのみに設定できます")
+        path = Path(file_path)
+        data = path.read_bytes()
+        body_mesh, _authority = import_entity_mesh_asset(
+            data,
+            source_name=path.name,
+            source_unit=source_unit,
+            custom_scale_to_meters=custom_scale_to_meters,
+            up_axis=up_axis,
+            forward_axis=forward_axis,
+            handedness=handedness,
+            local_anchor=local_anchor,
+            repaired_mesh=repaired_mesh,
+        )
+        self.repository.store_blob(data)
+        geometry = EntityBodyGeometry(kind="mesh_asset", mesh=body_mesh)
+        size_m, geometry = apply_mesh_import_decision(
+            geometry, entity.size_m, decision=oversize_decision
+        )
+        updates: dict = {"body_geometry": geometry}
+        if size_m != entity.size_m:
+            updates["size_m"] = size_m
+        if not self.working.update_entity(entity_id, **updates):
+            raise EditStateError("メッシュボディを設定できませんでした")
+        self._sync_recovery()
+        return self.document.entity(entity_id)
+
+    def import_room_mesh_geometry(
+        self,
+        file_path: str | Path,
+        *,
+        source_unit: str | None = None,
+        custom_scale_to_meters: float | None = None,
+        up_axis: str = 'unknown',
+        forward_axis: str = 'unknown',
+        handedness: str = 'unknown',
+        local_anchor: str = 'source_origin',
+        surface_assignments: tuple[SurfaceSemanticAssignment, ...] = (),
+        repaired_mesh: RepairedRawMesh | None = None,
+        repaired_diagnostic: RepairedRawMeshDiagnosticResult | None = None,
+    ) -> SemanticAcousticGeometry:
+        """Import an external mesh as the scene's ``r120_semantic_geometry``.
+
+        The guided dialog's declarations become a ``MeshImportAuthority`` and
+        the identical source→scene transform the entity path applies
+        (``mesh_import_scene_transform``), recorded with
+        ``explicit_import_metadata`` provenance. The conversion runs through
+        the canonical semantic-geometry contract and the result is committed
+        as one undoable ``replace_document`` step.
+        """
+
+        if not self.can_edit:
+            raise EditStateError("現在の状態ではジオメトリをインポートできません")
+        path = Path(file_path)
+        data = path.read_bytes()
+        raw_mesh = import_raw_visual_mesh(data, source_name=path.name)
+        spec_unit = format_declared_source_unit(raw_mesh.provenance.asset_format)
+        resolved_unit = source_unit if source_unit is not None else spec_unit
+        declared_by = (
+            'format_specification'
+            if spec_unit != 'unknown'
+            else 'operator_confirmed'
+        )
+        authority = make_mesh_import_authority(
+            source_unit=resolved_unit,
+            unit_declared_by=declared_by,
+            custom_scale_to_meters=custom_scale_to_meters,
+            up_axis=up_axis,
+            forward_axis=forward_axis,
+            handedness=handedness,
+            local_anchor=local_anchor,
+            importer_version=MESH_IMPORT_AUTHORITY_VERSION,
+        )
+        transform = SemanticCoordinateTransform(
+            matrix_source_to_scene_m=mesh_import_scene_transform(
+                authority,
+                [(v.x, v.y, v.z) for v in raw_mesh.vertices],
+            ),
+            provenance='explicit_import_metadata',
+            reason=f'guided geometry import from {path.name}',
+        )
+        request = make_semantic_geometry_conversion_request(
+            raw_mesh,
+            source_scene_revision_id=self.working.source_revision_id,
+            source_to_scene_transform=transform,
+            surface_assignments=surface_assignments,
+            repaired_mesh=repaired_mesh,
+            repaired_diagnostic=repaired_diagnostic,
+        )
+        geometry = convert_raw_visual_mesh_to_semantic_geometry(
+            raw_mesh,
+            request,
+            repaired_mesh=repaired_mesh,
+            repaired_diagnostic=repaired_diagnostic,
+        )
+        updated = self.committed_document.model_copy(
+            update={
+                'schema_version': max(4, self.committed_document.schema_version),
+                'r120_semantic_geometry': geometry,
+            }
+        )
+        self.working.replace_document(
+            updated,
+            presentation=CommandPresentation(
+                action='import_room_geometry',
+                subject_names=(path.name,),
+                label='部屋のジオメトリをインポート',
+            ),
+        )
+        self._sync_recovery()
+        return geometry
 
     def recover_draft(self) -> bool:
         recovery = self.recovery_candidate
@@ -4174,6 +4334,11 @@ class RoomWorkspace(QWidget):
                 delete_action.triggered.connect(
                     lambda checked=False, target=view_id: self.delete_named_view(target)
                 )
+        menu.addSeparator()
+        action = menu.addAction("ジオメトリをインポート…")
+        action.triggered.connect(
+            lambda checked=False: self.import_geometry_dialog()
+        )
         self._rebuild_underlay_menu(menu)
         self._rebuild_constraint_menu(menu)
 
@@ -6109,15 +6274,144 @@ class RoomWorkspace(QWidget):
         return True
 
     def _import_mesh_for_selected(self) -> None:
-        file_path, _filter = QFileDialog.getOpenFileName(
-            self,
-            "ボディメッシュを選択",
-            "",
-            "メッシュ (*.obj *.glb *.meshbin);;すべてのファイル (*)",
-        )
-        if not file_path:
-            return
-        self.import_mesh_for_selected(file_path)
+        # Inspector mesh button → guided import with the selection as the
+        # entity-body destination (#762).
+        self.import_geometry_dialog()
+
+    def import_geometry_dialog(self, file_path: str | Path | None = None) -> bool:
+        """Guided geometry import: declare units/axes, QA, repair preview (#762).
+
+        One dialog covers both destinations — the selected entity's body
+        (declared-authority attach) and the room's ``r120_semantic_geometry``
+        (solver-readiness commit). Replaces the blind legacy attach as the
+        only UI-reachable import path.
+        """
+
+        if file_path is None:
+            file_path, _filter = QFileDialog.getOpenFileName(
+                self,
+                "ジオメトリをインポート",
+                "",
+                "メッシュ (*.obj *.glb *.meshbin *.ply *.stl);;すべてのファイル (*)",
+            )
+            if not file_path:
+                return False
+        entity_id = self.controller.selected_id
+        entity_name = None
+        if entity_id is not None:
+            try:
+                entity = self.controller.document.entity(entity_id)
+            except (EditStateError, KeyError):
+                entity = None
+            if entity is not None and entity.size_m is not None:
+                entity_name = entity.name
+            else:
+                entity_id = None
+        try:
+            dialog = GeometryImportDialog(
+                file_path, entity_target=entity_name, parent=self
+            )
+        except (EditStateError, RawMeshImportError, ValueError, OSError) as exc:
+            self._set_operation_error("ジオメトリをインポートできませんでした", exc)
+            return False
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        request = dialog.import_request()
+        if request.destination == 'entity_body' and entity_id is not None:
+            return self._commit_entity_mesh_import(entity_id, file_path, request)
+        return self._commit_room_geometry_import(file_path, request)
+
+    def _commit_entity_mesh_import(
+        self,
+        entity_id: str,
+        file_path: str | Path,
+        request: GeometryImportRequest,
+    ) -> bool:
+        def attach(decision: MeshImportOversizeDecision):
+            return self.controller.attach_mesh_asset_declared(
+                entity_id,
+                file_path,
+                source_unit=request.source_unit,
+                custom_scale_to_meters=request.custom_scale_to_meters,
+                up_axis=request.up_axis,
+                forward_axis=request.forward_axis,
+                handedness=request.handedness,
+                local_anchor=request.local_anchor,
+                repaired_mesh=request.repaired_mesh,
+                oversize_decision=decision,
+            )
+
+        try:
+            try:
+                entity = attach('cancel')
+            except MeshImportCancelledError:
+                box = QMessageBox(self)
+                box.setWindowTitle("メッシュが包絡サイズを超えています")
+                box.setText(
+                    "インポートしたメッシュが宣言済みのオブジェクトサイズ"
+                    "（size_m）を超えています。"
+                )
+                adopt = box.addButton(
+                    "包絡をメッシュに合わせる", QMessageBox.ButtonRole.AcceptRole
+                )
+                rescale = box.addButton(
+                    "メッシュを縮小して適合", QMessageBox.ButtonRole.DestructiveRole
+                )
+                box.addButton(QMessageBox.StandardButton.Cancel)
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is adopt:
+                    entity = attach('adopt')
+                elif clicked is rescale:
+                    entity = attach('rescale')
+                else:
+                    return False
+        except (EditStateError, RawMeshImportError, ValueError, OSError) as exc:
+            self._pending_editor_rejected = True
+            self._set_operation_error("メッシュを設定できませんでした", exc)
+            return False
+        self._refresh()
+        self._set_status(f"{entity.name}にメッシュボディを設定しました")
+        return True
+
+    def _commit_room_geometry_import(
+        self,
+        file_path: str | Path,
+        request: GeometryImportRequest,
+    ) -> bool:
+        try:
+            geometry = self.controller.import_room_mesh_geometry(
+                file_path,
+                source_unit=request.source_unit,
+                custom_scale_to_meters=request.custom_scale_to_meters,
+                up_axis=request.up_axis,
+                forward_axis=request.forward_axis,
+                handedness=request.handedness,
+                local_anchor=request.local_anchor,
+                surface_assignments=request.surface_assignments,
+                repaired_mesh=request.repaired_mesh,
+                repaired_diagnostic=request.repaired_diagnostic,
+            )
+        except (EditStateError, RawMeshImportError, ValueError, OSError) as exc:
+            self._pending_editor_rejected = True
+            self._set_operation_error(
+                "部屋のジオメトリをインポートできませんでした", exc
+            )
+            return False
+        self._refresh(reset_camera=True)
+        if (
+            geometry.geometry_compiler_readiness
+            == 'ready_for_r120_geometry_compiler_contract'
+        ):
+            self._set_status(
+                "部屋の音響ジオメトリをインポートしました（R120契約対応可）"
+            )
+        else:
+            detail = "、".join(geometry.unresolved_conditions) or "未解決項目"
+            self._set_status(
+                f"部屋の音響ジオメトリをインポートしました（{detail}）"
+            )
+        return True
 
     def _recover(self) -> None:
         try:

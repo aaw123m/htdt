@@ -29,7 +29,10 @@ This module makes the interpretation explicit and persisted:
 
 from __future__ import annotations
 
-from typing import Literal, Sequence
+from typing import TYPE_CHECKING, Literal, Sequence
+
+if TYPE_CHECKING:
+    from .raw_mesh_repair import RepairedRawMesh
 
 from .cad_scene import (
     BodyMeshAsset,
@@ -279,6 +282,7 @@ def import_entity_mesh_asset(
     local_anchor: str = 'source_origin',
     anchor_offset_m: Offset3 | None = None,
     format_hint: RawMeshFormat | None = None,
+    repaired_mesh: RepairedRawMesh | None = None,
 ) -> tuple[BodyMeshAsset, MeshImportAuthority]:
     """Import bytes into a normalized meter mesh asset with recorded authority.
 
@@ -287,9 +291,20 @@ def import_entity_mesh_asset(
     (OBJ and any other unitless source), the caller must pass an explicit
     ``source_unit`` — recorded as ``operator_confirmed``. Declaring
     ``source_unit='unknown'`` under ``operator_confirmed`` is rejected.
+
+    ``repaired_mesh`` (a ``RepairedRawMesh`` produced by
+    ``raw_mesh_repair.apply_raw_mesh_repair`` against this same source)
+    substitutes its bounded-repair geometry for the parsed source — the
+    asset keeps the original bytes' provenance while its vertices come from
+    the operator-previewed repair.
     """
 
     imported = import_raw_visual_mesh(asset, source_name=source_name, format_hint=format_hint)
+    source_vertices = imported.vertices
+    source_triangles = imported.triangles
+    if repaired_mesh is not None:
+        source_vertices = repaired_mesh.vertices
+        source_triangles = repaired_mesh.triangles
     spec_unit = format_declared_source_unit(imported.provenance.asset_format)
     if source_unit is None:
         source_unit = spec_unit
@@ -309,7 +324,7 @@ def import_entity_mesh_asset(
         importer_version=MESH_IMPORT_AUTHORITY_VERSION,
     )
     vertices = normalize_source_vertices(
-        [(v.x, v.y, v.z) for v in imported.vertices],
+        [(v.x, v.y, v.z) for v in source_vertices],
         authority,
     )
     body = BodyMeshAsset(
@@ -319,11 +334,48 @@ def import_entity_mesh_asset(
         original_size_bytes=imported.provenance.original_size_bytes,
         vertices=vertices,
         triangles=tuple(
-            BodyMeshTriangle(a=t.a, b=t.b, c=t.c) for t in imported.triangles
+            BodyMeshTriangle(a=t.a, b=t.b, c=t.c) for t in source_triangles
         ),
         import_authority=authority,
     )
     return body, authority
+
+
+def mesh_import_scene_transform(
+    authority: MeshImportAuthority,
+    source_vertices: Sequence[tuple[float, float, float]],
+) -> tuple[tuple[float, float, float, float], ...]:
+    """4×4 source→scene-metre affine identical to ``normalize_source_vertices``.
+
+    The entity-body path normalizes vertices imperatively; the semantic
+    conversion path (``SemanticCoordinateTransform``) needs the same
+    interpretation expressed as a matrix. Both derive from the same helpers,
+    so the two paths cannot drift apart.
+    """
+
+    scale = mesh_unit_scale_to_meters(authority)
+    rotation = mesh_import_axis_matrix(
+        authority.source_up_axis,
+        authority.source_forward_axis,
+        authority.handedness,
+    )
+    identity = (
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0),
+    )
+    basis = rotation if rotation is not None else identity
+    rotated = [
+        _apply_matrix(basis, (v[0] * scale, v[1] * scale, v[2] * scale))
+        for v in source_vertices
+    ]
+    shift = _anchor_shift(authority.local_anchor, rotated, authority.anchor_offset_m)
+    return (
+        (basis[0][0] * scale, basis[0][1] * scale, basis[0][2] * scale, shift[0]),
+        (basis[1][0] * scale, basis[1][1] * scale, basis[1][2] * scale, shift[1]),
+        (basis[2][0] * scale, basis[2][1] * scale, basis[2][2] * scale, shift[2]),
+        (0.0, 0.0, 0.0, 1.0),
+    )
 
 
 def legacy_mesh_import_authority(mesh: BodyMeshAsset | None = None) -> MeshImportAuthority:
