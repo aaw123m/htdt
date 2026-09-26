@@ -281,6 +281,18 @@ class CadModelCalibrationRepository:
             )
         return record
 
+    # -- holdout records ---------------------------------------------------
+
+    def get_holdout_record(
+        self, record_id: str
+    ) -> HoldoutDisciplineRecord | None:
+        payload = self._select(
+            'cad_calibration_holdout_records', 'record_id', record_id
+        )
+        if payload is None:
+            return None
+        return HoldoutDisciplineRecord.model_validate_json(payload)
+
     # -- evidence-consumption history ------------------------------------
 
     def record_evidence_consumption(

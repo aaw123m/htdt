@@ -52,6 +52,9 @@ from htdt.cad_design_comparison_repository import (
 from htdt.cad_measurement_runner_repository import (
     CadMeasurementRunnerRepository,
 )
+from htdt.cad_model_calibration_repository import (
+    CadModelCalibrationRepository,
+)
 from htdt.cad_repository import (
     AuthoringConstraintRevision,
     SceneRepository,
@@ -553,6 +556,28 @@ def test_forged_scene_head_row_fails(tmp_path: Path) -> None:
 
     assert not report.ok
     assert _failures(report, 'scene_document_head')
+
+
+def test_forged_calibration_evidence_event_missing_freeze_fails(
+    tmp_path: Path,
+) -> None:
+    data_dir, scene = _seeded(tmp_path)
+    CadModelCalibrationRepository(scene)
+    _insert(
+        data_dir,
+        'cad_calibration_evidence_events',
+        campaign_id='campaign:forged',
+        campaign_sha256='0' * 64,
+        consumption_kind='holdout',
+        freeze_id='calibrated-model-freeze:' + '0' * 64,
+        record_id=None,
+        recorded_at_utc=NOW,
+    )
+
+    report = audit_native_authority_graph(data_dir / 'cad-scenes.sqlite3')
+
+    assert not report.ok
+    assert _failures(report, 'calibration_evidence_event')
 
 
 def test_forged_runner_event_missing_run_fails(tmp_path: Path) -> None:
