@@ -1914,18 +1914,36 @@ class CadProposalRobustnessRepository:
             for row in rows
         )
 
+    def _evidence_for_spec(
+        self,
+        robustness_spec_id: str,
+        evidence: dict,
+    ):
+        """Spec + full sample listing, loaded once per spec per batch."""
+        cached = evidence.get(robustness_spec_id)
+        if cached is None:
+            spec = self.get_spec(robustness_spec_id)
+            if spec is None:
+                raise ValueError(
+                    'proposal robustness evaluation references missing spec'
+                )
+            cached = (spec, self.list_samples(spec.robustness_spec_id))
+            evidence[robustness_spec_id] = cached
+        return cached
+
     def _validate_evaluation(
         self,
         evaluation: RobustnessEvaluation,
+        *,
+        evidence: dict | None = None,
     ) -> RobustnessEvaluation:
         evaluation = RobustnessEvaluation.model_validate(
             evaluation.model_dump(mode='python')
         )
-        spec = self.get_spec(evaluation.robustness_spec_id)
-        if spec is None:
-            raise ValueError(
-                'proposal robustness evaluation references missing spec'
-            )
+        spec, samples = self._evidence_for_spec(
+            evaluation.robustness_spec_id,
+            {} if evidence is None else evidence,
+        )
         if (
             evaluation.robustness_spec_sha256 != spec.robustness_spec_sha256
             or evaluation.candidate_id != spec.candidate_id
@@ -1933,7 +1951,6 @@ class CadProposalRobustnessRepository:
             raise ValueError(
                 'proposal robustness evaluation authority mismatch'
             )
-        samples = self.list_samples(spec.robustness_spec_id)
         if isinstance(spec, ProposalMultidimensionalRobustnessSpec):
             plans = build_multidimensional_sampling_plan(spec)
             regenerated = build_multidimensional_evaluations_from_provenance(
@@ -1972,8 +1989,18 @@ class CadProposalRobustnessRepository:
         self,
         evaluation: RobustnessEvaluation,
     ) -> RobustnessEvaluation:
-        evaluation = self._validate_evaluation(evaluation)
-        with closing(self._connect()) as connection, connection:
+        with closing(self._connect()) as connection:
+            return self._save_evaluation(connection, evaluation)
+
+    def _save_evaluation(
+        self,
+        connection: sqlite3.Connection,
+        evaluation: RobustnessEvaluation,
+        *,
+        evidence: dict | None = None,
+    ) -> RobustnessEvaluation:
+        evaluation = self._validate_evaluation(evaluation, evidence=evidence)
+        with connection:
             row = connection.execute(
                 """
                 SELECT payload_json
@@ -1991,7 +2018,7 @@ class CadProposalRobustnessRepository:
                         'proposal RobustnessEvaluation id exists with '
                         'different semantics'
                     )
-                return self._validate_evaluation(persisted)
+                return self._validate_evaluation(persisted, evidence=evidence)
             connection.execute(
                 """
                 INSERT INTO cad_proposal_robustness_evaluations(
@@ -2018,7 +2045,20 @@ class CadProposalRobustnessRepository:
         self,
         evaluations: Sequence[RobustnessEvaluation],
     ) -> tuple[RobustnessEvaluation, ...]:
-        return tuple(self.save_evaluation(item) for item in evaluations)
+        """Persist a batch over one connection and one evidence replay.
+
+        Each evaluation still commits independently — a mid-batch failure
+        leaves earlier items persisted exactly as sequential
+        ``save_evaluation`` calls would — but the batch shares one
+        connection and one spec/sample evidence listing per spec instead
+        of re-reading both per row.
+        """
+        evidence: dict = {}
+        with closing(self._connect()) as connection:
+            return tuple(
+                self._save_evaluation(connection, item, evidence=evidence)
+                for item in evaluations
+            )
 
     def list_evaluations(
         self,

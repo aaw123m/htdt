@@ -140,20 +140,40 @@ class CadValidationCampaignService:
         evaluation = next(iter(by_sha.values()))
         return evaluation, None
 
+    def _campaign_batches(
+        self,
+        campaign: CadValidationCampaign,
+    ):
+        """Batch specs bound to the campaign's exact persisted authority.
+
+        Hoisted out of the per-candidate loops: the matching set depends
+        only on immutable campaign fields, so one listing serves every
+        candidate.
+        """
+        return tuple(
+            batch
+            for batch in self.roomsim_repository.list_batch_specs(
+                campaign.search_spec_id
+            )
+            if (
+                batch.document_id == campaign.document_id
+                and batch.search_spec_sha256 == campaign.search_spec_sha256
+                and batch.candidate_set_sha256 == campaign.candidate_set_sha256
+                and batch.model_id == campaign.model_id
+            )
+        )
+
     def _matching_prediction_attempts(
         self,
         campaign: CadValidationCampaign,
         candidate_id: str,
+        *,
+        batches=None,
     ):
+        if batches is None:
+            batches = self._campaign_batches(campaign)
         attempts = []
-        for batch in self.roomsim_repository.list_batch_specs(campaign.search_spec_id):
-            if (
-                batch.document_id != campaign.document_id
-                or batch.search_spec_sha256 != campaign.search_spec_sha256
-                or batch.candidate_set_sha256 != campaign.candidate_set_sha256
-                or batch.model_id != campaign.model_id
-            ):
-                continue
+        for batch in batches:
             for attempt in self.roomsim_repository.list_candidate_attempts(
                 batch.batch_run_id,
                 candidate_id,
@@ -170,12 +190,16 @@ class CadValidationCampaignService:
         self,
         campaign: CadValidationCampaign,
         candidate_id: str,
+        *,
+        plans=None,
     ):
-        return tuple(
-            plan
-            for plan in self.measurement_repository.latest_measurement_plans(
+        if plans is None:
+            plans = self.measurement_repository.latest_measurement_plans(
                 campaign.search_spec_id
             )
+        return tuple(
+            plan
+            for plan in plans
             if (
                 plan.status == 'measured'
                 and plan.candidate_id == candidate_id
@@ -288,11 +312,14 @@ class CadValidationCampaignService:
         evidence_class: str,
         source_kind: str,
         source_id: str,
+        evaluations=None,
     ):
+        if evaluations is None:
+            evaluations = self.objective_repository.list_evaluations(
+                campaign.search_spec_id
+            )
         matching = []
-        for evaluation in self.objective_repository.list_evaluations(
-            campaign.search_spec_id
-        ):
+        for evaluation in evaluations:
             if (
                 evaluation.candidate_id != candidate_id
                 or evaluation.search_spec_sha256 != campaign.search_spec_sha256
@@ -311,13 +338,16 @@ class CadValidationCampaignService:
             matching.append(evaluation)
         return tuple(matching)
 
-    def _reuse_or_save_evaluation(self, evaluation):
-        for existing in self.objective_repository.list_evaluations(
-            evaluation.search_spec_id
-        ):
-            if existing.evaluation_sha256 == evaluation.evaluation_sha256:
-                return existing
+    def _reuse_or_save_evaluation(
+        self,
+        evaluation,
+        evaluations_by_sha: dict,
+    ):
+        existing = evaluations_by_sha.get(evaluation.evaluation_sha256)
+        if existing is not None:
+            return existing
         self.objective_repository.save_evaluation(evaluation)
+        evaluations_by_sha[evaluation.evaluation_sha256] = evaluation
         return evaluation
 
     def materialize_objective_evidence(
@@ -361,29 +391,44 @@ class CadValidationCampaignService:
         )
         evaluation_spec = json.loads(campaign.objective_evaluation_spec_json)
         saved_ids: list[str] = []
+        batches = self._campaign_batches(campaign)
+        plans = self.measurement_repository.latest_measurement_plans(
+            campaign.search_spec_id
+        )
+        # Every list/filter below reads immutable authority over unchanged
+        # persisted state, so each canonical listing runs once per
+        # materialization rather than once per candidate.
+        evaluations_by_sha = {
+            evaluation.evaluation_sha256: evaluation
+            for evaluation in self.objective_repository.list_evaluations(
+                campaign.search_spec_id
+            )
+        }
 
         for assignment in campaign.candidates:
             attempts = self._matching_prediction_attempts(
                 campaign,
                 assignment.candidate_id,
+                batches=batches,
             )
             if len(attempts) != 1:
                 raise ValueError(
                     f'{assignment.candidate_id}: objective materialization requires '
                     'exactly one completed prediction attempt'
                 )
-            plans = self._candidate_measured_plans(
+            candidate_plans = self._candidate_measured_plans(
                 campaign,
                 assignment.candidate_id,
+                plans=plans,
             )
-            if len(plans) != 1:
+            if len(candidate_plans) != 1:
                 raise ValueError(
                     f'{assignment.candidate_id}: objective materialization requires '
                     'exactly one completed Measurement Plan'
                 )
             records, reasons = self._validated_measurements(
                 campaign,
-                plans[0],
+                candidate_plans[0],
                 registration,
             )
             if reasons or not records:
@@ -453,7 +498,10 @@ class CadValidationCampaignService:
                     evaluation_spec=evaluation_spec,
                     input_refs=(input_ref,),
                 )
-                stored = self._reuse_or_save_evaluation(evaluation)
+                stored = self._reuse_or_save_evaluation(
+                    evaluation,
+                    evaluations_by_sha,
+                )
                 saved_ids.append(stored.evaluation_id)
 
         return tuple(saved_ids)
@@ -472,6 +520,16 @@ class CadValidationCampaignService:
             item.candidate_id: item
             for item in campaign.repeatability
         }
+        # Readiness re-reads immutable authority per candidate; the batch,
+        # plan and evaluation listings depend only on the campaign, so one
+        # fetch each serves the whole loop.
+        batches = self._campaign_batches(campaign)
+        plans = self.measurement_repository.latest_measurement_plans(
+            campaign.search_spec_id
+        )
+        evaluations = self.objective_repository.list_evaluations(
+            campaign.search_spec_id
+        )
         candidates: list[CadValidationCandidateReadiness] = []
         global_reasons: list[str] = []
 
@@ -487,6 +545,7 @@ class CadValidationCampaignService:
             attempts = self._matching_prediction_attempts(
                 campaign,
                 assignment.candidate_id,
+                batches=batches,
             )
             if len(attempts) == 1:
                 prediction_attempt_id = attempts[0].attempt_id
@@ -495,13 +554,14 @@ class CadValidationCampaignService:
             else:
                 reasons.append('multiple completed prediction attempts are ambiguous')
 
-            plans = self._candidate_measured_plans(
+            candidate_plans = self._candidate_measured_plans(
                 campaign,
                 assignment.candidate_id,
+                plans=plans,
             )
             records = ()
-            if len(plans) == 1:
-                plan = plans[0]
+            if len(candidate_plans) == 1:
+                plan = candidate_plans[0]
                 measurement_plan_id = plan.plan_id
                 records, measurement_reasons = self._validated_measurements(
                     campaign,
@@ -514,7 +574,7 @@ class CadValidationCampaignService:
                     primary_measurement_id = records[0].measurement_id
                 else:
                     reasons.append('owned-room measured evidence is missing')
-            elif not plans:
+            elif not candidate_plans:
                 reasons.append('completed Measurement Plan is missing')
             else:
                 reasons.append('multiple completed Measurement Plans are ambiguous')
@@ -533,6 +593,7 @@ class CadValidationCampaignService:
                         evidence_class='predicted',
                         source_kind='cad_roomsim_attempt',
                         source_id=prediction_attempt_id,
+                        evaluations=evaluations,
                     )
                 )
                 if error == 'missing':
@@ -550,6 +611,7 @@ class CadValidationCampaignService:
                         evidence_class='measured',
                         source_kind='cad_measurement',
                         source_id=primary_measurement_id,
+                        evaluations=evaluations,
                     )
                 )
                 if error == 'missing':

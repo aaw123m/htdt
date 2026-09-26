@@ -40,6 +40,11 @@ from .managed_assets import (
 
 from .cad_schema import require_native_tables
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .cad_measurement_loop import CadMeasurementPlan
+
 
 class MeasurementPlanConflictError(ValueError):
     """A measurement-plan save violated the plan_id single-head lifecycle contract."""
@@ -1192,7 +1197,7 @@ class CadMeasurementRepository:
             )
             connection.commit()
 
-    def list_measurement_plans(self, search_spec_id: str):
+    def list_measurement_plans(self, search_spec_id: str) -> tuple[CadMeasurementPlan, ...]:
         """Return the persisted plan history as validated single-head chains.
 
         Rows are replayed in insertion order per ``plan_id``; each chain must
@@ -1245,7 +1250,7 @@ class CadMeasurementRepository:
             plans.append(plan)
         return tuple(plans)
 
-    def latest_measurement_plans(self, search_spec_id: str):
+    def latest_measurement_plans(self, search_spec_id: str) -> tuple[CadMeasurementPlan, ...]:
         """Current head of each plan_id's validated single-chain history."""
         history = self.list_measurement_plans(search_spec_id)
         order: list[str] = []

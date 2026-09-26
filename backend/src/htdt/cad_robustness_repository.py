@@ -841,14 +841,39 @@ class CadRobustnessRepository:
     # RobustnessEvaluation evidence
     # ------------------------------------------------------------------
 
+    def _evidence_for_spec(
+        self,
+        robustness_spec_id: str,
+        evidence: dict[str, tuple[RobustnessSpec, tuple[PerturbationSample, ...]]],
+    ) -> tuple[RobustnessSpec, tuple[PerturbationSample, ...]]:
+        """Spec + full sample listing, loaded once per spec per batch.
+
+        ``_validate_evaluation`` replays every persisted sample for each
+        evaluation it checks; batch callers share ``evidence`` so the
+        replay runs once per RobustnessSpec instead of once per row.
+        """
+        cached = evidence.get(robustness_spec_id)
+        if cached is None:
+            spec, _authorities = self._persisted_spec(robustness_spec_id)
+            cached = (spec, self.list_samples(spec.robustness_spec_id))
+            evidence[robustness_spec_id] = cached
+        return cached
+
     def _validate_evaluation(
         self,
         evaluation: RobustnessEvaluation,
+        *,
+        evidence: dict[
+            str, tuple[RobustnessSpec, tuple[PerturbationSample, ...]]
+        ] | None = None,
     ) -> RobustnessEvaluation:
         evaluation = RobustnessEvaluation.model_validate(
             evaluation.model_dump(mode='python')
         )
-        spec, _authorities = self._persisted_spec(evaluation.robustness_spec_id)
+        spec, samples = self._evidence_for_spec(
+            evaluation.robustness_spec_id,
+            {} if evidence is None else evidence,
+        )
         if (
             evaluation.robustness_spec_sha256 != spec.robustness_spec_sha256
             or evaluation.candidate_id != spec.candidate_id
@@ -856,7 +881,6 @@ class CadRobustnessRepository:
             raise ValueError(
                 'RobustnessEvaluation robustness authority mismatch'
             )
-        samples = self.list_samples(spec.robustness_spec_id)
         if spec.sampling_strategy == 'deterministic_local_stencil':
             regenerated = build_robustness_evaluations(
                 spec,
@@ -894,9 +918,21 @@ class CadRobustnessRepository:
         self,
         evaluation: RobustnessEvaluation,
     ) -> RobustnessEvaluation:
-        evaluation = self._validate_evaluation(evaluation)
+        with closing(self._connect()) as connection:
+            return self._save_evaluation(connection, evaluation)
+
+    def _save_evaluation(
+        self,
+        connection: sqlite3.Connection,
+        evaluation: RobustnessEvaluation,
+        *,
+        evidence: dict[
+            str, tuple[RobustnessSpec, tuple[PerturbationSample, ...]]
+        ] | None = None,
+    ) -> RobustnessEvaluation:
+        evaluation = self._validate_evaluation(evaluation, evidence=evidence)
         payload = self._payload(evaluation)
-        with closing(self._connect()) as connection, connection:
+        with connection:
             row = connection.execute(
                 """
                 SELECT payload_json
@@ -913,7 +949,7 @@ class CadRobustnessRepository:
                     raise ValueError(
                         'RobustnessEvaluation immutable identity conflict'
                     )
-                return self._validate_evaluation(existing)
+                return self._validate_evaluation(existing, evidence=evidence)
             connection.execute(
                 """
                 INSERT INTO cad_robustness_evaluations (
@@ -943,8 +979,20 @@ class CadRobustnessRepository:
         self,
         evaluations: tuple[RobustnessEvaluation, ...],
     ) -> tuple[RobustnessEvaluation, ...]:
-        for evaluation in evaluations:
-            self.save_evaluation(evaluation)
+        """Persist a batch over one connection and one evidence replay.
+
+        Each evaluation still commits independently — a mid-batch failure
+        leaves earlier items persisted exactly as sequential
+        ``save_evaluation`` calls would — but the batch shares one
+        connection and one spec/sample evidence listing per RobustnessSpec
+        instead of re-reading both per row.
+        """
+        evidence: dict[
+            str, tuple[RobustnessSpec, tuple[PerturbationSample, ...]]
+        ] = {}
+        with closing(self._connect()) as connection:
+            for evaluation in evaluations:
+                self._save_evaluation(connection, evaluation, evidence=evidence)
         return evaluations
 
     def list_evaluations(
