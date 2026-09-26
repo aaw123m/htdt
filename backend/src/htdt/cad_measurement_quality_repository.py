@@ -9,6 +9,10 @@ import sqlite3
 
 from typing import Mapping, get_args
 
+from .cad_ambient_noise import (
+    CadAmbientNoiseRepository,
+    check_ambient_measurement_compatibility,
+)
 from .cad_authority_resolver import (
     AuthorityRef,
     ExactAuthorityResolver,
@@ -960,6 +964,67 @@ class CadMeasurementQualityRepository:
             )
         return observation
 
+    def _resolve_ambient_evidence(
+        self,
+        report: CadMeasurementQualityReport,
+        measurement: CadMeasurementRecord,
+        context: CadAcquisitionContext | None,
+    ) -> None:
+        """Re-verify a bound ambient-noise ref against persisted authority.
+
+        The ambient profile and its operating condition must exist with the
+        exact pinned hashes, and the recorded compatibility verdict is
+        recomputed against this exact measurement — position, entity,
+        revision, acquisition context, operating condition and the
+        declared absolute-SPL requirement — so a persisted ref can never
+        keep a verdict the evidence no longer supports (#1025).
+        """
+        ref = report.evidence.ambient_ref
+        if ref is None:
+            return
+        ambient_repository = CadAmbientNoiseRepository(
+            self.measurement_repository.scene_repository
+        )
+        profile = ambient_repository.get_profile(ref.profile_id)
+        if profile is None:
+            raise ValueError(
+                'quality report references unknown ambient profile: '
+                f'{ref.profile_id}'
+            )
+        if profile.profile_sha256 != ref.profile_sha256:
+            raise ValueError('ambient noise profile hash mismatch')
+        condition = ambient_repository.get_condition(ref.condition_id)
+        if condition is None:
+            raise ValueError(
+                'quality report references unknown ambient operating '
+                f'condition: {ref.condition_id}'
+            )
+        recomputed = check_ambient_measurement_compatibility(
+            profile,
+            document_id=measurement.document_id,
+            scene_revision_id=measurement.scene_revision_id,
+            scene_content_hash=measurement.scene_content_hash,
+            measurement_entity_id=measurement.measurement_entity_id,
+            measurement_position=measurement.measurement_position,
+            position_tolerance_m=ref.position_tolerance_m,
+            acquisition_context_id=(
+                None if context is None else context.acquisition_context_id
+            ),
+            operating_condition=condition,
+            requires_absolute_spl=ref.requires_absolute_spl,
+        )
+        if recomputed != ref.compatibility:
+            raise ValueError(
+                'ambient compatibility verdict does not reproduce for this '
+                'report'
+            )
+        if ref.compatibility.status != 'COMPATIBLE' and (
+            ref.noise_floor_db_spl is not None or ref.snr_db is not None
+        ):
+            raise ValueError(
+                'non-compatible ambient ref must not carry derived values'
+            )
+
     def _resolve_calibration_authority(
         self,
         report: CadMeasurementQualityReport,
@@ -1080,6 +1145,7 @@ class CadMeasurementQualityRepository:
 
         context = self._resolve_acquisition_context(report, measurement)
         observation = self._resolve_observation(report, measurement, dataset)
+        self._resolve_ambient_evidence(report, measurement, context)
         self._resolve_calibration_authority(report)
         self._resolve_repeatability(report, repeat_datasets)
         level_reference, level_calibration = self._resolve_level_reference(

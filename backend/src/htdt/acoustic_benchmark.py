@@ -213,6 +213,12 @@ class GeometricAcousticBand(BaseModel):
     center_hz: float = Field(gt=0.0)
     absorption: float = Field(ge=0.0, le=1.0)
     scattering: float = Field(ge=0.0, le=1.0)
+    # The scalar is exactly one reduced quantity: the GA scatter fraction —
+    # fraction of reflected energy redirected from the specular path under a
+    # scalar reduced model ('scalar_ga_scatter_fraction_reduced' semantics).
+    # It is NOT an ISO 17497-2 directional diffusion coefficient and never
+    # becomes one (#1032); typed scattering evidence with explicit quantity
+    # kinds lives in cad_surface_scattering.
     # Declared incidence semantics of the scalar band. 'unknown_incidence' is
     # the honest default — a bare scalar is never an implicit all-angle or
     # normal-incidence claim. 'angle_specific' requires the declared angle;

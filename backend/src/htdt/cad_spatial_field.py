@@ -169,6 +169,32 @@ def build_spatial_field_request(**kwargs: Any) -> SpatialFieldRequestSpec:
     )
 
 
+SCENE_COORDINATE_FRAME_ID = 'htdt-scene-axes'
+SCENE_COORDINATE_FRAME_VERSION = 'x-right-y-rear-z-up-right-handed-1'
+"""Canonical spatial-field coordinate frame (#1027): the right-handed HTDT
+scene frame (+X right / +Y rear / +Z up) every built result is stamped with.
+"""
+
+FieldIncompatibility = Literal[
+    'coordinate_frame',
+    'source_scenario',
+    'grid_axes',
+    'frequency',
+    'pressure_reference',
+    'absolute_reference_authority',
+    'representation',
+    'phasor_convention',
+]
+"""Typed reasons a field pair cannot be differenced (#1027). Order of
+evaluation is fixed: frame identity first, then source/excitation
+scenario, then the grid and value semantics."""
+
+FieldComparisonPolicy = Literal['same_scenario', 'different_scenario']
+"""A/B comparison policy (#1027): ``same_scenario`` (default) requires the
+source/excitation scenario triple to be identical; ``different_scenario``
+is the explicit opt-in for intentional A/B across scenarios."""
+
+
 class RegularGridAxis(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -205,6 +231,19 @@ class SpatialFieldResult(BaseModel):
     solver_result_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     provider_id: str = Field(min_length=1)
     provider_version: str = Field(min_length=1)
+
+    # A/B-compatibility authorities (#1027). Present on every result built
+    # through ``build_spatial_field_result``; absent only on payloads
+    # persisted before the contract existed (excluded from the identity
+    # hash then, so legacy payloads still revalidate).
+    source_scenario_id: str | None = Field(default=None, min_length=1)
+    source_scenario_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    coordinate_frame_id: str | None = Field(default=None, min_length=1)
+    coordinate_frame_version: str | None = Field(
+        default=None, min_length=1
+    )
 
     frequency_hz: float = Field(gt=0.0)
     axes: tuple[RegularGridAxis, RegularGridAxis, RegularGridAxis]
@@ -259,6 +298,18 @@ class SpatialFieldResult(BaseModel):
             for values in (self.pressure_real, self.pressure_imag):
                 if any(not isfinite(float(v)) for v in values):
                     raise ValueError('complex field values must be finite')
+        if (self.source_scenario_id is None) != (
+            self.source_scenario_sha256 is None
+        ):
+            raise ValueError(
+                'source scenario id/hash must be supplied together'
+            )
+        if (self.coordinate_frame_id is None) != (
+            self.coordinate_frame_version is None
+        ):
+            raise ValueError(
+                'coordinate frame id/version must be supplied together'
+            )
         expected = _digest(self.semantic_payload())
         if self.semantic_sha256 != expected:
             raise ValueError('spatial field result semantic hash mismatch')
@@ -267,10 +318,19 @@ class SpatialFieldResult(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return self.model_dump(
+        payload = self.model_dump(
             mode='json',
             exclude={'result_id', 'semantic_sha256'},
         )
+        for key in (
+            'source_scenario_id',
+            'source_scenario_sha256',
+            'coordinate_frame_id',
+            'coordinate_frame_version',
+        ):
+            if payload.get(key) is None:
+                payload.pop(key)
+        return payload
 
     @property
     def is_complex(self) -> bool:
@@ -295,6 +355,8 @@ def build_spatial_field_result(
     absolute_pressure_reference: bool,
     phasor_convention: str | None = None,
     valid_frequency_domain: FrequencyDomain,
+    coordinate_frame_id: str | None = SCENE_COORDINATE_FRAME_ID,
+    coordinate_frame_version: str | None = SCENE_COORDINATE_FRAME_VERSION,
 ) -> SpatialFieldResult:
     if not valid_frequency_domain.contains(request.frequency_hz):
         raise ValueError('request frequency is outside the valid domain')
@@ -308,6 +370,10 @@ def build_spatial_field_result(
         'solver_result_sha256': request.solver_result_sha256,
         'provider_id': request.provider_id,
         'provider_version': request.provider_version,
+        'source_scenario_id': request.source_scenario_id,
+        'source_scenario_sha256': request.source_scenario_sha256,
+        'coordinate_frame_id': coordinate_frame_id,
+        'coordinate_frame_version': coordinate_frame_version,
         'frequency_hz': request.frequency_hz,
         'axes': [axis.model_dump(mode='json') for axis in axes],
         'representation': representation,
@@ -333,6 +399,10 @@ def build_spatial_field_result(
         solver_result_sha256=request.solver_result_sha256,
         provider_id=request.provider_id,
         provider_version=request.provider_version,
+        source_scenario_id=request.source_scenario_id,
+        source_scenario_sha256=request.source_scenario_sha256,
+        coordinate_frame_id=coordinate_frame_id,
+        coordinate_frame_version=coordinate_frame_version,
         frequency_hz=request.frequency_hz,
         axes=axes,
         representation=representation,
@@ -757,13 +827,68 @@ def probe_field(
     )
 
 
+def check_field_compatibility(
+    left: SpatialFieldResult,
+    right: SpatialFieldResult,
+    *,
+    comparison_policy: FieldComparisonPolicy = 'same_scenario',
+) -> tuple[FieldIncompatibility, ...]:
+    """Typed A/B compatibility verdict (#1027).
+
+    Coordinate-frame identity is checked BEFORE grid equality: two fields
+    sampled on equal axes in different frames are not subtractable. The
+    source/excitation scenario triple must be identical unless the caller
+    explicitly opts into a ``different_scenario`` comparison — an
+    intentional A/B across scenarios still requires the same frame and
+    the same value semantics.
+    """
+    reasons: list[FieldIncompatibility] = []
+    if (
+        left.coordinate_frame_id != right.coordinate_frame_id
+        or left.coordinate_frame_version != right.coordinate_frame_version
+    ):
+        reasons.append('coordinate_frame')
+    if (
+        comparison_policy == 'same_scenario'
+        and (
+            left.source_scenario_id != right.source_scenario_id
+            or left.source_scenario_sha256 != right.source_scenario_sha256
+        )
+    ):
+        reasons.append('source_scenario')
+    if left.axes != right.axes:
+        reasons.append('grid_axes')
+    if left.frequency_hz != right.frequency_hz:
+        reasons.append('frequency')
+    if left.pressure_reference_pa != right.pressure_reference_pa:
+        reasons.append('pressure_reference')
+    if (
+        left.absolute_pressure_reference
+        != right.absolute_pressure_reference
+    ):
+        reasons.append('absolute_reference_authority')
+    if left.representation != right.representation:
+        reasons.append('representation')
+    return tuple(reasons)
+
+
 def field_difference(
     left: SpatialFieldResult,
     right: SpatialFieldResult,
     *,
     difference_semantics: Literal['db_delta', 'complex_difference', 'magnitude_ratio'],
+    comparison_policy: FieldComparisonPolicy = 'same_scenario',
 ) -> list[float] | list[complex]:
-    """A/B field difference with fail-closed compatibility checks."""
+    """A/B field difference with fail-closed compatibility checks (#1027)."""
+    incompatible = check_field_compatibility(
+        left, right, comparison_policy=comparison_policy
+    )
+    if incompatible and not (
+        left.semantic_sha256 == right.semantic_sha256
+    ):
+        raise ValueError(
+            'field difference incompatible: ' + ', '.join(incompatible)
+        )
     if left.semantic_sha256 == right.semantic_sha256:
         count = len(
             left.pressure_real
@@ -773,21 +898,14 @@ def field_difference(
         if difference_semantics == 'complex_difference':
             return [0j] * count
         return [0.0] * count
-    checks = (
-        ('grid axes', left.axes == right.axes),
-        ('frequency', left.frequency_hz == right.frequency_hz),
-        ('pressure reference', left.pressure_reference_pa == right.pressure_reference_pa),
-        ('absolute reference authority',
-         left.absolute_pressure_reference == right.absolute_pressure_reference),
-        ('representation', left.representation == right.representation),
-    )
-    for label, ok in checks:
-        if not ok:
-            raise ValueError(f'field difference incompatible: {label}')
     if difference_semantics == 'complex_difference':
-        if not left.is_complex or left.phasor_convention != right.phasor_convention:
+        if not left.is_complex:
             raise ValueError(
-                'complex difference requires matching phasor conventions'
+                'field difference incompatible: representation'
+            )
+        if left.phasor_convention != right.phasor_convention:
+            raise ValueError(
+                'field difference incompatible: phasor_convention'
             )
         return [
             complex(lr, li) - complex(rr, ri)

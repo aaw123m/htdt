@@ -321,6 +321,10 @@ class RoomVideoPanel(QWidget):
         self.seats_box.setSpacing(2)
         layout.addLayout(self.seats_box)
         self._seat_widgets: dict[str, dict[str, QWidget]] = {}
+        # #1056: seats whose eye/head numbers were explicitly materialized
+        # (stored non-legacy binding, bound pose, or user-edited spins).
+        # Untouched widget defaults never become seat bindings.
+        self._configured_seats: set[str] = set()
 
         # --- policy ------------------------------------------------------------
         policy_form = QFormLayout()
@@ -554,6 +558,18 @@ class RoomVideoPanel(QWidget):
                 if pose_info is not None:
                     items, selected_id = pose_info
                     self.set_seat_pose_options(seat.entity_id, items, selected_id)
+            # #1056: only seats with real authority feed bindings — a seat
+            # the user never configured must stay unbound so readiness can
+            # report the missing eye/head geometry.
+            self._configured_seats = {
+                seat_id
+                for seat_id, binding in workspace.seat_bindings.items()
+                if binding.geometry_source != 'legacy'
+            } | {
+                seat_id
+                for seat_id, pose_info in (seat_poses or {}).items()
+                if pose_info is not None and pose_info[1] is not None
+            }
             self._apply_screen_transfer_options(screen_transfers)
         finally:
             self._syncing = False
@@ -608,6 +624,7 @@ class RoomVideoPanel(QWidget):
         # bound pose — the combo resets to カスタム and the selection clears.
         widgets = self._seat_widgets.get(seat_id)
         if widgets is not None and not self._syncing:
+            self._configured_seats.add(seat_id)
             combo = widgets['pose']
             if combo.currentIndex() != 0:
                 combo.blockSignals(True)
@@ -636,6 +653,10 @@ class RoomVideoPanel(QWidget):
     def current_seat_bindings(self) -> dict[str, dict[str, object]]:
         result: dict[str, dict[str, object]] = {}
         for entity_id, widgets in self._seat_widgets.items():
+            if entity_id not in self._configured_seats:
+                # #1056: unconfigured seat -> no binding -> evaluator never
+                # consumes invented eye/head geometry.
+                continue
             result[entity_id] = {
                 'row_id': widgets['row_id'].text().strip() or 'row-1',
                 'eye_z_m': float(widgets['eye_z'].spin.value()),

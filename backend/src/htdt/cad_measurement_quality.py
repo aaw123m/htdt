@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_ambient_noise import AmbientNoiseEvidenceRef
 from .cad_measurement_authorities import (
     CadAcousticLevelCalibration,
     CadDatasetLevelReference,
@@ -831,6 +832,12 @@ class CadMeasurementQualityEvidence(BaseModel):
     repeat_measurement_ids: tuple[str, ...] = ()
     repeatability_rms_db: float | None = Field(default=None, ge=0.0)
 
+    # #1025: exact AmbientNoiseProfile lineage (id+sha256+compatibility).
+    # A COMPATIBLE binding can supply noise_floor_db_spl/snr_db when no
+    # explicit scalar was recorded — provenance stays attached to the
+    # numbers it derived.
+    ambient_ref: AmbientNoiseEvidenceRef | None = None
+
     evidence_source: Literal['rew_metadata', 'raw_asset', 'manual', 'mixed', 'unknown'] = 'unknown'
     notes: tuple[str, ...] = ()
 
@@ -856,6 +863,18 @@ class CadMeasurementQualityEvidence(BaseModel):
         if any(not item for item in self.repeat_measurement_ids):
             raise ValueError('repeat measurement ids must not contain empty values')
         return self
+
+
+def _evidence_identity_payload(
+    evidence: CadMeasurementQualityEvidence,
+) -> dict[str, Any]:
+    """Identity form of evidence (#1025): ``ambient_ref`` joins only when
+    bound, so reports persisted before the ref existed keep their sealed
+    hash."""
+    payload = evidence.model_dump(mode='json')
+    if payload.get('ambient_ref') is None:
+        payload.pop('ambient_ref', None)
+    return payload
 
 
 class CadMeasurementQualityCheck(BaseModel):
@@ -951,7 +970,7 @@ class CadMeasurementQualityReport(BaseModel):
             'algorithm_version': self.algorithm_version,
             'algorithm_sha256': self.algorithm_sha256,
             'profile': self.profile.model_dump(mode='json'),
-            'evidence': self.evidence.model_dump(mode='json'),
+            'evidence': _evidence_identity_payload(self.evidence),
             'clipping': self.clipping.model_dump(mode='json'),
             'noise_snr': self.noise_snr.model_dump(mode='json'),
             'usable_frequency_band': self.usable_frequency_band.model_dump(mode='json'),
@@ -1079,20 +1098,31 @@ def _derive_checks(
     else:
         clipping = _check('PASS', 'acquisition metadata reports no clipping')
 
-    if evidence.snr_db is None:
+    # #1025: an ambient binding only feeds SNR/noise-floor when its
+    # compatibility verdict is COMPATIBLE — a mismatched operating
+    # condition, position, or acquisition context never silently reuses
+    # the profile's numbers.
+    ambient = evidence.ambient_ref
+    ambient_compatible = (
+        ambient is not None and ambient.compatibility.status == 'COMPATIBLE'
+    )
+    effective_snr = evidence.snr_db
+    if effective_snr is None and ambient_compatible:
+        effective_snr = ambient.snr_db
+    if effective_snr is None:
         noise_snr = _check('UNKNOWN', 'explicit SNR evidence is unavailable')
     elif profile.minimum_snr_db is None:
         noise_snr = _check('NOT_EVALUATED', 'SNR evidence exists but the profile has no SNR threshold')
-    elif evidence.snr_db < profile.minimum_snr_db:
+    elif effective_snr < profile.minimum_snr_db:
         noise_snr = _check(
             'FAIL',
-            f'SNR {evidence.snr_db:.3f} dB is below profile minimum '
+            f'SNR {effective_snr:.3f} dB is below profile minimum '
             f'{profile.minimum_snr_db:.3f} dB',
         )
     else:
         noise_snr = _check(
             'PASS',
-            f'SNR {evidence.snr_db:.3f} dB meets profile minimum '
+            f'SNR {effective_snr:.3f} dB meets profile minimum '
             f'{profile.minimum_snr_db:.3f} dB',
         )
 
@@ -1571,8 +1601,15 @@ def derive_measurement_capabilities(
         reasons=by_claim['calibrated_response'].reasons,
     )
     # The noise-floor provenance must come from a bound measurement
-    # observation record — an ad-hoc evidence value is not authority.
+    # observation record or a COMPATIBLE ambient-noise binding (#1025) —
+    # an ad-hoc evidence value is not authority.
     noise_floor = None if observation is None else observation.noise_floor_db_spl
+    if (
+        noise_floor is None
+        and evidence.ambient_ref is not None
+        and evidence.ambient_ref.compatibility.status == 'COMPATIBLE'
+    ):
+        noise_floor = evidence.ambient_ref.noise_floor_db_spl
     absolute_spl = _absolute_level_capability(
         'absolute_spl',
         dataset_level_reference=dataset_level_reference,

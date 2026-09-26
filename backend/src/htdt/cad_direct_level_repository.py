@@ -207,6 +207,27 @@ class CadDirectLevelRepository:
         ):
             raise ValueError('direct-level persisted equipment binding mismatch')
 
+        # The embedded usable-output profile is the replay authority
+        # (#1047): its declared binding must match the resolved exact
+        # EquipmentDefinition triple, and its self-hash is re-verified by
+        # model validation on load.
+        profile = evaluation.usable_output_profile
+        if profile is not None and (
+            profile.equipment_definition_id != definition.definition_id
+            or (
+                profile.equipment_definition_version is not None
+                and profile.equipment_definition_version != definition.version
+            )
+            or (
+                profile.equipment_definition_sha256 is not None
+                and profile.equipment_definition_sha256
+                != definition.semantic_sha256
+            )
+        ):
+            raise ValueError(
+                'direct-level usable-output profile binding mismatch'
+            )
+
         evaluator = DIRECT_LEVEL_EVALUATORS.get(evaluation.authority_version)
         if evaluator is None:
             raise ValueError(
@@ -217,6 +238,7 @@ class CadDirectLevelRepository:
             variant=variant,
             equipment_definition=definition,
             scenario=scenario,
+            usable_output_profile=evaluation.usable_output_profile,
         )
         if regenerated != evaluation:
             raise ValueError(

@@ -62,6 +62,7 @@ from .cad_video_geometry import (
     _plane_frame,
     _position,
     _riser_results,
+    _seat_identity_payload,
     _sightline_results,
     _viewing_result,
 )
@@ -425,7 +426,7 @@ class DirectViewGeometryRequest(BaseModel):
             'display_specification_id': self.display_specification_id,
             'display_specification_version': self.display_specification_version,
             'display_specification_sha256': self.display_specification_sha256,
-            'seats': [item.model_dump(mode='json') for item in self.seats],
+            'seats': [_seat_identity_payload(item) for item in self.seats],
             'policy': self.policy.model_dump(mode='json'),
             'collision_entity_ids': list(self.collision_entity_ids),
         }
