@@ -451,6 +451,7 @@ def seed_synthetic_optimization_demo(
         )
 
     predicted_evaluation_by_candidate = {}
+    evaluation_scans: dict = {}
     for index, candidate in enumerate(candidates, start=1):
         attempt = attempt_by_candidate[candidate.candidate_id]
         evaluation = build_objective_evaluation(
@@ -471,7 +472,7 @@ def seed_synthetic_optimization_demo(
                 ),
             ),
         )
-        objective_repository.save_evaluation(evaluation)
+        objective_repository.save_evaluation(evaluation, scans=evaluation_scans)
         predicted_evaluation_by_candidate[candidate.candidate_id] = evaluation
     measured_candidate_ids = tuple(
         candidate.candidate_id for candidate in candidates[:4]
@@ -565,7 +566,9 @@ def seed_synthetic_optimization_demo(
                 ),
             ),
         )
-        objective_repository.save_evaluation(measured_evaluation)
+        objective_repository.save_evaluation(
+            measured_evaluation, scans=evaluation_scans
+        )
         measured_evaluation_by_candidate[
             candidate.candidate_id
         ] = measured_evaluation

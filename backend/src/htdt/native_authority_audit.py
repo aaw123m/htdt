@@ -178,6 +178,23 @@ class _RepositoryChain:
     def __init__(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
         self._repos: dict[str, Any] = {}
+        # Read-only replay memos shared across every probe row: persisted
+        # authority cannot change mid-audit, so per-parent listings and the
+        # objective repository's candidate-set scans are computed once.
+        self._lists: dict[tuple[str, Any], Any] = {}
+        self.objective_scans: dict[str, Any] = {}
+
+    def list_once(self, label: str, key: Any, load: Callable[[], Any]) -> Any:
+        """Return the canonical per-parent listing, loading it once.
+
+        Probes re-list the same collection for every child row; a listing
+        that raises is not cached, so each row still reports the failure a
+        fresh listing would produce.
+        """
+        cache_key = (label, key)
+        if cache_key not in self._lists:
+            self._lists[cache_key] = load()
+        return self._lists[cache_key]
 
     def repo(self, name: str) -> Any:
         if name in self._repos:
@@ -608,7 +625,11 @@ def _verify_measurement_plan(
     """Replay the plan's single-head chain via its owning SearchSpec."""
 
     plan_id, search_spec_id = key
-    plans = chain.repo('measurement').list_measurement_plans(search_spec_id)
+    plans = chain.list_once(
+        'measurement_plans',
+        search_spec_id,
+        lambda: chain.repo('measurement').list_measurement_plans(search_spec_id),
+    )
     if plan_id not in {plan.plan_id for plan in plans}:
         raise ValueError(
             f'measurement plan {plan_id} no longer resolves in its '
@@ -623,7 +644,11 @@ def _verify_measurement_lineage(
     """Replay the document's retake lineage chains via the quality repo."""
 
     lineage_id, document_id = key
-    lineage = chain.repo('quality').list_lineage(document_id)
+    lineage = chain.list_once(
+        'measurement_lineage',
+        document_id,
+        lambda: chain.repo('quality').list_lineage(document_id),
+    )
     if lineage_id not in {record.lineage_id for record in lineage}:
         raise ValueError(
             f'measurement lineage {lineage_id} no longer resolves in its '
@@ -638,7 +663,11 @@ def _verify_robustness_sample(
     """Replay the spec's exact perturbation sample set."""
 
     sample_id, robustness_spec_id = key
-    samples = chain.repo('robustness').list_samples(robustness_spec_id)
+    samples = chain.list_once(
+        'robustness_samples',
+        robustness_spec_id,
+        lambda: chain.repo('robustness').list_samples(robustness_spec_id),
+    )
     if sample_id not in {sample.sample_id for sample in samples}:
         raise ValueError(
             f'perturbation sample {sample_id} no longer resolves for '
@@ -653,7 +682,11 @@ def _verify_robustness_evaluation(
     """Replay the spec's exact robustness evaluation set."""
 
     evaluation_id, robustness_spec_id = key
-    evaluations = chain.repo('robustness').list_evaluations(robustness_spec_id)
+    evaluations = chain.list_once(
+        'robustness_evaluations',
+        robustness_spec_id,
+        lambda: chain.repo('robustness').list_evaluations(robustness_spec_id),
+    )
     if evaluation_id not in {
         evaluation.evaluation_id for evaluation in evaluations
     }:
@@ -662,6 +695,24 @@ def _verify_robustness_evaluation(
             f'RobustnessSpec {robustness_spec_id}'
         )
     return evaluations
+
+
+def _verify_objective_evaluation(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    """Re-attest one O30 row over the run's shared candidate-set scans.
+
+    ``get_evaluation`` regenerates a SearchSpec's canonical candidate set
+    per call; sharing ``chain.objective_scans`` across rows pays that replay
+    once per SearchSpec while preserving per-row failure semantics.
+    """
+
+    result = chain.repo('objective').get_evaluation(
+        key[0], scans=chain.objective_scans
+    )
+    if result is None:
+        raise ValueError(f'objective authority {key} no longer resolves')
+    return result
 
 
 def _require(record: Any, description: str) -> Any:
@@ -1406,7 +1457,7 @@ def _verify_holdout_record(
     return record
 
 
-def _verify_calibration_evidence_event(
+def _verify_calibration_evidence_event_ref(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
     """Evidence-ledger rows resolve their freeze/holdout-record links."""
@@ -1697,7 +1748,7 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'objective_evaluation',
         'cad_objective_evaluations',
         ('evaluation_id',),
-        _get('objective', 'get_evaluation'),
+        _verify_objective_evaluation,
     ),
     _ReplayProbe(
         'pareto_set',
@@ -1901,7 +1952,7 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'calibration_evidence_event',
         'cad_calibration_evidence_events',
         ('record_id', 'freeze_id'),
-        _verify_calibration_evidence_event,
+        _verify_calibration_evidence_event_ref,
     ),
     _ReplayProbe(
         'system_variant_as_built',

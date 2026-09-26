@@ -177,7 +177,45 @@ class CadModelValidationRepository:
                 squared += delta * delta
         return sqrt(squared)
 
-    def _validate_objective_samples(self, record: CadModelValidationRecord) -> None:
+    def _validated_objective_evaluations(
+        self,
+        record: CadModelValidationRecord,
+        *,
+        scans=None,
+    ) -> dict:
+        """Authoritative evaluations for every objective sample, read once.
+
+        One batched read through :meth:`CadObjectiveRepository.get_evaluations`
+        fetches every referenced row over a single connection and replays each
+        through the identical authority path ``get_evaluation`` runs — the
+        shared ``scans`` memo regenerates a SearchSpec's canonical candidate
+        set once per record instead of once per sample.
+        """
+        repository = self.objective_repository
+        if repository is None or not record.objective_samples:
+            return {}
+        evaluation_ids = [
+            evaluation_id
+            for sample in record.objective_samples
+            for evaluation_id in (
+                sample.predicted_evaluation_id,
+                sample.measured_evaluation_id,
+            )
+        ]
+        if not isinstance(repository, CadObjectiveRepository):
+            # Narrower duck-typed collaborators (e.g. test doubles) only
+            # implement the per-id read; they still run it in input order.
+            return {
+                evaluation_id: repository.get_evaluation(evaluation_id)
+                for evaluation_id in dict.fromkeys(evaluation_ids)
+            }
+        return repository.get_evaluations(evaluation_ids, scans=scans)
+
+    def _validate_objective_samples(
+        self,
+        record: CadModelValidationRecord,
+        evaluations: dict,
+    ) -> None:
         if not record.objective_samples:
             return
         repository = self.objective_repository
@@ -185,8 +223,8 @@ class CadModelValidationRepository:
             raise ValueError('full O60 validation requires CadObjectiveRepository')
 
         for sample in record.objective_samples:
-            predicted = repository.get_evaluation(sample.predicted_evaluation_id)
-            measured = repository.get_evaluation(sample.measured_evaluation_id)
+            predicted = evaluations.get(sample.predicted_evaluation_id)
+            measured = evaluations.get(sample.measured_evaluation_id)
             if predicted is None or measured is None:
                 raise ValueError('objective validation references an unknown evaluation')
             for evaluation, expected_class, expected_value in (
@@ -327,6 +365,7 @@ class CadModelValidationRepository:
     def _evidence_measurement_ids(
         self,
         record: CadModelValidationRecord,
+        evaluations: dict | None = None,
     ) -> tuple[str, ...]:
         """Every measurement whose exact evidence the record depends on."""
         measurement_ids = {pair.measurement_id for pair in record.pairs}
@@ -334,20 +373,22 @@ class CadModelValidationRepository:
             measurement_ids.update(check.measurement_ids)
         for check in record.separation_checks:
             measurement_ids.update((check.measurement_a_id, check.measurement_b_id))
-        if self.objective_repository is not None:
-            for sample in record.objective_samples:
-                evaluation = self.objective_repository.get_evaluation(sample.measured_evaluation_id)
-                if evaluation is not None:
-                    measurement_ids.update(
-                        ref.source_id
-                        for ref in evaluation.input_refs
-                        if ref.evidence_class == 'measured' and ref.source_kind == 'cad_measurement'
-                    )
+        if evaluations is None:
+            evaluations = self._validated_objective_evaluations(record)
+        for sample in record.objective_samples:
+            evaluation = evaluations.get(sample.measured_evaluation_id)
+            if evaluation is not None:
+                measurement_ids.update(
+                    ref.source_id
+                    for ref in evaluation.input_refs
+                    if ref.evidence_class == 'measured' and ref.source_kind == 'cad_measurement'
+                )
         return tuple(sorted(measurement_ids))
 
     def _validate_measurement_lifecycle(
         self,
         record: CadModelValidationRecord,
+        evaluations: dict,
     ) -> None:
         """Every bound measurement must currently be eligible (#509/#839).
 
@@ -358,15 +399,19 @@ class CadModelValidationRepository:
         via ``inspect``/``integrity_problems`` but can no longer authorize
         production work.
         """
-        for measurement_id in self._evidence_measurement_ids(record):
+        for measurement_id in self._evidence_measurement_ids(record, evaluations):
             self._effective.require_normal_use(
                 measurement_id, purpose='O60 model validation evidence'
             )
 
-    def _validate_evidence_scope(self, record: CadModelValidationRecord) -> None:
+    def _validate_evidence_scope(
+        self,
+        record: CadModelValidationRecord,
+        evaluations: dict,
+    ) -> None:
         if record.evidence_scope != 'owned_room':
             return
-        for measurement_id in self._evidence_measurement_ids(record):
+        for measurement_id in self._evidence_measurement_ids(record, evaluations):
             measurement = self.measurement_repository.get_measurement(measurement_id)
             if measurement is None:
                 raise ValueError(f'owned-room validation references unknown measurement: {measurement_id}')
@@ -389,7 +434,12 @@ class CadModelValidationRepository:
             return None
         return parsed if parsed.tzinfo is not None else None
 
-    def _validate_campaign_binding(self, record: CadModelValidationRecord, plans) -> None:
+    def _validate_campaign_binding(
+        self,
+        record: CadModelValidationRecord,
+        plans,
+        evaluations: dict,
+    ) -> None:
         if record.evidence_scope != 'owned_room':
             return
         if record.campaign_id is None or record.campaign_sha256 is None:
@@ -435,16 +485,8 @@ class CadModelValidationRepository:
         objective_by_candidate: dict[str, set[str]] = {}
         for sample in record.objective_samples:
             objective_by_candidate.setdefault(sample.candidate_id, set()).add(sample.objective_id)
-            predicted = (
-                None
-                if self.objective_repository is None
-                else self.objective_repository.get_evaluation(sample.predicted_evaluation_id)
-            )
-            measured = (
-                None
-                if self.objective_repository is None
-                else self.objective_repository.get_evaluation(sample.measured_evaluation_id)
-            )
+            predicted = evaluations.get(sample.predicted_evaluation_id)
+            measured = evaluations.get(sample.measured_evaluation_id)
             if predicted is None or measured is None:
                 raise ValueError('campaign objective evaluation does not exist')
             if (
@@ -711,7 +753,11 @@ class CadModelValidationRepository:
                     f'{check.code}'
                 )
 
-    def _validate_raw_asset_authority(self, record: CadModelValidationRecord) -> None:
+    def _validate_raw_asset_authority(
+        self,
+        record: CadModelValidationRecord,
+        evaluations: dict,
+    ) -> None:
         """Fail closed when file-backed raw measurement evidence is unavailable.
 
         Every measurement the record depends on — residual pairs,
@@ -726,7 +772,7 @@ class CadModelValidationRepository:
         verify = getattr(
             self.measurement_repository, 'verify_measurement_asset_authority', None
         )
-        for measurement_id in self._evidence_measurement_ids(record):
+        for measurement_id in self._evidence_measurement_ids(record, evaluations):
             if verify is not None:
                 verify(measurement_id)
             elif (
@@ -743,6 +789,7 @@ class CadModelValidationRepository:
         record: CadModelValidationRecord,
         *,
         production_read: bool = False,
+        scans=None,
     ) -> CadModelValidationRecord:
         """Replay the complete save-time cross-evidence authority for *record*.
 
@@ -775,14 +822,15 @@ class CadModelValidationRepository:
                 record.search_spec_id
             )
             self._validate_residual_authority(record, plans)
-            self._validate_objective_samples(record)
+            evaluations = self._validated_objective_evaluations(record, scans=scans)
+            self._validate_objective_samples(record, evaluations)
             self._validate_sensitivity(record, spec)
             self._validate_repeatability_and_separation(record, plans)
-            self._validate_measurement_lifecycle(record)
-            self._validate_evidence_scope(record)
-            self._validate_campaign_binding(record, plans)
+            self._validate_measurement_lifecycle(record, evaluations)
+            self._validate_evidence_scope(record, evaluations)
+            self._validate_campaign_binding(record, plans, evaluations)
             self._validate_applicability_authority(record, spec)
-            self._validate_raw_asset_authority(record)
+            self._validate_raw_asset_authority(record, evaluations)
         except CadModelValidationIntegrityError:
             raise
         except ValueError as exc:
@@ -918,8 +966,9 @@ class CadModelValidationRepository:
                 (search_spec_id,),
             ).fetchall()
         records = tuple(self._persisted_record(row) for row in rows)
+        scans: dict = {}
         for record in records:
-            self._validate_record(record, production_read=True)
+            self._validate_record(record, production_read=True, scans=scans)
         return records
 
     def inspect_for_search_spec(
@@ -956,13 +1005,14 @@ class CadModelValidationRepository:
         with closing(self._connect()) as connection:
             rows = connection.execute(sql, params).fetchall()
         problems: list[str] = []
+        scans: dict = {}
         for row in rows:
             validation_id = str(row['validation_id'])
             try:
                 record = CadModelValidationRecord.model_validate_json(
                     row['payload_json']
                 )
-                self._validate_record(record)
+                self._validate_record(record, scans=scans)
             except ValueError as exc:
                 problems.append(
                     f'model_validation_integrity:{validation_id}:{exc}'
