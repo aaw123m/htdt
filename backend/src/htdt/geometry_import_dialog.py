@@ -250,7 +250,7 @@ class GeometryImportDialog(QDialog):
         self._evaluated_geometry: SemanticAcousticGeometry | None = None
 
         self.setWindowTitle('ジオメトリをインポート')
-        self.resize(680, 640)
+        self.resize(680, 720)
         layout = QVBoxLayout(self)
 
         source = QLabel(
@@ -433,6 +433,10 @@ class GeometryImportDialog(QDialog):
 
         self.repair_result = QLabel('')
         self.repair_result.setWordWrap(True)
+        # Three-line floor: the before→after counts must stay visible.
+        self.repair_result.setMinimumHeight(
+            self.repair_result.fontMetrics().lineSpacing() * 3
+        )
         set_typography_role(self.repair_result, TypographyRole.SECONDARY)
         layout.addWidget(self.repair_result)
         return group
@@ -542,6 +546,9 @@ class GeometryImportDialog(QDialog):
 
         self.destination_readiness = QLabel('')
         self.destination_readiness.setWordWrap(True)
+        self.destination_readiness.setMinimumHeight(
+            self.destination_readiness.fontMetrics().lineSpacing() * 2
+        )
         set_typography_role(self.destination_readiness, TypographyRole.SECONDARY)
         layout.addWidget(self.destination_readiness)
         self._sync_surface_combo()
