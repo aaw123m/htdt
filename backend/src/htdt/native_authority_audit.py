@@ -353,6 +353,12 @@ class _RepositoryChain:
                 measurement_repository=self.repo('measurement'),
                 quality_repository=self.repo('quality'),
             )
+        if name == 'model_calibration':
+            from .cad_model_calibration_repository import (
+                CadModelCalibrationRepository,
+            )
+
+            return CadModelCalibrationRepository(scene)
         if name == 'joint':
             from .cad_joint_optimization_repository import (
                 CadJointOptimizationRepository,
@@ -1141,6 +1147,157 @@ def _verify_project_tombstone(
     return record
 
 
+def _verify_model_calibration_spec(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    spec_id, semantic_sha256 = key
+    spec = _require(
+        chain.repo('model_calibration').get_spec(spec_id),
+        f'model calibration spec {spec_id}',
+    )
+    if spec.semantic_sha256 != semantic_sha256:
+        raise ValueError(
+            f'model calibration spec {spec_id} re-derives semantic hash '
+            f'{spec.semantic_sha256}, not recorded {semantic_sha256}'
+        )
+    return spec
+
+
+def _verify_model_calibration_result(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    result_id, spec_id, semantic_sha256 = key
+    calibration = chain.repo('model_calibration')
+    result = _require(
+        calibration.get_result(result_id),
+        f'model calibration result {result_id}',
+    )
+    if result.spec_id != spec_id:
+        raise ValueError(
+            f'model calibration result {result_id} binds spec '
+            f'{result.spec_id}, not recorded {spec_id}'
+        )
+    if result.semantic_sha256 != semantic_sha256:
+        raise ValueError(
+            f'model calibration result {result_id} re-derives semantic hash '
+            f'{result.semantic_sha256}, not recorded {semantic_sha256}'
+        )
+    _require(
+        calibration.get_spec(spec_id),
+        f'model calibration spec {spec_id} pinned by result {result_id}',
+    )
+    return result
+
+
+def _verify_calibrated_model(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    materialized_model_id, calibration_result_id, semantic_sha256 = key
+    calibration = chain.repo('model_calibration')
+    model = _require(
+        calibration.get_model(materialized_model_id),
+        f'calibrated model {materialized_model_id}',
+    )
+    if model.calibration_result_id != calibration_result_id:
+        raise ValueError(
+            f'calibrated model {materialized_model_id} binds result '
+            f'{model.calibration_result_id}, not recorded '
+            f'{calibration_result_id}'
+        )
+    if model.semantic_sha256 != semantic_sha256:
+        raise ValueError(
+            f'calibrated model {materialized_model_id} re-derives semantic '
+            f'hash {model.semantic_sha256}, not recorded {semantic_sha256}'
+        )
+    _require(
+        calibration.get_result(calibration_result_id),
+        f'model calibration result {calibration_result_id} pinned by '
+        f'calibrated model {materialized_model_id}',
+    )
+    return model
+
+
+def _verify_calibrated_model_freeze(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    freeze_id, calibration_result_id, semantic_sha256 = key
+    calibration = chain.repo('model_calibration')
+    freeze = _require(
+        calibration.get_freeze(freeze_id),
+        f'calibrated model freeze {freeze_id}',
+    )
+    if freeze.calibration_result_id != calibration_result_id:
+        raise ValueError(
+            f'calibrated model freeze {freeze_id} binds result '
+            f'{freeze.calibration_result_id}, not recorded '
+            f'{calibration_result_id}'
+        )
+    if freeze.semantic_sha256 != semantic_sha256:
+        raise ValueError(
+            f'calibrated model freeze {freeze_id} re-derives semantic hash '
+            f'{freeze.semantic_sha256}, not recorded {semantic_sha256}'
+        )
+    _require(
+        calibration.get_result(calibration_result_id),
+        f'model calibration result {calibration_result_id} pinned by '
+        f'freeze {freeze_id}',
+    )
+    return freeze
+
+
+def _verify_holdout_record(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    record_id, freeze_id, semantic_sha256 = key
+    calibration = chain.repo('model_calibration')
+    record = _require(
+        calibration.get_holdout_record(record_id),
+        f'holdout discipline record {record_id}',
+    )
+    if record.freeze_id != freeze_id:
+        raise ValueError(
+            f'holdout discipline record {record_id} binds freeze '
+            f'{record.freeze_id}, not recorded {freeze_id}'
+        )
+    if record.semantic_sha256 != semantic_sha256:
+        raise ValueError(
+            f'holdout discipline record {record_id} re-derives semantic '
+            f'hash {record.semantic_sha256}, not recorded {semantic_sha256}'
+        )
+    _require(
+        calibration.get_freeze(freeze_id),
+        f'calibrated model freeze {freeze_id} pinned by holdout record '
+        f'{record_id}',
+    )
+    return record
+
+
+def _verify_calibration_evidence_event(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    """Evidence-ledger rows resolve their freeze/holdout-record links."""
+    record_id, freeze_id = key
+    calibration = chain.repo('model_calibration')
+    if freeze_id is not None:
+        _require(
+            calibration.get_freeze(freeze_id),
+            f'calibrated model freeze {freeze_id} named by a calibration '
+            'evidence event',
+        )
+    if record_id is not None:
+        record = _require(
+            calibration.get_holdout_record(record_id),
+            f'holdout discipline record {record_id} named by a calibration '
+            'evidence event',
+        )
+        if freeze_id is not None and record.freeze_id != freeze_id:
+            raise ValueError(
+                f'calibration evidence event binds record {record_id} of '
+                f'freeze {record.freeze_id} beside freeze {freeze_id}'
+            )
+    return key
+
+
 # Persisted authorities enumerated in dependency order. Each verify call is
 # the domain repository's own fail-closed read path — no audit-side formula.
 _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
@@ -1575,6 +1732,42 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_calibration_verification_completions',
         ('completion_id',),
         _get('calibration', 'get_verification_completion'),
+    ),
+    _ReplayProbe(
+        'model_calibration_spec',
+        'cad_calibration_specs',
+        ('spec_id', 'semantic_sha256'),
+        _verify_model_calibration_spec,
+    ),
+    _ReplayProbe(
+        'model_calibration_result',
+        'cad_calibration_results',
+        ('result_id', 'spec_id', 'semantic_sha256'),
+        _verify_model_calibration_result,
+    ),
+    _ReplayProbe(
+        'calibrated_model',
+        'cad_calibration_models',
+        ('materialized_model_id', 'calibration_result_id', 'semantic_sha256'),
+        _verify_calibrated_model,
+    ),
+    _ReplayProbe(
+        'calibrated_model_freeze',
+        'cad_calibration_freezes',
+        ('freeze_id', 'calibration_result_id', 'semantic_sha256'),
+        _verify_calibrated_model_freeze,
+    ),
+    _ReplayProbe(
+        'holdout_discipline_record',
+        'cad_calibration_holdout_records',
+        ('record_id', 'freeze_id', 'semantic_sha256'),
+        _verify_holdout_record,
+    ),
+    _ReplayProbe(
+        'calibration_evidence_event',
+        'cad_calibration_evidence_events',
+        ('record_id', 'freeze_id'),
+        _verify_calibration_evidence_event,
     ),
     _ReplayProbe(
         'system_variant_as_built',
