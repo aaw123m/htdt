@@ -140,6 +140,8 @@ class OpaqueArtifactSection(BaseModel):
         'malformed_line',
         'unresolved_include',
         'device_scope',
+        'external_file_reference',
+        'conditional_block',
     ]
     raw_text: str = Field(min_length=1)
     line_number: int | None = Field(default=None, ge=1)
@@ -180,6 +182,9 @@ class ImportedCalibrationArtifact(BaseModel):
     channels: tuple[ImportedChannelSettings, ...] = ()
     opaque_sections: tuple[OpaqueArtifactSection, ...] = ()
     include_dependencies: tuple[IncludeDependency, ...] = ()
+    #: Other external files a configuration depends on (convolution
+    #: impulse responses, etc.) — tracked like includes, never applied.
+    file_dependencies: tuple[IncludeDependency, ...] = ()
     diagnostics: tuple[str, ...] = ()
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -223,6 +228,10 @@ class ImportedCalibrationArtifact(BaseModel):
             'include_dependencies': [
                 item.model_dump(mode='json')
                 for item in self.include_dependencies
+            ],
+            'file_dependencies': [
+                item.model_dump(mode='json')
+                for item in self.file_dependencies
             ],
             'diagnostics': list(self.diagnostics),
         }
@@ -337,7 +346,8 @@ def _parse_config_text(
     opaque: list[OpaqueArtifactSection],
     include_deps: list[IncludeDependency],
     include_resolver: Callable[[str], tuple[str, bytes] | None] | None,
-    _include_stack: tuple[str, ...],
+    file_deps: list[IncludeDependency] | None = None,
+    _include_stack: tuple[str, ...] = (),
     depth: int = 0,
 ) -> tuple[
     dict[str, dict[str, Any]],
@@ -351,13 +361,18 @@ def _parse_config_text(
     global_preamp).
     ``declared`` accumulates every channel label a ``Channel:`` line
     selected, so scope declarations surface in the channel mapping even
-    when no supported command lands under them."""
+    when no supported command lands under them.
+    ``file_deps`` collects non-include file references (convolution IRs).
+    Conditional blocks (``If``/``Else``/``EndIf``) block interpretation:
+    every line inside one is recorded opaque — never silently applied
+    under an unevaluated condition."""
     channels: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     declared: list[str] = []
     scope: tuple[str, ...] = ()
     device_context: str | None = None
     global_preamp: float | None = None
+    in_conditional = False
 
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
@@ -366,6 +381,35 @@ def _parse_config_text(
         command, _, argument = line.partition(':')
         command = command.strip()
         argument = argument.strip()
+
+        if command in ('If', 'ElseIf', 'Else', 'EndIf'):
+            if command == 'EndIf':
+                in_conditional = False
+            elif command in ('If', 'ElseIf', 'Else'):
+                in_conditional = True
+            opaque.append(
+                OpaqueArtifactSection(
+                    kind='conditional_block',
+                    raw_text=line,
+                    line_number=lineno,
+                    reason='conditional expressions are not evaluated; the block stays opaque',
+                )
+            )
+            diagnostics.append(
+                f'conditional expression {command!r} at line {lineno}: contents not interpreted'
+            )
+            continue
+
+        if in_conditional:
+            opaque.append(
+                OpaqueArtifactSection(
+                    kind='conditional_block',
+                    raw_text=line,
+                    line_number=lineno,
+                    reason='inside an unevaluated conditional block; recorded opaque',
+                )
+            )
+            continue
 
         if command == 'Channel':
             tokens = argument.replace(',', ' ').split()
@@ -483,6 +527,47 @@ def _parse_config_text(
                 bucket['peq'].append((line, fields))
             continue
 
+        if command == 'Convolution':
+            ir_path = argument
+            if not ir_path:
+                opaque.append(
+                    OpaqueArtifactSection(
+                        kind='malformed_line',
+                        raw_text=line,
+                        line_number=lineno,
+                        reason='Convolution requires an impulse-response path',
+                    )
+                )
+                continue
+            resolved = include_resolver(ir_path) if include_resolver else None
+            dependency = IncludeDependency(
+                include_path=ir_path,
+                resolved=resolved is not None,
+                source_sha256=sha256(resolved[1]).hexdigest()
+                if resolved is not None
+                else None,
+                diagnostics=()
+                if resolved is not None
+                else ('convolution impulse response not provided',),
+            )
+            if file_deps is not None:
+                file_deps.append(dependency)
+            else:
+                include_deps.append(dependency)
+            opaque.append(
+                OpaqueArtifactSection(
+                    kind='external_file_reference',
+                    raw_text=line,
+                    line_number=lineno,
+                    reason='convolution impulse response recorded as a file dependency; the IR is not interpreted',
+                )
+            )
+            if resolved is None:
+                diagnostics.append(
+                    f'unresolved convolution file: {ir_path}'
+                )
+            continue
+
         if command == 'Include':
             include_path = argument
             if not include_path:
@@ -537,6 +622,7 @@ def _parse_config_text(
                 opaque=opaque,
                 include_deps=include_deps,
                 include_resolver=include_resolver,
+                file_deps=file_deps,
                 _include_stack=(*_include_stack, include_path),
                 depth=depth + 1,
             )
@@ -594,6 +680,7 @@ def build_equalizer_apo_artifact(
     diagnostics: list[str] = list(diagnostics_extra)
     opaque: list[OpaqueArtifactSection] = []
     include_deps: list[IncludeDependency] = []
+    file_deps: list[IncludeDependency] = []
 
     channels, order, declared, device_context, global_preamp = (
         _parse_config_text(
@@ -602,6 +689,7 @@ def build_equalizer_apo_artifact(
             opaque=opaque,
             include_deps=include_deps,
             include_resolver=include_resolver,
+            file_deps=file_deps,
             _include_stack=(),
         )
     )
@@ -671,6 +759,7 @@ def build_equalizer_apo_artifact(
         'channels': tuple(normalized_channels),
         'opaque_sections': tuple(opaque),
         'include_dependencies': tuple(include_deps),
+        'file_dependencies': tuple(file_deps),
         'diagnostics': tuple(diagnostics),
     }
     provisional = ImportedCalibrationArtifact.model_construct(
