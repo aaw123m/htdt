@@ -81,7 +81,6 @@ from .cad_video_workspace import (
     DEFAULT_POLICY,
     VideoGeometryWorkspace,
     build_request_from_workspace,
-    default_seat_binding,
     default_screen_binding,
     screen_image_center_world,
     seat_eye_world,
@@ -5116,11 +5115,6 @@ class RoomWorkspace(QWidget):
             if entity.kind != "seat":
                 continue
             values = seat_values.get(entity.entity_id)
-            if values is None:
-                seat_bindings.setdefault(
-                    entity.entity_id, default_seat_binding(entity.entity_id)
-                )
-                continue
             pose = self.listener_pose_repository.selected_pose(
                 self.controller.document_id, entity.entity_id
             )
@@ -5136,6 +5130,11 @@ class RoomWorkspace(QWidget):
                     ),
                 )
                 continue
+            if values is None:
+                # #1056: never invent occupant geometry — a seat with no
+                # pose and no explicit manual values simply isn't bound;
+                # video_workspace_missing_inputs reports the gap.
+                continue
             seat_bindings[entity.entity_id] = SeatGeometryBinding(
                 entity_id=entity.entity_id,
                 row_id=str(values["row_id"]),
@@ -5147,6 +5146,7 @@ class RoomWorkspace(QWidget):
                 ),
                 head_radius_m=float(values["head_radius_m"]),
                 riser_entity_id=values["riser_entity_id"],
+                geometry_source='manual',
             )
         for stale_id in list(seat_bindings):
             if stale_id not in seat_values and all(

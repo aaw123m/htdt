@@ -20,8 +20,14 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .cad_direct_view import (
+    DirectViewDisplaySpecification,
+    DirectViewGeometryRequest,
+    DisplayGeometryBinding,
+    build_direct_view_geometry_request,
+)
 from .cad_scene import Position3, SceneDocument
 from .cad_schema import (
     ensure_native_schema,
@@ -65,7 +71,13 @@ DEFAULT_POLICY = VideoGeometryPolicy(
 
 
 def default_seat_binding(entity_id: str) -> SeatGeometryBinding:
-    """Default eye/head model for a seat: seated eye above seat origin."""
+    """Generic seated-preset geometry — explicitly *not* authoritative.
+
+    #1056: these numbers have no provenance and are stamped
+    ``geometry_source='legacy'`` so eye/head-dependent criteria evaluate
+    UNKNOWN; a real project must materialize an exact ListenerPose or
+    explicit manual values instead.
+    """
 
     return SeatGeometryBinding(
         entity_id=entity_id,
@@ -74,6 +86,7 @@ def default_seat_binding(entity_id: str) -> SeatGeometryBinding:
         head_center_offset_local_m=_offset(0.0, 0.0, 1.15),
         head_radius_m=0.10,
         riser_entity_id=None,
+        geometry_source='legacy',
     )
 
 
@@ -102,9 +115,19 @@ class VideoGeometryWorkspace(BaseModel):
 
     schema_version: Literal[1] = 1
     document_id: str = Field(min_length=1)
+    # #1054: Room > Video target type. 'projection' = projector + passive
+    # screen; 'direct_view' = a display entity bound to a
+    # DirectViewDisplaySpecification — never modeled as a fake projector.
+    target_type: Literal['projection', 'direct_view'] = 'projection'
     projector_entity_id: str | None = None
     projector_specification_sha256: str | None = None
     screen_bindings: dict[str, ScreenGeometryBinding] = Field(default_factory=dict)
+    # Direct-view target (#1054): the display entity, its geometry binding
+    # (active image aperture vs chassis stay distinct there), and the exact
+    # specification hash from the canonical direct-view repository.
+    display_entity_id: str | None = None
+    display_binding: DisplayGeometryBinding | None = None
+    display_specification_sha256: str | None = None
     seat_bindings: dict[str, SeatGeometryBinding] = Field(default_factory=dict)
     # Selected listener-pose authority per seat (#632); the seat binding's
     # eye/head offsets are derived from this exact authority, not re-entered.
@@ -113,6 +136,18 @@ class VideoGeometryWorkspace(BaseModel):
     )
     policy: VideoGeometryPolicy = DEFAULT_POLICY
     collision_entity_ids: tuple[str, ...] = ()
+
+    @model_validator(mode='after')
+    def valid_display_binding(self) -> 'VideoGeometryWorkspace':
+        if (
+            self.display_entity_id is not None
+            and self.display_binding is not None
+            and self.display_binding.entity_id != self.display_entity_id
+        ):
+            raise ValueError(
+                'display binding must reference the selected display entity'
+            )
+        return self
 
 
 def video_workspace_missing_inputs(
@@ -123,6 +158,17 @@ def video_workspace_missing_inputs(
 
     missing: list[str] = []
     kinds = {entity.entity_id: entity.kind for entity in document.entities}
+    if workspace.target_type == 'direct_view':
+        # #1054: projector/screen requirements are NOT_APPLICABLE here — a
+        # direct-view display is neither a fake projector nor a passive
+        # screen. It needs a display entity and its aperture binding.
+        if workspace.display_entity_id is None:
+            missing.append('ディスプレイ未選択')
+        elif kinds.get(workspace.display_entity_id) != 'display':
+            missing.append('ディスプレイ参照が無効です')
+        if workspace.display_binding is None:
+            missing.append('ディスプレイの有効画域が未バインドです')
+        return _seat_missing_inputs(document, workspace, missing)
     if workspace.projector_entity_id is None:
         missing.append('プロジェクター未選択')
     elif kinds.get(workspace.projector_entity_id) != 'projector':
@@ -135,9 +181,32 @@ def video_workspace_missing_inputs(
         screen_entity = document.entity(screen_id) if kinds.get(screen_id) == 'screen' else None
     if screen_entity is None:
         missing.append('スクリーンの画素設定が未バインドです')
+    return _seat_missing_inputs(document, workspace, missing)
+
+
+def _seat_missing_inputs(
+    document: SceneDocument,
+    workspace: VideoGeometryWorkspace,
+    missing: list[str],
+) -> tuple[str, ...]:
+    kinds = {entity.entity_id: entity.kind for entity in document.entities}
     for seat_id in workspace.seat_bindings:
         if kinds.get(seat_id) != 'seat':
             missing.append(f'座席 {seat_id} のバインド先が座席ではありません')
+    # #1056: eye/head readiness distinguishes exact pose / explicit manual
+    # materialization from legacy or absent authority — never silently OK.
+    for entity in document.entities:
+        if entity.kind != 'seat':
+            continue
+        binding = workspace.seat_bindings.get(entity.entity_id)
+        if binding is None:
+            missing.append(
+                f'座席 {entity.entity_id} のリスナーポーズ（目・頭位置）が未設定です'
+            )
+        elif binding.geometry_source == 'legacy':
+            missing.append(
+                f'座席 {entity.entity_id} の目・頭位置は権威なし（レガシー）です'
+            )
     return tuple(missing)
 
 
@@ -168,6 +237,48 @@ def build_request_from_workspace(
         ),
         policy=workspace.policy,
         collision_entity_ids=collision_ids,
+    )
+
+
+def build_direct_view_request_from_workspace(
+    document: SceneDocument,
+    workspace: VideoGeometryWorkspace,
+    specification: DirectViewDisplaySpecification | None = None,
+) -> DirectViewGeometryRequest:
+    """Assemble the exact ``DirectViewGeometryRequest`` (#1054).
+
+    Same seat/ListenerPose authority path as projection — the shared
+    ``seat_bindings`` drive eye/head geometry — but the target is a
+    ``display`` entity with its active-aperture binding; projector-only
+    concepts never enter. The exact display specification pin is optional
+    for geometry but required for spec-conformance results.
+    """
+
+    if workspace.target_type != 'direct_view':
+        raise ValueError('ワークスペースのターゲットがディスプレイではありません')
+    if workspace.display_entity_id is None:
+        raise ValueError('ディスプレイが未選択です')
+    entity = document.entity(workspace.display_entity_id)
+    if entity is None or entity.kind != 'display':
+        raise ValueError('ディスプレイ参照が無効です')
+    if workspace.display_binding is None:
+        raise ValueError('ディスプレイの有効画域バインドが未設定です')
+    # Direct-view collision evaluation accepts speaker/screen/projector/
+    # display entities only — seats and measurement points are excluded.
+    collision_ids = workspace.collision_entity_ids or tuple(
+        entity.entity_id
+        for entity in document.entities
+        if entity.entity_id != workspace.display_entity_id
+        and entity.kind in {'speaker', 'screen', 'projector', 'display'}
+    )
+    return build_direct_view_geometry_request(
+        display=workspace.display_binding,
+        seats=tuple(
+            workspace.seat_bindings[seat_id] for seat_id in sorted(workspace.seat_bindings)
+        ),
+        policy=workspace.policy,
+        collision_entity_ids=collision_ids,
+        display_specification=specification,
     )
 
 
@@ -253,10 +364,19 @@ def _world_offset(entity, offset) -> tuple[float, float, float]:
 
 
 def seat_eye_world(entity, binding: SeatGeometryBinding) -> tuple[float, float, float]:
-    """World-space eye position the sightline evaluator consumes (#455)."""
+    """World-space eye position the sightline evaluator consumes (#455).
+
+    #1056: a legacy (unauthoritative) binding has no exact eye point —
+    callers must refuse rather than present guessed geometry as the
+    listener's viewpoint.
+    """
 
     if entity.kind != 'seat':
         raise ValueError('seat binding must reference a seat SceneEntity')
+    if binding.geometry_source == 'legacy':
+        raise ValueError(
+            'seat has no listener-pose or explicit eye authority'
+        )
     return _world_offset(entity, binding.eye_reference_offset_local_m)
 
 

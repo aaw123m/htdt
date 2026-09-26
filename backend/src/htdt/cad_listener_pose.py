@@ -430,6 +430,9 @@ def seat_binding_from_pose(
         head_center_offset_local_m=pose.head_center_offset_local_m,
         head_radius_m=pose.head_radius_m,
         riser_entity_id=riser_entity_id,
+        # #1056: the binding must prove the exact pose it derives from.
+        geometry_source='listener_pose',
+        pose_ref=pose.authority_ref(),
     )
 
 

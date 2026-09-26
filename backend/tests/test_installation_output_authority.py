@@ -344,6 +344,7 @@ def _video_request(specification):
         ),
         seats=(
             SeatGeometryBinding(
+                geometry_source='manual',
                 entity_id='seat-front',
                 row_id='front',
                 eye_reference_offset_local_m=Offset3(z_m=0.65),
@@ -351,6 +352,7 @@ def _video_request(specification):
                 head_radius_m=0.18,
             ),
             SeatGeometryBinding(
+                geometry_source='manual',
                 entity_id='seat-rear',
                 row_id='rear',
                 eye_reference_offset_local_m=Offset3(z_m=0.65),

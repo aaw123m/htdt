@@ -112,6 +112,15 @@ ReferenceBasis = Literal[
 listener/seat target. Nothing is ever compared across bases implicitly —
 there is no implicit free-field 20log10(r) correction in-room."""
 
+UsableOutputBindingClass = Literal['exact', 'advisory']
+"""How a profile binds its EquipmentDefinition (#1026):
+
+- ``exact``: id + version + sha256 triple — the only binding allowed to
+  drive authoritative consumers such as O100 hard-headroom objectives.
+- ``advisory``: definition referenced by id only — useful context, never a
+  hard-capability authority.
+"""
+
 
 class ExcursionEvidence(BaseModel):
     """Xmax-style evidence, retained verbatim. No SPL is derived from it
@@ -211,6 +220,16 @@ class SourceUsableOutputProfile(BaseModel):
     def semantic_payload(self) -> dict:
         return self.model_dump(mode='python', exclude={'profile_sha256'})
 
+    @property
+    def binding_class(self) -> UsableOutputBindingClass:
+        """#1026: exact id+version+sha256 binding versus id-only advisory."""
+        if (
+            self.equipment_definition_version is not None
+            and self.equipment_definition_sha256 is not None
+        ):
+            return 'exact'
+        return 'advisory'
+
     @model_validator(mode='after')
     def _check(self) -> 'SourceUsableOutputProfile':
         has_compression = any(
@@ -220,6 +239,13 @@ class SourceUsableOutputProfile(BaseModel):
             raise ValueError(
                 'compression figures require an explicit reference level '
                 '(compression_reference_db_spl)'
+            )
+        if (self.equipment_definition_version is None) != (
+            self.equipment_definition_sha256 is None
+        ):
+            raise ValueError(
+                'equipment definition version and sha256 must be supplied '
+                'together (#1026)'
             )
         if (self.raw_asset_sha256 is not None) != (
             self.parser_id is not None
@@ -374,9 +400,16 @@ class HeadroomEvaluation(BaseModel):
     evaluation_id: str = Field(min_length=1)
     profile_id: str | None = None
     profile_sha256: str | None = None
+    # The binding class the profile carried at evaluation time (#1026):
+    # ``exact`` (id+version+sha256) or ``advisory`` (id only). ``None``
+    # means no profile was supplied.
+    profile_binding: UsableOutputBindingClass | None = None
     basis: HeadroomBasis
     tier_used: UsableOutputTier
     target_level_db_spl: float | None = None
+    # Inclusive frequency band the evidence was required to cover; ``None``
+    # on evaluations evaluated for a single frequency or broadband peak.
+    frequency_band_hz: tuple[float, float] | None = None
     # The level the evidence establishes at the profile/declared reference
     # condition — never silently a listener level.
     available_level_db_spl: float | None = None
@@ -408,6 +441,36 @@ class HeadroomEvaluation(BaseModel):
         if self.evaluation_id != 'uhe-' + digest[:24]:
             raise ValueError('headroom evaluation id mismatch')
         return self
+
+
+def _band_candidates(
+    profile: SourceUsableOutputProfile,
+    frequency_band_hz: tuple[float, float],
+    duration_class: OutputDurationClass,
+) -> list[OutputSample]:
+    """In-band evidence for an inclusive (low, high) band (#1047).
+
+    A sample is in-band when its point frequency lies inside the band or
+    its own declared band overlaps it — the honest-band ceiling is the
+    *minimum* qualifying level across that evidence.
+    """
+    low_hz, high_hz = frequency_band_hz
+    return [
+        s
+        for s in profile.samples
+        if s.duration_class == duration_class
+        and (
+            (
+                s.frequency_hz is not None
+                and low_hz <= s.frequency_hz <= high_hz
+            )
+            or (
+                s.band is not None
+                and s.band.minimum_hz <= high_hz
+                and s.band.maximum_hz >= low_hz
+            )
+        )
+    ]
 
 
 def _level_at(
@@ -564,12 +627,14 @@ def evaluate_headroom(
     profile: SourceUsableOutputProfile | None,
     target_level_db_spl: float | None,
     frequency_hz: float | None = None,
+    frequency_band_hz: tuple[float, float] | None = None,
     duration_class: OutputDurationClass = 'continuous',
     declared_spl_db: float | None = None,
     amplifier_headroom_db: float | None = None,
     max_distortion_percent: float | None = None,
     max_compression_db: float | None = None,
     reference_transfer: ListenerTransferAuthority | None = None,
+    require_exact_binding: bool = False,
 ) -> HeadroomEvaluation:
     """Evaluate usable-output headroom for a target listening level.
 
@@ -581,6 +646,21 @@ def evaluate_headroom(
     amplifier margin is reported as its own dimension, never as acoustic
     listener headroom.
     """
+
+    if frequency_hz is not None and frequency_band_hz is not None:
+        raise ValueError(
+            'frequency_hz and frequency_band_hz are mutually exclusive'
+        )
+    if frequency_band_hz is not None and not (
+        frequency_band_hz[0] < frequency_band_hz[1]
+    ):
+        raise ValueError('frequency band requires low_hz < high_hz')
+
+    advisory_binding_blocked = (
+        profile is not None
+        and require_exact_binding
+        and profile.binding_class != 'exact'
+    )
 
     tier = usable_output_tier(profile)
     basis: HeadroomBasis = 'unknown'
@@ -594,9 +674,20 @@ def evaluate_headroom(
     )
     policy_fail_at_or_below_target = False
 
-    if profile is not None and tier in {'compression', 'thd', 'combined',
-                                        'excursion_model'}:
-        candidates = _policy_candidates(profile, frequency_hz, duration_class)
+    if advisory_binding_blocked:
+        # #1026: an id-only (advisory) binding is context, never authority —
+        # it cannot establish a qualified or declared headroom basis.
+        pass
+    elif profile is not None and tier in {'compression', 'thd', 'combined',
+                                          'excursion_model'}:
+        if frequency_band_hz is not None:
+            candidates = _band_candidates(
+                profile, frequency_band_hz, duration_class
+            )
+        else:
+            candidates = _policy_candidates(
+                profile, frequency_hz, duration_class
+            )
         if policy_active and candidates:
             qualifying = [
                 s for s in candidates
@@ -607,7 +698,14 @@ def evaluate_headroom(
                 )
             ]
             if qualifying:
-                available = max(s.level_db_spl for s in qualifying)
+                # Band evaluation takes the minimum qualifying ceiling —
+                # the weakest in-band evidence bounds the band claim (#1047).
+                if frequency_band_hz is not None:
+                    available = min(
+                        s.level_db_spl for s in qualifying
+                    )
+                else:
+                    available = max(s.level_db_spl for s in qualifying)
                 basis = 'distortion_qualified'
                 limiting = 'distortion/compression policy'
             else:
@@ -627,13 +725,19 @@ def evaluate_headroom(
                 ):
                     policy_fail_at_or_below_target = True
 
-    if basis == 'unknown' and declared_spl_db is not None:
+    if basis == 'unknown' and declared_spl_db is not None and (
+        not advisory_binding_blocked
+    ):
         available = declared_spl_db
         basis = 'scalar_declared'
         limiting = 'declared SPL capability at its declared reference'
 
     electrical = amplifier_headroom_db
-    if basis == 'unknown' and electrical is not None:
+    if (
+        basis == 'unknown'
+        and electrical is not None
+        and not advisory_binding_blocked
+    ):
         basis = 'amplifier_margin'
         limiting = 'amplifier margin (electrical, at operating point)'
 
@@ -659,7 +763,14 @@ def evaluate_headroom(
                 transfer_block = why
 
     headroom: float | None = None
-    if basis == 'distortion_unqualified':
+    if advisory_binding_blocked:
+        status = 'UNKNOWN'
+        reason = (
+            'usable-output profile binding is advisory (equipment '
+            'definition referenced by id only, without version+sha256) — '
+            'it cannot drive an authoritative headroom decision (#1026)'
+        )
+    elif basis == 'distortion_unqualified':
         if policy_fail_at_or_below_target:
             status = 'FAIL'
             reason = (
@@ -698,6 +809,14 @@ def evaluate_headroom(
         evaluation_id='',
         profile_id=profile.profile_id if profile else None,
         profile_sha256=profile.profile_sha256 if profile else None,
+        profile_binding=(
+            None if profile is None else profile.binding_class
+        ),
+        frequency_band_hz=(
+            None
+            if frequency_band_hz is None
+            else (float(frequency_band_hz[0]), float(frequency_band_hz[1]))
+        ),
         basis=basis,
         tier_used=tier,
         target_level_db_spl=target_level_db_spl,

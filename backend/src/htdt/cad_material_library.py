@@ -58,6 +58,10 @@ MaterialProvenanceClass = Literal[
     'laboratory_measured',
     'independent_published',
     'user_measured',
+    # #1033: local measurement of an already-installed surface/treatment —
+    # stronger than a generic preset for that exact surface but never a
+    # global MaterialDefinition rewrite.
+    'user_in_situ_measured',
     'analytic_model',
     'inferred_estimated',
     'generic_reference_preset',

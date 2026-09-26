@@ -9,6 +9,7 @@ from htdt.cad_ambient_noise import (
     CadAmbientNoiseRepository,
     ambient_overall_level_db,
     ambient_snr_db,
+    bind_ambient_noise_evidence,
     build_ambient_noise_criterion,
     build_ambient_noise_profile,
     build_ambient_operating_condition,
@@ -47,6 +48,7 @@ def _profile(condition, **overrides):
         'microphone_position': Position3(x_m=3.0, y_m=3.0, z_m=1.1),
         'method': 'measured',
         'level_semantics': 'absolute_spl',
+        'calibration_authority_id': 'cal-fixture',
         'weighting': 'Z',
         'band_spec': 'octave',
         'band_center_hz': OCTAVE_BANDS,
@@ -342,3 +344,135 @@ def test_comparison_repository_replays_typed_decision(tmp_path: Path):
     )
     repository.save_comparison(comparison)
     assert repository.get_comparison(comparison.comparison_id) == comparison
+
+
+# --- #1025: ambient→measurement-quality bridge -------------------------------
+
+
+def _persisted_profile(repository, revision, **overrides):
+    condition = _condition(revision)
+    repository.save_condition(condition)
+    profile = _profile(condition, **overrides)
+    repository.save_profile(profile)
+    return condition, profile
+
+
+def _compat_kwargs(revision, condition):
+    return dict(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        operating_condition=condition,
+    )
+
+
+def test_compatible_ambient_profile_derives_noise_floor_and_snr(tmp_path):
+    _, revision, repository = _repositories(tmp_path)
+    condition, profile = _persisted_profile(
+        repository,
+        revision,
+        measurement_entity_id='point-mlp',
+        acquisition_context_id='ctx-1',
+        overall_level_db=30.0,
+    )
+    ref = bind_ambient_noise_evidence(
+        profile,
+        **_compat_kwargs(revision, condition),
+        measurement_entity_id='point-mlp',
+        measurement_position=Position3(x_m=3.0, y_m=3.0, z_m=1.1),
+        acquisition_context_id='ctx-1',
+        signal_level_db_spl=75.0,
+    )
+    assert ref.compatibility.status == 'COMPATIBLE'
+    assert ref.noise_floor_db_spl == 30.0
+    assert ref.snr_db == pytest.approx(45.0)
+
+
+def test_ambient_mismatches_are_incompatible_and_carry_no_values(tmp_path):
+    _, revision, repository = _repositories(tmp_path)
+    condition, profile = _persisted_profile(
+        repository,
+        revision,
+        measurement_entity_id='point-mlp',
+        overall_level_db=30.0,
+    )
+    other_condition = _condition(revision, hvac_state='on')
+    repository.save_condition(other_condition)
+
+    # A different operating condition can never silently reuse the profile.
+    ref = bind_ambient_noise_evidence(
+        profile,
+        **_compat_kwargs(revision, other_condition),
+        measurement_entity_id='point-mlp',
+        measurement_position=profile.microphone_position,
+    )
+    assert ref.compatibility.status == 'INCOMPATIBLE'
+    assert ref.noise_floor_db_spl is None
+    assert ref.snr_db is None
+
+    # A different measurement entity is a hard incompatibility.
+    ref = bind_ambient_noise_evidence(
+        profile,
+        **_compat_kwargs(revision, condition),
+        measurement_entity_id='point-other',
+        measurement_position=profile.microphone_position,
+    )
+    assert ref.compatibility.status == 'INCOMPATIBLE'
+
+    # Microphone position outside the declared tolerance fails too.
+    ref = bind_ambient_noise_evidence(
+        profile,
+        **_compat_kwargs(revision, condition),
+        measurement_entity_id='point-mlp',
+        measurement_position=Position3(x_m=3.0, y_m=3.0, z_m=1.6),
+        position_tolerance_m=0.05,
+    )
+    assert ref.compatibility.status == 'INCOMPATIBLE'
+
+    # Unresolvable axes (missing entity binding/context/condition) stay
+    # UNKNOWN rather than compatible.
+    bare = _profile(condition)
+    repository.save_profile(bare)
+    ref = bind_ambient_noise_evidence(
+        bare,
+        **_compat_kwargs(revision, condition),
+        measurement_entity_id=None,
+        measurement_position=bare.microphone_position,
+    )
+    assert ref.compatibility.status == 'UNKNOWN'
+
+
+def test_absolute_spl_requires_bound_calibration_authority(tmp_path):
+    _, revision, repository = _repositories(tmp_path)
+    condition = _condition(revision)
+    repository.save_condition(condition)
+
+    # Self-declared absolute_spl without calibration authority is rejected.
+    uncalibrated = _profile(condition, calibration_authority_id=None)
+    with pytest.raises(ValueError, match='calibration_authority_id'):
+        repository.save_profile(uncalibrated)
+    # And even unsaved it can never produce an absolute criterion verdict.
+    evaluation = evaluate_ambient_criterion(
+        uncalibrated,
+        _criterion(),
+        evaluated_at='2026-09-23T02:00:00+00:00',
+    )
+    assert evaluation.verdict == 'UNKNOWN'
+
+    # Relative profiles persist fine but fail the absolute-requirement axis.
+    relative = _profile(
+        condition, level_semantics='relative', calibration_authority_id=None
+    )
+    repository.save_profile(relative)
+    ref = bind_ambient_noise_evidence(
+        relative,
+        **_compat_kwargs(revision, condition),
+        measurement_entity_id=None,
+        measurement_position=relative.microphone_position,
+        requires_absolute_spl=True,
+    )
+    assert ref.compatibility.status == 'INCOMPATIBLE'
+    assert any(
+        check.check == 'absolute_spl' and check.status == 'FAIL'
+        for check in ref.compatibility.checks
+    )

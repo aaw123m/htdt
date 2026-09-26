@@ -554,7 +554,16 @@ def evaluate_ambient_criterion(
         and tuple(profile.band_center_hz) == tuple(criterion.band_center_hz)
         and len(profile.band_level_db) == len(criterion.limit_level_db)
     )
-    usable = profile.level_semantics == 'absolute_spl' or not criterion.requires_absolute_spl
+    # #1025: a self-declared 'absolute_spl' level_semantics alone never
+    # opens an absolute criterion — the profile must also bind a real
+    # calibration authority.
+    usable = (
+        (
+            profile.level_semantics == 'absolute_spl'
+            and profile.calibration_authority_id is not None
+        )
+        or not criterion.requires_absolute_spl
+    )
     if not same_basis or not usable:
         verdict: AmbientVerdict = 'UNKNOWN'
         band_verdicts = tuple('UNKNOWN' for _ in criterion.band_center_hz)
@@ -937,6 +946,316 @@ def ambient_overall_level_db(profile: AmbientNoiseProfile) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Measurement-quality binding (#1025)
+
+
+AmbientCompatibilityStatus = Literal['COMPATIBLE', 'INCOMPATIBLE', 'UNKNOWN']
+
+
+class AmbientCompatibilityCheck(BaseModel):
+    """One axis of ambient→measurement compatibility (#1025)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    check: str = Field(min_length=1)
+    status: AmbientCheckStatus
+    reason: str = Field(min_length=1)
+
+
+class AmbientCompatibilityResult(BaseModel):
+    """Ordered verdict: whether one profile may support one measurement."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: AmbientCompatibilityStatus
+    checks: tuple[AmbientCompatibilityCheck, ...] = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_result(self) -> 'AmbientCompatibilityResult':
+        statuses = {item.status for item in self.checks}
+        expected: AmbientCompatibilityStatus
+        if 'FAIL' in statuses or 'BLOCKED' in statuses:
+            expected = 'INCOMPATIBLE'
+        elif 'UNKNOWN' in statuses:
+            expected = 'UNKNOWN'
+        else:
+            expected = 'COMPATIBLE'
+        if self.status != expected:
+            raise ValueError(
+                f'compatibility status {self.status} disagrees with checks'
+            )
+        return self
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        return tuple(item.reason for item in self.checks)
+
+
+def check_ambient_measurement_compatibility(
+    profile: AmbientNoiseProfile,
+    *,
+    document_id: str,
+    scene_revision_id: str,
+    scene_content_hash: str,
+    measurement_entity_id: str | None,
+    measurement_position: Position3,
+    position_tolerance_m: float = 0.0,
+    acquisition_context_id: str | None = None,
+    operating_condition: AmbientOperatingCondition | None = None,
+    requires_absolute_spl: bool = False,
+) -> AmbientCompatibilityResult:
+    """Whether ``profile`` may feed quality evidence for one measurement.
+
+    Every axis is explicit: document, exact SceneRevision, bound
+    measurement entity, microphone position (within the declared
+    tolerance), acquisition-context chain, resolved operating condition,
+    and — only when the consumer needs absolute levels — the profile's
+    calibrated-absolute-SPL authority. Any FAIL makes the profile
+    INCOMPATIBLE; unknown axes keep the result UNKNOWN — never silently
+    compatible.
+    """
+
+    checks: list[AmbientCompatibilityCheck] = []
+
+    def _add(check: str, status: AmbientCheckStatus, reason: str) -> None:
+        checks.append(
+            AmbientCompatibilityCheck(check=check, status=status, reason=reason)
+        )
+
+    if profile.document_id == document_id:
+        _add('document', 'PASS', 'ambient profile is bound to this document')
+    else:
+        _add(
+            'document',
+            'FAIL',
+            f'ambient profile document {profile.document_id} != '
+            f'{document_id}',
+        )
+
+    if (
+        profile.scene_revision_id == scene_revision_id
+        and profile.scene_content_hash == scene_content_hash
+    ):
+        _add('scene_revision', 'PASS', 'profile pins this exact scene revision')
+    else:
+        _add(
+            'scene_revision',
+            'FAIL',
+            'ambient profile is bound to a different scene revision',
+        )
+
+    if profile.measurement_entity_id is None:
+        _add(
+            'measurement_entity',
+            'UNKNOWN',
+            'ambient profile declares no measurement entity',
+        )
+    elif measurement_entity_id is None:
+        _add(
+            'measurement_entity',
+            'UNKNOWN',
+            'ambient profile pins a measurement entity but the '
+            'measurement declares none',
+        )
+    elif profile.measurement_entity_id == measurement_entity_id:
+        _add(
+            'measurement_entity',
+            'PASS',
+            'ambient profile pins this measurement entity',
+        )
+    else:
+        _add(
+            'measurement_entity',
+            'FAIL',
+            'ambient profile was captured at a different measurement entity',
+        )
+
+    distance = (
+        (profile.microphone_position.x_m - measurement_position.x_m) ** 2
+        + (profile.microphone_position.y_m - measurement_position.y_m) ** 2
+        + (profile.microphone_position.z_m - measurement_position.z_m) ** 2
+    ) ** 0.5
+    if distance <= position_tolerance_m:
+        _add(
+            'microphone_position',
+            'PASS',
+            f'microphone position within {position_tolerance_m} m of the '
+            'measurement position',
+        )
+    else:
+        _add(
+            'microphone_position',
+            'FAIL',
+            f'microphone is {distance:.3f} m from the measurement position '
+            f'(tolerance {position_tolerance_m} m)',
+        )
+
+    if (
+        profile.acquisition_context_id is not None
+        and acquisition_context_id is not None
+    ):
+        if profile.acquisition_context_id == acquisition_context_id:
+            _add(
+                'acquisition_context',
+                'PASS',
+                'ambient profile shares the measurement acquisition context',
+            )
+        else:
+            _add(
+                'acquisition_context',
+                'FAIL',
+                'ambient profile used a different acquisition context',
+            )
+    else:
+        _add(
+            'acquisition_context',
+            'UNKNOWN',
+            'acquisition-context compatibility cannot be established',
+        )
+
+    if operating_condition is None:
+        _add(
+            'operating_condition',
+            'UNKNOWN',
+            'the resolved operating condition was not supplied',
+        )
+    elif operating_condition.condition_id == profile.condition_id and (
+        operating_condition.condition_sha256 == profile.condition_sha256
+    ):
+        _add(
+            'operating_condition',
+            'PASS',
+            'ambient profile is bound to this exact operating condition',
+        )
+    else:
+        _add(
+            'operating_condition',
+            'FAIL',
+            'ambient profile was captured under a different operating '
+            'condition',
+        )
+
+    if requires_absolute_spl:
+        if (
+            profile.level_semantics == 'absolute_spl'
+            and profile.calibration_authority_id is not None
+        ):
+            _add(
+                'absolute_spl',
+                'PASS',
+                'profile declares calibrated absolute-SPL semantics',
+            )
+        else:
+            _add(
+                'absolute_spl',
+                'FAIL',
+                'absolute-SPL evidence requires calibrated absolute_spl '
+                'semantics bound to a calibration authority (#1025)',
+            )
+
+    if any(item.status in ('FAIL', 'BLOCKED') for item in checks):
+        status: AmbientCompatibilityStatus = 'INCOMPATIBLE'
+    elif any(item.status == 'UNKNOWN' for item in checks):
+        status = 'UNKNOWN'
+    else:
+        status = 'COMPATIBLE'
+    return AmbientCompatibilityResult(status=status, checks=tuple(checks))
+
+
+class AmbientNoiseEvidenceRef(BaseModel):
+    """Typed ambient-noise lineage for measurement-quality evidence (#1025).
+
+    Carries the exact profile identity plus the compatibility verdict the
+    binding was produced under — and, only when COMPATIBLE, the derived
+    noise-floor / SNR figures a consumer may use instead of provenance-free
+    scalars.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    profile_id: str = Field(min_length=1)
+    profile_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    condition_id: str = Field(min_length=1)
+    level_semantics: AmbientLevelSemantics
+    compatibility: AmbientCompatibilityResult
+    # The declared spatial tolerance and absolute-level requirement the
+    # binding was checked under — pinned so authoritative reads can
+    # recompute the exact same verdict.
+    position_tolerance_m: float = Field(default=0.0, ge=0.0)
+    requires_absolute_spl: bool = False
+    noise_floor_db_spl: float | None = None
+    snr_db: float | None = None
+
+    @model_validator(mode='after')
+    def valid_ref(self) -> 'AmbientNoiseEvidenceRef':
+        for name, value in (
+            ('noise_floor_db_spl', self.noise_floor_db_spl),
+            ('snr_db', self.snr_db),
+        ):
+            if value is not None and not isfinite(float(value)):
+                raise ValueError(f'{name} must be finite')
+        if self.compatibility.status != 'COMPATIBLE' and (
+            self.noise_floor_db_spl is not None or self.snr_db is not None
+        ):
+            raise ValueError(
+                'derived ambient figures require COMPATIBLE evidence'
+            )
+        return self
+
+
+def bind_ambient_noise_evidence(
+    profile: AmbientNoiseProfile,
+    *,
+    operating_condition: AmbientOperatingCondition,
+    signal_level_db_spl: float | None = None,
+    requires_absolute_spl: bool = False,
+    **compatibility_kwargs: Any,
+) -> AmbientNoiseEvidenceRef:
+    """Bind ``profile`` to a measurement as typed quality evidence.
+
+    Compatibility is checked first (``check_ambient_measurement_compatibility``
+    kwargs). The operating condition the evidence was captured under is a
+    required input — it becomes the ref's pinned condition so a replay can
+    reproduce the exact verdict. Only a COMPATIBLE profile derives numbers:
+    the noise floor is its overall level and the SNR is
+    ``signal_level_db_spl`` minus that level through ``ambient_snr_db`` —
+    which itself refuses non-absolute profiles. INCOMPATIBLE/UNKNOWN
+    bindings carry no derived values.
+    """
+
+    compatibility = check_ambient_measurement_compatibility(
+        profile,
+        operating_condition=operating_condition,
+        requires_absolute_spl=requires_absolute_spl,
+        **compatibility_kwargs,
+    )
+    position_tolerance_m = float(
+        compatibility_kwargs.get('position_tolerance_m', 0.0)
+    )
+    noise_floor: float | None = None
+    snr: float | None = None
+    if compatibility.status == 'COMPATIBLE':
+        noise_floor = ambient_overall_level_db(profile)
+        if signal_level_db_spl is not None:
+            try:
+                snr = ambient_snr_db(profile, signal_level_db_spl)
+            except ValueError:
+                # Non-absolute or level-less profiles never fabricate SNR.
+                snr = None
+    return AmbientNoiseEvidenceRef(
+        profile_id=profile.profile_id,
+        profile_sha256=profile.profile_sha256,
+        condition_id=operating_condition.condition_id,
+        level_semantics=profile.level_semantics,
+        compatibility=compatibility,
+        position_tolerance_m=position_tolerance_m,
+        requires_absolute_spl=requires_absolute_spl,
+        noise_floor_db_spl=noise_floor,
+        snr_db=snr,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Repository
 
 
@@ -1012,6 +1331,16 @@ class CadAmbientNoiseRepository:
         condition = self.get_condition(profile.condition_id)
         if condition is None or condition.condition_sha256 != profile.condition_sha256:
             raise ValueError('ambient profile requires the exact persisted condition')
+        # #1025: absolute-SPL claims need a bound calibration authority —
+        # level_semantics is a declaration, never proof.
+        if (
+            profile.level_semantics == 'absolute_spl'
+            and profile.calibration_authority_id is None
+        ):
+            raise ValueError(
+                "absolute_spl ambient profiles require a bound "
+                'calibration_authority_id (#643 authority)'
+            )
         self._save_model(
             'cad_ambient_profiles',
             'profile_id',

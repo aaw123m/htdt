@@ -874,6 +874,19 @@ def _legacy_v1_screen_payload(screen: ScreenGeometryBinding) -> dict[str, Any]:
     return payload
 
 
+SeatGeometrySource = Literal['listener_pose', 'manual', 'legacy']
+"""Provenance of a seat binding's eye/head numbers (#1056):
+
+- ``listener_pose``: derived from a selected exact ``ListenerPoseAuthority``
+  — ``pose_ref`` carries its id+version+sha256 triple;
+- ``manual``: explicitly materialized user entry in the video workspace;
+- ``legacy``: a pre-existing row with no recorded authority (the default —
+  persisted payloads from before the marker existed decode to it). Legacy
+  eye/head geometry is never silently authoritative: eye/head-dependent
+  criteria evaluate UNKNOWN until the geometry is materialized explicitly.
+"""
+
+
 class SeatGeometryBinding(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -883,11 +896,42 @@ class SeatGeometryBinding(BaseModel):
     head_center_offset_local_m: Offset3
     head_radius_m: float = Field(gt=0)
     riser_entity_id: str | None = Field(default=None, min_length=1)
+    # #1056: which authority produced the eye/head offsets. Absent from
+    # pre-1056 persisted payloads -> 'legacy'.
+    geometry_source: SeatGeometrySource = 'legacy'
+    pose_ref: ExactExternalAuthorityRef | None = None
 
     @field_validator('head_radius_m')
     @classmethod
     def finite_radius(cls, value: float) -> float:
         return _finite(value)
+
+    @model_validator(mode='after')
+    def valid_geometry_source(self) -> 'SeatGeometryBinding':
+        if (self.pose_ref is not None) != (
+            self.geometry_source == 'listener_pose'
+        ):
+            raise ValueError(
+                'seat pose_ref is required iff geometry_source is '
+                "'listener_pose'"
+            )
+        return self
+
+
+def _seat_identity_payload(binding: SeatGeometryBinding) -> dict[str, Any]:
+    """Identity form of a seat binding (#1056).
+
+    Bindings serialized before the authority marker existed carry no
+    ``pose_ref``/``geometry_source`` keys — those payloads hash identically
+    to 'legacy' bindings, so they still revalidate under their stored
+    request hash.
+    """
+    payload = binding.model_dump(mode='json')
+    if payload.get('pose_ref') is None:
+        payload.pop('pose_ref', None)
+    if payload.get('geometry_source') == 'legacy':
+        payload.pop('geometry_source', None)
+    return payload
 
 
 class AngleRange(BaseModel):
@@ -1020,7 +1064,7 @@ class VideoGeometryRequest(BaseModel):
             'projector_specification_version': self.projector_specification_version,
             'projector_specification_sha256': self.projector_specification_sha256,
             'screen': _screen_identity_payload(self.screen),
-            'seats': [item.model_dump(mode='json') for item in self.seats],
+            'seats': [_seat_identity_payload(item) for item in self.seats],
             'policy': self.policy.model_dump(mode='json'),
             'collision_entity_ids': list(self.collision_entity_ids),
         }
@@ -1046,7 +1090,7 @@ def build_video_geometry_request(
         'projector_specification_sha256': projector_specification.specification_sha256,
         # The quarantined legacy flag never joins request identity (#541).
         'screen': _screen_identity_payload(screen),
-        'seats': [item.model_dump(mode='json') for item in ordered_seats],
+        'seats': [_seat_identity_payload(item) for item in ordered_seats],
         'policy': policy.model_dump(mode='json'),
         'collision_entity_ids': list(ordered_collision_ids),
     }
@@ -1112,13 +1156,39 @@ class SeatViewingResult(BaseModel):
 
     seat_entity_id: str = Field(min_length=1)
     row_id: str = Field(min_length=1)
-    eye_position: Position3
-    horizontal_viewing_angle_deg: float
-    vertical_viewing_angle_deg: float
-    center_elevation_angle_deg: float
+    # Eye position and the derived angles are absent (None) when the seat
+    # binding carries no eye/head authority (#1056): the criteria evaluate
+    # UNKNOWN rather than fabricating numbers from guessed geometry.
+    eye_position: Position3 | None
+    horizontal_viewing_angle_deg: float | None
+    vertical_viewing_angle_deg: float | None
+    center_elevation_angle_deg: float | None
     horizontal_status: EvaluationStatus
     vertical_status: EvaluationStatus
     center_elevation_status: EvaluationStatus
+
+    @model_validator(mode='after')
+    def valid_result(self) -> 'SeatViewingResult':
+        absent = self.eye_position is None
+        angles = (
+            self.horizontal_viewing_angle_deg,
+            self.vertical_viewing_angle_deg,
+            self.center_elevation_angle_deg,
+        )
+        if absent != all(value is None for value in angles):
+            raise ValueError(
+                'seat viewing angles and eye position are supplied together'
+            )
+        if absent and (
+            self.horizontal_status != 'UNKNOWN'
+            or self.vertical_status != 'UNKNOWN'
+            or self.center_elevation_status != 'UNKNOWN'
+        ):
+            raise ValueError(
+                'seat viewing criteria without eye/head authority must be '
+                'UNKNOWN'
+            )
+        return self
 
 
 class SeatSightlineResult(BaseModel):
@@ -1459,6 +1529,21 @@ def _viewing_result(
     height_m: float,
     policy: VideoGeometryPolicy,
 ) -> SeatViewingResult:
+    if binding.geometry_source == 'legacy':
+        # #1056: no eye/head authority was ever materialized for this seat —
+        # eye/head-dependent criteria stay UNKNOWN instead of reporting a
+        # fabricated PASS/FAIL.
+        return SeatViewingResult(
+            seat_entity_id=binding.entity_id,
+            row_id=binding.row_id,
+            eye_position=None,
+            horizontal_viewing_angle_deg=None,
+            vertical_viewing_angle_deg=None,
+            center_elevation_angle_deg=None,
+            horizontal_status='UNKNOWN',
+            vertical_status='UNKNOWN',
+            center_elevation_status='UNKNOWN',
+        )
     eye = _seat_eye(seat_entity, binding)
     left_middle = _add(center, _scale(right, -width_m * 0.5))
     right_middle = _add(center, _scale(right, width_m * 0.5))
@@ -1525,6 +1610,25 @@ def _sightline_results(
     }
     results: list[SeatSightlineResult] = []
     for viewer in bindings:
+        # #1056: a viewer without eye/head authority cannot prove clearance,
+        # and a legacy blocker cannot prove clearance FOR an authoritative
+        # viewer — both directions stay UNKNOWN.
+        unknown = viewer.geometry_source == 'legacy' or any(
+            blocker.entity_id != viewer.entity_id
+            and blocker.geometry_source == 'legacy'
+            for blocker in bindings
+        )
+        if unknown:
+            results.append(SeatSightlineResult(
+                seat_entity_id=viewer.entity_id,
+                row_id=viewer.row_id,
+                status='UNKNOWN',
+                blocking_seat_ids=(),
+                blocking_row_ids=(),
+                blocked_sample_ids=(),
+                minimum_head_ray_clearance_m=None,
+            ))
+            continue
         eye = eyes[viewer.entity_id]
         blocking_ids: set[str] = set()
         blocked_samples: set[str] = set()
