@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
-from math import isfinite
+from math import isfinite, sqrt
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -586,6 +586,17 @@ def _axis_gap(
     return best
 
 
+def _horizontal_projection(
+    direction3: tuple[float, float, float],
+) -> tuple[float, float] | None:
+    """Unit XY projection of a world direction, None when near-vertical."""
+    dx, dy = direction3[0], direction3[1]
+    norm = sqrt(dx * dx + dy * dy)
+    if norm <= 1e-6:
+        return None
+    return (dx / norm, dy / norm)
+
+
 def _axis_actual_clearance(
     axis: ClearanceAxis,
     entity: SceneEntity,
@@ -593,6 +604,15 @@ def _axis_actual_clearance(
     room_polygon: Polygon | None,
     document: SceneDocument,
 ) -> float | None:
+    """Floor-plan gap along a cabinet-local axis of the entity's orientation.
+
+    Front/rear/side/port clearances follow the cabinet: local +Y is the
+    authored cabinet front, local -Y the rear and ±X the sides
+    (:mod:`cad_orientation_display` shares the convention). Top/bottom stay
+    world-vertical — they measure floor/ceiling clearance, not cabinet faces.
+    A cabinet face that points near-vertical has no horizontal clearance
+    direction and stays unresolvable (``None``) rather than guessing a wall.
+    """
     if axis in ('top', 'bottom'):
         room = document.room
         if room is None or entity.size_m is None:
@@ -603,13 +623,34 @@ def _axis_actual_clearance(
         return entity.position.z_m - half
     if entity_polygon is None or room_polygon is None:
         return None
+    rotation = quaternion_to_matrix3(entity.orientation)
+    # Column 1 of the rotation matrix is the world direction of local +Y
+    # (cabinet front); column 0 is local +X (cabinet right side).
+    front_direction = _horizontal_projection(
+        (rotation[0][1], rotation[1][1], rotation[2][1])
+    )
+    right_direction = _horizontal_projection(
+        (rotation[0][0], rotation[1][0], rotation[2][0])
+    )
     if axis == 'front':
-        return _axis_gap(entity_polygon, room_polygon, (0.0, -1.0))
+        if front_direction is None:
+            return None
+        return _axis_gap(entity_polygon, room_polygon, front_direction)
     if axis == 'rear':
-        return _axis_gap(entity_polygon, room_polygon, (0.0, 1.0))
+        if front_direction is None:
+            return None
+        return _axis_gap(
+            entity_polygon, room_polygon, (-front_direction[0], -front_direction[1])
+        )
     if axis == 'side':
-        left = _axis_gap(entity_polygon, room_polygon, (-1.0, 0.0))
-        right = _axis_gap(entity_polygon, room_polygon, (1.0, 0.0))
+        if right_direction is None:
+            return None
+        left = _axis_gap(
+            entity_polygon,
+            room_polygon,
+            (-right_direction[0], -right_direction[1]),
+        )
+        right = _axis_gap(entity_polygon, room_polygon, right_direction)
         candidates = [gap for gap in (left, right) if gap is not None]
         return min(candidates) if candidates else None
     return None
