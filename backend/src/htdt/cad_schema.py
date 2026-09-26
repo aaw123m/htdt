@@ -18,7 +18,7 @@ from .content_blobs import CONTENT_BLOB_DDL
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 9
+NATIVE_SCHEMA_VERSION = 10
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1021,6 +1021,18 @@ def _migrate_8_to_9(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_9_to_10(connection: sqlite3.Connection) -> None:
+    # Install the audio/theater + video authority batch persistence tables
+    # (#817/#818): signal paths, lighting scenes, tactile definitions and
+    # processing profiles, usable-output profiles, photometric/screen-optical
+    # profiles, color target profiles and color measurement sets, each with
+    # its append-only selection/evidence companions. The idempotent baseline
+    # also converges v9 databases created before the bass-management and
+    # video-presentation tables joined the baseline.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 def require_native_tables(
     connection: sqlite3.Connection,
     *tables: str,
@@ -1052,6 +1064,7 @@ _MIGRATIONS = {
     7: _migrate_6_to_7,
     8: _migrate_7_to_8,
     9: _migrate_8_to_9,
+    10: _migrate_9_to_10,
 }
 
 
