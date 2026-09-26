@@ -58,6 +58,8 @@ DeviceKind = Literal[
     'projector',
     'media_source',
     'pdu',
+    'lighting_fixture',
+    'lighting_controller',
     'other',
 ]
 

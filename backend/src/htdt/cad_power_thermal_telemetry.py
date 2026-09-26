@@ -147,6 +147,10 @@ class OperatingPowerObservation(BaseModel):
     apparent_power_va: float | None = Field(default=None, ge=0.0)
     power_factor: float | None = Field(default=None, ge=0.0, le=1.0)
     energy_wh: float | None = Field(default=None, ge=0.0)
+    #: Battery evidence when the instrument (e.g. a UPS via NUT) reports
+    #: it — absent instruments keep ``None``.
+    battery_charge_pct: float | None = Field(default=None, ge=0.0, le=100.0)
+    battery_runtime_s: float | None = Field(default=None, ge=0.0)
     provenance: tuple[EquipmentDataProvenance, ...] = ()
 
     @model_validator(mode='after')
@@ -154,6 +158,7 @@ class OperatingPowerObservation(BaseModel):
         for name in (
             'interval_s', 'voltage_v', 'current_a', 'real_power_w',
             'apparent_power_va', 'power_factor', 'energy_wh',
+            'battery_charge_pct', 'battery_runtime_s',
         ):
             value = getattr(self, name)
             if value is not None:

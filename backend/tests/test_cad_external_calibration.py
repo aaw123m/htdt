@@ -139,9 +139,13 @@ def test_unknown_commands_surface_as_opaque() -> None:
         b'Convolution: ir.wav\nMute: 1\nGraphicEQ: 25 0; 40 3\n'
     )
     kinds = {section.kind for section in artifact.opaque_sections}
-    assert kinds == {'unsupported_command'}
+    # #1072: Convolution is a tracked external-file reference now;
+    # Mute/GraphicEQ remain unsupported commands — still surfaced.
+    assert kinds == {'external_file_reference', 'unsupported_command'}
     assert len(artifact.opaque_sections) == 3
     assert any('Convolution' in s.raw_text for s in artifact.opaque_sections)
+    assert artifact.file_dependencies[0].include_path == 'ir.wav'
+    assert not artifact.file_dependencies[0].resolved
 
 
 def test_unsupported_filter_type_is_opaque_not_dropped() -> None:

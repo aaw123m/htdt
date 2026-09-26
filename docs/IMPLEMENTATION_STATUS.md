@@ -101,6 +101,48 @@ Issue #142のsoftware UX slice。Issue #118の四つのglobal destinationを増�
 - **#619 ProjectDesignCheckpoint + ConstraintWorkspaceSnapshot** (`cad_design_checkpoint.py` + repository): scene_revision_id + content hash必須のimmutable manifest + mutable CadConstraintSetのsemantic snapshot。read時にcurrent/latestを解決しない。`diff_checkpoints`はcomponent別 unchanged/changed/added/removed、`restore_design_checkpoint`は新head SceneRevisionとして復元 (restore ≠ undo、履歴・as-built・measuredを書き換えない) + constraint workspaceの新generationを書き込み、partial restoreはapplied componentを列挙。
 - 検証: 新規53 backend test +既存test_overview_readiness/test_workflow系をscopedでPASS (`tests/test_cad_{design_comparison,design_checkpoint,operating_preset,system_health,project_activity,calibration_workflow}.py`)。GUI/hardware-gated項目 (native Measurements/Optimize page上の表示確認、実機apply) はuntested。
 
+## Issue #1057 / #1069 / #1072 / #1082 / #1083 / #1084 — adapter qualification batch — 2026-09-25
+
+Fixture-verified software slices only; every hardware/owned-device item
+stays an explicit gate (see the per-issue docs):
+
+- **#1057 Yamaha RX-A4A packet** (`htdt/cad_yamaha_rxa4a.py`): firmware
+  2.26-scoped #792 matrix rows (DOCUMENTED_ONLY at best, mirrored YXC
+  stays `experimental_undocumented`/`UNKNOWN`), firmware history with
+  `stale_after` markers, official-source inventory, backup semantics
+  (`MC_backup_*.dat` stored content-addressed unparsed), sanitized
+  fixtures and the consolidated hardware-session checklist.
+- **#1069 lighting** (`htdt/cad_hue_lighting.py`): `HueLocalAdapter` on
+  the #726 contract over Hue CLIP v2 — explicit `hue://` bindings,
+  credential by `credential_ref` only, bounded on/dimming/CCT/xy/scene
+  mutation with read-back verification; event-stream objects as evidence
+  records. `DeviceKind` gained `lighting_fixture`/`lighting_controller`.
+  Matter Scenes evaluated: controller track deferred (needs a Matter
+  controller stack), reuse seam documented.
+- **#1072 open DSP interop** (`htdt/cad_camilladsp.py` +
+  `cad_external_calibration.py`): CamillaDSP YAML/JSON →
+  `ImportedCalibrationArtifact` (Biquad/Gain/Delay/convolution refs,
+  mixers/processors opaque, `playback:N` channel labels, unmapped never
+  guessed); `CamillaDSPAdapter` live slice with Validate-before-Set and
+  canonical-config read-back. Equalizer APO importer gains tracked
+  `Convolution` file dependencies and conditional-block (`If`/`Else`/
+  `EndIf`) opaque blocking. New pinned dep `PyYAML==6.0.3` (lazy import).
+- **#1082 PJLink** (`htdt/cad_pjlink.py`): `PJLinkDeviceAdapter` (JBMIA
+  Class 2 v2.10 profile) — per-command probing, exact ERR1–ERR4/ERRA
+  categories, transitional power states preserved, Class-2 notifications
+  as raw+normalized event records, documented MD5 auth path only.
+- **#1083 NUT telemetry** (`htdt/cad_nut_adapter.py`): read-only RFC 9271
+  client producing #1049 `OperatingPowerObservation`/`PowerEventObservation`
+  evidence (ups/pdu_branch subject kinds, ups_reported/pdu_reported
+  instrument source, battery charge/runtime fields, raw dump pinned).
+- **#1084 CEC observation** (`htdt/cad_cec_adapter.py`): bounded bus-frame
+  normalization to `CECEventRecord` evidence (raw + normalized, unknown
+  opcodes retained) — observe-only seam, libCEC kept out-of-process.
+
+Real-device verification (projector, UPS, CEC dongle, Hue bridge,
+CamillaDSP process, owned RX-A4A) is the remaining hardware gate for
+each issue — nothing above asserts live-device support.
+
 ## Issue #453 / #507 / #512 / #520 / #555 / #594 / #600 / #602 — installation/authority batch — 2026-09-24
 
 インストール・エクスポート・証拠管理系8 Issueのbackend software authorityを一括実装した。いずれも既存のimmutable authority + sha256 pin + append-only repository conventionに従う。
