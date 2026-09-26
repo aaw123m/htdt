@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from htdt.cad_constraint_models import CadConstraintSet
 from htdt.cad_model_validation_repository import CadModelValidationRepository
 from htdt.cad_model_validation_service import (
@@ -407,3 +409,156 @@ def test_service_built_record_persists_and_reopens_unchanged(tmp_path):
 
     assert repository.get(record.validation_id) == record
     assert repository.list_for_search_spec(spec.search_spec_id) == (record,)
+
+
+def test_excluded_measurement_cannot_feed_validation_build(tmp_path):
+    """#839: dispositioned evidence must fail closed in O60 validation builds.
+
+    Uses the real measurement + disposition repositories: before the fix,
+    ``build()`` resolved the bare immutable record and an
+    ``excluded_from_normal_use`` measurement silently fed the validation
+    record.
+    """
+    scene_repo = SceneRepository(tmp_path / 'cad.sqlite3')
+    document = SceneDocument(
+        document_id='o60-service-excluded',
+        schema_version=2,
+        room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+        entities=(
+            SceneEntity(
+                entity_id='fl',
+                kind='speaker',
+                name='FL',
+                speaker_role='FL',
+                position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
+                size_m=Size3(x_m=0.2, y_m=0.2, z_m=0.4),
+            ),
+            SceneEntity(
+                entity_id='mlp',
+                kind='measurement_point',
+                name='MLP',
+                position=Position3(x_m=3.0, y_m=2.0, z_m=1.1),
+            ),
+        ),
+    )
+    revision = scene_repo.save(document, parent_revision_id=None).revision
+    spec, _ = build_cad_search_spec(
+        revision,
+        CadConstraintSet(document_id=document.document_id, constraints=()),
+        (CadSearchAxis(entity_id='fl', axis='x', min_m=1.0, max_m=1.4, step_m=0.2),),
+        candidate_limit=10,
+    )
+    search_repo = CadSearchRepository(scene_repo)
+    search_repo.save(spec)
+    page = generate_cad_candidates(scene_repo, spec, limit=10)
+    candidates = page.candidates[:2]
+    candidate_ids = tuple(candidate.candidate_id for candidate in candidates)
+
+    from htdt.cad_measurement_disposition import build_measurement_disposition
+    from htdt.cad_measurement_models import CadFrequencyResponseDataset
+    from htdt.cad_measurement_quality_repository import (
+        CadMeasurementQualityRepository,
+    )
+    from htdt.cad_measurement_repository import CadMeasurementRepository
+    from htdt.cad_measurements import (
+        HTDT_DECLARED_IMPORTER_VERSION,
+        canonical_json,
+        declared_fr_raw,
+        measurement_record_for_revision,
+    )
+    from hashlib import sha256
+
+    measurements = CadMeasurementRepository(scene_repo)
+    quality = CadMeasurementQualityRepository(measurements)
+    for index, candidate_id in enumerate(candidate_ids):
+        measurement_id = f'meas:{candidate_id}'
+        declared_raw = declared_fr_raw(
+            frequency_hz=(20.0, 40.0, 80.0, 160.0),
+            level_db=(80.0 + index, 81.0 + index, 79.0 + index, 80.0 + index),
+            phase_status='absent',
+            processing={'fixture': measurement_id},
+        )
+        record = measurement_record_for_revision(
+            revision,
+            'mlp',
+            measurement_id=measurement_id,
+            evidence_type='measured',
+            channel_role='front_left',
+            source_speaker_ids=('fl',),
+            routing_evidence='verified',
+            captured_at=f'2030-01-0{index + 1}T00:00:00+00:00',
+            imported_at=f'2030-01-0{index + 1}T00:00:10+00:00',
+            source_kind='unknown',
+            external_source_id=f'rew-{measurement_id}',
+            provenance={
+                'routing_profile': {
+                    'routing_profile_id': 'profile:fixture',
+                    'routing_profile_sha256': 'ab' * 32,
+                },
+            },
+        )
+        dataset = CadFrequencyResponseDataset(
+            dataset_id=f'dataset:{measurement_id}',
+            measurement_id=measurement_id,
+            frequency_hz=(20.0, 40.0, 80.0, 160.0),
+            level_db=(80.0 + index, 81.0 + index, 79.0 + index, 80.0 + index),
+            phase_status='absent',
+            processing_json=canonical_json({'fixture': measurement_id}),
+            source_sha256=sha256(declared_raw).hexdigest(),
+            importer_version=HTDT_DECLARED_IMPORTER_VERSION,
+        )
+        measurements.save(
+            record,
+            dataset,
+            raw_filename=f'{measurement_id}.json',
+            raw_bytes=declared_raw,
+        )
+
+    excluded_id = f'meas:{candidate_ids[0]}'
+    quality.save_disposition(
+        build_measurement_disposition(
+            document_id=document.document_id,
+            measurement_id=excluded_id,
+            disposition='excluded_from_normal_use',
+            reason='test-sweep residue',
+        )
+    )
+
+    roomsim = _RoomSim(scene_repo.path, candidates, spec, page.candidate_set_sha256)
+    objectives = _Objectives(
+        scene_repo.path,
+        candidate_ids,
+        document.document_id,
+        spec,
+    )
+    service = CadModelValidationService(search_repo, roomsim, measurements, objectives)
+
+    build_spec = CadModelValidationBuildSpec(
+        search_spec_id=spec.search_spec_id,
+        candidate_set_sha256=page.candidate_set_sha256,
+        model_id='rew-roomsim',
+        model_version='fixture-1',
+        evidence_scope='synthetic_fixture',
+        low_hz=20.0,
+        high_hz=160.0,
+        max_holdout_rms_db=1.0,
+        candidates=tuple(
+            CadValidationCandidateBinding(
+                candidate_id=candidate_id,
+                split='calibration' if index == 0 else 'holdout',
+                prediction_attempt_id=f'pred:{candidate_id}',
+                measurement_id=f'meas:{candidate_id}',
+                objectives=(
+                    CadValidationObjectiveBinding(
+                        objective_id='response.shape_rms_db',
+                        predicted_evaluation_id=f'pred-eval:{candidate_id}',
+                        measured_evaluation_id=f'meas-eval:{candidate_id}',
+                    ),
+                ),
+            )
+            for index, candidate_id in enumerate(candidate_ids)
+        ),
+    )
+
+    with pytest.raises(ValueError, match='excluded_from_normal_use'):
+        service.build(build_spec)

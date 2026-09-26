@@ -128,6 +128,7 @@ MeasurementWorkflowState = Literal[
     "evidence_incomplete",
     "measured",
     "validation_pending",
+    "validated",
 ]
 
 
@@ -600,6 +601,79 @@ class SystemExpansionWorkflowService:
             return None
         return SystemVariantMeasurementCampaignCompletion.model_validate_json(rows[0])
 
+    def _o60_validates(
+        self,
+        variant: SystemVariant,
+        measured: SystemVariantMeasuredRecord,
+    ) -> bool:
+        """An eligible owned-room O60 record bound to the exact as-built scene."""
+        for row in self._payload_rows(
+            "cad_model_validations",
+            where="document_id=?",
+            args=(variant.document_id,),
+        ):
+            record = json.loads(row)
+            if (
+                record.get("evidence_scope") != "owned_room"
+                or record.get("recommendation_gate") != "eligible"
+            ):
+                continue
+            for spec_row in self._payload_rows(
+                "cad_search_specs",
+                where="search_spec_id=?",
+                args=(str(record.get("search_spec_id") or ""),),
+            ):
+                spec = json.loads(spec_row)
+                if (
+                    spec.get("search_spec_sha256")
+                    == record.get("search_spec_sha256")
+                    and spec.get("scene_revision_id")
+                    == measured.as_built_revision_id
+                    and spec.get("scene_content_hash")
+                    == measured.as_built_content_hash
+                ):
+                    return True
+        return False
+
+    def _r180_validates(self, variant: SystemVariant) -> bool:
+        """A terminal R180 'validated' event pinned to this exact variant."""
+        for row in self._payload_rows(
+            "cad_calibration_lifecycle_events",
+            where="state=?",
+            args=("validated",),
+        ):
+            event = json.loads(row)
+            plan_id = event.get("calibration_plan_id")
+            plan_sha = event.get("calibration_plan_semantic_sha256")
+            if not plan_id or not plan_sha:
+                continue
+            for plan_row in self._payload_rows(
+                "cad_calibration_plans",
+                where="plan_id=?",
+                args=(str(plan_id),),
+            ):
+                plan = json.loads(plan_row)
+                if (
+                    plan.get("plan_semantic_sha256") == plan_sha
+                    and plan.get("document_id") == variant.document_id
+                    and plan.get("system_variant_id") == variant.variant_id
+                    and plan.get("system_variant_sha256")
+                    == variant.variant_sha256
+                ):
+                    return True
+        return False
+
+    def _measured_validated(
+        self,
+        variant: SystemVariant,
+        measured: SystemVariantMeasuredRecord,
+    ) -> bool:
+        """Whether canonical O60 or R180 authority validates this measured
+        variant (#812): a completed measurement campaign alone never does."""
+        return self._o60_validates(variant, measured) or self._r180_validates(
+            variant
+        )
+
     def lifecycle(self, variant_id: str) -> LifecyclePresentation:
         variant = self.variant(variant_id)
         application = self._application(variant_id)
@@ -623,16 +697,22 @@ class SystemExpansionWorkflowService:
                 applied_revision_id=applied_revision_id,
             )
         campaigns = self._campaigns(variant_id)
-        measured_ids = {item.record_id for item in self._measured_records(variant_id)}
-        completed = any(
-            (completion := self._campaign_completion(campaign.campaign_id)) is not None
-            and completion.measured_record_id in measured_ids
-            for campaign in campaigns
+        measured_records = self._measured_records(variant_id)
+        measured_by_id = {item.record_id: item for item in measured_records}
+        completed_record = next(
+            (
+                measured_by_id[completion.measured_record_id]
+                for campaign in campaigns
+                if (completion := self._campaign_completion(campaign.campaign_id))
+                is not None
+                and completion.measured_record_id in measured_by_id
+            ),
+            None,
         )
-        if completed:
+        if completed_record is not None:
             return lifecycle_presentation(
                 "measured",
-                validated=False,
+                validated=self._measured_validated(variant, completed_record),
                 application_exists=True,
                 applied_revision_id=applied_revision_id,
             )
@@ -643,7 +723,7 @@ class SystemExpansionWorkflowService:
         )
 
     def measurement(self, variant_id: str) -> MeasurementPresentation:
-        self.variant(variant_id)
+        variant = self.variant(variant_id)
         as_built = self._as_built(variant_id)
         plans = self._plans(variant_id)
         campaigns = self._campaigns(variant_id)
@@ -719,6 +799,16 @@ class SystemExpansionWorkflowService:
                 False,
                 False,
                 "検証保留",
+            )
+        if self._measured_validated(variant, measured[completion.measured_record_id]):
+            return MeasurementPresentation(
+                variant_id,
+                "validated",
+                "実測済み・検証済み",
+                "O60/R180 validation authority resolves this measured SystemVariant as validated.",
+                True,
+                True,
+                "検証済み",
             )
         return MeasurementPresentation(
             variant_id,

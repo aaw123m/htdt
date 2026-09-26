@@ -13,6 +13,7 @@ from .cad_applicability import (
     evaluate_applicability,
     resolve_applicability_context,
 )
+from .cad_measurement_effective import CadEffectiveMeasurementResolver
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation import CadModelValidationRecord, EvidenceScope, build_full_model_validation
 from .cad_objective_repository import CadObjectiveRepository
@@ -204,8 +205,15 @@ class CadModelValidationService:
         self.applicability_attestations = CadApplicabilityAttestationRepository(
             Path(search_repository.path)
         )
+        # Lifecycle gate (#509/#839): excluded/misassigned/test-only/duplicate
+        # evidence can never feed a validation record, whichever caller path
+        # resolves it — not only the campaign-gated one.
+        self._effective = CadEffectiveMeasurementResolver(measurement_repository)
 
     def _measurement_response(self, measurement_id: str) -> FrequencyResponse:
+        self._effective.require_normal_use(
+            measurement_id, purpose='O60 model validation evidence'
+        )
         dataset = self.measurement_repository.dataset_for_measurement(measurement_id)
         if dataset is None:
             raise ValueError(f'validation measurement has no frequency response: {measurement_id}')
@@ -411,11 +419,11 @@ class CadModelValidationService:
         repeatability_checks = []
         for repeat_spec in build_spec.repeatability:
             records = [
-                self.measurement_repository.get_measurement(measurement_id)
+                self._effective.require_normal_use(
+                    measurement_id, purpose='O60 model validation evidence'
+                ).measurement
                 for measurement_id in repeat_spec.measurement_ids
             ]
-            if any(record is None for record in records):
-                raise ValueError('repeatability measurement does not exist')
             revision_ids = {record.scene_revision_id for record in records if record is not None}
             if len(revision_ids) != 1:
                 raise ValueError('repeatability measurements must share one SceneRevision')
