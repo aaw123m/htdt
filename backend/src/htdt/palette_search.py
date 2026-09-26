@@ -498,6 +498,22 @@ def _with_group(item: PaletteResult, group: str) -> PaletteResult:
 def settings_destinations() -> tuple[_StaticDestination, ...]:
     return (
         _StaticDestination(
+            "settings.preferences",
+            "環境設定",
+            "設定 · 環境設定",
+            (
+                "設定",
+                "環境設定",
+                "preferences",
+                "一般",
+                "表示",
+                "言語",
+                "language",
+                "テーマ",
+            ),
+            "settings",
+        ),
+        _StaticDestination(
             "settings.data",
             "データとバックアップの設定",
             "設定 · データ管理",

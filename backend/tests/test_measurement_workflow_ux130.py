@@ -774,7 +774,7 @@ def test_measurement_workspace_is_page_based_and_shell_mountable(tmp_path: Path)
     workspace = mount.widget
     assert isinstance(workspace, MeasurementPageWorkspace)
     assert workspace.parent() is None
-    assert workspace.pages.count() == 5
+    assert workspace.pages.count() == 6
     assert workspace.findChildren(QDockWidget) == []
 
     assert mount.on_context_changed is not None

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -68,23 +69,48 @@ class OverviewWorkspace(QWidget):
         set_typography_role(self.summary, TypographyRole.BODY)
         layout.addWidget(self.summary)
 
-        self.variant_host = QWidget(self)
+        # The lifecycle/readiness cards live inside a scroll area so the
+        # primary action stays reachable at constrained heights / high DPI
+        # (#1086): title, summary and the next-step button are pinned outside
+        # the scroll region instead of being pushed off-screen by tall cards.
+        self.cards_scroll = QScrollArea(self)
+        self.cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.cards_scroll.setWidgetResizable(True)
+        set_surface_role(self.cards_scroll, SurfaceRole.BASE)
+        cards_host = QWidget()
+        set_surface_role(cards_host, SurfaceRole.BASE)
+        cards_layout = QVBoxLayout(cards_host)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+        cards_layout.setSpacing(16)
+
+        self.variant_host = QWidget(cards_host)
         self.variant_layout = QVBoxLayout(self.variant_host)
         self.variant_layout.setContentsMargins(0, 0, 0, 0)
         self.variant_layout.setSpacing(8)
-        layout.addWidget(self.variant_host)
+        cards_layout.addWidget(self.variant_host)
 
-        self.notice_host = QWidget(self)
+        # Result Trust lines (#740): compact_text projections of the latest
+        # prediction/measurement/validation evidence, inside the same scroll
+        # region so they never push the primary action off-screen.
+        self.trust_host = QWidget(cards_host)
+        self.trust_layout = QVBoxLayout(self.trust_host)
+        self.trust_layout.setContentsMargins(0, 0, 0, 0)
+        self.trust_layout.setSpacing(8)
+        cards_layout.addWidget(self.trust_host)
+
+        self.notice_host = QWidget(cards_host)
         self.notice_layout = QVBoxLayout(self.notice_host)
         self.notice_layout.setContentsMargins(0, 0, 0, 0)
         self.notice_layout.setSpacing(8)
-        layout.addWidget(self.notice_host)
+        cards_layout.addWidget(self.notice_host)
+        cards_layout.addStretch(1)
+        self.cards_scroll.setWidget(cards_host)
+        layout.addWidget(self.cards_scroll, 1)
 
         self.next_button = QPushButton()
         set_primary_action(self.next_button)
         self.next_button.clicked.connect(self._run_next_action)
         layout.addWidget(self.next_button)
-        layout.addStretch(1)
 
         self._next_action: OverviewAction | None = None
         self.refresh()
@@ -96,6 +122,16 @@ class OverviewWorkspace(QWidget):
 
         for state in view.variant_states:
             self._add_variant_state(state)
+
+        if getattr(view, 'trust_lines', ()):
+            header = QLabel("\u4fe1\u983c\u6027", self.trust_host)
+            set_typography_role(header, TypographyRole.SECTION_TITLE)
+            self.trust_layout.addWidget(header)
+            for line in view.trust_lines:
+                label = QLabel(line, self.trust_host)
+                label.setWordWrap(True)
+                set_typography_role(label, TypographyRole.SECONDARY)
+                self.trust_layout.addWidget(label)
 
         # Notices are grouped by lifecycle area so a room blocker and a
         # measurement warning each sit under their own domain header (#443).
@@ -188,7 +224,7 @@ class OverviewWorkspace(QWidget):
         self.variant_layout.addWidget(card)
 
     def _clear_notices(self) -> None:
-        for host in (self.notice_layout, self.variant_layout):
+        for host in (self.notice_layout, self.variant_layout, self.trust_layout):
             while host.count():
                 item = host.takeAt(0)
                 widget = item.widget()

@@ -78,6 +78,7 @@ from .data_management import (
     DataManagementBackend,
     DataManagementController,
 )
+from .application_preferences import ApplicationPreferenceStore
 from .data_management_ui import build_data_management_component
 from .equipment_catalog_export import export_equipment_catalog_snapshot
 from .equipment_library import EquipmentLibraryDialog, EquipmentLibraryService
@@ -136,7 +137,7 @@ from .workflow_navigation import (
     WorkspaceDeepLink,
     WorkspaceId,
 )
-from .workflow_settings import DataManagementDialog
+from .workflow_settings import DataManagementDialog, PreferencesWidget
 from .workflow_shell import (
     TargetFocusResult,
     WorkflowShellWindow,
@@ -254,12 +255,18 @@ class WorkflowApplicationComposition:
         project_library: ProjectLibraryRepository | None = None,
         open_project: Callable[[str], None] | None = None,
         capture_receiver: CaptureReceiverController | None = None,
+        preferences: ApplicationPreferenceStore | None = None,
     ) -> None:
         self.repository = repository
         self.repository_path = Path(repository.path)
         self.data_dir = self.repository_path.parent
         self.document_id = document_id
         self.capture_receiver = capture_receiver
+        # ApplicationPreferences are app-local truth shared with every
+        # integration that reads them — one store per data root (#740).
+        self.preferences = preferences or ApplicationPreferenceStore.for_data_dir(
+            self.data_dir
+        )
         self.project_library = project_library or ProjectLibraryRepository(
             repository
         )
@@ -324,10 +331,14 @@ class WorkflowApplicationComposition:
             if capture_receiver is not None
             else None
         )
+        preferences_panel = PreferencesWidget(
+            self.preferences, parent=self.shell
+        )
         self.settings_dialog = DataManagementDialog(
             self.data_management_component,
             self.shell,
             capture_panel=capture_panel,
+            preferences_panel=preferences_panel,
         )
         if capture_receiver is not None:
             capture_receiver.delivery_staged.connect(
@@ -866,6 +877,9 @@ class WorkflowApplicationComposition:
         )
 
     def _open_settings_destination(self, destination_id: str) -> bool:
+        if destination_id == 'settings.preferences':
+            self.settings_dialog.open_preferences()
+            return True
         if destination_id == 'settings.capture':
             if self.capture_receiver is None:
                 return False
@@ -2256,6 +2270,7 @@ def build_workflow_application(
     project_library: ProjectLibraryRepository | None = None,
     open_project: Callable[[str], None] | None = None,
     capture_receiver: CaptureReceiverController | None = None,
+    preferences: ApplicationPreferenceStore | None = None,
 ) -> WorkflowShellWindow:
     composition = WorkflowApplicationComposition(
         repository,
@@ -2263,6 +2278,7 @@ def build_workflow_application(
         project_library=project_library,
         open_project=open_project,
         capture_receiver=capture_receiver,
+        preferences=preferences,
     )
     return composition.shell
 

@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TypeAlias
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -359,7 +360,10 @@ class WorkspaceRouter(QStackedWidget):
 
 class WorkflowRail(QFrame):
     EXPANDED_WIDTH = 184
-    COMPACT_WIDTH = 112
+    # Compact is a real mode (#782/#788): 72 px icon-led rail where each
+    # destination shows a single glyph and the full label moves to a tooltip —
+    # not just a narrower text rail.
+    COMPACT_WIDTH = 72
 
     def __init__(
         self,
@@ -376,17 +380,37 @@ class WorkflowRail(QFrame):
         self._compact = False
 
         self._buttons: dict[DestinationId, QPushButton] = {}
+        self._labels: dict[DestinationId, str] = {}
+        self._section_headers: list[QLabel] = []
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
 
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(12, 16, 12, 16)
-        self._layout.setSpacing(6)
+        self._outer_layout = QVBoxLayout(self)
+        self._outer_layout.setContentsMargins(12, 16, 12, 16)
+        self._outer_layout.setSpacing(6)
 
         self._brand = QLabel("HTDT")
         set_typography_role(self._brand, TypographyRole.WORKSPACE_TITLE)
-        self._layout.addWidget(self._brand)
-        self._layout.addSpacing(12)
+        self._outer_layout.addWidget(self._brand)
+        self._outer_layout.addSpacing(12)
+
+        # The destination column scrolls instead of clipping when the rail is
+        # shorter than its content (constrained heights / 200% DPI, #788).
+        self._scroll = QScrollArea(self)
+        self._scroll.setObjectName("workflowRailScroll")
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        scroll_host = QWidget()
+        set_surface_role(scroll_host, SurfaceRole.RAISED)
+        self._layout = QVBoxLayout(scroll_host)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(6)
 
         last_scope: NavigationScope | None = None
         for registration in registrations:
@@ -399,6 +423,7 @@ class WorkflowRail(QFrame):
                 header.setObjectName("workflowRailSectionHeader")
                 set_typography_role(header, TypographyRole.SECONDARY)
                 self._layout.addWidget(header)
+                self._section_headers.append(header)
                 last_scope = registration.scope
             button = QPushButton(registration.label)
             button.setCheckable(True)
@@ -409,20 +434,24 @@ class WorkflowRail(QFrame):
             )
             self._group.addButton(button)
             self._buttons[registration.workspace_id] = button
+            self._labels[registration.workspace_id] = registration.label
             self._layout.addWidget(button)
 
         self._layout.addStretch(1)
+        self._scroll.setWidget(scroll_host)
+        self._outer_layout.addWidget(self._scroll, 1)
 
         self.settings_button = QPushButton("設定")
         self.settings_button.setObjectName("workflowSettingsButton")
         set_control_size(self.settings_button, ControlSize.STANDARD)
         if on_settings is not None:
             self.settings_button.clicked.connect(lambda checked=False: on_settings())
-        self._layout.addWidget(self.settings_button)
+        self._outer_layout.addWidget(self.settings_button)
 
     @property
     def labels(self) -> tuple[str, ...]:
-        return tuple(button.text() for button in self._buttons.values())
+        """Full destination labels — compact mode swaps glyphs, not labels."""
+        return tuple(self._labels.values())
 
     @property
     def is_compact(self) -> bool:
@@ -435,9 +464,18 @@ class WorkflowRail(QFrame):
         self._compact = compact
         self.setFixedWidth(self.COMPACT_WIDTH if compact else self.EXPANDED_WIDTH)
         self._brand.setVisible(not compact)
-        margin_x = 8 if compact else 12
+        for header in self._section_headers:
+            header.setVisible(not compact)
+        for workspace_id, button in self._buttons.items():
+            label = self._labels[workspace_id]
+            button.setText(label[:1] if compact else label)
+            button.setToolTip(label if compact else "")
+        self.settings_button.setText("設" if compact else "設定")
+        self.settings_button.setToolTip("設定" if compact else "")
+        margin_x = 6 if compact else 12
         margin_y = 10 if compact else 16
-        self._layout.setContentsMargins(margin_x, margin_y, margin_x, margin_y)
+        self._outer_layout.setContentsMargins(margin_x, margin_y, margin_x, margin_y)
+        self._outer_layout.setSpacing(4 if compact else 6)
         self._layout.setSpacing(4 if compact else 6)
 
     def set_active(self, workspace_id: DestinationId | str) -> None:
@@ -469,8 +507,21 @@ class TopContextBar(QFrame):
         self._context_layout = QHBoxLayout(self._context_container)
         self._context_layout.setContentsMargins(0, 0, 0, 0)
         self._context_layout.setSpacing(4)
-        self._layout.addWidget(self._context_container)
-        self._layout.addStretch(1)
+        # Keep the buttons at their natural width inside a horizontal scroll
+        # area (#1087): the container fills the bar when it fits and the
+        # overflow scrolls instead of compressing buttons into slivers.
+        self._context_scroll = QScrollArea(self)
+        self._context_scroll.setObjectName("workflowContextScroll")
+        self._context_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._context_scroll.setWidgetResizable(True)
+        self._context_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._context_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._context_scroll.setWidget(self._context_container)
+        self._layout.addWidget(self._context_scroll, 1)
 
         self._project_label = QLabel()
         self._project_label.setObjectName("workflowProjectChip")
@@ -505,6 +556,7 @@ class TopContextBar(QFrame):
         )
         self._layout.setSpacing(4 if compact else 8)
         self._context_layout.setSpacing(2 if compact else 4)
+        self._update_context_min_width()
 
     def set_workspace(self, registration: WorkspaceRegistration, selected_context_id: str | None) -> None:
         self._title.setText(registration.label)
@@ -529,6 +581,7 @@ class TopContextBar(QFrame):
 
         if selected_context_id is not None and selected_context_id in self._context_buttons:
             self._context_buttons[selected_context_id].setChecked(True)
+        self._update_context_min_width()
 
     def set_active_context(self, context_id: str) -> None:
         button = self._context_buttons.get(context_id)
@@ -566,6 +619,14 @@ class TopContextBar(QFrame):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
+        self._context_container.setMinimumWidth(0)
+
+    def _update_context_min_width(self) -> None:
+        # minimumWidth pins the container at its natural width so the scroll
+        # area shows a horizontal scrollbar only when the buttons overflow.
+        self._context_container.setMinimumWidth(
+            self._context_layout.sizeHint().width()
+        )
 
 
 class WorkflowShellWindow(QMainWindow):

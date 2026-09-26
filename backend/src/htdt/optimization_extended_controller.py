@@ -78,6 +78,10 @@ from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
 from .native_worker import WORKER_CANCELLED
+from .optimization_search_controller import (
+    CandidateTreeItem,
+    _candidate_matches_filter,
+)
 
 
 class ExtendedSearchControllerMixin:
@@ -795,10 +799,21 @@ class ExtendedSearchControllerMixin:
 
         self.extended_candidate_page = result
         self.extended_preview_candidate_id = None
+        # Selection continuity (#1088): keep the current candidate selected
+        # when it is still on the freshly generated page.
+        previous_id = self.extended_selected_candidate_id
         self.extended_selected_candidate_id = (
-            result.candidates[0].candidate_id
-            if result.candidates
-            else None
+            previous_id
+            if previous_id is not None
+            and any(
+                candidate.candidate_id == previous_id
+                for candidate in result.candidates
+            )
+            else (
+                result.candidates[0].candidate_id
+                if result.candidates
+                else None
+            )
         )
         self._refresh_extended_candidate_tree()
         self._refresh_extended_binding_state()
@@ -825,6 +840,7 @@ class ExtendedSearchControllerMixin:
         with QSignalBlocker(tree):
             tree.clear()
             if page is None:
+                self._apply_extended_candidate_filter()
                 return
             for candidate in page.candidates:
                 position_text = ' · '.join(
@@ -845,7 +861,7 @@ class ExtendedSearchControllerMixin:
                     for entity_id, yaw
                     in sorted(candidate.body_yaw_deg.items())
                 )
-                item = QTreeWidgetItem([
+                item = CandidateTreeItem([
                     candidate.candidate_id[:14],
                     candidate.base_candidate_id[:12],
                     position_text,
@@ -858,6 +874,22 @@ class ExtendedSearchControllerMixin:
                     selected_item = item
             if selected_item is not None:
                 tree.setCurrentItem(selected_item)
+            self._apply_extended_candidate_filter()
+
+    def _apply_extended_candidate_filter(self, _text: str = '') -> None:
+        """Hide extended rows not matching the filter text (#1088)."""
+        tree = self.extended_candidate_tree
+        if tree is None:
+            return
+        field = getattr(self, 'extended_candidate_filter_field', None)
+        needle = (
+            field.text().strip().casefold() if field is not None else ''
+        )
+        with QSignalBlocker(tree):
+            for index in range(tree.topLevelItemCount()):
+                item = tree.topLevelItem(index)
+                item.setHidden(not _candidate_matches_filter(item, needle))
+        self._refresh_extended_binding_state()
 
     def _extended_candidate_selected(self) -> None:
         tree = self.extended_candidate_tree

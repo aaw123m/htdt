@@ -82,6 +82,7 @@ def build_workflow_shell(
     document_id: str,
     project_library: ProjectLibraryRepository | None = None,
     capture_receiver: 'CaptureReceiverController | None' = None,
+    preferences: 'ApplicationPreferenceStore | None' = None,
 ) -> WorkflowShellWindow:
     """Build the integrated workflow application while preserving the public API."""
 
@@ -90,6 +91,7 @@ def build_workflow_shell(
         document_id,
         project_library=project_library,
         capture_receiver=capture_receiver,
+        preferences=preferences,
     )
 
 
@@ -494,6 +496,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # by the data root — the workflow shell composes it and the app exit
         # stops it. The legacy fallback window deliberately runs without it.
         capture_receiver = None
+        preferences = None
         if not args.legacy_ui:
             try:
                 from .application_preferences import ApplicationPreferenceStore
@@ -520,6 +523,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 project_entry.document_id,
                 project_library,
                 capture_receiver=capture_receiver,
+                preferences=preferences,
             )
         )
         window.show()
