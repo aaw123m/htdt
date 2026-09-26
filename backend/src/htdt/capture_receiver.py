@@ -95,6 +95,16 @@ DELIVERABLE_KINDS = ('capture_bundle', 'field_return')
 # file-import path enforces, applied to the wire.
 RECEIVER_MAX_ARCHIVE_BYTES = MAX_CAPTURE_INGEST_SOURCE_BYTES
 
+# Mission receipts are small JSON verdicts; they do not share the archive
+# ceiling.
+RECEIVER_MAX_RECEIPT_BYTES = 1024 * 1024
+
+# Per-operation socket timeout for request handler connections. Threading
+# accept is unbounded per connection, so an idle or trickling client must
+# not hold a handler thread open forever; each blocking socket operation
+# gets this window, which no honest upload ever trips.
+RECEIVER_SOCKET_TIMEOUT_SECONDS = 30.0
+
 MISSION_PACKAGE_MAX_BYTES = 16 * 1024 * 1024
 MISSION_LISTING_MAX_BYTES = 256 * 1024
 
@@ -629,21 +639,31 @@ class CaptureReceiverService:
         delivery_id = lowered.get('x-htdt-delivery-id')
 
         def reject(detail: str, status: int = 400) -> tuple[int, dict]:
-            self._record_delivery(
-                pairing=pairing,
-                delivery_id=delivery_id,
-                artifact_kind=artifact_kind,
-                artifact_id=artifact_id,
-                artifact_digest=artifact_digest,
-                capture_revision_id=capture_revision_id,
-                bundle_digest=bundle_digest,
-                archive_sha256=declared_sha or _sha256_text(body),
-                archive_bytes=len(body),
-                outcome='rejected',
-                staging_ref=None,
-                lineage_digest=None,
-                detail=detail,
-            )
+            try:
+                self._record_delivery(
+                    pairing=pairing,
+                    delivery_id=delivery_id,
+                    artifact_kind=artifact_kind,
+                    artifact_id=artifact_id,
+                    artifact_digest=artifact_digest,
+                    capture_revision_id=capture_revision_id,
+                    bundle_digest=bundle_digest,
+                    archive_sha256=declared_sha or _sha256_text(body),
+                    archive_bytes=len(body),
+                    outcome='rejected',
+                    staging_ref=None,
+                    lineage_digest=None,
+                    detail=detail,
+                )
+            except CaptureReceiverError as exc:
+                # delivery id replayed with different bytes: report the
+                # conflict instead of dropping the connection unanswered.
+                return 409, {
+                    'ingestion_outcome': 'rejected',
+                    'artifact_kind': artifact_kind,
+                    'artifact_id': artifact_id,
+                    'detail': str(exc),
+                }
             return status, {
                 'ingestion_outcome': 'rejected',
                 'artifact_kind': artifact_kind,
@@ -665,7 +685,11 @@ class CaptureReceiverService:
             )
         if len(body) > self.max_archive_bytes:
             return reject('archive exceeds receiver byte ceiling', 413)
-        if int(declared_bytes) != len(body):
+        try:
+            declared_length = int(declared_bytes)
+        except ValueError:
+            return reject('archive byte count header is not an integer')
+        if declared_length != len(body):
             return reject('archive byte count does not match the body')
         if _sha256_text(body) != declared_sha:
             return reject('archive SHA-256 does not match the body')
@@ -675,6 +699,15 @@ class CaptureReceiverService:
         delivery_key = f'{pairing.pairing_id}:{delivery_id or declared_sha}'
         prior = self._get_delivery(delivery_key)
         if prior is not None:
+            # The recorded archive hash must agree: a delivery id replayed
+            # under different bytes is a conflict, not a receipt for bytes
+            # that were never ingested.
+            if prior.archive_sha256 != declared_sha:
+                return 409, {
+                    'ingestion_outcome': 'rejected',
+                    'artifact_kind': artifact_kind,
+                    'detail': 'delivery id replayed with different bytes',
+                }
             # a re-delivery resolves to the same staging slot and reports
             # the dedup outcome, never a fresh 'accepted'
             if prior.outcome == 'accepted':
@@ -1183,15 +1216,17 @@ def _default_bundle_reader(
 ) -> tuple[CaptureIngestionPlan, Mapping[str, bytes]]:
     """Resolve the archive bytes to an ingestion plan via the import path.
 
-    ``import_capture_artifact`` is supplied by the .htdtcapture import
-    pipeline; when it is unavailable the receiver still accepts and stages
-    nothing — the delivery is rejected with a clear reason instead of
-    silently parsed.
+    Mirrors the read/manifest/validate/plan stages of
+    ``import_capture_artifact`` without the commit: ``handle_delivery``
+    owns the ingest call so delivery rejections never write rows. When
+    the .htdtcapture import pipeline is unavailable the delivery is
+    rejected with a clear reason instead of silently parsed.
     """
     import tempfile
 
     try:
-        from .capture_import import import_capture_artifact
+        from .capture_bundle import FrozenBundle
+        from .capture_reference import build_ingestion_plan
     except ImportError as exc:
         raise CaptureReceiverError(
             'no capture bundle reader is available on this build; '
@@ -1200,13 +1235,19 @@ def _default_bundle_reader(
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / 'delivery.htdtcapture'
         path.write_bytes(payload)
-        result = import_capture_artifact(path)
-    plan = result.get('plan') if isinstance(result, dict) else None
-    if plan is None:
-        raise CaptureReceiverError(
-            'capture bundle reader returned no plan'
-        )
-    return plan, result['payloads']
+        frozen = FrozenBundle(path)
+        manifest_bytes = frozen.manifest_bytes
+        if sha256(manifest_bytes).hexdigest() != frozen.report['bundle_digest']:
+            raise CaptureReceiverError(
+                'manifest SHA-256 does not equal the bundle digest'
+            )
+        manifest_document = json.loads(manifest_bytes)
+        plan = build_ingestion_plan(frozen)
+        payloads = {
+            entry['path']: frozen.read(entry['path'])
+            for entry in manifest_document['files']
+        }
+    return plan, payloads
 
 
 def _make_handler(service: CaptureReceiverService):
@@ -1214,6 +1255,10 @@ def _make_handler(service: CaptureReceiverService):
 
     class ReceiverHandler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
+        # http.server applies this in setup() as a per-socket-operation
+        # timeout: a stalled or idle connection gives up its handler thread
+        # after the window instead of pinning it forever (slow-loris).
+        timeout = RECEIVER_SOCKET_TIMEOUT_SECONDS
 
         def log_message(self, format: str, *args) -> None:  # noqa: A002
             return
@@ -1285,9 +1330,23 @@ def _make_handler(service: CaptureReceiverService):
                 self._json(404, {'detail': 'unknown endpoint'})
                 return
             token, resource, suffix = route
-            length = int(self.headers.get('Content-Length', '0'))
-            if length > service.max_archive_bytes:
-                self._json(413, {'detail': 'archive exceeds byte ceiling'})
+            is_receipt = resource == 'missions' and suffix.endswith('/receipt')
+            ceiling = (
+                RECEIVER_MAX_RECEIPT_BYTES
+                if is_receipt
+                else service.max_archive_bytes
+            )
+            raw_length = self.headers.get('Content-Length')
+            try:
+                length = int(raw_length) if raw_length is not None else 0
+            except ValueError:
+                self._json(400, {'detail': 'invalid Content-Length'})
+                return
+            if length < 0:
+                self._json(400, {'detail': 'invalid Content-Length'})
+                return
+            if length > ceiling:
+                self._json(413, {'detail': 'request exceeds byte ceiling'})
                 return
             body = self.rfile.read(length) if length else b''
             headers = {key: value for key, value in self.headers.items()}
